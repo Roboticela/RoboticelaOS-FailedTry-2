@@ -1,0 +1,430 @@
+#include "roboboot.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <string.h>
+
+static int visible_count(const rb_catalog *c)
+{
+    int i, n = 0;
+    for (i = 0; i < c->ntargets; i++)
+        if (c->targets[i].present && !c->targets[i].hidden) n++;
+    return n;
+}
+
+static int nth_visible(const rb_catalog *c, int n)
+{
+    int i;
+    for (i = 0; i < c->ntargets; i++) {
+        if (c->targets[i].present && !c->targets[i].hidden) {
+            if (n == 0) return i;
+            n--;
+        }
+    }
+    return 0;
+}
+
+static int visible_rank(const rb_catalog *c, int idx)
+{
+    int i, n = 0;
+    for (i = 0; i < c->ntargets; i++) {
+        if (c->targets[i].present && !c->targets[i].hidden) {
+            if (i == idx) return n;
+            n++;
+        }
+    }
+    return 0;
+}
+
+static const rb_font *ui_caption(const rb_session *ss)
+{
+    return ss->font_caption.atlas ? &ss->font_caption : &ss->font_body;
+}
+
+static int ui_compact(const rb_session *ss)
+{
+    return ss->fb.w <= 734;
+}
+
+static float ui_edge(const rb_session *ss)
+{
+    if (ss->fb.w <= 734) return 22.f;
+    if (ss->fb.w <= 1068) return 40.f;
+    {
+        float p = ss->fb.w * 0.05f;
+        return p > 80.f ? 80.f : p;
+    }
+}
+
+static float ui_pic_gap(const rb_session *ss)
+{
+    return ui_compact(ss) ? 16.f : 32.f;
+}
+
+static float ui_pic_h_base(const rb_session *ss)
+{
+    return ui_compact(ss) ? 96.f : 160.f;
+}
+
+static const float UI_HALO_PAD = 16.f;
+
+static const rb_font *ui_label_font(const rb_session *ss)
+{
+    return ui_compact(ss) ? ui_caption(ss) : &ss->font_body;
+}
+
+static float ui_col_w(const rb_session *ss, int vis_index, float pic_w)
+{
+    int idx = nth_visible(&ss->catalog, vis_index);
+    int tw = rb_gfx_text_width(ui_label_font(ss), ss->catalog.targets[idx].title) + 12;
+    return pic_w > (float)tw ? pic_w : (float)tw;
+}
+
+static void ui_pic_wh(const rb_image *im, float ih, float *iw, float *oh)
+{
+    float aspect = 1.f;
+    if (im && im->h > 0) aspect = (float)im->w / (float)im->h;
+    *oh = ih;
+    *iw = ih * aspect;
+}
+
+void rb_splash_draw(rb_session *ss, float visual, float fade)
+{
+    float cx, logo_h, lw, lh, lx, ly, bar_w, bar_h, bar_x, bar_y, fill, dy, stack, top;
+    if (!ss) return;
+    fade = rb_clampf(fade, 0.f, 1.f);
+    visual = rb_clampf(visual, 0.f, 1.f);
+    dy = 24.f * (1.f - fade);
+    cx = ss->fb.w * 0.5f;
+    logo_h = ui_compact(ss) ? 96.f : 160.f;
+
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+
+    lh = logo_h;
+    lw = lh;
+    if (ss->logo.px && ss->logo.h > 0)
+        lw = lh * ((float)ss->logo.w / (float)ss->logo.h);
+    bar_w = 176.f;
+    bar_h = 4.f;
+    stack = lh + 48.f + bar_h + 32.f + 12.f;
+    top = (float)ss->fb.h * 0.5f - stack * 0.5f + dy;
+    lx = cx - lw * 0.5f;
+    ly = top;
+
+    if (ss->logo.px)
+        rb_gfx_blit(&ss->fb, &ss->logo, lx, ly, lw, lh, fade);
+    else
+        rb_gfx_round_rect(&ss->fb, lx, ly, lw, lh, 18.f, rb_tokenf(RB_TOKEN_BRAND_PRIMARY, fade));
+
+    bar_x = cx - bar_w * 0.5f;
+    bar_y = ly + lh + 48.f;
+    rb_gfx_round_rect(&ss->fb, bar_x, bar_y, bar_w, bar_h, bar_h * 0.5f,
+                      rb_tokenf(RB_TOKEN_BORDER_DEFAULT, fade));
+    fill = bar_w * visual;
+    if (fill > bar_h)
+        rb_gfx_round_rect(&ss->fb, bar_x, bar_y, fill, bar_h, bar_h * 0.5f,
+                          rb_tokenf(RB_TOKEN_BRAND_PRIMARY, fade));
+    rb_gfx_text_center(&ss->fb, ui_caption(ss), cx, bar_y + 32.f, "Alt+M to choose",
+                      rb_tokenf(RB_TOKEN_TEXT_TERTIARY, fade));
+}
+
+static void icon_layout(const rb_session *ss, int vis_index, float *ox, float *oy, float *iw, float *ih)
+{
+    int n = visible_count(&ss->catalog);
+    int i, pass;
+    float gap = ui_pic_gap(ss);
+    float h = ui_pic_h_base(ss);
+    float edge = ui_edge(ss);
+    float picw[RB_MAX_TARGETS];
+    float colw[RB_MAX_TARGETS];
+    float total = 0.f;
+    float avail;
+    float x;
+    if (n < 1) n = 1;
+    if (n > RB_MAX_TARGETS) n = RB_MAX_TARGETS;
+    avail = (float)ss->fb.w - edge * 2.f;
+    if (avail < 64.f) avail = 64.f;
+    for (pass = 0; pass < 8; pass++) {
+        total = 0.f;
+        for (i = 0; i < n; i++) {
+            int idx = nth_visible(&ss->catalog, i);
+            float w, ph;
+            ui_pic_wh(&ss->icons[idx], h, &w, &ph);
+            picw[i] = w;
+            colw[i] = ui_col_w(ss, i, w);
+            total += colw[i];
+            if (i + 1 < n) total += gap;
+        }
+        if (total <= avail || h <= 48.f) break;
+        h *= avail / total;
+        if (h < 48.f) h = 48.f;
+    }
+    x = ss->fb.w * 0.5f - total * 0.5f;
+    if (vis_index < 0) vis_index = 0;
+    if (vis_index >= n) vis_index = n - 1;
+    for (i = 0; i < vis_index; i++)
+        x += colw[i] + gap;
+    *iw = picw[vis_index];
+    *ih = h;
+    *ox = x + colw[vis_index] * 0.5f;
+    *oy = ss->fb.h * 0.5f - 24.f;
+}
+
+void rb_picker_draw(rb_session *ss)
+{
+    int n, rank;
+    float fade, ease, dy;
+    if (!ss) return;
+    fade = rb_clampf(ss->fade, 0.f, 1.f);
+    ease = rb_ease_apple(fade);
+    dy = 24.f * (1.f - ease);
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    n = visible_count(&ss->catalog);
+
+    for (rank = 0; rank < n; rank++) {
+        int idx = nth_visible(&ss->catalog, rank);
+        const rb_target *t = &ss->catalog.targets[idx];
+        float cx, cy, iw, ih, sel, scale, pad = UI_HALO_PAD;
+        icon_layout(ss, rank, &cx, &cy, &iw, &ih);
+        cy += dy;
+        sel = (idx == ss->selected) ? rb_ease_apple(rb_clampf(ss->sel_anim, 0.f, 1.f)) : 0.f;
+        scale = 1.f + 0.02f * sel;
+        iw *= scale;
+        ih *= scale;
+
+        if (sel > 0.01f) {
+            float hx = cx - iw * 0.5f - pad;
+            float hy = cy - ih * 0.5f - pad;
+            rb_gfx_round_rect(&ss->fb, hx, hy, iw + pad * 2.f, ih + pad * 2.f, 18.f,
+                              rb_tokenf(RB_TOKEN_BRAND_PRIMARY, RB_TOKEN_BRAND_SUBTLE_A * ease * sel));
+            rb_gfx_round_rect_stroke(&ss->fb, hx, hy, iw + pad * 2.f, ih + pad * 2.f, 18.f, 2.f,
+                                     rb_tokenf(RB_TOKEN_BRAND_PRIMARY, ease * sel));
+        }
+
+        if (ss->icons[idx].px)
+            rb_gfx_blit(&ss->fb, &ss->icons[idx], cx - iw * 0.5f, cy - ih * 0.5f, iw, ih, ease);
+        else
+            rb_gfx_round_rect(&ss->fb, cx - iw * 0.5f, cy - ih * 0.5f, iw, ih, 18.f,
+                              rb_tokenf(RB_TOKEN_BG_TERTIARY, ease));
+
+        rb_gfx_text_center(&ss->fb, ui_label_font(ss), cx, cy + ih * 0.5f + 24.f, t->title,
+                           rb_tokenf(idx == ss->selected ? RB_TOKEN_TEXT_PRIMARY : RB_TOKEN_TEXT_TERTIARY, ease));
+    }
+
+    rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, (float)ss->fb.h - 48.f,
+                      ss->catalog.picker_hint[0] ? ss->catalog.picker_hint : "Choose a startup volume",
+                      rb_tokenf(RB_TOKEN_TEXT_TERTIARY, ease));
+
+    if (ss->catalog.picker_timeout_s > 0 && ss->timeout_left_ms > 0) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "Booting in %d", (ss->timeout_left_ms + 999) / 1000);
+        rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, (float)ss->fb.h - 64.f, buf,
+                           rb_tokenf(RB_TOKEN_TEXT_TERTIARY, ease));
+    }
+}
+
+int rb_picker_hit(const rb_session *ss, int mx, int my)
+{
+    int rank, n;
+    if (!ss) return -1;
+    n = visible_count(&ss->catalog);
+    for (rank = 0; rank < n; rank++) {
+        float cx, cy, iw, ih, cw, pad = UI_HALO_PAD;
+        icon_layout(ss, rank, &cx, &cy, &iw, &ih);
+        cw = ui_col_w(ss, rank, iw);
+        if ((float)mx >= cx - cw * 0.5f && (float)mx <= cx + cw * 0.5f &&
+            (float)my >= cy - ih * 0.5f - pad && (float)my <= cy + ih * 0.5f + pad + 32.f)
+            return nth_visible(&ss->catalog, rank);
+    }
+    return -1;
+}
+
+void rb_auth_draw(rb_session *ss)
+{
+    float cx, cy, w, h, field_w, field_h, card_x, card_y, field_x, field_y;
+    char dots[72];
+    int i;
+    if (!ss) return;
+    rb_picker_draw(ss);
+    rb_gfx_fill_rect(&ss->fb, 0.f, 0.f, (float)ss->fb.w, (float)ss->fb.h,
+                     rb_token(RB_TOKEN_BG_PRIMARY, 178));
+    cx = ss->fb.w * 0.5f;
+    cy = ss->fb.h * 0.5f;
+    w = 320.f;
+    h = 160.f;
+    field_w = w - 64.f;
+    field_h = 44.f;
+    {
+        float pcx, pcy, piw, pih;
+        icon_layout(ss, visible_rank(&ss->catalog, ss->selected), &pcx, &pcy, &piw, &pih);
+        cy = pcy + pih * 0.5f + 64.f + h * 0.5f;
+        if (ui_compact(ss) || cy + h * 0.5f > (float)ss->fb.h - 32.f)
+            cy = (float)ss->fb.h * 0.5f;
+    }
+    card_x = cx - w * 0.5f;
+    card_y = cy - h * 0.5f;
+    field_x = cx - field_w * 0.5f;
+    field_y = card_y + h - 32.f - field_h;
+    rb_gfx_round_rect(&ss->fb, card_x, card_y + 8.f, w, h, 18.f,
+                      rb_rgba(0, 0, 0, 90));
+    rb_gfx_round_rect(&ss->fb, card_x, card_y, w, h, 18.f,
+                      rb_token(RB_TOKEN_BG_ELEVATED, 255));
+    rb_gfx_text_center(&ss->fb, &ss->font_body, cx, card_y + 32.f,
+                      ss->auth_fail ? "Incorrect password" : "This volume is locked",
+                      rb_token(ss->auth_fail ? RB_TOKEN_DANGER : RB_TOKEN_TEXT_SECONDARY, 255));
+    for (i = 0; i < ss->auth_len && i < 24; i++) dots[i] = '*';
+    dots[i] = 0;
+    rb_gfx_round_rect_stroke(&ss->fb, field_x - 2.f, field_y - 2.f, field_w + 4.f, field_h + 4.f, 10.f, 2.f,
+                             rb_tokenf(RB_TOKEN_BRAND_PRIMARY, RB_TOKEN_BRAND_FOCUS_A));
+    rb_gfx_round_rect(&ss->fb, field_x, field_y, field_w, field_h, 8.f,
+                      rb_token(RB_TOKEN_BG_TERTIARY, 255));
+    rb_gfx_text_center(&ss->fb, &ss->font_body, cx, field_y + 14.f, dots[0] ? dots : "",
+                      rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+}
+
+void rb_console_print(rb_session *ss, const char *line)
+{
+    int i;
+    if (!ss || !line) return;
+    if (ss->console_lines >= 16) {
+        for (i = 1; i < 16; i++) rb_strcpy(ss->console_log[i - 1], sizeof(ss->console_log[0]), ss->console_log[i]);
+        ss->console_lines = 15;
+    }
+    rb_strcpy(ss->console_log[ss->console_lines++], sizeof(ss->console_log[0]), line);
+}
+
+void rb_console_draw(rb_session *ss)
+{
+    int i;
+    char prompt[280];
+    float pad = 48.f;
+    const rb_font *cap;
+    if (!ss) return;
+    cap = ui_caption(ss);
+    pad = ui_compact(ss) ? 24.f : 48.f;
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    rb_gfx_text(&ss->fb, &ss->font_title, pad, pad, "Recovery",
+                rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    rb_gfx_text(&ss->fb, cap, pad, pad + 40.f, "Type help for commands.",
+                rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    rb_gfx_fill_rect(&ss->fb, pad, pad + 64.f, (float)ss->fb.w - pad * 2.f, 1.f,
+                     rb_token(RB_TOKEN_BORDER_DEFAULT, 255));
+    for (i = 0; i < ss->console_lines; i++) {
+        rb_gfx_text(&ss->fb, &ss->font_body, pad, pad + 88.f + i * 24.f, ss->console_log[i],
+                    rb_token(RB_TOKEN_TEXT_SECONDARY, 255));
+    }
+    snprintf(prompt, sizeof(prompt), "rb> %s", ss->console_in);
+    rb_gfx_text(&ss->fb, &ss->font_body, pad, (float)ss->fb.h - 48.f, prompt,
+                rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+}
+
+static void cmd_help(rb_session *ss)
+{
+    rb_console_print(ss, "boot [id]     start a catalog target");
+    rb_console_print(ss, "ls            list targets and volumes");
+    rb_console_print(ss, "set k v       write environment");
+    rb_console_print(ss, "env           show saved environment");
+    rb_console_print(ss, "probe         rescan volumes");
+    rb_console_print(ss, "exit          return to picker");
+}
+
+static void cmd_ls(rb_session *ss)
+{
+    int i;
+    char line[240];
+    for (i = 0; i < ss->catalog.ntargets; i++) {
+        const rb_target *t = &ss->catalog.targets[i];
+        snprintf(line, sizeof(line), "%s  %-12s  %-10s  %s%s",
+                 i == ss->selected ? "*" : " ",
+                 t->id, rb_kind_name(t->kind), t->title,
+                 t->present ? "" : "  [missing]");
+        rb_console_print(ss, line);
+    }
+    for (i = 0; i < ss->probe.nvols; i++) {
+        snprintf(line, sizeof(line), "vol %-12s  %s", ss->probe.vols[i].name, ss->probe.vols[i].path);
+        rb_console_print(ss, line);
+    }
+}
+
+void rb_console_submit(rb_session *ss)
+{
+    char buf[256];
+    char *cmd, *arg;
+    rb_strcpy(buf, sizeof(buf), ss->console_in);
+    ss->console_in[0] = 0;
+    ss->console_len = 0;
+    cmd = buf;
+    while (*cmd == ' ') cmd++;
+    if (!cmd[0]) return;
+    arg = cmd;
+    while (*arg && *arg != ' ') arg++;
+    if (*arg) {
+        *arg = 0;
+        arg++;
+        while (*arg == ' ') arg++;
+    } else {
+        arg = "";
+    }
+
+    {
+        char shown[240];
+        snprintf(shown, sizeof(shown), "> %s %s", cmd, arg);
+        rb_console_print(ss, shown);
+    }
+
+    if (rb_str_eq(cmd, "help")) cmd_help(ss);
+    else if (rb_str_eq(cmd, "exit") || rb_str_eq(cmd, "quit")) ss->phase = RB_PHASE_PICKER;
+    else if (rb_str_eq(cmd, "ls")) cmd_ls(ss);
+    else if (rb_str_eq(cmd, "env")) {
+        int i;
+        for (i = 0; i < ss->env.n; i++) {
+            char line[240];
+            snprintf(line, sizeof(line), "%s=%s", ss->env.keys[i], ss->env.vals[i]);
+            rb_console_print(ss, line);
+        }
+    } else if (rb_str_eq(cmd, "set") && arg[0]) {
+        char key[64];
+        char *sp = arg;
+        while (*sp && *sp != ' ') sp++;
+        if (*sp) {
+            size_t n = (size_t)(sp - arg);
+            if (n >= sizeof(key)) n = sizeof(key) - 1;
+            memcpy(key, arg, n);
+            key[n] = 0;
+            while (*sp == ' ') sp++;
+            rb_env_set(&ss->env, key, sp);
+            rb_env_save(&ss->env);
+            rb_console_print(ss, "saved");
+        }
+    } else if (rb_str_eq(cmd, "probe")) {
+        char volroot[RB_MAX_PATH];
+        rb_join(volroot, sizeof(volroot), ss->plat->root, "volumes");
+        rb_probe_volumes(volroot, &ss->probe);
+        rb_probe_apply(&ss->catalog, &ss->probe);
+        rb_console_print(ss, "volumes rescanned");
+    } else if (rb_str_eq(cmd, "boot")) {
+        int idx = arg[0] ? rb_catalog_find(&ss->catalog, arg) : ss->selected;
+        if (idx < 0) rb_console_print(ss, "unknown target");
+        else {
+            ss->selected = idx;
+            ss->boot_index = idx;
+            ss->phase = RB_PHASE_HANDOFF;
+        }
+    } else if (rb_str_eq(cmd, "reboot")) {
+        if (ss->plat->reboot) ss->plat->reboot();
+        ss->running = 0;
+    } else if (rb_str_eq(cmd, "halt")) {
+        if (ss->plat->halt) ss->plat->halt();
+        ss->running = 0;
+    } else if (rb_str_eq(cmd, "firmware")) {
+        if (ss->plat->firmware_setup) ss->plat->firmware_setup();
+        ss->running = 0;
+    } else {
+        rb_console_print(ss, "unknown command - try help");
+    }
+}
+
+int rb_picker_visible_rank(const rb_catalog *c, int idx)
+{
+    return visible_rank(c, idx);
+}

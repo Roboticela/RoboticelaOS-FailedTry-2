@@ -1,0 +1,93 @@
+---
+alwaysApply: true
+---
+
+## Roboticela Complete Color Palette
+
+### Brand / Primary (Blue)
+
+| Token | Light Mode | Dark Mode | Use |
+|---|---|---|---|
+| `--brand-primary` | `#0E7AFF` | `#3B9EFF` | Primary buttons, active nav, links |
+| `--brand-primary-hover` | `#0A6AE8` | `#5CADFF` | Button/link hover |
+| `--brand-primary-active` | `#0757C7` | `#2E8CE6` | Pressed/mousedown state |
+| `--brand-primary-disabled` | `#B8D9FF` | `#1E3A5C` | Disabled primary buttons |
+| `--brand-primary-subtle` | `rgba(14,122,255,0.10)` | `rgba(59,158,255,0.15)` | Selected states, badge backgrounds |
+| `--brand-primary-focus-ring` | `rgba(14,122,255,0.25)` | `rgba(59,158,255,0.30)` | Input focus rings |
+
+### Accent (Teal — sparing use only)
+
+| Token | Light Mode | Dark Mode | Use |
+|---|---|---|---|
+| `--accent-teal` | `#14B8A6` | `#2DD4C4` | Success states, "Active"/"Verified" badges |
+| `--accent-teal-subtle` | `rgba(20,184,166,0.10)` | `rgba(45,212,196,0.15)` | Success badge backgrounds |
+
+### Semantic (Status Colors)
+
+| Token | Light Mode | Dark Mode | Use |
+|---|---|---|---|
+| `--success` | `#30D158` | `#30D158` | Success text/icons |
+| `--success-subtle` | `rgba(48,209,88,0.10)` | `rgba(48,209,88,0.15)` | Success badge bg |
+| `--warning` | `#FF9F0A` | `#FF9F0A` | Warnings, unverified states |
+| `--warning-subtle` | `rgba(255,159,10,0.10)` | `rgba(255,159,10,0.15)` | Warning badge bg |
+| `--danger` | `#FF3B30` | `#FF453A` | Errors, destructive actions |
+| `--danger-hover` | `#E0342A` | `#FF5A50` | Destructive button hover |
+| `--danger-subtle` | `rgba(255,59,48,0.10)` | `rgba(255,69,58,0.10)` | Error banner/badge bg |
+
+### Neutrals — Text
+
+| Token | Light Mode | Dark Mode | Use |
+|---|---|---|---|
+| `--text-primary` | `#1D1D1F` | `#FFFFFF` | Headlines, primary body text |
+| `--text-secondary` | `#6E6E73` | `#A1A1A6` | Body copy, descriptions |
+| `--text-tertiary` | `#86868B` | `#98989D` | Captions, muted labels |
+| `--text-disabled` | `#C7C7CC` | `#48484A` | Disabled field text |
+| `--text-on-brand` | `#FFFFFF` | `#FFFFFF` | Text on filled blue buttons |
+| `--text-link` | `#0E7AFF` | `#3B9EFF` | Inline links |
+
+### Neutrals — Backgrounds
+
+| Token | Light Mode | Dark Mode | Use |
+|---|---|---|---|
+| `--bg-primary` | `#FFFFFF` | `#000000` | Page background |
+| `--bg-secondary` | `#F5F5F7` | `#1C1C1E` | Section alternation, cards, sidebars |
+| `--bg-tertiary` | `#EDEDEF` | `#2C2C2E` | Nested cards, input backgrounds |
+| `--bg-elevated` | `#FFFFFF` | `#2C2C2E` | Modals, popovers (raised above tertiary) |
+| `--bg-hover` | `#F5F5F7` | `#2C2C2E` | Row/list item hover |
+| `--bg-active` | `#EDEDEF` | `#3A3A3C` | Row/list item pressed |
+| `--bg-overlay` | `rgba(0,0,0,0.5)` | `rgba(0,0,0,0.7)` | Modal backdrop |
+
+### Borders / Dividers
+
+| Token | Light Mode | Dark Mode | Use |
+|---|---|---|---|
+| `--border-default` | `#D2D2D7` | `#38383A` | Card borders, input borders, dividers |
+| `--border-subtle` | `#E5E5E7` | `#2C2C2E` | Faint separators (e.g. table rows) |
+| `--border-strong` | `#B8B8BD` | `#48484A` | Emphasized borders (e.g. danger zone) |
+| `--border-focus` | `#0E7AFF` | `#3B9EFF` | Focused input border |
+| `--border-danger` | `rgba(255,59,48,0.3)` | `rgba(255,69,58,0.3)` | Danger zone card border |
+
+### Buttons — Secondary / Ghost
+
+| Token | Light Mode | Dark Mode | Use |
+|---|---|---|---|
+| `--btn-secondary-bg` | `transparent` | `transparent` | Secondary button rest |
+| `--btn-secondary-border` | `#D2D2D7` | `#38383A` | Secondary button border |
+| `--btn-secondary-hover-bg` | `#F5F5F7` | `#2C2C2E` | Secondary button hover |
+| `--btn-secondary-text` | `#1D1D1F` | `#FFFFFF` | Secondary button label |
+| `--btn-ghost-hover-bg` | `#F5F5F7` | `rgba(255,255,255,0.08)` | Icon-only/ghost button hover |
+
+### Shadows (paired with the palette, not standalone hex)
+
+| Token | Light Mode | Dark Mode |
+|---|---|---|
+| `--shadow-sm` | `0 1px 3px rgba(0,0,0,0.08)` | `0 1px 3px rgba(0,0,0,0.3)` |
+| `--shadow-md` | `0 4px 24px rgba(0,0,0,0.08)` | `0 4px 24px rgba(0,0,0,0.4)` |
+| `--shadow-lg` | `0 12px 32px rgba(0,0,0,0.12)` | `0 12px 40px rgba(0,0,0,0.5)` |
+| `--shadow-modal` | `0 20px 60px rgba(0,0,0,0.2)` | `0 20px 60px rgba(0,0,0,0.6)` |
+
+### Rules for Applying This Palette
+
+- **One accent rule holds:** `--brand-primary` is the only color driving interactive elements (buttons, links, toggles-on, focus rings) across the whole product. `--accent-teal` appears only for "success/verified/active" semantic badges — never as a second competing CTA color.
+- **Never mix light-mode and dark-mode hex values in the same view** — always resolve through the token, not the literal hex, so a component dropped into either theme stays correct automatically.
+- **`--bg-secondary` vs `--bg-tertiary`**: secondary is for large surfaces (sidebar, section backgrounds), tertiary is for small nested elements sitting *inside* a secondary surface (an input field inside a settings card) — this is what keeps the depth layering correct instead of everything reading as the same flat gray.

@@ -1,0 +1,59 @@
+# RoboBoot catalog — original RoboticelaOS format
+manifest 1
+
+splash.min_ms 2000
+splash.logo assets/logo.rbim
+
+picker.key alt
+picker.timeout_s 0
+picker.hint Choose a startup volume
+# Startup picker chord: Alt+M during splash
+
+default roboticela
+fallback recovery
+save_last 1
+env.path config/roboboot.env
+
+target roboticela
+  title RoboticelaOS
+  kind kernel
+  pic assets/os-roboticela.rbim
+  volume sys
+  kernel kernel.elf
+  ramdisk initrd
+  args quiet splash
+  hotkey r
+end
+
+target windows
+  title Windows
+  kind efi-chain
+  pic assets/os-windows.rbim
+  volume windows
+  path EFI/Microsoft/Boot/bootmgfw.efi
+end
+
+target recovery
+  title Recovery
+  kind kernel
+  pic assets/os-recovery.rbim
+  volume sys
+  kernel recovery.elf
+  args recovery
+  hotkey e
+end
+
+target firmware
+  title Firmware
+  kind firmware
+  pic assets/os-firmware.rbim
+end
+
+target installer
+  title Installer
+  kind kernel
+  pic assets/USB.rbim
+  volume sys
+  kernel install.elf
+  args install
+end

@@ -1,0 +1,10 @@
+build/
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.rbim
+*.rbfn
+volumes/sys/*.elf
+volumes/sys/initrd
+volumes/windows/EFI/Microsoft/Boot/bootmgfw.efi
