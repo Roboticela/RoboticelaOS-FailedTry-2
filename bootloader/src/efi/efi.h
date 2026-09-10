@@ -77,10 +77,10 @@ typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL {
     void *TestString;
     void *QueryMode;
     void *SetMode;
-    void *SetAttribute;
+    EFI_STATUS (EFIAPI *SetAttribute)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, UINTN Attribute);
     EFI_STATUS (EFIAPI *ClearScreen)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This);
-    void *SetCursorPosition;
-    void *EnableCursor;
+    EFI_STATUS (EFIAPI *SetCursorPosition)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, UINTN Column, UINTN Row);
+    EFI_STATUS (EFIAPI *EnableCursor)(struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL *This, BOOLEAN Visible);
     void *Mode;
 } EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
 
@@ -278,9 +278,11 @@ typedef struct {
     void *SetWakeupTime;
     void *SetVirtualAddressMap;
     void *ConvertPointer;
-    void *GetVariable;
-    void *GetNextVariableName;
-    void *SetVariable;
+    EFI_STATUS (EFIAPI *GetVariable)(CHAR16 *VariableName, EFI_GUID *VendorGuid, uint32_t *Attributes,
+                                     UINTN *DataSize, void *Data);
+    EFI_STATUS (EFIAPI *GetNextVariableName)(UINTN *VariableNameSize, CHAR16 *VariableName, EFI_GUID *VendorGuid);
+    EFI_STATUS (EFIAPI *SetVariable)(CHAR16 *VariableName, EFI_GUID *VendorGuid, uint32_t Attributes,
+                                     UINTN DataSize, void *Data);
     void *GetNextHighMonotonicCount;
     void (EFIAPI *ResetSystem)(EFI_RESET_TYPE ResetType, EFI_STATUS ResetStatus, UINTN DataSize, void *ResetData);
     void *UpdateCapsule;
@@ -341,6 +343,7 @@ typedef struct {
 } EFI_BOOT_SERVICES;
 
 #define EFI_OPEN_PROTOCOL_GET_PROTOCOL 0x00000002u
+#define EFI_LOCATE_ALL_HANDLES 0
 #define EFI_LOCATE_BY_PROTOCOL 2
 
 struct EFI_SYSTEM_TABLE {
@@ -366,9 +369,31 @@ extern EFI_BOOT_SERVICES *gBS;
 extern EFI_RUNTIME_SERVICES *gRT;
 extern EFI_HANDLE gImage;
 
+#define EFI_BUFFER_TOO_SMALL EFIERR(5)
+#define EFI_WRITE_PROTECTED EFIERR(8)
+
+#define EFI_VARIABLE_NON_VOLATILE 0x00000001u
+#define EFI_VARIABLE_BOOTSERVICE_ACCESS 0x00000002u
+#define EFI_VARIABLE_RUNTIME_ACCESS 0x00000004u
+#define LOAD_OPTION_ACTIVE 0x00000001u
+
+#define MEDIA_DEVICE_PATH 0x04
+#define MEDIA_FILEPATH_DP 0x04
+#define END_DEVICE_PATH_TYPE 0x7F
+#define END_ENTIRE_DEVICE_PATH_SUBTYPE 0xFF
+
+#pragma pack(1)
+typedef struct {
+    uint8_t Type;
+    uint8_t SubType;
+    uint8_t Length[2];
+} EFI_DEVICE_PATH_PROTOCOL;
+#pragma pack()
+
 void efi_log(const char *msg);
 void efi_init_lib(EFI_HANDLE image, EFI_SYSTEM_TABLE *st);
 int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st);
+void efi_install_boot_entry(void);
 const struct rb_platform *efi_platform(void);
 void efi_fb_size(int *w, int *h);
 void efi_shutdown(void);

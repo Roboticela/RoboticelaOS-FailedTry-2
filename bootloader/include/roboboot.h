@@ -88,20 +88,12 @@ enum {
     RB_MOD_CTRL = 1u << 2
 };
 
-enum {
-    RB_MOUSE_LEFT = 1u << 0
-};
-
 typedef struct {
     uint32_t mods;
     int keys[24];
     int nkeys;
     int chars[8];
     int nchars;
-    int mouse_x;
-    int mouse_y;
-    uint32_t mouse_buttons;
-    uint32_t mouse_pressed;
     int quit;
 } rb_input;
 
@@ -264,7 +256,6 @@ typedef struct {
     int running;
     int boot_index;
     rb_handoff handoff;
-    int cursor_on;
     float fade;
 } rb_session;
 
@@ -349,7 +340,6 @@ rb_status rb_elf64_info(const uint8_t *data, size_t len, uint64_t *entry, uint64
 
 void rb_splash_draw(rb_session *ss, float visual, float fade);
 void rb_picker_draw(rb_session *ss);
-int rb_picker_hit(const rb_session *ss, int mx, int my);
 void rb_auth_draw(rb_session *ss);
 void rb_console_draw(rb_session *ss);
 void rb_console_submit(rb_session *ss);

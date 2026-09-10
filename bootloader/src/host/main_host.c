@@ -14,9 +14,6 @@ typedef struct {
     int running;
     int fullscreen;
     rb_input pending;
-    int mouse_x, mouse_y;
-    uint32_t mouse_buttons;
-    uint32_t mouse_pressed;
     char root[RB_MAX_PATH];
     int last_boot_code;
     char last_boot_id[RB_MAX_ID];
@@ -91,23 +88,10 @@ static LRESULT CALLBACK wndproc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpara
         g_host.pending.quit = 1;
         DestroyWindow(hwnd);
         return 0;
+    case WM_ERASEBKGND:
+        return 1;
     case WM_DESTROY:
         PostQuitMessage(0);
-        return 0;
-    case WM_LBUTTONDOWN:
-        g_host.mouse_buttons |= RB_MOUSE_LEFT;
-        g_host.mouse_pressed |= RB_MOUSE_LEFT;
-        g_host.mouse_x = (short)LOWORD(lparam);
-        g_host.mouse_y = (short)HIWORD(lparam);
-        SetCapture(hwnd);
-        return 0;
-    case WM_LBUTTONUP:
-        g_host.mouse_buttons &= ~RB_MOUSE_LEFT;
-        ReleaseCapture();
-        return 0;
-    case WM_MOUSEMOVE:
-        g_host.mouse_x = (short)LOWORD(lparam);
-        g_host.mouse_y = (short)HIWORD(lparam);
         return 0;
     case WM_CHAR:
         if (wparam >= 32 && wparam < 127 && g_host.pending.nchars < 8)
@@ -145,11 +129,6 @@ static void host_poll(rb_input *out)
     pump();
     *out = g_host.pending;
     rb_zero(&g_host.pending, sizeof(g_host.pending));
-    out->mouse_x = g_host.mouse_x;
-    out->mouse_y = g_host.mouse_y;
-    out->mouse_buttons = g_host.mouse_buttons;
-    out->mouse_pressed = g_host.mouse_pressed;
-    g_host.mouse_pressed = 0;
     if (!g_host.running) out->quit = 1;
     if (GetAsyncKeyState(VK_MENU) & 0x8000) out->mods |= RB_MOD_ALT;
     if (GetAsyncKeyState(VK_SHIFT) & 0x8000) out->mods |= RB_MOD_SHIFT;
@@ -302,7 +281,7 @@ static int make_window(int w, int h, int fullscreen)
     wc.lpfnWndProc = wndproc;
     wc.hInstance = GetModuleHandleA(NULL);
     wc.lpszClassName = "RoboBootFrame";
-    wc.hCursor = LoadCursor(NULL, IDC_ARROW);
+    wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
     wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
     RegisterClassA(&wc);
 
@@ -334,6 +313,11 @@ static int make_window(int w, int h, int fullscreen)
     g_host.bmi.bmiHeader.biBitCount = 32;
     g_host.bmi.bmiHeader.biCompression = BI_RGB;
     ShowWindow(g_host.hwnd, SW_SHOW);
+    {
+        RECT rc;
+        GetClientRect(g_host.hwnd, &rc);
+        FillRect(g_host.hdc, &rc, (HBRUSH)GetStockObject(BLACK_BRUSH));
+    }
     UpdateWindow(g_host.hwnd);
     return 1;
 }

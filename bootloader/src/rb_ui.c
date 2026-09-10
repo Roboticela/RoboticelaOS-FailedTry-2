@@ -106,7 +106,7 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
         lw = lh * ((float)ss->logo.w / (float)ss->logo.h);
     bar_w = 176.f;
     bar_h = 4.f;
-    stack = lh + 48.f + bar_h + 32.f + 12.f;
+    stack = lh + 48.f + bar_h;
     top = (float)ss->fb.h * 0.5f - stack * 0.5f + dy;
     lx = cx - lw * 0.5f;
     ly = top;
@@ -124,8 +124,6 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
     if (fill > bar_h)
         rb_gfx_round_rect(&ss->fb, bar_x, bar_y, fill, bar_h, bar_h * 0.5f,
                           rb_tokenf(RB_TOKEN_BRAND_PRIMARY, fade));
-    rb_gfx_text_center(&ss->fb, ui_caption(ss), cx, bar_y + 32.f, "Alt+M to choose",
-                      rb_tokenf(RB_TOKEN_TEXT_TERTIARY, fade));
 }
 
 static void icon_layout(const rb_session *ss, int vis_index, float *ox, float *oy, float *iw, float *ih)
@@ -221,22 +219,6 @@ void rb_picker_draw(rb_session *ss)
         rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, (float)ss->fb.h - 64.f, buf,
                            rb_tokenf(RB_TOKEN_TEXT_TERTIARY, ease));
     }
-}
-
-int rb_picker_hit(const rb_session *ss, int mx, int my)
-{
-    int rank, n;
-    if (!ss) return -1;
-    n = visible_count(&ss->catalog);
-    for (rank = 0; rank < n; rank++) {
-        float cx, cy, iw, ih, cw, pad = UI_HALO_PAD;
-        icon_layout(ss, rank, &cx, &cy, &iw, &ih);
-        cw = ui_col_w(ss, rank, iw);
-        if ((float)mx >= cx - cw * 0.5f && (float)mx <= cx + cw * 0.5f &&
-            (float)my >= cy - ih * 0.5f - pad && (float)my <= cy + ih * 0.5f + pad + 32.f)
-            return nth_visible(&ss->catalog, rank);
-    }
-    return -1;
 }
 
 void rb_auth_draw(rb_session *ss)

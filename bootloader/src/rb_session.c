@@ -101,7 +101,6 @@ void rb_session_init(rb_session *ss, const rb_platform *plat)
     ss->boot_index = -1;
     ss->fade = 0.f;
     ss->sel_anim = 1.f;
-    ss->cursor_on = 0;
 }
 
 void rb_session_free(rb_session *ss)
@@ -251,7 +250,6 @@ int rb_session_tick(rb_session *ss)
                     ss->phase = RB_PHASE_PICKER;
                     ss->fade = 0.f;
                     ss->sel_anim = 1.f;
-                    ss->cursor_on = 1;
                 } else {
                     ss->selected = rb_policy_resolve_index(&ss->catalog, &ss->env, 0);
                     begin_boot_selected(ss);
@@ -275,16 +273,6 @@ int rb_session_tick(rb_session *ss)
             ss->timeout_left_ms = ss->catalog.picker_timeout_s * 1000;
         }
         consume_hotkey(ss);
-        if (ss->input.mouse_pressed & RB_MOUSE_LEFT) {
-            int hit = rb_picker_hit(ss, ss->input.mouse_x, ss->input.mouse_y);
-            if (hit >= 0) {
-                if (hit == ss->selected) begin_boot_selected(ss);
-                else {
-                    ss->selected = hit;
-                    ss->sel_anim = 0.f;
-                }
-            }
-        }
         if (key_hit(&ss->input, RB_KEY_ENTER)) begin_boot_selected(ss);
         if (key_hit(&ss->input, RB_KEY_F10) || key_hit(&ss->input, RB_KEY_CONSOLE)) {
             ss->phase = RB_PHASE_CONSOLE;

@@ -31,36 +31,46 @@ function Get-QemuArgLine {
 }
 
 function New-OvmfVars {
-    Copy-Item (Get-OvmfVarsTemplate) $script:VarsFd -Force
+    param([switch]$Reset)
+    if ($Reset -or -not (Test-Path $script:VarsFd)) {
+        Copy-Item (Get-OvmfVarsTemplate) $script:VarsFd -Force
+    }
 }
 
 function Get-QemuBaseArgs {
     param(
         [switch]$Headless,
-        [string]$Disk = "ide"
+        [string]$Disk = "ide",
+        [switch]$ResetNvram,
+        [switch]$FirmwareMenu
     )
     $code = Get-OvmfCode
-    New-OvmfVars
+    New-OvmfVars -Reset:($ResetNvram -or $Headless)
+    $boot = if ($FirmwareMenu) { "order=c,menu=on,splash-time=8000" } else { "order=c,menu=off,splash-time=0" }
     $args = @(
         "-machine", "q35",
-        "-cpu", "qemu64",
+        "-cpu", "qemu64,-svm",
         "-m", "512",
         "-vga", "std",
         "-net", "none",
-        "-boot", "order=c,menu=off",
+        "-boot", $boot,
         "-drive", "if=pflash,format=raw,unit=0,readonly=on,file=$code",
         "-drive", "if=pflash,format=raw,unit=1,file=$script:VarsFd",
+        "-fw_cfg", "name=opt/org.tianocore/EFIShellSupport,string=no",
         "-serial", "file:$script:SerialLog",
         "-debugcon", "file:$script:OvmfDebug",
         "-global", "isa-debugcon.iobase=0x402"
     )
+    if (-not $FirmwareMenu) {
+        $args += @("-fw_cfg", "name=opt/org.tianocore/FirmwareSetupSupport,string=no")
+    }
     if ($Disk -eq "virtio") {
         $args += @(
             "-drive", "file=$script:EspImg,format=raw,if=none,id=esp",
             "-device", "virtio-blk-pci,drive=esp,bootindex=1"
         )
     } else {
-        $args += @("-hda", $script:EspImg)
+        $args += @("-drive", "file=$script:EspImg,format=raw,if=ide,index=0,media=disk")
     }
     if ($Headless) {
         $args += @("-display", "none", "-no-reboot")

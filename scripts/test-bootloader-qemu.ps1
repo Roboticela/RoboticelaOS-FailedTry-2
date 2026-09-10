@@ -61,13 +61,16 @@ try {
     }
 
     $serial = $result.Serial
-    if ($result.Ok) {
+    if ($result.Ok -and $serial -match "RoboticelaOS") {
         Write-Host "RoboBoot QEMU tests passed"
         if ($serial) { Write-Host $serial }
         exit 0
     }
     Write-Host "RoboBoot QEMU tests failed"
     if ($serial) { Write-Host $serial } else { Write-Host "(no serial output - firmware may not have reached RoboBoot)" }
+    if ($result.Ok -and $serial -notmatch "RoboticelaOS") {
+        Write-Host "firmware boot entry RoboticelaOS was not installed"
+    }
     if (Test-Path $script:OvmfDebug) {
         Write-Host "OVMF debugcon (tail):"
         Get-Content $script:OvmfDebug -Tail 40

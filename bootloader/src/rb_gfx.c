@@ -1,7 +1,6 @@
 #include "roboboot.h"
 
 #include <math.h>
-#include <string.h>
 
 void rb_gfx_clear(rb_surface *s, uint32_t c)
 {

@@ -127,25 +127,44 @@ static void efi_poll(rb_input *out)
 
 static int efi_present(rb_surface *s)
 {
-    int y;
+    UINTN dw, dh, dx, dy;
+    EFI_STATUS st;
     if (g_selftest) return 1;
-    if (!s || !s->px || !g_fb || !g_gop) return 0;
-    for (y = 0; y < s->h && y < g_h; y++) {
-        uint32_t *src = s->px + y * s->w;
-        uint32_t *dst = g_fb + y * g_stride;
-        int x, w = s->w < g_w ? s->w : g_w;
-        if (g_pixfmt == PixelBlueGreenRedReserved8BitPerColor) {
-            memcpy(dst, src, (size_t)w * 4u);
-        } else {
-            for (x = 0; x < w; x++) {
-                uint32_t p = src[x];
-                unsigned r = (p >> 16) & 255u;
-                unsigned b = p & 255u;
-                dst[x] = (p & 0xFF00FF00u) | (b << 16) | r;
+    if (!s || !s->px || !g_gop) return 0;
+    dw = (UINTN)s->w;
+    dh = (UINTN)s->h;
+    dx = 0;
+    dy = 0;
+    if (g_w > 0 && (int)dw > g_w) dw = (UINTN)g_w;
+    if (g_h > 0 && (int)dh > g_h) dh = (UINTN)g_h;
+    if (g_w > (int)dw) dx = (UINTN)((g_w - (int)dw) / 2);
+    if (g_h > (int)dh) dy = (UINTN)((g_h - (int)dh) / 2);
+    if (g_gop->Blt) {
+        st = g_gop->Blt(g_gop, (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)s->px, EfiBltBufferToVideo,
+                        0, 0, dx, dy, dw, dh, (UINTN)s->w * 4u);
+        if (st == EFI_SUCCESS)
+            return 1;
+    }
+    if (g_fb && g_stride) {
+        int y;
+        for (y = 0; y < (int)dh; y++) {
+            uint32_t *src = s->px + y * s->w;
+            uint32_t *dst = g_fb + (y + (int)dy) * (int)g_stride + (int)dx;
+            int x, w = (int)dw;
+            if (g_pixfmt == PixelBlueGreenRedReserved8BitPerColor) {
+                memcpy(dst, src, (size_t)w * 4u);
+            } else {
+                for (x = 0; x < w; x++) {
+                    uint32_t p = src[x];
+                    unsigned r = (p >> 16) & 255u;
+                    unsigned b = p & 255u;
+                    dst[x] = (p & 0xFF00FF00u) | (b << 16) | r;
+                }
             }
         }
+        return 1;
     }
-    return 1;
+    return 0;
 }
 
 static EFI_FILE_PROTOCOL *open_path(const char *path, uint64_t mode)
@@ -284,41 +303,57 @@ static void parse_flags(const char *text)
     }
 }
 
+static int gop_usable(const EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info)
+{
+    if (!info) return 0;
+    if (info->HorizontalResolution < 640 || info->VerticalResolution < 480) return 0;
+    if (info->HorizontalResolution > 8192 || info->VerticalResolution > 8192) return 0;
+    if (info->PixelFormat >= PixelFormatMax) return 0;
+    return 1;
+}
+
+static void efi_hide_firmware_cursor(void)
+{
+    if (gBS && gBS->SetWatchdogTimer)
+        gBS->SetWatchdogTimer(0, 0, 0, 0);
+    if (gST && gST->ConOut && gST->ConOut->EnableCursor)
+        gST->ConOut->EnableCursor(gST->ConOut, 0);
+}
+
 static void pick_gop_mode(void)
 {
-    uint32_t i, best = 0;
-    int best_score = -1;
+    EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info = 0;
     if (!g_gop || !g_gop->Mode) return;
-    for (i = 0; i < g_gop->Mode->MaxMode; i++) {
+    info = g_gop->Mode->Info;
+    if (!gop_usable(info) && g_gop->QueryMode) {
         UINTN sz = 0;
-        EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *info = 0;
-        int score;
-        if (g_gop->QueryMode(g_gop, i, &sz, &info) != EFI_SUCCESS || !info) continue;
-        if (info->PixelFormat >= PixelBltOnly) continue;
-        if (info->HorizontalResolution < 640 || info->VerticalResolution < 480) continue;
-        if (info->HorizontalResolution > 1920 || info->VerticalResolution > 1200) continue;
-        {
-            int dw = (int)info->HorizontalResolution - 1280;
-            int dh = (int)info->VerticalResolution - 800;
-            if (dw < 0) dw = -dw;
-            if (dh < 0) dh = -dh;
-            score = 4000000 - dw * 200 - dh * 200;
-        }
-        if (info->HorizontalResolution == 1280 && info->VerticalResolution == 800) score += 2000000;
-        if (info->HorizontalResolution == 1024 && info->VerticalResolution == 768) score += 500000;
-        if (score > best_score) {
-            best_score = score;
-            best = i;
-        }
+        EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *q = 0;
+        if (g_gop->QueryMode(g_gop, g_gop->Mode->Mode, &sz, &q) == EFI_SUCCESS)
+            info = q;
     }
-    if (best_score >= 0)
-        g_gop->SetMode(g_gop, best);
-    if (!g_gop->Mode || !g_gop->Mode->Info) return;
-    g_w = (int)g_gop->Mode->Info->HorizontalResolution;
-    g_h = (int)g_gop->Mode->Info->VerticalResolution;
-    g_pixfmt = (uint32_t)g_gop->Mode->Info->PixelFormat;
-    g_stride = g_gop->Mode->Info->PixelsPerScanLine;
-    g_fb = (uint32_t *)(uintptr_t)g_gop->Mode->FrameBufferBase;
+    /* Keep the firmware's current mode. SetMode on a laptop panel often
+       blanks the eDP output; high-res screens also fail a 1920 cap. */
+    if (!gop_usable(info)) return;
+    g_w = (int)info->HorizontalResolution;
+    g_h = (int)info->VerticalResolution;
+    g_pixfmt = (uint32_t)info->PixelFormat;
+    g_stride = info->PixelsPerScanLine;
+    if (info->PixelFormat < PixelBltOnly && g_gop->Mode->FrameBufferBase)
+        g_fb = (uint32_t *)(uintptr_t)g_gop->Mode->FrameBufferBase;
+    else
+        g_fb = 0;
+}
+
+static void efi_take_graphics(void)
+{
+    g_gop = 0;
+    g_fb = 0;
+    g_w = 0;
+    g_h = 0;
+    gBS->LocateProtocol(&k_gop_guid, 0, (void **)&g_gop);
+    if (!g_gop && gST && gST->ConsoleOutHandle)
+        gBS->HandleProtocol(gST->ConsoleOutHandle, &k_gop_guid, (void **)&g_gop);
+    if (g_gop) pick_gop_mode();
 }
 
 static rb_platform g_plat;
@@ -423,9 +458,13 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
         free(blob);
     }
 
+    efi_install_boot_entry();
+
     if (!g_selftest) {
-        gBS->LocateProtocol(&k_gop_guid, 0, (void **)&g_gop);
-        if (g_gop) pick_gop_mode();
+        efi_log("RoboBoot taking graphics");
+        efi_hide_firmware_cursor();
+        efi_take_graphics();
+        efi_log("RoboBoot graphics ready");
         gBS->HandleProtocol(st->ConsoleInHandle, &k_inex_guid, (void **)&g_inex);
         if (!g_inex)
             gBS->LocateProtocol(&k_inex_guid, 0, (void **)&g_inex);

@@ -246,7 +246,7 @@ def build_disk(part: bytes, disk_sectors: int) -> bytes:
     entry[0:16] = guid_bytes(esp_guid)
     entry[16:32] = guid_bytes(part_guid)
     struct.pack_into("<QQ", entry, 32, PART_START, part_end)
-    name = "EFI System".encode("utf-16le")
+    name = "RoboticelaOS".encode("utf-16le")
     entry[56:56 + len(name)] = name
 
     entries = bytearray(32 * SECTOR)
@@ -321,6 +321,8 @@ def main() -> int:
     efi_table, efi_used, efi_clus = fat.mkdir(fat.root, used, 0, "EFI")
     boot_table, boot_used, _ = fat.mkdir(efi_table, efi_used, efi_clus, "BOOT")
     fat.add_file(boot_table, boot_used, "BOOTX64.EFI", efi.read_bytes())
+    vendor_table, vendor_used, _ = fat.mkdir(efi_table, efi_used, efi_clus, "Roboticela")
+    fat.add_file(vendor_table, vendor_used, "BOOTX64.EFI", efi.read_bytes())
 
     for name in ("config", "assets", "volumes"):
         src = boot / name

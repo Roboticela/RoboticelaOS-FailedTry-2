@@ -15,6 +15,7 @@ $script:ConfigFile = Join-Path $script:Build "config"
 $script:VarsFd = Join-Path $script:Build "ovmf-vars.fd"
 $script:SerialLog = Join-Path $script:Build "qemu-serial.log"
 $script:OvmfDebug = Join-Path $script:Build "ovmf-debug.log"
+$script:EspFlagFile = Join-Path $script:Build "esp.flags"
 $script:RoboRebuild = $false
 $script:RoboBakedThisRun = $false
 
@@ -35,7 +36,7 @@ function Get-RoboSources([string]$Kind) {
     $extra = @{
         host = [string[]]@("src\host\main_host.c")
         test = [string[]]@("tests\test_roboboot.c")
-        efi  = [string[]]@("src\efi\efi_crt.c", "src\efi\efi_plat.c", "src\efi\main_efi.c")
+        efi  = [string[]]@("src\efi\efi_crt.c", "src\efi\efi_plat.c", "src\efi\efi_bootmgr.c", "src\efi\main_efi.c")
     }
     if (-not $extra.ContainsKey($Kind)) { throw "unknown source set: $Kind" }
     $out = New-Object System.Collections.Generic.List[string]
@@ -327,19 +328,32 @@ function Invoke-RoboBuildEfi {
     }
 }
 
+function Get-EspFlagKey([string]$Flags) {
+    $parts = @()
+    foreach ($line in ($Flags -replace ",", "`n" -split "`n")) {
+        $t = $line.Trim()
+        if ($t) { $parts += $t }
+    }
+    return ($parts -join "`n")
+}
+
 function Invoke-RoboBuildImage {
     param([string]$Flags = "")
     if (-not (Test-Path $script:EfiOut)) { throw "BOOTX64.EFI missing - build efi first" }
     $py = Get-Python
     $manifest = Join-Path $script:Boot "config\roboboot.manifest"
-    $deps = @($script:EfiOut, $manifest)
-    if (-not $script:RoboRebuild -and (Test-Path $script:EspImg)) {
+    $mkesp = Join-Path $script:Boot "tools\make_esp.py"
+    $deps = @($script:EfiOut, $manifest, $mkesp)
+    $wantFlags = Get-EspFlagKey $Flags
+    $stale = $true
+    if (-not $script:RoboRebuild -and (Test-Path $script:EspImg) -and (Test-Path $script:EspFlagFile)) {
         $imgTime = (Get-Item $script:EspImg).LastWriteTimeUtc
         $stale = $false
         foreach ($d in $deps) {
             if ((Test-Path $d) -and (Get-Item $d).LastWriteTimeUtc -gt $imgTime) { $stale = $true }
         }
-        if (-not $stale -and -not $Flags) { return }
+        $haveFlags = [IO.File]::ReadAllText($script:EspFlagFile).Trim()
+        if (-not $stale -and $haveFlags -eq $wantFlags) { return }
     }
     $imgArgs = @(
         (Join-Path $script:Boot "tools\make_esp.py"),
@@ -347,10 +361,11 @@ function Invoke-RoboBuildImage {
         "--efi", $script:EfiOut,
         "--out", $script:EspImg
     )
-    if ($Flags) { $imgArgs += @("--flags", $Flags) }
+    if ($wantFlags) { $imgArgs += @("--flags", $wantFlags) }
     Write-Step "IMAGE" "build\roboboot-esp.img"
     & $py @imgArgs
     if ($LASTEXITCODE -ne 0) { throw "ESP image failed" }
+    [IO.File]::WriteAllText($script:EspFlagFile, $wantFlags)
 }
 
 function Invoke-RoboTestHost {

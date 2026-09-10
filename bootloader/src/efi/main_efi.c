@@ -19,16 +19,28 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         w = 640;
         h = 400;
     } else {
-        if (w > 1280) w = 1280;
-        if (h > 800) h = 800;
+        if (w < 640) w = 640;
+        if (h < 480) h = 480;
+        if (w > 3840) w = 3840;
+        if (h > 2160) h = 2160;
     }
     ss.fb.w = w;
     ss.fb.h = h;
     ss.fb.px = (uint32_t *)rb_calloc((size_t)w * (size_t)h * 4u);
+    if (!ss.fb.px && (w > 1280 || h > 800)) {
+        w = 1280;
+        h = 800;
+        ss.fb.w = w;
+        ss.fb.h = h;
+        ss.fb.px = (uint32_t *)rb_calloc((size_t)w * (size_t)h * 4u);
+    }
     if (!ss.fb.px) {
         efi_log("RoboBoot framebuffer alloc failed");
         return EFI_LOAD_ERROR;
     }
+    rb_gfx_clear(&ss.fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    if (!efi_flag_selftest() && plat->present)
+        plat->present(&ss.fb);
 
     if (efi_flag_selftest()) {
         int ticks = 0;
@@ -55,7 +67,8 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     }
 
     rb_session_boot(&ss);
-    rb_session_free(&ss);
-    efi_shutdown();
-    return EFI_SUCCESS;
+    rb_logf("RoboBoot session complete");
+    for (;;) {
+        if (gBS && gBS->Stall) gBS->Stall(1000000);
+    }
 }
