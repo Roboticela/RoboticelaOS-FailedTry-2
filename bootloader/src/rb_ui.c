@@ -63,7 +63,7 @@ static float ui_pic_gap(const rb_session *ss)
 
 static float ui_pic_h_base(const rb_session *ss)
 {
-    return ui_compact(ss) ? 96.f : 160.f;
+    return ui_compact(ss) ? 112.f : 200.f;
 }
 
 static const float UI_HALO_PAD = 16.f;
@@ -88,37 +88,65 @@ static void ui_pic_wh(const rb_image *im, float ih, float *iw, float *oh)
     *iw = ih * aspect;
 }
 
+static int splash_logo_h(const rb_session *ss)
+{
+    return ui_compact(ss) ? 128 : 256;
+}
+
+static void fit_splash_logo(rb_session *ss)
+{
+    int lh, lw;
+    rb_image scaled;
+    if (!ss || ss->logo_fitted || !ss->logo.px || ss->logo.h < 1) {
+        if (ss) ss->logo_fitted = 1;
+        return;
+    }
+    lh = splash_logo_h(ss);
+    lw = (int)((lh * (float)ss->logo.w / (float)ss->logo.h) + 0.5f);
+    if (lw < 1) lw = 1;
+    if (ss->logo.w == lw && ss->logo.h == lh) {
+        ss->logo_fitted = 1;
+        return;
+    }
+    rb_zero(&scaled, sizeof(scaled));
+    if (rb_image_resize(&ss->logo, lw, lh, &scaled) == RB_OK) {
+        rb_image_free(&ss->logo);
+        ss->logo = scaled;
+    }
+    ss->logo_fitted = 1;
+}
+
 void rb_splash_draw(rb_session *ss, float visual, float fade)
 {
-    float cx, logo_h, lw, lh, lx, ly, bar_w, bar_h, bar_x, bar_y, fill, stack, top;
-    int bx, by, bw, bh, fw;
+    float cx, lw, lh, lx, ly, bar_w, bar_h, bar_x, bar_y, fill, stack, top;
+    int bx, by, bw, bh;
     uint32_t bg, track, brand;
     if (!ss) return;
     (void)fade;
     visual = rb_clampf(visual, 0.f, 1.f);
+    fit_splash_logo(ss);
     cx = ss->fb.w * 0.5f;
-    logo_h = ui_compact(ss) ? 96.f : 160.f;
-    lh = logo_h;
+    lh = (float)splash_logo_h(ss);
     lw = lh;
-    if (ss->logo.px && ss->logo.h > 0)
-        lw = lh * ((float)ss->logo.w / (float)ss->logo.h);
-    bar_w = 176.f;
+    if (ss->logo.px && ss->logo.h > 0) {
+        lw = (float)ss->logo.w;
+        lh = (float)ss->logo.h;
+    }
+    bar_w = ui_compact(ss) ? 240.f : 280.f;
     bar_h = 4.f;
-    stack = lh + 48.f + bar_h;
+    stack = lh + 64.f + bar_h;
     top = (float)ss->fb.h * 0.5f - stack * 0.5f;
     lx = cx - lw * 0.5f;
     ly = top;
     bar_x = cx - bar_w * 0.5f;
-    bar_y = ly + lh + 48.f;
+    bar_y = ly + lh + 64.f;
     bx = (int)bar_x;
     by = (int)bar_y;
     bw = (int)bar_w;
     bh = (int)bar_h;
     if (bh < 4) bh = 4;
     fill = bar_w * visual;
-    fw = (int)(fill + 0.5f);
-    if (fw < 0) fw = 0;
-    if (fw > bw) fw = bw;
+    if (fill > 0.f && fill < bar_h) fill = bar_h;
     bg = rb_token(RB_TOKEN_BG_PRIMARY, 255);
     track = rb_token(RB_TOKEN_BORDER_DEFAULT, 255);
     brand = rb_token(RB_TOKEN_BRAND_PRIMARY, 255);
@@ -129,22 +157,24 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
             rb_gfx_blit(&ss->fb, &ss->logo, lx, ly, lw, lh, 1.f);
         else
             rb_gfx_round_rect(&ss->fb, lx, ly, lw, lh, 18.f, brand);
-        rb_gfx_fill_box(&ss->fb, bx, by, bw, bh, track);
-        if (fw > 0)
-            rb_gfx_fill_box(&ss->fb, bx, by, fw, bh, brand);
+        rb_gfx_fill_box(&ss->fb, bx - 2, by - 2, bw + 4, bh + 4, bg);
+        rb_gfx_round_rect(&ss->fb, bar_x, bar_y, bar_w, bar_h, bar_h * 0.5f, track);
+        if (fill > 0.f)
+            rb_gfx_round_rect(&ss->fb, bar_x, bar_y, fill, bar_h, bar_h * 0.5f, brand);
         ss->splash_bg_ready = 1;
         ss->fb.damage_w = 0;
         ss->fb.damage_h = 0;
         return;
     }
 
-    rb_gfx_fill_box(&ss->fb, bx, by, bw, bh, track);
-    if (fw > 0)
-        rb_gfx_fill_box(&ss->fb, bx, by, fw, bh, brand);
-    ss->fb.damage_x = bx - 2;
-    ss->fb.damage_y = by - 2;
-    ss->fb.damage_w = bw + 4;
-    ss->fb.damage_h = bh + 4;
+    rb_gfx_fill_box(&ss->fb, bx - 2, by - 2, bw + 4, bh + 4, bg);
+    rb_gfx_round_rect(&ss->fb, bar_x, bar_y, bar_w, bar_h, bar_h * 0.5f, track);
+    if (fill > 0.f)
+        rb_gfx_round_rect(&ss->fb, bar_x, bar_y, fill, bar_h, bar_h * 0.5f, brand);
+    ss->fb.damage_x = bx - 4;
+    ss->fb.damage_y = by - 4;
+    ss->fb.damage_w = bw + 8;
+    ss->fb.damage_h = bh + 8;
 }
 
 static void icon_layout(const rb_session *ss, int vis_index, float *ox, float *oy, float *iw, float *ih)

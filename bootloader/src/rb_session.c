@@ -137,6 +137,15 @@ static int key_hit(const rb_input *in, int key)
     return 0;
 }
 
+static int confirm_hit(const rb_input *in)
+{
+    int i;
+    if (key_hit(in, RB_KEY_ENTER)) return 1;
+    for (i = 0; i < in->nchars; i++)
+        if (in->chars[i] == ' ') return 1;
+    return 0;
+}
+
 static int picker_chord(const rb_session *ss)
 {
     int i;
@@ -237,6 +246,12 @@ static void begin_boot_selected(rb_session *ss)
         ss->timeout_left_ms = 900;
         return;
     }
+    /* Leave the picker immediately so a quiet kernel does not freeze the menu. */
+    ss->splash_bg_ready = 0;
+    ss->fb.damage_w = 0;
+    ss->fb.damage_h = 0;
+    rb_splash_draw(ss, 1.f, 1.f);
+    if (ss->plat->present) ss->plat->present(&ss->fb);
     ss->phase = RB_PHASE_HANDOFF;
 }
 
@@ -338,7 +353,7 @@ int rb_session_tick(rb_session *ss)
                 break;
             }
         }
-        if (key_hit(&ss->input, RB_KEY_ENTER)) begin_boot_selected(ss);
+        if (confirm_hit(&ss->input)) begin_boot_selected(ss);
         if (key_hit(&ss->input, RB_KEY_F10) || key_hit(&ss->input, RB_KEY_CONSOLE)) {
             ss->phase = RB_PHASE_CONSOLE;
             ss->console_len = 0;

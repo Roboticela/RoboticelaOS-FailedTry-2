@@ -42,19 +42,59 @@ rb_status rb_image_resize(const rb_image *src, int w, int h, rb_image *dst)
         memcpy(dst->px, src->px, (size_t)w * (size_t)h * 4u);
         return RB_OK;
     }
+    /* Box-filter downscale (and 1:1-ish upscale) keeps edges sharp. Bilinear
+       shrinking is what made the splash logo and picker pics look soft. */
     for (y = 0; y < h; y++) {
-        int sy = (int)(((int64_t)y * src->h) / h);
-        const uint32_t *srow;
-        uint32_t *drow;
-        if (sy < 0) sy = 0;
-        if (sy >= src->h) sy = src->h - 1;
-        srow = src->px + sy * src->w;
-        drow = dst->px + y * w;
+        int y0 = (int)(((int64_t)y * src->h) / h);
+        int y1 = (int)(((int64_t)(y + 1) * src->h) / h);
+        uint32_t *drow = dst->px + y * w;
+        if (y1 <= y0) y1 = y0 + 1;
+        if (y0 < 0) y0 = 0;
+        if (y1 > src->h) y1 = src->h;
+        if (y0 >= src->h) y0 = src->h - 1;
+        if (y1 <= y0) y1 = y0 + 1;
         for (x = 0; x < w; x++) {
-            int sx = (int)(((int64_t)x * src->w) / w);
-            if (sx < 0) sx = 0;
-            if (sx >= src->w) sx = src->w - 1;
-            drow[x] = srow[sx];
+            int x0 = (int)(((int64_t)x * src->w) / w);
+            int x1 = (int)(((int64_t)(x + 1) * src->w) / w);
+            int sy, sx;
+            uint64_t sa = 0, sr = 0, sg = 0, sb = 0;
+            if (x1 <= x0) x1 = x0 + 1;
+            if (x0 < 0) x0 = 0;
+            if (x1 > src->w) x1 = src->w;
+            if (x0 >= src->w) x0 = src->w - 1;
+            if (x1 <= x0) x1 = x0 + 1;
+            for (sy = y0; sy < y1; sy++) {
+                const uint32_t *srow = src->px + sy * src->w;
+                for (sx = x0; sx < x1; sx++) {
+                    uint32_t p = srow[sx];
+                    unsigned a = (p >> 24) & 255u;
+                    unsigned r = (p >> 16) & 255u;
+                    unsigned g = (p >> 8) & 255u;
+                    unsigned b = p & 255u;
+                    sa += a;
+                    sr += (uint64_t)r * a;
+                    sg += (uint64_t)g * a;
+                    sb += (uint64_t)b * a;
+                }
+            }
+            {
+                uint64_t n = (uint64_t)(x1 - x0) * (uint64_t)(y1 - y0);
+                unsigned a, r, g, b;
+                if (!n) n = 1;
+                a = (unsigned)((sa + n / 2) / n);
+                if (sa) {
+                    r = (unsigned)((sr + sa / 2) / sa);
+                    g = (unsigned)((sg + sa / 2) / sa);
+                    b = (unsigned)((sb + sa / 2) / sa);
+                } else {
+                    r = g = b = 0;
+                }
+                if (r > 255) r = 255;
+                if (g > 255) g = 255;
+                if (b > 255) b = 255;
+                if (a > 255) a = 255;
+                drow[x] = (a << 24) | (r << 16) | (g << 8) | b;
+            }
         }
     }
     return RB_OK;

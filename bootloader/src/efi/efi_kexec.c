@@ -100,7 +100,6 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     uint32_t fw, fh, pitch, bpp, pixfmt;
     uint64_t fb;
     uint64_t entry;
-    char line[96];
 
     (void)t;
     if (!h || !h->kernel.valid || !h->kernel.bytes) return RB_ERR;
@@ -178,6 +177,7 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
 
     map_size = 0;
     if (!gBS || !gBS->GetMemoryMap || !gBS->ExitBootServices) return RB_ERR;
+    rb_logf("starting kernel at 0x%llx", (unsigned long long)entry);
     gBS->GetMemoryMap(&map_size, 0, &map_key, &desc_size, &desc_ver);
     extra = desc_size * 8;
     map_size += extra;
@@ -209,8 +209,6 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
         }
         st = gBS->ExitBootServices(gImage, map_key);
         if (st == EFI_SUCCESS) {
-            snprintf(line, sizeof(line), "jumping to 0x%llx", (unsigned long long)entry);
-            (void)line;
             jump_kernel(entry, info);
             return RB_ERR_FAIL;
         }

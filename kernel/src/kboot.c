@@ -37,12 +37,14 @@ void kboot_report(const RoboBootInfo *info)
     unsigned avail_mb, reserved_mb;
     uint32_t white = 0xFFFFFFu;
     uint32_t mute = 0xA1A1A6u;
+    int verbose;
 
     avail = sum_type(info, ROBO_MEM_AVAILABLE) + sum_type(info, ROBO_MEM_LOADER);
     reserved = sum_type(info, ROBO_MEM_RESERVED) + sum_type(info, ROBO_MEM_ACPI) +
                sum_type(info, ROBO_MEM_NVS);
     avail_mb = (unsigned)(avail / (1024ull * 1024ull));
     reserved_mb = (unsigned)(reserved / (1024ull * 1024ull));
+    verbose = kboot_debug(info);
 
     kprintf("Roboticela Kernel\n");
     kprintf("-----------------\n\n");
@@ -62,9 +64,10 @@ void kboot_report(const RoboBootInfo *info)
     kprintf("InitFS:\n");
     kprintf("  address: 0x%llx\n", info ? info->initrd_address : 0);
     kprintf("  size: %llu\n", info ? info->initrd_size : 0);
+    if (verbose && info && info->cmdline[0])
+        kprintf("\nCmdline: %s\n", info->cmdline);
 
-    if (!kboot_debug(info)) return;
-
+    /* Always take the screen. Leaving the splash up looks like the kernel never started. */
     kfb_clear(0x000000);
     kfb_puts("Roboticela Kernel\n", white);
     kfb_puts("-----------------\n\n", mute);
@@ -97,4 +100,12 @@ void kboot_report(const RoboBootInfo *info)
     kfb_puts("\n  size: ", white);
     kfb_putu(info ? info->initrd_size : 0, white);
     kfb_puts("\n", white);
+    if (verbose) {
+        kfb_puts("\nDebug on\n", mute);
+        if (info && info->cmdline[0]) {
+            kfb_puts("Cmdline: ", mute);
+            kfb_puts(info->cmdline, white);
+            kfb_puts("\n", white);
+        }
+    }
 }

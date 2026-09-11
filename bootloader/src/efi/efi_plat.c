@@ -77,7 +77,7 @@ static int map_key(EFI_KEY_DATA *kd)
     if (scan == SCAN_DOWN) return RB_KEY_DOWN;
     if (scan == SCAN_ESC) return RB_KEY_ESC;
     if (scan == SCAN_F10) return RB_KEY_F10;
-    if (ch == 0x0D) return RB_KEY_ENTER;
+    if (ch == 0x0D || ch == 0x0A) return RB_KEY_ENTER;
     if (ch == 0x08) return RB_KEY_BACKSPACE;
     if (ch == 0x09) return RB_KEY_TAB;
     if (ch == '`' || ch == '~') return RB_KEY_CONSOLE;
@@ -90,7 +90,8 @@ static void efi_poll(rb_input *out)
     out->mods = g_mods;
     if (g_inex) {
         EFI_KEY_DATA kd;
-        while (g_inex->ReadKeyStrokeEx(g_inex, &kd) == EFI_SUCCESS) {
+        int reads = 0;
+        while (reads++ < 8 && g_inex->ReadKeyStrokeEx(g_inex, &kd) == EFI_SUCCESS) {
             int key;
             uint32_t sh = kd.KeyState.KeyShiftState;
             CHAR16 ch = kd.Key.UnicodeChar;
@@ -113,8 +114,13 @@ static void efi_poll(rb_input *out)
     }
     if (gST && gST->ConIn && gST->ConIn->ReadKeyStroke) {
         EFI_INPUT_KEY k;
-        while (gST->ConIn->ReadKeyStroke(gST->ConIn, &k) == EFI_SUCCESS) {
+        int reads = 0;
+        while (reads++ < 8 && gST->ConIn->ReadKeyStroke(gST->ConIn, &k) == EFI_SUCCESS) {
             CHAR16 ch = k.UnicodeChar;
+            int key = RB_KEY_NONE;
+            if (ch == 0x0D || ch == 0x0A) key = RB_KEY_ENTER;
+            if (key != RB_KEY_NONE && out->nkeys < 24)
+                out->keys[out->nkeys++] = key;
             if (ch == 'm' || ch == 'M') {
                 int i, have = 0;
                 for (i = 0; i < out->nchars; i++)

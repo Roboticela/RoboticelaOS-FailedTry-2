@@ -27,8 +27,8 @@ function Read-Serial {
 
 function Invoke-QemuSelftest {
     param([string]$DiskKind)
-    if (Test-Path $script:SerialLog) { Remove-Item $script:SerialLog -Force }
-    if (Test-Path $script:OvmfDebug) { Remove-Item $script:OvmfDebug -Force }
+    if (Test-Path $script:SerialLog) { Remove-Item $script:SerialLog -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $script:OvmfDebug) { Remove-Item $script:OvmfDebug -Force -ErrorAction SilentlyContinue }
 
     $qemuArgs = Get-QemuBaseArgs -Headless -Disk $DiskKind
     $proc = Start-QemuProcess -Arguments $qemuArgs -Accel tcg -Hidden
@@ -76,7 +76,7 @@ try {
 
     Write-Host "RoboBoot QEMU selftest passed"
     Invoke-MakeEsp
-    if (Test-Path $script:SerialLog) { Remove-Item $script:SerialLog -Force }
+    if (Test-Path $script:SerialLog) { Remove-Item $script:SerialLog -Force -ErrorAction SilentlyContinue }
     $kargs = Get-QemuBaseArgs -Headless -Disk $Disk
     $kproc = Start-QemuProcess -Arguments $kargs -Accel tcg -Hidden
     $kserial = ""

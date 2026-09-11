@@ -160,9 +160,16 @@ void rb_gfx_blit(rb_surface *s, const rb_image *im, float x, float y, float w, f
         if (dy + ch > s->h) ch = s->h - dy;
         if (cw <= 0 || ch <= 0) return;
         for (iy = 0; iy < ch; iy++) {
-            memcpy(s->px + (dy + iy) * s->w + dx,
-                   im->px + (src_y0 + iy) * im->w + src_x0,
-                   (size_t)cw * 4u);
+            uint32_t *dst = s->px + (dy + iy) * s->w + dx;
+            const uint32_t *srcp = im->px + (src_y0 + iy) * im->w + src_x0;
+            for (ix = 0; ix < cw; ix++) {
+                uint32_t p = srcp[ix];
+                unsigned a = (p >> 24) & 255u;
+                if (a == 255)
+                    dst[ix] = p;
+                else if (a)
+                    dst[ix] = rb_blend(dst[ix], p);
+            }
         }
         return;
     }

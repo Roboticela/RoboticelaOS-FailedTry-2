@@ -251,6 +251,7 @@ typedef struct {
     int splash_inited;
     int splash_bg_ready;
     int splash_ticks;
+    int logo_fitted;
     int icons_loaded;
     int icons_fitted;
     int picker_drawn;

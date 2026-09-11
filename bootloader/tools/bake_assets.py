@@ -206,7 +206,7 @@ def build_pics() -> dict[str, Image.Image]:
 
 
 def pack_images() -> None:
-    logo = raster_svg(ASSETS / "logo.svg", width=720)
+    logo = raster_svg(ASSETS / "logo.svg", width=1024)
     write_rbim(logo, ASSETS / "logo.rbim")
 
     pics = build_pics()
