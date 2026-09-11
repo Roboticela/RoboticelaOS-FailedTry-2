@@ -4,6 +4,8 @@
 #include "fs/file_types.h"
 #include "fs/file_ops.h"
 
+struct RoboVnode;
+
 typedef struct RoboFile {
     RoboFileType type;
     uint32_t flags;
@@ -11,6 +13,7 @@ typedef struct RoboFile {
     const RoboFileOps *ops;
     void *private_data;
     uint32_t refcount;
+    struct RoboVnode *vnode;
 } RoboFile;
 
 RoboFile *robo_file_create(RoboFileType type, const RoboFileOps *ops,

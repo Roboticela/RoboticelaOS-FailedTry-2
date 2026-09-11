@@ -16,6 +16,7 @@ $script:ProcessStateTestOut = Join-Path $script:KernelRoot "build\test_process_s
 $script:ProcessHostTestOut = Join-Path $script:KernelRoot "build\test_process_host.exe"
 $script:ContextLayoutTestOut = Join-Path $script:KernelRoot "build\test_context_layout.exe"
 $script:ElfTestOut = Join-Path $script:KernelRoot "build\test_elf.exe"
+$script:RfsTestOut = Join-Path $script:KernelRoot "build\test_rfs.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -390,7 +391,8 @@ function Invoke-RoboBuildUserland {
         @{ Name = "systest"; Srcs = @("lib\crt0.S", "lib\syscall.S", "systest\systest.c", "systest\regs.S", "systest\worker.S") },
         @{ Name = "a"; Srcs = @("lib\crt0.S", "lib\syscall.S", "iso\a.c") },
         @{ Name = "b"; Srcs = @("lib\crt0.S", "lib\syscall.S", "iso\b.c") },
-        @{ Name = "fd-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "fd-test\fd-test.c") }
+        @{ Name = "fd-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "fd-test\fd-test.c") },
+        @{ Name = "robofs-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "robofs-test\robofs-test.c") }
     )
     $elfs = @{}
     foreach ($p in $progs) {
@@ -423,6 +425,7 @@ function Invoke-RoboBuildUserland {
         ("/bin/a=" + $elfs["a"]),
         ("/bin/b=" + $elfs["b"]),
         ("/bin/fd-test=" + $elfs["fd-test"]),
+        ("/bin/robofs-test=" + $elfs["robofs-test"]),
         ("/test.txt=" + $txt)
     )
     if ($LASTEXITCODE -ne 0) { throw "RoboFS pack failed" }
@@ -506,6 +509,14 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "fs\backends\regular.c"),
         (Join-Path $kroot "fs\backends\pipe.c"),
         (Join-Path $kroot "fs\backends\device.c"),
+        (Join-Path $kroot "fs\vfs\vnode.c"),
+        (Join-Path $kroot "fs\vfs\path.c"),
+        (Join-Path $kroot "fs\vfs\mount.c"),
+        (Join-Path $kroot "fs\vfs\vfs.c"),
+        (Join-Path $kroot "fs\vfs\vfs_test.c"),
+        (Join-Path $kroot "fs\block\memdev.c"),
+        (Join-Path $kroot "fs\rfs\rfs.c"),
+        (Join-Path $kroot "fs\rfs\rfs_test.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -543,6 +554,9 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "exec\elf"),
         (Join-Path $kroot "fs"),
         (Join-Path $kroot "fs\backends"),
+        (Join-Path $kroot "fs\vfs"),
+        (Join-Path $kroot "fs\block"),
+        (Join-Path $kroot "fs\rfs"),
         (Join-Path $kroot "syscall"),
         (Join-Path $script:Repo "sdk\include\robosys"),
         (Join-Path $script:Boot "include\roboticela")
@@ -954,6 +968,61 @@ function Invoke-RoboTestElf {
     if ($LASTEXITCODE -ne 0) { throw "elf host tests failed" }
 }
 
+function Invoke-RoboBuildRfsTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\rfs-host-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-DRFS_HOST_TEST",
+        "-I", $kroot,
+        "-I", (Join-Path $kroot "include"),
+        "-I", (Join-Path $script:Repo "sdk\include")
+    )
+    $srcs = @(
+        (Join-Path $kroot "tests\test_rfs.c"),
+        (Join-Path $kroot "fs\file.c"),
+        (Join-Path $kroot "fs\file_ops.c"),
+        (Join-Path $kroot "fs\vfs\vnode.c"),
+        (Join-Path $kroot "fs\vfs\path.c"),
+        (Join-Path $kroot "fs\vfs\mount.c"),
+        (Join-Path $kroot "fs\vfs\vfs.c"),
+        (Join-Path $kroot "fs\vfs\vfs_test.c"),
+        (Join-Path $kroot "fs\block\memdev.c"),
+        (Join-Path $kroot "fs\rfs\rfs.c"),
+        (Join-Path $kroot "fs\rfs\rfs_test.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "fs"),
+        (Join-Path $kroot "fs\vfs"),
+        (Join-Path $kroot "fs\block"),
+        (Join-Path $kroot "fs\rfs"),
+        (Join-Path $kroot "syscall"),
+        (Join-Path $script:Repo "sdk\include\robosys")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:RfsTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_rfs.exe"
+        & $clang -o $script:RfsTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "rfs host test link failed" }
+    }
+}
+
+function Invoke-RoboTestRfs {
+    Invoke-RoboBuildRfsTest
+    Write-Step "TEST" "test_rfs.exe"
+    & $script:RfsTestOut
+    if ($LASTEXITCODE -ne 0) { throw "rfs host tests failed" }
+}
+
 function Invoke-RoboBuildImage {
     param([string]$Flags = "")
     Invoke-RoboBuildKernel
@@ -1098,6 +1167,7 @@ function Invoke-RoboTestHost {
     Invoke-RoboTestProcessHost
     Invoke-RoboTestContextLayout
     Invoke-RoboTestElf
+    Invoke-RoboTestRfs
 }
 
 function Invoke-RoboClean {

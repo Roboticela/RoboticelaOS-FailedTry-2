@@ -32,10 +32,15 @@
 #define ROBO_SYS_SLEEP           10u
 #define ROBO_SYS_TIME            11u
 #define ROBO_SYS_IPC             12u
-
 #define ROBO_SYS_RESERVED_13     13u
 #define ROBO_SYS_RESERVED_14     14u
 #define ROBO_SYS_RESERVED_15     15u
+#define ROBO_SYS_SEEK            16u
+#define ROBO_SYS_STAT            17u
+#define ROBO_SYS_MKDIR           18u
+#define ROBO_SYS_RMDIR           19u
+#define ROBO_SYS_UNLINK          20u
+#define ROBO_SYS_RENAME          21u
 
 #define ROBO_SYS_TABLE_SIZE      32u
 #define ROBO_SYS_EXPERIMENTAL_BASE 500u
@@ -49,6 +54,14 @@
 #define ROBO_MAP_FIXED   4u
 
 #define ROBO_O_RDONLY 0u
+#define ROBO_O_WRONLY 1u
+#define ROBO_O_RDWR   2u
+#define ROBO_O_CREAT  0x40u
+#define ROBO_O_TRUNC  0x200u
+
+#define ROBO_SEEK_SET 0
+#define ROBO_SEEK_CUR 1
+#define ROBO_SEEK_END 2
 
 #define ROBO_IPC_OP_SEND 1u
 #define ROBO_IPC_OP_RECV 2u

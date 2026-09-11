@@ -17,6 +17,7 @@
 #include "fs/robofs.h"
 #include "fs/fd.h"
 #include "fs/file_ops.h"
+#include "fs/vfs/vfs.h"
 #include "fs/backends/regular.h"
 #include "exec/exec.h"
 #include "exec/elf/elf_loader.h"
@@ -211,28 +212,36 @@ uint64_t robo_sys_read(RoboSyscallContext *ctx)
     return (uint64_t)n;
 }
 
+static uint64_t sys_from_neg(int r)
+{
+    if (r >= 0)
+        return (uint64_t)r;
+    return robo_sys_err(-r);
+}
+
 uint64_t robo_sys_open(RoboSyscallContext *ctx)
 {
     char path[ROBO_SYSCALL_PATH_MAX + 1];
     uint64_t upath = arg(ctx, 1);
     uint64_t flags = arg(ctx, 2);
-    const void *data;
-    uint32_t size;
+    uint64_t mode = arg(ctx, 3);
+    uint32_t known = 3u | ROBO_O_CREAT | ROBO_O_TRUNC;
     RoboFile *file;
     robo_fd_t fd;
     RoboAddressSpace *as = ctx_as(ctx);
+    int r;
 
-    (void)arg(ctx, 3);
-    if (flags != ROBO_O_RDONLY)
+    if (flags > 0xFFFFFFFFu || (flags & ~(uint64_t)known))
+        return robo_sys_err(ROBO_EINVAL);
+    if ((flags & 3u) > ROBO_O_RDWR)
+        return robo_sys_err(ROBO_EINVAL);
+    if (mode > 0xFFFFFFFFu)
         return robo_sys_err(ROBO_EINVAL);
     if (robo_copy_user_string(as, path, upath, sizeof(path)) != 0)
         return robo_sys_err(ROBO_EFAULT);
-    file = robo_fs_file_open(path, ROBO_FFLAG_READ);
-    if (!file) {
-        if (!robo_fs_open(path, &data, &size) || !data)
-            return robo_sys_err(ROBO_ENOENT);
-        return robo_sys_err(ROBO_ENOMEM);
-    }
+    r = robo_vfs_open(path, (uint32_t)flags, (uint32_t)mode, &file);
+    if (r != 0)
+        return sys_from_neg(r);
     fd = robo_fd_alloc(ctx->process, file, 0);
     robo_file_put(file);
     if (fd < 0)
@@ -437,4 +446,111 @@ uint64_t robo_sys_ipc(RoboSyscallContext *ctx)
 {
     (void)ctx;
     return robo_sys_err(ROBO_ENOSYS);
+}
+
+uint64_t robo_sys_seek(RoboSyscallContext *ctx)
+{
+    uint64_t fd = arg(ctx, 1);
+    int64_t off = (int64_t)arg(ctx, 2);
+    uint64_t whence = arg(ctx, 3);
+    RoboFile *file;
+    robo_fd_t nfd;
+    int r;
+    uint64_t pos;
+
+    if (!fd_from_user(fd, &nfd))
+        return robo_sys_err(ROBO_EBADF);
+    if (whence > (uint64_t)ROBO_SEEK_END)
+        return robo_sys_err(ROBO_EINVAL);
+    file = robo_fd_get(ctx->process, nfd);
+    if (!file)
+        return robo_sys_err(ROBO_EBADF);
+    r = robo_file_seek(file, off, (int)whence);
+    if (r != 0) {
+        robo_file_put(file);
+        return sys_from_neg(r);
+    }
+    pos = file->offset;
+    robo_file_put(file);
+    return pos;
+}
+
+uint64_t robo_sys_stat(RoboSyscallContext *ctx)
+{
+    char path[ROBO_SYSCALL_PATH_MAX + 1];
+    uint64_t upath = arg(ctx, 1);
+    uint64_t ust = arg(ctx, 2);
+    RoboStat st;
+    RoboAddressSpace *as = ctx_as(ctx);
+    int r;
+
+    if (robo_copy_user_string(as, path, upath, sizeof(path)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    if (!robo_user_range_valid(as, ust, sizeof(st), ROBO_USER_ACCESS_WRITE))
+        return robo_sys_err(ROBO_EFAULT);
+    r = robo_vfs_stat_path(path, &st);
+    if (r != 0)
+        return sys_from_neg(r);
+    if (robo_copy_to_user(as, ust, &st, sizeof(st)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    return 0;
+}
+
+uint64_t robo_sys_mkdir(RoboSyscallContext *ctx)
+{
+    char path[ROBO_SYSCALL_PATH_MAX + 1];
+    uint64_t upath = arg(ctx, 1);
+    uint64_t mode = arg(ctx, 2);
+    RoboAddressSpace *as = ctx_as(ctx);
+    int r;
+
+    if (mode > 0xFFFFFFFFu)
+        return robo_sys_err(ROBO_EINVAL);
+    if (robo_copy_user_string(as, path, upath, sizeof(path)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    r = robo_vfs_mkdir(path, (uint32_t)mode);
+    return sys_from_neg(r);
+}
+
+uint64_t robo_sys_rmdir(RoboSyscallContext *ctx)
+{
+    char path[ROBO_SYSCALL_PATH_MAX + 1];
+    uint64_t upath = arg(ctx, 1);
+    RoboAddressSpace *as = ctx_as(ctx);
+    int r;
+
+    if (robo_copy_user_string(as, path, upath, sizeof(path)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    r = robo_vfs_rmdir(path);
+    return sys_from_neg(r);
+}
+
+uint64_t robo_sys_unlink(RoboSyscallContext *ctx)
+{
+    char path[ROBO_SYSCALL_PATH_MAX + 1];
+    uint64_t upath = arg(ctx, 1);
+    RoboAddressSpace *as = ctx_as(ctx);
+    int r;
+
+    if (robo_copy_user_string(as, path, upath, sizeof(path)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    r = robo_vfs_unlink(path);
+    return sys_from_neg(r);
+}
+
+uint64_t robo_sys_rename(RoboSyscallContext *ctx)
+{
+    char oldp[ROBO_SYSCALL_PATH_MAX + 1];
+    char newp[ROBO_SYSCALL_PATH_MAX + 1];
+    uint64_t uold = arg(ctx, 1);
+    uint64_t unew = arg(ctx, 2);
+    RoboAddressSpace *as = ctx_as(ctx);
+    int r;
+
+    if (robo_copy_user_string(as, oldp, uold, sizeof(oldp)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    if (robo_copy_user_string(as, newp, unew, sizeof(newp)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    r = robo_vfs_rename(oldp, newp);
+    return sys_from_neg(r);
 }

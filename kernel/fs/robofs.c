@@ -89,6 +89,40 @@ int robo_fs_open(const char *path, const void **data, uint32_t *size)
     return 0;
 }
 
+unsigned robo_fs_file_count(void)
+{
+    if (!g_ready)
+        return 0;
+    return rd32(g_img + 8);
+}
+
+int robo_fs_file_at(unsigned index, char *name, unsigned name_max,
+                    const void **data, uint32_t *size)
+{
+    uint32_t n, off, len, i;
+    const uint8_t *ent;
+
+    if (!g_ready || !name || !name_max || !data || !size)
+        return 0;
+    n = rd32(g_img + 8);
+    if (index >= n)
+        return 0;
+    ent = g_img + sizeof(RoboFsHeader) + index * sizeof(RoboFsEntry);
+    {
+        const RoboFsEntry *e = (const RoboFsEntry *)ent;
+        for (i = 0; i + 1 < name_max && i < ROBFS_NAME && e->name[i]; i++)
+            name[i] = e->name[i];
+        name[i] = 0;
+        off = e->off;
+        len = e->len;
+        if (off > g_size || off + len < off || off + len > g_size)
+            return 0;
+        *data = g_img + off;
+        *size = len;
+        return 1;
+    }
+}
+
 void robo_fs_report(void)
 {
     uint32_t n;

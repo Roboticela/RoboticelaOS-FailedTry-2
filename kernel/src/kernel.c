@@ -11,6 +11,10 @@
 #include "arch/x86_64/context/context_switch.h"
 #include "fs/robofs.h"
 #include "fs/fd.h"
+#include "fs/vfs/vfs.h"
+#include "fs/rfs/rfs.h"
+#include "fs/rfs/rfs_disk.h"
+#include "fs/block/block.h"
 #include "exec/exec.h"
 #include "syscall/syscall.h"
 
@@ -18,6 +22,27 @@ static void boot_bar(unsigned p)
 {
     kfb_splash_set(p);
     kprintf("Loader  %u percent\n", (unsigned)(p / 100u));
+}
+
+static int run_user_prog(const char *path)
+{
+    RoboProcess *p;
+    unsigned i;
+    int ok;
+
+    p = robo_process_create_from_elf(path);
+    if (!p)
+        return 0;
+    for (i = 0; i < 200000u; i++) {
+        if (p->state == ROBO_PROCESS_TERMINATED)
+            break;
+        robo_thread_yield();
+        robo_sched_reap();
+    }
+    ok = p->state == ROBO_PROCESS_TERMINATED && p->exit_status == 0;
+    robo_sched_reap();
+    robo_process_destroy(p);
+    return ok;
 }
 
 void kmain(const RoboBootInfo *info)
@@ -184,9 +209,28 @@ void kmain(const RoboBootInfo *info)
                 kprintf("PROC_TEST_FAIL\n");
             boot_bar(9850);
             if (robo_fs_init(info)) {
+                static RoboBlockDevice *root_disk;
+                int imported;
+
                 robo_fs_report();
-                if (kboot_debug(info))
+                robo_vfs_init();
+                robofs_register();
+                if (!robo_vfs_selftest())
+                    kprintf("VFS_TEST_FAIL\n");
+                root_disk = robo_memdev_create(ROBOFS_BLOCK_SIZE, 512);
+                imported = -1;
+                if (root_disk && robofs_format(root_disk) == 0 &&
+                    robo_vfs_mount_root("robofs", root_disk, 0) == 0)
+                    imported = robo_vfs_import_initrd();
+                else
+                    kprintf("ROBOFS_ROOT_FAIL\n");
+                if (imported != 0)
+                    kprintf("VFS_IMPORT_FAIL  %d\n", imported);
+                if (kboot_debug(info)) {
                     kfb_puts("RoboFS ready\n", 0xA1A1A6u);
+                    robo_vfs_fb_report();
+                    robofs_fb_report();
+                }
                 if (robo_exec_selftest(info))
                     kprintf("USER_TEST_OK\n");
                 else
@@ -205,6 +249,12 @@ void kmain(const RoboBootInfo *info)
                     kprintf("FD_TEST_OK\n");
                 else
                     kprintf("FD_TEST_FAIL\n");
+                if (run_user_prog("/bin/robofs-test"))
+                    kprintf("USER_ROBOFS_OK\n");
+                else
+                    kprintf("USER_ROBOFS_FAIL\n");
+                if (!robofs_selftest())
+                    kprintf("ROBOFS_TEST_FAIL\n");
             } else {
                 kprintf("USER_TEST_FAIL\n");
             }

@@ -16,6 +16,12 @@ uint64_t robo_sys_thread_create(RoboSyscallContext *ctx);
 uint64_t robo_sys_sleep(RoboSyscallContext *ctx);
 uint64_t robo_sys_time(RoboSyscallContext *ctx);
 uint64_t robo_sys_ipc(RoboSyscallContext *ctx);
+uint64_t robo_sys_seek(RoboSyscallContext *ctx);
+uint64_t robo_sys_stat(RoboSyscallContext *ctx);
+uint64_t robo_sys_mkdir(RoboSyscallContext *ctx);
+uint64_t robo_sys_rmdir(RoboSyscallContext *ctx);
+uint64_t robo_sys_unlink(RoboSyscallContext *ctx);
+uint64_t robo_sys_rename(RoboSyscallContext *ctx);
 uint64_t robo_sys_enosys(RoboSyscallContext *ctx);
 
 #endif

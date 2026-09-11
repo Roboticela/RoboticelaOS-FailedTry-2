@@ -104,4 +104,41 @@ static inline robo_long robo_abi_info(RoboAbiInfo *out)
                         (robo_long)(uintptr_t)out, 0, 0, 0, 0, 0);
 }
 
+static inline robo_long robo_seek(int fd, robo_long offset, int whence)
+{
+    return robo_syscall((robo_long)ROBO_SYS_SEEK, (robo_long)fd, offset,
+                        (robo_long)whence, 0, 0, 0);
+}
+
+static inline robo_long robo_stat(const char *path, RoboStat *st)
+{
+    return robo_syscall((robo_long)ROBO_SYS_STAT, (robo_long)(uintptr_t)path,
+                        (robo_long)(uintptr_t)st, 0, 0, 0, 0);
+}
+
+static inline robo_long robo_mkdir(const char *path, int mode)
+{
+    return robo_syscall((robo_long)ROBO_SYS_MKDIR, (robo_long)(uintptr_t)path,
+                        (robo_long)mode, 0, 0, 0, 0);
+}
+
+static inline robo_long robo_rmdir(const char *path)
+{
+    return robo_syscall((robo_long)ROBO_SYS_RMDIR, (robo_long)(uintptr_t)path,
+                        0, 0, 0, 0, 0);
+}
+
+static inline robo_long robo_unlink(const char *path)
+{
+    return robo_syscall((robo_long)ROBO_SYS_UNLINK, (robo_long)(uintptr_t)path,
+                        0, 0, 0, 0, 0);
+}
+
+static inline robo_long robo_rename(const char *old_path, const char *new_path)
+{
+    return robo_syscall((robo_long)ROBO_SYS_RENAME,
+                        (robo_long)(uintptr_t)old_path,
+                        (robo_long)(uintptr_t)new_path, 0, 0, 0, 0);
+}
+
 #endif

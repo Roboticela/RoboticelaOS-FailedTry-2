@@ -25,4 +25,17 @@ typedef struct RoboAbiInfo {
 #define ROBO_ABI_FEAT_THREAD  (1u << 6)
 #define ROBO_ABI_FEAT_PROCESS (1u << 7)
 
+typedef struct RoboStat {
+    uint64_t size;
+    uint64_t mode;
+    uint64_t inode;
+    uint64_t uid;
+    uint64_t gid;
+    uint64_t created;
+    uint64_t modified;
+    uint64_t accessed;
+    uint32_t type;
+    uint32_t nlink;
+} RoboStat;
+
 #endif

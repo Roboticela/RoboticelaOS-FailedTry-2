@@ -127,6 +127,11 @@ if ((unsigned long)r >= (unsigned long)-4095ul)
 | `ROBO_ENOTSUP`| 13    | Not supported                    |
 | `ROBO_EMFILE` | 14    | Too many process fds             |
 | `ROBO_ENFILE` | 15    | Too many files                   |
+| `ROBO_ENOTDIR`| 16    | Not a directory                  |
+| `ROBO_EISDIR` | 17    | Is a directory                   |
+| `ROBO_ENOTEMPTY` | 18 | Directory not empty              |
+| `ROBO_EXDEV`  | 19    | Cross-device rename              |
+| `ROBO_ENOSPC` | 20    | No space on the filesystem       |
 
 Internal kernel error enums are never returned.
 
@@ -179,7 +184,14 @@ A minor version does not imply every optional feature exists. Use flags.
 | 10     | SYS_SLEEP            | 1    | 0/error       | blocks          |
 | 11     | SYS_TIME             | 0    | nanoseconds   | never           |
 | 12     | SYS_IPC              | 5    | ENOSYS        | n/a             |
-| 13–31  | reserved             | —    | ENOSYS        | never           |
+| 13–15  | reserved             | —    | ENOSYS        | never           |
+| 16     | SYS_SEEK             | 3    | offset/error  | normally no     |
+| 17     | SYS_STAT             | 2    | 0/error       | normally no     |
+| 18     | SYS_MKDIR            | 2    | 0/error       | may block       |
+| 19     | SYS_RMDIR            | 1    | 0/error       | may block       |
+| 20     | SYS_UNLINK           | 1    | 0/error       | may block       |
+| 21     | SYS_RENAME           | 2    | 0/error       | may block       |
+| 22–31  | reserved             | —    | ENOSYS        | never           |
 
 ---
 
@@ -286,8 +298,12 @@ Number: `4`
 
 Arguments: RDI = path, RSI = flags, RDX = mode
 
-Returns: fd, or error. Flags must be `ROBO_O_RDONLY` (0). Path is a
-NUL-terminated user string, maximum 111 bytes plus NUL.
+Returns: fd, or error. Access bits are `ROBO_O_RDONLY` (0),
+`ROBO_O_WRONLY` (1), `ROBO_O_RDWR` (2). Optional `ROBO_O_CREAT` and
+`ROBO_O_TRUNC`. Unknown bits return `ROBO_EINVAL`. Path is a
+NUL-terminated user string, maximum 111 bytes plus NUL. The kernel
+resolves the path through VFS; it does not pass the user pointer to a
+filesystem backend.
 
 Pointer: RDI is user memory. The kernel copies the string; it does not
 retain the user pointer.
@@ -493,6 +509,109 @@ Blocking: may block in a future implementation
 Permissions: n/a
 
 Side effects: none in v1
+
+ABI: v1
+
+---
+
+## SYS_SEEK
+
+Number: `16`
+
+Arguments: RDI = fd, RSI = offset (signed), RDX = whence
+(`ROBO_SEEK_SET` 0, `ROBO_SEEK_CUR` 1, `ROBO_SEEK_END` 2)
+
+Returns: the resulting file offset, or error. Negative results are
+rejected. Console descriptors return `ROBO_ENOTSUP` if they have no
+seek op.
+
+Pointer: none
+
+Blocking: normally non-blocking
+
+Permissions: fd must belong to the current process
+
+Side effects: updates the open-file offset
+
+ABI: v1
+
+---
+
+## SYS_STAT
+
+Number: `17`
+
+Arguments: RDI = path, RSI = `RoboStat *`
+
+Returns: 0 or error. The kernel copies a `RoboStat` to user memory
+after VFS lookup. Layout is defined in `sdk/include/robosys/types.h`.
+
+Pointer: RDI is a user string; RSI is user memory the kernel writes
+
+Blocking: may block
+
+Permissions: current process address space
+
+Side effects: none
+
+ABI: v1
+
+---
+
+## SYS_MKDIR
+
+Number: `18`
+
+Arguments: RDI = path, RSI = mode (stored, not yet enforced)
+
+Returns: 0 or error (`ROBO_EEXIST`, `ROBO_ENOTDIR`, …)
+
+Pointer: RDI is a user string
+
+Blocking: may block
+
+ABI: v1
+
+---
+
+## SYS_RMDIR
+
+Number: `19`
+
+Arguments: RDI = path
+
+Returns: 0 or error. Non-empty directories return `ROBO_ENOTEMPTY`.
+
+Pointer: RDI is a user string
+
+ABI: v1
+
+---
+
+## SYS_UNLINK
+
+Number: `20`
+
+Arguments: RDI = path
+
+Returns: 0 or error. Directories must use `SYS_RMDIR`.
+
+Pointer: RDI is a user string
+
+ABI: v1
+
+---
+
+## SYS_RENAME
+
+Number: `21`
+
+Arguments: RDI = old path, RSI = new path
+
+Returns: 0 or error. Cross-mount rename returns `ROBO_EXDEV`. The
+object id is unchanged when the backend supports it.
+
+Pointer: both arguments are user strings
 
 ABI: v1
 

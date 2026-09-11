@@ -24,6 +24,12 @@ void robo_syscall_table_init(void)
     g_table[ROBO_SYS_SLEEP] = robo_sys_sleep;
     g_table[ROBO_SYS_TIME] = robo_sys_time;
     g_table[ROBO_SYS_IPC] = robo_sys_ipc;
+    g_table[ROBO_SYS_SEEK] = robo_sys_seek;
+    g_table[ROBO_SYS_STAT] = robo_sys_stat;
+    g_table[ROBO_SYS_MKDIR] = robo_sys_mkdir;
+    g_table[ROBO_SYS_RMDIR] = robo_sys_rmdir;
+    g_table[ROBO_SYS_UNLINK] = robo_sys_unlink;
+    g_table[ROBO_SYS_RENAME] = robo_sys_rename;
 }
 
 RoboSyscallHandler robo_syscall_lookup(uint64_t number)
@@ -59,6 +65,12 @@ const char *robo_syscall_name(uint64_t number)
     case ROBO_SYS_SLEEP: return "SYS_SLEEP";
     case ROBO_SYS_TIME: return "SYS_TIME";
     case ROBO_SYS_IPC: return "SYS_IPC";
+    case ROBO_SYS_SEEK: return "SYS_SEEK";
+    case ROBO_SYS_STAT: return "SYS_STAT";
+    case ROBO_SYS_MKDIR: return "SYS_MKDIR";
+    case ROBO_SYS_RMDIR: return "SYS_RMDIR";
+    case ROBO_SYS_UNLINK: return "SYS_UNLINK";
+    case ROBO_SYS_RENAME: return "SYS_RENAME";
     default: return "SYS_UNKNOWN";
     }
 }

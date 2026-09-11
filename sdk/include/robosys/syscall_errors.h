@@ -36,5 +36,10 @@
 #define ROBO_ENOTSUP  13
 #define ROBO_EMFILE   14
 #define ROBO_ENFILE   15
+#define ROBO_ENOTDIR  16
+#define ROBO_EISDIR   17
+#define ROBO_ENOTEMPTY 18
+#define ROBO_EXDEV    19
+#define ROBO_ENOSPC   20
 
 #endif

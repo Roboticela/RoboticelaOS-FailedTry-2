@@ -1,6 +1,6 @@
 #include "fs/file.h"
 
-#ifdef PROCESS_HOST_TEST
+#if defined(PROCESS_HOST_TEST) || defined(RFS_HOST_TEST)
 #include <stdlib.h>
 #define kmalloc malloc
 #define kfree free

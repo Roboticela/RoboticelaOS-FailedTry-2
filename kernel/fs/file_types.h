@@ -18,6 +18,7 @@ typedef int32_t robo_fd_t;
 #define ROBO_FFLAG_APPEND   (1u << 2)
 #define ROBO_FFLAG_NONBLOCK (1u << 3)
 #define ROBO_FFLAG_CLOEXEC  (1u << 4)
+#define ROBO_FFLAG_TRUNC    (1u << 5)
 
 #define ROBO_FDENT_CLOEXEC  (1u << 0)
 
