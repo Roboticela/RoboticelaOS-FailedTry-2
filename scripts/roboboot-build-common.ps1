@@ -384,6 +384,13 @@ function Invoke-RoboBuildKernel {
     )
     $srcs = @(
         (Join-Path $kroot "arch\x86_64\boot\start.S"),
+        (Join-Path $kroot "arch\x86_64\isr.S"),
+        (Join-Path $kroot "arch\x86_64\gdt.c"),
+        (Join-Path $kroot "arch\x86_64\tss.c"),
+        (Join-Path $kroot "arch\x86_64\idt.c"),
+        (Join-Path $kroot "arch\x86_64\exception.c"),
+        (Join-Path $kroot "arch\x86_64\cpu.c"),
+        (Join-Path $kroot "arch\x86_64\cpu_test.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -406,6 +413,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "mm"),
         (Join-Path $kroot "mm\vmm"),
         (Join-Path $kroot "mm\heap"),
+        (Join-Path $kroot "arch\x86_64"),
         (Join-Path $kroot "arch\x86_64\mm"),
         (Join-Path $script:Boot "include\roboticela")
     )

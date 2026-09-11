@@ -1,4 +1,5 @@
 #include "kio.h"
+#include "arch/x86_64/cpu.h"
 #include "mm/pmm.h"
 #include "mm/vmm/vmm.h"
 #include "mm/heap/heap.h"
@@ -13,6 +14,26 @@ void kmain(const RoboBootInfo *info)
             info ? info->framebuffer_width : 0,
             info ? info->framebuffer_height : 0);
     kboot_report(info);
+
+    kprintf("CPU  init\n");
+    if (!robo_cpu_init()) {
+        kprintf("CPU_TEST_FAIL\n");
+        kprintf("PMM_TEST_FAIL\n");
+        kprintf("VMM_TEST_FAIL\n");
+        kprintf("HEAP_TEST_FAIL\n");
+        kprintf("idle\n");
+        for (;;) {
+            kfb_poll();
+            __asm__ volatile ("pause");
+        }
+    }
+    robo_cpu_report();
+    if (kboot_debug(info))
+        robo_cpu_fb_report();
+    if (robo_cpu_selftest())
+        kprintf("CPU_TEST_OK\n");
+    else
+        kprintf("CPU_TEST_FAIL\n");
 
     kprintf("PMM  bootinfo %s  ver %u\n",
             info ? "present" : "missing",
