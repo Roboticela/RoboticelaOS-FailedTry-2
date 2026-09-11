@@ -84,7 +84,7 @@ try {
         $deadline = (Get-Date).AddSeconds($TimeoutSec)
         while ((Get-Date) -lt $deadline) {
             $kserial = Read-Serial
-            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "PMM_TEST_OK") { break }
+            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK") { break }
             if ($kproc.HasExited) { break }
             Start-Sleep -Milliseconds 250
         }
@@ -93,7 +93,7 @@ try {
             Stop-Process -Id $kproc.Id -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "PMM_TEST_OK") {
+    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK") {
         Write-Host "RoboBoot kernel QEMU tests passed"
         Write-Host $kserial
         exit 0

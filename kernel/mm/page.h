@@ -6,11 +6,13 @@
 #include <stdbool.h>
 
 typedef uint64_t phys_addr_t;
+typedef uint64_t virt_addr_t;
 
 #define ROBO_PAGE_SHIFT 12u
 #define ROBO_PAGE_SIZE  (1ull << ROBO_PAGE_SHIFT)
 #define ROBO_PAGE_MASK  (ROBO_PAGE_SIZE - 1ull)
 #define ROBO_INVALID_PHYS_ADDR (~(phys_addr_t)0)
+#define ROBO_INVALID_VIRT_ADDR (~(virt_addr_t)0)
 
 bool robo_page_aligned(phys_addr_t address);
 phys_addr_t robo_page_align_down(phys_addr_t address);

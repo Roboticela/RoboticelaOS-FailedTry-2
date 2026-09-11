@@ -16,9 +16,10 @@ try {
     $bootStatus = $LASTEXITCODE
     try {
         Invoke-RoboTestPmm
+        Invoke-RoboTestVmm
     } catch {
         if ($bootStatus -eq 0) { throw }
-        Write-Host "PMM host tests failed"
+        Write-Host "kernel host tests failed"
         exit 1
     }
     if ($bootStatus -ne 0) { exit $bootStatus }

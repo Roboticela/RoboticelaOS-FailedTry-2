@@ -8,6 +8,7 @@ $script:Dist = Join-Path $script:Repo "build"
 $script:KernelRoot = Join-Path $script:Repo "kernel"
 $script:KernelOut = Join-Path $script:KernelRoot "build\kernel.elf"
 $script:PmmTestOut = Join-Path $script:KernelRoot "build\test_pmm.exe"
+$script:VmmTestOut = Join-Path $script:KernelRoot "build\test_vmm.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -391,11 +392,18 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "mm\memory_map.c"),
         (Join-Path $kroot "mm\pmm.c"),
         (Join-Path $kroot "mm\pmm_test.c"),
+        (Join-Path $kroot "mm\vmm\paging.c"),
+        (Join-Path $kroot "mm\vmm\table.c"),
+        (Join-Path $kroot "mm\vmm\vmm.c"),
+        (Join-Path $kroot "mm\vmm\vmm_test.c"),
+        (Join-Path $kroot "arch\x86_64\mm\paging_cpu.c"),
         $kfont
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "include"),
         (Join-Path $kroot "mm"),
+        (Join-Path $kroot "mm\vmm"),
+        (Join-Path $kroot "arch\x86_64\mm"),
         (Join-Path $script:Boot "include\roboticela")
     )
     $objs = @()
@@ -464,6 +472,49 @@ function Invoke-RoboTestPmm {
     Write-Step "TEST" "test_pmm.exe"
     & $script:PmmTestOut
     if ($LASTEXITCODE -ne 0) { throw "pmm host tests failed" }
+}
+
+function Invoke-RoboBuildVmmTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\vmm-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-I", $kroot,
+        "-I", (Join-Path $kroot "include"),
+        "-I", (Join-Path $script:Boot "include")
+    )
+    $srcs = @(
+        (Join-Path $kroot "mm\page.c"),
+        (Join-Path $kroot "mm\vmm\paging.c"),
+        (Join-Path $kroot "tests\test_vmm.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "mm"),
+        (Join-Path $kroot "mm\vmm"),
+        (Join-Path $kroot "include")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:VmmTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_vmm.exe"
+        & $clang -o $script:VmmTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "vmm host test link failed" }
+    }
+}
+
+function Invoke-RoboTestVmm {
+    Invoke-RoboBuildVmmTest
+    Write-Step "TEST" "test_vmm.exe"
+    & $script:VmmTestOut
+    if ($LASTEXITCODE -ne 0) { throw "vmm host tests failed" }
 }
 
 function Invoke-RoboBuildImage {
@@ -601,6 +652,7 @@ function Invoke-RoboTestHost {
     & $script:TestOut $script:Boot
     if ($LASTEXITCODE -ne 0) { throw "host tests failed" }
     Invoke-RoboTestPmm
+    Invoke-RoboTestVmm
 }
 
 function Invoke-RoboClean {

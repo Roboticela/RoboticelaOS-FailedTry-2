@@ -1,5 +1,6 @@
 #include "kio.h"
 #include "mm/pmm.h"
+#include "mm/vmm/vmm.h"
 
 void kmain(const RoboBootInfo *info)
 {
@@ -28,6 +29,7 @@ void kmain(const RoboBootInfo *info)
 
     if (!robo_pmm_init(info)) {
         kprintf("PMM_TEST_FAIL\n");
+        kprintf("VMM_TEST_FAIL\n");
     } else {
         robo_pmm_report();
         if (kboot_debug(info))
@@ -36,6 +38,18 @@ void kmain(const RoboBootInfo *info)
             kprintf("PMM_TEST_OK\n");
         else
             kprintf("PMM_TEST_FAIL\n");
+
+        if (!robo_vmm_init(info)) {
+            kprintf("VMM_TEST_FAIL\n");
+        } else {
+            robo_vmm_report();
+            if (kboot_debug(info))
+                robo_vmm_fb_report();
+            if (robo_vmm_selftest())
+                kprintf("VMM_TEST_OK\n");
+            else
+                kprintf("VMM_TEST_FAIL\n");
+        }
     }
 
     kprintf("idle hlt\n");
