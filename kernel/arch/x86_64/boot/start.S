@@ -17,7 +17,9 @@ _start:
     jmp 2b
 
 .section .bss
-.align 16
+    .align 16
+.global kstack
 kstack:
     .space 16384
+.global kstack_end
 kstack_end:

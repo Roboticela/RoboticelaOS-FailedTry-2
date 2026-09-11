@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #define ROBO_BOOTINFO_MAGIC    0x4F424F52u /* 'ROBO' */
-#define ROBO_BOOTINFO_VERSION  1u
+#define ROBO_BOOTINFO_VERSION  2u /* v2: bootinfo_address / bootinfo_size */
 
 #define ROBO_BOOT_DEBUG        1u
 
@@ -48,6 +48,10 @@ typedef struct {
 
     uint64_t initrd_address;
     uint64_t initrd_size;
+
+    /* Physical range of this RoboBootInfo block (includes the memory map). */
+    uint64_t bootinfo_address;
+    uint64_t bootinfo_size;
 
     char cmdline[256];
 

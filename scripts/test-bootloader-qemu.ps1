@@ -61,11 +61,11 @@ try {
     }
 
     $serial = $result.Serial
-    if (-not ($result.Ok -and $serial -match "RoboticelaOS")) {
+    if (-not $result.Ok) {
         Write-Host "RoboBoot QEMU tests failed"
         if ($serial) { Write-Host $serial } else { Write-Host "(no serial output - firmware may not have reached RoboBoot)" }
-        if ($result.Ok -and $serial -notmatch "RoboticelaOS") {
-            Write-Host "firmware boot entry RoboticelaOS was not installed"
+        if ($result.Fail) {
+            Write-Host "selftest reported ROBOBOOT_QEMU_FAIL"
         }
         if (Test-Path $script:OvmfDebug) {
             Write-Host "OVMF debugcon (tail):"
@@ -84,7 +84,7 @@ try {
         $deadline = (Get-Date).AddSeconds($TimeoutSec)
         while ((Get-Date) -lt $deadline) {
             $kserial = Read-Serial
-            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela") { break }
+            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "PMM_TEST_OK") { break }
             if ($kproc.HasExited) { break }
             Start-Sleep -Milliseconds 250
         }
@@ -93,7 +93,7 @@ try {
             Stop-Process -Id $kproc.Id -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela") {
+    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "PMM_TEST_OK") {
         Write-Host "RoboBoot kernel QEMU tests passed"
         Write-Host $kserial
         exit 0

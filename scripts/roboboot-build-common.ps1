@@ -7,6 +7,7 @@ $script:Build = Join-Path $script:Boot "build"
 $script:Dist = Join-Path $script:Repo "build"
 $script:KernelRoot = Join-Path $script:Repo "kernel"
 $script:KernelOut = Join-Path $script:KernelRoot "build\kernel.elf"
+$script:PmmTestOut = Join-Path $script:KernelRoot "build\test_pmm.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -377,6 +378,7 @@ function Invoke-RoboBuildKernel {
         "-ffreestanding", "-fno-stack-protector", "-fno-pic", "-fno-pie",
         "-mno-red-zone", "-fno-builtin", "-nostdlib",
         "-I", (Join-Path $kroot "include"),
+        "-I", $kroot,
         "-I", (Join-Path $script:Boot "include")
     )
     $srcs = @(
@@ -385,10 +387,15 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
         (Join-Path $kroot "src\kernel.c"),
+        (Join-Path $kroot "mm\page.c"),
+        (Join-Path $kroot "mm\memory_map.c"),
+        (Join-Path $kroot "mm\pmm.c"),
+        (Join-Path $kroot "mm\pmm_test.c"),
         $kfont
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "include"),
+        (Join-Path $kroot "mm"),
         (Join-Path $script:Boot "include\roboticela")
     )
     $objs = @()
@@ -411,6 +418,52 @@ function Invoke-RoboBuildKernel {
     New-Item -ItemType Directory -Force -Path (Split-Path $sys) | Out-Null
     Copy-Item $kout $sys -Force
     Write-Step "KERN" "volumes\sys\kernel.elf"
+}
+
+function Invoke-RoboBuildPmmTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\pmm-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-DPMM_HOST_TEST",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-I", $kroot,
+        "-I", (Join-Path $kroot "include"),
+        "-I", (Join-Path $script:Boot "include")
+    )
+    $srcs = @(
+        (Join-Path $kroot "mm\page.c"),
+        (Join-Path $kroot "mm\memory_map.c"),
+        (Join-Path $kroot "mm\pmm.c"),
+        (Join-Path $kroot "mm\pmm_test.c"),
+        (Join-Path $kroot "tests\test_pmm.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "mm"),
+        (Join-Path $kroot "include"),
+        (Join-Path $script:Boot "include\roboticela")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:PmmTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_pmm.exe"
+        & $clang -o $script:PmmTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "pmm host test link failed" }
+    }
+}
+
+function Invoke-RoboTestPmm {
+    Invoke-RoboBuildPmmTest
+    Write-Step "TEST" "test_pmm.exe"
+    & $script:PmmTestOut
+    if ($LASTEXITCODE -ne 0) { throw "pmm host tests failed" }
 }
 
 function Invoke-RoboBuildImage {
@@ -547,6 +600,7 @@ function Invoke-RoboTestHost {
     Write-Step "TEST" "roboboot-test.exe"
     & $script:TestOut $script:Boot
     if ($LASTEXITCODE -ne 0) { throw "host tests failed" }
+    Invoke-RoboTestPmm
 }
 
 function Invoke-RoboClean {

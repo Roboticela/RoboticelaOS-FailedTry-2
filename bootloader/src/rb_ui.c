@@ -365,6 +365,7 @@ void rb_picker_draw(rb_session *ss)
         rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, ty, buf,
                            rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
     }
+    rb_fb_damage_full(&ss->fb);
 }
 
 void rb_auth_draw(rb_session *ss)
@@ -408,6 +409,7 @@ void rb_auth_draw(rb_session *ss)
                       rb_token(RB_TOKEN_BG_TERTIARY, 255));
     rb_gfx_text_center(&ss->fb, &ss->font_body, cx, field_y + 14.f, dots[0] ? dots : "",
                       rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    rb_fb_damage_full(&ss->fb);
 }
 
 void rb_console_print(rb_session *ss, const char *line)
@@ -444,6 +446,7 @@ void rb_console_draw(rb_session *ss)
     snprintf(prompt, sizeof(prompt), "rb> %s", ss->console_in);
     rb_gfx_text(&ss->fb, &ss->font_body, pad, (float)ss->fb.h - 48.f, prompt,
                 rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    rb_fb_damage_full(&ss->fb);
 }
 
 static void cmd_help(rb_session *ss)
@@ -591,11 +594,39 @@ static uint8_t bootlog_kind(const char *line)
     return 0;
 }
 
+static uint64_t g_log_origin;
+static int g_log_origin_set;
+
 static uint32_t bootlog_now(void)
 {
+    uint64_t t = 0;
     if (rb_plat && rb_plat->now_ms)
-        return (uint32_t)rb_plat->now_ms();
-    return 0;
+        t = rb_plat->now_ms();
+    if (!g_log_origin_set) {
+        g_log_origin = t;
+        g_log_origin_set = 1;
+    }
+    if (t < g_log_origin)
+        return 0;
+    t -= g_log_origin;
+    if (t > 0xffffffffull)
+        t = 0xffffffffull;
+    return (uint32_t)t;
+}
+
+static void fmt_log_time(char *buf, size_t cap, uint32_t ms, int with_s)
+{
+    unsigned sec = ms / 1000u;
+    unsigned cs = (ms % 1000u) / 10u;
+    char frac[3];
+    if (!buf || cap < 4) return;
+    frac[0] = (char)('0' + (cs / 10u) % 10u);
+    frac[1] = (char)('0' + (cs % 10u));
+    frac[2] = 0;
+    if (with_s)
+        snprintf(buf, cap, "%u.%ss", sec, frac);
+    else
+        snprintf(buf, cap, "%u.%s", sec, frac);
 }
 
 static void bootlog_append_ss(rb_session *ss, const char *line, uint32_t ms, uint8_t kind)
@@ -669,23 +700,22 @@ void rb_bootlogf(rb_session *ss, const char *fmt, ...)
 void rb_debug_term_draw(rb_session *ss)
 {
     float x, y, w, h, text_y, line_h, time_w;
-    int i, vis, start;
+    int i, vis, start, keep_full;
     const rb_font *cap;
     char elapsed[24];
     uint32_t now_ms = 0;
     if (!ss || !ui_debug_on(ss)) return;
     g_bootlog_ss = ss;
+    keep_full = (ss->fb.damage_w <= 0 || ss->fb.damage_h <= 0);
     rb_debug_term_geom(ss, &x, &y, &w, &h);
     cap = ui_caption(ss);
     line_h = ui_compact(ss) ? 13.f : 14.f;
     time_w = ui_compact(ss) ? 44.f : 56.f;
     rb_gfx_round_rect(&ss->fb, x, y, w, h, 18.f, rb_token(RB_TOKEN_BG_SECONDARY, 255));
     rb_gfx_round_rect_stroke(&ss->fb, x, y, w, h, 18.f, 1.f, rb_token(RB_TOKEN_BORDER_DEFAULT, 255));
-    rb_gfx_text(&ss->fb, cap, x + 24.f, y + 16.f, "Log", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
-    if (ss->plat && ss->plat->now_ms)
-        now_ms = (uint32_t)ss->plat->now_ms();
-    snprintf(elapsed, sizeof(elapsed), "%u.%02us",
-             (unsigned)(now_ms / 1000u), (unsigned)((now_ms % 1000u) / 10u));
+    rb_gfx_text(&ss->fb, cap, x + 24.f, y + 16.f, "Logs", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    now_ms = bootlog_now();
+    fmt_log_time(elapsed, sizeof(elapsed), now_ms, 1);
     {
         int tw = rb_gfx_text_width(cap, elapsed);
         rb_gfx_text(&ss->fb, cap, x + w - 24.f - (float)tw, y + 16.f, elapsed,
@@ -710,13 +740,16 @@ void rb_debug_term_draw(rb_session *ss)
             dot = rb_token(RB_TOKEN_WARNING, 255);
         }
         rb_gfx_circle(&ss->fb, x + 28.f, text_y + 6.f, 2.5f, dot);
-        snprintf(tbuf, sizeof(tbuf), "%u.%02u",
-                 (unsigned)(ms / 1000u), (unsigned)((ms % 1000u) / 10u));
+        fmt_log_time(tbuf, sizeof(tbuf), ms, 0);
         rb_gfx_text(&ss->fb, cap, x + 36.f, text_y, tbuf, rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
         rb_gfx_text(&ss->fb, cap, x + 36.f + time_w, text_y, ss->boot_log[i], ink);
         text_y += line_h;
     }
     ss->boot_log_shown = ss->boot_log_seq;
+    if (keep_full) {
+        rb_fb_damage_full(&ss->fb);
+        return;
+    }
     ss->fb.damage_x = (int)x - 2;
     ss->fb.damage_y = (int)y - 2;
     ss->fb.damage_w = (int)w + 4;
@@ -730,7 +763,7 @@ void rb_debug_flush(rb_session *ss)
     if (!ui_debug_on(ss)) return;
     if (ss->boot_log_seq == ss->boot_log_shown && ss->splash_bg_ready)
         return;
-    if (!ss->splash_bg_ready)
+    if ((ss->phase == RB_PHASE_LOAD || ss->phase == RB_PHASE_SPLASH) && !ss->splash_bg_ready)
         rb_splash_draw(ss, ss->load_visual > 0.f ? ss->load_visual : 1.f, 1.f);
     else
         rb_debug_term_draw(ss);
@@ -740,10 +773,10 @@ void rb_debug_flush(rb_session *ss)
 void rb_verbose_draw(rb_session *ss)
 {
     if (!ss) return;
-    if (!ss->splash_bg_ready)
-        rb_splash_draw(ss, 1.f, 1.f);
-    else if (ui_debug_on(ss) && ss->boot_log_seq != ss->boot_log_shown)
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    if (ui_debug_on(ss))
         rb_debug_term_draw(ss);
+    rb_fb_damage_full(&ss->fb);
 }
 
 void rb_settings_draw(rb_session *ss)
@@ -793,6 +826,7 @@ void rb_settings_draw(rb_session *ss)
         if (on)
             rb_debug_term_draw(ss);
     }
+    rb_fb_damage_full(&ss->fb);
 }
 
 void rb_klog_draw(rb_session *ss)
@@ -802,10 +836,9 @@ void rb_klog_draw(rb_session *ss)
     const rb_font *body, *cap, *title;
     if (!ss) return;
     if (ui_debug_on(ss)) {
-        if (!ss->splash_bg_ready)
-            rb_splash_draw(ss, 1.f, 1.f);
-        else if (ss->boot_log_seq != ss->boot_log_shown)
-            rb_debug_term_draw(ss);
+        rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+        rb_debug_term_draw(ss);
+        rb_fb_damage_full(&ss->fb);
         return;
     }
     pad = ui_compact(ss) ? 22.f : 40.f;

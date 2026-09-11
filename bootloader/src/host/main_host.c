@@ -32,10 +32,15 @@ static void to_win_path(char *dst, size_t cap, const char *src)
 static uint64_t host_now_ms(void)
 {
     static LARGE_INTEGER freq;
+    static LARGE_INTEGER origin;
     LARGE_INTEGER c;
-    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    if (freq.QuadPart == 0) {
+        QueryPerformanceFrequency(&freq);
+        QueryPerformanceCounter(&origin);
+    }
     QueryPerformanceCounter(&c);
-    return (uint64_t)((c.QuadPart * 1000ull) / (uint64_t)freq.QuadPart);
+    if (c.QuadPart < origin.QuadPart) return 0;
+    return (uint64_t)(((c.QuadPart - origin.QuadPart) * 1000ull) / (uint64_t)freq.QuadPart);
 }
 
 static void host_sleep_ms(uint32_t ms)

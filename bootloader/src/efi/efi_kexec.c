@@ -188,6 +188,8 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     info->kernel_size = ksize;
     info->initrd_address = init_phys;
     info->initrd_size = init_size;
+    info->bootinfo_address = map_phys;
+    info->bootinfo_size = 8192;
     info->debug_term_x = (uint32_t)(h->debug_term_x > 0 ? h->debug_term_x : 0);
     info->debug_term_y = (uint32_t)(h->debug_term_y > 0 ? h->debug_term_y : 0);
     info->debug_term_w = (uint32_t)(h->debug_term_w > 0 ? h->debug_term_w : 0);
@@ -199,6 +201,9 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     rb_bootlogf(NULL, "Bootinfo  RSDP 0x%llx", (unsigned long long)info->rsdp_address);
     rb_bootlogf(NULL, "Bootinfo  kernel 0x%llx  %llu",
                 (unsigned long long)kbase, (unsigned long long)ksize);
+    rb_bootlogf(NULL, "Bootinfo  block 0x%llx  %llu",
+                (unsigned long long)info->bootinfo_address,
+                (unsigned long long)info->bootinfo_size);
     if (h->cmdline[0])
         rb_bootlogf(NULL, "Bootinfo  cmdline  %s", h->cmdline);
     if (debug)

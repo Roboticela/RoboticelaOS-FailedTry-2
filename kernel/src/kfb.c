@@ -38,6 +38,7 @@ void kfb_init(const RoboBootInfo *info)
     g_pitch = info->framebuffer_pitch / 4u;
     if (g_pitch < g_w) g_pitch = g_w;
     g_pixfmt = info->framebuffer_pixfmt;
+    kfb_clear(0x000000u);
 }
 
 void kfb_fill(int x, int y, int w, int h, uint32_t rgb)
@@ -136,7 +137,7 @@ void kfb_term_open(int x, int y, int w, int h)
     g_cy = 0;
     /* Title */
     {
-        const char *t = "Log";
+        const char *t = "Logs";
         int px = x + 24;
         int py = y + 16;
         while (*t) {

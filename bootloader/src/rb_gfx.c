@@ -9,6 +9,16 @@ void rb_gfx_clear(rb_surface *s, uint32_t c)
     if (!s || !s->px) return;
     n = s->w * s->h;
     for (i = 0; i < n; i++) s->px[i] = c;
+    rb_fb_damage_full(s);
+}
+
+void rb_fb_damage_full(rb_surface *s)
+{
+    if (!s) return;
+    s->damage_x = 0;
+    s->damage_y = 0;
+    s->damage_w = 0;
+    s->damage_h = 0;
 }
 
 void rb_gfx_dot(rb_surface *s, int x, int y, uint32_t c)

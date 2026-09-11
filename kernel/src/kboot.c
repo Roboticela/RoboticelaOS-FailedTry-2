@@ -177,6 +177,11 @@ void kboot_report(const RoboBootInfo *info)
         kfb_puts("  ", mute);
         kfb_putu(info ? info->initrd_size : 0, white);
         kfb_puts(" bytes\n", mute);
+        kfb_puts("Bootinfo  ", mute);
+        kfb_puthex(info ? info->bootinfo_address : 0, white);
+        kfb_puts("  ", mute);
+        kfb_putu(info ? info->bootinfo_size : 0, white);
+        kfb_puts(" bytes\n", mute);
         if (info && info->cmdline[0]) {
             kfb_puts("Cmdline  ", mute);
             kfb_puts(info->cmdline, white);

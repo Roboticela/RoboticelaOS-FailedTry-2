@@ -321,6 +321,7 @@ rb_status rb_font_load_mem(const void *data, size_t len, rb_font *out);
 void rb_font_free(rb_font *f);
 
 void rb_gfx_clear(rb_surface *s, uint32_t c);
+void rb_fb_damage_full(rb_surface *s);
 void rb_gfx_dot(rb_surface *s, int x, int y, uint32_t c);
 void rb_gfx_fill_box(rb_surface *s, int x, int y, int w, int h, uint32_t c);
 void rb_gfx_fill_rect(rb_surface *s, float x, float y, float w, float h, uint32_t c);

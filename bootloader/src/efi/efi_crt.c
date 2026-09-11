@@ -257,36 +257,62 @@ int vsnprintf(char *s, size_t n, const char *fmt, va_list ap)
             fmt++;
             continue;
         }
-        if (*fmt == 's') {
-            const char *p = va_arg(ap, const char *);
-            if (!p) p = "(null)";
-            while (*p && left > 1) { *out++ = *p++; left--; }
-            fmt++;
-        } else if (*fmt == 'c') {
-            char c = (char)va_arg(ap, int);
-            *out++ = c;
-            left--;
-            fmt++;
-        } else if (*fmt == 'd') {
-            int v = va_arg(ap, int);
-            if (v < 0 && left > 1) { *out++ = '-'; left--; v = -v; }
-            fmt_num(&out, &left, (unsigned long long)(unsigned)v, 10, 0);
-            fmt++;
-        } else if (*fmt == 'u') {
-            fmt_num(&out, &left, va_arg(ap, unsigned), 10, 0);
-            fmt++;
-        } else if (*fmt == 'x') {
-            fmt_num(&out, &left, va_arg(ap, unsigned), 16, 0);
-            fmt++;
-        } else if (fmt[0] == 'z' && fmt[1] == 'u') {
-            fmt_num(&out, &left, (unsigned long long)va_arg(ap, size_t), 10, 0);
-            fmt += 2;
-        } else if (fmt[0] == 'l' && fmt[1] == 'l' && fmt[2] == 'x') {
-            fmt_num(&out, &left, va_arg(ap, unsigned long long), 16, 0);
-            fmt += 3;
-        } else {
-            *out++ = '%';
-            left--;
+        {
+            int width = 0;
+            int zero = 0;
+            while (*fmt == '-' || *fmt == '+' || *fmt == ' ' || *fmt == '#' || *fmt == '0') {
+                if (*fmt == '0') zero = 1;
+                fmt++;
+            }
+            while (*fmt >= '0' && *fmt <= '9') {
+                width = width * 10 + (*fmt - '0');
+                fmt++;
+            }
+            if (*fmt == '.') {
+                int prec = 0;
+                fmt++;
+                while (*fmt >= '0' && *fmt <= '9') {
+                    prec = prec * 10 + (*fmt - '0');
+                    fmt++;
+                }
+                if (prec > width) width = prec;
+                zero = 1;
+            }
+            if (!zero) width = 0;
+            if (*fmt == 's') {
+                const char *p = va_arg(ap, const char *);
+                if (!p) p = "(null)";
+                while (*p && left > 1) { *out++ = *p++; left--; }
+                fmt++;
+            } else if (*fmt == 'c') {
+                char c = (char)va_arg(ap, int);
+                *out++ = c;
+                left--;
+                fmt++;
+            } else if (*fmt == 'd') {
+                int v = va_arg(ap, int);
+                if (v < 0 && left > 1) { *out++ = '-'; left--; v = -v; }
+                fmt_num(&out, &left, (unsigned long long)(unsigned)v, 10, width);
+                fmt++;
+            } else if (*fmt == 'u') {
+                fmt_num(&out, &left, va_arg(ap, unsigned), 10, width);
+                fmt++;
+            } else if (*fmt == 'x') {
+                fmt_num(&out, &left, va_arg(ap, unsigned), 16, width);
+                fmt++;
+            } else if (fmt[0] == 'z' && fmt[1] == 'u') {
+                fmt_num(&out, &left, (unsigned long long)va_arg(ap, size_t), 10, width);
+                fmt += 2;
+            } else if (fmt[0] == 'l' && fmt[1] == 'l' && fmt[2] == 'x') {
+                fmt_num(&out, &left, va_arg(ap, unsigned long long), 16, width);
+                fmt += 3;
+            } else if (fmt[0] == 'l' && fmt[1] == 'l' && fmt[2] == 'u') {
+                fmt_num(&out, &left, va_arg(ap, unsigned long long), 10, width);
+                fmt += 3;
+            } else {
+                *out++ = '%';
+                left--;
+            }
         }
     }
     *out = 0;

@@ -13,7 +13,16 @@ try {
     if (-not $SkipBuild) { Invoke-RoboBuildTest }
     if (-not (Test-Path $script:TestOut)) { throw "roboboot-test.exe missing - build first" }
     & $script:TestOut $script:Boot
-    exit $LASTEXITCODE
+    $bootStatus = $LASTEXITCODE
+    try {
+        Invoke-RoboTestPmm
+    } catch {
+        if ($bootStatus -eq 0) { throw }
+        Write-Host "PMM host tests failed"
+        exit 1
+    }
+    if ($bootStatus -ne 0) { exit $bootStatus }
+    exit 0
 }
 finally {
     Pop-Location

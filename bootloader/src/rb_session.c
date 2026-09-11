@@ -356,6 +356,13 @@ static rb_status try_boot(rb_session *ss, int idx)
     return st;
 }
 
+static void present_full(rb_session *ss)
+{
+    if (!ss || !ss->plat || !ss->plat->present) return;
+    rb_fb_damage_full(&ss->fb);
+    ss->plat->present(&ss->fb);
+}
+
 static void begin_boot_selected(rb_session *ss)
 {
     ss->boot_index = ss->selected;
@@ -365,14 +372,13 @@ static void begin_boot_selected(rb_session *ss)
         rb_bootlog(ss, "Phase  verbose hold");
         ss->phase = RB_PHASE_VERBOSE;
         ss->timeout_left_ms = 900;
+        rb_verbose_draw(ss);
+        present_full(ss);
         return;
     }
-    /* Leave the picker immediately so a quiet kernel does not freeze the menu. */
-    ss->splash_bg_ready = 0;
-    ss->fb.damage_w = 0;
-    ss->fb.damage_h = 0;
-    rb_splash_draw(ss, 1.f, 1.f);
-    if (ss->plat->present) ss->plat->present(&ss->fb);
+    rb_bootlog(ss, "Paint  handoff");
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    present_full(ss);
     ss->phase = RB_PHASE_HANDOFF;
 }
 
@@ -461,7 +467,10 @@ int rb_session_tick(rb_session *ss)
                     ss->phase = RB_PHASE_PICKER;
                     ss->fade = 1.f;
                     ss->sel_anim = 1.f;
-                    ss->picker_drawn = 0;
+                    ss->picker_drawn = 1;
+                    rb_bootlog(ss, "Paint  picker");
+                    rb_picker_draw(ss);
+                    present_full(ss);
                 } else {
                     ss->selected = rb_policy_resolve_index(&ss->catalog, &ss->env, 0);
                     begin_boot_selected(ss);

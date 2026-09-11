@@ -6,6 +6,7 @@ PHDRS {
 
 SECTIONS {
     . = 0x401000;
+    __kernel_start = .;
 
     .text : {
         KEEP(*(.text.boot))
@@ -24,4 +25,6 @@ SECTIONS {
         *(.bss*)
         *(COMMON)
     } :load
+
+    __kernel_end = .;
 }
