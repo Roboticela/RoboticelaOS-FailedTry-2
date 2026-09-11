@@ -17,7 +17,8 @@
  *   0xFFFF800000000000  ROBO_VMM_TEST_BASE
  *       Reserved test window (not identity mapped).
  *   0xFFFF800000100000  ROBO_VMM_HEAP_BASE
- *       Reserved for a future kernel heap. Not mapped yet.
+ *       Kernel heap window (Phase 4). Pages are mapped on demand
+ *       through kmalloc growth; the range itself is reserved here.
  *
  * Empty intermediate page tables are not freed on unmap.
  * Unmap does not return data pages to the PMM.

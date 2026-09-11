@@ -1,6 +1,7 @@
 #include "kio.h"
 #include "mm/pmm.h"
 #include "mm/vmm/vmm.h"
+#include "mm/heap/heap.h"
 
 void kmain(const RoboBootInfo *info)
 {
@@ -30,6 +31,7 @@ void kmain(const RoboBootInfo *info)
     if (!robo_pmm_init(info)) {
         kprintf("PMM_TEST_FAIL\n");
         kprintf("VMM_TEST_FAIL\n");
+        kprintf("HEAP_TEST_FAIL\n");
     } else {
         robo_pmm_report();
         if (kboot_debug(info))
@@ -41,6 +43,7 @@ void kmain(const RoboBootInfo *info)
 
         if (!robo_vmm_init(info)) {
             kprintf("VMM_TEST_FAIL\n");
+            kprintf("HEAP_TEST_FAIL\n");
         } else {
             robo_vmm_report();
             if (kboot_debug(info))
@@ -49,6 +52,18 @@ void kmain(const RoboBootInfo *info)
                 kprintf("VMM_TEST_OK\n");
             else
                 kprintf("VMM_TEST_FAIL\n");
+
+            if (!robo_heap_init()) {
+                kprintf("HEAP_TEST_FAIL\n");
+            } else {
+                robo_heap_report();
+                if (kboot_debug(info))
+                    robo_heap_fb_report();
+                if (robo_heap_selftest())
+                    kprintf("HEAP_TEST_OK\n");
+                else
+                    kprintf("HEAP_TEST_FAIL\n");
+            }
         }
     }
 

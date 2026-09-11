@@ -396,6 +396,8 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "mm\vmm\table.c"),
         (Join-Path $kroot "mm\vmm\vmm.c"),
         (Join-Path $kroot "mm\vmm\vmm_test.c"),
+        (Join-Path $kroot "mm\heap\heap.c"),
+        (Join-Path $kroot "mm\heap\heap_test.c"),
         (Join-Path $kroot "arch\x86_64\mm\paging_cpu.c"),
         $kfont
     )
@@ -403,6 +405,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "include"),
         (Join-Path $kroot "mm"),
         (Join-Path $kroot "mm\vmm"),
+        (Join-Path $kroot "mm\heap"),
         (Join-Path $kroot "arch\x86_64\mm"),
         (Join-Path $script:Boot "include\roboticela")
     )

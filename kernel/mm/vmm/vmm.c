@@ -320,6 +320,9 @@ void robo_vmm_report(void)
     kprintf("Identity:        0x0-0x%llx\n", (unsigned long long)g_vmm.ident_limit);
     kprintf("Table pages:     %llu\n", (unsigned long long)g_vmm.table_pages);
     kprintf("Test window:     0x%llx\n", (unsigned long long)ROBO_VMM_TEST_BASE);
+    kprintf("Heap window:     0x%llx-0x%llx\n",
+            (unsigned long long)ROBO_VMM_HEAP_BASE,
+            (unsigned long long)(ROBO_VMM_HEAP_BASE + 256ull * 1024ull * 1024ull));
 }
 
 #ifndef VMM_HOST_TEST
