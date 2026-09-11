@@ -190,6 +190,7 @@ rb_status rb_manifest_load_path(const char *path, rb_catalog *out)
     if (!rb_plat || !rb_plat->read_file) return RB_ERR_IO;
     st = rb_plat->read_file(path, &data, &len);
     if (st != RB_OK) return st;
+    rb_bootlogf(NULL, "Catalog  read  %zu bytes", len);
     {
         char *text = (char *)rb_alloc(len + 1);
         if (!text) {

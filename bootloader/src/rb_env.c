@@ -94,7 +94,11 @@ rb_status rb_env_load(const char *path, rb_env *out)
     rb_strcpy(out->path, sizeof(out->path), path ? path : "");
     if (!path || !path[0] || !rb_plat || !rb_plat->read_file) return RB_OK;
     st = rb_plat->read_file(path, &data, &len);
-    if (st != RB_OK) return RB_OK; /* missing env is fine */
+    if (st != RB_OK) {
+        rb_bootlogf(NULL, "Env  missing  %s", path);
+        return RB_OK; /* missing env is fine */
+    }
+    rb_bootlogf(NULL, "Env  read  %s  %zu bytes", path, len);
     text = (char *)rb_alloc(len + 1);
     if (!text) {
         rb_free(data);
@@ -125,6 +129,8 @@ rb_status rb_env_save(const rb_env *env)
     block[RB_ENV_BLOCK - 1] = '#';
     st = rb_plat->write_file(env->path, block, RB_ENV_BLOCK);
     if (st != RB_OK)
-        rb_logf("env save failed (%d) %s", st, env->path);
+        rb_bootlogf(NULL, "Env  write failed  (%d)  %s", st, env->path);
+    else
+        rb_bootlogf(NULL, "Env  write  %s  %d bytes", env->path, RB_ENV_BLOCK);
     return st;
 }

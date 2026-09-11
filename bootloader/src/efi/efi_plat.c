@@ -30,7 +30,6 @@ static EFI_GUID k_li_guid = {0x5b1b31a1, 0x9562, 0x11d2, {0x8e, 0x3f, 0x00, 0xa0
 static EFI_GUID k_fs_guid = {0x964e5b22, 0x6459, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 static EFI_GUID k_inex_guid = {0xdd9e7534, 0x7762, 0x4698, {0x8c, 0x14, 0xf5, 0x85, 0x17, 0xa6, 0x25, 0xaa}};
 static EFI_GUID k_fileinfo_guid = {0x09576e92, 0x6d3f, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
-static EFI_GUID k_pci_io_guid = {0x4cf5b200, 0x68b8, 0x4ca5, {0x9e, 0xec, 0xb2, 0x3e, 0x3f, 0x50, 0x02, 0x9a}};
 static EFI_GUID k_usb_io_guid = {0x2B2F68D6, 0x0CD2, 0x4cb0, {0xB3, 0x62, 0x6F, 0x19, 0x1E, 0xA2, 0x2F, 0x96}};
 static EFI_GUID k_conin_guid = {0x387477c1, 0x69c7, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 
@@ -205,15 +204,14 @@ static void efi_connect_handles(EFI_GUID *guid)
 
 static int efi_kick_usb(void)
 {
-    static int pci_once;
+    static int kicks;
     if (g_selftest) return 0;
-    if (g_usb_kick_ms && g_stall_ms < g_usb_kick_ms + 400)
+    if (kicks >= 3) return 0;
+    if (g_usb_kick_ms && g_stall_ms < g_usb_kick_ms + 800)
         return 0;
     g_usb_kick_ms = g_stall_ms ? g_stall_ms : 1;
-    if (!pci_once) {
-        efi_connect_handles(&k_pci_io_guid);
-        pci_once = 1;
-    }
+    kicks++;
+    rb_bootlogf(NULL, "USB  connect  pass %d", kicks);
     efi_connect_handles(&k_usb_io_guid);
     if (gST && gST->ConsoleInHandle && gBS->ConnectController)
         gBS->ConnectController(gST->ConsoleInHandle, 0, 0, 1);
@@ -234,6 +232,7 @@ static void efi_add_ex(EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex)
     g_inex_list[g_inex_n++] = ex;
     if (!g_inex) g_inex = ex;
     efi_register_picker(ex);
+    rb_bootlogf(NULL, "Keyboard  SimpleTextInputEx  #%d", g_inex_n);
 }
 
 static void efi_add_cin(EFI_SIMPLE_TEXT_INPUT_PROTOCOL *cin)
@@ -243,6 +242,7 @@ static void efi_add_cin(EFI_SIMPLE_TEXT_INPUT_PROTOCOL *cin)
     for (j = 0; j < g_cin_n; j++)
         if (g_cin_list[j] == cin) return;
     g_cin_list[g_cin_n++] = cin;
+    rb_bootlogf(NULL, "Keyboard  ConIn  #%d", g_cin_n);
 }
 
 static void efi_bind_keyboards(void)
@@ -522,18 +522,22 @@ static void efi_log_plat(const char *msg)
 
 static rb_status efi_boot(const rb_target *t, const rb_handoff *h)
 {
-    rb_logf("QEMU handoff id=%s kind=%s kernel=%zu", t->id, rb_kind_name(t->kind),
-            h && h->kernel.valid ? h->kernel.size : 0);
+    if (g_selftest) {
+        rb_bootlog(NULL, "Boot  selftest skip jump");
+        return RB_OK;
+    }
+    rb_bootlogf(NULL, "Boot  %s  %s  kernel %zu", t->id, rb_kind_name(t->kind),
+                h && h->kernel.valid ? h->kernel.size : 0);
     rb_strcpy(g_last_boot, sizeof(g_last_boot), t->id);
-    if (g_selftest) return RB_OK;
     if (t->kind == RB_KIND_KERNEL || t->kind == RB_KIND_LINUX || t->kind == RB_KIND_MULTIBOOT2)
         return efi_start_kernel(t, h, h && h->debug);
+    rb_bootlog(NULL, "Boot  no kernel jump");
     return RB_OK;
 }
 
 static rb_status efi_fw(void)
 {
-    rb_logf("firmware setup (EFI)");
+    rb_bootlog(NULL, "Firmware  setup");
     rb_strcpy(g_last_boot, sizeof(g_last_boot), "firmware");
     if (gRT) gRT->ResetSystem(EfiResetCold, EFI_SUCCESS, 0, 0);
     return RB_OK;
@@ -622,6 +626,18 @@ static void efi_take_graphics(void)
     if (!g_gop && gST && gST->ConsoleOutHandle)
         gBS->HandleProtocol(gST->ConsoleOutHandle, &k_gop_guid, (void **)&g_gop);
     if (g_gop) pick_gop_mode();
+    if (g_gop && g_gop->Mode) {
+        rb_bootlogf(NULL, "GOP  protocol  mode %u", (unsigned)g_gop->Mode->Mode);
+        rb_bootlogf(NULL, "GOP  %d x %d  stride %u  fmt %u",
+                    g_w, g_h, (unsigned)g_stride, (unsigned)g_pixfmt);
+        rb_bootlogf(NULL, "GOP  framebuffer  0x%llx  %u bytes/scan",
+                    (unsigned long long)(g_gop->Mode->FrameBufferBase ?
+                                         (uint64_t)g_gop->Mode->FrameBufferBase : 0),
+                    (unsigned)(g_stride * 4u));
+        rb_bootlogf(NULL, "GOP  Blt %s  FB %s",
+                    g_gop->Blt ? "yes" : "no", g_fb ? "mapped" : "none");
+    } else
+        rb_bootlog(NULL, "GOP  missing");
 }
 
 static rb_platform g_plat;
@@ -635,10 +651,13 @@ static int try_open_volume(EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *fs)
         return 0;
     g_root = root;
     if (efi_read("config/roboboot.manifest", &blob, &blob_len) == RB_OK) {
+        rb_bootlogf(NULL, "ESP  manifest  %zu bytes", blob_len);
         free(blob);
         return 1;
     }
+    rb_bootlog(NULL, "ESP  no manifest on this volume");
     if (efi_read("qemu.flags", &blob, &blob_len) == RB_OK) {
+        rb_bootlogf(NULL, "ESP  qemu.flags  %zu bytes", blob_len);
         free(blob);
         return 1;
     }
@@ -656,6 +675,7 @@ static int open_esp(EFI_HANDLE image)
     UINTN i;
 
     if (gBS->HandleProtocol(image, &k_li_guid, (void **)&li) == EFI_SUCCESS && li && li->DeviceHandle) {
+        rb_bootlog(NULL, "ESP  LoadedImage  device handle");
         if (gBS->ConnectController)
             gBS->ConnectController(li->DeviceHandle, 0, 0, 1);
         if (gBS->HandleProtocol(li->DeviceHandle, &k_fs_guid, (void **)&fs) == EFI_SUCCESS && fs) {
@@ -673,6 +693,7 @@ static int open_esp(EFI_HANDLE image)
         return 0;
     if (gBS->LocateHandleBuffer(EFI_LOCATE_BY_PROTOCOL, &k_fs_guid, 0, &count, &handles) != EFI_SUCCESS)
         return 0;
+    rb_bootlogf(NULL, "ESP  scan  %u file systems", (unsigned)count);
     for (i = 0; i < count; i++) {
         fs = 0;
         if (gBS->HandleProtocol(handles[i], &k_fs_guid, (void **)&fs) != EFI_SUCCESS || !fs)
@@ -695,7 +716,14 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
     efi_init_lib(image, st);
     if (!gBS) return 0;
     g_stall_ms = 0;
-    efi_log("RoboBoot EFI start");
+    rb_bootlog(NULL, "EfiMain");
+    rb_bootlog(NULL, "Boot services");
+    if (gRT)
+        rb_bootlog(NULL, "Runtime services");
+    if (gBS->SetWatchdogTimer) {
+        gBS->SetWatchdogTimer(0, 0, 0, 0);
+        rb_bootlog(NULL, "Watchdog  off");
+    }
 
     g_plat.now_ms = efi_now_ms;
     g_plat.sleep_ms = efi_sleep_ms;
@@ -711,12 +739,16 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
     g_plat.halt = efi_halt;
     g_plat.root = "";
     rb_plat = &g_plat;
+    rb_bootlog(NULL, "Platform  table ready");
 
     if (!open_esp(image))
-        efi_log("RoboBoot ESP not found");
+        rb_bootlog(NULL, "ESP  missing");
+    else
+        rb_bootlog(NULL, "ESP  mounted");
 
     if (efi_read("qemu.flags", &blob, &blob_len) == RB_OK) {
         char *text = (char *)malloc(blob_len + 1);
+        rb_bootlogf(NULL, "Flags  qemu.flags  %zu bytes", blob_len);
         if (text) {
             memcpy(text, blob, blob_len);
             text[blob_len] = 0;
@@ -724,22 +756,26 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
             free(text);
         }
         free(blob);
-    }
+        rb_bootlogf(NULL, "Flags  selftest=%d  menu=%d  splash=%d",
+                    g_selftest, g_menu, g_splash_ms);
+    } else
+        rb_bootlog(NULL, "Flags  none");
 
     efi_install_boot_entry();
 
     if (!g_selftest) {
-        efi_log("RoboBoot taking graphics");
+        rb_bootlog(NULL, "Graphics  take GOP");
         efi_hide_firmware_cursor();
+        rb_bootlog(NULL, "Console  cursor off");
         efi_take_graphics();
-        efi_log("RoboBoot graphics ready");
         efi_kick_usb();
         efi_bind_keyboards();
-        efi_log("RoboBoot keyboards ready");
-    }
+        rb_bootlogf(NULL, "Keyboard  %d extended  %d simple", g_inex_n, g_cin_n);
+    } else
+        rb_bootlog(NULL, "Selftest  skip graphics");
 
-    rb_logf("RoboBoot EFI GOP=%dx%d fs=%s selftest=%d menu=%d",
-            g_w, g_h, g_root ? "ok" : "missing", g_selftest, g_menu);
+    rb_bootlogf(NULL, "Ready  GOP %dx%d  ESP %s  menu %d",
+                g_w, g_h, g_root ? "ok" : "missing", g_menu);
     return g_root != 0;
 }
 

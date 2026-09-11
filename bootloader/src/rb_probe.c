@@ -33,11 +33,21 @@ static void on_vol(const char *name, int is_dir, void *user)
     rb_strcpy(v->path, sizeof(v->path), path);
     rb_strcpy(v->fs, sizeof(v->fs), "hostfs");
     rb_join(probe, sizeof(probe), path, "kernel.elf");
-    if (file_exists(probe)) v->has_kernel = 1;
+    if (file_exists(probe)) {
+        v->has_kernel = 1;
+        rb_bootlogf(NULL, "Probe  %s/kernel.elf", name);
+    }
     rb_join(probe, sizeof(probe), path, "sys/kernel.elf");
-    if (file_exists(probe)) v->has_kernel = 1;
+    if (file_exists(probe)) {
+        v->has_kernel = 1;
+        rb_bootlogf(NULL, "Probe  %s/sys/kernel.elf", name);
+    }
     rb_join(probe, sizeof(probe), path, "EFI/Microsoft/Boot/bootmgfw.efi");
-    if (file_exists(probe)) v->has_efi = 1;
+    if (file_exists(probe)) {
+        v->has_efi = 1;
+        rb_bootlogf(NULL, "Probe  %s  Windows bootmgfw", name);
+    }
+    rb_bootlogf(NULL, "Probe  dir  %s", name);
     ctx->out->nvols++;
 }
 

@@ -102,44 +102,76 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     uint64_t entry;
 
     (void)t;
-    if (!h || !h->kernel.valid || !h->kernel.bytes) return RB_ERR;
+    rb_bootlog(NULL, "Kexec  start");
+    if (!h || !h->kernel.valid || !h->kernel.bytes) {
+        rb_bootlog(NULL, "Kexec  no kernel bytes");
+        return RB_ERR;
+    }
     nph = rb_elf64_phdrs(h->kernel.bytes, h->kernel.size, ph, RB_MAX_PHDRS);
-    if (nph < 1) return RB_ERR_FORMAT;
+    if (nph < 1) {
+        rb_bootlog(NULL, "Kexec  no PT_LOAD");
+        return RB_ERR_FORMAT;
+    }
     entry = h->kernel.entry;
+    rb_bootlogf(NULL, "Kexec  %d PT_LOAD  entry 0x%llx", nph, (unsigned long long)entry);
 
     for (i = 0; i < nph; i++) {
         uint64_t start = ph[i].vaddr;
         uint64_t end = ph[i].vaddr + ph[i].memsz;
         if (start < kmin) kmin = start;
         if (end > kmax) kmax = end;
+        rb_bootlogf(NULL, "Kexec  range  0x%llx-0x%llx",
+                    (unsigned long long)start, (unsigned long long)end);
     }
     kbase = kmin;
     ksize = kmax - kmin;
     if (ksize == 0) return RB_ERR_FORMAT;
+    rb_bootlogf(NULL, "Kexec  AllocateAddress  0x%llx  %llu bytes",
+                (unsigned long long)kbase, (unsigned long long)ksize);
     if (!alloc_pages_at(kbase, ksize)) {
-        rb_logf("kernel AllocateAddress 0x%llx failed", (unsigned long long)kbase);
+        rb_bootlogf(NULL, "Kexec  map failed  0x%llx", (unsigned long long)kbase);
         return RB_ERR_NOMEM;
     }
+    rb_bootlog(NULL, "Kexec  zero pages");
     memset((void *)(uintptr_t)kbase, 0, (size_t)ksize);
     for (i = 0; i < nph; i++) {
         if (ph[i].filesz) {
-            if (ph[i].offset + ph[i].filesz > h->kernel.size) return RB_ERR_FORMAT;
+            if (ph[i].offset + ph[i].filesz > h->kernel.size) {
+                rb_bootlog(NULL, "Kexec  PHDR file overflow");
+                return RB_ERR_FORMAT;
+            }
+            rb_bootlogf(NULL, "Kexec  copy  0x%llx  %llu bytes",
+                        (unsigned long long)ph[i].vaddr, (unsigned long long)ph[i].filesz);
             memcpy((void *)(uintptr_t)ph[i].vaddr,
                    h->kernel.bytes + ph[i].offset, (size_t)ph[i].filesz);
-        }
+        } else
+            rb_bootlogf(NULL, "Kexec  bss  0x%llx  %llu",
+                        (unsigned long long)ph[i].vaddr, (unsigned long long)ph[i].memsz);
     }
+    if (debug)
+        rb_debug_flush(NULL);
 
     if (h->ramdisk.valid && h->ramdisk.size) {
         void *p = alloc_pages_any(h->ramdisk.size, &init_phys);
-        if (!p) return RB_ERR_NOMEM;
+        if (!p) {
+            rb_bootlog(NULL, "Kexec  InitFS alloc failed");
+            return RB_ERR_NOMEM;
+        }
         memcpy(p, h->ramdisk.bytes, h->ramdisk.size);
         init_size = h->ramdisk.size;
-    }
+        rb_bootlogf(NULL, "Kexec  InitFS  0x%llx  %llu bytes",
+                    (unsigned long long)init_phys, (unsigned long long)init_size);
+    } else
+        rb_bootlog(NULL, "Kexec  no InitFS");
 
     info = (RoboBootInfo *)alloc_pages_any(8192, &map_phys);
-    if (!info) return RB_ERR_NOMEM;
+    if (!info) {
+        rb_bootlog(NULL, "Kexec  bootinfo alloc failed");
+        return RB_ERR_NOMEM;
+    }
     memset(info, 0, 8192);
     regions = (RoboMemoryRegion *)(info + 1);
+    rb_bootlogf(NULL, "Kexec  bootinfo  0x%llx", (unsigned long long)map_phys);
 
     efi_graphics_info(&fb, &fw, &fh, &pitch, &bpp, &pixfmt);
     info->magic = ROBO_BOOTINFO_MAGIC;
@@ -161,6 +193,16 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     info->debug_term_w = (uint32_t)(h->debug_term_w > 0 ? h->debug_term_w : 0);
     info->debug_term_h = (uint32_t)(h->debug_term_h > 0 ? h->debug_term_h : 0);
     rb_strcpy(info->cmdline, sizeof(info->cmdline), h->cmdline);
+    rb_bootlogf(NULL, "Bootinfo  magic ROBO  flags 0x%x", (unsigned)info->flags);
+    rb_bootlogf(NULL, "Bootinfo  fb 0x%llx  %ux%u  pitch %u  fmt %u",
+                (unsigned long long)fb, (unsigned)fw, (unsigned)fh, (unsigned)pitch, (unsigned)pixfmt);
+    rb_bootlogf(NULL, "Bootinfo  RSDP 0x%llx", (unsigned long long)info->rsdp_address);
+    rb_bootlogf(NULL, "Bootinfo  kernel 0x%llx  %llu",
+                (unsigned long long)kbase, (unsigned long long)ksize);
+    if (h->cmdline[0])
+        rb_bootlogf(NULL, "Bootinfo  cmdline  %s", h->cmdline);
+    if (debug)
+        rb_debug_flush(NULL);
     if (debug) {
         const char *p = info->cmdline;
         int has = 0;
@@ -180,13 +222,16 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     }
 
     map_size = 0;
-    if (!gBS || !gBS->GetMemoryMap || !gBS->ExitBootServices) return RB_ERR;
-    rb_logf("starting kernel at 0x%llx", (unsigned long long)entry);
-    if (debug)
-        rb_bootlogf(NULL, "Starting kernel at 0x%llx", (unsigned long long)entry);
+    if (!gBS || !gBS->GetMemoryMap || !gBS->ExitBootServices) {
+        rb_bootlog(NULL, "Kexec  memory map API missing");
+        return RB_ERR;
+    }
+    rb_bootlog(NULL, "Kexec  GetMemoryMap size");
     gBS->GetMemoryMap(&map_size, 0, &map_key, &desc_size, &desc_ver);
     extra = desc_size * 8;
     map_size += extra;
+    rb_bootlogf(NULL, "Kexec  map buffer  %u  desc %u  ver %u",
+                (unsigned)map_size, (unsigned)desc_size, (unsigned)desc_ver);
     efi_map = (EFI_MEMORY_DESCRIPTOR *)malloc(map_size);
     if (!efi_map) return RB_ERR_NOMEM;
 
@@ -213,18 +258,20 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
             info->memory_map = (uint64_t)(uintptr_t)regions;
             info->memory_map_count = count;
         }
+        rb_bootlogf(NULL, "Kexec  memory map  %u regions  try %d",
+                    (unsigned)info->memory_map_count, i + 1);
         if (debug && i == 0) {
-            rb_bootlogf(NULL, "Kernel mapped  0x%llx  %llu bytes",
-                        (unsigned long long)kbase, (unsigned long long)ksize);
-            rb_bootlogf(NULL, "Memory map  %u regions", (unsigned)info->memory_map_count);
-            rb_bootlog(NULL, "ExitBootServices");
+            rb_bootlog(NULL, "Kexec  ExitBootServices");
             rb_debug_flush(NULL);
         }
         st = gBS->ExitBootServices(gImage, map_key);
         if (st == EFI_SUCCESS) {
+            rb_bootlogf(NULL, "Kexec  jump  0x%llx", (unsigned long long)entry);
             jump_kernel(entry, info);
             return RB_ERR_FAIL;
         }
+        rb_bootlogf(NULL, "Kexec  ExitBootServices retry  status 0x%llx",
+                    (unsigned long long)st);
         map_size = size + extra;
         free(efi_map);
         efi_map = (EFI_MEMORY_DESCRIPTOR *)malloc(map_size);

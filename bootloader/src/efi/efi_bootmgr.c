@@ -1,4 +1,5 @@
 #include "efi.h"
+#include "roboboot.h"
 
 #include <string.h>
 
@@ -105,7 +106,8 @@ static void log_st(const char *msg, EFI_STATUS st)
             buf[i++] = tmp[n];
     }
     buf[i] = 0;
-    efi_log(buf);
+        efi_log(buf);
+        rb_bootlog(NULL, buf);
 }
 
 static EFI_STATUS get_var(CHAR16 *name, void *data, UINTN *sz)
@@ -342,19 +344,19 @@ void efi_install_boot_entry(void)
     }
     devpath = get_parent_devpath(li);
     if (!devpath) {
-        efi_log("RoboBoot firmware boot entry DevicePath missing");
+        rb_bootlog(NULL, "BootOrder  DevicePath missing");
         return;
     }
 
     full = make_file_path(devpath);
     if (!full) {
-        efi_log("RoboBoot firmware boot entry path alloc failed");
+        rb_bootlog(NULL, "BootOrder  path alloc failed");
         return;
     }
     opt = make_load_option(full, &opt_sz);
     gBS->FreePool(full);
     if (!opt) {
-        efi_log("RoboBoot firmware boot entry option alloc failed");
+        rb_bootlog(NULL, "BootOrder  option alloc failed");
         return;
     }
 
@@ -363,7 +365,7 @@ void efi_install_boot_entry(void)
     if (find_ours(&slot))
         existed = 1;
     else if (!pick_slot(boot_order, norder, &slot)) {
-        efi_log("RoboBoot firmware boot entry no Boot slot");
+        rb_bootlog(NULL, "BootOrder  no Boot#### slot");
         gBS->FreePool(opt);
         if (boot_order) gBS->FreePool(boot_order);
         return;
@@ -380,7 +382,7 @@ void efi_install_boot_entry(void)
     set_boot_order(slot, boot_order, norder);
     if (boot_order) gBS->FreePool(boot_order);
     if (existed)
-        efi_log("RoboBoot firmware boot entry RoboticelaOS is current");
+        rb_bootlog(NULL, "BootOrder  RoboticelaOS already current");
     else
-        efi_log("RoboBoot installed firmware boot entry RoboticelaOS");
+        rb_bootlogf(NULL, "BootOrder  installed  Boot%04X", slot);
 }

@@ -1,5 +1,6 @@
 #include "roboboot.h"
 
+#include <stdio.h>
 #include <string.h>
 
 rb_status rb_elf64_info(const uint8_t *data, size_t len, uint64_t *entry, uint64_t *phoff, int *phnum)
@@ -82,12 +83,17 @@ static rb_status load_blob(const char *root, const rb_target *t, const char *rel
     rb_zero(blob, sizeof(*blob));
     if (!rel || !rel[0]) return RB_OK;
     resolve_payload(root, t, rel, path, sizeof(path));
+    rb_bootlogf(NULL, "Blob  open  %s", path);
     if (!rb_plat || !rb_plat->read_file) return RB_ERR_IO;
     st = rb_plat->read_file(path, &data, &len);
-    if (st != RB_OK) return st;
+    if (st != RB_OK) {
+        rb_bootlogf(NULL, "Blob  failed  %s  (%d)", path, st);
+        return st;
+    }
     blob->bytes = (uint8_t *)data;
     blob->size = len;
     blob->valid = 1;
+    rb_bootlogf(NULL, "Blob  %zu bytes  %s", len, path);
     return RB_OK;
 }
 
@@ -109,35 +115,61 @@ rb_status rb_loader_prepare(const rb_target *t, const char *root, rb_handoff *h)
     rb_handoff_free(h);
     h->protocol = t->kind;
     rb_strcpy(h->cmdline, sizeof(h->cmdline), t->args);
+    rb_bootlogf(NULL, "Prepare  %s  %s", t->id, rb_kind_name(t->kind));
 
-    if (t->kind == RB_KIND_FIRMWARE || t->kind == RB_KIND_REBOOT || t->kind == RB_KIND_HALT)
+    if (t->kind == RB_KIND_FIRMWARE || t->kind == RB_KIND_REBOOT || t->kind == RB_KIND_HALT) {
+        rb_bootlog(NULL, "Prepare  no payload");
         return RB_OK;
+    }
 
     if (t->kind == RB_KIND_EFI_CHAIN) {
+        rb_bootlog(NULL, "Prepare  EFI chain");
         st = load_blob(root, t, t->chain[0] ? t->chain : t->kernel, &h->kernel);
         return st;
     }
 
+    rb_bootlog(NULL, "Prepare  kernel ELF");
     st = load_blob(root, t, t->kernel, &h->kernel);
     if (st != RB_OK) return st;
 
     if (t->kind == RB_KIND_KERNEL || t->kind == RB_KIND_MULTIBOOT2) {
         uint64_t entry = 0, phoff = 0;
-        int phnum = 0;
+        int phnum = 0, nph, pi;
+        rb_phdr ph[RB_MAX_PHDRS];
         st = rb_elf64_info(h->kernel.bytes, h->kernel.size, &entry, &phoff, &phnum);
-        if (st != RB_OK) return st;
+        if (st != RB_OK) {
+            rb_bootlogf(NULL, "ELF  parse failed  (%d)", st);
+            return st;
+        }
         h->kernel.entry = entry;
         h->kernel.phys = 0x100000;
+        rb_bootlogf(NULL, "ELF  entry 0x%llx  phoff 0x%llx  phnum %d",
+                    (unsigned long long)entry, (unsigned long long)phoff, phnum);
+        nph = rb_elf64_phdrs(h->kernel.bytes, h->kernel.size, ph, RB_MAX_PHDRS);
+        rb_bootlogf(NULL, "ELF  %d PT_LOAD", nph);
+        for (pi = 0; pi < nph; pi++) {
+            rb_bootlogf(NULL, "  PHDR  va 0x%llx  file %llu  mem %llu  %c%c%c",
+                        (unsigned long long)ph[pi].vaddr,
+                        (unsigned long long)ph[pi].filesz,
+                        (unsigned long long)ph[pi].memsz,
+                        (ph[pi].flags & 4) ? 'R' : '-',
+                        (ph[pi].flags & 2) ? 'W' : '-',
+                        (ph[pi].flags & 1) ? 'X' : '-');
+        }
     }
 
     if (t->ramdisk[0]) {
+        rb_bootlog(NULL, "Prepare  InitFS");
         st = load_blob(root, t, t->ramdisk, &h->ramdisk);
         if (st != RB_OK) return st;
-    }
+    } else
+        rb_bootlog(NULL, "Prepare  no InitFS");
     for (i = 0; i < t->nmodules && h->nextras < RB_MAX_MODULES; i++) {
+        rb_bootlogf(NULL, "Prepare  module %d  %s", i, t->modules[i]);
         st = load_blob(root, t, t->modules[i], &h->extras[h->nextras]);
         if (st != RB_OK) return st;
         h->nextras++;
     }
+    rb_bootlog(NULL, "Prepare  ready");
     return RB_OK;
 }

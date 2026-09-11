@@ -8,13 +8,17 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     const rb_platform *plat;
 
     if (!efi_platform_init(ImageHandle, SystemTable)) {
+        rb_bootlog(NULL, "ESP  open failed");
         efi_log("RoboBoot could not open the ESP");
         return EFI_LOAD_ERROR;
     }
     plat = efi_platform();
     rb_session_init(&ss, plat);
     ss.force_menu = efi_flag_menu();
+    if (ss.force_menu)
+        rb_bootlog(&ss, "Menu  forced");
     efi_fb_size(&w, &h);
+    rb_bootlogf(&ss, "Surface  request  %d x %d", w, h);
     if (efi_flag_selftest()) {
         w = 640;
         h = 400;
@@ -33,14 +37,20 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         ss.fb.w = w;
         ss.fb.h = h;
         ss.fb.px = (uint32_t *)rb_calloc((size_t)w * (size_t)h * 4u);
+        rb_bootlogf(&ss, "Surface  fallback  %d x %d", w, h);
     }
     if (!ss.fb.px) {
+        rb_bootlog(&ss, "Surface  alloc failed");
         efi_log("RoboBoot framebuffer alloc failed");
         return EFI_LOAD_ERROR;
     }
+    rb_bootlogf(&ss, "Surface  %d x %d  %zu bytes", w, h, (size_t)w * (size_t)h * 4u);
     rb_gfx_clear(&ss.fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
-    if (!efi_flag_selftest() && plat->present)
+    rb_bootlog(&ss, "Surface  cleared");
+    if (!efi_flag_selftest() && plat->present) {
         plat->present(&ss.fb);
+        rb_bootlog(&ss, "Surface  first present");
+    }
 
     if (efi_flag_selftest()) {
         int ticks = 0;
@@ -67,6 +77,7 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         return EFI_SUCCESS;
     }
 
+    rb_bootlog(&ss, "Session  loop");
     rb_session_tick(&ss);
     if (efi_flag_splash_ms() >= 0)
         ss.catalog.splash_min_ms = efi_flag_splash_ms();

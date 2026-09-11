@@ -16,7 +16,7 @@
 #define RB_MAX_LINE 1024
 #define RB_ENV_BLOCK 4096
 #define RB_SPLASH_MIN_MS 2000
-#define RB_BOOTLOG_LINES 64
+#define RB_BOOTLOG_LINES 192
 #define RB_BOOTLOG_COLS 112
 
 /* Roboticela palette, dark mode. Boot is one dark view — do not mix light-mode hex. */
@@ -277,6 +277,8 @@ typedef struct {
     rb_handoff handoff;
     float fade;
     char boot_log[RB_BOOTLOG_LINES][RB_BOOTLOG_COLS];
+    uint32_t boot_log_ms[RB_BOOTLOG_LINES];
+    uint8_t boot_log_kind[RB_BOOTLOG_LINES];
     int boot_log_n;
     int boot_log_seq;
     int boot_log_shown;

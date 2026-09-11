@@ -35,8 +35,28 @@ static inline uint8_t inb(uint16_t port)
     return val;
 }
 
+static int g_uart; /* 0 unknown, 1 present, -1 absent */
+
+static int uart_ready(void)
+{
+    uint8_t lsr;
+    if (g_uart < 0) return 0;
+    lsr = inb(0x3F8 + 5);
+    if (lsr == 0xFF) {
+        g_uart = -1;
+        return 0;
+    }
+    return (lsr & 0x20) != 0;
+}
+
 static void uart_init(void)
 {
+    uint8_t lsr;
+    lsr = inb(0x3F8 + 5);
+    if (lsr == 0xFF) {
+        g_uart = -1;
+        return;
+    }
     outb(0x3F8 + 1, 0x00);
     outb(0x3F8 + 3, 0x80);
     outb(0x3F8 + 0, 0x03);
@@ -48,9 +68,15 @@ static void uart_init(void)
 
 static void uart_putc(char c)
 {
-    int spins = 100000;
-    while (spins-- > 0 && (inb(0x3F8 + 5) & 0x20) == 0)
+    int spins = 32;
+    if (g_uart < 0) return;
+    while (spins-- > 0 && !uart_ready())
         ;
+    if (!uart_ready()) {
+        g_uart = -1;
+        return;
+    }
+    g_uart = 1;
     outb(0x3F8, (uint8_t)c);
 }
 

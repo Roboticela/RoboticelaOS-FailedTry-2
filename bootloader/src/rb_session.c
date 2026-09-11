@@ -4,33 +4,69 @@
 #include <stdio.h>
 #include <string.h>
 
+static void fmt_bytes(char *out, size_t cap, size_t n)
+{
+    if (!out || cap < 1) return;
+    if (n >= 1024u * 1024u)
+        snprintf(out, cap, "%zu.%zu MB", n / (1024u * 1024u), (n / 102400u) % 10u);
+    else if (n >= 1024u)
+        snprintf(out, cap, "%zu KB", n / 1024u);
+    else
+        snprintf(out, cap, "%zu bytes", n);
+}
+
 static rb_status load_path_image(rb_session *ss, const char *rel, rb_image *im)
 {
     char path[RB_MAX_PATH];
+    char bytes[32];
     void *data = NULL;
     size_t len = 0;
     rb_status st;
     rb_image_free(im);
     rb_join(path, sizeof(path), ss->plat->root, rel);
+    rb_bootlogf(ss, "Read  %s", rel);
     st = ss->plat->read_file(path, &data, &len);
-    if (st != RB_OK) return st;
+    if (st != RB_OK) {
+        rb_bootlogf(ss, "Read  failed  %s  (%d)", rel, st);
+        return st;
+    }
+    fmt_bytes(bytes, sizeof(bytes), len);
+    rb_bootlogf(ss, "Read  %s  %s", rel, bytes);
     st = rb_image_load_mem(data, len, im);
     rb_free(data);
+    if (st != RB_OK) {
+        rb_bootlogf(ss, "RBIM  decode failed  %s  (%d)", rel, st);
+        return st;
+    }
+    rb_bootlogf(ss, "RBIM  %s  %d x %d", rel, im->w, im->h);
     return st;
 }
 
 static rb_status load_path_font(rb_session *ss, const char *rel, rb_font *font)
 {
     char path[RB_MAX_PATH];
+    char bytes[32];
     void *data = NULL;
     size_t len = 0;
     rb_status st;
     rb_font_free(font);
     rb_join(path, sizeof(path), ss->plat->root, rel);
+    rb_bootlogf(ss, "Read  %s", rel);
     st = ss->plat->read_file(path, &data, &len);
-    if (st != RB_OK) return st;
+    if (st != RB_OK) {
+        rb_bootlogf(ss, "Font  missing  %s  (%d)", rel, st);
+        return st;
+    }
+    fmt_bytes(bytes, sizeof(bytes), len);
+    rb_bootlogf(ss, "Read  %s  %s", rel, bytes);
     st = rb_font_load_mem(data, len, font);
     rb_free(data);
+    if (st != RB_OK) {
+        rb_bootlogf(ss, "Font  decode failed  %s  (%d)", rel, st);
+        return st;
+    }
+    rb_bootlogf(ss, "Font  %s  %d px  glyphs %d-%d  atlas %dx%d",
+                rel, font->px, font->first, font->last, font->atlas_w, font->atlas_h);
     return st;
 }
 
@@ -44,54 +80,103 @@ static rb_status load_resources(rb_session *ss)
 {
     char path[RB_MAX_PATH];
     rb_status st;
+    int i, present = 0;
 
-    bump_load(ss, 0.06f);
-    rb_bootlogf(ss, "Firmware ready");
-    rb_bootlogf(ss, "Display %dx%d", ss->fb.w, ss->fb.h);
+    bump_load(ss, 0.04f);
+    rb_bootlogf(ss, "RoboBoot %s", RB_VERSION_STR);
+    rb_bootlog(ss, "Load  catalog");
     rb_join(path, sizeof(path), ss->plat->root, "config/roboboot.manifest");
+    rb_bootlogf(ss, "Open  %s", path[0] ? path : "config/roboboot.manifest");
     st = rb_manifest_load_path(path, &ss->catalog);
     if (st != RB_OK) {
-        rb_bootlogf(ss, "Catalog failed (%d)", st);
-        rb_logf("manifest load failed (%d)", st);
+        rb_bootlogf(ss, "Catalog  parse failed  (%d)", st);
         return st;
     }
-    rb_bootlogf(ss, "Catalog loaded  %d volumes", ss->catalog.ntargets);
-    bump_load(ss, 0.18f);
+    rb_bootlogf(ss, "Catalog  v%d  %d targets", ss->catalog.version, ss->catalog.ntargets);
+    rb_bootlogf(ss, "Catalog  splash %d ms  timeout %d s",
+                ss->catalog.splash_min_ms, ss->catalog.picker_timeout_s);
+    rb_bootlogf(ss, "Catalog  default %s  fallback %s",
+                ss->catalog.default_id[0] ? ss->catalog.default_id : "-",
+                ss->catalog.fallback_id[0] ? ss->catalog.fallback_id : "-");
+    if (ss->catalog.picker_hint[0])
+        rb_bootlogf(ss, "Catalog  hint  %s", ss->catalog.picker_hint);
+    bump_load(ss, 0.16f);
 
+    rb_bootlog(ss, "Load  settings");
     rb_join(path, sizeof(path), ss->plat->root, ss->catalog.env_path);
-    rb_env_load(path, &ss->env);
-    rb_bootlogf(ss, "Settings  %s", ss->catalog.env_path);
-    rb_bootlog(ss, rb_debug_enabled(&ss->env) ? "Debug on" : "Debug off");
-    bump_load(ss, 0.28f);
+    st = rb_env_load(path, &ss->env);
+    rb_bootlogf(ss, "Settings  %s  (%d)", ss->catalog.env_path, st);
+    {
+        int k;
+        const char *next = rb_env_get(&ss->env, "next_boot");
+        const char *last = rb_env_get(&ss->env, "last_boot");
+        rb_bootlogf(ss, "Settings  %d keys  debug %s",
+                    ss->env.n, rb_debug_enabled(&ss->env) ? "on" : "off");
+        for (k = 0; k < ss->env.n; k++) {
+            if (ss->env.keys[k][0] == 0) continue;
+            rb_bootlogf(ss, "Env  %s=%s", ss->env.keys[k], ss->env.vals[k]);
+        }
+        rb_bootlogf(ss, "Env  last %s  next %s",
+                    last && last[0] ? last : "-",
+                    next && next[0] ? next : "-");
+    }
+    bump_load(ss, 0.26f);
 
+    rb_bootlog(ss, "Probe  volumes/");
     rb_join(path, sizeof(path), ss->plat->root, "volumes");
     rb_probe_volumes(path, &ss->probe);
+    for (i = 0; i < ss->probe.nvols; i++) {
+        rb_bootlogf(ss, "Volume  %s  kernel %s  efi %s",
+                    ss->probe.vols[i].name,
+                    ss->probe.vols[i].has_kernel ? "yes" : "no",
+                    ss->probe.vols[i].has_efi ? "yes" : "no");
+    }
     rb_probe_apply(&ss->catalog, &ss->probe);
-    rb_bootlogf(ss, "Volumes probed  %d present", ss->probe.nvols);
-    bump_load(ss, 0.48f);
+    for (i = 0; i < ss->catalog.ntargets; i++) {
+        rb_target *t = &ss->catalog.targets[i];
+        if (t->present) present++;
+        rb_bootlogf(ss, "Target  %s  %s  vol %s  %s%s%s",
+                    t->id, rb_kind_name(t->kind),
+                    t->volume[0] ? t->volume : "-",
+                    t->present ? "ready" : "missing",
+                    t->hidden ? "  hidden" : "",
+                    t->restricted ? "  locked" : "");
+        if (t->kernel[0])
+            rb_bootlogf(ss, "  kernel  %s", t->kernel);
+        if (t->ramdisk[0])
+            rb_bootlogf(ss, "  initfs  %s", t->ramdisk);
+        if (t->chain[0])
+            rb_bootlogf(ss, "  chain  %s", t->chain);
+        if (t->icon[0])
+            rb_bootlogf(ss, "  picture  %s", t->icon);
+        if (t->args[0])
+            rb_bootlogf(ss, "  args  %s", t->args);
+        if (t->hotkey)
+            rb_bootlogf(ss, "  hotkey  %c", t->hotkey);
+    }
+    rb_bootlogf(ss, "Probe  %d folders  %d ready", ss->probe.nvols, present);
+    bump_load(ss, 0.46f);
 
+    rb_bootlogf(ss, "Logo  %s", ss->catalog.splash_logo[0] ? ss->catalog.splash_logo : "(none)");
     st = load_path_image(ss, ss->catalog.splash_logo, &ss->logo);
-    if (st == RB_OK && ss->logo.px)
-        rb_bootlogf(ss, "Logo loaded  %dx%d", ss->logo.w, ss->logo.h);
-    else
-        rb_bootlog(ss, "Logo missing");
-    bump_load(ss, 0.62f);
+    if (st != RB_OK || !ss->logo.px)
+        rb_bootlog(ss, "Logo  missing");
+    bump_load(ss, 0.60f);
 
-    /* Picker volume pictures stay on disk until the menu opens. Default boot
-       only needs the splash logo and fonts — the extra 2 MB RBIM files stall TCG. */
-
+    rb_bootlog(ss, "Fonts");
     load_path_font(ss, "assets/fonts/ui-title.rbfn", &ss->font_title);
     load_path_font(ss, "assets/fonts/ui-body.rbfn", &ss->font_body);
     load_path_font(ss, "assets/fonts/ui-caption.rbfn", &ss->font_caption);
-    rb_bootlog(ss, "Fonts loaded");
-    bump_load(ss, 0.96f);
-    rb_bootlog(ss, "Resources ready");
+    bump_load(ss, 0.94f);
 
     ss->selected = rb_policy_resolve_index(&ss->catalog, &ss->env, 0);
     if (ss->selected < 0) ss->selected = 0;
-    rb_bootlogf(ss, "Default  %s", ss->catalog.targets[ss->selected].id);
+    rb_bootlogf(ss, "Policy  default index %d  %s",
+                ss->selected, ss->catalog.targets[ss->selected].id);
     ss->timeout_left_ms = ss->catalog.picker_timeout_s * 1000;
-    rb_bootlog(ss, "Splash");
+    rb_bootlogf(ss, "Splash  hold %d ms  picker timeout %d s",
+                ss->catalog.splash_min_ms, ss->catalog.picker_timeout_s);
+    rb_bootlog(ss, "Resources ready");
     bump_load(ss, 1.f);
     return RB_OK;
 }
@@ -100,15 +185,16 @@ static void load_picker_icons(rb_session *ss)
 {
     int i;
     if (!ss || ss->icons_loaded) return;
-    rb_bootlog(ss, "Loading volume pictures");
+    rb_bootlog(ss, "Picker  load pictures");
     for (i = 0; i < ss->catalog.ntargets; i++) {
         if (ss->catalog.targets[i].icon[0]) {
-            if (load_path_image(ss, ss->catalog.targets[i].icon, &ss->icons[i]) == RB_OK)
-                rb_bootlogf(ss, "Picture  %s", ss->catalog.targets[i].id);
-        }
+            if (load_path_image(ss, ss->catalog.targets[i].icon, &ss->icons[i]) != RB_OK)
+                rb_bootlogf(ss, "Picture  skip  %s", ss->catalog.targets[i].id);
+        } else
+            rb_bootlogf(ss, "Picture  none  %s", ss->catalog.targets[i].id);
     }
     ss->icons_loaded = 1;
-    rb_bootlog(ss, "Picker pictures ready");
+    rb_bootlog(ss, "Picker  pictures ready");
 }
 
 rb_status rb_session_load(rb_session *ss)
@@ -127,7 +213,7 @@ void rb_session_init(rb_session *ss, const rb_platform *plat)
     ss->boot_index = -1;
     ss->fade = 0.f;
     ss->sel_anim = 1.f;
-    rb_bootlog(ss, "RoboBoot start");
+    rb_bootlog(ss, "Session  start");
 }
 
 void rb_session_free(rb_session *ss)
@@ -197,7 +283,8 @@ static rb_status try_boot(rb_session *ss, int idx)
     rb_status st;
     if (idx < 0 || idx >= ss->catalog.ntargets) return RB_ERR_NOTFOUND;
     t = &ss->catalog.targets[idx];
-    if (t->restricted && t->lock[0]) {
+        if (t->restricted && t->lock[0]) {
+        rb_bootlog(ss, "Auth  volume locked");
         ss->phase = RB_PHASE_AUTH;
         ss->auth_len = 0;
         ss->auth_buf[0] = 0;
@@ -206,7 +293,7 @@ static rb_status try_boot(rb_session *ss, int idx)
     }
     st = rb_loader_prepare(t, ss->plat->root, &ss->handoff);
     if (st != RB_OK) {
-        rb_logf("prepare failed for %s (%d)", t->id, st);
+        rb_bootlogf(ss, "Prepare failed  %s  (%d)", t->id, st);
         idx = rb_policy_resolve_index(&ss->catalog, &ss->env, 1);
         if (idx < 0 || idx == ss->boot_index) return st;
         ss->boot_index = idx;
@@ -221,38 +308,44 @@ static rb_status try_boot(rb_session *ss, int idx)
         ss->handoff.debug_term_y = (int)ty;
         ss->handoff.debug_term_w = (int)tw;
         ss->handoff.debug_term_h = (int)th;
+        rb_bootlogf(ss, "Debug  term  %d,%d  %dx%d",
+                    ss->handoff.debug_term_x, ss->handoff.debug_term_y,
+                    ss->handoff.debug_term_w, ss->handoff.debug_term_h);
     }
-    rb_bootlogf(ss, "Prepare  %s", t->id);
-    rb_bootlogf(ss, "Kernel  %zu bytes  entry 0x%llx",
-                ss->handoff.kernel.valid ? ss->handoff.kernel.size : 0,
-                (unsigned long long)ss->handoff.kernel.entry);
-    rb_bootlogf(ss, "InitFS  %zu bytes",
-                ss->handoff.ramdisk.valid ? ss->handoff.ramdisk.size : 0);
-    rb_bootlog(ss, "Handoff");
+    rb_bootlog(ss, "Handoff  ExitBootServices next");
     if (rb_debug_enabled(&ss->env))
         rb_debug_flush(ss);
     if (ss->catalog.save_last) {
+        rb_bootlogf(ss, "Env  save last_boot=%s", t->id);
         rb_env_set(&ss->env, "last_boot", t->id);
         rb_env_set(&ss->env, "next_boot", "");
-        rb_env_save(&ss->env);
+        if (rb_env_save(&ss->env) != RB_OK)
+            rb_bootlog(ss, "Env  save failed");
+        else
+            rb_bootlog(ss, "Env  saved");
     }
-    if (t->kind == RB_KIND_FIRMWARE)
+    if (t->kind == RB_KIND_FIRMWARE) {
+        rb_bootlog(ss, "Jump  firmware setup");
         st = ss->plat->firmware_setup ? ss->plat->firmware_setup() : RB_OK;
-    else if (t->kind == RB_KIND_REBOOT)
+    } else if (t->kind == RB_KIND_REBOOT) {
+        rb_bootlog(ss, "Jump  reboot");
         st = ss->plat->reboot ? ss->plat->reboot() : RB_OK;
-    else if (t->kind == RB_KIND_HALT)
+    } else if (t->kind == RB_KIND_HALT) {
+        rb_bootlog(ss, "Jump  halt");
         st = ss->plat->halt ? ss->plat->halt() : RB_OK;
-    else
+    } else {
+        rb_bootlog(ss, "Jump  kernel");
         st = ss->plat->boot ? ss->plat->boot(t, &ss->handoff) : RB_OK;
+    }
     /* Host cannot jump into the ELF; keep the window on the kernel log.
        EFI never returns from a successful efi_start_kernel(). */
     if (st == RB_OK &&
         (t->kind == RB_KIND_KERNEL || t->kind == RB_KIND_LINUX || t->kind == RB_KIND_MULTIBOOT2)) {
         if (rb_debug_enabled(&ss->env)) {
             rb_bootlog(ss, "Kernel entered");
-            rb_bootlogf(ss, "Framebuffer  %dx%d  32 BPP", ss->fb.w, ss->fb.h);
-            rb_bootlog(ss, "Memory initialized  host");
-            rb_bootlog(ss, "CPU x86_64 idle");
+            rb_bootlogf(ss, "Framebuffer  %d x %d  32-bit", ss->fb.w, ss->fb.h);
+            rb_bootlog(ss, "Memory  host map");
+            rb_bootlog(ss, "CPU  x86_64 idle");
         }
         ss->phase = RB_PHASE_KLOG;
         ss->running = 1;
@@ -266,8 +359,10 @@ static rb_status try_boot(rb_session *ss, int idx)
 static void begin_boot_selected(rb_session *ss)
 {
     ss->boot_index = ss->selected;
-    rb_bootlogf(ss, "Boot  %s", ss->catalog.targets[ss->selected].id);
+    rb_bootlogf(ss, "Boot  %s  %s", ss->catalog.targets[ss->selected].id,
+                rb_kind_name(ss->catalog.targets[ss->selected].kind));
     if (rb_debug_enabled(&ss->env)) {
+        rb_bootlog(ss, "Phase  verbose hold");
         ss->phase = RB_PHASE_VERBOSE;
         ss->timeout_left_ms = 900;
         return;
@@ -332,6 +427,8 @@ int rb_session_tick(rb_session *ss)
             now = ss->plat->now_ms();
             ss->splash_start_ms = now;
             ss->last_ms = now;
+            rb_bootlogf(ss, "Splash  timer  %d ms  display %d x %d",
+                        ss->catalog.splash_min_ms, ss->fb.w, ss->fb.h);
         }
         {
             uint64_t elapsed = now - ss->splash_start_ms;
@@ -350,6 +447,14 @@ int rb_session_tick(rb_session *ss)
                 rb_boot_intent intent = rb_policy_intent(
                     ss->alt_latched, ss->force_menu, rb_env_get(&ss->env, "next_boot"));
                 ss->splash_done = 1;
+                rb_bootlogf(ss, "Splash  done  %llu ms  intent %s",
+                            (unsigned long long)elapsed,
+                            intent == RB_BOOT_PICKER ? "picker" :
+                            intent == RB_BOOT_ONCE ? "next_boot" : "default");
+                if (ss->alt_latched)
+                    rb_bootlog(ss, "Splash  picker chord latched");
+                if (ss->force_menu)
+                    rb_bootlog(ss, "Splash  menu flag");
                 if (intent == RB_BOOT_PICKER) {
                     rb_bootlog(ss, "Opening picker");
                     load_picker_icons(ss);
@@ -407,8 +512,12 @@ int rb_session_tick(rb_session *ss)
         }
         if (ss->phase != RB_PHASE_PICKER) return 1;
         dirty = !ss->picker_drawn || ss->selected != prev;
-        if (ss->catalog.picker_timeout_s > 0) dirty = 1;
         if (rb_debug_enabled(&ss->env) && ss->boot_log_seq != ss->boot_log_shown) dirty = 1;
+        if (ss->catalog.picker_timeout_s > 0) {
+            int now_sec = (ss->timeout_left_ms + 999) / 1000;
+            int was_sec = (ss->timeout_left_ms + (int)(dt * 1000.f) + 999) / 1000;
+            if (now_sec != was_sec) dirty = 1;
+        }
         if (dirty) {
             rb_picker_draw(ss);
             if (ss->plat->present) ss->plat->present(&ss->fb);
@@ -444,21 +553,30 @@ int rb_session_tick(rb_session *ss)
     }
 
     if (ss->phase == RB_PHASE_VERBOSE) {
+        int dirty;
         ss->timeout_left_ms -= (int)(dt * 1000.f);
-        rb_verbose_draw(ss);
-        if (ss->plat->present) ss->plat->present(&ss->fb);
+        dirty = !ss->splash_bg_ready ||
+                (rb_debug_enabled(&ss->env) && ss->boot_log_seq != ss->boot_log_shown);
+        if (dirty) {
+            rb_verbose_draw(ss);
+            if (ss->plat->present) ss->plat->present(&ss->fb);
+        }
         if (ss->timeout_left_ms <= 0 || key_hit(&ss->input, RB_KEY_ENTER))
             ss->phase = RB_PHASE_HANDOFF;
         return 1;
     }
 
     if (ss->phase == RB_PHASE_KLOG) {
+        int dirty;
         if (key_hit(&ss->input, RB_KEY_ESC)) {
             ss->running = 0;
             return 0;
         }
-        rb_klog_draw(ss);
-        if (ss->plat->present) ss->plat->present(&ss->fb);
+        dirty = !ss->splash_bg_ready || ss->boot_log_seq != ss->boot_log_shown;
+        if (dirty) {
+            rb_klog_draw(ss);
+            if (ss->plat->present) ss->plat->present(&ss->fb);
+        }
         return 1;
     }
 
