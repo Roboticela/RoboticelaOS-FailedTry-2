@@ -9,6 +9,7 @@ $script:KernelRoot = Join-Path $script:Repo "kernel"
 $script:KernelOut = Join-Path $script:KernelRoot "build\kernel.elf"
 $script:PmmTestOut = Join-Path $script:KernelRoot "build\test_pmm.exe"
 $script:VmmTestOut = Join-Path $script:KernelRoot "build\test_vmm.exe"
+$script:TimeTestOut = Join-Path $script:KernelRoot "build\test_time.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -389,8 +390,15 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "arch\x86_64\tss.c"),
         (Join-Path $kroot "arch\x86_64\idt.c"),
         (Join-Path $kroot "arch\x86_64\exception.c"),
+        (Join-Path $kroot "arch\x86_64\pf_test.c"),
         (Join-Path $kroot "arch\x86_64\cpu.c"),
         (Join-Path $kroot "arch\x86_64\cpu_test.c"),
+        (Join-Path $kroot "arch\x86_64\irq.c"),
+        (Join-Path $kroot "arch\x86_64\timer\tsc.c"),
+        (Join-Path $kroot "arch\x86_64\timer\pit.c"),
+        (Join-Path $kroot "time\convert.c"),
+        (Join-Path $kroot "time\time.c"),
+        (Join-Path $kroot "time\time_test.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -415,6 +423,8 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "mm\heap"),
         (Join-Path $kroot "arch\x86_64"),
         (Join-Path $kroot "arch\x86_64\mm"),
+        (Join-Path $kroot "arch\x86_64\timer"),
+        (Join-Path $kroot "time"),
         (Join-Path $script:Boot "include\roboticela")
     )
     $objs = @()
@@ -526,6 +536,45 @@ function Invoke-RoboTestVmm {
     Write-Step "TEST" "test_vmm.exe"
     & $script:VmmTestOut
     if ($LASTEXITCODE -ne 0) { throw "vmm host tests failed" }
+}
+
+function Invoke-RoboBuildTimeTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\time-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-I", $kroot,
+        "-I", (Join-Path $kroot "include")
+    )
+    $srcs = @(
+        (Join-Path $kroot "time\convert.c"),
+        (Join-Path $kroot "tests\test_time.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "time")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:TimeTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_time.exe"
+        & $clang -o $script:TimeTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "time host test link failed" }
+    }
+}
+
+function Invoke-RoboTestTime {
+    Invoke-RoboBuildTimeTest
+    Write-Step "TEST" "test_time.exe"
+    & $script:TimeTestOut
+    if ($LASTEXITCODE -ne 0) { throw "time host tests failed" }
 }
 
 function Invoke-RoboBuildImage {
@@ -664,6 +713,7 @@ function Invoke-RoboTestHost {
     if ($LASTEXITCODE -ne 0) { throw "host tests failed" }
     Invoke-RoboTestPmm
     Invoke-RoboTestVmm
+    Invoke-RoboTestTime
 }
 
 function Invoke-RoboClean {

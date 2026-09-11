@@ -1,8 +1,10 @@
 #include "kio.h"
 #include "arch/x86_64/cpu.h"
+#include "arch/x86_64/exception.h"
 #include "mm/pmm.h"
 #include "mm/vmm/vmm.h"
 #include "mm/heap/heap.h"
+#include "time/time.h"
 
 void kmain(const RoboBootInfo *info)
 {
@@ -88,9 +90,30 @@ void kmain(const RoboBootInfo *info)
         }
     }
 
+    if (robo_vmm_ready()) {
+        if (robo_pf_selftest())
+            kprintf("PF_TEST_OK\n");
+        else
+            kprintf("PF_TEST_FAIL\n");
+    } else {
+        kprintf("PF_TEST_FAIL\n");
+    }
+
+    if (!robo_timer_init()) {
+        kprintf("TIMER_TEST_FAIL\n");
+    } else {
+        robo_timer_report();
+        if (kboot_debug(info))
+            robo_timer_fb_report();
+        if (robo_timer_selftest())
+            kprintf("TIMER_TEST_OK\n");
+        else
+            kprintf("TIMER_TEST_FAIL\n");
+    }
+
     kprintf("idle\n");
     for (;;) {
         kfb_poll();
-        __asm__ volatile ("pause");
+        __asm__ volatile ("hlt");
     }
 }

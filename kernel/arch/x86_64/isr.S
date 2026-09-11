@@ -50,6 +50,22 @@ ISR_NOERR 28
 ISR_NOERR 29
 ISR_NOERR 30
 ISR_NOERR 31
+ISR_NOERR 32
+ISR_NOERR 33
+ISR_NOERR 34
+ISR_NOERR 35
+ISR_NOERR 36
+ISR_NOERR 37
+ISR_NOERR 38
+ISR_NOERR 39
+ISR_NOERR 40
+ISR_NOERR 41
+ISR_NOERR 42
+ISR_NOERR 43
+ISR_NOERR 44
+ISR_NOERR 45
+ISR_NOERR 46
+ISR_NOERR 47
 
 isr_common:
     push rax
@@ -68,6 +84,8 @@ isr_common:
     push r14
     push r15
     cld
+    mov rax, cr2
+    mov [rip + robo_saved_cr2], rax
     mov rdi, rsp
     sub rsp, 8
     call robo_exception_dispatch
@@ -89,6 +107,16 @@ isr_common:
     pop rax
     add rsp, 16
     iretq
+
+.global robo_pf_probe_read
+.global robo_pf_probe_read_rip
+.global robo_pf_probe_read_resume
+robo_pf_probe_read:
+robo_pf_probe_read_rip:
+    mov al, byte ptr [rdi]
+robo_pf_probe_read_resume:
+    xor eax, eax
+    ret
 
 .global robo_gdt_reload
 robo_gdt_reload:
@@ -141,3 +169,28 @@ isr_stub_table:
     .quad isr_29
     .quad isr_30
     .quad isr_31
+
+.global irq_stub_table
+irq_stub_table:
+    .quad isr_32
+    .quad isr_33
+    .quad isr_34
+    .quad isr_35
+    .quad isr_36
+    .quad isr_37
+    .quad isr_38
+    .quad isr_39
+    .quad isr_40
+    .quad isr_41
+    .quad isr_42
+    .quad isr_43
+    .quad isr_44
+    .quad isr_45
+    .quad isr_46
+    .quad isr_47
+
+.section .bss
+.align 8
+.global robo_saved_cr2
+robo_saved_cr2:
+    .quad 0

@@ -37,6 +37,13 @@ static void idt_set_gate(unsigned vec, void (*handler)(void), uint8_t ist, uint8
     g->zero = 0;
 }
 
+void robo_idt_set(unsigned vec, void (*handler)(void), uint8_t ist)
+{
+    if (vec >= ROBO_IDT_ENTRIES || !handler)
+        return;
+    idt_set_gate(vec, handler, ist, 0);
+}
+
 void robo_idt_init(void)
 {
     unsigned i;
