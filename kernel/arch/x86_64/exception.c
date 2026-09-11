@@ -1,4 +1,6 @@
 #include "arch/x86_64/exception.h"
+#include "arch/x86_64/timer/pit.h"
+#include "scheduler/scheduler.h"
 #include "kio.h"
 
 #include <stddef.h>
@@ -169,24 +171,34 @@ uint64_t robo_pf_probe_rip(void)
     return (uint64_t)(uintptr_t)robo_pf_probe_read_rip;
 }
 
-void robo_exception_dispatch(struct robo_iframe *frame)
+struct robo_iframe *robo_exception_dispatch(struct robo_iframe *frame)
 {
-    if (!frame)
+    if (!frame) {
         halt_forever();
+        return 0;
+    }
 
     if (frame->vector == ROBO_EXC_BP) {
         g_bp_count++;
         kprintf("CPU  breakpoint  RIP 0x%llx\n", (unsigned long long)frame->rip);
-        return;
+        return frame;
     }
 
-    if (frame->vector >= 32) {
+    if (frame->vector == ROBO_VEC_RESCHED)
+        return robo_scheduler_resched(frame);
+
+    if (frame->vector >= 32 && frame->vector < 48) {
         robo_irq_dispatch(frame);
-        return;
+        if (frame->vector == ROBO_IRQ_BASE)
+            return robo_scheduler_tick(frame);
+        return frame;
     }
 
-    if (frame->vector == ROBO_EXC_PF)
+    if (frame->vector == ROBO_EXC_PF) {
         panic_page_fault(frame);
-    else
-        panic_exception(frame);
+        return frame;
+    }
+
+    panic_exception(frame);
+    return frame;
 }

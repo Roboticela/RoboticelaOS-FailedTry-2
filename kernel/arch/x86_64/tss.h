@@ -9,6 +9,7 @@ void robo_tss_init(void);
 void *robo_tss_ptr(void);
 uint32_t robo_tss_size(void);
 uint64_t robo_tss_rsp0(void);
+void robo_tss_set_rsp0(uint64_t rsp0);
 uint64_t robo_tss_ist1(void);
 
 #endif

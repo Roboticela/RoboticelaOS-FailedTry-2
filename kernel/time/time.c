@@ -3,6 +3,7 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/timer/tsc.h"
 #include "arch/x86_64/timer/pit.h"
+#include "scheduler/scheduler.h"
 #include "kio.h"
 
 extern void (*irq_stub_table[16])(void);
@@ -222,6 +223,8 @@ void robo_sleep(uint64_t milliseconds)
     int handle;
 
     if (!g_ready || milliseconds == 0)
+        return;
+    if (robo_scheduler_sleep(milliseconds))
         return;
     deadline = robo_time_deadline(robo_time_now(), milliseconds * ROBO_NS_PER_MS);
     handle = robo_timer_add(deadline, 0, sleep_wake, (void *)&done);

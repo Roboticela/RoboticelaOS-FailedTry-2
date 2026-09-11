@@ -24,6 +24,22 @@ typedef struct robo_heap_block {
 
 _Static_assert(sizeof(robo_heap_block_t) == 32, "heap header must be 32 bytes");
 
+#ifndef HEAP_HOST_TEST
+static uint64_t heap_irq_save(void)
+{
+    uint64_t f;
+    __asm__ volatile ("pushfq; popq %0; cli" : "=r"(f) : : "memory");
+    return f;
+}
+static void heap_irq_restore(uint64_t f)
+{
+    __asm__ volatile ("pushq %0; popfq" : : "r"(f) : "memory");
+}
+#else
+static uint64_t heap_irq_save(void) { return 0; }
+static void heap_irq_restore(uint64_t f) { (void)f; }
+#endif
+
 static struct {
     int ready;
     virt_addr_t mapped_end;
@@ -424,47 +440,61 @@ void *kmalloc(size_t size)
     size_t need;
     void *p;
     int tries;
+    uint64_t flags;
 
     if (!g_heap.ready || !size)
         return 0;
     need = block_need(size);
     if (!need)
         return 0;
+    flags = heap_irq_save();
     for (tries = 0; tries < 2; tries++) {
         p = heap_find(need);
-        if (p)
+        if (p) {
+            heap_irq_restore(flags);
             return p;
-        if (!heap_grow_for(need))
+        }
+        if (!heap_grow_for(need)) {
+            heap_irq_restore(flags);
             return 0;
+        }
     }
+    heap_irq_restore(flags);
     return 0;
 }
 
 void kfree(void *ptr)
 {
     robo_heap_block_t *b;
+    uint64_t flags;
     if (!ptr)
         return;
+    flags = heap_irq_save();
     if (!g_heap.ready) {
+        heap_irq_restore(flags);
         kprintf("HEAP: free before init\n");
         return;
     }
     b = block_from_user(ptr);
     if (!b) {
+        heap_irq_restore(flags);
         kprintf("HEAP: invalid free\n");
         return;
     }
     if (b->free || b->magic == ROBO_HEAP_MAGIC_FREE) {
+        heap_irq_restore(flags);
         kprintf("HEAP: double free detected\n");
         return;
     }
     if (b->magic != ROBO_HEAP_MAGIC_USED) {
+        heap_irq_restore(flags);
         kprintf("HEAP: corrupted metadata\n");
         return;
     }
     heap_fill(block_user(b), 0xDDu, block_user_size(b));
     mark_free(b);
     coalesce_block(b);
+    heap_irq_restore(flags);
 }
 
 void *kcalloc(size_t count, size_t size)

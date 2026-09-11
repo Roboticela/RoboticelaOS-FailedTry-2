@@ -5,6 +5,7 @@
 #include "mm/vmm/vmm.h"
 #include "mm/heap/heap.h"
 #include "time/time.h"
+#include "scheduler/scheduler.h"
 
 void kmain(const RoboBootInfo *info)
 {
@@ -111,8 +112,25 @@ void kmain(const RoboBootInfo *info)
             kprintf("TIMER_TEST_FAIL\n");
     }
 
+    if (robo_timer_ready() && robo_heap_ready()) {
+        if (!robo_scheduler_init()) {
+            kprintf("SCHED_TEST_FAIL\n");
+        } else {
+            robo_scheduler_report();
+            if (kboot_debug(info))
+                robo_scheduler_fb_report();
+            if (robo_scheduler_selftest())
+                kprintf("SCHED_TEST_OK\n");
+            else
+                kprintf("SCHED_TEST_FAIL\n");
+        }
+    } else {
+        kprintf("SCHED_TEST_FAIL\n");
+    }
+
     kprintf("idle\n");
     for (;;) {
+        robo_sched_reap();
         kfb_poll();
         __asm__ volatile ("hlt");
     }

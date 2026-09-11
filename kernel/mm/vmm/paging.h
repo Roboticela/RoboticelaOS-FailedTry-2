@@ -39,8 +39,9 @@ typedef uint64_t robo_pte_t;
 #define ROBO_VM_GLOBAL   (1u << 5)
 #define ROBO_VM_NOCACHE  (1u << 6)
 
-#define ROBO_VMM_TEST_BASE  0xFFFF800000000000ull
-#define ROBO_VMM_HEAP_BASE  0xFFFF800000100000ull
+#define ROBO_VMM_TEST_BASE   0xFFFF800000000000ull
+#define ROBO_VMM_HEAP_BASE   0xFFFF800000100000ull
+#define ROBO_VMM_KSTACK_BASE 0xFFFF800020000000ull
 
 uint16_t robo_page_offset(virt_addr_t va);
 uint16_t robo_pt_index(virt_addr_t va);

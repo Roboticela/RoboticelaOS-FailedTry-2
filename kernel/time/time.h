@@ -51,8 +51,8 @@ uint64_t robo_time_ms(void);
  * finishes any remainder against the TSC/PIT clock. Does not busy-loop
  * for the full duration.
  *
- * Stage 2 (future scheduler): register a deadline via robo_timer_add()
- * and block the task; the timer interrupt will make it runnable.
+ * Stage 2 (scheduler running): the current task is marked SLEEPING, a
+ * one-shot timer wakes it, and the scheduler runs another task.
  *
  * Context:
  *     Process/kernel thread context only. Do not call from IRQ.

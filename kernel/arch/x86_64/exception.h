@@ -29,7 +29,7 @@ struct robo_iframe {
     uint64_t ss;
 };
 
-void robo_exception_dispatch(struct robo_iframe *frame);
+struct robo_iframe *robo_exception_dispatch(struct robo_iframe *frame);
 unsigned robo_exception_breakpoint_count(void);
 int robo_pf_catch_read(uint64_t va, uint64_t *cr2, uint64_t *rip, uint64_t *err);
 uint64_t robo_pf_probe_rip(void);

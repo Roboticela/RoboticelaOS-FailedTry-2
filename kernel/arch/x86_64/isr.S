@@ -66,6 +66,7 @@ ISR_NOERR 44
 ISR_NOERR 45
 ISR_NOERR 46
 ISR_NOERR 47
+ISR_NOERR 48
 
 isr_common:
     push rax
@@ -89,7 +90,7 @@ isr_common:
     mov rdi, rsp
     sub rsp, 8
     call robo_exception_dispatch
-    add rsp, 8
+    mov rsp, rax
     pop r15
     pop r14
     pop r13

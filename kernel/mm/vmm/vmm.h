@@ -19,6 +19,8 @@
  *   0xFFFF800000100000  ROBO_VMM_HEAP_BASE
  *       Kernel heap window (Phase 4). Pages are mapped on demand
  *       through kmalloc growth; the range itself is reserved here.
+ *   0xFFFF800020000000
+ *       Per-task kernel stacks (Phase 8). Guard page + 16 KiB RW NX.
  *
  * Empty intermediate page tables are not freed on unmap.
  * Unmap does not return data pages to the PMM.
