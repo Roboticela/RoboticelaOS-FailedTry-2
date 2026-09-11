@@ -185,7 +185,8 @@ int robo_scheduler_selftest(void)
     y0 = robo_sched_yields();
     (void)y0;
 
-    robo_scheduler_start();
+    if (robo_scheduler_state() != ROBO_SCHED_RUNNING)
+        robo_scheduler_start();
     if (robo_scheduler_state() != ROBO_SCHED_RUNNING)
         return tfail("start");
     kprintf("[PASS] Timer preemption enabled\n");

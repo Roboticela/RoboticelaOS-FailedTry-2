@@ -1,5 +1,6 @@
 #include "scheduler/sched_internal.h"
 #include "arch/x86_64/exception.h"
+#include "arch/x86_64/context/context_switch.h"
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/tss.h"
 #include "arch/x86_64/gdt.h"
@@ -250,8 +251,11 @@ static struct robo_iframe *pick_and_switch(struct robo_iframe *frame, int force)
         return frame;
     }
 
-    if (!next->context)
-        robo_sched_panic_corrupt("next context missing", old, next);
+    if (!next->context || !robo_x86_iframe_valid(next->context))
+        robo_x86_context_fail(old->context, next->context,
+                              old->id, next->id,
+                              robo_thread_state_name(old->state),
+                              robo_thread_state_name(next->state));
     if (next->state != ROBO_THREAD_READY && next != g_idle)
         robo_sched_panic_corrupt("next not READY", old, next);
 
@@ -278,9 +282,14 @@ static struct robo_iframe *pick_and_switch(struct robo_iframe *frame, int force)
     }
     next->last_start_time = now;
     next->slice_end_ns = now + robo_sched_quantum_ns();
+    /* Kernel stacks only. IST1 / double-fault stack is not touched. */
     robo_tss_set_rsp0(next->stack_top);
     g_in_sched = 0;
-    return next->context;
+    /*
+     * g_current is already next, so a restored thread sees itself.
+     * The old iframe was stored in old->context before this switch.
+     */
+    return robo_x86_context_switch(old->context, next->context);
 }
 
 struct robo_iframe *robo_scheduler_tick(struct robo_iframe *frame)

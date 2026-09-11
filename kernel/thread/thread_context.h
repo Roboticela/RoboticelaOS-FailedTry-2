@@ -2,7 +2,7 @@
 #define ROBO_THREAD_CONTEXT_H
 
 #include <stdint.h>
-#include "arch/x86_64/scheduler/cpu_context.h"
+#include "arch/x86_64/context/context.h"
 
 /*
  * Generic thread CPU context.

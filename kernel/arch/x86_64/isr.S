@@ -17,6 +17,7 @@ isr_\vec:
 
 .section .text
 .extern robo_exception_dispatch
+.extern robo_x86_resume_iframe
 
 ISR_NOERR 0
 ISR_NOERR 1
@@ -90,24 +91,12 @@ isr_common:
     mov rdi, rsp
     sub rsp, 8
     call robo_exception_dispatch
-    mov rsp, rax
-    pop r15
-    pop r14
-    pop r13
-    pop r12
-    pop r11
-    pop r10
-    pop r9
-    pop r8
-    pop rbp
-    pop rdi
-    pop rsi
-    pop rdx
-    pop rcx
-    pop rbx
-    pop rax
-    add rsp, 16
-    iretq
+    /*
+     * RAX is the iframe to resume (current or next thread).
+     * Resume switches RSP, pops GPRs, and iretq. Shared by IRQ 32
+     * and int $48. Never returns here.
+     */
+    jmp robo_x86_resume_iframe
 
 .global robo_pf_probe_read
 .global robo_pf_probe_read_rip

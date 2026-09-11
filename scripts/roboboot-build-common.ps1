@@ -12,6 +12,7 @@ $script:VmmTestOut = Join-Path $script:KernelRoot "build\test_vmm.exe"
 $script:TimeTestOut = Join-Path $script:KernelRoot "build\test_time.exe"
 $script:SchedQueueTestOut = Join-Path $script:KernelRoot "build\test_sched_queue.exe"
 $script:ThreadStateTestOut = Join-Path $script:KernelRoot "build\test_thread_state.exe"
+$script:ContextLayoutTestOut = Join-Path $script:KernelRoot "build\test_context_layout.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -388,7 +389,9 @@ function Invoke-RoboBuildKernel {
     $srcs = @(
         (Join-Path $kroot "arch\x86_64\boot\start.S"),
         (Join-Path $kroot "arch\x86_64\isr.S"),
-        (Join-Path $kroot "arch\x86_64\scheduler\context_switch.S"),
+        (Join-Path $kroot "arch\x86_64\context\context_switch.S"),
+        (Join-Path $kroot "arch\x86_64\context\context.c"),
+        (Join-Path $kroot "arch\x86_64\context\context_test.c"),
         (Join-Path $kroot "arch\x86_64\gdt.c"),
         (Join-Path $kroot "arch\x86_64\tss.c"),
         (Join-Path $kroot "arch\x86_64\idt.c"),
@@ -434,6 +437,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "arch\x86_64\mm"),
         (Join-Path $kroot "arch\x86_64\timer"),
         (Join-Path $kroot "arch\x86_64\scheduler"),
+        (Join-Path $kroot "arch\x86_64\context"),
         (Join-Path $kroot "time"),
         (Join-Path $kroot "scheduler"),
         (Join-Path $kroot "thread"),
@@ -668,6 +672,45 @@ function Invoke-RoboTestThreadState {
     if ($LASTEXITCODE -ne 0) { throw "thread state host tests failed" }
 }
 
+function Invoke-RoboBuildContextLayoutTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\context-layout-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-DCONTEXT_HOST_TEST",
+        "-I", $kroot
+    )
+    $srcs = @(
+        (Join-Path $kroot "tests\test_context_layout.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "arch\x86_64"),
+        (Join-Path $kroot "arch\x86_64\context")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ContextLayoutTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_context_layout.exe"
+        & $clang -o $script:ContextLayoutTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "context layout host test link failed" }
+    }
+}
+
+function Invoke-RoboTestContextLayout {
+    Invoke-RoboBuildContextLayoutTest
+    Write-Step "TEST" "test_context_layout.exe"
+    & $script:ContextLayoutTestOut
+    if ($LASTEXITCODE -ne 0) { throw "context layout host tests failed" }
+}
+
 function Invoke-RoboBuildImage {
     param([string]$Flags = "")
     Invoke-RoboBuildKernel
@@ -807,6 +850,7 @@ function Invoke-RoboTestHost {
     Invoke-RoboTestTime
     Invoke-RoboTestSchedQueue
     Invoke-RoboTestThreadState
+    Invoke-RoboTestContextLayout
 }
 
 function Invoke-RoboClean {

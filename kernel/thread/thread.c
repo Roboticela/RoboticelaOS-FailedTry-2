@@ -2,7 +2,7 @@
 #include "scheduler/sched_internal.h"
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/exception.h"
-#include "arch/x86_64/scheduler/context_switch.h"
+#include "arch/x86_64/context/context_switch.h"
 #include "mm/pmm.h"
 #include "mm/vmm/vmm.h"
 #include "mm/heap/heap.h"
