@@ -7,12 +7,14 @@
  * Entered via iretq with RSP 16-byte aligned (no return address).
  * `call` then satisfies SysV (RSP % 16 == 8 at C entry).
  */
+.global robo_thread_trampoline
 .global robo_task_trampoline
-.extern robo_task_bootstrap
-.extern robo_task_exit
+.extern robo_thread_bootstrap
+.extern robo_thread_exit
+robo_thread_trampoline:
 robo_task_trampoline:
-    call robo_task_bootstrap
-    call robo_task_exit
+    call robo_thread_bootstrap
+    call robo_thread_exit
     ud2
 
 /*

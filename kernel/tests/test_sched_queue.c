@@ -12,27 +12,27 @@ static int g_fails;
     else { g_fails++; fprintf(stderr, "FAIL %s:%d %s\n", __FILE__, __LINE__, msg); } \
 } while (0)
 
-static void zero_task(robo_task_t *t, uint64_t id)
+static void zero_thread(RoboThread *t, uint64_t id)
 {
     memset(t, 0, sizeof(*t));
     t->id = id;
-    t->state = ROBO_TASK_READY;
+    t->state = ROBO_THREAD_READY;
 }
 
 int main(void)
 {
     robo_runqueue_t q;
-    robo_task_t a, b, c, d;
-    robo_task_t *t;
+    RoboThread a, b, c, d;
+    RoboThread *t;
 
     robo_rq_init(&q);
     CHECK(robo_rq_count(&q) == 0, "empty count");
     CHECK(robo_rq_dequeue(&q) == 0, "empty dequeue");
 
-    zero_task(&a, 1);
-    zero_task(&b, 2);
-    zero_task(&c, 3);
-    zero_task(&d, 4);
+    zero_thread(&a, 1);
+    zero_thread(&b, 2);
+    zero_thread(&c, 3);
+    zero_thread(&d, 4);
 
     robo_rq_enqueue(&q, &a);
     robo_rq_enqueue(&q, &b);

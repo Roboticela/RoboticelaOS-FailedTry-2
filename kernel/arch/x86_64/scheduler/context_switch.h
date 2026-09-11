@@ -28,19 +28,20 @@
  * Switching:
  *   exception_dispatch returns the next task's iframe pointer in RAX.
  *   isr_common does `mov rsp, rax` then the normal pop / iretq path.
- *   That iretq resumes the selected task. No extra iretq.
+ *   That iretq resumes the selected thread. No extra iretq.
  *
  * Voluntary yield / sleep / exit:
  *   `int $48` (ROBO_VEC_RESCHED) uses the same stub and iframe layout.
  *   It is not a PIC IRQ; no EOI.
  *
- * New tasks:
+ * New threads:
  *   A synthetic iframe is built on the new kernel stack with
- *   RIP = robo_task_trampoline, CS = 0x08, SS = 0x10, RFLAGS.IF = 1.
+ *   RIP = robo_thread_trampoline, CS = 0x08, SS = 0x10, RFLAGS.IF = 1.
  *   The trampoline `call`s the C bootstrap so SysV stack alignment holds
  *   (RSP % 16 == 8 at the C function entry).
  */
 
+void robo_thread_trampoline(void);
 void robo_task_trampoline(void);
 void robo_reg_preserve_loop(volatile uint64_t *ok, volatile uint64_t *bad);
 

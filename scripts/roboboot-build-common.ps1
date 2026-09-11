@@ -11,6 +11,7 @@ $script:PmmTestOut = Join-Path $script:KernelRoot "build\test_pmm.exe"
 $script:VmmTestOut = Join-Path $script:KernelRoot "build\test_vmm.exe"
 $script:TimeTestOut = Join-Path $script:KernelRoot "build\test_time.exe"
 $script:SchedQueueTestOut = Join-Path $script:KernelRoot "build\test_sched_queue.exe"
+$script:ThreadStateTestOut = Join-Path $script:KernelRoot "build\test_thread_state.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -405,6 +406,8 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "scheduler\task.c"),
         (Join-Path $kroot "scheduler\scheduler.c"),
         (Join-Path $kroot "scheduler\sched_test.c"),
+        (Join-Path $kroot "thread\thread.c"),
+        (Join-Path $kroot "thread\thread_test.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -433,6 +436,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "arch\x86_64\scheduler"),
         (Join-Path $kroot "time"),
         (Join-Path $kroot "scheduler"),
+        (Join-Path $kroot "thread"),
         (Join-Path $script:Boot "include\roboticela")
     )
     $objs = @()
@@ -601,7 +605,10 @@ function Invoke-RoboBuildSchedQueueTest {
         (Join-Path $kroot "tests\test_sched_queue.c")
     )
     $deps = Get-HeaderDeps @(
-        (Join-Path $kroot "scheduler")
+        (Join-Path $kroot "scheduler"),
+        (Join-Path $kroot "thread"),
+        (Join-Path $kroot "arch\x86_64"),
+        (Join-Path $kroot "mm")
     )
     $objs = @()
     $compiled = $false
@@ -622,6 +629,43 @@ function Invoke-RoboTestSchedQueue {
     Write-Step "TEST" "test_sched_queue.exe"
     & $script:SchedQueueTestOut
     if ($LASTEXITCODE -ne 0) { throw "sched queue host tests failed" }
+}
+
+function Invoke-RoboBuildThreadStateTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\thread-state-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-I", $kroot
+    )
+    $srcs = @(
+        (Join-Path $kroot "tests\test_thread_state.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "thread")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ThreadStateTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_thread_state.exe"
+        & $clang -o $script:ThreadStateTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "thread state host test link failed" }
+    }
+}
+
+function Invoke-RoboTestThreadState {
+    Invoke-RoboBuildThreadStateTest
+    Write-Step "TEST" "test_thread_state.exe"
+    & $script:ThreadStateTestOut
+    if ($LASTEXITCODE -ne 0) { throw "thread state host tests failed" }
 }
 
 function Invoke-RoboBuildImage {
@@ -762,6 +806,7 @@ function Invoke-RoboTestHost {
     Invoke-RoboTestVmm
     Invoke-RoboTestTime
     Invoke-RoboTestSchedQueue
+    Invoke-RoboTestThreadState
 }
 
 function Invoke-RoboClean {

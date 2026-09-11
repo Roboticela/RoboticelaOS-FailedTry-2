@@ -1,6 +1,7 @@
 #ifndef ROBO_SCHEDULER_H
 #define ROBO_SCHEDULER_H
 
+#include "thread/thread.h"
 #include "scheduler/task.h"
 #include <stdint.h>
 
@@ -28,9 +29,9 @@ int robo_scheduler_init(void);
 void robo_scheduler_start(void);
 int robo_scheduler_ready(void);
 robo_sched_state_t robo_scheduler_state(void);
-robo_task_t *robo_current_task(void);
-robo_task_t *robo_idle_task(void);
-robo_task_t *robo_bootstrap_task(void);
+RoboThread *robo_current_task(void);
+RoboThread *robo_idle_task(void);
+RoboThread *robo_bootstrap_task(void);
 
 void robo_preempt_disable(void);
 void robo_preempt_enable(void);

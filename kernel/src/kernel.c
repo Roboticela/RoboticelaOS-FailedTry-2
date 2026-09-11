@@ -6,6 +6,7 @@
 #include "mm/heap/heap.h"
 #include "time/time.h"
 #include "scheduler/scheduler.h"
+#include "thread/thread.h"
 
 void kmain(const RoboBootInfo *info)
 {
@@ -123,6 +124,13 @@ void kmain(const RoboBootInfo *info)
                 kprintf("SCHED_TEST_OK\n");
             else
                 kprintf("SCHED_TEST_FAIL\n");
+            robo_thread_report();
+            if (kboot_debug(info))
+                robo_thread_fb_report();
+            if (robo_thread_selftest())
+                kprintf("THREAD_TEST_OK\n");
+            else
+                kprintf("THREAD_TEST_FAIL\n");
         }
     } else {
         kprintf("SCHED_TEST_FAIL\n");

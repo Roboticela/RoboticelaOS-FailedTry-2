@@ -8,29 +8,31 @@ void robo_rq_init(robo_runqueue_t *q)
     q->count = 0;
 }
 
-void robo_rq_enqueue(robo_runqueue_t *q, robo_task_t *task)
+void robo_rq_enqueue(robo_runqueue_t *q, RoboThread *thread)
 {
-    if (!q || !task)
+    if (!q || !thread)
         return;
-    task->next = 0;
-    task->prev = 0;
+    if (thread->state != ROBO_THREAD_READY)
+        return;
+    thread->next = 0;
+    thread->prev = 0;
     if (!q->head) {
-        task->next = task;
-        task->prev = task;
-        q->head = task;
+        thread->next = thread;
+        thread->prev = thread;
+        q->head = thread;
     } else {
-        robo_task_t *h = q->head;
-        task->next = h;
-        task->prev = h->prev;
-        h->prev->next = task;
-        h->prev = task;
+        RoboThread *h = q->head;
+        thread->next = h;
+        thread->prev = h->prev;
+        h->prev->next = thread;
+        h->prev = thread;
     }
     q->count++;
 }
 
-robo_task_t *robo_rq_dequeue(robo_runqueue_t *q)
+RoboThread *robo_rq_dequeue(robo_runqueue_t *q)
 {
-    robo_task_t *t;
+    RoboThread *t;
     if (!q || !q->head)
         return 0;
     t = q->head;
@@ -47,20 +49,20 @@ robo_task_t *robo_rq_dequeue(robo_runqueue_t *q)
     return t;
 }
 
-void robo_rq_remove(robo_runqueue_t *q, robo_task_t *task)
+void robo_rq_remove(robo_runqueue_t *q, RoboThread *thread)
 {
-    if (!q || !task || !q->head || !task->next || !task->prev)
+    if (!q || !thread || !q->head || !thread->next || !thread->prev)
         return;
-    if (task->next == task) {
+    if (thread->next == thread) {
         q->head = 0;
     } else {
-        task->prev->next = task->next;
-        task->next->prev = task->prev;
-        if (q->head == task)
-            q->head = task->next;
+        thread->prev->next = thread->next;
+        thread->next->prev = thread->prev;
+        if (q->head == thread)
+            q->head = thread->next;
     }
-    task->next = 0;
-    task->prev = 0;
+    thread->next = 0;
+    thread->prev = 0;
     q->count--;
 }
 
@@ -69,16 +71,16 @@ unsigned robo_rq_count(const robo_runqueue_t *q)
     return q ? q->count : 0;
 }
 
-int robo_rq_contains(const robo_runqueue_t *q, const robo_task_t *task)
+int robo_rq_contains(const robo_runqueue_t *q, const RoboThread *thread)
 {
-    const robo_task_t *p;
+    const RoboThread *p;
     unsigned n;
-    if (!q || !task || !q->head)
+    if (!q || !thread || !q->head)
         return 0;
     p = q->head;
     n = 0;
     do {
-        if (p == task)
+        if (p == thread)
             return 1;
         p = p->next;
         n++;
