@@ -90,16 +90,14 @@ static void ui_pic_wh(const rb_image *im, float ih, float *iw, float *oh)
 
 void rb_splash_draw(rb_session *ss, float visual, float fade)
 {
-    float cx, logo_h, lw, lh, lx, ly, bar_w, bar_h, bar_x, bar_y, fill, dy, stack, top;
+    float cx, logo_h, lw, lh, lx, ly, bar_w, bar_h, bar_x, bar_y, fill, stack, top;
+    int bx, by, bw, bh, fw;
+    uint32_t bg, track, brand;
     if (!ss) return;
-    fade = rb_clampf(fade, 0.f, 1.f);
+    (void)fade;
     visual = rb_clampf(visual, 0.f, 1.f);
-    dy = 24.f * (1.f - fade);
     cx = ss->fb.w * 0.5f;
     logo_h = ui_compact(ss) ? 96.f : 160.f;
-
-    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
-
     lh = logo_h;
     lw = lh;
     if (ss->logo.px && ss->logo.h > 0)
@@ -107,23 +105,46 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
     bar_w = 176.f;
     bar_h = 4.f;
     stack = lh + 48.f + bar_h;
-    top = (float)ss->fb.h * 0.5f - stack * 0.5f + dy;
+    top = (float)ss->fb.h * 0.5f - stack * 0.5f;
     lx = cx - lw * 0.5f;
     ly = top;
-
-    if (ss->logo.px)
-        rb_gfx_blit(&ss->fb, &ss->logo, lx, ly, lw, lh, fade);
-    else
-        rb_gfx_round_rect(&ss->fb, lx, ly, lw, lh, 18.f, rb_tokenf(RB_TOKEN_BRAND_PRIMARY, fade));
-
     bar_x = cx - bar_w * 0.5f;
     bar_y = ly + lh + 48.f;
-    rb_gfx_round_rect(&ss->fb, bar_x, bar_y, bar_w, bar_h, bar_h * 0.5f,
-                      rb_tokenf(RB_TOKEN_BORDER_DEFAULT, fade));
+    bx = (int)bar_x;
+    by = (int)bar_y;
+    bw = (int)bar_w;
+    bh = (int)bar_h;
+    if (bh < 4) bh = 4;
     fill = bar_w * visual;
-    if (fill > bar_h)
-        rb_gfx_round_rect(&ss->fb, bar_x, bar_y, fill, bar_h, bar_h * 0.5f,
-                          rb_tokenf(RB_TOKEN_BRAND_PRIMARY, fade));
+    fw = (int)(fill + 0.5f);
+    if (fw < 0) fw = 0;
+    if (fw > bw) fw = bw;
+    bg = rb_token(RB_TOKEN_BG_PRIMARY, 255);
+    track = rb_token(RB_TOKEN_BORDER_DEFAULT, 255);
+    brand = rb_token(RB_TOKEN_BRAND_PRIMARY, 255);
+
+    if (!ss->splash_bg_ready) {
+        rb_gfx_clear(&ss->fb, bg);
+        if (ss->logo.px)
+            rb_gfx_blit(&ss->fb, &ss->logo, lx, ly, lw, lh, 1.f);
+        else
+            rb_gfx_round_rect(&ss->fb, lx, ly, lw, lh, 18.f, brand);
+        rb_gfx_fill_box(&ss->fb, bx, by, bw, bh, track);
+        if (fw > 0)
+            rb_gfx_fill_box(&ss->fb, bx, by, fw, bh, brand);
+        ss->splash_bg_ready = 1;
+        ss->fb.damage_w = 0;
+        ss->fb.damage_h = 0;
+        return;
+    }
+
+    rb_gfx_fill_box(&ss->fb, bx, by, bw, bh, track);
+    if (fw > 0)
+        rb_gfx_fill_box(&ss->fb, bx, by, fw, bh, brand);
+    ss->fb.damage_x = bx - 2;
+    ss->fb.damage_y = by - 2;
+    ss->fb.damage_w = bw + 4;
+    ss->fb.damage_h = bh + 4;
 }
 
 static void icon_layout(const rb_session *ss, int vis_index, float *ox, float *oy, float *iw, float *ih)
@@ -168,56 +189,90 @@ static void icon_layout(const rb_session *ss, int vis_index, float *ox, float *o
     *oy = ss->fb.h * 0.5f - 24.f;
 }
 
+static void fit_picker_icons(rb_session *ss)
+{
+    int i;
+    float x, y, w, h;
+    int th;
+    if (!ss || ss->icons_fitted) return;
+    if (visible_count(&ss->catalog) < 1) {
+        ss->icons_fitted = 1;
+        return;
+    }
+    icon_layout(ss, 0, &x, &y, &w, &h);
+    th = (int)(h + 0.5f);
+    if (th < 32) th = 32;
+    for (i = 0; i < ss->catalog.ntargets; i++) {
+        rb_image scaled;
+        int tw;
+        if (!ss->icons[i].px || ss->icons[i].h < 1) continue;
+        if (ss->icons[i].h == th) continue;
+        tw = (int)((h * (float)ss->icons[i].w / (float)ss->icons[i].h) + 0.5f);
+        if (tw < 1) tw = 1;
+        rb_zero(&scaled, sizeof(scaled));
+        if (rb_image_resize(&ss->icons[i], tw, th, &scaled) == RB_OK) {
+            rb_image_free(&ss->icons[i]);
+            ss->icons[i] = scaled;
+        }
+    }
+    ss->icons_fitted = 1;
+}
+
 void rb_picker_draw(rb_session *ss)
 {
     int n, rank;
-    float fade, ease, dy;
     if (!ss) return;
-    fade = rb_clampf(ss->fade, 0.f, 1.f);
-    ease = rb_ease_apple(fade);
-    dy = 24.f * (1.f - ease);
+    fit_picker_icons(ss);
+    ss->fade = 1.f;
+    ss->sel_anim = 1.f;
     rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
     n = visible_count(&ss->catalog);
+    ss->fb.damage_w = 0;
+    ss->fb.damage_h = 0;
 
     for (rank = 0; rank < n; rank++) {
         int idx = nth_visible(&ss->catalog, rank);
         const rb_target *t = &ss->catalog.targets[idx];
-        float cx, cy, iw, ih, sel, scale, pad = UI_HALO_PAD;
+        float cx, cy, iw, ih;
+        int sel;
         icon_layout(ss, rank, &cx, &cy, &iw, &ih);
-        cy += dy;
-        sel = (idx == ss->selected) ? rb_ease_apple(rb_clampf(ss->sel_anim, 0.f, 1.f)) : 0.f;
-        scale = 1.f + 0.02f * sel;
-        iw *= scale;
-        ih *= scale;
+        sel = (idx == ss->selected);
 
-        if (sel > 0.01f) {
+        if (sel) {
+            float pad = UI_HALO_PAD;
             float hx = cx - iw * 0.5f - pad;
             float hy = cy - ih * 0.5f - pad;
-            rb_gfx_round_rect(&ss->fb, hx, hy, iw + pad * 2.f, ih + pad * 2.f, 18.f,
-                              rb_tokenf(RB_TOKEN_BRAND_PRIMARY, RB_TOKEN_BRAND_SUBTLE_A * ease * sel));
-            rb_gfx_round_rect_stroke(&ss->fb, hx, hy, iw + pad * 2.f, ih + pad * 2.f, 18.f, 2.f,
-                                     rb_tokenf(RB_TOKEN_BRAND_PRIMARY, ease * sel));
+            float hw = iw + pad * 2.f;
+            float hh = ih + pad * 2.f;
+            rb_gfx_round_rect(&ss->fb, hx, hy, hw, hh, 18.f,
+                              rb_tokenf(RB_TOKEN_BRAND_PRIMARY, RB_TOKEN_BRAND_SUBTLE_A));
+            rb_gfx_round_rect_stroke(&ss->fb, hx, hy, hw, hh, 18.f, 2.f,
+                                     rb_token(RB_TOKEN_BRAND_PRIMARY, 255));
         }
 
-        if (ss->icons[idx].px)
-            rb_gfx_blit(&ss->fb, &ss->icons[idx], cx - iw * 0.5f, cy - ih * 0.5f, iw, ih, ease);
-        else
+        if (ss->icons[idx].px) {
+            float pw = (float)ss->icons[idx].w;
+            float ph = (float)ss->icons[idx].h;
+            rb_gfx_blit(&ss->fb, &ss->icons[idx], cx - pw * 0.5f, cy - ph * 0.5f, pw, ph, 1.f);
+        } else
             rb_gfx_round_rect(&ss->fb, cx - iw * 0.5f, cy - ih * 0.5f, iw, ih, 18.f,
-                              rb_tokenf(RB_TOKEN_BG_TERTIARY, ease));
+                              rb_token(RB_TOKEN_BG_TERTIARY, 255));
 
         rb_gfx_text_center(&ss->fb, ui_label_font(ss), cx, cy + ih * 0.5f + 24.f, t->title,
-                           rb_tokenf(idx == ss->selected ? RB_TOKEN_TEXT_PRIMARY : RB_TOKEN_TEXT_TERTIARY, ease));
+                           rb_token(sel ? RB_TOKEN_TEXT_PRIMARY : RB_TOKEN_TEXT_TERTIARY, 255));
     }
 
     rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, (float)ss->fb.h - 48.f,
                       ss->catalog.picker_hint[0] ? ss->catalog.picker_hint : "Choose a startup volume",
-                      rb_tokenf(RB_TOKEN_TEXT_TERTIARY, ease));
+                      rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    rb_gfx_text(&ss->fb, ui_caption(ss), ui_edge(ss), (float)ss->fb.h - 48.f, "Settings",
+                rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
 
     if (ss->catalog.picker_timeout_s > 0 && ss->timeout_left_ms > 0) {
         char buf[64];
         snprintf(buf, sizeof(buf), "Booting in %d", (ss->timeout_left_ms + 999) / 1000);
         rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, (float)ss->fb.h - 64.f, buf,
-                           rb_tokenf(RB_TOKEN_TEXT_TERTIARY, ease));
+                           rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
     }
 }
 
@@ -305,6 +360,8 @@ static void cmd_help(rb_session *ss)
     rb_console_print(ss, "boot [id]     start a catalog target");
     rb_console_print(ss, "ls            list targets and volumes");
     rb_console_print(ss, "set k v       write environment");
+    rb_console_print(ss, "debug on|off  verbose boot logs");
+    rb_console_print(ss, "settings      open Settings");
     rb_console_print(ss, "env           show saved environment");
     rb_console_print(ss, "probe         rescan volumes");
     rb_console_print(ss, "exit          return to picker");
@@ -378,6 +435,15 @@ void rb_console_submit(rb_session *ss)
             rb_env_save(&ss->env);
             rb_console_print(ss, "saved");
         }
+    } else if (rb_str_eq(cmd, "debug")) {
+        int on = 1;
+        if (arg[0] && (rb_str_eq(arg, "0") || rb_str_eq(arg, "off") || rb_str_eq(arg, "false"))) on = 0;
+        rb_debug_set(&ss->env, on);
+        rb_env_save(&ss->env);
+        rb_console_print(ss, on ? "debug on" : "debug off");
+    } else if (rb_str_eq(cmd, "settings")) {
+        ss->phase = RB_PHASE_SETTINGS;
+        ss->fade = 0.f;
     } else if (rb_str_eq(cmd, "probe")) {
         char volroot[RB_MAX_PATH];
         rb_join(volroot, sizeof(volroot), ss->plat->root, "volumes");
@@ -409,4 +475,139 @@ void rb_console_submit(rb_session *ss)
 int rb_picker_visible_rank(const rb_catalog *c, int idx)
 {
     return visible_rank(c, idx);
+}
+
+void rb_bootlog(rb_session *ss, const char *line)
+{
+    if (!ss || !line) return;
+    if (ss->boot_log_n >= 24) {
+        int i;
+        for (i = 1; i < 24; i++)
+            rb_strcpy(ss->boot_log[i - 1], sizeof(ss->boot_log[0]), ss->boot_log[i]);
+        ss->boot_log_n = 23;
+    }
+    rb_strcpy(ss->boot_log[ss->boot_log_n++], sizeof(ss->boot_log[0]), line);
+    rb_logf("%s", line);
+}
+
+static const rb_font *ui_body(const rb_session *ss)
+{
+    return ss->font_body.atlas ? &ss->font_body : ui_caption(ss);
+}
+
+void rb_verbose_draw(rb_session *ss)
+{
+    float pad, y;
+    int i;
+    const rb_font *body, *cap, *title;
+    if (!ss) return;
+    pad = ui_compact(ss) ? 22.f : 40.f;
+    body = ui_body(ss);
+    cap = ui_caption(ss);
+    title = ss->font_title.atlas ? &ss->font_title : body;
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    rb_gfx_text(&ss->fb, title, pad, pad, "RoboBoot", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    rb_gfx_text(&ss->fb, cap, pad, pad + 36.f, "Startup", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    rb_gfx_fill_rect(&ss->fb, pad, pad + 64.f, (float)ss->fb.w - pad * 2.f, 1.f,
+                     rb_token(RB_TOKEN_BORDER_SUBTLE, 255));
+    y = pad + 88.f;
+    for (i = 0; i < ss->boot_log_n; i++) {
+        rb_gfx_text(&ss->fb, body, pad, y, ss->boot_log[i],
+                    rb_token(RB_TOKEN_TEXT_SECONDARY, 255));
+        y += 22.f;
+        if (y > (float)ss->fb.h - 48.f) break;
+    }
+}
+
+void rb_settings_draw(rb_session *ss)
+{
+    float pad, card_w, card_h, card_x, card_y, row_y, tog_w, tog_h, tog_x, tog_y, knob;
+    int on;
+    const rb_font *body, *cap, *title;
+    if (!ss) return;
+    pad = ui_compact(ss) ? 22.f : 40.f;
+    on = rb_debug_enabled(&ss->env);
+    body = ui_body(ss);
+    cap = ui_caption(ss);
+    title = ss->font_title.atlas ? &ss->font_title : body;
+    card_w = ui_compact(ss) ? (float)ss->fb.w - pad * 2.f : 560.f;
+    card_h = 160.f;
+    card_x = ((float)ss->fb.w - card_w) * 0.5f;
+    card_y = (float)ss->fb.h * 0.5f - card_h * 0.5f;
+    tog_w = 51.f;
+    tog_h = 31.f;
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    rb_gfx_text_center(&ss->fb, title, (float)ss->fb.w * 0.5f, pad + 8.f, "Settings",
+                       rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    rb_gfx_text_center(&ss->fb, cap, (float)ss->fb.w * 0.5f, pad + 48.f, "Startup",
+                       rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    rb_gfx_round_rect(&ss->fb, card_x, card_y, card_w, card_h, 18.f,
+                      rb_token(RB_TOKEN_BG_SECONDARY, 255));
+    row_y = card_y + 36.f;
+    rb_gfx_text(&ss->fb, body, card_x + 32.f, row_y, "Debug",
+                rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    rb_gfx_text(&ss->fb, cap, card_x + 32.f, row_y + 28.f, "Show verbose logs while starting up",
+                rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    tog_x = card_x + card_w - 32.f - tog_w;
+    tog_y = row_y + 4.f;
+    rb_gfx_round_rect(&ss->fb, tog_x, tog_y, tog_w, tog_h, tog_h * 0.5f,
+                      on ? rb_token(RB_TOKEN_BRAND_PRIMARY, 255) : rb_token(RB_TOKEN_BG_TERTIARY, 255));
+    knob = on ? tog_x + tog_w - tog_h + 2.f : tog_x + 2.f;
+    rb_gfx_circle(&ss->fb, knob + (tog_h - 4.f) * 0.5f, tog_y + tog_h * 0.5f, (tog_h - 6.f) * 0.5f,
+                  rb_token(RB_TOKEN_TEXT_ON_BRAND, 255));
+    rb_gfx_text_center(&ss->fb, cap, (float)ss->fb.w * 0.5f, (float)ss->fb.h - 48.f,
+                      "Enter to toggle   Esc to return",
+                      rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+}
+
+void rb_klog_draw(rb_session *ss)
+{
+    char line[96];
+    float pad, y;
+    const rb_font *body, *cap, *title;
+    if (!ss) return;
+    pad = ui_compact(ss) ? 22.f : 40.f;
+    body = ui_body(ss);
+    cap = ui_caption(ss);
+    title = ss->font_title.atlas ? &ss->font_title : body;
+    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    rb_gfx_text(&ss->fb, title, pad, pad, "Roboticela Kernel", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    rb_gfx_text(&ss->fb, cap, pad, pad + 36.f, "-----------------", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    y = pad + 72.f;
+    rb_gfx_text(&ss->fb, body, pad, y, "Boot protocol: Roboticela", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 22.f;
+    rb_gfx_text(&ss->fb, body, pad, y, "CPU: x86_64", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 36.f;
+    rb_gfx_text(&ss->fb, cap, pad, y, "Memory:", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    y += 22.f;
+    rb_gfx_text(&ss->fb, body, pad, y, "  Available: host", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 22.f;
+    rb_gfx_text(&ss->fb, body, pad, y, "  Reserved:  host", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 36.f;
+    rb_gfx_text(&ss->fb, cap, pad, y, "Framebuffer:", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    y += 22.f;
+    snprintf(line, sizeof(line), "  %dx%d", ss->fb.w, ss->fb.h);
+    rb_gfx_text(&ss->fb, body, pad, y, line, rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 22.f;
+    rb_gfx_text(&ss->fb, body, pad, y, "  32 BPP", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 36.f;
+    rb_gfx_text(&ss->fb, cap, pad, y, "ACPI:", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    y += 22.f;
+    rb_gfx_text(&ss->fb, body, pad, y, "  RSDP found", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 36.f;
+    rb_gfx_text(&ss->fb, cap, pad, y, "Kernel:", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    y += 22.f;
+    snprintf(line, sizeof(line), "  address: 0x%llx", (unsigned long long)ss->handoff.kernel.entry);
+    rb_gfx_text(&ss->fb, body, pad, y, line, rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 22.f;
+    snprintf(line, sizeof(line), "  size: %zu", ss->handoff.kernel.valid ? ss->handoff.kernel.size : 0);
+    rb_gfx_text(&ss->fb, body, pad, y, line, rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 36.f;
+    rb_gfx_text(&ss->fb, cap, pad, y, "InitFS:", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    y += 22.f;
+    snprintf(line, sizeof(line), "  address: 0x%llx", (unsigned long long)ss->handoff.ramdisk.phys);
+    rb_gfx_text(&ss->fb, body, pad, y, line, rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
+    y += 22.f;
+    snprintf(line, sizeof(line), "  size: %zu", ss->handoff.ramdisk.valid ? ss->handoff.ramdisk.size : 0);
+    rb_gfx_text(&ss->fb, body, pad, y, line, rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
 }

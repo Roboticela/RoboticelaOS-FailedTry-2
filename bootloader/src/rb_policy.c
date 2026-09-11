@@ -12,7 +12,9 @@ float rb_splash_visual(float real_progress, uint64_t elapsed_ms, int min_ms)
 
 int rb_splash_complete(float real_progress, uint64_t elapsed_ms, int min_ms)
 {
-    return real_progress >= 0.999f && (int)elapsed_ms >= min_ms;
+    if (real_progress < 0.999f) return 0;
+    if (min_ms <= 0) return 1;
+    return elapsed_ms >= (uint64_t)min_ms;
 }
 
 rb_boot_intent rb_policy_intent(int alt_held, int force_menu, const char *next_boot)

@@ -1,0 +1,23 @@
+#ifndef KIO_H
+#define KIO_H
+
+#include <stdint.h>
+#include <stddef.h>
+#include "roboticela/bootinfo.h"
+
+void kserial_init(void);
+void kserial_putc(char c);
+void kserial_puts(const char *s);
+void kprintf(const char *fmt, ...);
+
+void kfb_init(const RoboBootInfo *info);
+void kfb_clear(uint32_t rgb);
+void kfb_puts(const char *s, uint32_t rgb);
+void kfb_putu(unsigned long long v, uint32_t rgb);
+void kfb_puthex(unsigned long long v, uint32_t rgb);
+void kfb_newline(void);
+
+int kboot_debug(const RoboBootInfo *info);
+void kboot_report(const RoboBootInfo *info);
+
+#endif

@@ -272,7 +272,7 @@ typedef struct {
 
 typedef struct {
     EFI_TABLE_HEADER Hdr;
-    void *GetTime;
+    EFI_STATUS (EFIAPI *GetTime)(EFI_TIME *Time, void *Capabilities);
     void *SetTime;
     void *GetWakeupTime;
     void *SetWakeupTime;
@@ -290,13 +290,24 @@ typedef struct {
     void *QueryVariableInfo;
 } EFI_RUNTIME_SERVICES;
 
+typedef EFI_STATUS (EFIAPI *EFI_ALLOCATE_PAGES)(EFI_ALLOCATE_TYPE Type, EFI_MEMORY_TYPE MemoryType,
+                                                UINTN Pages, EFI_PHYSICAL_ADDRESS *Memory);
+typedef EFI_STATUS (EFIAPI *EFI_GET_MEMORY_MAP)(UINTN *MemoryMapSize, EFI_MEMORY_DESCRIPTOR *MemoryMap,
+                                                UINTN *MapKey, UINTN *DescriptorSize, uint32_t *DescriptorVersion);
+typedef EFI_STATUS (EFIAPI *EFI_EXIT_BOOT_SERVICES)(EFI_HANDLE ImageHandle, UINTN MapKey);
+
+typedef struct {
+    EFI_GUID VendorGuid;
+    void *VendorTable;
+} EFI_CONFIGURATION_TABLE;
+
 typedef struct {
     EFI_TABLE_HEADER Hdr;
     void *RaiseTPL;
     void *RestoreTPL;
-    void *AllocatePages;
+    EFI_ALLOCATE_PAGES AllocatePages;
     void *FreePages;
-    void *GetMemoryMap;
+    EFI_GET_MEMORY_MAP GetMemoryMap;
     EFI_STATUS (EFIAPI *AllocatePool)(EFI_MEMORY_TYPE PoolType, UINTN Size, void **Buffer);
     EFI_STATUS (EFIAPI *FreePool)(void *Buffer);
     void *CreateEvent;
@@ -319,7 +330,7 @@ typedef struct {
     EFI_STATUS (EFIAPI *StartImage)(EFI_HANDLE ImageHandle, UINTN *ExitDataSize, CHAR16 **ExitData);
     void *Exit;
     void *UnloadImage;
-    void *ExitBootServices;
+    EFI_EXIT_BOOT_SERVICES ExitBootServices;
     void *GetNextMonotonicCount;
     EFI_STATUS (EFIAPI *Stall)(UINTN Microseconds);
     EFI_STATUS (EFIAPI *SetWatchdogTimer)(UINTN Timeout, uint64_t WatchdogCode, UINTN DataSize, CHAR16 *WatchdogData);
@@ -359,7 +370,7 @@ struct EFI_SYSTEM_TABLE {
     EFI_RUNTIME_SERVICES *RuntimeServices;
     EFI_BOOT_SERVICES *BootServices;
     UINTN NumberOfTableEntries;
-    void *ConfigurationTable;
+    EFI_CONFIGURATION_TABLE *ConfigurationTable;
 };
 
 typedef struct EFI_SYSTEM_TABLE EFI_SYSTEM_TABLE;
@@ -396,6 +407,7 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st);
 void efi_install_boot_entry(void);
 const struct rb_platform *efi_platform(void);
 void efi_fb_size(int *w, int *h);
+void efi_graphics_info(uint64_t *fb, uint32_t *w, uint32_t *h, uint32_t *pitch, uint32_t *bpp, uint32_t *pixfmt);
 void efi_shutdown(void);
 int efi_flag_selftest(void);
 int efi_flag_menu(void);

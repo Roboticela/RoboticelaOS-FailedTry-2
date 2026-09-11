@@ -48,7 +48,7 @@ function Get-QemuBaseArgs {
     New-OvmfVars -Reset:($ResetNvram -or $Headless)
     $boot = if ($FirmwareMenu) { "order=c,menu=on,splash-time=8000" } else { "order=c,menu=off,splash-time=0" }
     $args = @(
-        "-machine", "q35",
+        "-machine", "q35,usb=off",
         "-cpu", "qemu64,-svm",
         "-m", "512",
         "-vga", "std",
@@ -57,9 +57,7 @@ function Get-QemuBaseArgs {
         "-drive", "if=pflash,format=raw,unit=0,readonly=on,file=$code",
         "-drive", "if=pflash,format=raw,unit=1,file=$script:VarsFd",
         "-fw_cfg", "name=opt/org.tianocore/EFIShellSupport,string=no",
-        "-serial", "file:$script:SerialLog",
-        "-debugcon", "file:$script:OvmfDebug",
-        "-global", "isa-debugcon.iobase=0x402"
+        "-serial", "file:$script:SerialLog"
     )
     if (-not $FirmwareMenu) {
         $args += @("-fw_cfg", "name=opt/org.tianocore/FirmwareSetupSupport,string=no")
@@ -88,7 +86,7 @@ function Start-QemuProcess {
         [switch]$Hidden
     )
     $qemu = Get-Qemu
-    $all = @("-accel", $Accel) + $Arguments
+    $all = @("-accel", "$Accel,thread=multi") + $Arguments
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $qemu
     $psi.Arguments = Get-QemuArgLine $all

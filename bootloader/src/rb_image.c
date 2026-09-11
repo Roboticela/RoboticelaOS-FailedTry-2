@@ -27,6 +27,39 @@ rb_status rb_image_load_mem(const void *data, size_t len, rb_image *out)
     return RB_OK;
 }
 
+rb_status rb_image_resize(const rb_image *src, int w, int h, rb_image *dst)
+{
+    int x, y;
+    if (!src || !src->px || !dst || w < 1 || h < 1) return RB_ERR;
+    if (w > 4096 || h > 4096) return RB_ERR;
+    if (src == dst) return RB_ERR;
+    rb_image_free(dst);
+    dst->px = (uint32_t *)rb_alloc((size_t)w * (size_t)h * 4u);
+    if (!dst->px) return RB_ERR_NOMEM;
+    dst->w = w;
+    dst->h = h;
+    if (src->w == w && src->h == h) {
+        memcpy(dst->px, src->px, (size_t)w * (size_t)h * 4u);
+        return RB_OK;
+    }
+    for (y = 0; y < h; y++) {
+        int sy = (int)(((int64_t)y * src->h) / h);
+        const uint32_t *srow;
+        uint32_t *drow;
+        if (sy < 0) sy = 0;
+        if (sy >= src->h) sy = src->h - 1;
+        srow = src->px + sy * src->w;
+        drow = dst->px + y * w;
+        for (x = 0; x < w; x++) {
+            int sx = (int)(((int64_t)x * src->w) / w);
+            if (sx < 0) sx = 0;
+            if (sx >= src->w) sx = src->w - 1;
+            drow[x] = srow[sx];
+        }
+    }
+    return RB_OK;
+}
+
 void rb_image_free(rb_image *im)
 {
     if (!im) return;

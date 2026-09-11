@@ -62,6 +62,20 @@ const char *rb_env_get(const rb_env *env, const char *key)
     return NULL;
 }
 
+int rb_debug_enabled(const rb_env *env)
+{
+    const char *v = rb_env_get(env, "debug");
+    if (!v || !v[0]) return 0;
+    if (v[0] == '0' && v[1] == 0) return 0;
+    if (rb_str_eq(v, "off") || rb_str_eq(v, "false") || rb_str_eq(v, "no")) return 0;
+    return 1;
+}
+
+void rb_debug_set(rb_env *env, int on)
+{
+    rb_env_set(env, "debug", on ? "1" : "0");
+}
+
 rb_status rb_env_load(const char *path, rb_env *out)
 {
     void *data = NULL;

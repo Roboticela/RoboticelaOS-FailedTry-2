@@ -1,6 +1,7 @@
 #include "roboboot.h"
 
 #include <math.h>
+#include <string.h>
 
 void rb_gfx_clear(rb_surface *s, uint32_t c)
 {
@@ -15,6 +16,22 @@ void rb_gfx_dot(rb_surface *s, int x, int y, uint32_t c)
     if (!s || !s->px) return;
     if ((unsigned)x >= (unsigned)s->w || (unsigned)y >= (unsigned)s->h) return;
     s->px[y * s->w + x] = rb_blend(s->px[y * s->w + x], c);
+}
+
+void rb_gfx_fill_box(rb_surface *s, int x, int y, int w, int h, uint32_t c)
+{
+    int ix, iy;
+    if (!s || !s->px || w <= 0 || h <= 0) return;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x >= s->w || y >= s->h) return;
+    if (x + w > s->w) w = s->w - x;
+    if (y + h > s->h) h = s->h - y;
+    if (w <= 0 || h <= 0) return;
+    for (iy = 0; iy < h; iy++) {
+        uint32_t *row = s->px + (y + iy) * s->w + x;
+        for (ix = 0; ix < w; ix++) row[ix] = c;
+    }
 }
 
 static float sdf_round_rect(float px, float py, float x, float y, float w, float h, float r)
@@ -127,9 +144,28 @@ void rb_gfx_ring(rb_surface *s, float cx, float cy, float r, float t, uint32_t c
 
 void rb_gfx_blit(rb_surface *s, const rb_image *im, float x, float y, float w, float h, float alpha)
 {
-    int x0, y0, x1, y1, ix, iy;
+    int x0, y0, x1, y1, ix, iy, dw, dh, dx, dy;
     if (!s || !im || !im->px || w <= 0.f || h <= 0.f || alpha <= 0.f) return;
     if (alpha > 1.f) alpha = 1.f;
+    dw = (int)(w + 0.5f);
+    dh = (int)(h + 0.5f);
+    dx = (int)floorf(x);
+    dy = (int)floorf(y);
+    if (alpha >= 0.999f && dw == im->w && dh == im->h) {
+        int src_y0 = 0, src_x0 = 0;
+        int cw = im->w, ch = im->h;
+        if (dx < 0) { src_x0 = -dx; cw += dx; dx = 0; }
+        if (dy < 0) { src_y0 = -dy; ch += dy; dy = 0; }
+        if (dx + cw > s->w) cw = s->w - dx;
+        if (dy + ch > s->h) ch = s->h - dy;
+        if (cw <= 0 || ch <= 0) return;
+        for (iy = 0; iy < ch; iy++) {
+            memcpy(s->px + (dy + iy) * s->w + dx,
+                   im->px + (src_y0 + iy) * im->w + src_x0,
+                   (size_t)cw * 4u);
+        }
+        return;
+    }
     x0 = (int)floorf(x);
     y0 = (int)floorf(y);
     x1 = (int)ceilf(x + w);

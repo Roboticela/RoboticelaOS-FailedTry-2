@@ -28,6 +28,31 @@ rb_status rb_elf64_info(const uint8_t *data, size_t len, uint64_t *entry, uint64
     return RB_OK;
 }
 
+int rb_elf64_phdrs(const uint8_t *data, size_t len, rb_phdr *out, int cap)
+{
+    uint64_t phoff = 0;
+    int phnum = 0, i, n = 0;
+    if (rb_elf64_info(data, len, 0, &phoff, &phnum) != RB_OK) return 0;
+    if (!out || cap < 1) return 0;
+    for (i = 0; i < phnum && n < cap; i++) {
+        const uint8_t *p = data + phoff + (uint64_t)i * 56ull;
+        uint32_t type, flags;
+        memcpy(&type, p, 4);
+        memcpy(&flags, p + 4, 4);
+        if (type != 1) continue; /* PT_LOAD */
+        memcpy(&out[n].offset, p + 8, 8);
+        memcpy(&out[n].vaddr, p + 16, 8);
+        memcpy(&out[n].paddr, p + 24, 8);
+        memcpy(&out[n].filesz, p + 32, 8);
+        memcpy(&out[n].memsz, p + 40, 8);
+        memcpy(&out[n].align, p + 48, 8);
+        out[n].type = type;
+        out[n].flags = flags;
+        n++;
+    }
+    return n;
+}
+
 static void resolve_payload(const char *root, const rb_target *t, const char *rel, char *out, size_t cap)
 {
     if (!rel || !rel[0]) {

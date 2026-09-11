@@ -230,7 +230,6 @@ static rb_status host_boot(const rb_target *t, const rb_handoff *h)
             t->args);
     rb_strcpy(g_host.last_boot_id, sizeof(g_host.last_boot_id), t->id);
     g_host.last_boot_code = 0;
-    g_host.running = 0;
     return RB_OK;
 }
 

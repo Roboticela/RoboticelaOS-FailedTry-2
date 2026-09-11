@@ -49,7 +49,8 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         rb_session_tick(&ss);
         if (splash_ms >= 0) ss.catalog.splash_min_ms = splash_ms;
         while (ss.running && ticks++ < 2000) {
-            if (ss.phase == RB_PHASE_PICKER || ss.phase == RB_PHASE_DONE || ss.phase == RB_PHASE_HANDOFF)
+            if (ss.phase == RB_PHASE_PICKER || ss.phase == RB_PHASE_DONE || ss.phase == RB_PHASE_HANDOFF ||
+                ss.phase == RB_PHASE_VERBOSE || ss.phase == RB_PHASE_KLOG)
                 break;
             if (plat->sleep_ms) plat->sleep_ms(8);
             rb_session_tick(&ss);
@@ -66,6 +67,9 @@ EFI_STATUS EFIAPI EfiMain(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
         return EFI_SUCCESS;
     }
 
+    rb_session_tick(&ss);
+    if (efi_flag_splash_ms() >= 0)
+        ss.catalog.splash_min_ms = efi_flag_splash_ms();
     rb_session_boot(&ss);
     rb_logf("RoboBoot session complete");
     for (;;) {

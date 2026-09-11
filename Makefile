@@ -15,7 +15,7 @@ endif
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 BUILD := $(ROOT)/scripts/build-bootloader.ps1
 
-.PHONY: all assets host efi image esp bootloader test check qemu qemu-test run \
+.PHONY: all assets host efi image esp bootloader kernel test check qemu qemu-test run \
         clean distclean info help configure
 
 all:
@@ -32,6 +32,9 @@ host:
 
 efi:
 	$(PS) "$(BUILD)" efi
+
+kernel:
+	$(PS) "$(BUILD)" kernel
 
 image esp:
 	$(PS) "$(BUILD)" image

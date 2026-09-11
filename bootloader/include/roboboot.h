@@ -101,6 +101,10 @@ typedef struct {
     int w;
     int h;
     uint32_t *px;
+    int damage_x;
+    int damage_y;
+    int damage_w;
+    int damage_h;
 } rb_surface;
 
 typedef struct {
@@ -193,6 +197,7 @@ typedef struct {
     int nextras;
     char cmdline[RB_MAX_ARGS];
     rb_kind protocol;
+    int debug;
 } rb_handoff;
 
 typedef struct rb_platform {
@@ -217,6 +222,9 @@ typedef enum {
     RB_PHASE_PICKER,
     RB_PHASE_AUTH,
     RB_PHASE_CONSOLE,
+    RB_PHASE_SETTINGS,
+    RB_PHASE_VERBOSE,
+    RB_PHASE_KLOG,
     RB_PHASE_HANDOFF,
     RB_PHASE_DONE
 } rb_phase;
@@ -241,6 +249,12 @@ typedef struct {
     uint64_t splash_start_ms;
     int splash_done;
     int splash_inited;
+    int splash_bg_ready;
+    int splash_ticks;
+    int icons_loaded;
+    int icons_fitted;
+    int picker_drawn;
+    int settings_drawn;
     int alt_latched;
     int selected;
     float sel_anim;
@@ -257,6 +271,8 @@ typedef struct {
     int boot_index;
     rb_handoff handoff;
     float fade;
+    char boot_log[24][96];
+    int boot_log_n;
 } rb_session;
 
 extern const rb_platform *rb_plat;
@@ -290,12 +306,14 @@ rb_status rb_lock_hash(const char *password, const uint8_t *salt, size_t salt_le
 int rb_lock_verify(const char *spec, const char *password);
 
 rb_status rb_image_load_mem(const void *data, size_t len, rb_image *out);
+rb_status rb_image_resize(const rb_image *src, int w, int h, rb_image *dst);
 void rb_image_free(rb_image *im);
 rb_status rb_font_load_mem(const void *data, size_t len, rb_font *out);
 void rb_font_free(rb_font *f);
 
 void rb_gfx_clear(rb_surface *s, uint32_t c);
 void rb_gfx_dot(rb_surface *s, int x, int y, uint32_t c);
+void rb_gfx_fill_box(rb_surface *s, int x, int y, int w, int h, uint32_t c);
 void rb_gfx_fill_rect(rb_surface *s, float x, float y, float w, float h, uint32_t c);
 void rb_gfx_round_rect(rb_surface *s, float x, float y, float w, float h, float r, uint32_t c);
 void rb_gfx_round_rect_stroke(rb_surface *s, float x, float y, float w, float h, float r, float t, uint32_t c);
@@ -334,13 +352,34 @@ rb_boot_intent rb_policy_intent(int alt_held, int force_menu, const char *next_b
 int rb_policy_resolve_index(const rb_catalog *c, const rb_env *env, int fallback);
 int rb_policy_next_index(const rb_catalog *c, int from, int dir);
 
+#define RB_MAX_PHDRS 16
+
+typedef struct {
+    uint32_t type;
+    uint32_t flags;
+    uint64_t offset;
+    uint64_t vaddr;
+    uint64_t paddr;
+    uint64_t filesz;
+    uint64_t memsz;
+    uint64_t align;
+} rb_phdr;
+
+int rb_debug_enabled(const rb_env *env);
+void rb_debug_set(rb_env *env, int on);
+
 rb_status rb_loader_prepare(const rb_target *t, const char *root, rb_handoff *h);
 void rb_handoff_free(rb_handoff *h);
 rb_status rb_elf64_info(const uint8_t *data, size_t len, uint64_t *entry, uint64_t *phoff, int *phnum);
+int rb_elf64_phdrs(const uint8_t *data, size_t len, rb_phdr *out, int cap);
 
 void rb_splash_draw(rb_session *ss, float visual, float fade);
 void rb_picker_draw(rb_session *ss);
 void rb_auth_draw(rb_session *ss);
+void rb_settings_draw(rb_session *ss);
+void rb_verbose_draw(rb_session *ss);
+void rb_klog_draw(rb_session *ss);
+void rb_bootlog(rb_session *ss, const char *line);
 void rb_console_draw(rb_session *ss);
 void rb_console_submit(rb_session *ss);
 void rb_console_print(rb_session *ss, const char *line);

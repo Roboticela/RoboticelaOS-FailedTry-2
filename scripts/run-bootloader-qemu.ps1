@@ -54,7 +54,7 @@ try {
 
     # WHPX + std VGA GOP often aborts QEMU on Windows (exit 0, no window).
     Write-Host "  Accel:    tcg"
-    & $qemu @qemuArgs -accel tcg
+    & $qemu @qemuArgs -accel "tcg,thread=multi"
     exit $LASTEXITCODE
 }
 finally {

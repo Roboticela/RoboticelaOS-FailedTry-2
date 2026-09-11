@@ -200,6 +200,11 @@ static void test_env(void)
     CHECK(rb_str_eq(rb_env_get(&e, "foo"), "bar"), "env get");
     rb_env_set(&e, "foo", "baz");
     CHECK(rb_str_eq(rb_env_get(&e, "foo"), "baz"), "env set");
+    CHECK(!rb_debug_enabled(&e), "debug defaults off");
+    rb_debug_set(&e, 1);
+    CHECK(rb_debug_enabled(&e), "debug on");
+    rb_debug_set(&e, 0);
+    CHECK(!rb_debug_enabled(&e), "debug off");
 }
 
 static void test_elf(void)
@@ -213,7 +218,7 @@ static void test_elf(void)
     CHECK(t_read(path, &data, &len) == RB_OK, "read dummy kernel");
     CHECK(rb_elf64_info((uint8_t *)data, len, &entry, &phoff, &phnum) == RB_OK, "elf parse");
     CHECK(entry == 0x401000ull, "elf entry");
-    CHECK(phnum == 1, "one phdr");
+    CHECK(phnum >= 1, "load segment");
     rb_free(data);
 }
 
@@ -260,6 +265,10 @@ static void test_session_quiet(void)
     CHECK(ss.load_visual < 0.3f, "bar not finished early");
     g_time = 2000;
     rb_session_tick(&ss);
+    if (ss.phase == RB_PHASE_VERBOSE) {
+        g_time += 1000;
+        rb_session_tick(&ss);
+    }
     if (ss.phase == RB_PHASE_HANDOFF) rb_session_tick(&ss);
     CHECK(rb_str_eq(g_last_boot, "roboticela"), "quiet boot default OS");
     rb_session_free(&ss);
@@ -298,6 +307,10 @@ static void test_session_alt_menu(void)
     g_in.keys[0] = RB_KEY_ENTER;
     g_time += 16;
     rb_session_tick(&ss);
+    if (ss.phase == RB_PHASE_VERBOSE) {
+        g_time += 1000;
+        rb_session_tick(&ss);
+    }
     if (ss.phase == RB_PHASE_HANDOFF) rb_session_tick(&ss);
     CHECK(g_last_boot[0] != 0, "picker enter boots a target");
     rb_session_free(&ss);

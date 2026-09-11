@@ -43,46 +43,58 @@ static float bump_load(rb_session *ss, float to)
 static rb_status load_resources(rb_session *ss)
 {
     char path[RB_MAX_PATH];
-    int i;
     rb_status st;
 
     bump_load(ss, 0.06f);
+    rb_bootlog(ss, "Firmware");
     rb_join(path, sizeof(path), ss->plat->root, "config/roboboot.manifest");
     st = rb_manifest_load_path(path, &ss->catalog);
     if (st != RB_OK) {
         rb_logf("manifest load failed (%d)", st);
         return st;
     }
+    rb_bootlog(ss, "Catalog");
     bump_load(ss, 0.18f);
 
     rb_join(path, sizeof(path), ss->plat->root, ss->catalog.env_path);
     rb_env_load(path, &ss->env);
+    rb_bootlog(ss, rb_debug_enabled(&ss->env) ? "Debug on" : "Debug off");
     bump_load(ss, 0.28f);
 
     rb_join(path, sizeof(path), ss->plat->root, "volumes");
     rb_probe_volumes(path, &ss->probe);
     rb_probe_apply(&ss->catalog, &ss->probe);
+    rb_bootlog(ss, "Volumes");
     bump_load(ss, 0.48f);
 
     load_path_image(ss, ss->catalog.splash_logo, &ss->logo);
     bump_load(ss, 0.62f);
 
-    for (i = 0; i < ss->catalog.ntargets; i++) {
-        if (ss->catalog.targets[i].icon[0])
-            load_path_image(ss, ss->catalog.targets[i].icon, &ss->icons[i]);
-        bump_load(ss, 0.62f + 0.22f * ((float)(i + 1) / (float)ss->catalog.ntargets));
-    }
+    /* Picker volume pictures stay on disk until the menu opens. Default boot
+       only needs the splash logo and fonts — the extra 2 MB RBIM files stall TCG. */
 
     load_path_font(ss, "assets/fonts/ui-title.rbfn", &ss->font_title);
     load_path_font(ss, "assets/fonts/ui-body.rbfn", &ss->font_body);
     load_path_font(ss, "assets/fonts/ui-caption.rbfn", &ss->font_caption);
     bump_load(ss, 0.96f);
+    rb_bootlog(ss, "Resources");
 
     ss->selected = rb_policy_resolve_index(&ss->catalog, &ss->env, 0);
     if (ss->selected < 0) ss->selected = 0;
     ss->timeout_left_ms = ss->catalog.picker_timeout_s * 1000;
     bump_load(ss, 1.f);
     return RB_OK;
+}
+
+static void load_picker_icons(rb_session *ss)
+{
+    int i;
+    if (!ss || ss->icons_loaded) return;
+    for (i = 0; i < ss->catalog.ntargets; i++) {
+        if (ss->catalog.targets[i].icon[0])
+            load_path_image(ss, ss->catalog.targets[i].icon, &ss->icons[i]);
+    }
+    ss->icons_loaded = 1;
 }
 
 rb_status rb_session_load(rb_session *ss)
@@ -148,7 +160,6 @@ static int consume_hotkey(rb_session *ss)
             if (hk >= 'A' && hk <= 'Z') hk += 32;
             if (hk && hk == ch && ss->catalog.targets[i].present) {
                 ss->selected = i;
-                ss->sel_anim = 0.f;
                 return 1;
             }
         }
@@ -178,6 +189,20 @@ static rb_status try_boot(rb_session *ss, int idx)
         ss->selected = idx;
         return try_boot(ss, idx);
     }
+    ss->handoff.debug = rb_debug_enabled(&ss->env);
+    if (ss->handoff.debug && ss->handoff.cmdline[0]) {
+        /* keep existing args; efi_kexec also stamps debug */
+    }
+    {
+        char line[96];
+        snprintf(line, sizeof(line), "Kernel  %zu bytes",
+                 ss->handoff.kernel.valid ? ss->handoff.kernel.size : 0);
+        rb_bootlog(ss, line);
+        snprintf(line, sizeof(line), "InitFS  %zu bytes",
+                 ss->handoff.ramdisk.valid ? ss->handoff.ramdisk.size : 0);
+        rb_bootlog(ss, line);
+        rb_bootlog(ss, "Handoff");
+    }
     if (ss->catalog.save_last) {
         rb_env_set(&ss->env, "last_boot", t->id);
         rb_env_set(&ss->env, "next_boot", "");
@@ -191,6 +216,14 @@ static rb_status try_boot(rb_session *ss, int idx)
         st = ss->plat->halt ? ss->plat->halt() : RB_OK;
     else
         st = ss->plat->boot ? ss->plat->boot(t, &ss->handoff) : RB_OK;
+    /* Host cannot jump into the ELF; keep the window on the kernel log.
+       EFI never returns from a successful efi_start_kernel(). */
+    if (st == RB_OK &&
+        (t->kind == RB_KIND_KERNEL || t->kind == RB_KIND_LINUX || t->kind == RB_KIND_MULTIBOOT2)) {
+        ss->phase = RB_PHASE_KLOG;
+        ss->running = 1;
+        return st;
+    }
     ss->phase = RB_PHASE_DONE;
     ss->running = 0;
     return st;
@@ -199,6 +232,11 @@ static rb_status try_boot(rb_session *ss, int idx)
 static void begin_boot_selected(rb_session *ss)
 {
     ss->boot_index = ss->selected;
+    if (rb_debug_enabled(&ss->env)) {
+        ss->phase = RB_PHASE_VERBOSE;
+        ss->timeout_left_ms = 900;
+        return;
+    }
     ss->phase = RB_PHASE_HANDOFF;
 }
 
@@ -223,10 +261,14 @@ int rb_session_tick(rb_session *ss)
     }
     if (picker_chord(ss)) ss->alt_latched = 1;
 
+    if (ss->phase != RB_PHASE_LOAD && ss->phase != RB_PHASE_SPLASH) {
+        ss->fb.damage_w = 0;
+        ss->fb.damage_h = 0;
+    }
+
     if (ss->phase == RB_PHASE_LOAD || ss->phase == RB_PHASE_SPLASH) {
         if (!ss->splash_inited) {
             ss->splash_inited = 1;
-            ss->splash_start_ms = now;
             ss->phase = RB_PHASE_SPLASH;
             if (ss->load_real < 1.f) {
                 if (load_resources(ss) != RB_OK) {
@@ -234,22 +276,36 @@ int rb_session_tick(rb_session *ss)
                     return 0;
                 }
             }
+            now = ss->plat->now_ms();
+            ss->splash_start_ms = now;
+            ss->last_ms = now;
         }
         {
             uint64_t elapsed = now - ss->splash_start_ms;
-            float fade_in = rb_ease_apple(rb_clampf((float)elapsed / 600.f, 0.f, 1.f));
+            int done;
             ss->load_visual = rb_splash_visual(ss->load_real, elapsed, ss->catalog.splash_min_ms);
-            ss->fade = fade_in;
-            rb_splash_draw(ss, ss->load_visual, fade_in);
+            ss->fade = 1.f;
+            done = rb_splash_complete(ss->load_real, elapsed, ss->catalog.splash_min_ms);
+            if (!done && ss->load_real >= 0.999f && ss->splash_ticks >= 80)
+                done = 1;
+            if (done)
+                ss->load_visual = 1.f;
+            if (rb_debug_enabled(&ss->env))
+                rb_verbose_draw(ss);
+            else
+                rb_splash_draw(ss, ss->load_visual, 1.f);
             if (ss->plat->present) ss->plat->present(&ss->fb);
-            if (rb_splash_complete(ss->load_real, elapsed, ss->catalog.splash_min_ms)) {
+            ss->splash_ticks++;
+            if (done) {
                 rb_boot_intent intent = rb_policy_intent(
                     ss->alt_latched, ss->force_menu, rb_env_get(&ss->env, "next_boot"));
                 ss->splash_done = 1;
                 if (intent == RB_BOOT_PICKER) {
+                    load_picker_icons(ss);
                     ss->phase = RB_PHASE_PICKER;
-                    ss->fade = 0.f;
+                    ss->fade = 1.f;
                     ss->sel_anim = 1.f;
+                    ss->picker_drawn = 0;
                 } else {
                     ss->selected = rb_policy_resolve_index(&ss->catalog, &ss->env, 0);
                     begin_boot_selected(ss);
@@ -260,19 +316,28 @@ int rb_session_tick(rb_session *ss)
     }
 
     if (ss->phase == RB_PHASE_PICKER) {
-        ss->fade = rb_clampf(ss->fade + dt / 0.600f, 0.f, 1.f);
-        ss->sel_anim = rb_clampf(ss->sel_anim + dt / 0.300f, 0.f, 1.f);
+        int prev = ss->selected;
+        int dirty;
+        ss->fade = 1.f;
+        ss->sel_anim = 1.f;
         if (key_hit(&ss->input, RB_KEY_LEFT)) {
             ss->selected = rb_policy_next_index(&ss->catalog, ss->selected, -1);
-            ss->sel_anim = 0.f;
             ss->timeout_left_ms = ss->catalog.picker_timeout_s * 1000;
         }
         if (key_hit(&ss->input, RB_KEY_RIGHT)) {
             ss->selected = rb_policy_next_index(&ss->catalog, ss->selected, 1);
-            ss->sel_anim = 0.f;
             ss->timeout_left_ms = ss->catalog.picker_timeout_s * 1000;
         }
         consume_hotkey(ss);
+        for (i = 0; i < ss->input.nchars; i++) {
+            int ch = ss->input.chars[i];
+            if (ch == 's' || ch == 'S') {
+                ss->phase = RB_PHASE_SETTINGS;
+                ss->fade = 1.f;
+                ss->settings_drawn = 0;
+                break;
+            }
+        }
         if (key_hit(&ss->input, RB_KEY_ENTER)) begin_boot_selected(ss);
         if (key_hit(&ss->input, RB_KEY_F10) || key_hit(&ss->input, RB_KEY_CONSOLE)) {
             ss->phase = RB_PHASE_CONSOLE;
@@ -286,7 +351,55 @@ int rb_session_tick(rb_session *ss)
                 begin_boot_selected(ss);
             }
         }
-        rb_picker_draw(ss);
+        if (ss->phase != RB_PHASE_PICKER) return 1;
+        dirty = !ss->picker_drawn || ss->selected != prev;
+        if (ss->catalog.picker_timeout_s > 0) dirty = 1;
+        if (dirty) {
+            rb_picker_draw(ss);
+            if (ss->plat->present) ss->plat->present(&ss->fb);
+            ss->picker_drawn = 1;
+        }
+        return 1;
+    }
+
+    if (ss->phase == RB_PHASE_SETTINGS) {
+        int dirty = !ss->settings_drawn;
+        ss->fade = 1.f;
+        if (key_hit(&ss->input, RB_KEY_ESC)) {
+            ss->phase = RB_PHASE_PICKER;
+            ss->picker_drawn = 0;
+            ss->fade = 1.f;
+            return 1;
+        }
+        if (key_hit(&ss->input, RB_KEY_ENTER) || key_hit(&ss->input, RB_KEY_RIGHT) ||
+            key_hit(&ss->input, RB_KEY_LEFT)) {
+            rb_debug_set(&ss->env, !rb_debug_enabled(&ss->env));
+            rb_env_save(&ss->env);
+            dirty = 1;
+        }
+        if (dirty) {
+            rb_settings_draw(ss);
+            if (ss->plat->present) ss->plat->present(&ss->fb);
+            ss->settings_drawn = 1;
+        }
+        return 1;
+    }
+
+    if (ss->phase == RB_PHASE_VERBOSE) {
+        ss->timeout_left_ms -= (int)(dt * 1000.f);
+        rb_verbose_draw(ss);
+        if (ss->plat->present) ss->plat->present(&ss->fb);
+        if (ss->timeout_left_ms <= 0 || key_hit(&ss->input, RB_KEY_ENTER))
+            ss->phase = RB_PHASE_HANDOFF;
+        return 1;
+    }
+
+    if (ss->phase == RB_PHASE_KLOG) {
+        if (key_hit(&ss->input, RB_KEY_ESC)) {
+            ss->running = 0;
+            return 0;
+        }
+        rb_klog_draw(ss);
         if (ss->plat->present) ss->plat->present(&ss->fb);
         return 1;
     }
@@ -306,6 +419,7 @@ int rb_session_tick(rb_session *ss)
         if (key_hit(&ss->input, RB_KEY_ESC)) {
             ss->phase = RB_PHASE_PICKER;
             ss->auth_len = 0;
+            ss->picker_drawn = 0;
         }
         if (key_hit(&ss->input, RB_KEY_ENTER)) {
             rb_target *t = &ss->catalog.targets[ss->selected];
@@ -335,7 +449,10 @@ int rb_session_tick(rb_session *ss)
             ss->console_in[--ss->console_len] = 0;
         }
         if (key_hit(&ss->input, RB_KEY_ENTER)) rb_console_submit(ss);
-        if (key_hit(&ss->input, RB_KEY_ESC)) ss->phase = RB_PHASE_PICKER;
+        if (key_hit(&ss->input, RB_KEY_ESC)) {
+            ss->phase = RB_PHASE_PICKER;
+            ss->picker_drawn = 0;
+        }
         rb_console_draw(ss);
         if (ss->plat->present) ss->plat->present(&ss->fb);
         return 1;
@@ -352,7 +469,7 @@ int rb_session_tick(rb_session *ss)
 rb_status rb_session_boot(rb_session *ss)
 {
     while (rb_session_tick(ss)) {
-        if (ss->plat->sleep_ms) ss->plat->sleep_ms(8);
+        if (ss->plat->sleep_ms) ss->plat->sleep_ms(32);
     }
     return RB_OK;
 }

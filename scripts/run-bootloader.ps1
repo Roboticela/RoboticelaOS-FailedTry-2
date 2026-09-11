@@ -26,9 +26,10 @@ try {
     if ($HoldAlt) { $launch += "--hold-alt" }
     if ($FullScreen) { $launch += "--fullscreen" }
 
-    Write-Host "RoboBoot"
-    Write-Host "  Press Alt+M during the splash for the startup picker."
-    Write-Host "  Arrow keys + Enter select a volume. F10 opens the console. Esc quits."
+    Write-Host "RoboBoot (host preview)"
+    Write-Host "  This window simulates the splash, picker, and kernel log."
+    Write-Host "  The real kernel runs in QEMU:  .\scripts\run-bootloader-qemu.ps1"
+    Write-Host "  Press Alt+M during the splash for the startup picker. S opens Settings."
     & $script:HostOut @launch
     exit $LASTEXITCODE
 }

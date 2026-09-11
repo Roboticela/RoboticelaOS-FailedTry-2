@@ -29,6 +29,8 @@ int efi_flag_menu(void) { return g_menu; }
 int efi_flag_splash_ms(void) { return g_splash_ms; }
 const char *efi_last_boot(void) { return g_last_boot; }
 
+int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug);
+
 static void ascii_to_ucs2(const char *in, CHAR16 *out, int cap)
 {
     int i = 0;
@@ -52,17 +54,17 @@ static void ucs2_to_ascii(const CHAR16 *in, char *out, int cap)
     out[i] = 0;
 }
 
-static uint64_t g_ms;
+static uint64_t g_stall_ms;
 
 static uint64_t efi_now_ms(void)
 {
-    return g_ms;
+    return g_stall_ms + 1;
 }
 
 static void efi_sleep_ms(uint32_t ms)
 {
     if (gBS && ms) gBS->Stall((UINTN)ms * 1000ull);
-    g_ms += ms ? ms : 1;
+    g_stall_ms += ms ? ms : 1;
 }
 
 static int map_key(EFI_KEY_DATA *kd)
@@ -127,7 +129,7 @@ static void efi_poll(rb_input *out)
 
 static int efi_present(rb_surface *s)
 {
-    UINTN dw, dh, dx, dy;
+    UINTN dw, dh, dx, dy, sx, sy, sw, sh;
     EFI_STATUS st;
     if (g_selftest) return 1;
     if (!s || !s->px || !g_gop) return 0;
@@ -139,18 +141,38 @@ static int efi_present(rb_surface *s)
     if (g_h > 0 && (int)dh > g_h) dh = (UINTN)g_h;
     if (g_w > (int)dw) dx = (UINTN)((g_w - (int)dw) / 2);
     if (g_h > (int)dh) dy = (UINTN)((g_h - (int)dh) / 2);
+    sx = 0;
+    sy = 0;
+    sw = dw;
+    sh = dh;
+    if (s->damage_w > 0 && s->damage_h > 0) {
+        int x0 = s->damage_x;
+        int y0 = s->damage_y;
+        int x1 = s->damage_x + s->damage_w;
+        int y1 = s->damage_y + s->damage_h;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > (int)dw) x1 = (int)dw;
+        if (y1 > (int)dh) y1 = (int)dh;
+        if (x1 > x0 && y1 > y0) {
+            sx = (UINTN)x0;
+            sy = (UINTN)y0;
+            sw = (UINTN)(x1 - x0);
+            sh = (UINTN)(y1 - y0);
+        }
+    }
     if (g_gop->Blt) {
         st = g_gop->Blt(g_gop, (EFI_GRAPHICS_OUTPUT_BLT_PIXEL *)s->px, EfiBltBufferToVideo,
-                        0, 0, dx, dy, dw, dh, (UINTN)s->w * 4u);
+                        sx, sy, dx + sx, dy + sy, sw, sh, (UINTN)s->w * 4u);
         if (st == EFI_SUCCESS)
             return 1;
     }
     if (g_fb && g_stride) {
         int y;
-        for (y = 0; y < (int)dh; y++) {
-            uint32_t *src = s->px + y * s->w;
-            uint32_t *dst = g_fb + (y + (int)dy) * (int)g_stride + (int)dx;
-            int x, w = (int)dw;
+        for (y = 0; y < (int)sh; y++) {
+            uint32_t *src = s->px + ((int)sy + y) * s->w + (int)sx;
+            uint32_t *dst = g_fb + ((int)sy + y + (int)dy) * (int)g_stride + (int)dx + (int)sx;
+            int x, w = (int)sw;
             if (g_pixfmt == PixelBlueGreenRedReserved8BitPerColor) {
                 memcpy(dst, src, (size_t)w * 4u);
             } else {
@@ -260,6 +282,9 @@ static rb_status efi_boot(const rb_target *t, const rb_handoff *h)
     rb_logf("QEMU handoff id=%s kind=%s kernel=%zu", t->id, rb_kind_name(t->kind),
             h && h->kernel.valid ? h->kernel.size : 0);
     rb_strcpy(g_last_boot, sizeof(g_last_boot), t->id);
+    if (g_selftest) return RB_OK;
+    if (t->kind == RB_KIND_KERNEL || t->kind == RB_KIND_LINUX || t->kind == RB_KIND_MULTIBOOT2)
+        return efi_start_kernel(t, h, h && h->debug);
     return RB_OK;
 }
 
@@ -426,7 +451,7 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
 
     efi_init_lib(image, st);
     if (!gBS) return 0;
-    g_ms = 1;
+    g_stall_ms = 0;
     efi_log("RoboBoot EFI start");
 
     g_plat.now_ms = efi_now_ms;
@@ -484,6 +509,24 @@ void efi_fb_size(int *w, int *h)
 {
     *w = g_w > 0 ? g_w : 1024;
     *h = g_h > 0 ? g_h : 768;
+}
+
+void efi_graphics_info(uint64_t *fb, uint32_t *w, uint32_t *h, uint32_t *pitch, uint32_t *bpp, uint32_t *pixfmt)
+{
+    uint64_t addr = 0;
+    uint32_t pw = (uint32_t)(g_w > 0 ? g_w : 0);
+    uint32_t ph = (uint32_t)(g_h > 0 ? g_h : 0);
+    uint32_t ppitch = g_stride ? g_stride * 4u : pw * 4u;
+    if (g_gop && g_gop->Mode && g_gop->Mode->FrameBufferBase)
+        addr = (uint64_t)g_gop->Mode->FrameBufferBase;
+    else if (g_fb)
+        addr = (uint64_t)(uintptr_t)g_fb;
+    if (fb) *fb = addr;
+    if (w) *w = pw;
+    if (h) *h = ph;
+    if (pitch) *pitch = ppitch;
+    if (bpp) *bpp = 32;
+    if (pixfmt) *pixfmt = (g_pixfmt == PixelRedGreenBlueReserved8BitPerColor) ? 1u : 0u;
 }
 
 void efi_shutdown(void)

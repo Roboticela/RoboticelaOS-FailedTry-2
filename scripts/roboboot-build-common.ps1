@@ -36,7 +36,7 @@ function Get-RoboSources([string]$Kind) {
     $extra = @{
         host = [string[]]@("src\host\main_host.c")
         test = [string[]]@("tests\test_roboboot.c")
-        efi  = [string[]]@("src\efi\efi_crt.c", "src\efi\efi_plat.c", "src\efi\efi_bootmgr.c", "src\efi\main_efi.c")
+        efi  = [string[]]@("src\efi\efi_crt.c", "src\efi\efi_plat.c", "src\efi\efi_bootmgr.c", "src\efi\efi_kexec.c", "src\efi\main_efi.c")
     }
     if (-not $extra.ContainsKey($Kind)) { throw "unknown source set: $Kind" }
     $out = New-Object System.Collections.Generic.List[string]
@@ -61,6 +61,19 @@ function Get-Clang {
     $hint = "C:\CLang\clang+llvm-18.1.8-x86_64-pc-windows-msvc\bin\clang.exe"
     if (Test-Path $hint) { return $hint }
     throw "clang not found (install LLVM and add it to PATH)"
+}
+
+function Get-LdLld {
+    $ld = Get-Command ld.lld -ErrorAction SilentlyContinue
+    if ($ld) { return $ld.Source }
+    $dir = Split-Path (Get-LldLink)
+    foreach ($name in @("ld.lld.exe", "ld.lld")) {
+        $hint = Join-Path $dir $name
+        if (Test-Path $hint) { return $hint }
+    }
+    $hint = "C:\CLang\clang+llvm-18.1.8-x86_64-pc-windows-msvc\bin\ld.lld.exe"
+    if (Test-Path $hint) { return $hint }
+    throw "ld.lld not found (needed to link kernel.elf)"
 }
 
 function Get-LldLink {
@@ -310,6 +323,7 @@ function Invoke-RoboBuildEfi {
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $script:Boot "include"),
+        (Join-Path $script:Boot "include\roboticela"),
         (Join-Path $script:Boot "src\efi"),
         (Join-Path $script:Boot "src\efi\libc")
     )
@@ -337,13 +351,73 @@ function Get-EspFlagKey([string]$Flags) {
     return ($parts -join "`n")
 }
 
+function Invoke-RoboBuildKernel {
+    $kroot = Join-Path $script:Repo "kernel"
+    $kbuild = Join-Path $kroot "build"
+    $kobj = Join-Path $kbuild "obj"
+    $kout = Join-Path $kbuild "kernel.elf"
+    $kfont = Join-Path $kroot "src\kfont.c"
+    $sys = Join-Path $script:Boot "volumes\sys\kernel.elf"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $ld = Get-LdLld
+    $py = Get-Python
+    if ($script:RoboRebuild -or -not (Test-Path $kfont)) {
+        Write-Step "FONT" "kernel console glyphs"
+        & $py (Join-Path $kroot "tools\gen_font.py")
+        if ($LASTEXITCODE -ne 0) { throw "kernel font generate failed" }
+    }
+    $cflags = @(
+        "-target", "x86_64-unknown-none",
+        "-std=c11", "-O2",
+        "-ffreestanding", "-fno-stack-protector", "-fno-pic", "-fno-pie",
+        "-mno-red-zone", "-fno-builtin", "-nostdlib",
+        "-I", (Join-Path $kroot "include"),
+        "-I", (Join-Path $script:Boot "include")
+    )
+    $srcs = @(
+        (Join-Path $kroot "arch\x86_64\boot\start.S"),
+        (Join-Path $kroot "src\kserial.c"),
+        (Join-Path $kroot "src\kfb.c"),
+        (Join-Path $kroot "src\kboot.c"),
+        (Join-Path $kroot "src\kernel.c"),
+        $kfont
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "include"),
+        (Join-Path $script:Boot "include\roboticela")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".o")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    $ldscript = Join-Path $kroot "linker\kernel.ld"
+    $needLink = $script:RoboRebuild -or $compiled -or (Test-LinkStale $kout $objs)
+    if (-not $needLink -and (Test-Path $ldscript) -and (Test-Path $kout)) {
+        if ((Get-Item $ldscript).LastWriteTimeUtc -gt (Get-Item $kout).LastWriteTimeUtc) { $needLink = $true }
+    }
+    if ($needLink) {
+        Write-Step "LD" "kernel\build\kernel.elf"
+        & $ld "-m" "elf_x86_64" "-T" $ldscript "-o" $kout @objs
+        if ($LASTEXITCODE -ne 0) { throw "kernel link failed" }
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path $sys) | Out-Null
+    Copy-Item $kout $sys -Force
+    Write-Step "KERN" "volumes\sys\kernel.elf"
+}
+
 function Invoke-RoboBuildImage {
     param([string]$Flags = "")
+    Invoke-RoboBuildKernel
     if (-not (Test-Path $script:EfiOut)) { throw "BOOTX64.EFI missing - build efi first" }
     $py = Get-Python
     $manifest = Join-Path $script:Boot "config\roboboot.manifest"
     $mkesp = Join-Path $script:Boot "tools\make_esp.py"
-    $deps = @($script:EfiOut, $manifest, $mkesp)
+    $kern = Join-Path $script:Boot "volumes\sys\kernel.elf"
+    $deps = @($script:EfiOut, $manifest, $mkesp, $kern)
     $wantFlags = Get-EspFlagKey $Flags
     $stale = $true
     if (-not $script:RoboRebuild -and (Test-Path $script:EspImg) -and (Test-Path $script:EspFlagFile)) {
@@ -379,6 +453,11 @@ function Invoke-RoboClean {
     if (Test-Path $script:Build) {
         Write-Step "CLEAN" "bootloader\build"
         Remove-Item $script:Build -Recurse -Force
+    }
+    $kbuild = Join-Path $script:Repo "kernel\build"
+    if (Test-Path $kbuild) {
+        Write-Step "CLEAN" "kernel\build"
+        Remove-Item $kbuild -Recurse -Force
     }
 }
 

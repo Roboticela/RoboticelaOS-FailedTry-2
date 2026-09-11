@@ -12,7 +12,7 @@
 param(
     [Parameter(Position = 0)]
     [ValidateSet(
-        "all", "assets", "host", "efi", "image", "esp", "bootloader",
+        "all", "assets", "host", "efi", "image", "esp", "bootloader", "kernel",
         "test", "check", "qemu", "qemu-test", "run",
         "clean", "distclean", "info", "help"
     )]
@@ -45,6 +45,7 @@ Targets:
   assets       bake fonts, pictures, dummy volumes
   host         native roboboot.exe
   efi          UEFI BOOTX64.EFI
+  kernel       small x86_64 kernel.elf
   image, esp   GPT + FAT ESP disk image
   bootloader   efi + image
   test, check  host unit tests
@@ -82,6 +83,7 @@ try {
         "assets" { Invoke-RoboBake }
         "host" { Invoke-RoboBuildHost }
         "efi" { Invoke-RoboBuildEfi }
+        "kernel" { Invoke-RoboBuildKernel }
         "image" { Invoke-RoboBuildEfi; Invoke-RoboBuildImage }
         "esp" { Invoke-RoboBuildEfi; Invoke-RoboBuildImage }
         "bootloader" { Invoke-RoboBuildEfi; Invoke-RoboBuildImage }
