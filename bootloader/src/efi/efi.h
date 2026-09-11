@@ -209,10 +209,10 @@ struct EFI_FILE_PROTOCOL {
     EFI_STATUS (EFIAPI *Delete)(EFI_FILE_PROTOCOL *This);
     EFI_STATUS (EFIAPI *Read)(EFI_FILE_PROTOCOL *This, UINTN *BufferSize, void *Buffer);
     EFI_STATUS (EFIAPI *Write)(EFI_FILE_PROTOCOL *This, UINTN *BufferSize, void *Buffer);
-    void *GetPosition;
-    void *SetPosition;
+    EFI_STATUS (EFIAPI *GetPosition)(EFI_FILE_PROTOCOL *This, uint64_t *Position);
+    EFI_STATUS (EFIAPI *SetPosition)(EFI_FILE_PROTOCOL *This, uint64_t Position);
     EFI_STATUS (EFIAPI *GetInfo)(EFI_FILE_PROTOCOL *This, EFI_GUID *InformationType, UINTN *BufferSize, void *Buffer);
-    void *SetInfo;
+    EFI_STATUS (EFIAPI *SetInfo)(EFI_FILE_PROTOCOL *This, EFI_GUID *InformationType, UINTN BufferSize, void *Buffer);
     EFI_STATUS (EFIAPI *Flush)(EFI_FILE_PROTOCOL *This);
 };
 

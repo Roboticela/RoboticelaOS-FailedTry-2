@@ -21,16 +21,23 @@ rb_status rb_env_parse(const char *text, rb_env *out)
         char line[256];
         int n = 0;
         char *eq;
-        while (p[n] && p[n] != '\n') n++;
+        while (p[n] && p[n] != '\n' && p[n] != '\r') n++;
         if (n > 255) n = 255;
         memcpy(line, p, (size_t)n);
         line[n] = 0;
         p += n;
+        if (*p == '\r') p++;
         if (*p == '\n') p++;
         if (line[0] == 0 || line[0] == '#') continue;
         eq = strchr(line, '=');
         if (!eq) continue;
         *eq = 0;
+        {
+            char *v = eq + 1;
+            int vn = rb_strlen(v);
+            while (vn > 0 && (v[vn - 1] == ' ' || v[vn - 1] == '\t' || v[vn - 1] == '\r'))
+                v[--vn] = 0;
+        }
         rb_env_set(out, line, eq + 1);
     }
     return RB_OK;
@@ -106,6 +113,7 @@ rb_status rb_env_save(const rb_env *env)
 {
     char block[RB_ENV_BLOCK];
     int i, n = 0;
+    rb_status st;
     if (!env || !env->path[0] || !rb_plat || !rb_plat->write_file) return RB_ERR_IO;
     memset(block, '#', sizeof(block));
     n = snprintf(block, sizeof(block), "ROBOENV1\n");
@@ -114,6 +122,9 @@ rb_status rb_env_save(const rb_env *env)
         if (n >= (int)sizeof(block) - 2) break;
     }
     if (n < (int)sizeof(block)) block[n] = '#';
-    block[RB_ENV_BLOCK - 1] = 0;
-    return rb_plat->write_file(env->path, block, RB_ENV_BLOCK);
+    block[RB_ENV_BLOCK - 1] = '#';
+    st = rb_plat->write_file(env->path, block, RB_ENV_BLOCK);
+    if (st != RB_OK)
+        rb_logf("env save failed (%d) %s", st, env->path);
+    return st;
 }

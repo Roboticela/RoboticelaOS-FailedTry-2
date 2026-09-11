@@ -13,7 +13,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet(
         "all", "assets", "host", "efi", "image", "esp", "bootloader", "kernel",
-        "test", "check", "qemu", "qemu-test", "run",
+        "combine", "test", "check", "qemu", "qemu-test", "run",
         "clean", "distclean", "info", "help"
     )]
     [string]$Target = "all",
@@ -41,18 +41,19 @@ Usage:
   .\scripts\build-bootloader.ps1 [target]
 
 Targets:
-  all          assets, host preview, UEFI app, ESP disk  (default)
+  all          host preview, then combine kernel + bootloader  (default)
   assets       bake fonts, pictures, dummy volumes
   host         native roboboot.exe
   efi          UEFI BOOTX64.EFI
   kernel       small x86_64 kernel.elf
-  image, esp   GPT + FAT ESP disk image
-  bootloader   efi + image
+  bootloader   UEFI app only (individual)
+  combine      build kernel + bootloader, then pack ESP into repo build\
+  image, esp   same as combine
   test, check  host unit tests
   qemu-test    headless UEFI selftest
-  qemu         boot the EFI image in QEMU
+  qemu         combine, then boot in QEMU
   run          launch the host preview
-  clean        remove bootloader/build
+  clean        remove bootloader/build, kernel/build, and repo build\
   distclean    clean + baked assets
   info         print toolchain
   help         this text
@@ -84,13 +85,13 @@ try {
         "host" { Invoke-RoboBuildHost }
         "efi" { Invoke-RoboBuildEfi }
         "kernel" { Invoke-RoboBuildKernel }
-        "image" { Invoke-RoboBuildEfi; Invoke-RoboBuildImage }
-        "esp" { Invoke-RoboBuildEfi; Invoke-RoboBuildImage }
-        "bootloader" { Invoke-RoboBuildEfi; Invoke-RoboBuildImage }
+        "bootloader" { Invoke-RoboBuildEfi }
+        "combine" { Invoke-RoboCombine }
+        "image" { Invoke-RoboCombine }
+        "esp" { Invoke-RoboCombine }
         "all" {
             Invoke-RoboBuildHost
-            Invoke-RoboBuildEfi
-            Invoke-RoboBuildImage
+            Invoke-RoboCombine
         }
         "test" { Invoke-RoboTestHost }
         "check" { Invoke-RoboTestHost }
@@ -101,10 +102,9 @@ try {
         }
         "qemu" {
             if (-not $SkipBuild) {
-                Invoke-RoboBuildEfi
                 $flag = ""
                 if ($Menu -or $HoldAlt) { $flag = "menu" }
-                Invoke-RoboBuildImage -Flags $flag
+                Invoke-RoboCombine -Flags $flag
             }
             & (Join-Path $PSScriptRoot "run-bootloader-qemu.ps1") -SkipBuild -Menu:$Menu -HoldAlt:$HoldAlt -Headless:$Headless -Disk $Disk
             exit $LASTEXITCODE
@@ -119,7 +119,10 @@ try {
     Write-Step "OK" "RoboBoot $Target"
     if (Test-Path $script:HostOut) { Write-Host "         $($script:HostOut)" }
     if (Test-Path $script:EfiOut)  { Write-Host "         $($script:EfiOut)" }
+    if (Test-Path $script:KernelOut) { Write-Host "         $($script:KernelOut)" }
     if (Test-Path $script:EspImg)  { Write-Host "         $($script:EspImg)" }
+    $distEsp = Join-Path $script:Dist "roboboot-esp.img"
+    if (Test-Path $distEsp) { Write-Host "         $distEsp" }
     Write-Host ""
     exit 0
 }

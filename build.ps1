@@ -1,7 +1,9 @@
 # RoboticelaOS top-level build.
 #   .\build.ps1
+#   .\build.ps1 kernel
+#   .\build.ps1 bootloader
+#   .\build.ps1 combine
 #   .\build.ps1 test
-#   .\build.ps1 efi
 #   .\build.ps1 help
 
 [CmdletBinding()]

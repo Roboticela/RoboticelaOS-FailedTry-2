@@ -205,6 +205,25 @@ static void test_env(void)
     CHECK(rb_debug_enabled(&e), "debug on");
     rb_debug_set(&e, 0);
     CHECK(!rb_debug_enabled(&e), "debug off");
+    rb_env_parse("ROBOENV1\r\ndebug=1\r\n", &e);
+    CHECK(rb_debug_enabled(&e), "debug survives crlf");
+    {
+        char path[512];
+        rb_env saved, loaded;
+        snprintf(path, sizeof(path), "%s/build/test-persist.env", g_root);
+        rb_zero(&saved, sizeof(saved));
+        rb_strcpy(saved.path, sizeof(saved.path), path);
+        rb_debug_set(&saved, 1);
+        rb_env_set(&saved, "last_boot", "roboticela");
+        CHECK(rb_env_save(&saved) == RB_OK, "env save debug on");
+        CHECK(rb_env_load(path, &loaded) == RB_OK, "env reload debug on");
+        CHECK(rb_debug_enabled(&loaded), "debug persists across load");
+        CHECK(rb_str_eq(rb_env_get(&loaded, "last_boot"), "roboticela"), "last_boot persists");
+        rb_debug_set(&loaded, 0);
+        CHECK(rb_env_save(&loaded) == RB_OK, "env save debug off");
+        CHECK(rb_env_load(path, &saved) == RB_OK, "env reload debug off");
+        CHECK(!rb_debug_enabled(&saved), "debug off persists across load");
+    }
 }
 
 static void test_elf(void)

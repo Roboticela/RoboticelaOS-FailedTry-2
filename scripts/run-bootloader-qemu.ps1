@@ -23,13 +23,19 @@ $ErrorActionPreference = "Stop"
 
 Push-Location $script:Boot
 try {
-    if (-not $SkipBuild) { Invoke-BuildEfi }
     $flagParts = @()
     if ($Menu -or $HoldAlt) { $flagParts += "menu" }
-    Invoke-MakeEsp -Flags ($flagParts -join "`n")
+    $flags = $flagParts -join "`n"
+    if (-not $SkipBuild) {
+        Invoke-RoboCombine -Flags $flags
+    } else {
+        Invoke-MakeEsp -Flags $flags
+    }
     if ($BuildOnly) {
         Write-Host "Built $script:EfiOut"
+        Write-Host "Kernel $script:KernelOut"
         Write-Host "ESP    $script:EspImg"
+        Write-Host "DIST   $script:Dist"
         exit 0
     }
 

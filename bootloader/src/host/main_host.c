@@ -189,8 +189,9 @@ static rb_status host_write(const char *path, const void *data, size_t len)
         CloseHandle(h);
         return RB_ERR_IO;
     }
+    FlushFileBuffers(h);
     CloseHandle(h);
-    return RB_OK;
+    return got == (DWORD)len ? RB_OK : RB_ERR_IO;
 }
 
 static rb_status host_list(const char *path, void (*cb)(const char *name, int is_dir, void *user), void *user)

@@ -283,7 +283,130 @@ def build_disk(part: bytes, disk_sectors: int) -> bytes:
     return bytes(disk)
 
 
-def add_tree(fat: Fat16, table: list[bytes], used: set[str], parent_clus: int, src: Path, rel: str = "") -> None:
+ENV_BLOCK = 4096
+
+
+def pad_env(blob: bytes) -> bytes:
+    raw = blob.split(b"\x00", 1)[0].replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    keys: dict[bytes, bytes] = {}
+    order: list[bytes] = []
+    for ln in raw.split(b"\n"):
+        ln = ln.strip()
+        if not ln or ln.startswith(b"#") or ln == b"ROBOENV1":
+            continue
+        if b"=" not in ln:
+            continue
+        k, v = ln.split(b"=", 1)
+        if k not in keys:
+            order.append(k)
+        keys[k] = v
+    if b"debug" not in keys:
+        order.append(b"debug")
+        keys[b"debug"] = b"0"
+    out = b"ROBOENV1\n" + b"".join(k + b"=" + keys[k] + b"\n" for k in order)
+    if len(out) >= ENV_BLOCK:
+        return out[:ENV_BLOCK]
+    return out + b"#" * (ENV_BLOCK - len(out))
+
+
+def _fat_dir_entries(blob: bytes):
+    lfn_chunks: list[tuple[int, str]] = []
+    for i in range(0, len(blob) - 31, 32):
+        e = blob[i:i + 32]
+        if e[0] == 0:
+            break
+        if e[0] == 0xE5:
+            lfn_chunks = []
+            continue
+        if e[11] == 0x0F:
+            chars = []
+            for off, n in ((1, 5), (14, 6), (28, 2)):
+                for j in range(n):
+                    ch = struct.unpack_from("<H", e, off + j * 2)[0]
+                    if ch == 0:
+                        break
+                    if ch != 0xFFFF:
+                        chars.append(chr(ch))
+                else:
+                    continue
+                break
+            lfn_chunks.append((e[0] & 0x3F, "".join(chars)))
+            continue
+        name = e[0:8].decode("ascii", "replace").rstrip()
+        ext = e[8:11].decode("ascii", "replace").rstrip()
+        short = f"{name}.{ext}" if ext else name
+        lfn = ""
+        if lfn_chunks:
+            lfn = "".join(chunk for _seq, chunk in sorted(lfn_chunks, key=lambda item: item[0]))
+        lfn_chunks = []
+        attr = e[11]
+        clus = struct.unpack_from("<H", e, 26)[0]
+        size = struct.unpack_from("<I", e, 28)[0]
+        yield short.upper(), lfn, attr, clus, size
+
+
+def _fat_read_chain(disk: bytes, fat_off: int, data_off: int, spc: int, bps: int, start: int, nbytes: int) -> bytes:
+    out = bytearray()
+    c = start
+    cs = spc * bps
+    seen: set[int] = set()
+    while c >= 2 and c < 0xFFF8 and c not in seen and len(out) < nbytes:
+        seen.add(c)
+        off = data_off + (c - 2) * cs
+        out += disk[off:off + cs]
+        c = struct.unpack_from("<H", disk, fat_off + c * 2)[0]
+    return bytes(out[:nbytes])
+
+
+def extract_esp_env(disk_path: Path) -> bytes | None:
+    if not disk_path.is_file():
+        return None
+    try:
+        disk = disk_path.read_bytes()
+    except OSError:
+        return None
+    off = PART_START * SECTOR
+    if len(disk) < off + 64 or disk[off + 54:off + 62] not in (b"FAT16   ", b"FAT12   "):
+        return None
+    bps = struct.unpack_from("<H", disk, off + 11)[0]
+    spc = disk[off + 13]
+    reserved = struct.unpack_from("<H", disk, off + 14)[0]
+    nfat = disk[off + 16]
+    root_ent = struct.unpack_from("<H", disk, off + 17)[0]
+    fat_sectors = struct.unpack_from("<H", disk, off + 22)[0]
+    if bps != SECTOR or spc < 1 or nfat < 1:
+        return None
+    fat_off = off + reserved * bps
+    root_sectors = (root_ent * 32 + bps - 1) // bps
+    root_off = fat_off + nfat * fat_sectors * bps
+    data_off = root_off + root_sectors * bps
+    cfg_clus = 0
+    for short, lfn, attr, clus, _sz in _fat_dir_entries(disk[root_off:root_off + root_sectors * bps]):
+        label = (lfn or short).upper()
+        if (attr & 0x10) and label in ("CONFIG", "CONFIG~1"):
+            cfg_clus = clus
+            break
+    if cfg_clus < 2:
+        return None
+    cfg = _fat_read_chain(disk, fat_off, data_off, spc, bps, cfg_clus, spc * bps * 32)
+    env_clus = 0
+    env_size = 0
+    for short, lfn, attr, clus, size in _fat_dir_entries(cfg):
+        label = (lfn or short).upper()
+        if not (attr & 0x10) and label in ("ROBOBOOT.ENV", "ROBOBO~1.ENV"):
+            env_clus = clus
+            env_size = size
+            break
+    if env_clus < 2 or env_size < 8:
+        return None
+    blob = _fat_read_chain(disk, fat_off, data_off, spc, bps, env_clus, env_size)
+    if not blob.startswith(b"ROBOENV1"):
+        return None
+    return blob
+
+
+def add_tree(fat: Fat16, table: list[bytes], used: set[str], parent_clus: int, src: Path, rel: str = "",
+             keep_env: bytes | None = None) -> None:
     skip = {".png", ".svg", ".gitkeep", ".gitignore"}
     for child in sorted(src.iterdir(), key=lambda p: p.name.lower()):
         if child.name.startswith("."):
@@ -295,9 +418,12 @@ def add_tree(fat: Fat16, table: list[bytes], used: set[str], parent_clus: int, s
             if child.name in ("icons", "build", "src", "include", "tests", "tools"):
                 continue
             nt, nu, nc = fat.mkdir(table, used, parent_clus, child.name)
-            add_tree(fat, nt, nu, nc, child, rel + "/" + child.name)
+            add_tree(fat, nt, nu, nc, child, rel + "/" + child.name, keep_env=keep_env)
         else:
-            fat.add_file(table, used, child.name, child.read_bytes())
+            blob = child.read_bytes()
+            if child.name.lower() == "roboboot.env":
+                blob = pad_env(keep_env if keep_env else blob)
+            fat.add_file(table, used, child.name, blob)
 
 
 def main() -> int:
@@ -317,6 +443,9 @@ def main() -> int:
 
     fat = Fat16(part_sectors)
     used = set()
+    keep_env = extract_esp_env(out)
+    if keep_env:
+        print("  keep config/roboboot.env (saved settings)")
     # EFI/BOOT/BOOTX64.EFI
     efi_table, efi_used, efi_clus = fat.mkdir(fat.root, used, 0, "EFI")
     boot_table, boot_used, _ = fat.mkdir(efi_table, efi_used, efi_clus, "BOOT")
@@ -328,7 +457,7 @@ def main() -> int:
         src = boot / name
         if src.is_dir():
             nt, nu, nc = fat.mkdir(fat.root, used, 0, name)
-            add_tree(fat, nt, nu, nc, src)
+            add_tree(fat, nt, nu, nc, src, keep_env=keep_env)
 
     flags = args.flags.replace(",", "\n").strip()
     if flags:

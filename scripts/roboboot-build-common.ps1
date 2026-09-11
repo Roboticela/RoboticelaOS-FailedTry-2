@@ -4,6 +4,9 @@
 $script:Repo = Split-Path -Parent $PSScriptRoot
 $script:Boot = Join-Path $script:Repo "bootloader"
 $script:Build = Join-Path $script:Boot "build"
+$script:Dist = Join-Path $script:Repo "build"
+$script:KernelRoot = Join-Path $script:Repo "kernel"
+$script:KernelOut = Join-Path $script:KernelRoot "build\kernel.elf"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -203,6 +206,7 @@ function Show-RoboBuildInfo {
     }
     Write-Host "  PREVIEW  x86_64-pc-windows-msvc"
     Write-Host "  OUT      $script:Build"
+    Write-Host "  DIST     $script:Dist"
     Write-Host ""
 }
 
@@ -352,10 +356,10 @@ function Get-EspFlagKey([string]$Flags) {
 }
 
 function Invoke-RoboBuildKernel {
-    $kroot = Join-Path $script:Repo "kernel"
+    $kroot = $script:KernelRoot
     $kbuild = Join-Path $kroot "build"
     $kobj = Join-Path $kbuild "obj"
-    $kout = Join-Path $kbuild "kernel.elf"
+    $kout = $script:KernelOut
     $kfont = Join-Path $kroot "src\kfont.c"
     $sys = Join-Path $script:Boot "volumes\sys\kernel.elf"
     New-Item -ItemType Directory -Force -Path $kobj | Out-Null
@@ -442,6 +446,47 @@ function Invoke-RoboBuildImage {
     [IO.File]::WriteAllText($script:EspFlagFile, $wantFlags)
 }
 
+function Publish-RoboDist {
+    New-Item -ItemType Directory -Force -Path $script:Dist | Out-Null
+    $copies = @(
+        @{ Src = $script:EfiOut;     Name = "BOOTX64.EFI" },
+        @{ Src = $script:KernelOut;  Name = "kernel.elf" },
+        @{ Src = $script:EspImg;     Name = "roboboot-esp.img" },
+        @{ Src = $script:HostOut;    Name = "roboboot.exe" }
+    )
+    foreach ($c in $copies) {
+        if (Test-Path $c.Src) {
+            Copy-Item $c.Src (Join-Path $script:Dist $c.Name) -Force
+        }
+    }
+    $efi = Join-Path $script:Dist "BOOTX64.EFI"
+    $kern = Join-Path $script:Dist "kernel.elf"
+    $esp = Join-Path $script:Dist "roboboot-esp.img"
+    if (-not (Test-Path $efi)) { throw "combine missing BOOTX64.EFI" }
+    if (-not (Test-Path $kern)) { throw "combine missing kernel.elf" }
+    if (-not (Test-Path $esp)) { throw "combine missing roboboot-esp.img" }
+    $note = @(
+        "RoboticelaOS combined image",
+        "kernel      kernel.elf",
+        "bootloader  BOOTX64.EFI",
+        "esp         roboboot-esp.img"
+    )
+    [IO.File]::WriteAllLines((Join-Path $script:Dist "COMBINED.txt"), $note)
+    Write-Step "DIST" "build\"
+}
+
+function Invoke-RoboCombine {
+    param([string]$Flags = "")
+    Write-Step "COMBINE" "kernel + bootloader"
+    Write-Step "KERN" "individual kernel.elf"
+    Invoke-RoboBuildKernel
+    Write-Step "EFI" "individual BOOTX64.EFI"
+    Invoke-RoboBuildEfi
+    Write-Step "LINK" "pack kernel and bootloader into ESP"
+    Invoke-RoboBuildImage -Flags $Flags
+    Publish-RoboDist
+}
+
 function Invoke-RoboTestHost {
     Invoke-RoboBuildTest
     Write-Step "TEST" "roboboot-test.exe"
@@ -454,10 +499,14 @@ function Invoke-RoboClean {
         Write-Step "CLEAN" "bootloader\build"
         Remove-Item $script:Build -Recurse -Force
     }
-    $kbuild = Join-Path $script:Repo "kernel\build"
+    $kbuild = Join-Path $script:KernelRoot "build"
     if (Test-Path $kbuild) {
         Write-Step "CLEAN" "kernel\build"
         Remove-Item $kbuild -Recurse -Force
+    }
+    if (Test-Path $script:Dist) {
+        Write-Step "CLEAN" "build"
+        Remove-Item $script:Dist -Recurse -Force
     }
 }
 

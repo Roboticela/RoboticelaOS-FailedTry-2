@@ -1,7 +1,9 @@
 # RoboticelaOS — top-level build (wraps the PowerShell engine).
 #
-#   make              assets + host + EFI + ESP image
-#   make bootloader   EFI + ESP image
+#   make              host + combine (kernel, bootloader, ESP in ./build)
+#   make kernel       individual kernel.elf
+#   make bootloader   individual BOOTX64.EFI
+#   make combine      link kernel + bootloader into ./build
 #   make test
 #   make qemu
 #   make clean
@@ -15,7 +17,7 @@ endif
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 BUILD := $(ROOT)/scripts/build-bootloader.ps1
 
-.PHONY: all assets host efi image esp bootloader kernel test check qemu qemu-test run \
+.PHONY: all assets host efi image esp bootloader kernel combine test check qemu qemu-test run \
         clean distclean info help configure
 
 all:
@@ -41,6 +43,9 @@ image esp:
 
 bootloader:
 	$(PS) "$(BUILD)" bootloader
+
+combine:
+	$(PS) "$(BUILD)" combine
 
 test check:
 	$(PS) "$(BUILD)" test

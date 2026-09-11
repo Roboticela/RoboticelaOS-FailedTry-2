@@ -10,7 +10,7 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 REPO := $(abspath $(ROOT)/..)
 BUILD := $(REPO)/scripts/build-bootloader.ps1
 
-.PHONY: all assets host test efi esp qemu qemu-test clean distclean info
+.PHONY: all assets host test efi esp qemu qemu-test clean distclean info combine
 
 all:
 	$(PS) "$(BUILD)" all
@@ -29,6 +29,9 @@ efi:
 
 esp:
 	$(PS) "$(BUILD)" image
+
+combine:
+	$(PS) "$(BUILD)" combine
 
 qemu:
 	$(PS) "$(BUILD)" qemu

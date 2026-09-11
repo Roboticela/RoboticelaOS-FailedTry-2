@@ -51,8 +51,8 @@ function Invoke-QemuSelftest {
 
 Push-Location $script:Boot
 try {
-    if (-not $SkipBuild) { Invoke-BuildEfi }
-    Invoke-MakeEsp -Flags "selftest`nmenu`nsplash_ms 0"
+    if (-not $SkipBuild) { Invoke-RoboCombine -Flags "selftest`nmenu`nsplash_ms 0" }
+    else { Invoke-MakeEsp -Flags "selftest`nmenu`nsplash_ms 0" }
 
     $result = Invoke-QemuSelftest -DiskKind $Disk
     if (-not $result.Ok -and -not $result.Fail -and $Disk -eq "ide") {

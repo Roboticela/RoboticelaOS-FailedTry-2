@@ -381,6 +381,7 @@ int rb_session_tick(rb_session *ss)
         int dirty = !ss->settings_drawn;
         ss->fade = 1.f;
         if (key_hit(&ss->input, RB_KEY_ESC)) {
+            rb_env_save(&ss->env);
             ss->phase = RB_PHASE_PICKER;
             ss->picker_drawn = 0;
             ss->fade = 1.f;
@@ -389,7 +390,8 @@ int rb_session_tick(rb_session *ss)
         if (key_hit(&ss->input, RB_KEY_ENTER) || key_hit(&ss->input, RB_KEY_RIGHT) ||
             key_hit(&ss->input, RB_KEY_LEFT)) {
             rb_debug_set(&ss->env, !rb_debug_enabled(&ss->env));
-            rb_env_save(&ss->env);
+            if (rb_env_save(&ss->env) != RB_OK)
+                rb_logf("debug setting not saved");
             dirty = 1;
         }
         if (dirty) {

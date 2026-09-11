@@ -245,12 +245,30 @@ static rb_status efi_write(const char *path, const void *data, size_t len)
     EFI_FILE_PROTOCOL *f;
     UINTN n = (UINTN)len;
     EFI_STATUS st;
+    UINTN info_sz = sizeof(EFI_FILE_INFO) + 512;
+    EFI_FILE_INFO *info;
     f = open_path(path, EFI_FILE_MODE_READ | EFI_FILE_MODE_WRITE | EFI_FILE_MODE_CREATE);
     if (!f) return RB_ERR_IO;
+    info = (EFI_FILE_INFO *)malloc(info_sz);
+    if (info) {
+        memset(info, 0, info_sz);
+        st = f->GetInfo(f, &k_fileinfo_guid, &info_sz, info);
+        if (st == EFI_SUCCESS && f->SetInfo) {
+            info->FileSize = (uint64_t)len;
+            f->SetInfo(f, &k_fileinfo_guid, info_sz, info);
+        }
+        free(info);
+    }
+    if (f->SetPosition) f->SetPosition(f, 0);
     st = f->Write(f, &n, (void *)data);
     if (f->Flush) f->Flush(f);
     f->Close(f);
-    return st == EFI_SUCCESS ? RB_OK : RB_ERR_IO;
+    if (g_root && g_root->Flush) g_root->Flush(g_root);
+    if (st != EFI_SUCCESS || n != (UINTN)len) {
+        efi_log("RoboBoot env write failed");
+        return RB_ERR_IO;
+    }
+    return RB_OK;
 }
 
 static rb_status efi_list(const char *path, void (*cb)(const char *name, int is_dir, void *user), void *user)

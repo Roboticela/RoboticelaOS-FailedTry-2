@@ -64,11 +64,11 @@ function Get-QemuBaseArgs {
     }
     if ($Disk -eq "virtio") {
         $args += @(
-            "-drive", "file=$script:EspImg,format=raw,if=none,id=esp",
+            "-drive", "file=$script:EspImg,format=raw,if=none,id=esp,cache=writethrough",
             "-device", "virtio-blk-pci,drive=esp,bootindex=1"
         )
     } else {
-        $args += @("-drive", "file=$script:EspImg,format=raw,if=ide,index=0,media=disk")
+        $args += @("-drive", "file=$script:EspImg,format=raw,if=ide,index=0,media=disk,cache=writethrough")
     }
     if ($Headless) {
         $args += @("-display", "none", "-no-reboot")
