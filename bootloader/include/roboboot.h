@@ -16,6 +16,7 @@
 #define RB_MAX_LINE 1024
 #define RB_ENV_BLOCK 4096
 #define RB_SPLASH_MIN_MS 2000
+#define RB_SPLASH_HANDOFF 0.40f
 #define RB_BOOTLOG_COLS 1024
 
 typedef struct {
@@ -207,6 +208,8 @@ typedef struct {
     rb_kind protocol;
     int debug;
     int debug_term_x, debug_term_y, debug_term_w, debug_term_h;
+    int splash_bar_x, splash_bar_y, splash_bar_w, splash_bar_h;
+    uint32_t splash_progress;
 } rb_handoff;
 
 typedef struct rb_platform {
@@ -259,6 +262,7 @@ typedef struct {
     int splash_done;
     int splash_inited;
     int splash_bg_ready;
+    int splash_bar_x, splash_bar_y, splash_bar_w, splash_bar_h;
     int splash_ticks;
     int logo_fitted;
     int icons_loaded;

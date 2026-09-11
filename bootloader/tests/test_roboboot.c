@@ -257,11 +257,15 @@ static void test_loader(void)
     rb_handoff_free(&h);
 }
 
-static void run_session_until_phase(rb_session *ss, rb_phase want, uint64_t step, uint64_t limit)
+static void drain_boot(rb_session *ss)
 {
-    uint64_t start = g_time;
-    while (ss->running && ss->phase != want && g_time - start < limit) {
-        g_time += step;
+    int n;
+    for (n = 0; n < 64 && ss->running; n++) {
+        if (ss->phase == RB_PHASE_KLOG || ss->phase == RB_PHASE_DONE)
+            break;
+        if (g_last_boot[0])
+            break;
+        g_time += 50;
         rb_session_tick(ss);
     }
 }
@@ -284,11 +288,8 @@ static void test_session_quiet(void)
     CHECK(ss.load_visual < 0.3f, "bar not finished early");
     g_time = 2000;
     rb_session_tick(&ss);
-    if (ss.phase == RB_PHASE_VERBOSE) {
-        g_time += 1000;
-        rb_session_tick(&ss);
-    }
-    if (ss.phase == RB_PHASE_HANDOFF) rb_session_tick(&ss);
+    CHECK(ss.load_visual > 0.39f && ss.load_visual < 0.41f, "bootloader bar stops at handoff");
+    drain_boot(&ss);
     CHECK(rb_str_eq(g_last_boot, "roboticela"), "quiet boot default OS");
     rb_session_free(&ss);
 }
@@ -333,11 +334,7 @@ static void test_session_alt_menu(void)
     g_in.keys[0] = RB_KEY_ENTER;
     g_time += 16;
     rb_session_tick(&ss);
-    if (ss.phase == RB_PHASE_VERBOSE) {
-        g_time += 1000;
-        rb_session_tick(&ss);
-    }
-    if (ss.phase == RB_PHASE_HANDOFF) rb_session_tick(&ss);
+    drain_boot(&ss);
     CHECK(g_last_boot[0] != 0, "picker enter boots a target");
     rb_session_free(&ss);
 }

@@ -10,6 +10,12 @@
 #include "process/process.h"
 #include "arch/x86_64/context/context_switch.h"
 
+static void boot_bar(unsigned p)
+{
+    kfb_splash_set(p);
+    kprintf("Loader  %u percent\n", (unsigned)(p / 100u));
+}
+
 void kmain(const RoboBootInfo *info)
 {
     kserial_init();
@@ -19,7 +25,9 @@ void kmain(const RoboBootInfo *info)
     kprintf("framebuffer init %u x %u\n",
             info ? info->framebuffer_width : 0,
             info ? info->framebuffer_height : 0);
+    boot_bar(ROBO_BOOT_PROGRESS_HANDOFF);
     kboot_report(info);
+    boot_bar(4200);
 
     kprintf("CPU  init\n");
     if (!robo_cpu_init()) {
@@ -28,6 +36,8 @@ void kmain(const RoboBootInfo *info)
         kprintf("VMM_TEST_FAIL\n");
         kprintf("HEAP_TEST_FAIL\n");
         kprintf("idle\n");
+        boot_bar(ROBO_BOOT_PROGRESS_MAX);
+        kprintf("Desktop  ready\n");
         for (;;) {
             kfb_poll();
             __asm__ volatile ("pause");
@@ -36,10 +46,12 @@ void kmain(const RoboBootInfo *info)
     robo_cpu_report();
     if (kboot_debug(info))
         robo_cpu_fb_report();
+    boot_bar(4600);
     if (robo_cpu_selftest())
         kprintf("CPU_TEST_OK\n");
     else
         kprintf("CPU_TEST_FAIL\n");
+    boot_bar(5000);
 
     kprintf("PMM  bootinfo %s  ver %u\n",
             info ? "present" : "missing",
@@ -63,10 +75,12 @@ void kmain(const RoboBootInfo *info)
         robo_pmm_report();
         if (kboot_debug(info))
             robo_pmm_fb_report();
+        boot_bar(5400);
         if (robo_pmm_selftest())
             kprintf("PMM_TEST_OK\n");
         else
             kprintf("PMM_TEST_FAIL\n");
+        boot_bar(5800);
 
         if (!robo_vmm_init(info)) {
             kprintf("VMM_TEST_FAIL\n");
@@ -75,10 +89,12 @@ void kmain(const RoboBootInfo *info)
             robo_vmm_report();
             if (kboot_debug(info))
                 robo_vmm_fb_report();
+            boot_bar(6200);
             if (robo_vmm_selftest())
                 kprintf("VMM_TEST_OK\n");
             else
                 kprintf("VMM_TEST_FAIL\n");
+            boot_bar(6600);
 
             if (!robo_heap_init()) {
                 kprintf("HEAP_TEST_FAIL\n");
@@ -86,10 +102,12 @@ void kmain(const RoboBootInfo *info)
                 robo_heap_report();
                 if (kboot_debug(info))
                     robo_heap_fb_report();
+                boot_bar(7000);
                 if (robo_heap_selftest())
                     kprintf("HEAP_TEST_OK\n");
                 else
                     kprintf("HEAP_TEST_FAIL\n");
+                boot_bar(7400);
             }
         }
     }
@@ -102,6 +120,7 @@ void kmain(const RoboBootInfo *info)
     } else {
         kprintf("PF_TEST_FAIL\n");
     }
+    boot_bar(7800);
 
     if (!robo_timer_init()) {
         kprintf("TIMER_TEST_FAIL\n");
@@ -109,10 +128,12 @@ void kmain(const RoboBootInfo *info)
         robo_timer_report();
         if (kboot_debug(info))
             robo_timer_fb_report();
+        boot_bar(8200);
         if (robo_timer_selftest())
             kprintf("TIMER_TEST_OK\n");
         else
             kprintf("TIMER_TEST_FAIL\n");
+        boot_bar(8600);
     }
 
     if (robo_timer_ready() && robo_heap_ready()) {
@@ -129,12 +150,14 @@ void kmain(const RoboBootInfo *info)
             robo_x86_context_report();
             if (kboot_debug(info))
                 robo_x86_context_fb_report();
+            boot_bar(9000);
             if (robo_context_selftest())
                 kprintf("CTX_TEST_OK\n");
             else
                 kprintf("CTX_TEST_FAIL\n");
             if (kboot_debug(info))
                 robo_x86_context_fb_report();
+            boot_bar(9200);
             if (robo_scheduler_selftest())
                 kprintf("SCHED_TEST_OK\n");
             else
@@ -142,6 +165,7 @@ void kmain(const RoboBootInfo *info)
             robo_thread_report();
             if (kboot_debug(info))
                 robo_thread_fb_report();
+            boot_bar(9400);
             if (robo_thread_selftest())
                 kprintf("THREAD_TEST_OK\n");
             else
@@ -149,10 +173,12 @@ void kmain(const RoboBootInfo *info)
             robo_process_report();
             if (kboot_debug(info))
                 robo_process_fb_report();
+            boot_bar(9600);
             if (robo_process_selftest())
                 kprintf("PROC_TEST_OK\n");
             else
                 kprintf("PROC_TEST_FAIL\n");
+            boot_bar(9800);
         }
     } else {
         kprintf("CTX_TEST_FAIL\n");
@@ -162,6 +188,8 @@ void kmain(const RoboBootInfo *info)
     }
 
     kprintf("idle\n");
+    boot_bar(ROBO_BOOT_PROGRESS_MAX);
+    kprintf("Desktop  ready\n");
     for (;;) {
         robo_sched_reap();
         kfb_poll();

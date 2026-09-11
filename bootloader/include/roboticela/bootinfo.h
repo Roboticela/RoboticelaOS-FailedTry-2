@@ -4,9 +4,12 @@
 #include <stdint.h>
 
 #define ROBO_BOOTINFO_MAGIC    0x4F424F52u /* 'ROBO' */
-#define ROBO_BOOTINFO_VERSION  3u /* v3: debug_log_address / size / count */
+#define ROBO_BOOTINFO_VERSION  4u /* v4: splash_bar_* / splash_progress */
 #define ROBO_DEBUG_LOG_MAGIC   0x474F4C52u /* 'RLOG' */
 #define ROBO_DEBUG_LOG_VERSION 1u
+
+#define ROBO_BOOT_PROGRESS_MAX     10000u
+#define ROBO_BOOT_PROGRESS_HANDOFF 4000u
 
 #define ROBO_BOOT_DEBUG        1u
 
@@ -66,6 +69,14 @@ typedef struct {
     uint64_t debug_log_address;
     uint32_t debug_log_size;
     uint32_t debug_log_count;
+
+    /* Splash progress bar. Valid when version >= 4. Units: 0..10000. */
+    uint32_t splash_bar_x;
+    uint32_t splash_bar_y;
+    uint32_t splash_bar_w;
+    uint32_t splash_bar_h;
+    uint32_t splash_progress;
+    uint32_t splash_handoff;
 } RoboBootInfo;
 
 typedef struct {

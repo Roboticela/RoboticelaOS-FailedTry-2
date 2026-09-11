@@ -33,6 +33,13 @@ static uint32_t g_handoff_ms;
 static uint64_t g_timer_base_ms;
 static int g_timer_armed;
 
+static int g_splash;
+static int g_bar_x, g_bar_y, g_bar_w, g_bar_h;
+static unsigned g_progress;
+
+static void kfb_splash_paint(void);
+static void kfb_splash_init(const RoboBootInfo *info);
+
 static uint32_t pack_rgb(uint32_t rgb)
 {
     unsigned r = (rgb >> 16) & 255u;
@@ -216,6 +223,7 @@ static void kfb_scrollbar(int rows, int vis, int start)
     kfb_round_rect(track_x, track_y, 3, track_h, 2, 0x2C2C2Eu);
     kfb_round_rect(track_x, thumb_y, 3, thumb_h, 2, 0x3B9EFFu);
 }
+
 void kfb_init(const RoboBootInfo *info)
 {
     int debug;
@@ -239,9 +247,8 @@ void kfb_init(const RoboBootInfo *info)
         kfb_import_bootlog(info);
         kfb_term_open((int)info->debug_term_x, (int)info->debug_term_y,
                       (int)info->debug_term_w, (int)info->debug_term_h);
-        return;
     }
-    kfb_clear(0x000000u);
+    kfb_splash_init(info);
 }
 
 void kfb_fill(int x, int y, int w, int h, uint32_t rgb)
@@ -355,13 +362,89 @@ static void kfb_circle_ring(int cx, int cy, int r, int t, uint32_t rgb)
 
 void kfb_clear(uint32_t rgb)
 {
-    if (g_term)
+    if (g_term || g_splash)
         return;
     kfb_fill(0, 0, (int)g_w, (int)g_h, rgb);
     g_cx = 0;
     g_cy = 0;
     g_margin_x = 40;
     g_margin_y = 48;
+}
+
+static void kfb_splash_paint(void)
+{
+    int fill, rad;
+    if (!g_splash || !g_fb || g_bar_w < 8 || g_bar_h < 2)
+        return;
+    fill = (int)(((long long)g_bar_w * (long long)g_progress) / (long long)ROBO_BOOT_PROGRESS_MAX);
+    if (g_progress > 0 && fill < g_bar_h)
+        fill = g_bar_h;
+    if (fill > g_bar_w)
+        fill = g_bar_w;
+    rad = g_bar_h / 2;
+    if (rad < 1)
+        rad = 1;
+    kfb_fill(g_bar_x - 2, g_bar_y - 2, g_bar_w + 4, g_bar_h + 4, 0x000000u);
+    kfb_round_rect(g_bar_x, g_bar_y, g_bar_w, g_bar_h, rad, 0x38383Au);
+    if (fill > 0)
+        kfb_round_rect(g_bar_x, g_bar_y, fill, g_bar_h, rad, 0x3B9EFFu);
+}
+
+static void kfb_splash_init(const RoboBootInfo *info)
+{
+    int compact, logo_h, reserve, area, stack, top;
+    g_splash = 0;
+    g_progress = 0;
+    g_bar_x = g_bar_y = g_bar_w = g_bar_h = 0;
+    if (!g_fb || !info)
+        return;
+    if (info->version >= 4 && info->splash_bar_w && info->splash_bar_h) {
+        g_bar_x = (int)info->splash_bar_x;
+        g_bar_y = (int)info->splash_bar_y;
+        g_bar_w = (int)info->splash_bar_w;
+        g_bar_h = (int)info->splash_bar_h;
+        g_progress = info->splash_progress;
+    } else {
+        compact = (int)info->framebuffer_width <= 734;
+        logo_h = compact ? 128 : 256;
+        g_bar_w = compact ? 240 : 280;
+        g_bar_h = 4;
+        reserve = 0;
+        if (kboot_debug(info) && info->debug_term_h) {
+            reserve = (int)info->framebuffer_height - (int)info->debug_term_y + 16;
+            if (reserve < 0)
+                reserve = 0;
+        }
+        stack = logo_h + 64 + g_bar_h;
+        area = (int)info->framebuffer_height - reserve;
+        top = area / 2 - stack / 2;
+        if (top < 24)
+            top = 24;
+        g_bar_x = (int)info->framebuffer_width / 2 - g_bar_w / 2;
+        g_bar_y = top + logo_h + 64;
+        g_progress = ROBO_BOOT_PROGRESS_HANDOFF;
+    }
+    if (g_bar_w < 8 || g_bar_h < 2)
+        return;
+    if (g_progress > ROBO_BOOT_PROGRESS_MAX)
+        g_progress = ROBO_BOOT_PROGRESS_MAX;
+    if (info->version >= 4 && info->splash_handoff &&
+        g_progress > info->splash_handoff && info->splash_handoff < ROBO_BOOT_PROGRESS_MAX)
+        g_progress = info->splash_handoff;
+    g_splash = 1;
+    kfb_splash_paint();
+}
+
+void kfb_splash_set(unsigned progress)
+{
+    if (!g_splash)
+        return;
+    if (progress > ROBO_BOOT_PROGRESS_MAX)
+        progress = ROBO_BOOT_PROGRESS_MAX;
+    if (progress <= g_progress)
+        return;
+    g_progress = progress;
+    kfb_splash_paint();
 }
 
 static void glyph(int gx, int gy, unsigned char ch, uint32_t rgb)

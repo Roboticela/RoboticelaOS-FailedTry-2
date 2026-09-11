@@ -247,6 +247,10 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
     bw = (int)bar_w;
     bh = (int)bar_h;
     if (bh < 4) bh = 4;
+    ss->splash_bar_x = bx;
+    ss->splash_bar_y = by;
+    ss->splash_bar_w = bw;
+    ss->splash_bar_h = bh;
     fill = bar_w * visual;
     if (fill > 0.f && fill < bar_h) fill = bar_h;
     bg = rb_token(RB_TOKEN_BG_PRIMARY, 255);
@@ -1082,9 +1086,13 @@ void rb_debug_flush(rb_session *ss)
     if (!ui_debug_on(ss)) return;
     if (ss->boot_log_seq == ss->boot_log_shown && ss->splash_bg_ready)
         return;
-    if ((ss->phase == RB_PHASE_LOAD || ss->phase == RB_PHASE_SPLASH) && !ss->splash_bg_ready)
-        rb_splash_draw(ss, ss->load_visual > 0.f ? ss->load_visual : 1.f, 1.f);
-    else
+    if (ss->phase == RB_PHASE_LOAD || ss->phase == RB_PHASE_SPLASH ||
+        ss->phase == RB_PHASE_VERBOSE || ss->phase == RB_PHASE_HANDOFF) {
+        if (!ss->splash_bg_ready)
+            rb_splash_draw(ss, ss->load_visual, 1.f);
+        else if (ui_debug_on(ss))
+            rb_debug_term_draw(ss);
+    } else
         rb_debug_term_draw(ss);
     if (ss->plat->present) ss->plat->present(&ss->fb);
 }
@@ -1092,10 +1100,13 @@ void rb_debug_flush(rb_session *ss)
 void rb_verbose_draw(rb_session *ss)
 {
     if (!ss) return;
-    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
+    if (!ss->splash_bg_ready) {
+        ss->load_visual = RB_SPLASH_HANDOFF;
+        rb_splash_draw(ss, ss->load_visual, 1.f);
+        return;
+    }
     if (ui_debug_on(ss))
         rb_debug_term_draw(ss);
-    rb_fb_damage_full(&ss->fb);
 }
 
 void rb_settings_draw(rb_session *ss)

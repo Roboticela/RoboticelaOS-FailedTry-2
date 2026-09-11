@@ -1,4 +1,5 @@
 #include "roboboot.h"
+#include "roboticela/bootinfo.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -281,6 +282,9 @@ static int consume_hotkey(rb_session *ss)
     return 0;
 }
 
+static void present_full(rb_session *ss);
+static void paint_kernel_splash(rb_session *ss);
+
 static rb_status try_boot(rb_session *ss, int idx)
 {
     rb_target *t;
@@ -316,6 +320,20 @@ static rb_status try_boot(rb_session *ss, int idx)
                     ss->handoff.debug_term_x, ss->handoff.debug_term_y,
                     ss->handoff.debug_term_w, ss->handoff.debug_term_h);
     }
+    ss->handoff.splash_bar_x = ss->splash_bar_x;
+    ss->handoff.splash_bar_y = ss->splash_bar_y;
+    ss->handoff.splash_bar_w = ss->splash_bar_w;
+    ss->handoff.splash_bar_h = ss->splash_bar_h;
+    {
+        uint32_t p = (uint32_t)(ss->load_visual * (float)ROBO_BOOT_PROGRESS_MAX + 0.5f);
+        if (p > ROBO_BOOT_PROGRESS_HANDOFF)
+            p = ROBO_BOOT_PROGRESS_HANDOFF;
+        if (ss->splash_done && p < ROBO_BOOT_PROGRESS_HANDOFF)
+            p = ROBO_BOOT_PROGRESS_HANDOFF;
+        ss->handoff.splash_progress = p;
+    }
+    if (!ss->splash_bg_ready)
+        paint_kernel_splash(ss);
     rb_bootlog(ss, "Handoff  ExitBootServices next");
     if (rb_debug_enabled(&ss->env))
         rb_debug_flush(ss);
@@ -367,22 +385,29 @@ static void present_full(rb_session *ss)
     ss->plat->present(&ss->fb);
 }
 
+static void paint_kernel_splash(rb_session *ss)
+{
+    ss->load_visual = RB_SPLASH_HANDOFF;
+    ss->splash_bg_ready = 0;
+    rb_splash_draw(ss, ss->load_visual, 1.f);
+    present_full(ss);
+}
+
 static void begin_boot_selected(rb_session *ss)
 {
     ss->boot_index = ss->selected;
     rb_bootlogf(ss, "Boot  %s  %s", ss->catalog.targets[ss->selected].id,
                 rb_kind_name(ss->catalog.targets[ss->selected].kind));
+    paint_kernel_splash(ss);
+    rb_bootlogf(ss, "Loader  %u percent  kernel continues",
+                (unsigned)(RB_SPLASH_HANDOFF * 100.f + 0.5f));
     if (rb_debug_enabled(&ss->env)) {
         rb_bootlog(ss, "Phase  verbose hold");
         ss->phase = RB_PHASE_VERBOSE;
         ss->timeout_left_ms = 900;
-        rb_verbose_draw(ss);
-        present_full(ss);
         return;
     }
     rb_bootlog(ss, "Paint  handoff");
-    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
-    present_full(ss);
     ss->phase = RB_PHASE_HANDOFF;
 }
 
@@ -452,13 +477,14 @@ int rb_session_tick(rb_session *ss)
         {
             uint64_t elapsed = now - ss->splash_start_ms;
             int done;
-            ss->load_visual = rb_splash_visual(ss->load_real, elapsed, ss->catalog.splash_min_ms);
+            ss->load_visual = rb_splash_visual(ss->load_real, elapsed, ss->catalog.splash_min_ms) *
+                              RB_SPLASH_HANDOFF;
             ss->fade = 1.f;
             done = rb_splash_complete(ss->load_real, elapsed, ss->catalog.splash_min_ms);
             if (!done && ss->load_real >= 0.999f && ss->splash_ticks >= 80)
                 done = 1;
             if (done)
-                ss->load_visual = 1.f;
+                ss->load_visual = RB_SPLASH_HANDOFF;
             rb_splash_draw(ss, ss->load_visual, 1.f);
             if (ss->plat->present) ss->plat->present(&ss->fb);
             ss->splash_ticks++;

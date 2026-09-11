@@ -201,6 +201,14 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     info->debug_term_y = (uint32_t)(h->debug_term_y > 0 ? h->debug_term_y : 0);
     info->debug_term_w = (uint32_t)(h->debug_term_w > 0 ? h->debug_term_w : 0);
     info->debug_term_h = (uint32_t)(h->debug_term_h > 0 ? h->debug_term_h : 0);
+    info->splash_bar_x = (uint32_t)(h->splash_bar_x > 0 ? h->splash_bar_x : 0);
+    info->splash_bar_y = (uint32_t)(h->splash_bar_y > 0 ? h->splash_bar_y : 0);
+    info->splash_bar_w = (uint32_t)(h->splash_bar_w > 0 ? h->splash_bar_w : 0);
+    info->splash_bar_h = (uint32_t)(h->splash_bar_h > 0 ? h->splash_bar_h : 0);
+    info->splash_progress = h->splash_progress;
+    if (info->splash_progress > ROBO_BOOT_PROGRESS_MAX)
+        info->splash_progress = ROBO_BOOT_PROGRESS_MAX;
+    info->splash_handoff = ROBO_BOOT_PROGRESS_HANDOFF;
     if (log_buf && log_phys) {
         rb_bootlog_handoff_info(&log_used, &log_count);
         info->debug_log_address = log_phys;
@@ -222,6 +230,11 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
                     (unsigned long long)info->debug_log_address,
                     (unsigned)info->debug_log_count,
                     (unsigned)info->debug_log_size);
+    if (info->splash_bar_w)
+        rb_bootlogf(NULL, "Bootinfo  splash  %ux%u at %u,%u  %u percent",
+                    (unsigned)info->splash_bar_w, (unsigned)info->splash_bar_h,
+                    (unsigned)info->splash_bar_x, (unsigned)info->splash_bar_y,
+                    (unsigned)(info->splash_progress / 100u));
     if (h->cmdline[0])
         rb_bootlogf(NULL, "Bootinfo  cmdline  %s", h->cmdline);
     if (debug)

@@ -23,6 +23,8 @@ void kfb_newline(void);
 void kfb_log_putc(char c, uint32_t rgb);
 void kfb_poll(void);
 
+void kfb_splash_set(unsigned progress);
+
 int kboot_debug(const RoboBootInfo *info);
 void kboot_report(const RoboBootInfo *info);
 

@@ -196,37 +196,4 @@ void kboot_report(const RoboBootInfo *info)
         kv("Idle  ", mute, "hlt", white);
         return;
     }
-
-    kfb_clear(0x000000);
-    kfb_puts("Roboticela Kernel\n", white);
-    kfb_puts("-----------------\n\n", mute);
-    kfb_puts("Boot protocol: Roboticela\n", white);
-    kfb_puts("CPU: x86_64\n\n", white);
-    kfb_puts("Memory:\n", mute);
-    kfb_puts("  Available: ", white);
-    kfb_putu(avail_mb, white);
-    kfb_puts(" MB\n  Reserved:  ", white);
-    kfb_putu(reserved_mb, white);
-    kfb_puts(" MB\n\n", white);
-    kfb_puts("Framebuffer:\n", mute);
-    kfb_puts("  ", white);
-    kfb_putu(info ? info->framebuffer_width : 0, white);
-    kfb_puts("x", white);
-    kfb_putu(info ? info->framebuffer_height : 0, white);
-    kfb_puts("\n  ", white);
-    kfb_putu(info ? info->framebuffer_bpp : 0, white);
-    kfb_puts(" BPP\n\n", white);
-    kfb_puts("ACPI:\n", mute);
-    kfb_puts(info && info->rsdp_address ? "  RSDP found\n\n" : "  RSDP missing\n\n", white);
-    kfb_puts("Kernel:\n", mute);
-    kfb_puts("  address: ", white);
-    kfb_puthex(info ? info->kernel_base : 0, white);
-    kfb_puts("\n  size: ", white);
-    kfb_putu(info ? info->kernel_size : 0, white);
-    kfb_puts("\n\nInitFS:\n", mute);
-    kfb_puts("  address: ", white);
-    kfb_puthex(info ? info->initrd_address : 0, white);
-    kfb_puts("\n  size: ", white);
-    kfb_putu(info ? info->initrd_size : 0, white);
-    kfb_puts("\n", white);
 }
