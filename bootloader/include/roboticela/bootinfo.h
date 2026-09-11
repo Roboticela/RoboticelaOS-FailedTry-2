@@ -4,7 +4,9 @@
 #include <stdint.h>
 
 #define ROBO_BOOTINFO_MAGIC    0x4F424F52u /* 'ROBO' */
-#define ROBO_BOOTINFO_VERSION  2u /* v2: bootinfo_address / bootinfo_size */
+#define ROBO_BOOTINFO_VERSION  3u /* v3: debug_log_address / size / count */
+#define ROBO_DEBUG_LOG_MAGIC   0x474F4C52u /* 'RLOG' */
+#define ROBO_DEBUG_LOG_VERSION 1u
 
 #define ROBO_BOOT_DEBUG        1u
 
@@ -59,6 +61,18 @@ typedef struct {
     uint32_t debug_term_y;
     uint32_t debug_term_w;
     uint32_t debug_term_h;
+
+    /* Packed RoboDebugLogHeader + records. Valid when version >= 3. */
+    uint64_t debug_log_address;
+    uint32_t debug_log_size;
+    uint32_t debug_log_count;
 } RoboBootInfo;
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t count;
+    uint32_t used;
+} RoboDebugLogHeader;
 
 #endif

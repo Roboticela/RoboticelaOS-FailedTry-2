@@ -395,6 +395,14 @@ bool robo_vmm_init(const RoboBootInfo *info)
             return false;
         }
     }
+    if (info && info->version >= 3 && info->debug_log_address && info->debug_log_size) {
+        if (!map_range_identity(info->debug_log_address, info->debug_log_size,
+                                ROBO_VM_READ | ROBO_VM_WRITE | ROBO_VM_KERNEL)) {
+            kprintf("VMM: debug log map failed\n");
+            vmm_fill(&g_vmm, 0, sizeof(g_vmm));
+            return false;
+        }
+    }
     if (info && info->framebuffer_address) {
         g_vmm.fb_base = info->framebuffer_address;
         g_vmm.fb_size = robo_bootinfo_framebuffer_size(info);

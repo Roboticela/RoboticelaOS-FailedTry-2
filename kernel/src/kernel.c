@@ -6,10 +6,10 @@
 
 void kmain(const RoboBootInfo *info)
 {
-    kprintf("kmain\n");
     kserial_init();
-    kprintf("serial init\n");
     kfb_init(info);
+    kprintf("kmain\n");
+    kprintf("serial init\n");
     kprintf("framebuffer init %u x %u\n",
             info ? info->framebuffer_width : 0,
             info ? info->framebuffer_height : 0);

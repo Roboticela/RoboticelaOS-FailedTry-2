@@ -399,6 +399,8 @@ void rb_bootlog(rb_session *ss, const char *line);
 void rb_bootlogf(rb_session *ss, const char *fmt, ...);
 void rb_bootlog_freeze(void);
 void rb_bootlog_release(rb_session *ss);
+int rb_bootlog_handoff_begin(void *buf, uint32_t size);
+void rb_bootlog_handoff_info(uint32_t *used, uint32_t *count);
 void rb_debug_term_geom(const rb_session *ss, float *x, float *y, float *w, float *h);
 void rb_debug_term_draw(rb_session *ss);
 void rb_debug_flush(rb_session *ss);

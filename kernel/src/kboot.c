@@ -91,20 +91,24 @@ void kboot_report(const RoboBootInfo *info)
 
     if (verbose) {
         int x = 40, y = 0, w = 0, h = 220;
-        if (info && info->debug_term_w && info->debug_term_h) {
-            x = (int)info->debug_term_x;
-            y = (int)info->debug_term_y;
-            w = (int)info->debug_term_w;
-            h = (int)info->debug_term_h;
-        } else if (info) {
-            w = (int)info->framebuffer_width - 80;
-            h = (int)info->framebuffer_height * 34 / 100;
-            if (h < 160) h = 160;
-            y = (int)info->framebuffer_height - 40 - h;
+        if (!kfb_term_active()) {
+            if (info && info->debug_term_w && info->debug_term_h) {
+                x = (int)info->debug_term_x;
+                y = (int)info->debug_term_y;
+                w = (int)info->debug_term_w;
+                h = (int)info->debug_term_h;
+            } else if (info) {
+                w = (int)info->framebuffer_width - 80;
+                h = (int)info->framebuffer_height * 34 / 100;
+                if (h < 160) h = 160;
+                y = (int)info->framebuffer_height - 40 - h;
+            }
+            kfb_term_open(x, y, w, h);
         }
-        kfb_term_open(x, y, w, h);
-        term_line("kmain");
-        term_line("Logs  Up/Down to scroll");
+        if (!info || info->debug_log_count < 1) {
+            term_line("kmain");
+            term_line("Logs  Up/Down to scroll");
+        }
         kv("Serial  ", mute, "init", white);
         kv("Framebuffer  ", mute, "init", white);
         kfb_puts("Bootinfo  magic ", mute);

@@ -91,6 +91,10 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     uint64_t kmin = ~0ull, kmax = 0, kbase = 0, ksize = 0;
     uint64_t init_phys = 0, init_size = 0;
     uint64_t map_phys = 0;
+    uint64_t log_phys = 0;
+    void *log_buf = 0;
+    uint32_t log_size = 128u * 1024u;
+    uint32_t log_used = 0, log_count = 0;
     RoboBootInfo *info;
     RoboMemoryRegion *regions;
     UINTN map_size = 0, map_key = 0, desc_size = 0;
@@ -102,6 +106,9 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     uint64_t entry;
 
     (void)t;
+    log_buf = alloc_pages_any(log_size, &log_phys);
+    if (log_buf)
+        rb_bootlog_handoff_begin(log_buf, log_size);
     rb_bootlog(NULL, "Kexec  start");
     if (!h || !h->kernel.valid || !h->kernel.bytes) {
         rb_bootlog(NULL, "Kexec  no kernel bytes");
@@ -194,6 +201,12 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     info->debug_term_y = (uint32_t)(h->debug_term_y > 0 ? h->debug_term_y : 0);
     info->debug_term_w = (uint32_t)(h->debug_term_w > 0 ? h->debug_term_w : 0);
     info->debug_term_h = (uint32_t)(h->debug_term_h > 0 ? h->debug_term_h : 0);
+    if (log_buf && log_phys) {
+        rb_bootlog_handoff_info(&log_used, &log_count);
+        info->debug_log_address = log_phys;
+        info->debug_log_size = log_size;
+        info->debug_log_count = log_count;
+    }
     rb_strcpy(info->cmdline, sizeof(info->cmdline), h->cmdline);
     rb_bootlogf(NULL, "Bootinfo  magic ROBO  flags 0x%x", (unsigned)info->flags);
     rb_bootlogf(NULL, "Bootinfo  fb 0x%llx  %ux%u  pitch %u  fmt %u",
@@ -204,6 +217,11 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     rb_bootlogf(NULL, "Bootinfo  block 0x%llx  %llu",
                 (unsigned long long)info->bootinfo_address,
                 (unsigned long long)info->bootinfo_size);
+    if (info->debug_log_address)
+        rb_bootlogf(NULL, "Bootinfo  logs 0x%llx  %u lines  %u bytes",
+                    (unsigned long long)info->debug_log_address,
+                    (unsigned)info->debug_log_count,
+                    (unsigned)info->debug_log_size);
     if (h->cmdline[0])
         rb_bootlogf(NULL, "Bootinfo  cmdline  %s", h->cmdline);
     if (debug)
@@ -273,6 +291,9 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
         st = gBS->ExitBootServices(gImage, map_key);
         if (st == EFI_SUCCESS) {
             rb_bootlogf(NULL, "Kexec  jump  0x%llx", (unsigned long long)entry);
+            rb_bootlog_handoff_info(&log_used, &log_count);
+            if (info->debug_log_address)
+                info->debug_log_count = log_count;
             jump_kernel(entry, info);
             return RB_ERR_FAIL;
         }

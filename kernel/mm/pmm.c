@@ -504,6 +504,8 @@ bool robo_pmm_init(const RoboBootInfo *info)
                         : 8192ull;
     add_span(forbid, &nforbid, 8, bootinfo_phys, bootinfo_size);
     add_span(forbid, &nforbid, 8, info->initrd_address, info->initrd_size);
+    if (info->version >= 3 && info->debug_log_address && info->debug_log_size)
+        add_span(forbid, &nforbid, 8, info->debug_log_address, info->debug_log_size);
 
     fb_size = robo_bootinfo_framebuffer_size(info);
     g_pmm.fb_base = info->framebuffer_address;
@@ -543,6 +545,8 @@ bool robo_pmm_init(const RoboBootInfo *info)
     reserve_range(g_pmm.kernel_base, g_pmm.kernel_size);
     reserve_range(bootinfo_phys, bootinfo_size);
     reserve_range(info->initrd_address, info->initrd_size);
+    if (info->version >= 3 && info->debug_log_address && info->debug_log_size)
+        reserve_range(info->debug_log_address, info->debug_log_size);
     reserve_range(g_pmm.fb_base, g_pmm.fb_size);
     reserve_range(home, (uint64_t)storage);
 #ifndef PMM_HOST_TEST

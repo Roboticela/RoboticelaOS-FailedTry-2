@@ -34,8 +34,91 @@ static uint32_t pack_rgb(uint32_t rgb)
     return (b) | (g << 8) | (r << 16);
 }
 
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static uint16_t rd16(const uint8_t *p)
+{
+    return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
+}
+
+static uint32_t log_color(uint8_t kind)
+{
+    if (kind == 1) return 0xFFFFFFu;
+    if (kind == 2) return 0xFF9F0Au;
+    return 0xA1A1A6u;
+}
+
+static int klog_push_line(const char *s, int n, uint32_t rgb)
+{
+    int i;
+    if (g_n >= KLOG_MAX)
+        return 0;
+    if (n < 0) n = 0;
+    if (n > KLOG_COLS - 1) n = KLOG_COLS - 1;
+    for (i = 0; i < n; i++)
+        g_lines[g_n][i] = s[i];
+    g_lines[g_n][n] = 0;
+    g_line_rgb[g_n] = rgb ? rgb : 0xA1A1A6u;
+    g_n++;
+    return 1;
+}
+
+static unsigned kfb_import_bootlog(const RoboBootInfo *info)
+{
+    const uint8_t *p;
+    uint32_t used, count, off, got = 0;
+    if (!info || info->version < 3 || !info->debug_log_address || !info->debug_log_size)
+        return 0;
+    p = (const uint8_t *)(uintptr_t)info->debug_log_address;
+    if (rd32(p) != ROBO_DEBUG_LOG_MAGIC)
+        return 0;
+    count = rd32(p + 8);
+    used = rd32(p + 12);
+    if (used < 16u || used > info->debug_log_size)
+        used = info->debug_log_size;
+    off = 16;
+    while (off + 8u <= used && got < count && g_n < KLOG_MAX) {
+        uint8_t kind = p[off + 4];
+        uint16_t len = rd16(p + off + 6);
+        if (off + 8u + len > used)
+            break;
+        klog_push_line((const char *)(p + off + 8), (int)len, log_color(kind));
+        off += 8u + len;
+        got++;
+    }
+    if (got)
+        klog_push_line("---- kernel ----", 16, 0x98989Du);
+    return got;
+}
+
+static void kfb_scrollbar(int rows, int vis, int start)
+{
+    int track_x, track_y, track_h, thumb_h, thumb_y, max_start;
+    if (!g_term || rows <= vis || vis < 1)
+        return;
+    max_start = rows - vis;
+    if (max_start < 1)
+        return;
+    if (start < 0) start = 0;
+    if (start > max_start) start = max_start;
+    track_x = g_tx + g_tw - 14;
+    track_y = g_ty + 48;
+    track_h = g_th - 64;
+    if (track_h < 12)
+        return;
+    thumb_h = (int)(((long long)track_h * vis) / rows);
+    if (thumb_h < 10) thumb_h = 10;
+    if (thumb_h > track_h) thumb_h = track_h;
+    thumb_y = track_y + (int)(((long long)(track_h - thumb_h) * start) / max_start);
+    kfb_round_rect(track_x, track_y, 3, track_h, 2, 0x2C2C2Eu);
+    kfb_round_rect(track_x, thumb_y, 3, thumb_h, 2, 0x3B9EFFu);
+}
 void kfb_init(const RoboBootInfo *info)
 {
+    int debug;
     g_fb = 0;
     g_cx = g_cy = 0;
     g_margin_x = 40;
@@ -51,6 +134,15 @@ void kfb_init(const RoboBootInfo *info)
     g_pitch = info->framebuffer_pitch / 4u;
     if (g_pitch < g_w) g_pitch = g_w;
     g_pixfmt = info->framebuffer_pixfmt;
+    debug = kboot_debug(info) && info->debug_term_w && info->debug_term_h;
+    if (debug) {
+        unsigned inherited = kfb_import_bootlog(info);
+        kfb_term_open((int)info->debug_term_x, (int)info->debug_term_y,
+                      (int)info->debug_term_w, (int)info->debug_term_h);
+        if (inherited)
+            kprintf("Logs  %u bootloader lines\n", inherited);
+        return;
+    }
     kfb_clear(0x000000u);
 }
 
@@ -254,6 +346,7 @@ static void kfb_term_paint(void)
             if (drawn >= vis) break;
         } while (off < n);
     }
+    kfb_scrollbar(rows, vis, start);
 }
 
 static void klog_scroll(int delta)
@@ -295,6 +388,11 @@ void kfb_term_open(int x, int y, int w, int h)
     g_cy = 0;
     g_follow = 1;
     kfb_term_paint();
+}
+
+int kfb_term_active(void)
+{
+    return g_term;
 }
 
 void kfb_log_putc(char c, uint32_t rgb)

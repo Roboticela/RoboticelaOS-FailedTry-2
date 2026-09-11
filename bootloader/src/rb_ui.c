@@ -1,4 +1,5 @@
 #include "roboboot.h"
+#include "roboticela/bootinfo.h"
 
 #include <math.h>
 #include <stdarg.h>
@@ -14,6 +15,60 @@ static int g_bootlog_heap = 1;
 #define RB_FROZEN_LOG 32
 static char g_frozen_text[RB_FROZEN_LOG][256];
 static int g_frozen_n;
+
+static uint8_t *g_ho_buf;
+static uint32_t g_ho_size;
+static uint32_t g_ho_used;
+static uint32_t g_ho_count;
+
+static void ho_wr32(uint8_t *p, uint32_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+
+static void ho_wr16(uint8_t *p, uint16_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+}
+
+static void ho_sync_header(void)
+{
+    if (!g_ho_buf || g_ho_size < sizeof(RoboDebugLogHeader))
+        return;
+    ho_wr32(g_ho_buf + 0, ROBO_DEBUG_LOG_MAGIC);
+    ho_wr32(g_ho_buf + 4, ROBO_DEBUG_LOG_VERSION);
+    ho_wr32(g_ho_buf + 8, g_ho_count);
+    ho_wr32(g_ho_buf + 12, g_ho_used);
+}
+
+static int ho_put(uint32_t ms, uint8_t kind, const char *text)
+{
+    uint32_t n = 0, need;
+    uint8_t *p;
+    if (!g_ho_buf || g_ho_used < sizeof(RoboDebugLogHeader))
+        return 0;
+    if (!text) text = "";
+    while (text[n]) n++;
+    if (n > 1024u) n = 1024u;
+    need = 8u + n;
+    if (g_ho_used + need > g_ho_size)
+        return 0;
+    p = g_ho_buf + g_ho_used;
+    ho_wr32(p + 0, ms);
+    p[4] = kind;
+    p[5] = 0;
+    ho_wr16(p + 6, (uint16_t)n);
+    if (n)
+        memcpy(p + 8, text, n);
+    g_ho_used += need;
+    g_ho_count++;
+    ho_sync_header();
+    return 1;
+}
 
 static int visible_count(const rb_catalog *c)
 {
@@ -696,6 +751,7 @@ static int bootlog_push(rb_log_line **lines, int *n, int *cap, const char *text,
     (*lines)[*n].ms = ms;
     (*lines)[*n].kind = kind;
     (*n)++;
+    ho_put(ms, kind, dup);
     return 1;
 }
 
@@ -723,6 +779,34 @@ void rb_bootlog_release(rb_session *ss)
 {
     if (!ss) return;
     bootlog_free_lines(&ss->boot_log, &ss->boot_log_n, &ss->boot_log_cap);
+}
+
+int rb_bootlog_handoff_begin(void *buf, uint32_t size)
+{
+    int i;
+    if (!buf || size < sizeof(RoboDebugLogHeader) + 32u)
+        return 0;
+    memset(buf, 0, size);
+    g_ho_buf = (uint8_t *)buf;
+    g_ho_size = size;
+    g_ho_used = (uint32_t)sizeof(RoboDebugLogHeader);
+    g_ho_count = 0;
+    ho_sync_header();
+    if (g_bootlog_ss) {
+        for (i = 0; i < g_bootlog_ss->boot_log_n; i++)
+            ho_put(g_bootlog_ss->boot_log[i].ms, g_bootlog_ss->boot_log[i].kind,
+                   g_bootlog_ss->boot_log[i].text);
+    } else {
+        for (i = 0; i < g_early_n; i++)
+            ho_put(g_early_log[i].ms, g_early_log[i].kind, g_early_log[i].text);
+    }
+    return 1;
+}
+
+void rb_bootlog_handoff_info(uint32_t *used, uint32_t *count)
+{
+    if (used) *used = g_ho_used;
+    if (count) *count = g_ho_count;
 }
 
 static void bootlog_append_ss(rb_session *ss, const char *line, uint32_t ms, uint8_t kind)
