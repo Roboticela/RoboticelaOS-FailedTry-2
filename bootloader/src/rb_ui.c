@@ -1041,7 +1041,10 @@ void rb_debug_term_draw(rb_session *ss)
             dot = rb_token(RB_TOKEN_WARNING, 255);
         }
         if (!cont) {
-            rb_gfx_circle(&ss->fb, x + 28.f, text_y + 6.f, 2.5f, dot);
+            if (kind == 1 || kind == 2)
+                rb_gfx_circle(&ss->fb, x + 28.f, text_y + 6.f, 2.5f, dot);
+            else
+                rb_gfx_ring(&ss->fb, x + 28.f, text_y + 6.f, 2.5f, 1.15f, dot);
             fmt_log_time(tbuf, sizeof(tbuf), ms, 0);
             rb_gfx_text(&ss->fb, cap, x + 36.f, text_y, tbuf, rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
         }
