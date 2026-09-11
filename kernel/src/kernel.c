@@ -9,6 +9,8 @@
 #include "thread/thread.h"
 #include "process/process.h"
 #include "arch/x86_64/context/context_switch.h"
+#include "fs/robofs.h"
+#include "exec/exec.h"
 
 static void boot_bar(unsigned p)
 {
@@ -178,7 +180,19 @@ void kmain(const RoboBootInfo *info)
                 kprintf("PROC_TEST_OK\n");
             else
                 kprintf("PROC_TEST_FAIL\n");
-            boot_bar(9800);
+            boot_bar(9850);
+            if (robo_fs_init(info)) {
+                robo_fs_report();
+                if (kboot_debug(info))
+                    kfb_puts("RoboFS ready\n", 0xA1A1A6u);
+                if (robo_exec_selftest(info))
+                    kprintf("USER_TEST_OK\n");
+                else
+                    kprintf("USER_TEST_FAIL\n");
+            } else {
+                kprintf("USER_TEST_FAIL\n");
+            }
+            boot_bar(9900);
         }
     } else {
         kprintf("CTX_TEST_FAIL\n");

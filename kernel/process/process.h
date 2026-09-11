@@ -37,6 +37,10 @@ typedef struct RoboProcess {
 
     RoboSpinlock lock;
     struct RoboProcess *next;
+
+    uint64_t user_entry;
+    uint64_t user_stack_top;
+    uint64_t user_stack_base;
 } RoboProcess;
 
 int robo_process_subsystem_init(void);

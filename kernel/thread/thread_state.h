@@ -32,6 +32,11 @@ typedef enum {
     ROBO_THREAD_TERMINATED
 } robo_thread_state_t;
 
+typedef enum {
+    ROBO_THREAD_KERNEL = 0,
+    ROBO_THREAD_USER = 1
+} robo_thread_kind_t;
+
 static inline int robo_thread_state_valid(robo_thread_state_t state)
 {
     return (unsigned)state <= (unsigned)ROBO_THREAD_TERMINATED;

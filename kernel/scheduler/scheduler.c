@@ -4,6 +4,7 @@
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/tss.h"
 #include "arch/x86_64/gdt.h"
+#include "arch/x86_64/syscall.h"
 #include "mm/heap/heap.h"
 #include "mm/vmm/vmm.h"
 #include "time/time.h"
@@ -286,6 +287,7 @@ static struct robo_iframe *pick_and_switch(struct robo_iframe *frame, int force)
     next->slice_end_ns = now + robo_sched_quantum_ns();
     /* Kernel stacks only. IST1 / double-fault stack is not touched. */
     robo_tss_set_rsp0(next->stack_top);
+    robo_syscall_kstack = next->stack_top;
     g_in_sched = 0;
     /*
      * g_current is already next, so a restored thread sees itself.
@@ -448,6 +450,7 @@ void robo_scheduler_start(void)
         g_current->state = ROBO_THREAD_RUNNING;
     g_sched_state = ROBO_SCHED_RUNNING;
     robo_tss_set_rsp0(g_current->stack_top);
+    robo_syscall_kstack = g_current->stack_top;
     robo_sched_unlock(flags);
     kprintf("Scheduler start  current %llu %s\n",
             (unsigned long long)g_current->id, g_current->name);

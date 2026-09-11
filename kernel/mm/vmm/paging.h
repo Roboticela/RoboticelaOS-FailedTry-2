@@ -46,6 +46,13 @@ typedef uint64_t robo_pte_t;
  * entries 0 and 256 stay shared so identity maps, heap, and stacks
  * remain visible after a CR3 switch. */
 #define ROBO_VMM_PROC_BASE   0xFFFF808000000000ull
+/* Private PML4 slot 257 is the user window (512 GiB). Low identity and
+ * kernel heap/stacks stay shared and are not valid user VAs. */
+#define ROBO_USER_MIN        ROBO_VMM_PROC_BASE
+#define ROBO_USER_MAX        (ROBO_VMM_PROC_BASE + 0x8000000000ull)
+#define ROBO_USER_TEXT_BASE  (ROBO_VMM_PROC_BASE + 0x400000ull)
+#define ROBO_USER_STACK_TOP  (ROBO_VMM_PROC_BASE + 0x80000000ull)
+#define ROBO_USER_STACK_SIZE (64u * 1024u)
 
 uint16_t robo_page_offset(virt_addr_t va);
 uint16_t robo_pt_index(virt_addr_t va);

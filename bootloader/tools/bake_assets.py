@@ -288,7 +288,9 @@ def write_dummy_payloads() -> None:
     write_dummy_elf(sys_dir / "kernel.elf")
     write_dummy_elf(sys_dir / "recovery.elf", entry=0x402000)
     write_dummy_elf(sys_dir / "install.elf", entry=0x403000)
-    (sys_dir / "initrd").write_bytes(b"RBINITRD\x00dummy-init-ramdisk\n")
+    initrd = sys_dir / "initrd"
+    if not initrd.exists():
+        initrd.write_bytes(b"RBINITRD\x00dummy-init-ramdisk\n")
     win = VOLUMES / "windows" / "EFI" / "Microsoft" / "Boot"
     win.mkdir(parents=True, exist_ok=True)
     (win / "bootmgfw.efi").write_bytes(b"MZ-DUMMY-EFI-CHAINLOAD")

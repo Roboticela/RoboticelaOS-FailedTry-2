@@ -1,0 +1,101 @@
+#include "fs/robofs.h"
+#include "kio.h"
+
+static const uint8_t *g_img;
+static uint32_t g_size;
+static int g_ready;
+
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static int name_eq(const char *a, const char *b)
+{
+    unsigned i;
+    if (!a || !b)
+        return 0;
+    for (i = 0; i < ROBFS_NAME; i++) {
+        if (a[i] != b[i])
+            return 0;
+        if (!a[i])
+            return 1;
+    }
+    return 1;
+}
+
+int robo_fs_init(const RoboBootInfo *info)
+{
+    const uint8_t *p;
+    uint32_t magic, ver, n, sz, need;
+    g_img = 0;
+    g_size = 0;
+    g_ready = 0;
+    if (!info || !info->initrd_address || !info->initrd_size)
+        return 0;
+    if (info->initrd_size < sizeof(RoboFsHeader))
+        return 0;
+    p = (const uint8_t *)(uintptr_t)info->initrd_address;
+    magic = rd32(p);
+    ver = rd32(p + 4);
+    n = rd32(p + 8);
+    sz = rd32(p + 12);
+    if (magic != ROBFS_MAGIC || ver != ROBFS_VERSION)
+        return 0;
+    if (sz > info->initrd_size || sz < sizeof(RoboFsHeader))
+        return 0;
+    need = (uint32_t)sizeof(RoboFsHeader) + n * (uint32_t)sizeof(RoboFsEntry);
+    if (need > sz)
+        return 0;
+    g_img = p;
+    g_size = sz;
+    g_ready = 1;
+    kprintf("RoboFS  ready  %u files  %u bytes\n", (unsigned)n, (unsigned)sz);
+    return 1;
+}
+
+int robo_fs_ready(void)
+{
+    return g_ready;
+}
+
+int robo_fs_open(const char *path, const void **data, uint32_t *size)
+{
+    uint32_t n, i, off, len, need;
+    const uint8_t *ent;
+    if (!g_ready || !path || !data || !size)
+        return 0;
+    n = rd32(g_img + 8);
+    ent = g_img + sizeof(RoboFsHeader);
+    for (i = 0; i < n; i++) {
+        const RoboFsEntry *e = (const RoboFsEntry *)(ent + i * sizeof(RoboFsEntry));
+        if (!name_eq(e->name, path))
+            continue;
+        off = e->off;
+        len = e->len;
+        if (off > g_size)
+            return 0;
+        need = off;
+        if (len && off + len < off)
+            return 0;
+        if (off + len > g_size)
+            return 0;
+        (void)need;
+        *data = g_img + off;
+        *size = len;
+        return 1;
+    }
+    return 0;
+}
+
+void robo_fs_report(void)
+{
+    uint32_t n;
+    if (!g_ready) {
+        kprintf("RoboFS  missing\n");
+        return;
+    }
+    n = rd32(g_img + 8);
+    kprintf("RoboFS  %u files  image %u bytes\n", (unsigned)n, (unsigned)g_size);
+}

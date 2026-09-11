@@ -643,4 +643,47 @@ int robo_vmm_aspace_translate(RoboAddressSpace *as, virt_addr_t va,
         *pa = robo_pte_phys(*leaf);
     return 1;
 }
+
+int robo_vmm_aspace_protect(RoboAddressSpace *as, virt_addr_t va, uint64_t flags)
+{
+    robo_pte_t *leaf;
+    phys_addr_t pa;
+    uint64_t hw;
+
+    if (!as || !as->cr3)
+        return 0;
+    if (!robo_virtual_address_is_canonical(va) || !robo_virt_aligned(va))
+        return 0;
+    if (!robo_vm_flags_valid(flags))
+        return 0;
+    if (!(flags & ROBO_VM_USER))
+        flags |= ROBO_VM_KERNEL;
+    if (!walk_leaf_at(as->cr3, va, 0, 0, &leaf, 0) || !leaf)
+        return 0;
+    if (!robo_pte_present(*leaf))
+        return 0;
+    pa = robo_pte_phys(*leaf);
+    hw = robo_vm_to_pte_flags(flags, g_vmm.nx);
+    *leaf = robo_pte_make(pa, hw);
+    aspace_invlpg(as->cr3, va);
+    return 1;
+}
+
+int robo_vmm_aspace_inspect(RoboAddressSpace *as, virt_addr_t va,
+                            phys_addr_t *pa, robo_pte_t *pte)
+{
+    robo_pte_t *leaf;
+
+    if (!as || !as->cr3)
+        return 0;
+    if (!walk_leaf_at(as->cr3, va, 0, 0, &leaf, 0) || !leaf)
+        return 0;
+    if (!robo_pte_present(*leaf))
+        return 0;
+    if (pa)
+        *pa = robo_pte_phys(*leaf);
+    if (pte)
+        *pte = *leaf;
+    return 1;
+}
 #endif

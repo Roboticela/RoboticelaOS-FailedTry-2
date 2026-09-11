@@ -9,6 +9,8 @@
 #define ROBO_GDT_USER_DATA    0x18u
 #define ROBO_GDT_USER_CODE    0x20u
 #define ROBO_GDT_TSS          0x28u
+#define ROBO_GDT_USER_CODE_RPL (ROBO_GDT_USER_CODE | 3u)
+#define ROBO_GDT_USER_DATA_RPL (ROBO_GDT_USER_DATA | 3u)
 
 void robo_gdt_init(void *tss, uint32_t tss_size);
 uint16_t robo_cpu_read_cs(void);

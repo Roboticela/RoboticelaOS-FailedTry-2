@@ -55,6 +55,9 @@ int robo_vmm_aspace_unmap(RoboAddressSpace *as, virt_addr_t va,
                           phys_addr_t *pa);
 int robo_vmm_aspace_translate(RoboAddressSpace *as, virt_addr_t va,
                               phys_addr_t *pa);
+int robo_vmm_aspace_protect(RoboAddressSpace *as, virt_addr_t va, uint64_t flags);
+int robo_vmm_aspace_inspect(RoboAddressSpace *as, virt_addr_t va,
+                            phys_addr_t *pa, robo_pte_t *pte);
 
 bool robo_vmm_map(virt_addr_t virtual_address, phys_addr_t physical_address, uint64_t flags);
 bool robo_vmm_unmap(virt_addr_t virtual_address, phys_addr_t *physical_address);

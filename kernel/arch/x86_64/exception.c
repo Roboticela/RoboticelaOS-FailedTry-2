@@ -1,6 +1,9 @@
 #include "arch/x86_64/exception.h"
 #include "arch/x86_64/timer/pit.h"
+#include "arch/x86_64/syscall.h"
 #include "scheduler/scheduler.h"
+#include "process/process.h"
+#include "thread/thread.h"
 #include "kio.h"
 
 #include <stddef.h>
@@ -12,6 +15,7 @@ extern char robo_pf_probe_read_resume[];
 extern void robo_irq_dispatch(struct robo_iframe *frame);
 
 static unsigned g_bp_count;
+static unsigned g_user_faults;
 
 static int g_pf_recover;
 static uint64_t g_pf_expect_va;
@@ -145,6 +149,11 @@ unsigned robo_exception_breakpoint_count(void)
     return g_bp_count;
 }
 
+unsigned robo_user_fault_count(void)
+{
+    return g_user_faults;
+}
+
 int robo_pf_catch_read(uint64_t va, uint64_t *cr2, uint64_t *rip, uint64_t *err)
 {
     g_pf_caught = 0;
@@ -171,6 +180,38 @@ uint64_t robo_pf_probe_rip(void)
     return (uint64_t)(uintptr_t)robo_pf_probe_read_rip;
 }
 
+static int iframe_from_user(const struct robo_iframe *f)
+{
+    return f && ((f->cs & 3ull) == 3ull);
+}
+
+static struct robo_iframe *user_process_fault(struct robo_iframe *f, uint64_t cr2)
+{
+    RoboThread *t = robo_current_thread();
+    RoboProcess *p = t ? t->process : 0;
+    uint64_t err = f->error;
+
+    kprintf("USER PROCESS FAULT\n\n");
+    kprintf("PID     : %llu\n", (unsigned long long)(p ? p->id : 0));
+    kprintf("TID     : %llu\n", (unsigned long long)(t ? t->id : 0));
+    pf_hex("Address : ", cr2);
+    pf_hex("RIP     : ", f->rip);
+    pf_hex("Error   : ", err);
+    kprintf("\n");
+    if (f->vector == ROBO_EXC_PF) {
+        kprintf("Access  : %s\n", (err & ROBO_PF_WR) ? "WRITE" : "READ");
+        kprintf("Present : %s\n", (err & ROBO_PF_P) ? "YES" : "NO");
+        kprintf("Execute : %s\n", (err & ROBO_PF_ID) ? "YES" : "NO");
+        kprintf("Mode    : USER\n");
+    } else {
+        kprintf("Vector  : %llu\n", (unsigned long long)f->vector);
+        kprintf("Mode    : USER\n");
+    }
+    robo_thread_kill_current();
+    g_user_faults++;
+    return robo_scheduler_resched(f);
+}
+
 struct robo_iframe *robo_exception_dispatch(struct robo_iframe *frame)
 {
     if (!frame) {
@@ -188,11 +229,17 @@ struct robo_iframe *robo_exception_dispatch(struct robo_iframe *frame)
         return robo_scheduler_resched(frame);
 
     if (frame->vector >= 32 && frame->vector < 48) {
+        if (frame->vector == ROBO_IRQ_BASE)
+            robo_user_note_iframe(frame);
         robo_irq_dispatch(frame);
         if (frame->vector == ROBO_IRQ_BASE)
             return robo_scheduler_tick(frame);
         return frame;
     }
+
+    if (iframe_from_user(frame))
+        return user_process_fault(frame,
+                                 (frame->vector == ROBO_EXC_PF) ? robo_saved_cr2 : 0);
 
     if (frame->vector == ROBO_EXC_PF) {
         panic_page_fault(frame);

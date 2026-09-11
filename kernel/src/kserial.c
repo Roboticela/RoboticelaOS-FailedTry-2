@@ -71,6 +71,15 @@ static void kprint_char(char c)
     kfb_log_putc(c, 0xA1A1A6u);
 }
 
+void kwrite(const char *s, unsigned n)
+{
+    unsigned i;
+    if (!s)
+        return;
+    for (i = 0; i < n; i++)
+        kprint_char(s[i]);
+}
+
 static void kprint_str(const char *s)
 {
     if (!s) return;

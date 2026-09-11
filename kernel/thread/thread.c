@@ -322,6 +322,100 @@ RoboThread *robo_thread_create_in_process(RoboProcess *process,
     return t;
 }
 
+RoboThread *robo_thread_create_user(RoboProcess *process,
+                                    const char *name,
+                                    uint64_t user_rip, uint64_t user_rsp)
+{
+    RoboThread *t;
+    robo_thread_context_t *f;
+    uint64_t flags;
+
+    if (g_sched_state == ROBO_SCHED_UNINIT || !process || !user_rip || !user_rsp)
+        return 0;
+
+    t = (RoboThread *)kmalloc(sizeof(*t));
+    if (!t)
+        return 0;
+    robo_thread_zero(t);
+    robo_thread_set_name(t, name);
+    t->entry = 0;
+    t->argument = 0;
+    t->state = ROBO_THREAD_NEW;
+    t->kind = ROBO_THREAD_USER;
+    t->address_space = process->address_space;
+    t->created_at = robo_time_now();
+
+    if (!robo_thread_stack_alloc(t)) {
+        kfree(t);
+        return 0;
+    }
+    robo_thread_stack_setup_context(t);
+    if (!t->context) {
+        robo_thread_stack_free(t);
+        kfree(t);
+        return 0;
+    }
+
+    t->stack = user_rsp;
+    t->stack_size = ROBO_USER_STACK_SIZE;
+    f = t->context;
+    f->rip = user_rip;
+    f->cs = ROBO_GDT_USER_CODE_RPL;
+    f->ss = ROBO_GDT_USER_DATA_RPL;
+    f->rsp = user_rsp;
+    f->rflags = 0x202ull;
+    f->rdi = 0;
+    f->rsi = 0;
+    f->rdx = 0;
+    f->rcx = 0;
+    f->rax = 0;
+    f->vector = 0;
+    f->error = 0;
+
+    flags = robo_sched_lock();
+    t->id = robo_sched_alloc_id();
+    if (!robo_thread_transition(t, ROBO_THREAD_READY)) {
+        robo_sched_unlock(flags);
+        robo_thread_stack_free(t);
+        kfree(t);
+        return 0;
+    }
+    if (!robo_process_add_thread(process, t)) {
+        robo_sched_unlock(flags);
+        robo_thread_stack_free(t);
+        kfree(t);
+        return 0;
+    }
+    robo_sched_all_add(t);
+    robo_rq_enqueue(&g_ready, t);
+    robo_sched_note_create();
+    robo_sched_unlock(flags);
+    return t;
+}
+
+void robo_thread_kill_current(void)
+{
+    RoboThread *t;
+    uint64_t flags;
+
+    flags = robo_sched_lock();
+    t = g_current;
+    if (!t || t == g_idle) {
+        robo_sched_unlock(flags);
+        return;
+    }
+    if (t->sleep_timer)
+        robo_timer_cancel(t->sleep_timer);
+    t->sleep_timer = 0;
+    t->wake_deadline = 0;
+    if (!robo_thread_transition(t, ROBO_THREAD_TERMINATED))
+        t->state = ROBO_THREAD_TERMINATED;
+    if (t->process)
+        robo_process_remove_thread(t->process, t);
+    robo_sched_note_term();
+    robo_sched_unlock(flags);
+}
+
 void robo_thread_yield(void)
 {
     if (g_sched_state != ROBO_SCHED_RUNNING)

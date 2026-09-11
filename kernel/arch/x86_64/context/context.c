@@ -1,5 +1,6 @@
 #include "arch/x86_64/context/context.h"
 #include "arch/x86_64/gdt.h"
+#include "mm/vmm/paging.h"
 #include "scheduler/scheduler.h"
 #include "kio.h"
 
@@ -17,18 +18,33 @@ static int canonical(uint64_t addr)
 
 int robo_x86_iframe_valid(const struct robo_iframe *frame)
 {
+    int user;
     if (!frame)
         return 0;
-    if (frame->cs != ROBO_GDT_KERNEL_CODE)
-        return 0;
-    if (frame->ss != ROBO_GDT_KERNEL_DATA)
-        return 0;
+    user = ((frame->cs & 3ull) == 3ull);
+    if (user) {
+        if (frame->cs != ROBO_GDT_USER_CODE_RPL)
+            return 0;
+        if (frame->ss != ROBO_GDT_USER_DATA_RPL)
+            return 0;
+    } else {
+        if (frame->cs != ROBO_GDT_KERNEL_CODE)
+            return 0;
+        if (frame->ss != ROBO_GDT_KERNEL_DATA)
+            return 0;
+    }
     if (!frame->rip || !canonical(frame->rip))
         return 0;
     if (!frame->rsp || !canonical(frame->rsp))
         return 0;
     if (frame->rsp & 7ull)
         return 0;
+    if (user) {
+        if (frame->rip < ROBO_USER_MIN || frame->rip >= ROBO_USER_MAX)
+            return 0;
+        if (frame->rsp < ROBO_USER_MIN || frame->rsp >= ROBO_USER_MAX)
+            return 0;
+    }
     return 1;
 }
 

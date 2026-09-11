@@ -15,6 +15,7 @@ $script:ThreadStateTestOut = Join-Path $script:KernelRoot "build\test_thread_sta
 $script:ProcessStateTestOut = Join-Path $script:KernelRoot "build\test_process_state.exe"
 $script:ProcessHostTestOut = Join-Path $script:KernelRoot "build\test_process_host.exe"
 $script:ContextLayoutTestOut = Join-Path $script:KernelRoot "build\test_context_layout.exe"
+$script:ElfTestOut = Join-Path $script:KernelRoot "build\test_elf.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -363,6 +364,46 @@ function Get-EspFlagKey([string]$Flags) {
     return ($parts -join "`n")
 }
 
+function Invoke-RoboBuildUserland {
+    $kroot = $script:KernelRoot
+    $user = Join-Path $script:Repo "user"
+    $ubuild = Join-Path $kroot "build\user"
+    New-Item -ItemType Directory -Force -Path $ubuild | Out-Null
+    $clang = Get-Clang
+    $ld = Get-LdLld
+    $ldscript = Join-Path $user "linker.ld"
+    $cflags = @(
+        "-target", "x86_64-unknown-none",
+        "-ffreestanding", "-nostdlib", "-static",
+        "-fno-pic", "-fno-pie", "-fno-stack-protector",
+        "-mno-red-zone", "-fno-builtin"
+    )
+    $progs = @(
+        @{ Name = "hello"; Src = (Join-Path $user "hello\start.S") },
+        @{ Name = "fault"; Src = (Join-Path $user "fault\start.S") }
+    )
+    $elfs = @{}
+    foreach ($p in $progs) {
+        $obj = Join-Path $ubuild ($p.Name + ".o")
+        $elf = Join-Path $ubuild ($p.Name + ".elf")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $p.Src -Object $obj -Deps @($ldscript)) { }
+        Write-Step "LD" ("user\" + $p.Name + ".elf")
+        & $ld "-m" "elf_x86_64" "-static" "-no-pie" "-T" $ldscript "-o" $elf $obj
+        if ($LASTEXITCODE -ne 0) { throw ("user " + $p.Name + " link failed") }
+        $elfs[$p.Name] = $elf
+    }
+    $py = Get-Python
+    $pack = Join-Path $user "pack_robofs.py"
+    $initrd = Join-Path $script:Boot "volumes\sys\initrd"
+    New-Item -ItemType Directory -Force -Path (Split-Path $initrd) | Out-Null
+    Write-Step "FS" "volumes\sys\initrd"
+    & $py $pack "-o" $initrd (
+        ("/bin/hello=" + $elfs["hello"]),
+        ("/bin/fault=" + $elfs["fault"])
+    )
+    if ($LASTEXITCODE -ne 0) { throw "RoboFS pack failed" }
+}
+
 function Invoke-RoboBuildKernel {
     $kroot = $script:KernelRoot
     $kbuild = Join-Path $kroot "build"
@@ -392,6 +433,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "arch\x86_64\boot\start.S"),
         (Join-Path $kroot "arch\x86_64\isr.S"),
         (Join-Path $kroot "arch\x86_64\context\context_switch.S"),
+        (Join-Path $kroot "arch\x86_64\syscall_entry.S"),
         (Join-Path $kroot "arch\x86_64\context\context.c"),
         (Join-Path $kroot "arch\x86_64\context\context_test.c"),
         (Join-Path $kroot "arch\x86_64\gdt.c"),
@@ -402,6 +444,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "arch\x86_64\cpu.c"),
         (Join-Path $kroot "arch\x86_64\cpu_test.c"),
         (Join-Path $kroot "arch\x86_64\irq.c"),
+        (Join-Path $kroot "arch\x86_64\syscall.c"),
         (Join-Path $kroot "arch\x86_64\timer\tsc.c"),
         (Join-Path $kroot "arch\x86_64\timer\pit.c"),
         (Join-Path $kroot "time\convert.c"),
@@ -418,6 +461,13 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "process\process_resources.c"),
         (Join-Path $kroot "process\process_debug.c"),
         (Join-Path $kroot "process\process_test.c"),
+        (Join-Path $kroot "exec\elf\elf.c"),
+        (Join-Path $kroot "exec\elf\elf_parser.c"),
+        (Join-Path $kroot "exec\elf\elf_validate.c"),
+        (Join-Path $kroot "exec\elf\elf_loader.c"),
+        (Join-Path $kroot "exec\exec.c"),
+        (Join-Path $kroot "exec\exec_test.c"),
+        (Join-Path $kroot "fs\robofs.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -450,6 +500,9 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "scheduler"),
         (Join-Path $kroot "thread"),
         (Join-Path $kroot "process"),
+        (Join-Path $kroot "exec"),
+        (Join-Path $kroot "exec\elf"),
+        (Join-Path $kroot "fs"),
         (Join-Path $script:Boot "include\roboticela")
     )
     $objs = @()
@@ -472,6 +525,7 @@ function Invoke-RoboBuildKernel {
     New-Item -ItemType Directory -Force -Path (Split-Path $sys) | Out-Null
     Copy-Item $kout $sys -Force
     Write-Step "KERN" "volumes\sys\kernel.elf"
+    Invoke-RoboBuildUserland
 }
 
 function Invoke-RoboBuildPmmTest {
@@ -801,6 +855,54 @@ function Invoke-RoboTestContextLayout {
     if ($LASTEXITCODE -ne 0) { throw "context layout host tests failed" }
 }
 
+function Invoke-RoboBuildElfTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\elf-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-I", $kroot,
+        "-I", (Join-Path $kroot "include"),
+        "-I", (Join-Path $script:Boot "include")
+    )
+    $srcs = @(
+        (Join-Path $kroot "exec\elf\elf.c"),
+        (Join-Path $kroot "exec\elf\elf_parser.c"),
+        (Join-Path $kroot "exec\elf\elf_validate.c"),
+        (Join-Path $kroot "mm\page.c"),
+        (Join-Path $kroot "mm\vmm\paging.c"),
+        (Join-Path $kroot "tests\test_elf.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "exec"),
+        (Join-Path $kroot "exec\elf"),
+        (Join-Path $kroot "mm"),
+        (Join-Path $kroot "mm\vmm"),
+        (Join-Path $kroot "include")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ElfTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_elf.exe"
+        & $clang -o $script:ElfTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "elf host test link failed" }
+    }
+}
+
+function Invoke-RoboTestElf {
+    Invoke-RoboBuildElfTest
+    Write-Step "TEST" "test_elf.exe"
+    & $script:ElfTestOut
+    if ($LASTEXITCODE -ne 0) { throw "elf host tests failed" }
+}
+
 function Invoke-RoboBuildImage {
     param([string]$Flags = "")
     Invoke-RoboBuildKernel
@@ -809,7 +911,8 @@ function Invoke-RoboBuildImage {
     $manifest = Join-Path $script:Boot "config\roboboot.manifest"
     $mkesp = Join-Path $script:Boot "tools\make_esp.py"
     $kern = Join-Path $script:Boot "volumes\sys\kernel.elf"
-    $deps = @($script:EfiOut, $manifest, $mkesp, $kern)
+    $initrd = Join-Path $script:Boot "volumes\sys\initrd"
+    $deps = @($script:EfiOut, $manifest, $mkesp, $kern, $initrd)
     $wantFlags = Get-EspFlagKey $Flags
     $stale = $true
     if (-not $script:RoboRebuild -and (Test-Path $script:EspImg) -and (Test-Path $script:EspFlagFile)) {
@@ -943,6 +1046,7 @@ function Invoke-RoboTestHost {
     Invoke-RoboTestProcessState
     Invoke-RoboTestProcessHost
     Invoke-RoboTestContextLayout
+    Invoke-RoboTestElf
 }
 
 function Invoke-RoboClean {

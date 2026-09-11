@@ -43,10 +43,16 @@ robo_x86_context_switch:
     jz .Lswitch_fail
     mov rax, qword ptr [rsi + IFRAME_CS]
     cmp rax, 0x08
+    je .Lcs_ok
+    cmp rax, 0x23
     jne .Lswitch_fail
+.Lcs_ok:
     mov rax, qword ptr [rsi + IFRAME_SS]
     cmp rax, 0x10
+    je .Lss_ok
+    cmp rax, 0x1B
     jne .Lswitch_fail
+.Lss_ok:
     mov rax, qword ptr [rsi + IFRAME_RIP]
     test rax, rax
     jz .Lswitch_fail
@@ -89,6 +95,18 @@ robo_x86_resume_iframe:
     pop rbx
     pop rax
     add rsp, 16
+    push rax
+    mov rax, qword ptr [rsp + 16]
+    cmp rax, 0x23
+    je .Lresume_user_seg
+    mov ax, 0x10
+    jmp .Lresume_load_seg
+.Lresume_user_seg:
+    mov ax, 0x1B
+.Lresume_load_seg:
+    mov ds, ax
+    mov es, ax
+    pop rax
     iretq
 .Lresume_fail:
     xor edi, edi

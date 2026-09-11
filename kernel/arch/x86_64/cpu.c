@@ -1,6 +1,7 @@
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/tss.h"
 #include "arch/x86_64/exception.h"
+#include "arch/x86_64/syscall.h"
 #include "kio.h"
 
 static int g_cpu_ready;
@@ -37,6 +38,8 @@ int robo_cpu_init(void)
         kprintf("CPU  IDT missing required exception gates\n");
         return 0;
     }
+
+    robo_syscall_init();
 
     g_cpu_ready = 1;
     return 1;

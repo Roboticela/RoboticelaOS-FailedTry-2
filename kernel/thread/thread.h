@@ -81,6 +81,7 @@ typedef struct RoboThread {
     uint64_t slice_end_ns;
     uint64_t wake_deadline;
     int sleep_timer;
+    int kind; /* ROBO_THREAD_KERNEL or ROBO_THREAD_USER */
 
     struct RoboThread *next;
     struct RoboThread *prev;
@@ -103,6 +104,10 @@ RoboThread *robo_thread_create_in_process(struct RoboProcess *process,
                                           const char *name,
                                           robo_thread_entry_t entry,
                                           void *argument);
+RoboThread *robo_thread_create_user(struct RoboProcess *process,
+                                    const char *name,
+                                    uint64_t user_rip, uint64_t user_rsp);
+void robo_thread_kill_current(void);
 struct RoboProcess *robo_thread_process(const RoboThread *thread);
 void robo_thread_exit(void);
 void robo_thread_yield(void);

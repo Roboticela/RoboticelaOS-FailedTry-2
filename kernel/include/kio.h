@@ -8,6 +8,7 @@
 void kserial_init(void);
 void kserial_putc(char c);
 void kserial_puts(const char *s);
+void kwrite(const char *s, unsigned n);
 void kprintf(const char *fmt, ...);
 
 void kfb_init(const RoboBootInfo *info);
