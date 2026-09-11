@@ -84,7 +84,7 @@ try {
         $deadline = (Get-Date).AddSeconds($TimeoutSec)
         while ((Get-Date) -lt $deadline) {
             $kserial = Read-Serial
-            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL") { break }
+            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "PROC_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL") { break }
             if ($kproc.HasExited) { break }
             Start-Sleep -Milliseconds 250
         }
@@ -93,7 +93,7 @@ try {
             Stop-Process -Id $kproc.Id -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL") {
+    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "PROC_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL") {
         Write-Host "RoboBoot kernel QEMU tests passed"
         Write-Host $kserial
         exit 0

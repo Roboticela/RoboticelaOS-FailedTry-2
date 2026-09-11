@@ -42,6 +42,10 @@ typedef uint64_t robo_pte_t;
 #define ROBO_VMM_TEST_BASE   0xFFFF800000000000ull
 #define ROBO_VMM_HEAP_BASE   0xFFFF800000100000ull
 #define ROBO_VMM_KSTACK_BASE 0xFFFF800020000000ull
+/* Unused PML4 slot 257 — per-process private mappings. Kernel PML4
+ * entries 0 and 256 stay shared so identity maps, heap, and stacks
+ * remain visible after a CR3 switch. */
+#define ROBO_VMM_PROC_BASE   0xFFFF808000000000ull
 
 uint16_t robo_page_offset(virt_addr_t va);
 uint16_t robo_pt_index(virt_addr_t va);

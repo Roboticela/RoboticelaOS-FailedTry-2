@@ -2,6 +2,7 @@
 #define ROBO_MM_VMM_H
 
 #include "mm/vmm/paging.h"
+#include "mm/vmm/aspace.h"
 #include "roboticela/bootinfo.h"
 
 /*
@@ -36,8 +37,24 @@ int robo_vmm_selftest(void);
 int robo_vmm_nx_enabled(void);
 
 phys_addr_t robo_vmm_get_cr3(void);
+phys_addr_t robo_vmm_kernel_cr3(void);
 void robo_vmm_load_address_space(phys_addr_t pml4);
 void robo_vmm_invalidate_page(virt_addr_t address);
+
+/*
+ * Kernel mappings (identity RAM, heap, kernel stacks) live in PML4
+ * slots 0 and 256 and are shared: clone copies those entries so a
+ * process CR3 switch does not unmap the kernel. Slot 257
+ * (ROBO_VMM_PROC_BASE) is private per cloned aspace.
+ */
+int robo_vmm_aspace_clone(RoboAddressSpace *as);
+void robo_vmm_aspace_destroy(RoboAddressSpace *as);
+int robo_vmm_aspace_map(RoboAddressSpace *as, virt_addr_t va,
+                        phys_addr_t pa, uint64_t flags);
+int robo_vmm_aspace_unmap(RoboAddressSpace *as, virt_addr_t va,
+                          phys_addr_t *pa);
+int robo_vmm_aspace_translate(RoboAddressSpace *as, virt_addr_t va,
+                              phys_addr_t *pa);
 
 bool robo_vmm_map(virt_addr_t virtual_address, phys_addr_t physical_address, uint64_t flags);
 bool robo_vmm_unmap(virt_addr_t virtual_address, phys_addr_t *physical_address);

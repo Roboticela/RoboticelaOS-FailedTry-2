@@ -12,6 +12,8 @@ $script:VmmTestOut = Join-Path $script:KernelRoot "build\test_vmm.exe"
 $script:TimeTestOut = Join-Path $script:KernelRoot "build\test_time.exe"
 $script:SchedQueueTestOut = Join-Path $script:KernelRoot "build\test_sched_queue.exe"
 $script:ThreadStateTestOut = Join-Path $script:KernelRoot "build\test_thread_state.exe"
+$script:ProcessStateTestOut = Join-Path $script:KernelRoot "build\test_process_state.exe"
+$script:ProcessHostTestOut = Join-Path $script:KernelRoot "build\test_process_host.exe"
 $script:ContextLayoutTestOut = Join-Path $script:KernelRoot "build\test_context_layout.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
@@ -411,6 +413,11 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "scheduler\sched_test.c"),
         (Join-Path $kroot "thread\thread.c"),
         (Join-Path $kroot "thread\thread_test.c"),
+        (Join-Path $kroot "process\process.c"),
+        (Join-Path $kroot "process\process_table.c"),
+        (Join-Path $kroot "process\process_resources.c"),
+        (Join-Path $kroot "process\process_debug.c"),
+        (Join-Path $kroot "process\process_test.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -426,6 +433,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "mm\heap\heap.c"),
         (Join-Path $kroot "mm\heap\heap_test.c"),
         (Join-Path $kroot "arch\x86_64\mm\paging_cpu.c"),
+        (Join-Path $kroot "arch\x86_64\mm\aspace.c"),
         $kfont
     )
     $deps = Get-HeaderDeps @(
@@ -441,6 +449,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "time"),
         (Join-Path $kroot "scheduler"),
         (Join-Path $kroot "thread"),
+        (Join-Path $kroot "process"),
         (Join-Path $script:Boot "include\roboticela")
     )
     $objs = @()
@@ -672,6 +681,87 @@ function Invoke-RoboTestThreadState {
     if ($LASTEXITCODE -ne 0) { throw "thread state host tests failed" }
 }
 
+function Invoke-RoboBuildProcessStateTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\process-state-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-I", $kroot
+    )
+    $srcs = @(
+        (Join-Path $kroot "tests\test_process_state.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "process")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ProcessStateTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_process_state.exe"
+        & $clang -o $script:ProcessStateTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "process state host test link failed" }
+    }
+}
+
+function Invoke-RoboTestProcessState {
+    Invoke-RoboBuildProcessStateTest
+    Write-Step "TEST" "test_process_state.exe"
+    & $script:ProcessStateTestOut
+    if ($LASTEXITCODE -ne 0) { throw "process state host tests failed" }
+}
+
+function Invoke-RoboBuildProcessHostTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\process-host-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-DPROCESS_HOST_TEST",
+        "-I", $kroot
+    )
+    $srcs = @(
+        (Join-Path $kroot "tests\test_process_host.c"),
+        (Join-Path $kroot "process\process.c"),
+        (Join-Path $kroot "process\process_table.c"),
+        (Join-Path $kroot "process\process_resources.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "process"),
+        (Join-Path $kroot "thread"),
+        (Join-Path $kroot "mm"),
+        (Join-Path $kroot "mm\vmm")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ProcessHostTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_process_host.exe"
+        & $clang -o $script:ProcessHostTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "process host test link failed" }
+    }
+}
+
+function Invoke-RoboTestProcessHost {
+    Invoke-RoboBuildProcessHostTest
+    Write-Step "TEST" "test_process_host.exe"
+    & $script:ProcessHostTestOut
+    if ($LASTEXITCODE -ne 0) { throw "process host tests failed" }
+}
+
 function Invoke-RoboBuildContextLayoutTest {
     $kroot = $script:KernelRoot
     $kobj = Join-Path $kroot "build\obj\context-layout-test"
@@ -850,6 +940,8 @@ function Invoke-RoboTestHost {
     Invoke-RoboTestTime
     Invoke-RoboTestSchedQueue
     Invoke-RoboTestThreadState
+    Invoke-RoboTestProcessState
+    Invoke-RoboTestProcessHost
     Invoke-RoboTestContextLayout
 }
 

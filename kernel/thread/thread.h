@@ -6,6 +6,7 @@
 #include "thread/thread_state.h"
 #include "thread/thread_context.h"
 #include "mm/page.h"
+#include "mm/vmm/aspace.h"
 
 /*
  * RoboThread — the authoritative schedulable execution object (Phase 9).
@@ -33,8 +34,9 @@
  *
  * Address space
  * -------------
- *   Kernel threads share one RoboAddressSpace (kernel CR3/PML4).
- *   CR3 is reloaded only when the next thread's address space differs.
+ *   Each thread caches the owning process address space. Threads of
+ *   one process share that object. CR3 is reloaded only when the next
+ *   thread belongs to a different process.
  *
  * Instruction pointer
  * -------------------
@@ -51,9 +53,7 @@ typedef void (*robo_thread_entry_t)(void *argument);
 #define ROBO_THREAD_KSTACK_PAGES 4u
 #define ROBO_THREAD_KSTACK_GUARD_PAGES 1u
 
-typedef struct RoboAddressSpace {
-    phys_addr_t cr3;
-} RoboAddressSpace;
+struct RoboProcess;
 
 typedef struct RoboThread {
     robo_thread_id_t id;
@@ -68,6 +68,7 @@ typedef struct RoboThread {
     uint64_t guard_page;
     int owns_stack;
 
+    struct RoboProcess *process;
     RoboAddressSpace *address_space;
     robo_thread_context_t *context;
 
@@ -85,6 +86,8 @@ typedef struct RoboThread {
     struct RoboThread *prev;
     struct RoboThread *all_next;
     struct RoboThread *reap_next;
+    struct RoboThread *proc_next;
+    struct RoboThread *proc_prev;
 } RoboThread;
 
 RoboAddressSpace *robo_kernel_address_space(void);
@@ -96,6 +99,11 @@ RoboThread *robo_thread_adopt_bootstrap(void *stack_base, uint64_t stack_top,
 RoboThread *robo_thread_create(const char *name,
                                robo_thread_entry_t entry,
                                void *argument);
+RoboThread *robo_thread_create_in_process(struct RoboProcess *process,
+                                          const char *name,
+                                          robo_thread_entry_t entry,
+                                          void *argument);
+struct RoboProcess *robo_thread_process(const RoboThread *thread);
 void robo_thread_exit(void);
 void robo_thread_yield(void);
 void robo_thread_block(void);

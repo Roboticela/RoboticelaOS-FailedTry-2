@@ -10,6 +10,7 @@
 #include "time/convert.h"
 #include "kio.h"
 #include "thread/thread.h"
+#include "process/process.h"
 
 extern void isr_48(void);
 extern char kstack[];
@@ -269,11 +270,12 @@ static struct robo_iframe *pick_and_switch(struct robo_iframe *frame, int force)
     if (old->state == ROBO_THREAD_TERMINATED)
         robo_sched_reap_later(old);
 
-    if (old->address_space && next->address_space &&
-        old->address_space->cr3 != next->address_space->cr3)
-        robo_vmm_load_address_space(next->address_space->cr3);
+    robo_arch_prepare_thread_switch(old, next);
 
     g_current = next;
+    if (robo_current_process() != next->process)
+        robo_process_panic_relation(next,
+            "Thread is executing with an inconsistent process association.");
     if (!robo_thread_transition(next, ROBO_THREAD_RUNNING)) {
         if (next == g_idle && next->state == ROBO_THREAD_READY)
             next->state = ROBO_THREAD_RUNNING;
@@ -385,6 +387,8 @@ int robo_scheduler_init(void)
 
     if (!robo_thread_subsystem_init())
         sched_panic_init("thread subsystem failed");
+    if (!robo_process_subsystem_init())
+        sched_panic_init("process subsystem failed");
 
     robo_rq_init(&g_ready);
     g_next_id = 2;

@@ -13,6 +13,7 @@
 #define kprintf printf
 #else
 #include "kio.h"
+#include "mm/heap/heap.h"
 extern char __kernel_start[];
 extern char __kernel_end[];
 extern char __text_start[];
@@ -62,7 +63,8 @@ static uint64_t dir_flags(uint64_t vm_flags)
     return hw;
 }
 
-static int walk_leaf(virt_addr_t va, int create, uint64_t vm_flags, robo_pte_t **leaf)
+static int walk_leaf_at(phys_addr_t root, virt_addr_t va, int create,
+                        uint64_t vm_flags, robo_pte_t **leaf, size_t *ntables)
 {
     robo_pte_t *pml4, *pdpt, *pd, *pt;
     robo_pte_t e;
@@ -70,10 +72,10 @@ static int walk_leaf(virt_addr_t va, int create, uint64_t vm_flags, robo_pte_t *
     uint16_t i4, i3, i2, i1;
     uint64_t grow = dir_flags(vm_flags);
 
-    if (!leaf || !g_vmm.pml4_phys)
+    if (!leaf || !root)
         return 0;
     *leaf = 0;
-    pml4 = robo_table_ptr(g_vmm.pml4_phys);
+    pml4 = robo_table_ptr(root);
     if (!pml4)
         return 0;
 
@@ -85,7 +87,8 @@ static int walk_leaf(virt_addr_t va, int create, uint64_t vm_flags, robo_pte_t *
         next = robo_table_alloc();
         if (next == ROBO_INVALID_PHYS_ADDR)
             return 0;
-        g_vmm.table_pages++;
+        if (ntables)
+            (*ntables)++;
         e = robo_pte_make(next, grow);
         robo_table_set(pml4, i4, e);
     } else {
@@ -106,7 +109,8 @@ static int walk_leaf(virt_addr_t va, int create, uint64_t vm_flags, robo_pte_t *
         next = robo_table_alloc();
         if (next == ROBO_INVALID_PHYS_ADDR)
             return 0;
-        g_vmm.table_pages++;
+        if (ntables)
+            (*ntables)++;
         e = robo_pte_make(next, grow);
         robo_table_set(pdpt, i3, e);
     } else {
@@ -127,7 +131,8 @@ static int walk_leaf(virt_addr_t va, int create, uint64_t vm_flags, robo_pte_t *
         next = robo_table_alloc();
         if (next == ROBO_INVALID_PHYS_ADDR)
             return 0;
-        g_vmm.table_pages++;
+        if (ntables)
+            (*ntables)++;
         e = robo_pte_make(next, grow);
         robo_table_set(pd, i2, e);
     } else {
@@ -143,6 +148,11 @@ static int walk_leaf(virt_addr_t va, int create, uint64_t vm_flags, robo_pte_t *
     i1 = robo_pt_slot(va);
     *leaf = &pt[i1];
     return 1;
+}
+
+static int walk_leaf(virt_addr_t va, int create, uint64_t vm_flags, robo_pte_t **leaf)
+{
+    return walk_leaf_at(g_vmm.pml4_phys, va, create, vm_flags, leaf, &g_vmm.table_pages);
 }
 
 static int map_internal(virt_addr_t va, phys_addr_t pa, uint64_t vm_flags, int exist_ok)
@@ -206,6 +216,11 @@ static int protect_range(virt_addr_t start, virt_addr_t end, uint64_t vm_flags)
 phys_addr_t robo_vmm_get_cr3(void)
 {
     return robo_cpu_read_cr3();
+}
+
+phys_addr_t robo_vmm_kernel_cr3(void)
+{
+    return g_vmm.pml4_phys;
 }
 
 void robo_vmm_load_address_space(phys_addr_t pml4)
@@ -451,3 +466,181 @@ bool robo_vmm_init(const RoboBootInfo *info)
     kprintf("VMM ready\n");
     return true;
 }
+
+#ifndef VMM_HOST_TEST
+static void aspace_invlpg(phys_addr_t root, virt_addr_t va)
+{
+    if (g_vmm.ready && robo_cpu_read_cr3() == root)
+        robo_cpu_invlpg(va);
+}
+
+static void free_table_tree(phys_addr_t phys, int depth)
+{
+    robo_pte_t *t;
+    unsigned i;
+
+    if (phys == ROBO_INVALID_PHYS_ADDR)
+        return;
+    t = robo_table_ptr(phys);
+    if (!t)
+        return;
+    if (depth > 1) {
+        for (i = 0; i < ROBO_PT_ENTRIES; i++) {
+            if (robo_pte_present(t[i]) && !robo_pte_huge(t[i]))
+                free_table_tree(robo_pte_phys(t[i]), depth - 1);
+        }
+    }
+    robo_page_free(phys);
+}
+
+int robo_vmm_aspace_clone(RoboAddressSpace *as)
+{
+    phys_addr_t pml4;
+    robo_pte_t *src, *dst;
+    unsigned i;
+    uint16_t priv;
+
+    if (!as || !g_vmm.ready || !g_vmm.pml4_phys)
+        return 0;
+    pml4 = robo_table_alloc();
+    if (pml4 == ROBO_INVALID_PHYS_ADDR)
+        return 0;
+    src = robo_table_ptr(g_vmm.pml4_phys);
+    dst = robo_table_ptr(pml4);
+    if (!src || !dst) {
+        robo_page_free(pml4);
+        return 0;
+    }
+    for (i = 0; i < ROBO_PT_ENTRIES; i++)
+        dst[i] = src[i];
+    priv = robo_pml4_slot(ROBO_VMM_PROC_BASE);
+    dst[priv] = 0;
+    as->cr3 = pml4;
+    as->cloned = 1;
+    as->table_pages = 1;
+    as->maps = 0;
+    return 1;
+}
+
+void robo_vmm_aspace_destroy(RoboAddressSpace *as)
+{
+    RoboAspaceMap *m, *n;
+    robo_pte_t *pml4, *leaf;
+    uint16_t priv;
+    robo_pte_t e;
+
+    if (!as || !as->cloned)
+        return;
+
+    m = as->maps;
+    as->maps = 0;
+    while (m) {
+        n = m->next;
+        if (walk_leaf_at(as->cr3, m->va, 0, 0, &leaf, 0) && leaf)
+            *leaf = 0;
+        aspace_invlpg(as->cr3, m->va);
+        if (m->pa != ROBO_INVALID_PHYS_ADDR)
+            robo_page_free(m->pa);
+        kfree(m);
+        m = n;
+    }
+
+    pml4 = robo_table_ptr(as->cr3);
+    if (pml4) {
+        priv = robo_pml4_slot(ROBO_VMM_PROC_BASE);
+        e = robo_table_get(pml4, priv);
+        if (robo_pte_present(e) && !robo_pte_huge(e))
+            free_table_tree(robo_pte_phys(e), 3);
+        robo_page_free(as->cr3);
+    }
+    as->cr3 = 0;
+    as->cloned = 0;
+    as->table_pages = 0;
+}
+
+int robo_vmm_aspace_map(RoboAddressSpace *as, virt_addr_t va, phys_addr_t pa,
+                        uint64_t flags)
+{
+    robo_pte_t *leaf;
+    RoboAspaceMap *m;
+    uint64_t hw;
+    size_t tables;
+
+    if (!as || !as->cr3)
+        return 0;
+    if (!robo_virtual_address_is_canonical(va) || !robo_virt_aligned(va))
+        return 0;
+    if (pa == ROBO_INVALID_PHYS_ADDR || !robo_page_aligned(pa))
+        return 0;
+    if (!robo_vm_flags_valid(flags))
+        return 0;
+    if (!(flags & ROBO_VM_USER))
+        flags |= ROBO_VM_KERNEL;
+
+    tables = (size_t)as->table_pages;
+    if (!walk_leaf_at(as->cr3, va, 1, flags, &leaf, &tables) || !leaf)
+        return 0;
+    as->table_pages = tables;
+    if (robo_pte_present(*leaf))
+        return 0;
+
+    m = (RoboAspaceMap *)kmalloc(sizeof(*m));
+    if (!m)
+        return 0;
+    m->va = va;
+    m->pa = pa;
+    m->next = as->maps;
+    as->maps = m;
+
+    hw = robo_vm_to_pte_flags(flags, g_vmm.nx);
+    *leaf = robo_pte_make(pa, hw);
+    aspace_invlpg(as->cr3, va);
+    return 1;
+}
+
+int robo_vmm_aspace_unmap(RoboAddressSpace *as, virt_addr_t va, phys_addr_t *pa)
+{
+    robo_pte_t *leaf;
+    RoboAspaceMap **slot, *m;
+
+    if (!as || !as->cr3)
+        return 0;
+    if (!walk_leaf_at(as->cr3, va, 0, 0, &leaf, 0) || !leaf)
+        return 0;
+    if (!robo_pte_present(*leaf))
+        return 0;
+    if (pa)
+        *pa = robo_pte_phys(*leaf);
+    *leaf = 0;
+    aspace_invlpg(as->cr3, va);
+
+    slot = &as->maps;
+    while (*slot) {
+        if ((*slot)->va == va) {
+            m = *slot;
+            *slot = m->next;
+            /* caller of destroy frees pa; unmap alone does not */
+            kfree(m);
+            break;
+        }
+        slot = &(*slot)->next;
+    }
+    return 1;
+}
+
+int robo_vmm_aspace_translate(RoboAddressSpace *as, virt_addr_t va,
+                              phys_addr_t *pa)
+{
+    robo_pte_t *leaf;
+
+    if (!as || !as->cr3)
+        return 0;
+    if (!walk_leaf_at(as->cr3, va, 0, 0, &leaf, 0) || !leaf)
+        return 0;
+    if (!robo_pte_present(*leaf))
+        return 0;
+    if (pa)
+        *pa = robo_pte_phys(*leaf);
+    return 1;
+}
+#endif

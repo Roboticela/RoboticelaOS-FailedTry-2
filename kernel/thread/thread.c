@@ -1,4 +1,5 @@
 #include "thread/thread.h"
+#include "process/process.h"
 #include "scheduler/sched_internal.h"
 #include "arch/x86_64/gdt.h"
 #include "arch/x86_64/exception.h"
@@ -33,6 +34,8 @@ RoboAddressSpace *robo_kernel_address_space(void)
 int robo_thread_subsystem_init(void)
 {
     g_kernel_aspace.cr3 = robo_vmm_get_cr3();
+    g_kernel_aspace.cloned = 0;
+    g_kernel_aspace.maps = 0;
     g_stack_slot = 0;
     g_thread_ready = 1;
     (void)g_thread_ready;
@@ -240,17 +243,40 @@ RoboThread *robo_thread_adopt_bootstrap(void *stack_base, uint64_t stack_top,
     t->created_at = robo_time_now();
     t->last_start_time = t->created_at;
     t->slice_end_ns = t->last_start_time + robo_sched_quantum_ns();
+    if (robo_kernel_process() &&
+        !robo_process_add_thread(robo_kernel_process(), t)) {
+        kfree(t);
+        return 0;
+    }
     return t;
+}
+
+RoboProcess *robo_thread_process(const RoboThread *thread)
+{
+    return thread ? thread->process : 0;
 }
 
 RoboThread *robo_thread_create(const char *name,
                                robo_thread_entry_t entry,
                                void *argument)
 {
+    RoboProcess *p;
+
+    p = robo_current_process();
+    if (!p)
+        p = robo_kernel_process();
+    return robo_thread_create_in_process(p, name, entry, argument);
+}
+
+RoboThread *robo_thread_create_in_process(RoboProcess *process,
+                                          const char *name,
+                                          robo_thread_entry_t entry,
+                                          void *argument)
+{
     RoboThread *t;
     uint64_t flags;
 
-    if (g_sched_state == ROBO_SCHED_UNINIT || !entry)
+    if (g_sched_state == ROBO_SCHED_UNINIT || !entry || !process)
         return 0;
 
     t = (RoboThread *)kmalloc(sizeof(*t));
@@ -261,7 +287,7 @@ RoboThread *robo_thread_create(const char *name,
     t->entry = entry;
     t->argument = argument;
     t->state = ROBO_THREAD_NEW;
-    t->address_space = robo_kernel_address_space();
+    t->address_space = process->address_space;
     t->created_at = robo_time_now();
 
     if (!robo_thread_stack_alloc(t)) {
@@ -278,6 +304,12 @@ RoboThread *robo_thread_create(const char *name,
     flags = robo_sched_lock();
     t->id = robo_sched_alloc_id();
     if (!robo_thread_transition(t, ROBO_THREAD_READY)) {
+        robo_sched_unlock(flags);
+        robo_thread_stack_free(t);
+        kfree(t);
+        return 0;
+    }
+    if (!robo_process_add_thread(process, t)) {
         robo_sched_unlock(flags);
         robo_thread_stack_free(t);
         kfree(t);
@@ -320,6 +352,8 @@ void robo_thread_exit(void)
     t->wake_deadline = 0;
     if (!robo_thread_transition(t, ROBO_THREAD_TERMINATED))
         t->state = ROBO_THREAD_TERMINATED;
+    if (t->process)
+        robo_process_remove_thread(t->process, t);
     robo_sched_note_term();
     robo_sched_unlock(flags);
     __asm__ volatile ("int $48" ::: "memory");
@@ -453,6 +487,8 @@ void robo_thread_dump(const RoboThread *thread)
     kprintf("Kernel Stack    : 0x%llx\n", (unsigned long long)thread->kernel_stack);
     kprintf("Address Space   : 0x%llx\n",
             (unsigned long long)(thread->address_space ? thread->address_space->cr3 : 0));
+    kprintf("Process         : %llu\n",
+            (unsigned long long)(thread->process ? thread->process->id : 0));
 }
 
 void robo_thread_report(void)

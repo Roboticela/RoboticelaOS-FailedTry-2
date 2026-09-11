@@ -7,6 +7,7 @@
 #include "time/time.h"
 #include "scheduler/scheduler.h"
 #include "thread/thread.h"
+#include "process/process.h"
 #include "arch/x86_64/context/context_switch.h"
 
 void kmain(const RoboBootInfo *info)
@@ -118,6 +119,8 @@ void kmain(const RoboBootInfo *info)
         if (!robo_scheduler_init()) {
             kprintf("CTX_TEST_FAIL\n");
             kprintf("SCHED_TEST_FAIL\n");
+            kprintf("THREAD_TEST_FAIL\n");
+            kprintf("PROC_TEST_FAIL\n");
         } else {
             robo_scheduler_report();
             if (kboot_debug(info))
@@ -143,10 +146,19 @@ void kmain(const RoboBootInfo *info)
                 kprintf("THREAD_TEST_OK\n");
             else
                 kprintf("THREAD_TEST_FAIL\n");
+            robo_process_report();
+            if (kboot_debug(info))
+                robo_process_fb_report();
+            if (robo_process_selftest())
+                kprintf("PROC_TEST_OK\n");
+            else
+                kprintf("PROC_TEST_FAIL\n");
         }
     } else {
         kprintf("CTX_TEST_FAIL\n");
         kprintf("SCHED_TEST_FAIL\n");
+        kprintf("THREAD_TEST_FAIL\n");
+        kprintf("PROC_TEST_FAIL\n");
     }
 
     kprintf("idle\n");
