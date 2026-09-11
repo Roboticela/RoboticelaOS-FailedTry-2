@@ -65,6 +65,18 @@ void kserial_puts(const char *s)
     while (*s) kserial_putc(*s++);
 }
 
+static void kprint_char(char c)
+{
+    kserial_putc(c);
+    kfb_log_putc(c, 0xA1A1A6u);
+}
+
+static void kprint_str(const char *s)
+{
+    if (!s) return;
+    while (*s) kprint_char(*s++);
+}
+
 static void fmt_num(unsigned long long v, int base, int width)
 {
     char tmp[32];
@@ -76,7 +88,7 @@ static void fmt_num(unsigned long long v, int base, int width)
         v /= (unsigned)base;
     }
     while (n < width && n < (int)sizeof(tmp)) tmp[n++] = '0';
-    for (i = n - 1; i >= 0; i--) kserial_putc(tmp[i]);
+    for (i = n - 1; i >= 0; i--) kprint_char(tmp[i]);
 }
 
 void kprintf(const char *fmt, ...)
@@ -86,19 +98,19 @@ void kprintf(const char *fmt, ...)
     va_start(ap, fmt);
     while (*fmt) {
         if (*fmt != '%') {
-            kserial_putc(*fmt++);
+            kprint_char(*fmt++);
             continue;
         }
         fmt++;
         if (*fmt == '%') {
-            kserial_putc('%');
+            kprint_char('%');
             fmt++;
         } else if (*fmt == 's') {
-            kserial_puts(va_arg(ap, const char *));
+            kprint_str(va_arg(ap, const char *));
             fmt++;
         } else if (*fmt == 'd') {
             int v = va_arg(ap, int);
-            if (v < 0) { kserial_putc('-'); v = -v; }
+            if (v < 0) { kprint_char('-'); v = -v; }
             fmt_num((unsigned)v, 10, 0);
             fmt++;
         } else if (*fmt == 'u') {
@@ -114,7 +126,7 @@ void kprintf(const char *fmt, ...)
             fmt_num(va_arg(ap, unsigned long long), 10, 0);
             fmt += 3;
         } else {
-            kserial_putc('%');
+            kprint_char('%');
         }
     }
     va_end(ap);

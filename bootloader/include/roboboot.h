@@ -16,8 +16,13 @@
 #define RB_MAX_LINE 1024
 #define RB_ENV_BLOCK 4096
 #define RB_SPLASH_MIN_MS 2000
-#define RB_BOOTLOG_LINES 192
-#define RB_BOOTLOG_COLS 112
+#define RB_BOOTLOG_COLS 1024
+
+typedef struct {
+    char *text;
+    uint32_t ms;
+    uint8_t kind;
+} rb_log_line;
 
 /* Roboticela palette, dark mode. Boot is one dark view — do not mix light-mode hex. */
 #define RB_TOKEN_BRAND_PRIMARY          0x3B9EFFu
@@ -276,12 +281,13 @@ typedef struct {
     int boot_index;
     rb_handoff handoff;
     float fade;
-    char boot_log[RB_BOOTLOG_LINES][RB_BOOTLOG_COLS];
-    uint32_t boot_log_ms[RB_BOOTLOG_LINES];
-    uint8_t boot_log_kind[RB_BOOTLOG_LINES];
+    rb_log_line *boot_log;
     int boot_log_n;
+    int boot_log_cap;
     int boot_log_seq;
     int boot_log_shown;
+    int boot_log_follow;
+    int boot_log_top;
 } rb_session;
 
 extern const rb_platform *rb_plat;
@@ -391,9 +397,12 @@ void rb_verbose_draw(rb_session *ss);
 void rb_klog_draw(rb_session *ss);
 void rb_bootlog(rb_session *ss, const char *line);
 void rb_bootlogf(rb_session *ss, const char *fmt, ...);
+void rb_bootlog_freeze(void);
+void rb_bootlog_release(rb_session *ss);
 void rb_debug_term_geom(const rb_session *ss, float *x, float *y, float *w, float *h);
 void rb_debug_term_draw(rb_session *ss);
 void rb_debug_flush(rb_session *ss);
+int rb_debug_log_scroll(rb_session *ss, int delta);
 void rb_console_draw(rb_session *ss);
 void rb_console_submit(rb_session *ss);
 void rb_console_print(rb_session *ss, const char *line);

@@ -269,6 +269,7 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
             rb_bootlog(NULL, "Kexec  ExitBootServices");
             rb_debug_flush(NULL);
         }
+        rb_bootlog_freeze();
         st = gBS->ExitBootServices(gImage, map_key);
         if (st == EFI_SUCCESS) {
             rb_bootlogf(NULL, "Kexec  jump  0x%llx", (unsigned long long)entry);

@@ -10,6 +10,19 @@ static int g_term;
 static int g_tx, g_ty, g_tw, g_th;
 static int g_rows;
 static uint32_t g_card;
+static int g_e0;
+
+#define KLOG_MAX  2048
+#define KLOG_COLS 160
+
+static char g_lines[KLOG_MAX][KLOG_COLS];
+static uint32_t g_line_rgb[KLOG_MAX];
+static int g_n;
+static int g_follow = 1;
+static int g_top;
+static char g_cur[KLOG_COLS];
+static int g_cur_len;
+static uint32_t g_cur_rgb = 0xA1A1A6u;
 
 static uint32_t pack_rgb(uint32_t rgb)
 {
@@ -112,76 +125,6 @@ void kfb_clear(uint32_t rgb)
     g_margin_y = 48;
 }
 
-void kfb_term_open(int x, int y, int w, int h)
-{
-    int r = 18;
-    if (w < 80) w = 80;
-    if (h < 80) h = 80;
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x + w > (int)g_w) w = (int)g_w - x;
-    if (y + h > (int)g_h) h = (int)g_h - y;
-    g_term = 1;
-    g_tx = x;
-    g_ty = y;
-    g_tw = w;
-    g_th = h;
-    g_card = 0x1C1C1Eu;
-    kfb_round_rect(x, y, w, h, r, g_card);
-    g_margin_x = x + 24;
-    g_margin_y = y + 48;
-    g_lh = 18;
-    g_rows = (h - 56) / g_lh;
-    if (g_rows < 1) g_rows = 1;
-    g_cx = 0;
-    g_cy = 0;
-    /* Title */
-    {
-        const char *t = "Logs";
-        int px = x + 24;
-        int py = y + 16;
-        while (*t) {
-            const uint8_t *rows = kfont8x16[(unsigned char)*t++];
-            uint32_t p = pack_rgb(0x98989Du);
-            int gy, gx;
-            for (gy = 0; gy < 16; gy++) {
-                uint8_t bits = rows[gy];
-                int iy = py + gy;
-                if ((unsigned)iy >= g_h) continue;
-                for (gx = 0; gx < 8; gx++) {
-                    int ix = px + gx;
-                    if ((unsigned)ix >= g_w) continue;
-                    if (bits & (0x80 >> gx))
-                        g_fb[(uint32_t)iy * g_pitch + (uint32_t)ix] = p;
-                }
-            }
-            px += 9;
-        }
-        kfb_fill(x + 24, y + 38, w - 48, 1, 0x2C2C2Eu);
-    }
-}
-
-static void kfb_term_scroll(void)
-{
-    int y, x;
-    int top = g_margin_y;
-    int bot = g_ty + g_th - 16;
-    int src = top + g_lh;
-    uint32_t p = pack_rgb(g_card);
-    if (!g_fb) return;
-    for (y = top; y < bot - g_lh; y++) {
-        uint32_t *dst = g_fb + (uint32_t)y * g_pitch;
-        uint32_t *from = g_fb + (uint32_t)(src + (y - top)) * g_pitch;
-        for (x = g_tx + 16; x < g_tx + g_tw - 16 && x < (int)g_w; x++)
-            dst[x] = from[x];
-    }
-    for (y = bot - g_lh; y < bot && y < (int)g_h; y++) {
-        uint32_t *row = g_fb + (uint32_t)y * g_pitch;
-        for (x = g_tx + 16; x < g_tx + g_tw - 16 && x < (int)g_w; x++)
-            row[x] = p;
-    }
-}
-
 static void glyph(int gx, int gy, unsigned char ch, uint32_t rgb)
 {
     const uint8_t *rows;
@@ -202,17 +145,214 @@ static void glyph(int gx, int gy, unsigned char ch, uint32_t rgb)
     }
 }
 
-void kfb_newline(void)
+static int klog_cols(void)
 {
-    g_cx = 0;
-    if (g_term) {
-        if (g_cy + 1 >= g_rows) {
-            kfb_term_scroll();
-            return;
-        }
-        g_cy++;
+    int cols = g_term ? (g_tw - 56) / 9 : 80;
+    if (cols < 8) cols = 8;
+    if (cols > KLOG_COLS - 1) cols = KLOG_COLS - 1;
+    return cols;
+}
+
+static int klog_line_rows(const char *s, int cols)
+{
+    int n = 0;
+    if (!s) return 1;
+    while (s[n]) n++;
+    if (n < 1) return 1;
+    return (n + cols - 1) / cols;
+}
+
+static int klog_total_rows(void)
+{
+    int i, cols = klog_cols(), rows = 0;
+    for (i = 0; i < g_n; i++)
+        rows += klog_line_rows(g_lines[i], cols);
+    if (g_cur_len)
+        rows += klog_line_rows(g_cur, cols);
+    return rows;
+}
+
+static void klog_commit(void)
+{
+    int i;
+    if (g_n >= KLOG_MAX) {
+        g_cur_len = 0;
         return;
     }
+    for (i = 0; i < g_cur_len && i < KLOG_COLS - 1; i++)
+        g_lines[g_n][i] = g_cur[i];
+    g_lines[g_n][i] = 0;
+    g_line_rgb[g_n] = g_cur_rgb;
+    g_n++;
+    g_cur_len = 0;
+    g_cur_rgb = 0xA1A1A6u;
+}
+
+static void kfb_term_paint(void)
+{
+    int r = 18;
+    int cols, vis, rows, max_start, start, row, i, drawn;
+    int px, py;
+    const char *title = "Logs";
+    if (!g_fb || !g_term) return;
+    kfb_round_rect(g_tx, g_ty, g_tw, g_th, r, g_card);
+    px = g_tx + 24;
+    py = g_ty + 16;
+    while (*title) {
+        glyph(px, py, (unsigned char)*title++, 0x98989Du);
+        px += 9;
+    }
+    kfb_fill(g_tx + 24, g_ty + 38, g_tw - 48, 1, 0x2C2C2Eu);
+    cols = klog_cols();
+    vis = g_rows;
+    rows = klog_total_rows();
+    max_start = rows > vis ? rows - vis : 0;
+    start = g_follow ? max_start : g_top;
+    if (start < 0) start = 0;
+    if (start > max_start) start = max_start;
+    g_top = start;
+    if (start >= max_start) g_follow = 1;
+    row = 0;
+    drawn = 0;
+    py = g_margin_y;
+    for (i = 0; i <= g_n && drawn < vis; i++) {
+        const char *s;
+        uint32_t rgb;
+        int n, off;
+        if (i < g_n) {
+            s = g_lines[i];
+            rgb = g_line_rgb[i];
+        } else if (g_cur_len) {
+            g_cur[g_cur_len] = 0;
+            s = g_cur;
+            rgb = g_cur_rgb;
+        } else
+            break;
+        n = 0;
+        while (s[n]) n++;
+        off = 0;
+        do {
+            int take = n - off;
+            int gx, k;
+            if (take < 1) take = 0;
+            if (take > cols) take = cols;
+            if (row++ < start) {
+                if (n < 1) break;
+                off += take > 0 ? take : 1;
+                if (off >= n) break;
+                continue;
+            }
+            gx = g_margin_x;
+            for (k = 0; k < take; k++) {
+                glyph(gx, py, (unsigned char)s[off + k], rgb);
+                gx += 9;
+            }
+            py += g_lh;
+            drawn++;
+            if (n < 1) break;
+            off += take > 0 ? take : 1;
+            if (drawn >= vis) break;
+        } while (off < n);
+    }
+}
+
+static void klog_scroll(int delta)
+{
+    int vis, rows, max_start, start;
+    if (!g_term || !delta) return;
+    vis = g_rows < 1 ? 1 : g_rows;
+    rows = klog_total_rows();
+    max_start = rows > vis ? rows - vis : 0;
+    start = g_follow ? max_start : g_top;
+    start += delta;
+    if (start < 0) start = 0;
+    if (start > max_start) start = max_start;
+    g_top = start;
+    g_follow = start >= max_start;
+    kfb_term_paint();
+}
+
+void kfb_term_open(int x, int y, int w, int h)
+{
+    if (w < 80) w = 80;
+    if (h < 80) h = 80;
+    if (x < 0) x = 0;
+    if (y < 0) y = 0;
+    if (x + w > (int)g_w) w = (int)g_w - x;
+    if (y + h > (int)g_h) h = (int)g_h - y;
+    g_term = 1;
+    g_tx = x;
+    g_ty = y;
+    g_tw = w;
+    g_th = h;
+    g_card = 0x1C1C1Eu;
+    g_margin_x = x + 24;
+    g_margin_y = y + 48;
+    g_lh = 18;
+    g_rows = (h - 56) / g_lh;
+    if (g_rows < 1) g_rows = 1;
+    g_cx = 0;
+    g_cy = 0;
+    g_follow = 1;
+    kfb_term_paint();
+}
+
+void kfb_log_putc(char c, uint32_t rgb)
+{
+    if (c == '\r')
+        return;
+    if (c == '\n') {
+        klog_commit();
+        if (g_term && g_follow)
+            kfb_term_paint();
+        return;
+    }
+    if (g_cur_len >= KLOG_COLS - 1)
+        klog_commit();
+    if (g_cur_len == 0)
+        g_cur_rgb = rgb ? rgb : 0xA1A1A6u;
+    g_cur[g_cur_len++] = c;
+}
+
+static inline uint8_t k_inb(uint16_t port)
+{
+    uint8_t v;
+    __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(port));
+    return v;
+}
+
+void kfb_poll(void)
+{
+    uint8_t st, sc;
+    int n = 0;
+    while (n++ < 16) {
+        st = k_inb(0x64);
+        if (!(st & 1u))
+            break;
+        sc = k_inb(0x60);
+        if (sc == 0xE0u) {
+            g_e0 = 1;
+            continue;
+        }
+        if (sc & 0x80u) {
+            g_e0 = 0;
+            continue;
+        }
+        if (sc == 0x48u)
+            klog_scroll(-1);
+        else if (sc == 0x50u)
+            klog_scroll(1);
+        g_e0 = 0;
+    }
+}
+
+void kfb_newline(void)
+{
+    if (g_term) {
+        kfb_log_putc('\n', g_cur_rgb);
+        return;
+    }
+    g_cx = 0;
     g_cy++;
     if (g_margin_y + (g_cy + 1) * g_lh > (int)g_h - 24) {
         g_cy = 0;
@@ -224,7 +364,12 @@ void kfb_puts(const char *s, uint32_t rgb)
 {
     int max_cols;
     if (!s) return;
-    max_cols = g_term ? (g_tw - 48) / 9 : ((int)g_w - g_margin_x * 2) / 9;
+    if (g_term) {
+        while (*s)
+            kfb_log_putc(*s++, rgb);
+        return;
+    }
+    max_cols = ((int)g_w - g_margin_x * 2) / 9;
     if (max_cols < 8) max_cols = 8;
     while (*s) {
         char c = *s++;

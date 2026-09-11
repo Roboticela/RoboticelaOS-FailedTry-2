@@ -19,6 +19,8 @@ void kfb_puts(const char *s, uint32_t rgb);
 void kfb_putu(unsigned long long v, uint32_t rgb);
 void kfb_puthex(unsigned long long v, uint32_t rgb);
 void kfb_newline(void);
+void kfb_log_putc(char c, uint32_t rgb);
+void kfb_poll(void);
 
 int kboot_debug(const RoboBootInfo *info);
 void kboot_report(const RoboBootInfo *info);

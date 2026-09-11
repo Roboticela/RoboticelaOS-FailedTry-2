@@ -112,6 +112,8 @@ static rb_status load_resources(rb_session *ss)
         const char *last = rb_env_get(&ss->env, "last_boot");
         rb_bootlogf(ss, "Settings  %d keys  debug %s",
                     ss->env.n, rb_debug_enabled(&ss->env) ? "on" : "off");
+        if (rb_debug_enabled(&ss->env))
+            rb_bootlog(ss, "Logs  Up/Down to scroll");
         for (k = 0; k < ss->env.n; k++) {
             if (ss->env.keys[k][0] == 0) continue;
             rb_bootlogf(ss, "Env  %s=%s", ss->env.keys[k], ss->env.vals[k]);
@@ -213,6 +215,7 @@ void rb_session_init(rb_session *ss, const rb_platform *plat)
     ss->boot_index = -1;
     ss->fade = 0.f;
     ss->sel_anim = 1.f;
+    ss->boot_log_follow = 1;
     rb_bootlog(ss, "Session  start");
 }
 
@@ -226,6 +229,7 @@ void rb_session_free(rb_session *ss)
     rb_font_free(&ss->font_body);
     rb_font_free(&ss->font_caption);
     rb_handoff_free(&ss->handoff);
+    rb_bootlog_release(ss);
     rb_free(ss->fb.px);
     rb_zero(ss, sizeof(*ss));
 }
@@ -401,6 +405,15 @@ int rb_session_tick(rb_session *ss)
         ss->running = 0;
         return 0;
     }
+    if (rb_debug_enabled(&ss->env)) {
+        int delta = 0;
+        if (key_hit(&ss->input, RB_KEY_UP)) delta = -1;
+        else if (key_hit(&ss->input, RB_KEY_DOWN)) delta = 1;
+        if (delta && rb_debug_log_scroll(ss, delta)) {
+            if (ss->phase == RB_PHASE_PICKER && ss->catalog.picker_timeout_s > 0)
+                ss->timeout_left_ms = ss->catalog.picker_timeout_s * 1000;
+        }
+    }
     if (picker_chord(ss)) {
         if (!ss->alt_latched)
             rb_bootlog(ss, "Alt+M detected");
@@ -538,6 +551,8 @@ int rb_session_tick(rb_session *ss)
     if (ss->phase == RB_PHASE_SETTINGS) {
         int dirty = !ss->settings_drawn;
         ss->fade = 1.f;
+        if (rb_debug_enabled(&ss->env) && ss->boot_log_seq != ss->boot_log_shown)
+            dirty = 1;
         if (key_hit(&ss->input, RB_KEY_ESC)) {
             rb_env_save(&ss->env);
             ss->phase = RB_PHASE_PICKER;
@@ -549,6 +564,8 @@ int rb_session_tick(rb_session *ss)
             key_hit(&ss->input, RB_KEY_LEFT)) {
             rb_debug_set(&ss->env, !rb_debug_enabled(&ss->env));
             rb_bootlog(ss, rb_debug_enabled(&ss->env) ? "Debug on" : "Debug off");
+            if (rb_debug_enabled(&ss->env))
+                rb_bootlog(ss, "Logs  Up/Down to scroll");
             if (rb_env_save(&ss->env) != RB_OK)
                 rb_logf("debug setting not saved");
             dirty = 1;

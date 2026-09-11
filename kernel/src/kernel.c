@@ -67,8 +67,9 @@ void kmain(const RoboBootInfo *info)
         }
     }
 
-    kprintf("idle hlt\n");
+    kprintf("idle\n");
     for (;;) {
-        __asm__ volatile ("hlt");
+        kfb_poll();
+        __asm__ volatile ("pause");
     }
 }

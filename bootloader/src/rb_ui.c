@@ -6,10 +6,14 @@
 #include <string.h>
 
 static rb_session *g_bootlog_ss;
-static char g_early_log[96][RB_BOOTLOG_COLS];
-static uint32_t g_early_ms[96];
-static uint8_t g_early_kind[96];
+static rb_log_line *g_early_log;
 static int g_early_n;
+static int g_early_cap;
+static int g_bootlog_heap = 1;
+
+#define RB_FROZEN_LOG 32
+static char g_frozen_text[RB_FROZEN_LOG][256];
+static int g_frozen_n;
 
 static int visible_count(const rb_catalog *c)
 {
@@ -629,22 +633,103 @@ static void fmt_log_time(char *buf, size_t cap, uint32_t ms, int with_s)
         snprintf(buf, cap, "%u.%s", sec, frac);
 }
 
+static char *bootlog_dup(const char *s)
+{
+    int n;
+    char *p;
+    if (!s) s = "";
+    n = rb_strlen(s);
+    if (!g_bootlog_heap) {
+        if (g_frozen_n >= RB_FROZEN_LOG) return 0;
+        if (n > 255) n = 255;
+        rb_copy(g_frozen_text[g_frozen_n], s, (size_t)n);
+        g_frozen_text[g_frozen_n][n] = 0;
+        return g_frozen_text[g_frozen_n++];
+    }
+    p = (char *)rb_alloc((size_t)n + 1u);
+    if (!p) return 0;
+    rb_copy(p, s, (size_t)n);
+    p[n] = 0;
+    return p;
+}
+
+static int bootlog_ensure(rb_log_line **lines, int *n, int *cap, int want)
+{
+    rb_log_line *p;
+    if (want <= *cap) return 1;
+    if (!g_bootlog_heap) return 0;
+    p = (rb_log_line *)rb_alloc((size_t)want * sizeof(rb_log_line));
+    if (!p) return 0;
+    if (*lines && *n)
+        rb_copy(p, *lines, (size_t)*n * sizeof(rb_log_line));
+    rb_zero(p + *n, (size_t)(want - *n) * sizeof(rb_log_line));
+    rb_free(*lines);
+    *lines = p;
+    *cap = want;
+    return 1;
+}
+
+static int bootlog_grow(rb_log_line **lines, int *n, int *cap)
+{
+    int next;
+    if (*n < *cap) return 1;
+    if (!g_bootlog_heap) return 0;
+    next = *cap ? *cap * 2 : 256;
+    return bootlog_ensure(lines, n, cap, next);
+}
+
+void rb_bootlog_freeze(void)
+{
+    if (g_bootlog_ss)
+        bootlog_ensure(&g_bootlog_ss->boot_log, &g_bootlog_ss->boot_log_n,
+                       &g_bootlog_ss->boot_log_cap, g_bootlog_ss->boot_log_n + 48);
+    g_bootlog_heap = 0;
+}
+
+static int bootlog_push(rb_log_line **lines, int *n, int *cap, const char *text, uint32_t ms, uint8_t kind)
+{
+    char *dup;
+    if (!bootlog_grow(lines, n, cap)) return 0;
+    dup = bootlog_dup(text);
+    if (!dup) return 0;
+    (*lines)[*n].text = dup;
+    (*lines)[*n].ms = ms;
+    (*lines)[*n].kind = kind;
+    (*n)++;
+    return 1;
+}
+
+static void bootlog_free_lines(rb_log_line **lines, int *n, int *cap)
+{
+    int i;
+    if (!lines || !*lines) {
+        if (n) *n = 0;
+        if (cap) *cap = 0;
+        return;
+    }
+    for (i = 0; i < *n; i++) {
+        char *t = (*lines)[i].text;
+        if (t >= &g_frozen_text[0][0] && t < &g_frozen_text[RB_FROZEN_LOG][0])
+            continue;
+        rb_free(t);
+    }
+    rb_free(*lines);
+    *lines = 0;
+    *n = 0;
+    *cap = 0;
+}
+
+void rb_bootlog_release(rb_session *ss)
+{
+    if (!ss) return;
+    bootlog_free_lines(&ss->boot_log, &ss->boot_log_n, &ss->boot_log_cap);
+}
+
 static void bootlog_append_ss(rb_session *ss, const char *line, uint32_t ms, uint8_t kind)
 {
     if (!ss || !line) return;
-    if (ss->boot_log_n >= RB_BOOTLOG_LINES) {
-        int i;
-        for (i = 1; i < RB_BOOTLOG_LINES; i++) {
-            rb_strcpy(ss->boot_log[i - 1], sizeof(ss->boot_log[0]), ss->boot_log[i]);
-            ss->boot_log_ms[i - 1] = ss->boot_log_ms[i];
-            ss->boot_log_kind[i - 1] = ss->boot_log_kind[i];
-        }
-        ss->boot_log_n = RB_BOOTLOG_LINES - 1;
-    }
-    rb_strcpy(ss->boot_log[ss->boot_log_n], sizeof(ss->boot_log[0]), line);
-    ss->boot_log_ms[ss->boot_log_n] = ms;
-    ss->boot_log_kind[ss->boot_log_n] = kind;
-    ss->boot_log_n++;
+    if (!bootlog_push(&ss->boot_log, &ss->boot_log_n, &ss->boot_log_cap, line, ms, kind))
+        return;
     ss->boot_log_seq++;
 }
 
@@ -653,8 +738,8 @@ static void bootlog_drain_early(rb_session *ss)
     int i;
     if (!ss || g_early_n < 1) return;
     for (i = 0; i < g_early_n; i++)
-        bootlog_append_ss(ss, g_early_log[i], g_early_ms[i], g_early_kind[i]);
-    g_early_n = 0;
+        bootlog_append_ss(ss, g_early_log[i].text, g_early_log[i].ms, g_early_log[i].kind);
+    bootlog_free_lines(&g_early_log, &g_early_n, &g_early_cap);
 }
 
 void rb_bootlog(rb_session *ss, const char *line)
@@ -667,19 +752,7 @@ void rb_bootlog(rb_session *ss, const char *line)
     ms = bootlog_now();
     kind = bootlog_kind(line);
     if (!ss) {
-        if (g_early_n >= 96) {
-            int i;
-            for (i = 1; i < 96; i++) {
-                rb_strcpy(g_early_log[i - 1], sizeof(g_early_log[0]), g_early_log[i]);
-                g_early_ms[i - 1] = g_early_ms[i];
-                g_early_kind[i - 1] = g_early_kind[i];
-            }
-            g_early_n = 95;
-        }
-        rb_strcpy(g_early_log[g_early_n], sizeof(g_early_log[0]), line);
-        g_early_ms[g_early_n] = ms;
-        g_early_kind[g_early_n] = kind;
-        g_early_n++;
+        bootlog_push(&g_early_log, &g_early_n, &g_early_cap, line, ms, kind);
         return;
     }
     bootlog_drain_early(ss);
@@ -697,20 +770,142 @@ void rb_bootlogf(rb_session *ss, const char *fmt, ...)
     rb_bootlog(ss, line);
 }
 
+static int glyph_advance(const rb_font *f, unsigned ch)
+{
+    if (!f || !f->atlas) return 6;
+    if (ch < (unsigned)f->first || ch > (unsigned)f->last)
+        return f->px > 0 ? f->px / 3 : 4;
+    return f->glyphs[ch - f->first].advance;
+}
+
+static int wrap_chunk(const rb_font *f, const char *s, int max_w)
+{
+    int w = 0, n = 0, last_space = -1;
+    if (!s || !*s) return 0;
+    if (max_w < 12) max_w = 12;
+    while (s[n]) {
+        unsigned ch = (unsigned char)s[n];
+        int adv = glyph_advance(f, ch);
+        if (n > 0 && w + adv > max_w)
+            return last_space > 0 ? last_space : n;
+        w += adv;
+        n++;
+        if (ch == ' ') last_space = n;
+    }
+    return n;
+}
+
+static void gfx_text_n(rb_surface *s, const rb_font *f, float x, float y, const char *text, int n, uint32_t color)
+{
+    char tmp[RB_BOOTLOG_COLS];
+    if (n < 0) n = 0;
+    if (n >= (int)sizeof(tmp)) n = (int)sizeof(tmp) - 1;
+    if (n) rb_copy(tmp, text, (size_t)n);
+    tmp[n] = 0;
+    rb_gfx_text(s, f, x, y, tmp, color);
+}
+
+typedef struct {
+    const rb_session *ss;
+    const rb_font *font;
+    int max_w;
+    int line;
+    int off;
+} bootlog_wrap;
+
+static int bootlog_wrap_next(bootlog_wrap *it, const char **text, int *len, uint32_t *ms, uint8_t *kind, int *cont)
+{
+    const char *s;
+    int n;
+    if (!it || !it->ss || it->line >= it->ss->boot_log_n) return 0;
+    s = it->ss->boot_log[it->line].text;
+    if (!s) s = "";
+    if (ms) *ms = it->ss->boot_log[it->line].ms;
+    if (kind) *kind = it->ss->boot_log[it->line].kind;
+    if (cont) *cont = it->off > 0;
+    if (!s[it->off]) {
+        if (text) *text = s;
+        if (len) *len = 0;
+        it->line++;
+        it->off = 0;
+        return 1;
+    }
+    n = wrap_chunk(it->font, s + it->off, it->max_w);
+    if (n < 1) n = 1;
+    if (text) *text = s + it->off;
+    if (len) *len = n;
+    it->off += n;
+    while (s[it->off] == ' ') it->off++;
+    if (!s[it->off]) {
+        it->line++;
+        it->off = 0;
+    }
+    return 1;
+}
+
+static int bootlog_row_count(const rb_session *ss, const rb_font *font, int max_w)
+{
+    bootlog_wrap it;
+    int rows = 0;
+    rb_zero(&it, sizeof(it));
+    it.ss = ss;
+    it.font = font;
+    it.max_w = max_w;
+    while (bootlog_wrap_next(&it, 0, 0, 0, 0, 0))
+        rows++;
+    return rows;
+}
+
+static void bootlog_layout(const rb_session *ss, float *x, float *y, float *w, float *h,
+                           float *line_h, float *time_w, int *max_w, int *vis)
+{
+    rb_debug_term_geom(ss, x, y, w, h);
+    *line_h = ui_compact(ss) ? 13.f : 14.f;
+    *time_w = ui_compact(ss) ? 44.f : 56.f;
+    *max_w = (int)(*w - 36.f - *time_w - 28.f);
+    if (*max_w < 24) *max_w = 24;
+    *vis = (int)((*h - 52.f) / *line_h);
+    if (*vis < 1) *vis = 1;
+}
+
+int rb_debug_log_scroll(rb_session *ss, int delta)
+{
+    float x, y, w, h, line_h, time_w;
+    int max_w, vis, rows, max_start, start;
+    const rb_font *cap;
+    if (!ss || !delta || !ui_debug_on(ss)) return 0;
+    cap = ui_caption(ss);
+    bootlog_layout(ss, &x, &y, &w, &h, &line_h, &time_w, &max_w, &vis);
+    rows = bootlog_row_count(ss, cap, max_w);
+    max_start = rows > vis ? rows - vis : 0;
+    start = ss->boot_log_follow ? max_start : ss->boot_log_top;
+    if (start < 0) start = 0;
+    if (start > max_start) start = max_start;
+    start += delta;
+    if (start < 0) start = 0;
+    if (start > max_start) start = max_start;
+    if (start == (ss->boot_log_follow ? max_start : ss->boot_log_top) &&
+        ss->boot_log_follow == (start >= max_start))
+        return 0;
+    ss->boot_log_top = start;
+    ss->boot_log_follow = start >= max_start;
+    ss->boot_log_shown = -1;
+    return 1;
+}
+
 void rb_debug_term_draw(rb_session *ss)
 {
     float x, y, w, h, text_y, line_h, time_w;
-    int i, vis, start, keep_full;
+    int vis, start, keep_full, max_w, rows, max_start, row, drawn;
     const rb_font *cap;
     char elapsed[24];
     uint32_t now_ms = 0;
+    bootlog_wrap it;
     if (!ss || !ui_debug_on(ss)) return;
     g_bootlog_ss = ss;
     keep_full = (ss->fb.damage_w <= 0 || ss->fb.damage_h <= 0);
-    rb_debug_term_geom(ss, &x, &y, &w, &h);
     cap = ui_caption(ss);
-    line_h = ui_compact(ss) ? 13.f : 14.f;
-    time_w = ui_compact(ss) ? 44.f : 56.f;
+    bootlog_layout(ss, &x, &y, &w, &h, &line_h, &time_w, &max_w, &vis);
     rb_gfx_round_rect(&ss->fb, x, y, w, h, 18.f, rb_token(RB_TOKEN_BG_SECONDARY, 255));
     rb_gfx_round_rect_stroke(&ss->fb, x, y, w, h, 18.f, 1.f, rb_token(RB_TOKEN_BORDER_DEFAULT, 255));
     rb_gfx_text(&ss->fb, cap, x + 24.f, y + 16.f, "Logs", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
@@ -722,28 +917,65 @@ void rb_debug_term_draw(rb_session *ss)
                     rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
     }
     rb_gfx_fill_rect(&ss->fb, x + 24.f, y + 38.f, w - 48.f, 1.f, rb_token(RB_TOKEN_BORDER_SUBTLE, 255));
-    vis = (int)((h - 52.f) / line_h);
-    if (vis < 1) vis = 1;
-    start = ss->boot_log_n - vis;
-    if (start < 0) start = 0;
+    rows = bootlog_row_count(ss, cap, max_w);
+    max_start = rows > vis ? rows - vis : 0;
+    if (ss->boot_log_follow)
+        start = max_start;
+    else {
+        start = ss->boot_log_top;
+        if (start < 0) start = 0;
+        if (start > max_start) start = max_start;
+    }
+    ss->boot_log_top = start;
+    if (start >= max_start)
+        ss->boot_log_follow = 1;
+    rb_zero(&it, sizeof(it));
+    it.ss = ss;
+    it.font = cap;
+    it.max_w = max_w;
     text_y = y + 48.f;
-    for (i = start; i < ss->boot_log_n; i++) {
+    row = 0;
+    drawn = 0;
+    while (drawn < vis) {
+        const char *chunk = "";
+        int n = 0, cont = 0;
+        uint32_t ms = 0;
+        uint8_t kind = 0;
+        uint32_t ink, dot;
         char tbuf[16];
-        uint32_t ms = ss->boot_log_ms[i];
-        uint32_t ink = rb_token(RB_TOKEN_TEXT_SECONDARY, 255);
-        uint32_t dot = rb_token(RB_TOKEN_BORDER_STRONG, 255);
-        if (ss->boot_log_kind[i] == 1) {
+        if (!bootlog_wrap_next(&it, &chunk, &n, &ms, &kind, &cont))
+            break;
+        if (row++ < start)
+            continue;
+        ink = rb_token(RB_TOKEN_TEXT_SECONDARY, 255);
+        dot = rb_token(RB_TOKEN_BORDER_STRONG, 255);
+        if (kind == 1) {
             ink = rb_token(RB_TOKEN_TEXT_PRIMARY, 255);
             dot = rb_token(RB_TOKEN_BRAND_PRIMARY, 255);
-        } else if (ss->boot_log_kind[i] == 2) {
+        } else if (kind == 2) {
             ink = rb_token(RB_TOKEN_WARNING, 255);
             dot = rb_token(RB_TOKEN_WARNING, 255);
         }
-        rb_gfx_circle(&ss->fb, x + 28.f, text_y + 6.f, 2.5f, dot);
-        fmt_log_time(tbuf, sizeof(tbuf), ms, 0);
-        rb_gfx_text(&ss->fb, cap, x + 36.f, text_y, tbuf, rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
-        rb_gfx_text(&ss->fb, cap, x + 36.f + time_w, text_y, ss->boot_log[i], ink);
+        if (!cont) {
+            rb_gfx_circle(&ss->fb, x + 28.f, text_y + 6.f, 2.5f, dot);
+            fmt_log_time(tbuf, sizeof(tbuf), ms, 0);
+            rb_gfx_text(&ss->fb, cap, x + 36.f, text_y, tbuf, rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+        }
+        gfx_text_n(&ss->fb, cap, x + 36.f + time_w, text_y, chunk, n, ink);
         text_y += line_h;
+        drawn++;
+    }
+    if (rows > vis && max_start > 0) {
+        float track_x = x + w - 14.f;
+        float track_y = y + 48.f;
+        float track_h = h - 64.f;
+        float thumb_h = track_h * ((float)vis / (float)rows);
+        float thumb_y;
+        if (thumb_h < 10.f) thumb_h = 10.f;
+        if (thumb_h > track_h) thumb_h = track_h;
+        thumb_y = track_y + (track_h - thumb_h) * ((float)start / (float)max_start);
+        rb_gfx_round_rect(&ss->fb, track_x, track_y, 3.f, track_h, 2.f, rb_token(RB_TOKEN_BORDER_SUBTLE, 255));
+        rb_gfx_round_rect(&ss->fb, track_x, thumb_y, 3.f, thumb_h, 2.f, rb_token(RB_TOKEN_BRAND_PRIMARY, 255));
     }
     ss->boot_log_shown = ss->boot_log_seq;
     if (keep_full) {

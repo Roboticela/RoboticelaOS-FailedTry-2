@@ -104,6 +104,7 @@ void kboot_report(const RoboBootInfo *info)
         }
         kfb_term_open(x, y, w, h);
         term_line("kmain");
+        term_line("Logs  Up/Down to scroll");
         kv("Serial  ", mute, "init", white);
         kv("Framebuffer  ", mute, "init", white);
         kfb_puts("Bootinfo  magic ", mute);
