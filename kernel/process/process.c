@@ -1,5 +1,6 @@
 #include "process/process.h"
 #include "process/process_table.h"
+#include "mm/vmm/paging.h"
 
 #ifdef PROCESS_HOST_TEST
 #include <stdlib.h>
@@ -120,9 +121,9 @@ static void free_resources(RoboProcess *p)
 {
     if (!p)
         return;
-    if (p->files) {
-        robo_files_destroy(p->files);
-        p->files = 0;
+    if (p->fd_table) {
+        robo_fd_table_destroy(p->fd_table);
+        p->fd_table = 0;
         if (g_files)
             g_files--;
     }
@@ -198,14 +199,15 @@ static RoboProcess *process_create_internal(const char *name, int clone)
             goto fail_address_space;
 #endif
         p->owns_aspace = 1;
+        p->mmap_next = ROBO_USER_MMAP_BASE;
         g_aspace_created++;
     } else {
         p->address_space = robo_kernel_address_space();
         p->owns_aspace = 0;
     }
 
-    p->files = robo_files_create();
-    if (!p->files)
+    p->fd_table = robo_fd_table_create();
+    if (!p->fd_table)
         goto fail_address_space;
     g_files++;
 
@@ -255,8 +257,8 @@ fail_ipc:
     if (g_ipc)
         g_ipc--;
 fail_files:
-    robo_files_destroy(p->files);
-    p->files = 0;
+    robo_fd_table_destroy(p->fd_table);
+    p->fd_table = 0;
     if (g_files)
         g_files--;
 fail_address_space:
@@ -453,6 +455,10 @@ void robo_process_exit(int status)
     while (t) {
         n = t->proc_next;
         if (t != self) {
+            if (t->sleep_timer)
+                robo_timer_cancel(t->sleep_timer);
+            t->sleep_timer = 0;
+            t->wake_deadline = 0;
             if (t->state == ROBO_THREAD_READY)
                 robo_rq_remove(&g_ready, t);
             t->state = ROBO_THREAD_TERMINATED;
@@ -485,25 +491,24 @@ RoboProcess *robo_process_lookup(robo_process_id_t pid)
     return robo_ptable_lookup(pid);
 }
 
-int robo_process_fd_alloc(RoboProcess *process, void *file)
+int robo_process_fd_alloc(RoboProcess *process, RoboFile *file)
 {
-    if (!process)
-        return -1;
-    return robo_files_alloc(process->files, file);
+    return (int)robo_fd_alloc(process, file, 0);
 }
 
 int robo_process_fd_close(RoboProcess *process, int fd)
 {
-    if (!process)
-        return 0;
-    return robo_files_close(process->files, fd);
+    return robo_fd_close(process, (robo_fd_t)fd) == 0;
 }
 
-void *robo_process_fd_get(RoboProcess *process, int fd)
+RoboFile *robo_process_fd_get(RoboProcess *process, int fd)
 {
-    if (!process)
-        return 0;
-    return robo_files_get(process->files, fd);
+    return robo_fd_get(process, (robo_fd_t)fd);
+}
+
+int robo_process_fd_in_use(RoboProcess *process, int fd)
+{
+    return robo_fd_in_use(process, (robo_fd_t)fd);
 }
 
 uint64_t robo_process_stat_created(void) { return g_created; }

@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "process/process_state.h"
 #include "process/process_resources.h"
+#include "fs/fd.h"
 #include "thread/thread.h"
 
 #define ROBO_PROCESS_ID_KERNEL 1ull
@@ -22,7 +23,7 @@ typedef struct RoboProcess {
     RoboThread *threads;
     uint64_t thread_count;
 
-    RoboFileTable *files;
+    RoboFDTable *fd_table;
     RoboIPCResources *ipc;
     RoboEnvironment *environment;
     RoboCredentials *credentials;
@@ -41,6 +42,7 @@ typedef struct RoboProcess {
     uint64_t user_entry;
     uint64_t user_stack_top;
     uint64_t user_stack_base;
+    uint64_t mmap_next;
 } RoboProcess;
 
 int robo_process_subsystem_init(void);
@@ -58,9 +60,10 @@ RoboProcess *robo_process_lookup(robo_process_id_t pid);
 int robo_process_add_thread(RoboProcess *process, RoboThread *thread);
 int robo_process_remove_thread(RoboProcess *process, RoboThread *thread);
 
-int robo_process_fd_alloc(RoboProcess *process, void *file);
+int robo_process_fd_alloc(RoboProcess *process, RoboFile *file);
 int robo_process_fd_close(RoboProcess *process, int fd);
-void *robo_process_fd_get(RoboProcess *process, int fd);
+RoboFile *robo_process_fd_get(RoboProcess *process, int fd);
+int robo_process_fd_in_use(RoboProcess *process, int fd);
 
 void robo_process_set_switch_log(int on);
 void robo_arch_switch_address_space(RoboAddressSpace *address_space);

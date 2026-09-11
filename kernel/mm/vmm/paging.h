@@ -53,6 +53,7 @@ typedef uint64_t robo_pte_t;
 #define ROBO_USER_TEXT_BASE  (ROBO_VMM_PROC_BASE + 0x400000ull)
 #define ROBO_USER_STACK_TOP  (ROBO_VMM_PROC_BASE + 0x80000000ull)
 #define ROBO_USER_STACK_SIZE (64u * 1024u)
+#define ROBO_USER_MMAP_BASE  (ROBO_VMM_PROC_BASE + 0x01000000ull)
 
 uint16_t robo_page_offset(virt_addr_t va);
 uint16_t robo_pt_index(virt_addr_t va);

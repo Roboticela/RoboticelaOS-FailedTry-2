@@ -15,8 +15,10 @@ robo_user_rsp:
 
 /*
  * SYSCALL: RCX = user RIP, R11 = user RFLAGS, RSP still user.
- * Switch onto the current thread kernel stack (robo_syscall_kstack),
- * build a standard iframe, dispatch, then iretq back to ring 3.
+ * FMASK cleared IF. Switch onto the current thread kernel stack
+ * (robo_syscall_kstack, kept in lockstep with TSS.RSP0), build a
+ * standard iframe, dispatch, then SYSRETQ to the same user thread
+ * or IRETQ when dispatch selected a different iframe.
  *
  *   Higher addresses
  *   SS (0x1B)
@@ -28,7 +30,12 @@ robo_user_rsp:
  *   vector 0x80
  *   GPRs (same order as isr_common)
  *   Lower addresses  ← iframe / RSP
+ *
+ * Hardware clobbers RCX and R11. User RCX/R11 are not preserved.
+ * RBX, RBP, R12–R15 are restored from the iframe.
  */
+.equ IFRAME_CS, 144
+
 robo_syscall_entry:
     mov [rip + robo_user_rsp], rsp
     mov rsp, [rip + robo_syscall_kstack]
@@ -60,6 +67,36 @@ robo_syscall_entry:
     push r15
     cld
     mov rdi, rsp
+    and rsp, -16
     sub rsp, 8
     call robo_syscall_dispatch
-    jmp robo_x86_resume_iframe
+    cli
+    cmp qword ptr [rax + IFRAME_CS], 0x23
+    jne robo_x86_resume_iframe
+    mov rsp, rax
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop r11
+    pop r10
+    pop r9
+    pop r8
+    pop rbp
+    pop rdi
+    pop rsi
+    pop rdx
+    pop rcx
+    pop rbx
+    mov eax, 0x1B
+    mov ds, ax
+    mov es, ax
+    pop rax
+    add rsp, 16
+    pop rcx
+    add rsp, 8
+    pop r11
+    and r11, 0xCD5
+    or r11, 0x202
+    pop rsp
+    sysretq

@@ -9,6 +9,8 @@
 #include "time/time.h"
 #include "time/convert.h"
 #include "kio.h"
+#include "fs/backends/console.h"
+#include "fs/file.h"
 
 #define PROC_AB_TARGET     10000ull
 #define PROC_STRESS_PROCS  10u
@@ -223,7 +225,7 @@ static int resources_independent(RoboProcess *a, RoboProcess *b)
 {
     if (!a || !b)
         return 0;
-    if (a->files == b->files || a->ipc == b->ipc)
+    if (a->fd_table == b->fd_table || a->ipc == b->ipc)
         return 0;
     if (a->environment == b->environment || a->credentials == b->credentials)
         return 0;
@@ -267,7 +269,7 @@ int robo_process_selftest(void)
         p[i] = robo_process_create_named("probe");
         if (!p[i] || p[i]->id == 0)
             return tfail("create probe");
-        if (!p[i]->address_space || !p[i]->files || !p[i]->ipc ||
+        if (!p[i]->address_space || !p[i]->fd_table || !p[i]->ipc ||
             !p[i]->environment || !p[i]->credentials)
             return tfail("resources");
         if (!robo_process_lookup(p[i]->id))
@@ -284,13 +286,22 @@ int robo_process_selftest(void)
                 return tfail("shared resources");
         }
     }
-    fd = robo_process_fd_alloc(p[0], (void *)(uintptr_t)0x11);
-    if (fd < 3)
-        return tfail("fd alloc");
-    if (robo_process_fd_get(p[0], fd) != (void *)(uintptr_t)0x11)
-        return tfail("fd get");
-    if (!robo_process_fd_close(p[0], fd))
-        return tfail("fd close");
+    {
+        RoboFile *tf = robo_console_open(ROBO_FFLAG_WRITE);
+        RoboFile *got;
+        if (!tf)
+            return tfail("fd file");
+        fd = robo_process_fd_alloc(p[0], tf);
+        if (fd < 3)
+            return tfail("fd alloc");
+        got = robo_process_fd_get(p[0], fd);
+        if (got != tf)
+            return tfail("fd get");
+        robo_file_put(got);
+        if (!robo_process_fd_close(p[0], fd))
+            return tfail("fd close");
+        robo_file_put(tf);
+    }
     for (i = 0; i < 4; i++) {
         robo_process_id_t gone = p[i]->id;
         if (!robo_process_destroy(p[i]))

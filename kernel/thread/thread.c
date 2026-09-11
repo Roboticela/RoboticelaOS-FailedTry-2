@@ -324,7 +324,8 @@ RoboThread *robo_thread_create_in_process(RoboProcess *process,
 
 RoboThread *robo_thread_create_user(RoboProcess *process,
                                     const char *name,
-                                    uint64_t user_rip, uint64_t user_rsp)
+                                    uint64_t user_rip, uint64_t user_rsp,
+                                    uint64_t user_rdi)
 {
     RoboThread *t;
     robo_thread_context_t *f;
@@ -364,7 +365,7 @@ RoboThread *robo_thread_create_user(RoboProcess *process,
     f->ss = ROBO_GDT_USER_DATA_RPL;
     f->rsp = user_rsp;
     f->rflags = 0x202ull;
-    f->rdi = 0;
+    f->rdi = user_rdi;
     f->rsi = 0;
     f->rdx = 0;
     f->rcx = 0;

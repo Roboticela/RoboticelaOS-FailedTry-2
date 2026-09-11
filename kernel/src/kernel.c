@@ -10,7 +10,9 @@
 #include "process/process.h"
 #include "arch/x86_64/context/context_switch.h"
 #include "fs/robofs.h"
+#include "fs/fd.h"
 #include "exec/exec.h"
+#include "syscall/syscall.h"
 
 static void boot_bar(unsigned p)
 {
@@ -189,6 +191,20 @@ void kmain(const RoboBootInfo *info)
                     kprintf("USER_TEST_OK\n");
                 else
                     kprintf("USER_TEST_FAIL\n");
+                if (kboot_debug(info))
+                    robo_syscall_fb_report();
+                if (robo_syscall_selftest(info))
+                    kprintf("SYSCALL_TEST_OK\n");
+                else
+                    kprintf("SYSCALL_TEST_FAIL\n");
+                if (kboot_debug(info)) {
+                    robo_fd_table_dump(robo_current_process());
+                    robo_fd_fb_report();
+                }
+                if (robo_fd_selftest())
+                    kprintf("FD_TEST_OK\n");
+                else
+                    kprintf("FD_TEST_FAIL\n");
             } else {
                 kprintf("USER_TEST_FAIL\n");
             }

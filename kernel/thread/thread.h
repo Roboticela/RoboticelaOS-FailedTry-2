@@ -106,7 +106,8 @@ RoboThread *robo_thread_create_in_process(struct RoboProcess *process,
                                           void *argument);
 RoboThread *robo_thread_create_user(struct RoboProcess *process,
                                     const char *name,
-                                    uint64_t user_rip, uint64_t user_rsp);
+                                    uint64_t user_rip, uint64_t user_rsp,
+                                    uint64_t user_rdi);
 void robo_thread_kill_current(void);
 struct RoboProcess *robo_thread_process(const RoboThread *thread);
 void robo_thread_exit(void);

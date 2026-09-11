@@ -74,7 +74,7 @@ RoboProcess *robo_process_create_from_elf(const char *path)
         robo_process_destroy(p);
         return 0;
     }
-    t = robo_thread_create_user(p, name, p->user_entry, p->user_stack_top);
+    t = robo_thread_create_user(p, name, p->user_entry, p->user_stack_top, 0);
     if (!t) {
         robo_process_destroy(p);
         return 0;

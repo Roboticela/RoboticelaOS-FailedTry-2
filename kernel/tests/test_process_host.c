@@ -1,5 +1,7 @@
 #include "process/process.h"
 #include "process/process_table.h"
+#include "fs/backends/console.h"
+#include "fs/file.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -30,7 +32,7 @@ int main(void)
     CHECK(robo_process_id(k) == ROBO_PROCESS_ID_KERNEL, "kernel pid 1");
     CHECK(robo_process_id(k) != 0, "pid not zero");
     CHECK(robo_process_lookup(k->id) == k, "kernel in table");
-    CHECK(k->files && k->ipc && k->environment && k->credentials, "kernel resources");
+    CHECK(k->fd_table && k->ipc && k->environment && k->credentials, "kernel resources");
     CHECK(k->address_space != 0, "kernel aspace");
 
     a = robo_process_create_named("a");
@@ -44,19 +46,28 @@ int main(void)
     CHECK(robo_process_lookup(a->id) == a, "lookup a");
     CHECK(robo_process_lookup(b->id) == b, "lookup b");
     CHECK(a->parent == k && b->parent == k, "parent kernel");
-    CHECK(a->files != b->files && a->ipc != b->ipc, "independent files/ipc");
+    CHECK(a->fd_table != b->fd_table && a->ipc != b->ipc, "independent files/ipc");
     CHECK(a->environment != b->environment && a->credentials != b->credentials,
           "independent env/creds");
     CHECK(a->address_space != b->address_space, "independent aspace");
     CHECK(a->address_space->cr3 != b->address_space->cr3, "independent cr3 token");
 
-    fd = robo_process_fd_alloc(a, (void *)(uintptr_t)0xabc);
-    CHECK(fd >= 0, "fd alloc");
-    CHECK(robo_process_fd_get(a, fd) == (void *)(uintptr_t)0xabc, "fd get");
-    CHECK(robo_process_fd_get(b, fd) == 0 || robo_process_fd_get(b, fd) != (void *)(uintptr_t)0xabc,
-          "fd not shared");
-    CHECK(robo_process_fd_close(a, fd), "fd close");
-    CHECK(robo_process_fd_get(a, fd) == 0, "fd closed");
+    {
+        RoboFile *tf = robo_console_open(ROBO_FFLAG_WRITE);
+        RoboFile *got;
+        CHECK(tf != 0, "fd file");
+        fd = robo_process_fd_alloc(a, tf);
+        CHECK(fd >= 3, "fd alloc");
+        got = robo_process_fd_get(a, fd);
+        CHECK(got == tf, "fd get");
+        if (got)
+            robo_file_put(got);
+        CHECK(!robo_process_fd_in_use(b, fd), "fd not shared");
+        CHECK(robo_process_fd_close(a, fd), "fd close");
+        CHECK(!robo_process_fd_in_use(a, fd), "fd closed");
+        if (tf)
+            robo_file_put(tf);
+    }
 
     zero_thread(&t1);
     zero_thread(&t2);

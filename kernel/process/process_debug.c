@@ -19,8 +19,8 @@ void robo_process_debug_dump(const RoboProcess *process)
         kprintf("PROCESS  (null)\n");
         return;
     }
-    if (process->files)
-        files = process->files->open_count;
+    if (process->fd_table)
+        files = process->fd_table->open_count;
     if (process->ipc)
         ipc = process->ipc->object_count;
 

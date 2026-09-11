@@ -15,68 +15,6 @@ static void res_zero(void *dst, unsigned n)
         *p++ = 0;
 }
 
-RoboFileTable *robo_files_create(void)
-{
-    RoboFileTable *files;
-    unsigned i;
-
-    files = (RoboFileTable *)kmalloc(sizeof(*files));
-    if (!files)
-        return 0;
-    res_zero(files, (unsigned)sizeof(*files));
-    /* stdin / stdout / stderr placeholders — no VFS yet */
-    for (i = 0; i < 3u; i++) {
-        files->in_use[i] = 1;
-        files->slot[i] = 0;
-    }
-    files->open_count = 3;
-    return files;
-}
-
-void robo_files_destroy(RoboFileTable *files)
-{
-    kfree(files);
-}
-
-int robo_files_alloc(RoboFileTable *files, void *file)
-{
-    unsigned i;
-
-    if (!files)
-        return -1;
-    for (i = 0; i < ROBO_FD_MAX; i++) {
-        if (!files->in_use[i]) {
-            files->in_use[i] = 1;
-            files->slot[i] = file;
-            files->open_count++;
-            return (int)i;
-        }
-    }
-    return -1;
-}
-
-int robo_files_close(RoboFileTable *files, int fd)
-{
-    if (!files || fd < 0 || (unsigned)fd >= ROBO_FD_MAX)
-        return 0;
-    if (!files->in_use[fd])
-        return 0;
-    files->in_use[fd] = 0;
-    files->slot[fd] = 0;
-    if (files->open_count)
-        files->open_count--;
-    return 1;
-}
-
-void *robo_files_get(RoboFileTable *files, int fd)
-{
-    if (!files || fd < 0 || (unsigned)fd >= ROBO_FD_MAX)
-        return 0;
-    if (!files->in_use[fd])
-        return 0;
-    return files->slot[fd];
-}
-
 RoboIPCResources *robo_ipc_create(void)
 {
     RoboIPCResources *ipc;
@@ -117,7 +55,6 @@ RoboCredentials *robo_creds_create(void)
     if (!creds)
         return 0;
     res_zero(creds, (unsigned)sizeof(*creds));
-    /* Kernel / early processes: uid 0 / gid 0 */
     creds->uid = 0;
     creds->gid = 0;
     creds->effective_uid = 0;

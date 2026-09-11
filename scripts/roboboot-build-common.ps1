@@ -372,23 +372,40 @@ function Invoke-RoboBuildUserland {
     $clang = Get-Clang
     $ld = Get-LdLld
     $ldscript = Join-Path $user "linker.ld"
+    $sdk = Join-Path $script:Repo "sdk\include"
     $cflags = @(
         "-target", "x86_64-unknown-none",
+        "-std=c11", "-O2",
         "-ffreestanding", "-nostdlib", "-static",
         "-fno-pic", "-fno-pie", "-fno-stack-protector",
-        "-mno-red-zone", "-fno-builtin"
+        "-fno-asynchronous-unwind-tables",
+        "-mcmodel=large",
+        "-mno-red-zone", "-fno-builtin",
+        "-I", $sdk
     )
+    $sdkdeps = Get-HeaderDeps @((Join-Path $sdk "robosys"))
     $progs = @(
-        @{ Name = "hello"; Src = (Join-Path $user "hello\start.S") },
-        @{ Name = "fault"; Src = (Join-Path $user "fault\start.S") }
+        @{ Name = "hello"; Srcs = @("lib\crt0.S", "lib\syscall.S", "hello\hello.c") },
+        @{ Name = "fault"; Srcs = @("fault\start.S") },
+        @{ Name = "systest"; Srcs = @("lib\crt0.S", "lib\syscall.S", "systest\systest.c", "systest\regs.S", "systest\worker.S") },
+        @{ Name = "a"; Srcs = @("lib\crt0.S", "lib\syscall.S", "iso\a.c") },
+        @{ Name = "b"; Srcs = @("lib\crt0.S", "lib\syscall.S", "iso\b.c") },
+        @{ Name = "fd-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "fd-test\fd-test.c") }
     )
     $elfs = @{}
     foreach ($p in $progs) {
-        $obj = Join-Path $ubuild ($p.Name + ".o")
+        $objs = @()
+        $i = 0
+        foreach ($rel in $p.Srcs) {
+            $src = Join-Path $user $rel
+            $obj = Join-Path $ubuild ($p.Name + "_" + $i + ".o")
+            if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+            $objs += $obj
+            $i++
+        }
         $elf = Join-Path $ubuild ($p.Name + ".elf")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $p.Src -Object $obj -Deps @($ldscript)) { }
         Write-Step "LD" ("user\" + $p.Name + ".elf")
-        & $ld "-m" "elf_x86_64" "-static" "-no-pie" "-T" $ldscript "-o" $elf $obj
+        & $ld "-m" "elf_x86_64" "-static" "-no-pie" "-T" $ldscript "-o" $elf @objs
         if ($LASTEXITCODE -ne 0) { throw ("user " + $p.Name + " link failed") }
         $elfs[$p.Name] = $elf
     }
@@ -396,10 +413,17 @@ function Invoke-RoboBuildUserland {
     $pack = Join-Path $user "pack_robofs.py"
     $initrd = Join-Path $script:Boot "volumes\sys\initrd"
     New-Item -ItemType Directory -Force -Path (Split-Path $initrd) | Out-Null
+    $txt = Join-Path $ubuild "test.txt"
+    [IO.File]::WriteAllBytes($txt, [Text.Encoding]::ASCII.GetBytes("Roboticela OS"))
     Write-Step "FS" "volumes\sys\initrd"
     & $py $pack "-o" $initrd (
         ("/bin/hello=" + $elfs["hello"]),
-        ("/bin/fault=" + $elfs["fault"])
+        ("/bin/fault=" + $elfs["fault"]),
+        ("/bin/systest=" + $elfs["systest"]),
+        ("/bin/a=" + $elfs["a"]),
+        ("/bin/b=" + $elfs["b"]),
+        ("/bin/fd-test=" + $elfs["fd-test"]),
+        ("/test.txt=" + $txt)
     )
     if ($LASTEXITCODE -ne 0) { throw "RoboFS pack failed" }
 }
@@ -424,16 +448,17 @@ function Invoke-RoboBuildKernel {
         "-target", "x86_64-unknown-none",
         "-std=c11", "-O2",
         "-ffreestanding", "-fno-stack-protector", "-fno-pic", "-fno-pie",
-        "-mno-red-zone", "-fno-builtin", "-nostdlib",
+        "-mno-red-zone", "-mgeneral-regs-only", "-fno-builtin", "-nostdlib",
         "-I", (Join-Path $kroot "include"),
         "-I", $kroot,
-        "-I", (Join-Path $script:Boot "include")
+        "-I", (Join-Path $script:Boot "include"),
+        "-I", (Join-Path $script:Repo "sdk\include")
     )
     $srcs = @(
         (Join-Path $kroot "arch\x86_64\boot\start.S"),
         (Join-Path $kroot "arch\x86_64\isr.S"),
         (Join-Path $kroot "arch\x86_64\context\context_switch.S"),
-        (Join-Path $kroot "arch\x86_64\syscall_entry.S"),
+        (Join-Path $kroot "arch\x86_64\syscall\syscall_entry.S"),
         (Join-Path $kroot "arch\x86_64\context\context.c"),
         (Join-Path $kroot "arch\x86_64\context\context_test.c"),
         (Join-Path $kroot "arch\x86_64\gdt.c"),
@@ -444,7 +469,12 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "arch\x86_64\cpu.c"),
         (Join-Path $kroot "arch\x86_64\cpu_test.c"),
         (Join-Path $kroot "arch\x86_64\irq.c"),
-        (Join-Path $kroot "arch\x86_64\syscall.c"),
+        (Join-Path $kroot "arch\x86_64\syscall\syscall_cpu.c"),
+        (Join-Path $kroot "syscall\syscall.c"),
+        (Join-Path $kroot "syscall\syscall_dispatch.c"),
+        (Join-Path $kroot "syscall\syscall_table.c"),
+        (Join-Path $kroot "syscall\syscall_validate.c"),
+        (Join-Path $kroot "syscall\syscall_debug.c"),
         (Join-Path $kroot "arch\x86_64\timer\tsc.c"),
         (Join-Path $kroot "arch\x86_64\timer\pit.c"),
         (Join-Path $kroot "time\convert.c"),
@@ -468,6 +498,14 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "exec\exec.c"),
         (Join-Path $kroot "exec\exec_test.c"),
         (Join-Path $kroot "fs\robofs.c"),
+        (Join-Path $kroot "fs\file.c"),
+        (Join-Path $kroot "fs\file_ops.c"),
+        (Join-Path $kroot "fs\fd_table.c"),
+        (Join-Path $kroot "fs\fd.c"),
+        (Join-Path $kroot "fs\backends\console.c"),
+        (Join-Path $kroot "fs\backends\regular.c"),
+        (Join-Path $kroot "fs\backends\pipe.c"),
+        (Join-Path $kroot "fs\backends\device.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -496,6 +534,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "arch\x86_64\timer"),
         (Join-Path $kroot "arch\x86_64\scheduler"),
         (Join-Path $kroot "arch\x86_64\context"),
+        (Join-Path $kroot "arch\x86_64\syscall"),
         (Join-Path $kroot "time"),
         (Join-Path $kroot "scheduler"),
         (Join-Path $kroot "thread"),
@@ -503,6 +542,9 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "exec"),
         (Join-Path $kroot "exec\elf"),
         (Join-Path $kroot "fs"),
+        (Join-Path $kroot "fs\backends"),
+        (Join-Path $kroot "syscall"),
+        (Join-Path $script:Repo "sdk\include\robosys"),
         (Join-Path $script:Boot "include\roboticela")
     )
     $objs = @()
@@ -781,19 +823,28 @@ function Invoke-RoboBuildProcessHostTest {
         "-std=c11", "-O2",
         "-D_CRT_SECURE_NO_WARNINGS",
         "-DPROCESS_HOST_TEST",
-        "-I", $kroot
+        "-I", $kroot,
+        "-I", (Join-Path $script:Repo "sdk\include")
     )
     $srcs = @(
         (Join-Path $kroot "tests\test_process_host.c"),
         (Join-Path $kroot "process\process.c"),
         (Join-Path $kroot "process\process_table.c"),
-        (Join-Path $kroot "process\process_resources.c")
+        (Join-Path $kroot "process\process_resources.c"),
+        (Join-Path $kroot "fs\file.c"),
+        (Join-Path $kroot "fs\file_ops.c"),
+        (Join-Path $kroot "fs\fd_table.c"),
+        (Join-Path $kroot "fs\fd.c"),
+        (Join-Path $kroot "fs\backends\console.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "process"),
         (Join-Path $kroot "thread"),
         (Join-Path $kroot "mm"),
-        (Join-Path $kroot "mm\vmm")
+        (Join-Path $kroot "mm\vmm"),
+        (Join-Path $kroot "fs"),
+        (Join-Path $kroot "fs\backends"),
+        (Join-Path $script:Repo "sdk\include\robosys")
     )
     $objs = @()
     $compiled = $false
