@@ -85,18 +85,21 @@ typedef struct EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL {
 } EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL;
 
 typedef struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL {
-    void *Reset;
+    EFI_STATUS (EFIAPI *Reset)(struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL *This, BOOLEAN ExtendedVerification);
     EFI_STATUS (EFIAPI *ReadKeyStroke)(struct EFI_SIMPLE_TEXT_INPUT_PROTOCOL *This, EFI_INPUT_KEY *Key);
     EFI_EVENT WaitForKey;
 } EFI_SIMPLE_TEXT_INPUT_PROTOCOL;
 
+typedef EFI_STATUS (EFIAPI *EFI_KEY_NOTIFY_FUNCTION)(EFI_KEY_DATA *KeyData);
+
 typedef struct EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL {
-    void *Reset;
+    EFI_STATUS (EFIAPI *Reset)(struct EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *This, BOOLEAN ExtendedVerification);
     EFI_STATUS (EFIAPI *ReadKeyStrokeEx)(struct EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *This, EFI_KEY_DATA *KeyData);
     EFI_EVENT WaitForKeyEx;
-    void *SetState;
-    void *RegisterKeyNotify;
-    void *UnregisterKeyNotify;
+    EFI_STATUS (EFIAPI *SetState)(struct EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *This, uint8_t *KeyToggleState);
+    EFI_STATUS (EFIAPI *RegisterKeyNotify)(struct EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *This, EFI_KEY_DATA *KeyData,
+                                           EFI_KEY_NOTIFY_FUNCTION Function, void **NotifyHandle);
+    EFI_STATUS (EFIAPI *UnregisterKeyNotify)(struct EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *This, void *NotifyHandle);
 } EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL;
 
 typedef struct {
@@ -267,7 +270,8 @@ typedef struct {
 #define SCAN_DOWN 0x02
 #define SCAN_RIGHT 0x03
 #define SCAN_LEFT 0x04
-#define SCAN_F10 0x0B
+#define SCAN_F8 0x12
+#define SCAN_F10 0x14
 #define SCAN_ESC 0x17
 
 typedef struct {

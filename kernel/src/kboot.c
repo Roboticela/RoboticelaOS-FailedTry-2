@@ -31,6 +31,13 @@ static uint64_t sum_type(const RoboBootInfo *info, uint32_t type)
     return n;
 }
 
+static void term_line(const char *s)
+{
+    uint32_t ink = 0xA1A1A6u;
+    kfb_puts(s, ink);
+    kfb_puts("\n", ink);
+}
+
 void kboot_report(const RoboBootInfo *info)
 {
     uint64_t avail, reserved;
@@ -47,27 +54,62 @@ void kboot_report(const RoboBootInfo *info)
     verbose = kboot_debug(info);
 
     kprintf("Roboticela Kernel\n");
-    kprintf("-----------------\n\n");
     kprintf("Boot protocol: Roboticela\n");
-    kprintf("CPU: x86_64\n\n");
-    kprintf("Memory:\n");
-    kprintf("  Available: %u MB\n", avail_mb);
-    kprintf("  Reserved:  %u MB\n\n", reserved_mb);
-    kprintf("Framebuffer:\n");
-    kprintf("  %ux%u\n", info ? info->framebuffer_width : 0, info ? info->framebuffer_height : 0);
-    kprintf("  %u BPP\n\n", info ? info->framebuffer_bpp : 0);
-    kprintf("ACPI:\n");
-    kprintf("  %s\n\n", (info && info->rsdp_address) ? "RSDP found" : "RSDP missing");
-    kprintf("Kernel:\n");
-    kprintf("  address: 0x%llx\n", info ? info->kernel_base : 0);
-    kprintf("  size: %llu\n\n", info ? info->kernel_size : 0);
-    kprintf("InitFS:\n");
-    kprintf("  address: 0x%llx\n", info ? info->initrd_address : 0);
-    kprintf("  size: %llu\n", info ? info->initrd_size : 0);
-    if (verbose && info && info->cmdline[0])
-        kprintf("\nCmdline: %s\n", info->cmdline);
+    kprintf("CPU: x86_64\n");
+    kprintf("Memory available: %u MB reserved: %u MB\n", avail_mb, reserved_mb);
 
-    /* Always take the screen. Leaving the splash up looks like the kernel never started. */
+    if (verbose) {
+        int x = 40, y = 0, w = 0, h = 220;
+        if (info && info->debug_term_w && info->debug_term_h) {
+            x = (int)info->debug_term_x;
+            y = (int)info->debug_term_y;
+            w = (int)info->debug_term_w;
+            h = (int)info->debug_term_h;
+        } else if (info) {
+            w = (int)info->framebuffer_width - 80;
+            h = (int)info->framebuffer_height * 34 / 100;
+            if (h < 160) h = 160;
+            y = (int)info->framebuffer_height - 40 - h;
+        }
+        kfb_term_open(x, y, w, h);
+        term_line("Kernel entered");
+        term_line("Serial initialized");
+        kfb_puts("Framebuffer  ", mute);
+        kfb_putu(info ? info->framebuffer_width : 0, white);
+        kfb_puts("x", white);
+        kfb_putu(info ? info->framebuffer_height : 0, white);
+        kfb_puts("  ", mute);
+        kfb_putu(info ? info->framebuffer_bpp : 0, white);
+        kfb_puts(" BPP\n", mute);
+        kfb_puts("Memory initialized  ", mute);
+        kfb_putu(info ? info->memory_map_count : 0, white);
+        kfb_puts(" regions\n", mute);
+        kfb_puts("Available  ", mute);
+        kfb_putu(avail_mb, white);
+        kfb_puts(" MB   Reserved  ", mute);
+        kfb_putu(reserved_mb, white);
+        kfb_puts(" MB\n", mute);
+        kfb_puts("ACPI  ", mute);
+        kfb_puts((info && info->rsdp_address) ? "RSDP found\n" : "RSDP missing\n", white);
+        kfb_puts("Kernel  ", mute);
+        kfb_puthex(info ? info->kernel_base : 0, white);
+        kfb_puts("  ", mute);
+        kfb_putu(info ? info->kernel_size : 0, white);
+        kfb_puts(" bytes\n", mute);
+        kfb_puts("InitFS  ", mute);
+        kfb_puthex(info ? info->initrd_address : 0, white);
+        kfb_puts("  ", mute);
+        kfb_putu(info ? info->initrd_size : 0, white);
+        kfb_puts(" bytes\n", mute);
+        if (info && info->cmdline[0]) {
+            kfb_puts("Cmdline  ", mute);
+            kfb_puts(info->cmdline, white);
+            kfb_puts("\n", mute);
+        }
+        term_line("CPU x86_64 idle");
+        return;
+    }
+
     kfb_clear(0x000000);
     kfb_puts("Roboticela Kernel\n", white);
     kfb_puts("-----------------\n\n", mute);
@@ -100,12 +142,4 @@ void kboot_report(const RoboBootInfo *info)
     kfb_puts("\n  size: ", white);
     kfb_putu(info ? info->initrd_size : 0, white);
     kfb_puts("\n", white);
-    if (verbose) {
-        kfb_puts("\nDebug on\n", mute);
-        if (info && info->cmdline[0]) {
-            kfb_puts("Cmdline: ", mute);
-            kfb_puts(info->cmdline, white);
-            kfb_puts("\n", white);
-        }
-    }
 }

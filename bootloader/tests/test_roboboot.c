@@ -310,6 +310,13 @@ static void test_session_alt_menu(void)
     rb_session_tick(&ss);
     CHECK(ss.phase == RB_PHASE_SPLASH, "Alt alone stays on splash");
     CHECK(!ss.alt_latched, "Alt alone does not latch picker");
+    g_in.mods = 0;
+    g_in.nchars = 1;
+    g_in.chars[0] = 'm';
+    g_time = 800;
+    rb_session_tick(&ss);
+    CHECK(ss.phase == RB_PHASE_SPLASH, "M alone stays on splash");
+    CHECK(!ss.alt_latched, "M alone does not latch picker");
     g_in.mods = RB_MOD_ALT;
     g_in.nchars = 1;
     g_in.chars[0] = 'm';
@@ -335,6 +342,30 @@ static void test_session_alt_menu(void)
     rb_session_free(&ss);
 }
 
+static void test_session_splash_f8(void)
+{
+    rb_session ss;
+    g_time = 0;
+    g_last_boot[0] = 0;
+    rb_zero(&g_in, sizeof(g_in));
+    rb_session_init(&ss, &g_plat);
+    ss.fb.w = 640;
+    ss.fb.h = 400;
+    ss.fb.px = (uint32_t *)rb_calloc((size_t)ss.fb.w * ss.fb.h * 4u);
+    rb_session_tick(&ss);
+    CHECK(ss.phase == RB_PHASE_SPLASH, "F8 test splash");
+    g_in.nkeys = 1;
+    g_in.keys[0] = RB_KEY_F8;
+    g_time = 500;
+    rb_session_tick(&ss);
+    CHECK(ss.alt_latched, "F8 latches picker during splash");
+    CHECK(ss.phase == RB_PHASE_SPLASH, "F8 waits for splash");
+    g_time = 2000;
+    rb_session_tick(&ss);
+    CHECK(ss.phase == RB_PHASE_PICKER, "F8 opens picker after splash");
+    rb_session_free(&ss);
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1) rb_strcpy(g_root, sizeof(g_root), argv[1]);
@@ -353,6 +384,7 @@ int main(int argc, char **argv)
     test_loader();
     test_session_quiet();
     test_session_alt_menu();
+    test_session_splash_f8();
 
     printf("RoboBoot tests: %d passed, %d failed\n", g_pass, g_fails);
     return g_fails ? 1 : 0;

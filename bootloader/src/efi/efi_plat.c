@@ -8,11 +8,18 @@
 static EFI_GRAPHICS_OUTPUT_PROTOCOL *g_gop;
 static EFI_FILE_PROTOCOL *g_root;
 static EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *g_inex;
+static EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *g_inex_list[8];
+static EFI_SIMPLE_TEXT_INPUT_PROTOCOL *g_cin_list[8];
+static int g_inex_n;
+static int g_cin_n;
 static uint32_t g_pixfmt;
 static int g_w, g_h;
 static uint32_t *g_fb;
 static uint32_t g_stride;
 static uint32_t g_mods;
+static uint64_t g_alt_until;
+static int g_picker_chord;
+static uint64_t g_usb_kick_ms;
 static int g_selftest;
 static int g_menu;
 static int g_splash_ms = -1;
@@ -23,6 +30,9 @@ static EFI_GUID k_li_guid = {0x5b1b31a1, 0x9562, 0x11d2, {0x8e, 0x3f, 0x00, 0xa0
 static EFI_GUID k_fs_guid = {0x964e5b22, 0x6459, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 static EFI_GUID k_inex_guid = {0xdd9e7534, 0x7762, 0x4698, {0x8c, 0x14, 0xf5, 0x85, 0x17, 0xa6, 0x25, 0xaa}};
 static EFI_GUID k_fileinfo_guid = {0x09576e92, 0x6d3f, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
+static EFI_GUID k_pci_io_guid = {0x4cf5b200, 0x68b8, 0x4ca5, {0x9e, 0xec, 0xb2, 0x3e, 0x3f, 0x50, 0x02, 0x9a}};
+static EFI_GUID k_usb_io_guid = {0x2B2F68D6, 0x0CD2, 0x4cb0, {0xB3, 0x62, 0x6F, 0x19, 0x1E, 0xA2, 0x2F, 0x96}};
+static EFI_GUID k_conin_guid = {0x387477c1, 0x69c7, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 
 int efi_flag_selftest(void) { return g_selftest; }
 int efi_flag_menu(void) { return g_menu; }
@@ -76,6 +86,7 @@ static int map_key(EFI_KEY_DATA *kd)
     if (scan == SCAN_UP) return RB_KEY_UP;
     if (scan == SCAN_DOWN) return RB_KEY_DOWN;
     if (scan == SCAN_ESC) return RB_KEY_ESC;
+    if (scan == SCAN_F8) return RB_KEY_F8;
     if (scan == SCAN_F10) return RB_KEY_F10;
     if (ch == 0x0D || ch == 0x0A) return RB_KEY_ENTER;
     if (ch == 0x08) return RB_KEY_BACKSPACE;
@@ -84,52 +95,260 @@ static int map_key(EFI_KEY_DATA *kd)
     return RB_KEY_NONE;
 }
 
+static int is_alt_shift(uint32_t sh)
+{
+    return (sh & (EFI_LEFT_ALT_PRESSED | EFI_RIGHT_ALT_PRESSED)) != 0;
+}
+
+static void note_alt(void)
+{
+    g_mods |= RB_MOD_ALT;
+    g_alt_until = g_stall_ms + 1500;
+}
+
+static void apply_shift(uint32_t sh, CHAR16 ch, uint16_t scan)
+{
+    int alt = is_alt_shift(sh);
+    int valid = (sh & EFI_SHIFT_STATE_VALID) != 0;
+    /* USB hub keyboards often omit VALID, or send M without repeating Alt bits.
+       Do not clear Alt on empty key-up packets — those are common on hubs. */
+    if (alt || scan == 0x38)
+        note_alt();
+    if (valid) {
+        if (sh & (EFI_LEFT_SHIFT_PRESSED | EFI_RIGHT_SHIFT_PRESSED)) g_mods |= RB_MOD_SHIFT;
+        if (sh & (EFI_LEFT_CONTROL_PRESSED | EFI_RIGHT_CONTROL_PRESSED)) g_mods |= RB_MOD_CTRL;
+    }
+    if (g_alt_until && g_stall_ms > g_alt_until) {
+        g_mods &= ~RB_MOD_ALT;
+        g_alt_until = 0;
+    }
+}
+
+static void add_char(rb_input *out, int ch)
+{
+    int i;
+    if (!out || out->nchars >= 8) return;
+    for (i = 0; i < out->nchars; i++)
+        if (out->chars[i] == ch) return;
+    out->chars[out->nchars++] = ch;
+}
+
+static void add_key(rb_input *out, int key)
+{
+    if (!out || key == RB_KEY_NONE || out->nkeys >= 24) return;
+    out->keys[out->nkeys++] = key;
+}
+
+static EFI_STATUS EFIAPI efi_on_alt(EFI_KEY_DATA *kd)
+{
+    (void)kd;
+    note_alt();
+    return EFI_SUCCESS;
+}
+
+static EFI_STATUS EFIAPI efi_on_m(EFI_KEY_DATA *kd)
+{
+    uint32_t sh = kd ? kd->KeyState.KeyShiftState : 0;
+    if (is_alt_shift(sh) || (g_mods & RB_MOD_ALT) || (g_alt_until && g_stall_ms <= g_alt_until)) {
+        g_picker_chord = 1;
+        note_alt();
+    }
+    return EFI_SUCCESS;
+}
+
+static EFI_STATUS EFIAPI efi_on_picker(EFI_KEY_DATA *kd)
+{
+    (void)kd;
+    g_picker_chord = 1;
+    note_alt();
+    return EFI_SUCCESS;
+}
+
+static void efi_notify(EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex, CHAR16 ch, uint16_t scan,
+                      uint32_t shift, EFI_KEY_NOTIFY_FUNCTION fn)
+{
+    EFI_KEY_DATA want;
+    void *cookie = 0;
+    if (!ex || !ex->RegisterKeyNotify) return;
+    memset(&want, 0, sizeof(want));
+    want.Key.UnicodeChar = ch;
+    want.Key.ScanCode = scan;
+    want.KeyState.KeyShiftState = shift;
+    ex->RegisterKeyNotify(ex, &want, fn, &cookie);
+}
+
+static void efi_register_picker(EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex)
+{
+    static const CHAR16 letters[2] = { 'm', 'M' };
+    static const uint32_t alts[2] = { EFI_LEFT_ALT_PRESSED, EFI_RIGHT_ALT_PRESSED };
+    int i, j;
+    if (!ex || !ex->RegisterKeyNotify) return;
+    for (i = 0; i < 2; i++) {
+        efi_notify(ex, 0, 0, EFI_SHIFT_STATE_VALID | alts[i], efi_on_alt);
+        efi_notify(ex, letters[i], 0, 0, efi_on_m);
+        for (j = 0; j < 2; j++)
+            efi_notify(ex, letters[i], 0, EFI_SHIFT_STATE_VALID | alts[j], efi_on_picker);
+    }
+}
+
+static void efi_connect_handles(EFI_GUID *guid)
+{
+    UINTN n = 0, i;
+    EFI_HANDLE *h = 0;
+    if (!gBS || !gBS->LocateHandleBuffer || !gBS->ConnectController) return;
+    if (gBS->LocateHandleBuffer(EFI_LOCATE_BY_PROTOCOL, guid, 0, &n, &h) != EFI_SUCCESS || !h)
+        return;
+    for (i = 0; i < n; i++)
+        gBS->ConnectController(h[i], 0, 0, 1);
+    gBS->FreePool(h);
+}
+
+static int efi_kick_usb(void)
+{
+    static int pci_once;
+    if (g_selftest) return 0;
+    if (g_usb_kick_ms && g_stall_ms < g_usb_kick_ms + 400)
+        return 0;
+    g_usb_kick_ms = g_stall_ms ? g_stall_ms : 1;
+    if (!pci_once) {
+        efi_connect_handles(&k_pci_io_guid);
+        pci_once = 1;
+    }
+    efi_connect_handles(&k_usb_io_guid);
+    if (gST && gST->ConsoleInHandle && gBS->ConnectController)
+        gBS->ConnectController(gST->ConsoleInHandle, 0, 0, 1);
+    return 1;
+}
+
+static int efi_already_ex(EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex)
+{
+    int j;
+    for (j = 0; j < g_inex_n; j++)
+        if (g_inex_list[j] == ex) return 1;
+    return 0;
+}
+
+static void efi_add_ex(EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex)
+{
+    if (!ex || g_inex_n >= 8 || efi_already_ex(ex)) return;
+    g_inex_list[g_inex_n++] = ex;
+    if (!g_inex) g_inex = ex;
+    efi_register_picker(ex);
+}
+
+static void efi_add_cin(EFI_SIMPLE_TEXT_INPUT_PROTOCOL *cin)
+{
+    int j;
+    if (!cin || g_cin_n >= 8) return;
+    for (j = 0; j < g_cin_n; j++)
+        if (g_cin_list[j] == cin) return;
+    g_cin_list[g_cin_n++] = cin;
+}
+
+static void efi_bind_keyboards(void)
+{
+    UINTN n = 0, i;
+    EFI_HANDLE *h = 0;
+    if (!gBS) return;
+    if (gST && gST->ConsoleInHandle) {
+        EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex = 0;
+        gBS->HandleProtocol(gST->ConsoleInHandle, &k_inex_guid, (void **)&ex);
+        efi_add_ex(ex);
+    }
+    if (!g_inex && gBS->LocateProtocol) {
+        EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex = 0;
+        gBS->LocateProtocol(&k_inex_guid, 0, (void **)&ex);
+        efi_add_ex(ex);
+    }
+    if (gST && gST->ConIn)
+        efi_add_cin(gST->ConIn);
+    if (!gBS->LocateHandleBuffer) return;
+    if (gBS->LocateHandleBuffer(EFI_LOCATE_BY_PROTOCOL, &k_inex_guid, 0, &n, &h) == EFI_SUCCESS && h) {
+        for (i = 0; i < n && g_inex_n < 8; i++) {
+            EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex = 0;
+            if (gBS->HandleProtocol(h[i], &k_inex_guid, (void **)&ex) == EFI_SUCCESS)
+                efi_add_ex(ex);
+        }
+        gBS->FreePool(h);
+    }
+    n = 0;
+    h = 0;
+    if (gBS->LocateHandleBuffer(EFI_LOCATE_BY_PROTOCOL, &k_conin_guid, 0, &n, &h) == EFI_SUCCESS && h) {
+        for (i = 0; i < n && g_cin_n < 8; i++) {
+            EFI_SIMPLE_TEXT_INPUT_PROTOCOL *cin = 0;
+            if (gBS->HandleProtocol(h[i], &k_conin_guid, (void **)&cin) == EFI_SUCCESS)
+                efi_add_cin(cin);
+        }
+        gBS->FreePool(h);
+    }
+}
+
+static void efi_poll_ex(EFI_SIMPLE_TEXT_INPUT_EX_PROTOCOL *ex, rb_input *out)
+{
+    EFI_KEY_DATA kd;
+    int reads = 0;
+    if (!ex || !ex->ReadKeyStrokeEx) return;
+    if (ex->WaitForKeyEx && gBS && gBS->CheckEvent)
+        gBS->CheckEvent(ex->WaitForKeyEx);
+    while (reads++ < 8 && ex->ReadKeyStrokeEx(ex, &kd) == EFI_SUCCESS) {
+        CHAR16 ch = kd.Key.UnicodeChar;
+        apply_shift(kd.KeyState.KeyShiftState, ch, kd.Key.ScanCode);
+        out->mods = g_mods;
+        if (ch == 'm' || ch == 'M')
+            add_char(out, 'm');
+        else if (ch >= 32 && ch < 127)
+            add_char(out, (int)ch);
+        add_key(out, map_key(&kd));
+    }
+}
+
+static void efi_poll_cin(EFI_SIMPLE_TEXT_INPUT_PROTOCOL *cin, rb_input *out)
+{
+    EFI_INPUT_KEY k;
+    int reads = 0;
+    if (!cin || !cin->ReadKeyStroke) return;
+    if (cin->WaitForKey && gBS && gBS->CheckEvent)
+        gBS->CheckEvent(cin->WaitForKey);
+    while (reads++ < 8 && cin->ReadKeyStroke(cin, &k) == EFI_SUCCESS) {
+        EFI_KEY_DATA kd;
+        memset(&kd, 0, sizeof(kd));
+        kd.Key = k;
+        if (k.ScanCode == 0x38)
+            note_alt();
+        add_key(out, map_key(&kd));
+        if (k.UnicodeChar == 'm' || k.UnicodeChar == 'M')
+            add_char(out, 'm');
+        else if (k.UnicodeChar >= 32 && k.UnicodeChar < 127)
+            add_char(out, (int)k.UnicodeChar);
+    }
+}
+
 static void efi_poll(rb_input *out)
 {
+    int i;
     rb_zero(out, sizeof(*out));
+    if (!g_selftest && g_stall_ms < 6000) {
+        if (efi_kick_usb())
+            efi_bind_keyboards();
+    }
+    if (g_alt_until && g_stall_ms > g_alt_until) {
+        g_mods &= ~RB_MOD_ALT;
+        g_alt_until = 0;
+    }
     out->mods = g_mods;
-    if (g_inex) {
-        EFI_KEY_DATA kd;
-        int reads = 0;
-        while (reads++ < 8 && g_inex->ReadKeyStrokeEx(g_inex, &kd) == EFI_SUCCESS) {
-            int key;
-            uint32_t sh = kd.KeyState.KeyShiftState;
-            CHAR16 ch = kd.Key.UnicodeChar;
-            if (sh & (EFI_LEFT_ALT_PRESSED | EFI_RIGHT_ALT_PRESSED | EFI_SHIFT_STATE_VALID)) {
-                if (sh & EFI_SHIFT_STATE_VALID) g_mods = 0;
-                if (sh & (EFI_LEFT_ALT_PRESSED | EFI_RIGHT_ALT_PRESSED)) g_mods |= RB_MOD_ALT;
-                if (sh & (EFI_LEFT_SHIFT_PRESSED | EFI_RIGHT_SHIFT_PRESSED)) g_mods |= RB_MOD_SHIFT;
-                if (sh & (EFI_LEFT_CONTROL_PRESSED | EFI_RIGHT_CONTROL_PRESSED)) g_mods |= RB_MOD_CTRL;
-                out->mods = g_mods;
-            }
-            if ((ch == 'm' || ch == 'M') && (g_mods & RB_MOD_ALT) && out->nchars < 8) {
-                out->chars[out->nchars++] = 'm';
-            } else if (ch >= 32 && ch < 127 && out->nchars < 8) {
-                out->chars[out->nchars++] = (int)ch;
-            }
-            key = map_key(&kd);
-            if (key != RB_KEY_NONE && out->nkeys < 24)
-                out->keys[out->nkeys++] = key;
-        }
+    if (g_picker_chord) {
+        g_picker_chord = 0;
+        note_alt();
+        add_char(out, 'm');
     }
-    if (gST && gST->ConIn && gST->ConIn->ReadKeyStroke) {
-        EFI_INPUT_KEY k;
-        int reads = 0;
-        while (reads++ < 8 && gST->ConIn->ReadKeyStroke(gST->ConIn, &k) == EFI_SUCCESS) {
-            CHAR16 ch = k.UnicodeChar;
-            int key = RB_KEY_NONE;
-            if (ch == 0x0D || ch == 0x0A) key = RB_KEY_ENTER;
-            if (key != RB_KEY_NONE && out->nkeys < 24)
-                out->keys[out->nkeys++] = key;
-            if (ch == 'm' || ch == 'M') {
-                int i, have = 0;
-                for (i = 0; i < out->nchars; i++)
-                    if (out->chars[i] == 'm' || out->chars[i] == 'M') have = 1;
-                if (!have && out->nchars < 8)
-                    out->chars[out->nchars++] = 'm';
-            }
-        }
-    }
+    for (i = 0; i < g_inex_n; i++)
+        efi_poll_ex(g_inex_list[i], out);
+    if (g_inex_n == 0 && g_inex)
+        efi_poll_ex(g_inex, out);
+    for (i = 0; i < g_cin_n; i++)
+        efi_poll_cin(g_cin_list[i], out);
+    if (g_cin_n == 0 && gST && gST->ConIn)
+        efi_poll_cin(gST->ConIn, out);
     out->mods = g_mods;
 }
 
@@ -514,9 +733,9 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
         efi_hide_firmware_cursor();
         efi_take_graphics();
         efi_log("RoboBoot graphics ready");
-        gBS->HandleProtocol(st->ConsoleInHandle, &k_inex_guid, (void **)&g_inex);
-        if (!g_inex)
-            gBS->LocateProtocol(&k_inex_guid, 0, (void **)&g_inex);
+        efi_kick_usb();
+        efi_bind_keyboards();
+        efi_log("RoboBoot keyboards ready");
     }
 
     rb_logf("RoboBoot EFI GOP=%dx%d fs=%s selftest=%d menu=%d",

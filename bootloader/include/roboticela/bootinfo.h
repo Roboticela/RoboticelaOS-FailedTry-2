@@ -50,6 +50,11 @@ typedef struct {
     uint64_t initrd_size;
 
     char cmdline[256];
+
+    uint32_t debug_term_x;
+    uint32_t debug_term_y;
+    uint32_t debug_term_w;
+    uint32_t debug_term_h;
 } RoboBootInfo;
 
 #endif

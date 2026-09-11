@@ -12,6 +12,9 @@ void kprintf(const char *fmt, ...);
 
 void kfb_init(const RoboBootInfo *info);
 void kfb_clear(uint32_t rgb);
+void kfb_fill(int x, int y, int w, int h, uint32_t rgb);
+void kfb_round_rect(int x, int y, int w, int h, int r, uint32_t rgb);
+void kfb_term_open(int x, int y, int w, int h);
 void kfb_puts(const char *s, uint32_t rgb);
 void kfb_putu(unsigned long long v, uint32_t rgb);
 void kfb_puthex(unsigned long long v, uint32_t rgb);

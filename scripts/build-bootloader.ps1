@@ -47,7 +47,7 @@ Targets:
   efi          UEFI BOOTX64.EFI
   kernel       small x86_64 kernel.elf
   bootloader   UEFI app only (individual)
-  combine      build kernel + bootloader, then pack ESP into repo build\
+  combine      build kernel + bootloader, then stage a USB ESP tree in repo build\
   image, esp   same as combine
   test, check  host unit tests
   qemu-test    headless UEFI selftest
@@ -121,8 +121,8 @@ try {
     if (Test-Path $script:EfiOut)  { Write-Host "         $($script:EfiOut)" }
     if (Test-Path $script:KernelOut) { Write-Host "         $($script:KernelOut)" }
     if (Test-Path $script:EspImg)  { Write-Host "         $($script:EspImg)" }
-    $distEsp = Join-Path $script:Dist "roboboot-esp.img"
-    if (Test-Path $distEsp) { Write-Host "         $distEsp" }
+    $usbEfi = Join-Path $script:Dist "EFI\BOOT\BOOTX64.EFI"
+    if (Test-Path $usbEfi) { Write-Host "         $usbEfi" }
     Write-Host ""
     exit 0
 }

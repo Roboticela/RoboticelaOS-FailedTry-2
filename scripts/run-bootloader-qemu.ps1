@@ -35,7 +35,7 @@ try {
         Write-Host "Built $script:EfiOut"
         Write-Host "Kernel $script:KernelOut"
         Write-Host "ESP    $script:EspImg"
-        Write-Host "DIST   $script:Dist"
+        Write-Host "USB    $(Join-Path $script:Dist 'EFI\BOOT\BOOTX64.EFI')"
         exit 0
     }
 

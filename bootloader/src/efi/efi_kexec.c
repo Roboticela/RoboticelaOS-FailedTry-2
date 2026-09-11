@@ -156,6 +156,10 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     info->kernel_size = ksize;
     info->initrd_address = init_phys;
     info->initrd_size = init_size;
+    info->debug_term_x = (uint32_t)(h->debug_term_x > 0 ? h->debug_term_x : 0);
+    info->debug_term_y = (uint32_t)(h->debug_term_y > 0 ? h->debug_term_y : 0);
+    info->debug_term_w = (uint32_t)(h->debug_term_w > 0 ? h->debug_term_w : 0);
+    info->debug_term_h = (uint32_t)(h->debug_term_h > 0 ? h->debug_term_h : 0);
     rb_strcpy(info->cmdline, sizeof(info->cmdline), h->cmdline);
     if (debug) {
         const char *p = info->cmdline;
@@ -178,6 +182,8 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
     map_size = 0;
     if (!gBS || !gBS->GetMemoryMap || !gBS->ExitBootServices) return RB_ERR;
     rb_logf("starting kernel at 0x%llx", (unsigned long long)entry);
+    if (debug)
+        rb_bootlogf(NULL, "Starting kernel at 0x%llx", (unsigned long long)entry);
     gBS->GetMemoryMap(&map_size, 0, &map_key, &desc_size, &desc_ver);
     extra = desc_size * 8;
     map_size += extra;
@@ -206,6 +212,13 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
             }
             info->memory_map = (uint64_t)(uintptr_t)regions;
             info->memory_map_count = count;
+        }
+        if (debug && i == 0) {
+            rb_bootlogf(NULL, "Kernel mapped  0x%llx  %llu bytes",
+                        (unsigned long long)kbase, (unsigned long long)ksize);
+            rb_bootlogf(NULL, "Memory map  %u regions", (unsigned)info->memory_map_count);
+            rb_bootlog(NULL, "ExitBootServices");
+            rb_debug_flush(NULL);
         }
         st = gBS->ExitBootServices(gImage, map_key);
         if (st == EFI_SUCCESS) {

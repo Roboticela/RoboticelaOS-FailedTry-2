@@ -3,7 +3,7 @@
 #   make              host + combine (kernel, bootloader, ESP in ./build)
 #   make kernel       individual kernel.elf
 #   make bootloader   individual BOOTX64.EFI
-#   make combine      link kernel + bootloader into ./build
+#   make combine      link kernel + bootloader into USB tree ./build
 #   make test
 #   make qemu
 #   make clean

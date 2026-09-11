@@ -1,8 +1,11 @@
 #include "roboboot.h"
 
 #include <math.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+
+static rb_session *g_bootlog_ss;
 
 static int visible_count(const rb_catalog *c)
 {
@@ -39,6 +42,11 @@ static int visible_rank(const rb_catalog *c, int idx)
 static const rb_font *ui_caption(const rb_session *ss)
 {
     return ss->font_caption.atlas ? &ss->font_caption : &ss->font_body;
+}
+
+static const rb_font *ui_body(const rb_session *ss)
+{
+    return ss->font_body.atlas ? &ss->font_body : ui_caption(ss);
 }
 
 static int ui_compact(const rb_session *ss)
@@ -93,6 +101,33 @@ static int splash_logo_h(const rb_session *ss)
     return ui_compact(ss) ? 128 : 256;
 }
 
+static int ui_debug_on(const rb_session *ss)
+{
+    return ss && rb_debug_enabled(&ss->env);
+}
+
+void rb_debug_term_geom(const rb_session *ss, float *x, float *y, float *w, float *h)
+{
+    float pad, th;
+    if (!ss) return;
+    pad = ui_edge(ss);
+    th = ui_compact(ss) ? 152.f : 220.f;
+    if (th > (float)ss->fb.h * 0.34f) th = (float)ss->fb.h * 0.34f;
+    if (th < 96.f) th = 96.f;
+    if (x) *x = pad;
+    if (w) *w = (float)ss->fb.w - pad * 2.f;
+    if (h) *h = th;
+    if (y) *y = (float)ss->fb.h - pad - th;
+}
+
+static float ui_debug_reserve(const rb_session *ss)
+{
+    float x, y, w, h;
+    if (!ui_debug_on(ss)) return 0.f;
+    rb_debug_term_geom(ss, &x, &y, &w, &h);
+    return ((float)ss->fb.h - y) + 16.f;
+}
+
 static void fit_splash_logo(rb_session *ss)
 {
     int lh, lw;
@@ -135,7 +170,11 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
     bar_w = ui_compact(ss) ? 240.f : 280.f;
     bar_h = 4.f;
     stack = lh + 64.f + bar_h;
-    top = (float)ss->fb.h * 0.5f - stack * 0.5f;
+    {
+        float area = (float)ss->fb.h - ui_debug_reserve(ss);
+        top = area * 0.5f - stack * 0.5f;
+        if (top < 24.f) top = 24.f;
+    }
     lx = cx - lw * 0.5f;
     ly = top;
     bar_x = cx - bar_w * 0.5f;
@@ -161,6 +200,8 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
         rb_gfx_round_rect(&ss->fb, bar_x, bar_y, bar_w, bar_h, bar_h * 0.5f, track);
         if (fill > 0.f)
             rb_gfx_round_rect(&ss->fb, bar_x, bar_y, fill, bar_h, bar_h * 0.5f, brand);
+        if (ui_debug_on(ss))
+            rb_debug_term_draw(ss);
         ss->splash_bg_ready = 1;
         ss->fb.damage_w = 0;
         ss->fb.damage_h = 0;
@@ -171,6 +212,12 @@ void rb_splash_draw(rb_session *ss, float visual, float fade)
     rb_gfx_round_rect(&ss->fb, bar_x, bar_y, bar_w, bar_h, bar_h * 0.5f, track);
     if (fill > 0.f)
         rb_gfx_round_rect(&ss->fb, bar_x, bar_y, fill, bar_h, bar_h * 0.5f, brand);
+    if (ui_debug_on(ss)) {
+        rb_debug_term_draw(ss);
+        ss->fb.damage_w = 0;
+        ss->fb.damage_h = 0;
+        return;
+    }
     ss->fb.damage_x = bx - 4;
     ss->fb.damage_y = by - 4;
     ss->fb.damage_w = bw + 8;
@@ -216,7 +263,7 @@ static void icon_layout(const rb_session *ss, int vis_index, float *ox, float *o
     *iw = picw[vis_index];
     *ih = h;
     *ox = x + colw[vis_index] * 0.5f;
-    *oy = ss->fb.h * 0.5f - 24.f;
+    *oy = ((float)ss->fb.h - ui_debug_reserve(ss)) * 0.5f - 24.f;
 }
 
 static void fit_picker_icons(rb_session *ss)
@@ -292,16 +339,26 @@ void rb_picker_draw(rb_session *ss)
                            rb_token(sel ? RB_TOKEN_TEXT_PRIMARY : RB_TOKEN_TEXT_TERTIARY, 255));
     }
 
-    rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, (float)ss->fb.h - 48.f,
-                      ss->catalog.picker_hint[0] ? ss->catalog.picker_hint : "Choose a startup volume",
-                      rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
-    rb_gfx_text(&ss->fb, ui_caption(ss), ui_edge(ss), (float)ss->fb.h - 48.f, "Settings",
-                rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    {
+        float hint_y = (float)ss->fb.h - 48.f;
+        if (ui_debug_on(ss))
+            hint_y = (float)ss->fb.h - ui_debug_reserve(ss) - 8.f;
+        rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, hint_y,
+                          ss->catalog.picker_hint[0] ? ss->catalog.picker_hint : "Choose a startup volume",
+                          rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+        rb_gfx_text(&ss->fb, ui_caption(ss), ui_edge(ss), hint_y, "Settings",
+                    rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+        if (ui_debug_on(ss))
+            rb_debug_term_draw(ss);
+    }
 
     if (ss->catalog.picker_timeout_s > 0 && ss->timeout_left_ms > 0) {
         char buf[64];
+        float ty = (float)ss->fb.h - 64.f;
+        if (ui_debug_on(ss))
+            ty = (float)ss->fb.h - ui_debug_reserve(ss) - 24.f;
         snprintf(buf, sizeof(buf), "Booting in %d", (ss->timeout_left_ms + 999) / 1000);
-        rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, (float)ss->fb.h - 64.f, buf,
+        rb_gfx_text_center(&ss->fb, ui_caption(ss), ss->fb.w * 0.5f, ty, buf,
                            rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
     }
 }
@@ -509,44 +566,78 @@ int rb_picker_visible_rank(const rb_catalog *c, int idx)
 
 void rb_bootlog(rb_session *ss, const char *line)
 {
+    if (!ss) ss = g_bootlog_ss;
+    else g_bootlog_ss = ss;
     if (!ss || !line) return;
-    if (ss->boot_log_n >= 24) {
+    if (ss->boot_log_n >= RB_BOOTLOG_LINES) {
         int i;
-        for (i = 1; i < 24; i++)
+        for (i = 1; i < RB_BOOTLOG_LINES; i++)
             rb_strcpy(ss->boot_log[i - 1], sizeof(ss->boot_log[0]), ss->boot_log[i]);
-        ss->boot_log_n = 23;
+        ss->boot_log_n = RB_BOOTLOG_LINES - 1;
     }
     rb_strcpy(ss->boot_log[ss->boot_log_n++], sizeof(ss->boot_log[0]), line);
+    ss->boot_log_seq++;
     rb_logf("%s", line);
 }
 
-static const rb_font *ui_body(const rb_session *ss)
+void rb_bootlogf(rb_session *ss, const char *fmt, ...)
 {
-    return ss->font_body.atlas ? &ss->font_body : ui_caption(ss);
+    char line[RB_BOOTLOG_COLS];
+    va_list ap;
+    if (!fmt) return;
+    va_start(ap, fmt);
+    vsnprintf(line, sizeof(line), fmt, ap);
+    va_end(ap);
+    rb_bootlog(ss, line);
+}
+
+void rb_debug_term_draw(rb_session *ss)
+{
+    float x, y, w, h, text_y, line_h;
+    int i, vis, start;
+    const rb_font *body, *cap;
+    if (!ss || !ui_debug_on(ss)) return;
+    g_bootlog_ss = ss;
+    rb_debug_term_geom(ss, &x, &y, &w, &h);
+    body = ui_body(ss);
+    cap = ui_caption(ss);
+    line_h = ui_compact(ss) ? 16.f : 18.f;
+    rb_gfx_round_rect(&ss->fb, x, y, w, h, 18.f, rb_token(RB_TOKEN_BG_SECONDARY, 255));
+    rb_gfx_round_rect_stroke(&ss->fb, x, y, w, h, 18.f, 1.f, rb_token(RB_TOKEN_BORDER_DEFAULT, 255));
+    rb_gfx_text(&ss->fb, cap, x + 24.f, y + 16.f, "Log", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    rb_gfx_fill_rect(&ss->fb, x + 24.f, y + 38.f, w - 48.f, 1.f, rb_token(RB_TOKEN_BORDER_SUBTLE, 255));
+    vis = (int)((h - 52.f) / line_h);
+    if (vis < 1) vis = 1;
+    start = ss->boot_log_n - vis;
+    if (start < 0) start = 0;
+    text_y = y + 48.f;
+    for (i = start; i < ss->boot_log_n; i++) {
+        rb_gfx_text(&ss->fb, body, x + 24.f, text_y, ss->boot_log[i],
+                    rb_token(RB_TOKEN_TEXT_SECONDARY, 255));
+        text_y += line_h;
+    }
+    ss->boot_log_shown = ss->boot_log_seq;
+}
+
+void rb_debug_flush(rb_session *ss)
+{
+    if (!ss) ss = g_bootlog_ss;
+    if (!ss || !ss->plat) return;
+    if (!ui_debug_on(ss)) return;
+    ss->splash_bg_ready = 0;
+    ss->fb.damage_w = 0;
+    ss->fb.damage_h = 0;
+    rb_splash_draw(ss, ss->load_visual > 0.f ? ss->load_visual : 1.f, 1.f);
+    if (ss->plat->present) ss->plat->present(&ss->fb);
 }
 
 void rb_verbose_draw(rb_session *ss)
 {
-    float pad, y;
-    int i;
-    const rb_font *body, *cap, *title;
     if (!ss) return;
-    pad = ui_compact(ss) ? 22.f : 40.f;
-    body = ui_body(ss);
-    cap = ui_caption(ss);
-    title = ss->font_title.atlas ? &ss->font_title : body;
-    rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
-    rb_gfx_text(&ss->fb, title, pad, pad, "RoboBoot", rb_token(RB_TOKEN_TEXT_PRIMARY, 255));
-    rb_gfx_text(&ss->fb, cap, pad, pad + 36.f, "Startup", rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
-    rb_gfx_fill_rect(&ss->fb, pad, pad + 64.f, (float)ss->fb.w - pad * 2.f, 1.f,
-                     rb_token(RB_TOKEN_BORDER_SUBTLE, 255));
-    y = pad + 88.f;
-    for (i = 0; i < ss->boot_log_n; i++) {
-        rb_gfx_text(&ss->fb, body, pad, y, ss->boot_log[i],
-                    rb_token(RB_TOKEN_TEXT_SECONDARY, 255));
-        y += 22.f;
-        if (y > (float)ss->fb.h - 48.f) break;
-    }
+    ss->splash_bg_ready = 0;
+    rb_splash_draw(ss, 1.f, 1.f);
+    if (ui_debug_on(ss))
+        rb_debug_term_draw(ss);
 }
 
 void rb_settings_draw(rb_session *ss)
@@ -563,7 +654,8 @@ void rb_settings_draw(rb_session *ss)
     card_w = ui_compact(ss) ? (float)ss->fb.w - pad * 2.f : 560.f;
     card_h = 160.f;
     card_x = ((float)ss->fb.w - card_w) * 0.5f;
-    card_y = (float)ss->fb.h * 0.5f - card_h * 0.5f;
+    card_y = ((float)ss->fb.h - ui_debug_reserve(ss)) * 0.5f - card_h * 0.5f;
+    if (card_y < pad + 72.f) card_y = pad + 72.f;
     tog_w = 51.f;
     tog_h = 31.f;
     rb_gfx_clear(&ss->fb, rb_token(RB_TOKEN_BG_PRIMARY, 255));
@@ -585,9 +677,16 @@ void rb_settings_draw(rb_session *ss)
     knob = on ? tog_x + tog_w - tog_h + 2.f : tog_x + 2.f;
     rb_gfx_circle(&ss->fb, knob + (tog_h - 4.f) * 0.5f, tog_y + tog_h * 0.5f, (tog_h - 6.f) * 0.5f,
                   rb_token(RB_TOKEN_TEXT_ON_BRAND, 255));
-    rb_gfx_text_center(&ss->fb, cap, (float)ss->fb.w * 0.5f, (float)ss->fb.h - 48.f,
-                      "Enter to toggle   Esc to return",
-                      rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+    {
+        float hint_y = (float)ss->fb.h - 48.f;
+        if (on)
+            hint_y = (float)ss->fb.h - ui_debug_reserve(ss) - 8.f;
+        rb_gfx_text_center(&ss->fb, cap, (float)ss->fb.w * 0.5f, hint_y,
+                          "Enter to toggle   Esc to return",
+                          rb_token(RB_TOKEN_TEXT_TERTIARY, 255));
+        if (on)
+            rb_debug_term_draw(ss);
+    }
 }
 
 void rb_klog_draw(rb_session *ss)
@@ -596,6 +695,12 @@ void rb_klog_draw(rb_session *ss)
     float pad, y;
     const rb_font *body, *cap, *title;
     if (!ss) return;
+    if (ui_debug_on(ss)) {
+        ss->splash_bg_ready = 0;
+        rb_splash_draw(ss, 1.f, 1.f);
+        rb_debug_term_draw(ss);
+        return;
+    }
     pad = ui_compact(ss) ? 22.f : 40.f;
     body = ui_body(ss);
     cap = ui_caption(ss);

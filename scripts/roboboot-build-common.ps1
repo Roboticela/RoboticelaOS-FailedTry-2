@@ -446,33 +446,88 @@ function Invoke-RoboBuildImage {
     [IO.File]::WriteAllText($script:EspFlagFile, $wantFlags)
 }
 
+function Write-PaddedEnv([string]$Src, [string]$Dst) {
+    $text = "ROBOENV1`ndebug=0`n"
+    if (Test-Path $Dst) {
+        $have = [IO.File]::ReadAllText($Dst)
+        if ($have.StartsWith("ROBOENV1")) { $text = $have }
+    } elseif (Test-Path $Src) {
+        $have = [IO.File]::ReadAllText($Src)
+        if ($have.StartsWith("ROBOENV1")) { $text = $have }
+    }
+    $text = $text -replace "`0", "" -replace "`r`n", "`n" -replace "`r", "`n"
+    if ($text -notmatch '(?m)^debug=') { $text = $text.TrimEnd("`n") + "`ndebug=0`n" }
+    $block = New-Object byte[] 4096
+    for ($i = 0; $i -lt 4096; $i++) { $block[$i] = 35 }
+    $payload = [Text.Encoding]::ASCII.GetBytes($text)
+    $n = [Math]::Min($payload.Length, 4095)
+    [Array]::Copy($payload, $block, $n)
+    New-Item -ItemType Directory -Force -Path (Split-Path $Dst) | Out-Null
+    [IO.File]::WriteAllBytes($Dst, $block)
+}
+
+function Copy-EspTree([string]$SrcDir, [string]$DstDir) {
+    if (-not (Test-Path $SrcDir)) { return }
+    $skipExt = @(".png", ".svg", ".gitkeep", ".gitignore")
+    $skipDir = @("icons", "build", "src", "include", "tests", "tools")
+    New-Item -ItemType Directory -Force -Path $DstDir | Out-Null
+    Get-ChildItem $SrcDir -Force | ForEach-Object {
+        if ($_.Name.StartsWith(".")) { return }
+        if ($_.PSIsContainer) {
+            if ($skipDir -contains $_.Name) { return }
+            Copy-EspTree $_.FullName (Join-Path $DstDir $_.Name)
+            return
+        }
+        if ($skipExt -contains $_.Extension.ToLowerInvariant()) { return }
+        if ($_.Name -eq "qemu.flags") { return }
+        if ($_.Name -eq "roboboot.env") {
+            Write-PaddedEnv $_.FullName (Join-Path $DstDir $_.Name)
+            return
+        }
+        Copy-Item $_.FullName (Join-Path $DstDir $_.Name) -Force
+    }
+}
+
 function Publish-RoboDist {
     New-Item -ItemType Directory -Force -Path $script:Dist | Out-Null
-    $copies = @(
-        @{ Src = $script:EfiOut;     Name = "BOOTX64.EFI" },
-        @{ Src = $script:KernelOut;  Name = "kernel.elf" },
-        @{ Src = $script:EspImg;     Name = "roboboot-esp.img" },
-        @{ Src = $script:HostOut;    Name = "roboboot.exe" }
-    )
-    foreach ($c in $copies) {
-        if (Test-Path $c.Src) {
-            Copy-Item $c.Src (Join-Path $script:Dist $c.Name) -Force
-        }
+    foreach ($junk in @("BOOTX64.EFI", "kernel.elf", "roboboot.exe", "roboboot-esp.img", "COMBINED.txt")) {
+        $p = Join-Path $script:Dist $junk
+        if (Test-Path $p) { Remove-Item $p -Force }
     }
-    $efi = Join-Path $script:Dist "BOOTX64.EFI"
-    $kern = Join-Path $script:Dist "kernel.elf"
-    $esp = Join-Path $script:Dist "roboboot-esp.img"
-    if (-not (Test-Path $efi)) { throw "combine missing BOOTX64.EFI" }
-    if (-not (Test-Path $kern)) { throw "combine missing kernel.elf" }
-    if (-not (Test-Path $esp)) { throw "combine missing roboboot-esp.img" }
+
+    $efiBoot = Join-Path $script:Dist "EFI\BOOT\BOOTX64.EFI"
+    $efiVendor = Join-Path $script:Dist "EFI\Roboticela\BOOTX64.EFI"
+    New-Item -ItemType Directory -Force -Path (Split-Path $efiBoot) | Out-Null
+    New-Item -ItemType Directory -Force -Path (Split-Path $efiVendor) | Out-Null
+    if (-not (Test-Path $script:EfiOut)) { throw "combine missing BOOTX64.EFI" }
+    Copy-Item $script:EfiOut $efiBoot -Force
+    Copy-Item $script:EfiOut $efiVendor -Force
+
+    Copy-EspTree (Join-Path $script:Boot "config") (Join-Path $script:Dist "config")
+    Copy-EspTree (Join-Path $script:Boot "assets") (Join-Path $script:Dist "assets")
+    Copy-EspTree (Join-Path $script:Boot "volumes") (Join-Path $script:Dist "volumes")
+
+    $kern = Join-Path $script:Dist "volumes\sys\kernel.elf"
+    if (-not (Test-Path $kern) -and (Test-Path $script:KernelOut)) {
+        New-Item -ItemType Directory -Force -Path (Split-Path $kern) | Out-Null
+        Copy-Item $script:KernelOut $kern -Force
+    }
+    if (-not (Test-Path $efiBoot)) { throw "combine missing EFI\BOOT\BOOTX64.EFI" }
+    if (-not (Test-Path $kern)) { throw "combine missing volumes\sys\kernel.elf" }
+
     $note = @(
-        "RoboticelaOS combined image",
-        "kernel      kernel.elf",
-        "bootloader  BOOTX64.EFI",
-        "esp         roboboot-esp.img"
+        "Copy the contents of this folder onto a FAT32 USB drive.",
+        "The stick root must contain EFI\BOOT\BOOTX64.EFI - do not nest an extra folder.",
+        "Then boot the PC from USB.",
+        "",
+        "EFI\BOOT\BOOTX64.EFI        default firmware boot path",
+        "EFI\Roboticela\BOOTX64.EFI  vendor boot path",
+        "config\                     catalog and saved settings",
+        "assets\                     splash, pictures, fonts",
+        "volumes\sys\kernel.elf      kernel"
     )
-    [IO.File]::WriteAllLines((Join-Path $script:Dist "COMBINED.txt"), $note)
-    Write-Step "DIST" "build\"
+    [IO.File]::WriteAllLines((Join-Path $script:Dist "USB.txt"), $note)
+    Write-Step "USB" "EFI\BOOT\BOOTX64.EFI"
 }
 
 function Invoke-RoboCombine {
