@@ -15,13 +15,13 @@ static void robo_sched_unlock(uint64_t flags) { (void)flags; }
 
 static RoboProcess *g_head;
 static uint64_t g_count;
-static robo_process_id_t g_next_id = 1;
+static robo_process_id_t g_next_id = 2;
 
 void robo_ptable_init(void)
 {
     g_head = 0;
     g_count = 0;
-    g_next_id = 1;
+    g_next_id = 2;
 }
 
 robo_process_id_t robo_ptable_alloc_id(void)
@@ -34,8 +34,8 @@ robo_process_id_t robo_ptable_alloc_id(void)
     flags = robo_sched_lock();
     for (;;) {
         id = g_next_id++;
-        if (id == 0) {
-            g_next_id = 1;
+        if (id == 0 || id == ROBO_PROCESS_ID_INIT) {
+            g_next_id = 2;
             continue;
         }
         collision = 0;
@@ -49,8 +49,8 @@ robo_process_id_t robo_ptable_alloc_id(void)
             robo_sched_unlock(flags);
             return id;
         }
-        if (g_next_id == 0)
-            g_next_id = 1;
+        if (g_next_id == 0 || g_next_id == ROBO_PROCESS_ID_INIT)
+            g_next_id = 2;
     }
 }
 
@@ -59,7 +59,7 @@ int robo_ptable_insert(RoboProcess *process)
     uint64_t flags;
     RoboProcess *p;
 
-    if (!process || process->id == 0)
+    if (!process)
         return 0;
 
     flags = robo_sched_lock();
@@ -101,8 +101,6 @@ RoboProcess *robo_ptable_lookup(robo_process_id_t pid)
     uint64_t flags;
     RoboProcess *p;
 
-    if (pid == 0)
-        return 0;
     flags = robo_sched_lock();
     for (p = g_head; p; p = p->next) {
         if (p->id == pid) {

@@ -113,7 +113,8 @@ uint64_t robo_sys_abi_info(RoboSyscallContext *ctx)
         info.features = ROBO_ABI_FEAT_WRITE | ROBO_ABI_FEAT_EXIT |
                         ROBO_ABI_FEAT_TIME | ROBO_ABI_FEAT_SLEEP |
                         ROBO_ABI_FEAT_MMAP | ROBO_ABI_FEAT_FS |
-                        ROBO_ABI_FEAT_THREAD | ROBO_ABI_FEAT_PROCESS;
+                        ROBO_ABI_FEAT_THREAD | ROBO_ABI_FEAT_PROCESS |
+                        ROBO_ABI_FEAT_WAIT;
         info.reserved = 0;
         if (robo_copy_to_user(as, out, &info, sizeof(info)) != 0)
             return robo_sys_err(ROBO_EFAULT);
@@ -375,23 +376,27 @@ uint64_t robo_sys_munmap(RoboSyscallContext *ctx)
 uint64_t robo_sys_process_create(RoboSyscallContext *ctx)
 {
     char path[ROBO_SYSCALL_PATH_MAX + 1];
-    const void *data;
-    uint32_t size;
     RoboProcess *child;
     int quiet;
     RoboAddressSpace *as = ctx_as(ctx);
+    robo_exec_status_t st;
 
     if (robo_copy_user_string(as, path, arg(ctx, 1), sizeof(path)) != 0)
         return robo_sys_err(ROBO_EFAULT);
-    if (!robo_fs_open(path, &data, &size) || !data)
+    if (!robo_exec_image_present(path))
         return robo_sys_err(ROBO_ENOENT);
-    (void)size;
     quiet = 1;
     robo_exec_set_quiet(quiet);
     child = robo_process_create_from_elf(path);
     robo_exec_set_quiet(0);
-    if (!child)
-        return robo_sys_err(ROBO_ENOMEM);
+    if (!child) {
+        st = robo_exec_last_status();
+        if (st == ROBO_ELF_FILE_FAILURE)
+            return robo_sys_err(ROBO_ENOENT);
+        if (st == ROBO_ELF_MEMORY_FAILURE)
+            return robo_sys_err(ROBO_ENOMEM);
+        return robo_sys_err(ROBO_EINVAL);
+    }
     return child->id;
 }
 
@@ -553,4 +558,33 @@ uint64_t robo_sys_rename(RoboSyscallContext *ctx)
         return robo_sys_err(ROBO_EFAULT);
     r = robo_vfs_rename(oldp, newp);
     return sys_from_neg(r);
+}
+
+uint64_t robo_sys_wait(RoboSyscallContext *ctx)
+{
+    uint64_t pid = arg(ctx, 1);
+    uint64_t flags = arg(ctx, 2);
+    uint64_t ust = arg(ctx, 3);
+    RoboAddressSpace *as = ctx_as(ctx);
+    int status = 0;
+    robo_process_id_t out = 0;
+    int r;
+
+    if (flags & ~((uint64_t)ROBO_WAIT_NOHANG))
+        return robo_sys_err(ROBO_EINVAL);
+    if (ust && !robo_user_range_valid(as, ust, sizeof(int), ROBO_USER_ACCESS_WRITE))
+        return robo_sys_err(ROBO_EFAULT);
+    r = robo_process_wait(pid, (uint32_t)flags, &status, &out);
+    if (r != 0)
+        return sys_from_neg(r);
+    if (ust && robo_copy_to_user(as, ust, &status, sizeof(status)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    return out;
+}
+
+uint64_t robo_sys_getpid(RoboSyscallContext *ctx)
+{
+    if (!ctx->process)
+        return robo_sys_err(ROBO_EINVAL);
+    return ctx->process->id;
 }

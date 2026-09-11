@@ -392,7 +392,11 @@ function Invoke-RoboBuildUserland {
         @{ Name = "a"; Srcs = @("lib\crt0.S", "lib\syscall.S", "iso\a.c") },
         @{ Name = "b"; Srcs = @("lib\crt0.S", "lib\syscall.S", "iso\b.c") },
         @{ Name = "fd-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "fd-test\fd-test.c") },
-        @{ Name = "robofs-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "robofs-test\robofs-test.c") }
+        @{ Name = "robofs-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "robofs-test\robofs-test.c") },
+        @{ Name = "init"; Srcs = @("lib\crt0.S", "lib\syscall.S", "init\main.c", "init\service.c", "init\config.c") },
+        @{ Name = "test-service"; Srcs = @("lib\crt0.S", "lib\syscall.S", "services\test-service\test-service.c") },
+        @{ Name = "crash-test"; Srcs = @("services\crash-test\start.S") },
+        @{ Name = "isol-test"; Srcs = @("services\isol-test\start.S") }
     )
     $elfs = @{}
     foreach ($p in $progs) {
@@ -426,6 +430,10 @@ function Invoke-RoboBuildUserland {
         ("/bin/b=" + $elfs["b"]),
         ("/bin/fd-test=" + $elfs["fd-test"]),
         ("/bin/robofs-test=" + $elfs["robofs-test"]),
+        ("/System/init=" + $elfs["init"]),
+        ("/System/services/test-service=" + $elfs["test-service"]),
+        ("/System/services/crash-test=" + $elfs["crash-test"]),
+        ("/System/services/isol-test=" + $elfs["isol-test"]),
         ("/test.txt=" + $txt)
     )
     if ($LASTEXITCODE -ne 0) { throw "RoboFS pack failed" }
@@ -494,6 +502,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "process\process_resources.c"),
         (Join-Path $kroot "process\process_debug.c"),
         (Join-Path $kroot "process\process_test.c"),
+        (Join-Path $kroot "process\init.c"),
         (Join-Path $kroot "exec\elf\elf.c"),
         (Join-Path $kroot "exec\elf\elf_parser.c"),
         (Join-Path $kroot "exec\elf\elf_validate.c"),

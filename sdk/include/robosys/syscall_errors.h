@@ -41,5 +41,7 @@
 #define ROBO_ENOTEMPTY 18
 #define ROBO_EXDEV    19
 #define ROBO_ENOSPC   20
+#define ROBO_ECHILD   21
+#define ROBO_EAGAIN   22
 
 #endif

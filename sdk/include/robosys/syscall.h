@@ -141,4 +141,17 @@ static inline robo_long robo_rename(const char *old_path, const char *new_path)
                         (robo_long)(uintptr_t)new_path, 0, 0, 0, 0);
 }
 
+static inline robo_long robo_wait(robo_pid pid, unsigned flags, int *status)
+{
+    return robo_syscall((robo_long)ROBO_SYS_WAIT, (robo_long)pid,
+                        (robo_long)flags, (robo_long)(uintptr_t)status,
+                        0, 0, 0);
+}
+
+static inline robo_pid robo_getpid(void)
+{
+    return (robo_pid)robo_syscall((robo_long)ROBO_SYS_GETPID,
+                                  0, 0, 0, 0, 0, 0);
+}
+
 #endif

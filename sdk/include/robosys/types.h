@@ -24,6 +24,7 @@ typedef struct RoboAbiInfo {
 #define ROBO_ABI_FEAT_FS      (1u << 5)
 #define ROBO_ABI_FEAT_THREAD  (1u << 6)
 #define ROBO_ABI_FEAT_PROCESS (1u << 7)
+#define ROBO_ABI_FEAT_WAIT    (1u << 8)
 
 typedef struct RoboStat {
     uint64_t size;

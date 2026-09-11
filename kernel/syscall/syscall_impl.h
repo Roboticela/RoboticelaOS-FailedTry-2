@@ -22,6 +22,8 @@ uint64_t robo_sys_mkdir(RoboSyscallContext *ctx);
 uint64_t robo_sys_rmdir(RoboSyscallContext *ctx);
 uint64_t robo_sys_unlink(RoboSyscallContext *ctx);
 uint64_t robo_sys_rename(RoboSyscallContext *ctx);
+uint64_t robo_sys_wait(RoboSyscallContext *ctx);
+uint64_t robo_sys_getpid(RoboSyscallContext *ctx);
 uint64_t robo_sys_enosys(RoboSyscallContext *ctx);
 
 #endif

@@ -1,6 +1,8 @@
 #include "process/process.h"
 #include "process/process_table.h"
 #include "mm/vmm/paging.h"
+#include "syscall/syscall_errors.h"
+#include "syscall/syscall_numbers.h"
 
 #ifdef PROCESS_HOST_TEST
 #include <stdlib.h>
@@ -54,6 +56,7 @@ RoboProcess *robo_thread_process(const RoboThread *thread)
 #endif
 
 static RoboProcess *g_kernel;
+static RoboProcess *g_init;
 static uint64_t g_created;
 static uint64_t g_destroyed;
 static uint64_t g_live;
@@ -171,7 +174,8 @@ static void process_free_partial(RoboProcess *p)
     kfree(p);
 }
 
-static RoboProcess *process_create_internal(const char *name, int clone)
+static RoboProcess *process_create_internal(const char *name, int clone,
+                                            int have_id, robo_process_id_t reserved)
 {
     RoboProcess *p;
     RoboProcess *parent;
@@ -182,9 +186,15 @@ static RoboProcess *process_create_internal(const char *name, int clone)
     proc_zero(p, (unsigned)sizeof(*p));
     proc_set_name(p, name);
     p->state = ROBO_PROCESS_NEW;
-    p->id = robo_ptable_alloc_id();
-    if (p->id == 0)
-        goto fail_process;
+    if (have_id) {
+        p->id = reserved;
+        if (robo_ptable_lookup(p->id))
+            goto fail_process;
+    } else {
+        p->id = robo_ptable_alloc_id();
+        if (p->id == 0 || p->id == ROBO_PROCESS_ID_INIT)
+            goto fail_process;
+    }
 
     if (clone) {
         p->address_space = (RoboAddressSpace *)kmalloc(sizeof(*p->address_space));
@@ -286,7 +296,7 @@ int robo_process_subsystem_init(void)
     if (g_process_ready)
         return 1;
     robo_ptable_init();
-    g_kernel = process_create_internal("kernel", 0);
+    g_kernel = process_create_internal("kernel", 0, 1, ROBO_PROCESS_ID_KERNEL);
     if (!g_kernel)
         return 0;
     if (g_kernel->id != ROBO_PROCESS_ID_KERNEL)
@@ -312,6 +322,30 @@ RoboProcess *robo_kernel_process(void)
     return g_kernel;
 }
 
+RoboProcess *robo_init_process(void)
+{
+    return g_init;
+}
+
+void robo_process_set_init(RoboProcess *process)
+{
+    g_init = process;
+}
+
+RoboProcess *robo_process_create_init(void)
+{
+    RoboProcess *p;
+
+    if (!g_process_ready || g_init)
+        return 0;
+    p = process_create_internal("init", 1, 1, ROBO_PROCESS_ID_INIT);
+    if (!p)
+        return 0;
+    if (!proc_set_state(p, ROBO_PROCESS_RUNNING))
+        p->state = ROBO_PROCESS_RUNNING;
+    return p;
+}
+
 RoboProcess *robo_process_create(void)
 {
     return robo_process_create_named("process");
@@ -323,7 +357,7 @@ RoboProcess *robo_process_create_named(const char *name)
 
     if (!g_process_ready)
         return 0;
-    p = process_create_internal(name, 1);
+    p = process_create_internal(name, 1, 0, 0);
     if (!p)
         return 0;
     if (!proc_set_state(p, ROBO_PROCESS_RUNNING))
@@ -365,6 +399,8 @@ int robo_process_add_thread(RoboProcess *process, RoboThread *thread)
 int robo_process_remove_thread(RoboProcess *process, RoboThread *thread)
 {
     uint64_t flags;
+    RoboThread *to_wake = 0;
+    int last = 0;
 
     if (!process || !thread)
         return 0;
@@ -390,7 +426,24 @@ int robo_process_remove_thread(RoboProcess *process, RoboThread *thread)
             process->state = ROBO_PROCESS_TERMINATED;
         process->exit_time = robo_time_now();
     }
+    if (process != g_kernel && process->thread_count == 0 &&
+        process->parent) {
+        process->parent->wait_gen++;
+        if (process->parent->waiter) {
+            to_wake = process->parent->waiter;
+            process->parent->waiter = 0;
+        }
+    }
+    last = (process != g_kernel && process->thread_count == 0);
     robo_sched_unlock(flags);
+#ifndef PROCESS_HOST_TEST
+    if (to_wake)
+        robo_thread_wake(to_wake);
+#else
+    (void)to_wake;
+#endif
+    if (last)
+        robo_init_on_terminated(process);
     return 1;
 }
 
@@ -399,7 +452,7 @@ int robo_process_destroy(RoboProcess *process)
     RoboProcess *child, *next;
     RoboProcess *parent;
 
-    if (!process || process == g_kernel)
+    if (!process || process == g_kernel || process == g_init)
         return 0;
     if (process->thread_count != 0)
         return 0;
@@ -413,7 +466,9 @@ int robo_process_destroy(RoboProcess *process)
         next = child->sibling_next;
         child->sibling_next = 0;
         child->parent = 0;
-        if (parent)
+        if (g_init && g_init != process && g_init != child)
+            link_child(g_init, child);
+        else if (parent)
             link_child(parent, child);
         else if (g_kernel && g_kernel != process)
             link_child(g_kernel, child);
@@ -442,6 +497,15 @@ void robo_process_exit(int status)
     if (!p || p == g_kernel)
         return;
     p->exit_status = status;
+    if (p == g_init) {
+        if (p->state != ROBO_PROCESS_TERMINATED) {
+            if (!proc_set_state(p, ROBO_PROCESS_TERMINATED))
+                p->state = ROBO_PROCESS_TERMINATED;
+        }
+        p->exit_time = robo_time_now();
+        robo_init_on_terminated(p);
+        return;
+    }
     if (p->state != ROBO_PROCESS_TERMINATED) {
         if (!proc_set_state(p, ROBO_PROCESS_TERMINATED))
             p->state = ROBO_PROCESS_TERMINATED;
@@ -471,6 +535,101 @@ void robo_process_exit(int status)
     robo_sched_unlock(flags);
     robo_thread_exit();
 #endif
+}
+
+void robo_init_on_terminated(RoboProcess *process)
+{
+    if (!process || process != g_init)
+        return;
+#ifndef PROCESS_HOST_TEST
+    kprintf("========================================\n");
+    kprintf("          KERNEL PANIC\n");
+    kprintf("========================================\n\n");
+    kprintf("INIT PROCESS EXITED\n\n");
+    kprintf("PID 1 terminated unexpectedly.\n");
+    kprintf("Status  : %d\n", process->exit_status);
+    kprintf("\n========================================\n");
+    for (;;)
+        __asm__ volatile ("cli; hlt");
+#endif
+}
+
+static RoboProcess *wait_match(RoboProcess *parent, robo_process_id_t pid)
+{
+    RoboProcess *c;
+
+    if (!parent)
+        return 0;
+    for (c = parent->first_child; c; c = c->sibling_next) {
+        if (c->state != ROBO_PROCESS_TERMINATED || c->thread_count != 0)
+            continue;
+        if (pid == 0 || c->id == pid)
+            return c;
+    }
+    return 0;
+}
+
+static int wait_has_child(RoboProcess *parent, robo_process_id_t pid)
+{
+    RoboProcess *c;
+
+    if (!parent)
+        return 0;
+    for (c = parent->first_child; c; c = c->sibling_next) {
+        if (pid == 0 || c->id == pid)
+            return 1;
+    }
+    return 0;
+}
+
+int robo_process_wait(robo_process_id_t pid, uint32_t flags, int *status,
+                      robo_process_id_t *out_pid)
+{
+    RoboProcess *parent;
+    RoboProcess *child;
+#ifndef PROCESS_HOST_TEST
+    RoboThread *self;
+#endif
+
+    parent = robo_current_process();
+    if (!parent)
+        return -ROBO_EPERM;
+    if (flags & ~ROBO_WAIT_NOHANG)
+        return -ROBO_EINVAL;
+
+    for (;;) {
+        uint64_t gen;
+
+        child = wait_match(parent, pid);
+        if (child) {
+            if (status)
+                *status = child->exit_status;
+            if (out_pid)
+                *out_pid = child->id;
+            if (!robo_process_destroy(child))
+                return -ROBO_EBUSY;
+            return 0;
+        }
+        if (!wait_has_child(parent, pid))
+            return -ROBO_ECHILD;
+        if (flags & ROBO_WAIT_NOHANG)
+            return -ROBO_EAGAIN;
+#ifdef PROCESS_HOST_TEST
+        return -ROBO_EAGAIN;
+#else
+        self = robo_current_thread();
+        if (!self)
+            return -ROBO_EBUSY;
+        gen = parent->wait_gen;
+        parent->waiter = self;
+        if (parent->wait_gen != gen || wait_match(parent, pid)) {
+            parent->waiter = 0;
+            continue;
+        }
+        robo_thread_block();
+        parent->waiter = 0;
+#endif
+    }
 }
 
 RoboProcess *robo_current_process(void)

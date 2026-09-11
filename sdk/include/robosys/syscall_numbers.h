@@ -42,6 +42,9 @@
 #define ROBO_SYS_UNLINK          20u
 #define ROBO_SYS_RENAME          21u
 
+#define ROBO_SYS_WAIT            22u
+#define ROBO_SYS_GETPID          23u
+
 #define ROBO_SYS_TABLE_SIZE      32u
 #define ROBO_SYS_EXPERIMENTAL_BASE 500u
 
@@ -62,6 +65,8 @@
 #define ROBO_SEEK_SET 0
 #define ROBO_SEEK_CUR 1
 #define ROBO_SEEK_END 2
+
+#define ROBO_WAIT_NOHANG 1u
 
 #define ROBO_IPC_OP_SEND 1u
 #define ROBO_IPC_OP_RECV 2u

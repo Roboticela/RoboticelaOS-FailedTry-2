@@ -15,10 +15,11 @@ SECTIONS {
     } :text
     . = ALIGN(4096);
     .data : {
-        *(.data*)
+        KEEP(*(.data*))
+        BYTE(0)
     } :data
     .bss : {
-        *(.bss*)
+        KEEP(*(.bss*))
         *(COMMON)
     } :data
 }

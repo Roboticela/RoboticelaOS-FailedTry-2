@@ -30,6 +30,8 @@ void robo_syscall_table_init(void)
     g_table[ROBO_SYS_RMDIR] = robo_sys_rmdir;
     g_table[ROBO_SYS_UNLINK] = robo_sys_unlink;
     g_table[ROBO_SYS_RENAME] = robo_sys_rename;
+    g_table[ROBO_SYS_WAIT] = robo_sys_wait;
+    g_table[ROBO_SYS_GETPID] = robo_sys_getpid;
 }
 
 RoboSyscallHandler robo_syscall_lookup(uint64_t number)
@@ -71,6 +73,8 @@ const char *robo_syscall_name(uint64_t number)
     case ROBO_SYS_RMDIR: return "SYS_RMDIR";
     case ROBO_SYS_UNLINK: return "SYS_UNLINK";
     case ROBO_SYS_RENAME: return "SYS_RENAME";
+    case ROBO_SYS_WAIT: return "SYS_WAIT";
+    case ROBO_SYS_GETPID: return "SYS_GETPID";
     default: return "SYS_UNKNOWN";
     }
 }

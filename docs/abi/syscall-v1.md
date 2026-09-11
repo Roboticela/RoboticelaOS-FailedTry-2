@@ -132,6 +132,8 @@ if ((unsigned long)r >= (unsigned long)-4095ul)
 | `ROBO_ENOTEMPTY` | 18 | Directory not empty              |
 | `ROBO_EXDEV`  | 19    | Cross-device rename              |
 | `ROBO_ENOSPC` | 20    | No space on the filesystem       |
+| `ROBO_ECHILD` | 21    | No matching child process        |
+| `ROBO_EAGAIN` | 22    | No child ready (`SYS_WAIT` NOHANG) |
 
 Internal kernel error enums are never returned.
 
@@ -162,6 +164,7 @@ Optional `RoboAbiInfo` (when argument 1 is a user pointer):
 | `ROBO_ABI_FEAT_FS`       | RoboFS `OPEN`/`READ`/`CLOSE`     |
 | `ROBO_ABI_FEAT_THREAD`   | `SYS_THREAD_CREATE`              |
 | `ROBO_ABI_FEAT_PROCESS`  | `SYS_PROCESS_CREATE`             |
+| `ROBO_ABI_FEAT_WAIT`     | `SYS_WAIT`                       |
 
 A minor version does not imply every optional feature exists. Use flags.
 
@@ -191,7 +194,9 @@ A minor version does not imply every optional feature exists. Use flags.
 | 19     | SYS_RMDIR            | 1    | 0/error       | may block       |
 | 20     | SYS_UNLINK           | 1    | 0/error       | may block       |
 | 21     | SYS_RENAME           | 2    | 0/error       | may block       |
-| 22–31  | reserved             | —    | ENOSYS        | never           |
+| 22     | SYS_WAIT             | 1–3  | pid/error     | may block       |
+| 23     | SYS_GETPID           | 0    | pid           | never           |
+| 24–31  | reserved             | —    | ENOSYS        | never           |
 
 ---
 
@@ -612,6 +617,52 @@ Returns: 0 or error. Cross-mount rename returns `ROBO_EXDEV`. The
 object id is unchanged when the backend supports it.
 
 Pointer: both arguments are user strings
+
+ABI: v1
+
+---
+
+## SYS_WAIT
+
+Number: `22`
+
+Arguments: RDI = pid (0 = any child), RSI = flags, RDX = optional
+`int *` exit status (0 to ignore)
+
+Returns: reaped child pid, or error.
+
+Flags: `ROBO_WAIT_NOHANG` (1) returns `ROBO_EAGAIN` instead of blocking.
+`ROBO_ECHILD` means no matching child. The kernel reaps the zombie; user
+space does not scan the process table.
+
+Pointer: RDX, kernel writes `sizeof(int)` when non-zero
+
+Blocking: yes, unless `NOHANG`
+
+Permissions: caller’s own children only
+
+Side effects: child process object destroyed after status is collected
+
+ABI: v1
+
+---
+
+## SYS_GETPID
+
+Number: `23`
+
+Arguments: none
+
+Returns: calling process id (PID 0 is the kernel process; PID 1 is
+`/System/init`)
+
+Pointer: none
+
+Blocking: never
+
+Permissions: none
+
+Side effects: none
 
 ABI: v1
 

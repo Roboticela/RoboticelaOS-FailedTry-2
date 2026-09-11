@@ -2,6 +2,7 @@
 #include "process/process_table.h"
 #include "fs/backends/console.h"
 #include "fs/file.h"
+#include <robosys/syscall_numbers.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -29,8 +30,7 @@ int main(void)
     CHECK(robo_process_subsystem_init(), "subsystem init");
     k = robo_kernel_process();
     CHECK(k != 0, "kernel process");
-    CHECK(robo_process_id(k) == ROBO_PROCESS_ID_KERNEL, "kernel pid 1");
-    CHECK(robo_process_id(k) != 0, "pid not zero");
+    CHECK(robo_process_id(k) == ROBO_PROCESS_ID_KERNEL, "kernel pid 0");
     CHECK(robo_process_lookup(k->id) == k, "kernel in table");
     CHECK(k->fd_table && k->ipc && k->environment && k->credentials, "kernel resources");
     CHECK(k->address_space != 0, "kernel aspace");
@@ -93,6 +93,20 @@ int main(void)
     CHECK(robo_process_lookup(gone) == 0, "stale pid");
     CHECK(robo_process_destroy(c), "destroy c");
     CHECK(robo_process_destroy(d), "destroy d");
+    {
+        RoboProcess *z;
+        int st = -1;
+        robo_process_id_t out = 0;
+        robo_process_id_t zid;
+        z = robo_process_create_named("zombie");
+        CHECK(z != 0, "zombie create");
+        zid = z->id;
+        z->state = ROBO_PROCESS_TERMINATED;
+        z->exit_status = 7;
+        CHECK(robo_process_wait(0, ROBO_WAIT_NOHANG, &st, &out) == 0, "wait zombie");
+        CHECK(out == zid && st == 7, "wait status");
+        CHECK(robo_process_lookup(out) == 0, "reaped");
+    }
     CHECK(robo_process_destroy(a), "destroy a");
     CHECK(!robo_process_destroy(k), "kernel immortal");
     CHECK(robo_process_lookup(k->id) == k, "kernel remains");

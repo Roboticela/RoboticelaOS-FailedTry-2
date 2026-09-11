@@ -411,8 +411,12 @@ void robo_thread_kill_current(void)
     t->wake_deadline = 0;
     if (!robo_thread_transition(t, ROBO_THREAD_TERMINATED))
         t->state = ROBO_THREAD_TERMINATED;
-    if (t->process)
+    if (t->process) {
+        if (t->process->state != ROBO_PROCESS_TERMINATED &&
+            t->process->exit_status == 0)
+            t->process->exit_status = ROBO_PROCESS_EXIT_FAULT;
         robo_process_remove_thread(t->process, t);
+    }
     robo_sched_note_term();
     robo_sched_unlock(flags);
 }

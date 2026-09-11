@@ -7,8 +7,10 @@
 #include "fs/fd.h"
 #include "thread/thread.h"
 
-#define ROBO_PROCESS_ID_KERNEL 1ull
+#define ROBO_PROCESS_ID_KERNEL 0ull
+#define ROBO_PROCESS_ID_INIT   1ull
 #define ROBO_PROCESS_NAME_MAX  32
+#define ROBO_PROCESS_EXIT_FAULT 255
 
 typedef uint64_t robo_process_id_t;
 
@@ -43,6 +45,9 @@ typedef struct RoboProcess {
     uint64_t user_stack_top;
     uint64_t user_stack_base;
     uint64_t mmap_next;
+
+    struct RoboThread *waiter;
+    uint64_t wait_gen;
 } RoboProcess;
 
 int robo_process_subsystem_init(void);
@@ -50,8 +55,14 @@ RoboProcess *robo_kernel_process(void);
 
 RoboProcess *robo_process_create(void);
 RoboProcess *robo_process_create_named(const char *name);
+RoboProcess *robo_process_create_init(void);
+RoboProcess *robo_init_process(void);
+void robo_process_set_init(RoboProcess *process);
+int robo_process_wait(robo_process_id_t pid, uint32_t flags, int *status,
+                      robo_process_id_t *out_pid);
 int robo_process_destroy(RoboProcess *process);
 void robo_process_exit(int status);
+void robo_init_on_terminated(RoboProcess *process);
 
 RoboProcess *robo_current_process(void);
 robo_process_id_t robo_process_id(const RoboProcess *process);

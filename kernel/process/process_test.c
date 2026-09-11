@@ -256,7 +256,7 @@ int robo_process_selftest(void)
     kprintf("        PROCESS TEST\n");
     kprintf("========================================\n\n");
 
-    if (!robo_kernel_process() || robo_process_id(robo_kernel_process()) == 0)
+    if (!robo_kernel_process())
         return tfail("kernel process");
     if (robo_current_process() != robo_current_thread()->process)
         return tfail("current identity");

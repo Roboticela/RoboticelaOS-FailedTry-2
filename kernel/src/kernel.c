@@ -17,6 +17,7 @@
 #include "fs/block/block.h"
 #include "exec/exec.h"
 #include "syscall/syscall.h"
+#include "process/init.h"
 
 static void boot_bar(unsigned p)
 {
@@ -47,6 +48,7 @@ static int run_user_prog(const char *path)
 
 void kmain(const RoboBootInfo *info)
 {
+    int handoff = 0;
     kserial_init();
     kfb_init(info);
     kprintf("kmain\n");
@@ -255,6 +257,7 @@ void kmain(const RoboBootInfo *info)
                     kprintf("USER_ROBOFS_FAIL\n");
                 if (!robofs_selftest())
                     kprintf("ROBOFS_TEST_FAIL\n");
+                handoff = 1;
             } else {
                 kprintf("USER_TEST_FAIL\n");
             }
@@ -270,6 +273,8 @@ void kmain(const RoboBootInfo *info)
     kprintf("idle\n");
     boot_bar(ROBO_BOOT_PROGRESS_MAX);
     kprintf("Desktop  ready\n");
+    if (handoff)
+        robo_init_start(info);
     for (;;) {
         robo_sched_reap();
         kfb_poll();
