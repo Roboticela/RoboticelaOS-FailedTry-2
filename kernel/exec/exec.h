@@ -14,7 +14,8 @@ int robo_exec_image_present(const char *path);
 RoboProcess *robo_process_create_from_elf(const char *path);
 RoboProcess *robo_process_create_from_elf_argv(const char *path,
                                                const RoboExecArgv *argv);
-RoboProcess *robo_process_create_init_elf(const char *path);
+RoboProcess *robo_process_create_init_elf(const char *path,
+                                          const RoboExecArgv *argv);
 void robo_exec_set_quiet(int quiet);
 int robo_exec_selftest(const RoboBootInfo *info);
 

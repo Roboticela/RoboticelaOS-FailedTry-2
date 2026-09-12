@@ -414,6 +414,7 @@ void efi_fb_size(int *w, int *h);
 void efi_graphics_info(uint64_t *fb, uint32_t *w, uint32_t *h, uint32_t *pitch, uint32_t *bpp, uint32_t *pixfmt);
 void efi_shutdown(void);
 int efi_flag_selftest(void);
+int efi_flag_ktest(void);
 int efi_flag_menu(void);
 int efi_flag_splash_ms(void);
 const char *efi_last_boot(void);

@@ -27,6 +27,8 @@ void kfb_poll(void);
 void kfb_splash_set(unsigned progress);
 
 int kboot_debug(const RoboBootInfo *info);
+int kboot_cmd_has(const RoboBootInfo *info, const char *key);
+int kboot_selftest(const RoboBootInfo *info);
 void kboot_report(const RoboBootInfo *info);
 
 #endif

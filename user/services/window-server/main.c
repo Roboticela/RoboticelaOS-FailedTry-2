@@ -119,12 +119,26 @@ static void service_clients(void)
     }
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     robo_long r;
     int headless = 0;
     unsigned idle = 0;
+    int test_mode = 0;
     static const char name[] = ROBO_IPC_NAME_WINDOW_SERVER;
+    int ai;
+
+    for (ai = 1; ai < argc; ai++) {
+        const char *a = argv ? argv[ai] : 0;
+        unsigned n = 0;
+        const char *k = "selftest";
+        if (!a)
+            continue;
+        while (k[n] && a[n] && k[n] == a[n])
+            n++;
+        if (!k[n] && !a[n])
+            test_mode = 1;
+    }
 
     puts1("[WINDOW] RoboWindowServer starting\n");
     r = robo_ipc((int)ROBO_IPC_OP_LISTEN, 0, (void *)name, 0, 0);
@@ -157,18 +171,20 @@ int main(void)
         service_clients();
         pump_input();
         ws_present_if_dirty();
-        if (g_stop)
-            break;
-        for (i = 0; i < WS_CLIENTS; i++) {
-            if (g_cl[i].used)
-                n++;
-        }
-        if (g_served && n == 0) {
-            idle++;
-            if (idle > 50u)
+        if (test_mode) {
+            if (g_stop)
                 break;
-        } else {
-            idle = 0;
+            for (i = 0; i < WS_CLIENTS; i++) {
+                if (g_cl[i].used)
+                    n++;
+            }
+            if (g_served && n == 0) {
+                idle++;
+                if (idle > 50u)
+                    break;
+            } else {
+                idle = 0;
+            }
         }
         robo_sleep(1);
     }

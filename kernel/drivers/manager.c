@@ -159,7 +159,6 @@ int robo_hw_subsystem_init(const RoboBootInfo *info)
 {
     unsigned i;
     RoboDevice *d;
-    int crypto_ok, reg_ok, pci_ok, gfx_ok, in_ok, st_ok, pkg_ok;
 
     g_info = info;
     if (cmd_has(info, "driver-test")) {
@@ -207,33 +206,39 @@ int robo_hw_subsystem_init(const RoboBootInfo *info)
     robo_net_bringup();
     robo_pci_report();
 
-    crypto_ok = robo_sha256_selftest() && robo_sha512_selftest() &&
-                robo_ed25519_selftest();
-    pkg_ok = robo_rdrv_selftest();
-    reg_ok = robo_driver_registry_selftest();
-    pci_ok = robo_pci_selftest();
-    gfx_ok = robo_gfx_selftest();
-    in_ok = robo_input_selftest();
-    st_ok = robo_storage_selftest();
+    if (kboot_selftest(info)) {
+        int crypto_ok, reg_ok, pci_ok, gfx_ok, in_ok, st_ok, pkg_ok;
 
-    kprintf("PCI_TEST  %s\n", pci_ok ? "ok" : "fail");
-    kprintf("CRYPTO_TEST  %s\n", crypto_ok ? "ok" : "fail");
-    kprintf("RDRV_TEST  %s\n", pkg_ok ? "ok" : "fail");
-    kprintf("REGISTRY_TEST  %s\n", reg_ok ? "ok" : "fail");
+        crypto_ok = robo_sha256_selftest() && robo_sha512_selftest() &&
+                    robo_ed25519_selftest();
+        pkg_ok = robo_rdrv_selftest();
+        reg_ok = robo_driver_registry_selftest();
+        pci_ok = robo_pci_selftest();
+        gfx_ok = robo_gfx_selftest();
+        in_ok = robo_input_selftest();
+        st_ok = robo_storage_selftest();
 
-    report();
-    fb_debug(info);
+        kprintf("PCI_TEST  %s\n", pci_ok ? "ok" : "fail");
+        kprintf("CRYPTO_TEST  %s\n", crypto_ok ? "ok" : "fail");
+        kprintf("RDRV_TEST  %s\n", pkg_ok ? "ok" : "fail");
+        kprintf("REGISTRY_TEST  %s\n", reg_ok ? "ok" : "fail");
 
-    if (pci_ok && crypto_ok && pkg_ok && reg_ok && gfx_ok && in_ok && st_ok)
-        kprintf("[PASS] DRIVER SYSTEM\n");
-    else
-        kprintf("[FAIL] DRIVER SYSTEM\n");
+        report();
+        fb_debug(info);
 
-    (void)st_ok;
-    if (st_ok)
-        kprintf("[PASS] STORAGE DRIVER\n");
-    else
-        kprintf("[FAIL] STORAGE DRIVER\n");
+        if (pci_ok && crypto_ok && pkg_ok && reg_ok && gfx_ok && in_ok && st_ok)
+            kprintf("[PASS] DRIVER SYSTEM\n");
+        else
+            kprintf("[FAIL] DRIVER SYSTEM\n");
+
+        if (st_ok)
+            kprintf("[PASS] STORAGE DRIVER\n");
+        else
+            kprintf("[FAIL] STORAGE DRIVER\n");
+    } else {
+        report();
+        fb_debug(info);
+    }
     return 1;
 }
 

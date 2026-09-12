@@ -81,7 +81,7 @@ try {
     }
 
     Write-Host "RoboBoot QEMU selftest passed"
-    Invoke-MakeEsp
+    Invoke-MakeEsp -Flags "ktest`nsplash_ms 0"
     if (Test-Path $script:SerialLog) { Remove-Item $script:SerialLog -Force -ErrorAction SilentlyContinue }
     $kargs = Get-QemuBaseArgs -Headless -Disk $Disk
     $kproc = Start-QemuProcess -Arguments $kargs -Accel tcg -Hidden

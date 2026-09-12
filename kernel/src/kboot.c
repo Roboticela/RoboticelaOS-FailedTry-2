@@ -1,22 +1,39 @@
 #include "kio.h"
 
-int kboot_debug(const RoboBootInfo *info)
+int kboot_cmd_has(const RoboBootInfo *info, const char *key)
 {
     const char *p;
-    if (!info) return 0;
-    if (info->flags & ROBO_BOOT_DEBUG) return 1;
+    unsigned i;
+
+    if (!info || !key || !key[0])
+        return 0;
     p = info->cmdline;
     while (*p) {
-        if ((p[0] == 'd' || p[0] == 'D') &&
-            (p[1] == 'e' || p[1] == 'E') &&
-            (p[2] == 'b' || p[2] == 'B') &&
-            (p[3] == 'u' || p[3] == 'U') &&
-            (p[4] == 'g' || p[4] == 'G') &&
-            (p[5] == 0 || p[5] == ' '))
+        while (*p == ' ')
+            p++;
+        if (!*p)
+            break;
+        for (i = 0; key[i] && p[i] && p[i] == key[i]; i++) { }
+        if (!key[i] && (p[i] == 0 || p[i] == ' ' || p[i] == '='))
             return 1;
-        p++;
+        while (*p && *p != ' ')
+            p++;
     }
     return 0;
+}
+
+int kboot_debug(const RoboBootInfo *info)
+{
+    if (!info)
+        return 0;
+    if (info->flags & ROBO_BOOT_DEBUG)
+        return 1;
+    return kboot_cmd_has(info, "debug");
+}
+
+int kboot_selftest(const RoboBootInfo *info)
+{
+    return kboot_cmd_has(info, "selftest");
 }
 
 static uint64_t sum_type(const RoboBootInfo *info, uint32_t type)

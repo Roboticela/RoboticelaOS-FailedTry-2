@@ -6,10 +6,16 @@
 
 static RoboService g_svc[ROBO_SVC_MAX];
 static unsigned g_n;
+static int g_selftest;
 
 static int is_err(robo_long r)
 {
     return (uint64_t)r >= (uint64_t)-4095ll;
+}
+
+void robo_service_set_selftest(int on)
+{
+    g_selftest = on ? 1 : 0;
 }
 
 void robo_service_table_init(void)
@@ -19,20 +25,21 @@ void robo_service_table_init(void)
     unsigned i;
 
     cfg = robo_service_config(&n);
-    if (n > ROBO_SVC_MAX)
-        n = ROBO_SVC_MAX;
-    g_n = n;
-    for (i = 0; i < n; i++) {
-        g_svc[i].cfg = &cfg[i];
-        g_svc[i].pid = 0;
-        g_svc[i].state = ROBO_SVC_STOPPED;
-        g_svc[i].restart_policy = cfg[i].restart_policy;
-        g_svc[i].restart_count = 0;
-        g_svc[i].restart_limit = cfg[i].restart_limit;
-        g_svc[i].last_start_time = 0;
-        g_svc[i].restart_after = 0;
-        g_svc[i].exit_status = 0;
-        g_svc[i].ready = 0;
+    g_n = 0;
+    for (i = 0; i < n && g_n < ROBO_SVC_MAX; i++) {
+        if (!g_selftest && (cfg[i].flags & ROBO_SVC_SELFTEST))
+            continue;
+        g_svc[g_n].cfg = &cfg[i];
+        g_svc[g_n].pid = 0;
+        g_svc[g_n].state = ROBO_SVC_STOPPED;
+        g_svc[g_n].restart_policy = cfg[i].restart_policy;
+        g_svc[g_n].restart_count = 0;
+        g_svc[g_n].restart_limit = cfg[i].restart_limit;
+        g_svc[g_n].last_start_time = 0;
+        g_svc[g_n].restart_after = 0;
+        g_svc[g_n].exit_status = 0;
+        g_svc[g_n].ready = 0;
+        g_n++;
     }
 }
 
@@ -68,7 +75,15 @@ int robo_service_start(RoboService *svc)
     svc->state = ROBO_SVC_STARTING;
     svc->ready = 0;
     svc->pid = 0;
-    r = robo_process_create(svc->cfg->path);
+    if (g_selftest) {
+        char *av[3];
+        av[0] = (char *)svc->cfg->path;
+        av[1] = "selftest";
+        av[2] = 0;
+        r = robo_process_spawn(svc->cfg->path, av, 2);
+    } else {
+        r = robo_process_create(svc->cfg->path);
+    }
     if (is_err(r) || r <= 0) {
         svc->state = ROBO_SVC_FAILED;
         return 0;

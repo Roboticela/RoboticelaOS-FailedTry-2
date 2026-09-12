@@ -6,6 +6,39 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void cmdline_add_token(char *buf, unsigned cap, const char *tok)
+{
+    const char *p;
+    size_t n, tlen;
+
+    if (!buf || !tok || !tok[0] || cap < 2)
+        return;
+    p = buf;
+    while (*p) {
+        unsigned i;
+        while (*p == ' ')
+            p++;
+        if (!*p)
+            break;
+        for (i = 0; tok[i] && p[i] && p[i] == tok[i]; i++) { }
+        if (!tok[i] && (p[i] == 0 || p[i] == ' '))
+            return;
+        while (*p && *p != ' ')
+            p++;
+    }
+    n = strlen(buf);
+    tlen = strlen(tok);
+    if (!n) {
+        if (tlen + 1 <= cap)
+            rb_strcpy(buf, cap, tok);
+        return;
+    }
+    if (n + 1 + tlen + 1 > cap)
+        return;
+    buf[n] = ' ';
+    rb_strcpy(buf + n + 1, cap - n - 1, tok);
+}
+
 static EFI_GUID k_acpi20 = {0x8868e871, 0xe4f1, 0x11d3, {0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81}};
 static EFI_GUID k_acpi10 = {0xeb9d2d30, 0x2d88, 0x11d3, {0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d}};
 
@@ -239,23 +272,10 @@ int efi_start_kernel(const rb_target *t, const rb_handoff *h, int debug)
         rb_bootlogf(NULL, "Bootinfo  cmdline  %s", h->cmdline);
     if (debug)
         rb_debug_flush(NULL);
-    if (debug) {
-        const char *p = info->cmdline;
-        int has = 0;
-        while (*p) {
-            if (p[0] == 'd' && p[1] == 'e' && p[2] == 'b' && p[3] == 'u' && p[4] == 'g') { has = 1; break; }
-            p++;
-        }
-        if (!has) {
-            size_t n = strlen(info->cmdline);
-            if (n && n + 7 < sizeof(info->cmdline)) {
-                info->cmdline[n] = ' ';
-                rb_strcpy(info->cmdline + n + 1, sizeof(info->cmdline) - n - 1, "debug");
-            } else if (!n) {
-                rb_strcpy(info->cmdline, sizeof(info->cmdline), "debug");
-            }
-        }
-    }
+    if (debug)
+        cmdline_add_token(info->cmdline, sizeof(info->cmdline), "debug");
+    if (efi_flag_ktest())
+        cmdline_add_token(info->cmdline, sizeof(info->cmdline), "selftest");
 
     map_size = 0;
     if (!gBS || !gBS->GetMemoryMap || !gBS->ExitBootServices) {

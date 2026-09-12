@@ -21,6 +21,7 @@ enum {
 
 #define ROBO_SVC_CRITICAL (1u << 0)
 #define ROBO_SVC_ENABLED  (1u << 1)
+#define ROBO_SVC_SELFTEST (1u << 2)
 
 typedef struct RoboServiceConfig {
     const char *name;
@@ -52,5 +53,6 @@ void robo_service_on_exit(RoboService *svc, int status);
 int robo_service_start_due(void);
 uint64_t robo_service_next_delay_ms(void);
 int robo_service_live(void);
+void robo_service_set_selftest(int on);
 
 #endif

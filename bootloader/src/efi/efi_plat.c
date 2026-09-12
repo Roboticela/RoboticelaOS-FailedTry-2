@@ -21,6 +21,7 @@ static uint64_t g_alt_until;
 static int g_picker_chord;
 static uint64_t g_usb_kick_ms;
 static int g_selftest;
+static int g_ktest;
 static int g_menu;
 static int g_splash_ms = -1;
 static char g_last_boot[64];
@@ -34,6 +35,7 @@ static EFI_GUID k_usb_io_guid = {0x2B2F68D6, 0x0CD2, 0x4cb0, {0xB3, 0x62, 0x6F, 
 static EFI_GUID k_conin_guid = {0x387477c1, 0x69c7, 0x11d2, {0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b}};
 
 int efi_flag_selftest(void) { return g_selftest; }
+int efi_flag_ktest(void) { return g_ktest; }
 int efi_flag_menu(void) { return g_menu; }
 int efi_flag_splash_ms(void) { return g_splash_ms; }
 const char *efi_last_boot(void) { return g_last_boot; }
@@ -570,6 +572,7 @@ static void parse_flags(const char *text)
         p += n;
         while (*p == '\n' || *p == '\r') p++;
         if (rb_str_eq(line, "selftest")) g_selftest = 1;
+        else if (rb_str_eq(line, "ktest")) g_ktest = 1;
         else if (rb_str_eq(line, "menu")) g_menu = 1;
         else if (rb_strncmp(line, "splash_ms ", 10) == 0) g_splash_ms = atoi(line + 10);
     }
@@ -756,8 +759,8 @@ int efi_platform_init(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
             free(text);
         }
         free(blob);
-        rb_bootlogf(NULL, "Flags  selftest=%d  menu=%d  splash=%d",
-                    g_selftest, g_menu, g_splash_ms);
+        rb_bootlogf(NULL, "Flags  selftest=%d  ktest=%d  menu=%d  splash=%d",
+                    g_selftest, g_ktest, g_menu, g_splash_ms);
     } else
         rb_bootlog(NULL, "Flags  none");
 

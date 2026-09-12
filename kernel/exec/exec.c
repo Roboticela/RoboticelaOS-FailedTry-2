@@ -207,7 +207,8 @@ RoboProcess *robo_process_create_from_elf_argv(const char *path,
     return create_from_elf_ex(path, 0, argv);
 }
 
-RoboProcess *robo_process_create_init_elf(const char *path)
+RoboProcess *robo_process_create_init_elf(const char *path,
+                                          const RoboExecArgv *argv)
 {
-    return create_from_elf(path, 1);
+    return create_from_elf_ex(path, 1, argv);
 }

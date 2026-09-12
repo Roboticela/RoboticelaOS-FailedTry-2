@@ -8,21 +8,21 @@ static const RoboServiceConfig g_services[] = {
     {
         "test-service",
         "/System/services/test-service",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_NEVER,
         0
     },
     {
         "isol-test",
         "/System/services/isol-test",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_NEVER,
         0
     },
     {
         "crash-test",
         "/System/services/crash-test",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_ON_FAILURE,
         2
     },
@@ -43,21 +43,21 @@ static const RoboServiceConfig g_services[] = {
     {
         "window-test",
         "/bin/window-test",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_NEVER,
         0
     },
     {
         "nettest",
         "/bin/nettest",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_NEVER,
         0
     },
     {
         "libc-test",
         "/bin/libc-test",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_NEVER,
         0
     }

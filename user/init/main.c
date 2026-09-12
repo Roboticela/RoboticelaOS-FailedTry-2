@@ -69,7 +69,7 @@ static const char *mark(int ok)
     return ok ? "PASS" : "FAIL";
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     robo_pid self;
     int fd;
@@ -82,6 +82,13 @@ int main(void)
     int crash_restarts = 0;
     int reported = 0;
     int system_running = 1;
+    int selftest = 0;
+
+    for (i = 1; i < (unsigned)argc; i++) {
+        if (argv && seq(argv[i], "selftest"))
+            selftest = 1;
+    }
+    robo_service_set_selftest(selftest);
 
     line("========================================");
     line("        ROBOTICELA OS INIT");
@@ -179,7 +186,7 @@ int main(void)
         }
 
         if (!robo_service_live()) {
-            if (!reported) {
+            if (selftest && !reported) {
                 reported = 1;
                 line("");
                 line("========================================");

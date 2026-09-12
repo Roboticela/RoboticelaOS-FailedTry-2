@@ -50,8 +50,8 @@ Targets:
   combine      build kernel + bootloader, then stage a USB ESP tree in repo build\
   image, esp   same as combine
   test, check  host unit tests
-  qemu-test    headless UEFI selftest
-  qemu         combine, then boot in QEMU
+  qemu-test    headless bootloader + kernel selftests
+  qemu         combine, then boot the real OS in QEMU (no selftests)
   run          launch the host preview
   clean        remove bootloader/build, kernel/build, and repo build\
   distclean    clean + baked assets

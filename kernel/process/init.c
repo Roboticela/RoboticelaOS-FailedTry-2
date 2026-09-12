@@ -36,13 +36,17 @@ void robo_init_start(const RoboBootInfo *info)
     static int started;
     RoboStat st;
     RoboProcess *p;
+    RoboExecArgv av;
+    unsigned i;
     int r;
     int fd_ok;
+    int tests;
 
     if (started)
         panic_startup(ROBO_INIT_PATH, "init started more than once",
                       "-", "-", "-");
     started = 1;
+    tests = kboot_selftest(info);
 
     kprintf("[ OK ] RoboFS mounted\n");
 
@@ -52,7 +56,24 @@ void robo_init_start(const RoboBootInfo *info)
                       "-", "-", "VFS lookup failed");
     kprintf("[ OK ] /System/init found\n");
 
-    p = robo_process_create_init_elf(ROBO_INIT_PATH);
+    av.argc = 1;
+    av.args[0][0] = 'i';
+    av.args[0][1] = 'n';
+    av.args[0][2] = 'i';
+    av.args[0][3] = 't';
+    av.args[0][4] = 0;
+    if (tests) {
+        const char *t = "selftest";
+        av.argc = 2;
+        for (i = 0; t[i] && i < ROBO_EXEC_ARG_MAX; i++)
+            av.args[1][i] = t[i];
+        av.args[1][i] = 0;
+        kprintf("Init  selftest\n");
+    } else {
+        kprintf("Init  production\n");
+    }
+
+    p = robo_process_create_init_elf(ROBO_INIT_PATH, &av);
     if (!p) {
         panic_startup(ROBO_INIT_PATH,
                       "process creation error",

@@ -83,12 +83,26 @@ static void service_client(void)
         robo_ipc((int)ROBO_IPC_OP_SEND, g_client, &m, sizeof(m), 0);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
     robo_long r;
     int headless = 0;
     unsigned idle = 0;
+    int test_mode = 0;
     static const char name[] = ROBO_IPC_NAME_COMPOSITOR;
+    int ai;
+
+    for (ai = 1; ai < argc; ai++) {
+        const char *a = argv ? argv[ai] : 0;
+        unsigned n = 0;
+        const char *k = "selftest";
+        if (!a)
+            continue;
+        while (k[n] && a[n] && k[n] == a[n])
+            n++;
+        if (!k[n] && !a[n])
+            test_mode = 1;
+    }
 
     puts1("[COMP] RoboCompositor starting\n");
     r = robo_ipc((int)ROBO_IPC_OP_LISTEN, 0, (void *)name, 0, 0);
@@ -115,14 +129,16 @@ int main(void)
         service_client();
         if (cs_dirty())
             cs_compose_present();
-        if (g_stop)
-            break;
-        if (g_served && !g_client) {
-            idle++;
-            if (idle > 50u)
+        if (test_mode) {
+            if (g_stop)
                 break;
-        } else {
-            idle = 0;
+            if (g_served && !g_client) {
+                idle++;
+                if (idle > 50u)
+                    break;
+            } else {
+                idle = 0;
+            }
         }
         robo_sleep(1);
     }

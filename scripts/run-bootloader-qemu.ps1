@@ -39,29 +39,37 @@ try {
         exit 0
     }
 
-    if (Test-Path $script:SerialLog) { Remove-Item $script:SerialLog -Force }
+    Clear-RoboSerialLog
 
+    $echoProc = Start-RoboNetEcho
     $qemu = Get-Qemu
     $qemuArgs = Get-QemuBaseArgs -Headless:$Headless -Disk $Disk -ResetNvram:$ResetNvram -FirmwareMenu:$FirmwareMenu
     Write-Host "RoboBoot QEMU"
     Write-Host "  Firmware: $(Get-OvmfCode)"
     Write-Host "  Disk:     $script:EspImg"
+    Write-Host "  Net:      10.0.2.15  guestfwd 18019/18080 -> 127.0.0.1"
     Write-Host "  Close the QEMU window to quit. Press Alt+M during splash for the startup picker (or pass -Menu)."
     if ($FirmwareMenu) {
         Write-Host "  Firmware boot menu: press ESC (or F12) during the firmware pause to see RoboticelaOS."
         Write-Host "  First boot installs the name; quit and run again (without -ResetNvram) to list it."
     }
 
-    if ($Accel) {
-        Write-Host "  Accel:    $Accel"
-        & $qemu @qemuArgs -accel $Accel
-        exit $LASTEXITCODE
+    $qemuExit = 0
+    try {
+        if ($Accel) {
+            Write-Host "  Accel:    $Accel"
+            & $qemu @qemuArgs -accel $Accel
+            $qemuExit = $LASTEXITCODE
+        } else {
+            # WHPX + std VGA GOP often aborts QEMU on Windows (exit 0, no window).
+            Write-Host "  Accel:    tcg"
+            & $qemu @qemuArgs -accel "tcg,thread=multi"
+            $qemuExit = $LASTEXITCODE
+        }
+    } finally {
+        Stop-RoboNetEcho $echoProc
     }
-
-    # WHPX + std VGA GOP often aborts QEMU on Windows (exit 0, no window).
-    Write-Host "  Accel:    tcg"
-    & $qemu @qemuArgs -accel "tcg,thread=multi"
-    exit $LASTEXITCODE
+    exit $qemuExit
 }
 finally {
     Pop-Location
