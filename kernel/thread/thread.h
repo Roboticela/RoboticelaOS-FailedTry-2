@@ -89,6 +89,12 @@ typedef struct RoboThread {
     struct RoboThread *reap_next;
     struct RoboThread *proc_next;
     struct RoboThread *proc_prev;
+    uint64_t user_fs_base;
+    struct RoboThread *join_waiter;
+    int join_posted;
+    int join_consumed;
+    int user_exit_status;
+    int reap_queued;
 } RoboThread;
 
 RoboAddressSpace *robo_kernel_address_space(void);
@@ -140,5 +146,6 @@ void robo_thread_fb_report(void);
 int robo_thread_selftest(void);
 
 RoboThread *robo_thread_all(void);
+RoboThread *robo_thread_by_id(uint64_t id);
 
 #endif

@@ -12,9 +12,19 @@ typedef struct {
     uint64_t load_bias;
 } RoboExecImage;
 
+#define ROBO_EXEC_ARGV_MAX 8
+#define ROBO_EXEC_ARG_MAX  127
+
+typedef struct {
+    unsigned argc;
+    char args[ROBO_EXEC_ARGV_MAX][ROBO_EXEC_ARG_MAX + 1];
+} RoboExecArgv;
+
 robo_exec_status_t robo_elf_load_image(RoboAddressSpace *as,
                                        const void *bytes, size_t size,
-                                       RoboExecImage *out);
+                                       RoboExecImage *out,
+                                       const char *argv0,
+                                       const RoboExecArgv *argv);
 int robo_elf_entry_executable(RoboAddressSpace *as, uint64_t entry);
 void robo_elf_set_quiet(int quiet);
 

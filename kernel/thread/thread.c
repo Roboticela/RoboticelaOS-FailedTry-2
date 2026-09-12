@@ -433,6 +433,7 @@ void robo_thread_yield(void)
 void robo_thread_exit(void)
 {
     RoboThread *t;
+    RoboThread *joiner = 0;
     uint64_t flags;
 
     flags = robo_sched_lock();
@@ -451,10 +452,15 @@ void robo_thread_exit(void)
     t->wake_deadline = 0;
     if (!robo_thread_transition(t, ROBO_THREAD_TERMINATED))
         t->state = ROBO_THREAD_TERMINATED;
+    t->join_posted = 1;
+    joiner = t->join_waiter;
+    t->join_waiter = 0;
     if (t->process)
         robo_process_remove_thread(t->process, t);
     robo_sched_note_term();
     robo_sched_unlock(flags);
+    if (joiner)
+        robo_thread_wake(joiner);
     __asm__ volatile ("int $48" ::: "memory");
     robo_sched_panic("terminated thread resumed");
 }
@@ -568,6 +574,16 @@ RoboThread *robo_current_thread(void)
 RoboThread *robo_thread_all(void)
 {
     return g_all;
+}
+
+RoboThread *robo_thread_by_id(uint64_t id)
+{
+    RoboThread *t;
+    for (t = g_all; t; t = t->all_next) {
+        if (t->id == id)
+            return t;
+    }
+    return 0;
 }
 
 void robo_thread_dump(const RoboThread *thread)

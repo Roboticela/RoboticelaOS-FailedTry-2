@@ -7,6 +7,7 @@
 #include "process/process.h"
 #include "thread/thread.h"
 #include "scheduler/scheduler.h"
+#include "scheduler/sched_internal.h"
 #include "mm/vmm/vmm.h"
 #include "mm/vmm/paging.h"
 #include "mm/page.h"
@@ -27,6 +28,9 @@
 #include "graphics/gfx.h"
 #include "input/input.h"
 #include "drivers/driver.h"
+#include "ipc/ipc.h"
+#include "display/display.h"
+#include "arch/x86_64/mm/paging_cpu.h"
 #include <robosys/types.h>
 
 #define ROBO_FD_NONE       ((uint64_t)-1)
@@ -118,7 +122,9 @@ uint64_t robo_sys_abi_info(RoboSyscallContext *ctx)
                         ROBO_ABI_FEAT_TIME | ROBO_ABI_FEAT_SLEEP |
                         ROBO_ABI_FEAT_MMAP | ROBO_ABI_FEAT_FS |
                         ROBO_ABI_FEAT_THREAD | ROBO_ABI_FEAT_PROCESS |
-                        ROBO_ABI_FEAT_WAIT | ROBO_ABI_FEAT_DRIVER;
+                        ROBO_ABI_FEAT_WAIT | ROBO_ABI_FEAT_DRIVER |
+                        ROBO_ABI_FEAT_IPC | ROBO_ABI_FEAT_DISPLAY |
+                        ROBO_ABI_FEAT_NET | ROBO_ABI_FEAT_TLS;
         info.reserved = 0;
         if (robo_copy_to_user(as, out, &info, sizeof(info)) != 0)
             return robo_sys_err(ROBO_EFAULT);
@@ -371,8 +377,10 @@ uint64_t robo_sys_munmap(RoboSyscallContext *ctx)
     for (i = 0; i < pages; i++) {
         phys_addr_t pa = ROBO_INVALID_PHYS_ADDR;
         virt_addr_t va = (virt_addr_t)(addr + i * ROBO_PAGE_SIZE);
-        if (robo_vmm_aspace_unmap(as, va, &pa) && pa != ROBO_INVALID_PHYS_ADDR)
-            robo_page_free(pa);
+        if (robo_vmm_aspace_unmap(as, va, &pa) && pa != ROBO_INVALID_PHYS_ADDR) {
+            if (!robo_ipc_shm_owns(pa))
+                robo_page_free(pa);
+        }
     }
     return 0;
 }
@@ -384,14 +392,41 @@ uint64_t robo_sys_process_create(RoboSyscallContext *ctx)
     int quiet;
     RoboAddressSpace *as = ctx_as(ctx);
     robo_exec_status_t st;
+    uint64_t uargv = arg(ctx, 2);
+    uint64_t argc = arg(ctx, 3);
+    RoboExecArgv av;
+    unsigned i;
 
     if (robo_copy_user_string(as, path, arg(ctx, 1), sizeof(path)) != 0)
         return robo_sys_err(ROBO_EFAULT);
     if (!robo_exec_image_present(path))
         return robo_sys_err(ROBO_ENOENT);
+
+    av.argc = 0;
+    if (argc) {
+        if (argc > ROBO_EXEC_ARGV_MAX)
+            return robo_sys_err(ROBO_EINVAL);
+        if (!uargv)
+            return robo_sys_err(ROBO_EINVAL);
+        for (i = 0; i < argc; i++)
+            av.args[i][0] = 0;
+        for (i = 0; i < (unsigned)argc; i++) {
+            uint64_t uptr = 0;
+            uint64_t slot = uargv + (uint64_t)i * 8ull;
+            if (robo_copy_from_user(as, &uptr, slot, 8) != 0)
+                return robo_sys_err(ROBO_EFAULT);
+            if (!uptr)
+                return robo_sys_err(ROBO_EINVAL);
+            if (robo_copy_user_string(as, av.args[i], uptr, sizeof(av.args[i])) != 0)
+                return robo_sys_err(ROBO_EFAULT);
+        }
+        av.argc = (unsigned)argc;
+    }
+
     quiet = 1;
     robo_exec_set_quiet(quiet);
-    child = robo_process_create_from_elf(path);
+    child = av.argc ? robo_process_create_from_elf_argv(path, &av)
+                    : robo_process_create_from_elf(path);
     robo_exec_set_quiet(0);
     if (!child) {
         st = robo_exec_last_status();
@@ -453,8 +488,7 @@ uint64_t robo_sys_time(RoboSyscallContext *ctx)
 
 uint64_t robo_sys_ipc(RoboSyscallContext *ctx)
 {
-    (void)ctx;
-    return robo_sys_err(ROBO_ENOSYS);
+    return robo_ipc_syscall(ctx);
 }
 
 uint64_t robo_sys_seek(RoboSyscallContext *ctx)
@@ -625,4 +659,68 @@ uint64_t robo_sys_driver_query(RoboSyscallContext *ctx)
     if (robo_copy_to_user(as, u, &st, sizeof(st)) != 0)
         return robo_sys_err(ROBO_EFAULT);
     return 0;
+}
+
+uint64_t robo_sys_thread(RoboSyscallContext *ctx)
+{
+    uint64_t op = arg(ctx, 1);
+    uint64_t a2 = arg(ctx, 2);
+    RoboThread *cur = ctx->thread;
+    RoboProcess *proc = ctx->process;
+    RoboThread *target;
+    RoboAddressSpace *as = ctx_as(ctx);
+    int status;
+
+    if (!cur || !proc)
+        return robo_sys_err(ROBO_EINVAL);
+
+    switch (op) {
+    case ROBO_THREAD_OP_YIELD:
+        robo_thread_yield();
+        return 0;
+    case ROBO_THREAD_OP_EXIT:
+        cur->user_exit_status = (int)a2;
+        robo_thread_exit();
+        return 0;
+    case ROBO_THREAD_OP_JOIN:
+        if (!a2)
+            return robo_sys_err(ROBO_EINVAL);
+        target = robo_thread_by_id(a2);
+        if (!target || target->process != proc)
+            return robo_sys_err(ROBO_ESRCH);
+        if (target == cur || target->kind != ROBO_THREAD_USER)
+            return robo_sys_err(ROBO_EINVAL);
+        if (target->join_consumed)
+            return robo_sys_err(ROBO_EINVAL);
+        if (target->join_posted) {
+            status = target->user_exit_status;
+            target->join_consumed = 1;
+            robo_sched_reap_later(target);
+            return (uint64_t)(uint32_t)status;
+        }
+        if (target->join_waiter)
+            return robo_sys_err(ROBO_EAGAIN);
+        target->join_waiter = cur;
+        robo_thread_block();
+        target = robo_thread_by_id(a2);
+        if (!target)
+            return robo_sys_err(ROBO_ESRCH);
+        status = target->user_exit_status;
+        target->join_consumed = 1;
+        target->join_waiter = 0;
+        robo_sched_reap_later(target);
+        return (uint64_t)(uint32_t)status;
+    case ROBO_THREAD_OP_SET_FS:
+        if (!a2 || !robo_user_range_valid(as, a2, 16, ROBO_USER_ACCESS_WRITE))
+            return robo_sys_err(ROBO_EFAULT);
+        cur->user_fs_base = a2;
+        robo_cpu_write_fs_base(a2);
+        return 0;
+    case ROBO_THREAD_OP_GETTID:
+        return cur->id;
+    case ROBO_THREAD_OP_GETPPID:
+        return proc->parent ? proc->parent->id : 0;
+    default:
+        return robo_sys_err(ROBO_EINVAL);
+    }
 }

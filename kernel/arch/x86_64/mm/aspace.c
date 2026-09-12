@@ -1,4 +1,5 @@
 #include "process/process.h"
+#include "thread/thread.h"
 #include "arch/x86_64/mm/paging_cpu.h"
 #include "kio.h"
 
@@ -78,6 +79,11 @@ void robo_arch_prepare_thread_switch(RoboThread *old, RoboThread *next)
     actual = robo_cpu_read_cr3();
     if (expect && actual != expect)
         robo_process_panic_aspace(to_p, next, expect, actual);
+
+    if (next->kind == ROBO_THREAD_USER)
+        robo_cpu_write_fs_base(next->user_fs_base);
+    else
+        robo_cpu_write_fs_base(0);
 
     if (!g_switch_log)
         return;

@@ -25,6 +25,41 @@ static const RoboServiceConfig g_services[] = {
         ROBO_SVC_ENABLED,
         ROBO_RESTART_ON_FAILURE,
         2
+    },
+    {
+        "compositor",
+        "/System/services/compositor",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
+    },
+    {
+        "window-server",
+        "/System/services/window-server",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
+    },
+    {
+        "window-test",
+        "/bin/window-test",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
+    },
+    {
+        "nettest",
+        "/bin/nettest",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
+    },
+    {
+        "libc-test",
+        "/bin/libc-test",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
     }
 };
 

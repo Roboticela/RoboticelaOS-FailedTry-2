@@ -53,6 +53,8 @@ RoboProcess *robo_thread_process(const RoboThread *thread)
 #include "mm/vmm/vmm.h"
 #include "time/time.h"
 #include "kio.h"
+#include "ipc/ipc.h"
+#include "display/display.h"
 #endif
 
 static RoboProcess *g_kernel;
@@ -439,6 +441,10 @@ int robo_process_remove_thread(RoboProcess *process, RoboThread *thread)
 #ifndef PROCESS_HOST_TEST
     if (to_wake)
         robo_thread_wake(to_wake);
+    if (last) {
+        robo_ipc_on_process_exit(process->id);
+        robo_display_on_process_exit(process->id);
+    }
 #else
     (void)to_wake;
 #endif
@@ -456,6 +462,18 @@ int robo_process_destroy(RoboProcess *process)
         return 0;
     if (process->thread_count != 0)
         return 0;
+
+#ifndef PROCESS_HOST_TEST
+    {
+        RoboThread *t = robo_thread_all();
+        while (t) {
+            RoboThread *n = t->all_next;
+            if (t->process == process && t->state == ROBO_THREAD_TERMINATED)
+                robo_sched_reap_later(t);
+            t = n;
+        }
+    }
+#endif
 
     parent = process->parent;
     unlink_child(parent, process);

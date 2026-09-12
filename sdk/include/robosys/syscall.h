@@ -72,6 +72,14 @@ static inline robo_long robo_process_create(const char *path)
                         (robo_long)(uintptr_t)path, 0, 0, 0, 0, 0);
 }
 
+static inline robo_long robo_process_spawn(const char *path, char *const argv[],
+                                           int argc)
+{
+    return robo_syscall((robo_long)ROBO_SYS_PROCESS_CREATE,
+                        (robo_long)(uintptr_t)path,
+                        (robo_long)(uintptr_t)argv, (robo_long)argc, 0, 0, 0);
+}
+
 static inline robo_long robo_thread_create(void *entry, void *stack, void *arg)
 {
     return robo_syscall((robo_long)ROBO_SYS_THREAD_CREATE,
@@ -158,6 +166,51 @@ static inline robo_long robo_driver_query(RoboDriverStatus *out)
 {
     return robo_syscall((robo_long)ROBO_SYS_DRIVER_QUERY,
                         (robo_long)(uintptr_t)out, 0, 0, 0, 0, 0);
+}
+
+static inline robo_long robo_display(int op, int handle, void *buf,
+                                     robo_ulong len, int flags)
+{
+    return robo_syscall((robo_long)ROBO_SYS_DISPLAY, (robo_long)op,
+                        (robo_long)handle, (robo_long)(uintptr_t)buf,
+                        (robo_long)len, (robo_long)flags, 0);
+}
+
+static inline robo_long robo_thread_ctl(int op, robo_long a2, robo_long a3)
+{
+    return robo_syscall((robo_long)ROBO_SYS_THREAD, (robo_long)op,
+                        a2, a3, 0, 0, 0);
+}
+
+static inline robo_long robo_thread_yield(void)
+{
+    return robo_thread_ctl((int)ROBO_THREAD_OP_YIELD, 0, 0);
+}
+
+static inline robo_long robo_thread_exit_self(int status)
+{
+    return robo_thread_ctl((int)ROBO_THREAD_OP_EXIT, (robo_long)status, 0);
+}
+
+static inline robo_long robo_thread_join(robo_tid tid)
+{
+    return robo_thread_ctl((int)ROBO_THREAD_OP_JOIN, (robo_long)tid, 0);
+}
+
+static inline robo_long robo_thread_set_fs(void *tcb)
+{
+    return robo_thread_ctl((int)ROBO_THREAD_OP_SET_FS,
+                           (robo_long)(uintptr_t)tcb, 0);
+}
+
+static inline robo_tid robo_gettid(void)
+{
+    return (robo_tid)robo_thread_ctl((int)ROBO_THREAD_OP_GETTID, 0, 0);
+}
+
+static inline robo_pid robo_getppid(void)
+{
+    return (robo_pid)robo_thread_ctl((int)ROBO_THREAD_OP_GETPPID, 0, 0);
 }
 
 #endif

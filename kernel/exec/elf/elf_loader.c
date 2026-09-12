@@ -139,17 +139,109 @@ static robo_exec_status_t map_stack(RoboAddressSpace *as, RoboExecImage *out)
     return ROBO_EXEC_OK;
 }
 
+static unsigned str_len(const char *s)
+{
+    unsigned n = 0;
+    if (!s)
+        return 0;
+    while (s[n])
+        n++;
+    return n;
+}
+
+static int plant_user_argv(RoboAddressSpace *as, RoboExecImage *out,
+                           const char *argv0, const RoboExecArgv *argv)
+{
+    uint64_t top = ROBO_USER_STACK_TOP;
+    uint64_t page = top - ROBO_PAGE_SIZE;
+    uint64_t zero = 0;
+    uint64_t argc;
+    uint64_t ptrs[ROBO_EXEC_ARGV_MAX];
+    uint64_t rsp;
+    uint64_t words;
+    uint8_t *mem;
+    phys_addr_t pa;
+    unsigned i, n, off, used;
+    const char *s;
+
+    if (!robo_vmm_aspace_translate(as, (virt_addr_t)page, &pa))
+        return 0;
+    mem = (uint8_t *)(uintptr_t)pa;
+
+    n = 0;
+    if (argv && argv->argc) {
+        n = argv->argc;
+        if (n > ROBO_EXEC_ARGV_MAX)
+            n = ROBO_EXEC_ARGV_MAX;
+    } else {
+        n = 1;
+    }
+
+    used = 0;
+    for (i = 0; i < n; i++) {
+        unsigned len;
+        s = (argv && argv->argc) ? argv->args[i] : argv0;
+        if (!s || !s[0])
+            s = "user";
+        len = str_len(s);
+        if (len > ROBO_EXEC_ARG_MAX)
+            len = ROBO_EXEC_ARG_MAX;
+        used += len + 1u;
+    }
+    used = (used + 15u) & ~15u;
+    argc = n;
+    words = 1ull + n + 1ull + 1ull + 2ull;
+    if (words & 1ull)
+        words++;
+    if (used + (unsigned)(words * 8ull) + 16u > ROBO_PAGE_SIZE)
+        return 0;
+    off = (unsigned)ROBO_PAGE_SIZE - used;
+    {
+        unsigned cur = off;
+        for (i = 0; i < n; i++) {
+            unsigned len;
+            s = (argv && argv->argc) ? argv->args[i] : argv0;
+            if (!s || !s[0])
+                s = "user";
+            len = str_len(s);
+            if (len > ROBO_EXEC_ARG_MAX)
+                len = ROBO_EXEC_ARG_MAX;
+            copy_bytes(mem + cur, s, len);
+            mem[cur + len] = 0;
+            ptrs[i] = page + cur;
+            cur += len + 1u;
+        }
+    }
+    rsp = (page + off - words * 8ull) & ~15ull;
+    if (rsp < page)
+        return 0;
+    off = (unsigned)(rsp - page);
+    copy_bytes(mem + off, &argc, 8);
+    off += 8;
+    for (i = 0; i < n; i++) {
+        copy_bytes(mem + off, &ptrs[i], 8);
+        off += 8;
+    }
+    copy_bytes(mem + off, &zero, 8);
+    off += 8;
+    copy_bytes(mem + off, &zero, 8);
+    off += 8;
+    copy_bytes(mem + off, &zero, 8);
+    off += 8;
+    copy_bytes(mem + off, &zero, 8);
+    out->stack_top = rsp;
+    return 1;
+}
+
 robo_exec_status_t robo_elf_load_image(RoboAddressSpace *as,
                                        const void *bytes, size_t size,
-                                       RoboExecImage *out)
+                                       RoboExecImage *out,
+                                       const char *argv0,
+                                       const RoboExecArgv *argv)
 {
     RoboElfImage img;
     robo_exec_status_t st;
     unsigned i;
-    uint64_t rsp;
-    phys_addr_t pa;
-    const char hello_name[] = "hello";
-    unsigned nlen = 5;
 
     if (!as || !bytes || !out)
         return ROBO_ELF_INVALID_HEADER;
@@ -203,34 +295,10 @@ robo_exec_status_t robo_elf_load_image(RoboAddressSpace *as,
     if (st != ROBO_EXEC_OK)
         return st;
 
-    /* SysV process entry: RSP % 16 == 0. Layout:
-     *   argc=1, argv[0], NULL, envp NULL, AT_NULL, 0
-     * String "hello" sits above that on the same stack page. */
-    {
-        uint64_t top = ROBO_USER_STACK_TOP;
-        uint64_t page = (top - ROBO_PAGE_SIZE);
-        uint64_t zero = 0;
-        uint64_t argc = 1;
-        uint64_t argv0;
-        uint8_t *mem;
-        unsigned off;
-
-        if (!robo_vmm_aspace_translate(as, (virt_addr_t)page, &pa))
-            return ROBO_ELF_MEMORY_FAILURE;
-        mem = (uint8_t *)(uintptr_t)pa;
-        off = (unsigned)(ROBO_PAGE_SIZE - (nlen + 1u));
-        copy_bytes(mem + off, hello_name, nlen + 1u);
-        argv0 = page + off;
-        rsp = top - 64ull;
-        off = (unsigned)(rsp - page);
-        copy_bytes(mem + off + 0, &argc, 8);
-        copy_bytes(mem + off + 8, &argv0, 8);
-        copy_bytes(mem + off + 16, &zero, 8);
-        copy_bytes(mem + off + 24, &zero, 8);
-        copy_bytes(mem + off + 32, &zero, 8);
-        copy_bytes(mem + off + 40, &zero, 8);
-        out->stack_top = rsp;
-    }
+    /* SysV process entry: RSP % 16 == 0.
+     *   argc, argv[], NULL, envp NULL, AT_NULL, 0 */
+    if (!plant_user_argv(as, out, argv0 ? argv0 : "user", argv))
+        return ROBO_ELF_MEMORY_FAILURE;
     out->entry = img.eh.e_entry;
     out->load_bias = 0;
     if (!robo_elf_entry_executable(as, out->entry)) {

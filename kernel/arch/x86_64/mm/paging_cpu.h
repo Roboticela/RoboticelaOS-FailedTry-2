@@ -11,5 +11,6 @@ int robo_cpu_nx_supported(void);
 int robo_cpu_nx_enabled(void);
 void robo_cpu_enable_nx(void);
 void robo_cpu_enable_wp(void);
+void robo_cpu_write_fs_base(uint64_t value);
 
 #endif

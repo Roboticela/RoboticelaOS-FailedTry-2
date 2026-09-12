@@ -106,7 +106,8 @@ static int load_file_bytes(const char *path, const void **data, size_t *size,
     return 0;
 }
 
-robo_exec_status_t robo_exec(RoboProcess *process, const char *path)
+robo_exec_status_t robo_exec_ex(RoboProcess *process, const char *path,
+                                const RoboExecArgv *argv)
 {
     const void *data;
     size_t size;
@@ -131,7 +132,8 @@ robo_exec_status_t robo_exec(RoboProcess *process, const char *path)
         kprintf("ELF LOAD\n\n");
         kprintf("Path        : %s\n", path);
     }
-    st = robo_elf_load_image(process->address_space, data, size, &img);
+    st = robo_elf_load_image(process->address_space, data, size, &img,
+                             name_from_path(path), argv);
     if (owned)
         kfree((void *)data);
     if (st != ROBO_EXEC_OK) {
@@ -157,7 +159,13 @@ robo_exec_status_t robo_exec(RoboProcess *process, const char *path)
     return ROBO_EXEC_OK;
 }
 
-static RoboProcess *create_from_elf(const char *path, int as_init)
+robo_exec_status_t robo_exec(RoboProcess *process, const char *path)
+{
+    return robo_exec_ex(process, path, 0);
+}
+
+static RoboProcess *create_from_elf_ex(const char *path, int as_init,
+                                       const RoboExecArgv *argv)
 {
     RoboProcess *p;
     RoboThread *t;
@@ -169,7 +177,7 @@ static RoboProcess *create_from_elf(const char *path, int as_init)
     p = as_init ? robo_process_create_init() : robo_process_create_named(name);
     if (!p)
         return 0;
-    if (robo_exec(p, path) != ROBO_EXEC_OK) {
+    if (robo_exec_ex(p, path, argv) != ROBO_EXEC_OK) {
         robo_process_destroy(p);
         return 0;
     }
@@ -183,9 +191,20 @@ static RoboProcess *create_from_elf(const char *path, int as_init)
     return p;
 }
 
+static RoboProcess *create_from_elf(const char *path, int as_init)
+{
+    return create_from_elf_ex(path, as_init, 0);
+}
+
 RoboProcess *robo_process_create_from_elf(const char *path)
 {
     return create_from_elf(path, 0);
+}
+
+RoboProcess *robo_process_create_from_elf_argv(const char *path,
+                                               const RoboExecArgv *argv)
+{
+    return create_from_elf_ex(path, 0, argv);
 }
 
 RoboProcess *robo_process_create_init_elf(const char *path)

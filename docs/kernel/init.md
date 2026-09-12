@@ -36,7 +36,8 @@ Children of init have `parent = PID 1`.
 (`ROBO_WAIT_NOHANG` = 1), RDX = optional `int *` status. Returns the
 reaped pid, `ROBO_EAGAIN` if `NOHANG` and nothing is ready, or
 `ROBO_ECHILD` if there is no matching child. This is the supervision
-API. `SYS_IPC` remains `ENOSYS`; there is no second IPC system.
+API. `SYS_IPC` (12) is the process-to-process port/channel ABI used by
+RoboWindowServer. There is no second IPC system.
 
 ## File descriptors
 
@@ -53,10 +54,12 @@ v1 ships only real programs:
 * `/System/services/test-service`
 * `/System/services/crash-test`
 * `/System/services/isol-test`
+* `/System/services/compositor`
+* `/System/services/window-server`
+* `/bin/window-test` (started by init after the window server)
 
 Future paths (`device-manager`, `network-manager`, `display-service`,
-`window-server`, `compositor`, `session-manager`) are reserved. Empty
-binaries are not installed.
+`session-manager`) are reserved. Empty binaries are not installed.
 
 Restart policies: `NEVER`, `ON_FAILURE`, `ALWAYS`. v1 uses `ON_FAILURE`
 with a restart limit and linear/exponential backoff for `crash-test`.

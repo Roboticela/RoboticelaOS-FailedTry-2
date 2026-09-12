@@ -33,6 +33,9 @@ void robo_syscall_table_init(void)
     g_table[ROBO_SYS_WAIT] = robo_sys_wait;
     g_table[ROBO_SYS_GETPID] = robo_sys_getpid;
     g_table[ROBO_SYS_DRIVER_QUERY] = robo_sys_driver_query;
+    g_table[ROBO_SYS_DISPLAY] = robo_sys_display;
+    g_table[ROBO_SYS_SOCKET] = robo_sys_socket;
+    g_table[ROBO_SYS_THREAD] = robo_sys_thread;
 }
 
 RoboSyscallHandler robo_syscall_lookup(uint64_t number)
@@ -77,6 +80,9 @@ const char *robo_syscall_name(uint64_t number)
     case ROBO_SYS_WAIT: return "SYS_WAIT";
     case ROBO_SYS_GETPID: return "SYS_GETPID";
     case ROBO_SYS_DRIVER_QUERY: return "SYS_DRIVER_QUERY";
+    case ROBO_SYS_DISPLAY: return "SYS_DISPLAY";
+    case ROBO_SYS_SOCKET: return "SYS_SOCKET";
+    case ROBO_SYS_THREAD: return "SYS_THREAD";
     default: return "SYS_UNKNOWN";
     }
 }

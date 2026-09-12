@@ -26,6 +26,10 @@ typedef struct RoboAbiInfo {
 #define ROBO_ABI_FEAT_PROCESS (1u << 7)
 #define ROBO_ABI_FEAT_WAIT    (1u << 8)
 #define ROBO_ABI_FEAT_DRIVER  (1u << 9)
+#define ROBO_ABI_FEAT_IPC     (1u << 10)
+#define ROBO_ABI_FEAT_DISPLAY (1u << 11)
+#define ROBO_ABI_FEAT_NET     (1u << 12)
+#define ROBO_ABI_FEAT_TLS     (1u << 13)
 
 typedef struct RoboStat {
     uint64_t size;
@@ -39,6 +43,12 @@ typedef struct RoboStat {
     uint32_t type;
     uint32_t nlink;
 } RoboStat;
+
+typedef struct RoboIpcAccept {
+    uint32_t magic;
+    int32_t handle;
+    uint64_t peer_pid;
+} RoboIpcAccept;
 
 typedef struct RoboDriverStatus {
     uint32_t pci_count;

@@ -50,9 +50,15 @@ function Invoke-QemuSelftest {
 }
 
 Push-Location $script:Boot
+$echoProc = $null
 try {
     if (-not $SkipBuild) { Invoke-RoboCombine -Flags "selftest`nmenu`nsplash_ms 0" }
     else { Invoke-MakeEsp -Flags "selftest`nmenu`nsplash_ms 0" }
+
+    $py = Get-Python
+    $echoPy = Join-Path $PSScriptRoot "net-echo-server.py"
+    $echoProc = Start-Process -FilePath $py -ArgumentList @($echoPy) -PassThru -WindowStyle Hidden
+    Start-Sleep -Milliseconds 400
 
     $result = Invoke-QemuSelftest -DiskKind $Disk
     if (-not $result.Ok -and -not $result.Fail -and $Disk -eq "ide") {
@@ -81,10 +87,10 @@ try {
     $kproc = Start-QemuProcess -Arguments $kargs -Accel tcg -Hidden
     $kserial = ""
     try {
-        $deadline = (Get-Date).AddSeconds([Math]::Max($TimeoutSec, 180))
+        $deadline = (Get-Date).AddSeconds([Math]::Max($TimeoutSec, 300))
         while ((Get-Date) -lt $deadline) {
             $kserial = Read-Serial
-            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "PROC_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL" -and $kserial -match "Hello from user space." -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 10" -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 11" -and $kserial -match "\[PASS\] ROBOTICELA OS FILE DESCRIPTORS" -and $kserial -match "\[PASS\] ROBOTICELA OS VFS" -and $kserial -match "\[PASS\] ROBOFS v1" -and $kserial -match "Hello from RoboFS." -and $kserial -match "USER_ROBOFS_OK" -and $kserial -match "\[PASS\] DRIVER SYSTEM" -and $kserial -match "\[PASS\] STORAGE DRIVER" -and $kserial -match "\[PASS\] INIT PROCESS") { break }
+            if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "PROC_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL" -and $kserial -match "Hello from user space." -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 10" -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 11" -and $kserial -match "\[PASS\] ROBOTICELA OS FILE DESCRIPTORS" -and $kserial -match "\[PASS\] ROBOTICELA OS VFS" -and $kserial -match "\[PASS\] ROBOFS v1" -and $kserial -match "Hello from RoboFS." -and $kserial -match "USER_ROBOFS_OK" -and $kserial -match "\[PASS\] DRIVER SYSTEM" -and $kserial -match "\[PASS\] STORAGE DRIVER" -and $kserial -match "\[PASS\] Window Server" -and $kserial -match "\[PASS\] RoboCompositor" -and $kserial -match "\[PASS\] INIT PROCESS" -and $kserial -match "\[PASS\] NETWORK" -and $kserial -match "\[PASS\] LIBC") { break }
             if ($kproc.HasExited) { break }
             Start-Sleep -Milliseconds 250
         }
@@ -93,7 +99,7 @@ try {
             Stop-Process -Id $kproc.Id -Force -ErrorAction SilentlyContinue
         }
     }
-    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "PROC_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL" -and $kserial -match "Hello from user space." -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 10" -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 11" -and $kserial -match "\[PASS\] ROBOTICELA OS FILE DESCRIPTORS" -and $kserial -match "\[PASS\] ROBOTICELA OS VFS" -and $kserial -match "\[PASS\] ROBOFS v1" -and $kserial -match "Hello from RoboFS." -and $kserial -match "USER_ROBOFS_OK" -and $kserial -match "\[PASS\] DRIVER SYSTEM" -and $kserial -match "\[PASS\] STORAGE DRIVER" -and $kserial -match "\[PASS\] INIT PROCESS") {
+    if ($kserial -match "Roboticela Kernel" -and $kserial -match "Boot protocol: Roboticela" -and $kserial -match "CPU_TEST_OK" -and $kserial -match "PMM_TEST_OK" -and $kserial -match "VMM_TEST_OK" -and $kserial -match "HEAP_TEST_OK" -and $kserial -match "PF_TEST_OK" -and $kserial -match "TIMER_TEST_OK" -and $kserial -match "CTX_TEST_OK" -and $kserial -match "SCHED_TEST_OK" -and $kserial -match "THREAD_TEST_OK" -and $kserial -match "PROC_TEST_OK" -and $kserial -match "KERNEL PANIC" -and $kserial -match "Page Fault" -and $kserial -match "Present : NO" -and $kserial -match "Access  : READ" -and $kserial -match "Mode    : KERNEL" -and $kserial -match "Hello from user space." -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 10" -and $kserial -match "\[PASS\] ROBOTICELA OS PHASE 11" -and $kserial -match "\[PASS\] ROBOTICELA OS FILE DESCRIPTORS" -and $kserial -match "\[PASS\] ROBOTICELA OS VFS" -and $kserial -match "\[PASS\] ROBOFS v1" -and $kserial -match "Hello from RoboFS." -and $kserial -match "USER_ROBOFS_OK" -and $kserial -match "\[PASS\] DRIVER SYSTEM" -and $kserial -match "\[PASS\] STORAGE DRIVER" -and $kserial -match "\[PASS\] Window Server" -and $kserial -match "\[PASS\] RoboCompositor" -and $kserial -match "\[PASS\] INIT PROCESS" -and $kserial -match "\[PASS\] NETWORK" -and $kserial -match "\[PASS\] LIBC") {
         Write-Host "RoboBoot kernel QEMU tests passed"
         Write-Host $kserial
         exit 0
@@ -103,5 +109,8 @@ try {
     exit 1
 }
 finally {
+    if ($echoProc -and -not $echoProc.HasExited) {
+        Stop-Process -Id $echoProc.Id -Force -ErrorAction SilentlyContinue
+    }
     Pop-Location
 }

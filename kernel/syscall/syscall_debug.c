@@ -96,7 +96,9 @@ static void report(int table_ok, int systest_ok, int iso_ok)
     kprintf("SYS_THREAD_CREATE  : %s\n", mark(thread_ok));
     kprintf("SYS_SLEEP   : %s\n", mark(sleep_ok));
     kprintf("SYS_TIME    : %s\n", mark(time_ok));
-    kprintf("SYS_IPC     : %s\n\n", impl(robo_sys_saw_enosys(), 0));
+    kprintf("SYS_IPC     : %s\n", impl(systest_ok, 1));
+    kprintf("SYS_DISPLAY : %s\n", impl(systest_ok, 1));
+    kprintf("SYS_SOCKET  : %s\n\n", impl(systest_ok, 1));
     kprintf("User Mode\n---------\n");
     kprintf("CPL         : %d\n\n", robo_user_cpl_seen());
     kprintf("Hello\n-----\n");
@@ -154,7 +156,9 @@ static void report(int table_ok, int systest_ok, int iso_ok)
     kprintf("SYS_THREAD_CREATE      : %s\n", mark(thread_ok));
     kprintf("SYS_SLEEP              : %s\n", mark(sleep_ok));
     kprintf("SYS_TIME               : %s\n", mark(time_ok));
-    kprintf("SYS_IPC                : NOT IMPLEMENTED — ROBO_ENOSYS\n\n");
+    kprintf("SYS_IPC                : %s\n", mark(systest_ok));
+    kprintf("SYS_DISPLAY            : %s\n", mark(systest_ok));
+    kprintf("SYS_SOCKET             : %s\n\n", mark(systest_ok));
     kprintf("Integration\n-----------\n");
     kprintf("Process                 : %s\n", mark(hello));
     kprintf("Thread                  : %s\n", mark(hello));

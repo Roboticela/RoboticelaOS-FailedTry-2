@@ -1,8 +1,7 @@
-#include <robosys/syscall.h>
+#include <stdio.h>
 
 int main(void)
 {
-    static const char msg[] = "Hello from user space.\n";
-    robo_write(1, msg, 23);
+    printf("Hello from user space.\n");
     return 0;
 }

@@ -9,6 +9,8 @@
 #include "pci/pci.h"
 #include "arch/x86_64/acpi/acpi.h"
 #include "storage/virtio_blk.h"
+#include "drivers/virtio_net.h"
+#include "net/core/network.h"
 #include "graphics/gfx.h"
 #include "input/input.h"
 #include "input/ps2.h"
@@ -121,6 +123,11 @@ static void report(void)
     kprintf("Device : VirtIO Block\n");
     kprintf("Status : %s\n", robo_virtio_blk_bdev() ? "READY" : "NOT READY");
     kprintf("\n");
+    kprintf("Network\n");
+    kprintf("----------------------------------------\n");
+    kprintf("Device : VirtIO Net\n");
+    kprintf("Status : %s\n", robo_virtio_net_ready() ? "READY" : "NOT READY");
+    kprintf("\n");
     kprintf("Graphics\n");
     kprintf("----------------------------------------\n");
     kprintf("Device : UEFI Framebuffer\n");
@@ -169,8 +176,10 @@ int robo_hw_subsystem_init(const RoboBootInfo *info)
     robo_input_init();
     robo_gfx_init(info);
 
+    robo_net_init();
     robo_fb_driver_register();
     robo_virtio_blk_register();
+    robo_virtio_net_register();
     robo_ps2_kbd_register();
     robo_ps2_mouse_register();
 
@@ -195,6 +204,7 @@ int robo_hw_subsystem_init(const RoboBootInfo *info)
     }
 
     bind_all();
+    robo_net_bringup();
     robo_pci_report();
 
     crypto_ok = robo_sha256_selftest() && robo_sha512_selftest() &&

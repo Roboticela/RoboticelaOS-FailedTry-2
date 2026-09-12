@@ -146,8 +146,9 @@ void robo_sched_note_term(void)
 
 void robo_sched_reap_later(RoboThread *thread)
 {
-    if (!thread)
+    if (!thread || thread->reap_queued)
         return;
+    thread->reap_queued = 1;
     thread->reap_next = g_reap;
     g_reap = thread;
 }
@@ -268,8 +269,12 @@ static struct robo_iframe *pick_and_switch(struct robo_iframe *frame, int force)
         g_preemptions++;
     rr_note(next->id);
 
-    if (old->state == ROBO_THREAD_TERMINATED)
-        robo_sched_reap_later(old);
+    if (old->state == ROBO_THREAD_TERMINATED) {
+        if (!(old->kind == ROBO_THREAD_USER && old->process &&
+              old->process->state != ROBO_PROCESS_TERMINATED &&
+              !old->join_consumed))
+            robo_sched_reap_later(old);
+    }
 
     robo_arch_prepare_thread_switch(old, next);
 

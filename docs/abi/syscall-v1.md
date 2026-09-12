@@ -25,7 +25,8 @@ before every call.
 | Range     | Role                         |
 |-----------|------------------------------|
 | 0–31      | Core ABI v1 (this document)  |
-| 32–99     | Reserved core                |
+| 32        | SYS_THREAD (this document)   |
+| 33–99     | Reserved core                |
 | 100–199   | Process / thread (future)    |
 | 200–299   | Memory (future)              |
 | 300–399   | IPC (future)                 |
@@ -133,7 +134,19 @@ if ((unsigned long)r >= (unsigned long)-4095ul)
 | `ROBO_EXDEV`  | 19    | Cross-device rename              |
 | `ROBO_ENOSPC` | 20    | No space on the filesystem       |
 | `ROBO_ECHILD` | 21    | No matching child process        |
-| `ROBO_EAGAIN` | 22    | No child ready (`SYS_WAIT` NOHANG) |
+| `ROBO_EAGAIN` | 22    | Try again / empty queue          |
+| `ROBO_ENODEV` | 23    | Device not available             |
+| `ROBO_EOVERFLOW` | 27 | Integer overflow                 |
+| `ROBO_EADDRINUSE` | 28 | Address already in use           |
+| `ROBO_ECONNREFUSED` | 29 | Connection refused             |
+| `ROBO_ECONNRESET` | 30 | Connection reset                 |
+| `ROBO_ETIMEDOUT` | 31 | Connection timed out             |
+| `ROBO_ENETUNREACH` | 32 | Network unreachable              |
+| `ROBO_EHOSTUNREACH` | 33 | Host unreachable                 |
+| `ROBO_ENOTCONN` | 34 | Socket not connected             |
+| `ROBO_EISCONN` | 35 | Socket already connected         |
+| `ROBO_EAFNOSUPPORT` | 36 | Address family not supported     |
+| `ROBO_EMSGSIZE` | 37 | Message too long                 |
 
 Internal kernel error enums are never returned.
 
@@ -166,6 +179,10 @@ Optional `RoboAbiInfo` (when argument 1 is a user pointer):
 | `ROBO_ABI_FEAT_PROCESS`  | `SYS_PROCESS_CREATE`             |
 | `ROBO_ABI_FEAT_WAIT`     | `SYS_WAIT`                       |
 | `ROBO_ABI_FEAT_DRIVER`   | `SYS_DRIVER_QUERY`               |
+| `ROBO_ABI_FEAT_IPC`      | `SYS_IPC`                        |
+| `ROBO_ABI_FEAT_DISPLAY`  | `SYS_DISPLAY`                    |
+| `ROBO_ABI_FEAT_NET`      | `SYS_SOCKET`                     |
+| `ROBO_ABI_FEAT_TLS`      | `SYS_THREAD` SET_FS / user TLS   |
 
 A minor version does not imply every optional feature exists. Use flags.
 
@@ -187,7 +204,7 @@ A minor version does not imply every optional feature exists. Use flags.
 | 9      | SYS_THREAD_CREATE    | 3    | tid/error     | normally no     |
 | 10     | SYS_SLEEP            | 1    | 0/error       | blocks          |
 | 11     | SYS_TIME             | 0    | nanoseconds   | never           |
-| 12     | SYS_IPC              | 5    | ENOSYS        | n/a             |
+| 12     | SYS_IPC              | 5    | handle/bytes  | may block       |
 | 13–15  | reserved             | —    | ENOSYS        | never           |
 | 16     | SYS_SEEK             | 3    | offset/error  | normally no     |
 | 17     | SYS_STAT             | 2    | 0/error       | normally no     |
@@ -198,7 +215,10 @@ A minor version does not imply every optional feature exists. Use flags.
 | 22     | SYS_WAIT             | 1–3  | pid/error     | may block       |
 | 23     | SYS_GETPID           | 0    | pid           | never           |
 | 24     | SYS_DRIVER_QUERY     | 1    | 0/error       | never           |
-| 25–31  | reserved             | —    | ENOSYS        | never           |
+| 25     | SYS_DISPLAY          | 5    | 0/bytes/error | never           |
+| 26     | SYS_SOCKET          | 6    | fd/bytes/error| may block       |
+| 27–31  | reserved             | —    | ENOSYS        | never           |
+| 32     | SYS_THREAD           | 1–3  | tid/status/0  | may block       |
 
 ---
 
@@ -408,7 +428,10 @@ ABI: v1
 
 Number: `8`
 
-Arguments: RDI = path to an ELF in RoboFS
+Arguments: RDI = path to an ELF in RoboFS. Optional RSI = user `char **`
+argv, RDX = argc. argc 0 keeps the historical default (argv[0] is the
+basename of the path). argc 1–8 copies those strings onto the child
+stack. Extra arguments beyond 8 return `ROBO_EINVAL`.
 
 Returns: new pid, or error
 
@@ -504,18 +527,151 @@ ABI: v1
 Number: `12`
 
 Arguments: RDI = operation, RSI = handle, RDX = buffer, R10 = length,
-R8 = flags
+R8 = flags (`ROBO_IPC_NOWAIT` = 1)
 
-Returns: `ROBO_ENOSYS` in ABI v1. There is no “call any IPC function”
-escape hatch.
+Operations:
 
-Pointer: unused until an operation is defined
+| Op | Name | Result |
+|----|------|--------|
+| 1 | SEND | bytes copied onto the peer channel |
+| 2 | RECV | bytes copied from the channel or listen port |
+| 3 | LISTEN | port handle (`buf` = name) |
+| 4 | CONNECT | channel handle (`buf` = name) |
+| 5 | CLOSE | 0 |
+| 6 | SHM_CREATE | shm id (`len` = bytes, max 8 MiB) |
+| 7 | SHM_MAP | user VA of shared pages (`handle` = shm id) |
+| 8 | SHM_UNMAP | 0 (`buf` = mapped VA) |
 
-Blocking: may block in a future implementation
+LISTEN/CONNECT names are C strings, max 31 bytes. Recv on a listen port
+returns `RoboIpcAccept` (`magic` `ROBO_IPC_ACCEPT_MAGIC`, server-side
+handle, peer pid). The kernel stamps the caller pid; clients cannot
+forge it.
 
-Permissions: n/a
+SEND/RECV copy at most 256 bytes. Empty SEND with handle 0 returns
+`ROBO_EBADF`. Peer close returns `ROBO_EIO`. `NOWAIT` with an empty
+queue returns `ROBO_EAGAIN`. Blocking RECV uses `robo_thread_block`.
 
-Side effects: none in v1
+Shared pages are identity-mapped physical frames. `SYS_MUNMAP` of an
+SHM VA does not free those frames while any shm object still owns them.
+Process exit closes ports/channels and drops shm maps.
+
+Pointer: `buf` is user memory for names, payloads, or mapped VAs
+
+Blocking: RECV/LISTEN accept without `NOWAIT` may block
+
+Permissions: handles belong to the calling process
+
+Side effects: creates kernel port/channel/shm objects
+
+ABI: v1
+
+---
+
+## SYS_DISPLAY
+
+Number: `25`
+
+Arguments: RDI = operation, RSI unused, RDX = buffer, R10 = length,
+R8 = flags (`ROBO_DISP_NOWAIT`; `CLAIM` uses `ROBO_DISP_ROLE_OUTPUT` /
+`ROBO_DISP_ROLE_INPUT`)
+
+Operations: `CLAIM` (1), `INFO` (2), `PRESENT` (3), `INPUT` (4),
+`INJECT` (5), `RELEASE` (6). `CLAIM` takes a role in flags (output,
+input, or both). Missing framebuffer still claims in HEADLESS mode
+(`INFO.ready = 0`). `PRESENT` copies a user `RoboDisplayPresent` buffer
+onto the UEFI framebuffer at `dest_x`,`dest_y` (output owner only).
+`INPUT`/`INJECT` require the input owner. RoboCompositor claims output;
+RoboWindowServer claims input.
+
+Pointer: user structs in `sdk/include/robosys/display.h` and
+`sdk/include/robosys/input.h`
+
+Blocking: never (empty input returns `ROBO_EAGAIN`)
+
+Permissions: display owner after CLAIM
+
+Side effects: framebuffer contents; input queue
+
+ABI: v1
+
+---
+
+## SYS_SOCKET
+
+Number: `26`
+
+Arguments: RDI = operation, RSI–R9 per operation. Socket handles are
+ordinary file descriptors (`ROBO_FILE_SOCKET`). `SYS_CLOSE` on that
+descriptor closes the socket.
+
+Operations (`sdk/include/robosys/socket.h`):
+
+| Op | Name | Arguments |
+|----|------|-----------|
+| 1 | SOCKET | RSI domain, RDX type, R10 protocol |
+| 2 | BIND | RSI fd, RDX `RoboSockAddr *` |
+| 3 | LISTEN | RSI fd, RDX backlog |
+| 4 | ACCEPT | RSI fd, RDX optional `RoboSockAddr *` |
+| 5 | CONNECT | RSI fd, RDX `RoboSockAddr *` |
+| 6 | SEND | RSI fd, RDX buf, R10 len |
+| 7 | RECV | RSI fd, RDX buf, R10 len |
+| 8 | SENDTO | RSI fd, RDX buf, R10 len, R9 `RoboSockAddr *` |
+| 9 | RECVFROM | RSI fd, RDX buf, R10 len, R9 `RoboSockAddr *` |
+| 10 | SHUTDOWN | RSI fd, RDX how |
+| 11 | GETSOCKNAME | RSI fd, RDX `RoboSockAddr *` |
+| 12 | GETPEERNAME | RSI fd, RDX `RoboSockAddr *` |
+| 13 | INFO | RDX `RoboNetInfo *` |
+| 14 | PING | RSI IPv4 (host order), RDX timeout ms |
+
+`RoboSockAddr.port` and `RoboSockAddr.addr` are host byte order.
+Domain is `ROBO_AF_INET`. Types are `ROBO_SOCK_STREAM` (TCP) and
+`ROBO_SOCK_DGRAM` (UDP).
+
+Blocking: CONNECT, RECV, ACCEPT, SEND (full buffer), PING, and BIND
+ARP resolution may block. Empty non-blocking receive returns
+`ROBO_EAGAIN` (non-blocking is not exposed in this phase).
+
+Pointer: user buffers copied with `robo_copy_from_user` /
+`robo_copy_to_user`.
+
+Side effects: NIC transmit/receive, ARP cache, TCP/UDP state
+
+ABI: v1
+
+---
+
+## SYS_THREAD
+
+Number: `32`
+
+Multiplexed thread and TLS operations. Numbers 27–31 remain
+`ROBO_ENOSYS` forever.
+
+Arguments: RDI = operation.
+
+| Op | Name | Arguments | Returns |
+|----|------|-----------|---------|
+| 1 | YIELD | none | 0 |
+| 2 | EXIT | RSI = status | never (this thread) |
+| 3 | JOIN | RSI = tid | exit status, or error |
+| 4 | SET_FS | RSI = user TCB address | 0 |
+| 5 | GETTID | none | tid |
+| 6 | GETPPID | none | parent pid |
+
+`SYS_EXIT` (1) still terminates the whole process. `THREAD EXIT` ends
+only the calling thread. The last thread of a process still tears the
+process down.
+
+`SET_FS` writes `IA32_FS_BASE` for the current thread and restores it
+on every context switch. libc places a TCB at that address (`self` at
+offset 0, `errno` at offset 8).
+
+JOIN waits for a same-process user thread. `ROBO_ESRCH` if the tid is
+unknown. Unjoined user threads remain until join or process destroy.
+
+Pointer: SET_FS requires 16 writable user bytes
+
+Blocking: JOIN and YIELD may reschedule
 
 ABI: v1
 
@@ -706,8 +862,7 @@ After ABI v1 is published:
 do not change without a compatibility strategy. Prefer a new syscall
 number or ABI v2.
 
-Future work (signals, sockets, futexes, devices, graphics, networking)
-gets new numbers. It is not implemented here.
+Future work (signals, futexes, dynamic linking) gets new numbers.
 
 Public headers live in `sdk/include/robosys/`. They do not expose
 `RoboProcess`, `RoboThread`, page tables, or kernel heap structures.

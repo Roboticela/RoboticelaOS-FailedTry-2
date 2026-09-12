@@ -3,6 +3,7 @@
 
 #define IA32_EFER 0xC0000080u
 #define IA32_EFER_NXE (1ull << 11)
+#define IA32_FS_BASE 0xC0000100u
 #define CR0_WP (1ull << 16)
 
 static uint64_t rdmsr(uint32_t id)
@@ -70,4 +71,9 @@ void robo_cpu_enable_wp(void)
     __asm__ volatile ("mov %%cr0, %0" : "=r"(cr0));
     cr0 |= CR0_WP;
     __asm__ volatile ("mov %0, %%cr0" : : "r"(cr0) : "memory");
+}
+
+void robo_cpu_write_fs_base(uint64_t value)
+{
+    wrmsr(IA32_FS_BASE, value);
 }

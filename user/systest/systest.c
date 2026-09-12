@@ -128,7 +128,7 @@ int main(void)
         die(30);
 
     r = robo_ipc(1, 0, 0, 0, 0);
-    if (!is_err(r) || errcode(r) != ROBO_ENOSYS)
+    if (!is_err(r) || errcode(r) != ROBO_EBADF)
         die(31);
 
     map = (void *)(uintptr_t)robo_mmap(0, 4096,

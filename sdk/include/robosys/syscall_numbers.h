@@ -8,7 +8,8 @@
  * Removed calls keep their number as ROBO_SYS_RESERVED_*.
  *
  *   0–31     core ABI v1
- *   32–99    reserved core
+ *   32       SYS_THREAD (multiplexed thread/TLS ops)
+ *   33–99    reserved core
  *   100–199  process/thread (future)
  *   200–299  memory (future)
  *   300–399  IPC (future)
@@ -45,9 +46,24 @@
 #define ROBO_SYS_WAIT            22u
 #define ROBO_SYS_GETPID          23u
 #define ROBO_SYS_DRIVER_QUERY    24u
+#define ROBO_SYS_DISPLAY         25u
+#define ROBO_SYS_SOCKET         26u
+#define ROBO_SYS_RESERVED_27    27u
+#define ROBO_SYS_RESERVED_28    28u
+#define ROBO_SYS_RESERVED_29    29u
+#define ROBO_SYS_RESERVED_30    30u
+#define ROBO_SYS_RESERVED_31    31u
+#define ROBO_SYS_THREAD         32u
 
-#define ROBO_SYS_TABLE_SIZE      32u
+#define ROBO_SYS_TABLE_SIZE      64u
 #define ROBO_SYS_EXPERIMENTAL_BASE 500u
+
+#define ROBO_THREAD_OP_YIELD   1u
+#define ROBO_THREAD_OP_EXIT    2u
+#define ROBO_THREAD_OP_JOIN    3u
+#define ROBO_THREAD_OP_SET_FS  4u
+#define ROBO_THREAD_OP_GETTID  5u
+#define ROBO_THREAD_OP_GETPPID 6u
 
 #define ROBO_PROT_READ  1u
 #define ROBO_PROT_WRITE 2u
@@ -69,7 +85,19 @@
 
 #define ROBO_WAIT_NOHANG 1u
 
-#define ROBO_IPC_OP_SEND 1u
-#define ROBO_IPC_OP_RECV 2u
+#define ROBO_IPC_OP_SEND       1u
+#define ROBO_IPC_OP_RECV       2u
+#define ROBO_IPC_OP_LISTEN     3u
+#define ROBO_IPC_OP_CONNECT    4u
+#define ROBO_IPC_OP_CLOSE      5u
+#define ROBO_IPC_OP_SHM_CREATE 6u
+#define ROBO_IPC_OP_SHM_MAP    7u
+#define ROBO_IPC_OP_SHM_UNMAP  8u
+
+#define ROBO_IPC_NOWAIT 1u
+#define ROBO_IPC_ACCEPT_MAGIC 0x41434354u
+
+#define ROBO_IPC_NAME_WINDOW_SERVER "window-server"
+#define ROBO_IPC_NAME_COMPOSITOR    "compositor"
 
 #endif
