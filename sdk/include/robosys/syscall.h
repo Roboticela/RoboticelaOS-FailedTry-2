@@ -154,4 +154,10 @@ static inline robo_pid robo_getpid(void)
                                   0, 0, 0, 0, 0, 0);
 }
 
+static inline robo_long robo_driver_query(RoboDriverStatus *out)
+{
+    return robo_syscall((robo_long)ROBO_SYS_DRIVER_QUERY,
+                        (robo_long)(uintptr_t)out, 0, 0, 0, 0, 0);
+}
+
 #endif

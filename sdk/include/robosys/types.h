@@ -25,6 +25,7 @@ typedef struct RoboAbiInfo {
 #define ROBO_ABI_FEAT_THREAD  (1u << 6)
 #define ROBO_ABI_FEAT_PROCESS (1u << 7)
 #define ROBO_ABI_FEAT_WAIT    (1u << 8)
+#define ROBO_ABI_FEAT_DRIVER  (1u << 9)
 
 typedef struct RoboStat {
     uint64_t size;
@@ -38,5 +39,20 @@ typedef struct RoboStat {
     uint32_t type;
     uint32_t nlink;
 } RoboStat;
+
+typedef struct RoboDriverStatus {
+    uint32_t pci_count;
+    uint32_t drivers_registered;
+    uint32_t drivers_loaded;
+    uint32_t drivers_failed;
+    uint32_t signed_ok;
+    uint32_t rejected;
+    uint32_t storage_ready;
+    uint32_t gfx_width;
+    uint32_t gfx_height;
+    uint32_t keyboard;
+    uint32_t mouse;
+    uint32_t test_mode;
+} RoboDriverStatus;
 
 #endif

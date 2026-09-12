@@ -44,6 +44,7 @@
 
 #define ROBO_SYS_WAIT            22u
 #define ROBO_SYS_GETPID          23u
+#define ROBO_SYS_DRIVER_QUERY    24u
 
 #define ROBO_SYS_TABLE_SIZE      32u
 #define ROBO_SYS_EXPERIMENTAL_BASE 500u

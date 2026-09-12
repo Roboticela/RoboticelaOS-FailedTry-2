@@ -27,6 +27,55 @@ int robo_bdev_write(RoboBlockDevice *dev, uint64_t lba, const void *buf)
     return dev->write(dev, lba, buf);
 }
 
+int robo_bdev_flush(RoboBlockDevice *dev)
+{
+    if (!dev)
+        return -ROBO_EINVAL;
+    if (!dev->flush)
+        return 0;
+    return dev->flush(dev);
+}
+
+int robo_bdev_read_n(RoboBlockDevice *dev, uint64_t lba, uint64_t count,
+                     void *buf)
+{
+    uint64_t i;
+    unsigned char *p = (unsigned char *)buf;
+
+    if (!dev || !buf)
+        return -ROBO_EINVAL;
+    if (!count)
+        return 0;
+    if (lba >= dev->block_count || count > dev->block_count - lba)
+        return -ROBO_EIO;
+    for (i = 0; i < count; i++) {
+        int r = robo_bdev_read(dev, lba + i, p + i * dev->block_size);
+        if (r != 0)
+            return r;
+    }
+    return 0;
+}
+
+int robo_bdev_write_n(RoboBlockDevice *dev, uint64_t lba, uint64_t count,
+                      const void *buf)
+{
+    uint64_t i;
+    const unsigned char *p = (const unsigned char *)buf;
+
+    if (!dev || !buf)
+        return -ROBO_EINVAL;
+    if (!count)
+        return 0;
+    if (lba >= dev->block_count || count > dev->block_count - lba)
+        return -ROBO_EIO;
+    for (i = 0; i < count; i++) {
+        int r = robo_bdev_write(dev, lba + i, p + i * dev->block_size);
+        if (r != 0)
+            return r;
+    }
+    return 0;
+}
+
 void robo_bdev_destroy(RoboBlockDevice *dev)
 {
     if (!dev)
@@ -111,6 +160,7 @@ RoboBlockDevice *robo_memdev_create(uint32_t block_size, uint64_t block_count)
     dev->priv = m;
     dev->read = mem_read;
     dev->write = mem_write;
+    dev->flush = 0;
     dev->destroy = mem_destroy;
     return dev;
 }

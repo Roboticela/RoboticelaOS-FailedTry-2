@@ -24,6 +24,7 @@ uint64_t robo_sys_unlink(RoboSyscallContext *ctx);
 uint64_t robo_sys_rename(RoboSyscallContext *ctx);
 uint64_t robo_sys_wait(RoboSyscallContext *ctx);
 uint64_t robo_sys_getpid(RoboSyscallContext *ctx);
+uint64_t robo_sys_driver_query(RoboSyscallContext *ctx);
 uint64_t robo_sys_enosys(RoboSyscallContext *ctx);
 
 #endif

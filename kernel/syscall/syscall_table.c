@@ -32,6 +32,7 @@ void robo_syscall_table_init(void)
     g_table[ROBO_SYS_RENAME] = robo_sys_rename;
     g_table[ROBO_SYS_WAIT] = robo_sys_wait;
     g_table[ROBO_SYS_GETPID] = robo_sys_getpid;
+    g_table[ROBO_SYS_DRIVER_QUERY] = robo_sys_driver_query;
 }
 
 RoboSyscallHandler robo_syscall_lookup(uint64_t number)
@@ -75,6 +76,7 @@ const char *robo_syscall_name(uint64_t number)
     case ROBO_SYS_RENAME: return "SYS_RENAME";
     case ROBO_SYS_WAIT: return "SYS_WAIT";
     case ROBO_SYS_GETPID: return "SYS_GETPID";
+    case ROBO_SYS_DRIVER_QUERY: return "SYS_DRIVER_QUERY";
     default: return "SYS_UNKNOWN";
     }
 }

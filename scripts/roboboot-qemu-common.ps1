@@ -70,6 +70,16 @@ function Get-QemuBaseArgs {
     } else {
         $args += @("-drive", "file=$script:EspImg,format=raw,if=ide,index=0,media=disk,cache=writethrough")
     }
+    $vblk = Join-Path $script:Build "virtio-test.img"
+    if (-not (Test-Path $vblk)) {
+        $fs = [System.IO.File]::Open($vblk, 'Create', 'Write')
+        $fs.SetLength(8MB)
+        $fs.Close()
+    }
+    $args += @(
+        "-drive", "file=$vblk,format=raw,if=none,id=vblk,cache=writethrough",
+        "-device", "virtio-blk-pci,disable-legacy=on,drive=vblk"
+    )
     if ($Headless) {
         $args += @("-display", "none", "-no-reboot")
     } else {

@@ -18,6 +18,7 @@
 #include "exec/exec.h"
 #include "syscall/syscall.h"
 #include "process/init.h"
+#include "drivers/manager.h"
 
 static void boot_bar(unsigned p)
 {
@@ -257,6 +258,7 @@ void kmain(const RoboBootInfo *info)
                     kprintf("USER_ROBOFS_FAIL\n");
                 if (!robofs_selftest())
                     kprintf("ROBOFS_TEST_FAIL\n");
+                robo_hw_subsystem_init(info);
                 handoff = 1;
             } else {
                 kprintf("USER_TEST_FAIL\n");

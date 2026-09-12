@@ -165,6 +165,7 @@ Optional `RoboAbiInfo` (when argument 1 is a user pointer):
 | `ROBO_ABI_FEAT_THREAD`   | `SYS_THREAD_CREATE`              |
 | `ROBO_ABI_FEAT_PROCESS`  | `SYS_PROCESS_CREATE`             |
 | `ROBO_ABI_FEAT_WAIT`     | `SYS_WAIT`                       |
+| `ROBO_ABI_FEAT_DRIVER`   | `SYS_DRIVER_QUERY`               |
 
 A minor version does not imply every optional feature exists. Use flags.
 
@@ -196,7 +197,8 @@ A minor version does not imply every optional feature exists. Use flags.
 | 21     | SYS_RENAME           | 2    | 0/error       | may block       |
 | 22     | SYS_WAIT             | 1–3  | pid/error     | may block       |
 | 23     | SYS_GETPID           | 0    | pid           | never           |
-| 24–31  | reserved             | —    | ENOSYS        | never           |
+| 24     | SYS_DRIVER_QUERY     | 1    | 0/error       | never           |
+| 25–31  | reserved             | —    | ENOSYS        | never           |
 
 ---
 
@@ -663,6 +665,28 @@ Blocking: never
 Permissions: none
 
 Side effects: none
+
+ABI: v1
+
+---
+
+## SYS_DRIVER_QUERY
+
+Number: `24`
+
+Arguments: RDI = `RoboDriverStatus *`
+
+Returns: 0 or a negated error (`ROBO_EINVAL`, `ROBO_EFAULT`)
+
+Pointer: RDI, kernel writes, size `sizeof(RoboDriverStatus)`
+
+Blocking: never
+
+Permissions: current process address space
+
+Side effects: none. This is a snapshot of Driver Manager diagnostics
+(PCI count, loaded drivers, storage/graphics/input readiness). It does
+not install packages or bind devices.
 
 ABI: v1
 

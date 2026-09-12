@@ -23,6 +23,10 @@
 #include "exec/elf/elf_loader.h"
 #include "exec/elf/elf.h"
 #include "exec/elf/elf_validate.h"
+#include "drivers/manager.h"
+#include "graphics/gfx.h"
+#include "input/input.h"
+#include "drivers/driver.h"
 #include <robosys/types.h>
 
 #define ROBO_FD_NONE       ((uint64_t)-1)
@@ -114,7 +118,7 @@ uint64_t robo_sys_abi_info(RoboSyscallContext *ctx)
                         ROBO_ABI_FEAT_TIME | ROBO_ABI_FEAT_SLEEP |
                         ROBO_ABI_FEAT_MMAP | ROBO_ABI_FEAT_FS |
                         ROBO_ABI_FEAT_THREAD | ROBO_ABI_FEAT_PROCESS |
-                        ROBO_ABI_FEAT_WAIT;
+                        ROBO_ABI_FEAT_WAIT | ROBO_ABI_FEAT_DRIVER;
         info.reserved = 0;
         if (robo_copy_to_user(as, out, &info, sizeof(info)) != 0)
             return robo_sys_err(ROBO_EFAULT);
@@ -587,4 +591,38 @@ uint64_t robo_sys_getpid(RoboSyscallContext *ctx)
     if (!ctx->process)
         return robo_sys_err(ROBO_EINVAL);
     return ctx->process->id;
+}
+
+uint64_t robo_sys_driver_query(RoboSyscallContext *ctx)
+{
+    uint64_t u = arg(ctx, 1);
+    RoboDriverStatus st;
+    RoboDisplayInfo di;
+    unsigned pci = 0, reg = 0, loaded = 0, failed = 0, sig = 0, rej = 0;
+    RoboAddressSpace *as = ctx_as(ctx);
+
+    if (!u)
+        return robo_sys_err(ROBO_EINVAL);
+    if (!robo_user_range_valid(as, u, sizeof(st), ROBO_USER_ACCESS_WRITE))
+        return robo_sys_err(ROBO_EFAULT);
+    robo_hw_status(&pci, &reg, &loaded, &failed, &sig, &rej);
+    st.pci_count = pci;
+    st.drivers_registered = reg;
+    st.drivers_loaded = loaded;
+    st.drivers_failed = failed;
+    st.signed_ok = sig;
+    st.rejected = rej;
+    st.storage_ready = robo_hw_storage_ready() ? 1u : 0u;
+    st.gfx_width = 0;
+    st.gfx_height = 0;
+    if (robo_display_get_info(&di)) {
+        st.gfx_width = di.width;
+        st.gfx_height = di.height;
+    }
+    st.keyboard = robo_input_keyboard_ready() ? 1u : 0u;
+    st.mouse = robo_input_mouse_ready() ? 1u : 0u;
+    st.test_mode = robo_driver_test_mode() ? 1u : 0u;
+    if (robo_copy_to_user(as, u, &st, sizeof(st)) != 0)
+        return robo_sys_err(ROBO_EFAULT);
+    return 0;
 }

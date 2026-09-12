@@ -17,6 +17,7 @@ $script:ProcessHostTestOut = Join-Path $script:KernelRoot "build\test_process_ho
 $script:ContextLayoutTestOut = Join-Path $script:KernelRoot "build\test_context_layout.exe"
 $script:ElfTestOut = Join-Path $script:KernelRoot "build\test_elf.exe"
 $script:RfsTestOut = Join-Path $script:KernelRoot "build\test_rfs.exe"
+$script:DriverSigTestOut = Join-Path $script:KernelRoot "build\test_driver_sig.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -393,6 +394,7 @@ function Invoke-RoboBuildUserland {
         @{ Name = "b"; Srcs = @("lib\crt0.S", "lib\syscall.S", "iso\b.c") },
         @{ Name = "fd-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "fd-test\fd-test.c") },
         @{ Name = "robofs-test"; Srcs = @("lib\crt0.S", "lib\syscall.S", "robofs-test\robofs-test.c") },
+        @{ Name = "robo"; Srcs = @("lib\crt0.S", "lib\syscall.S", "robo\main.c") },
         @{ Name = "init"; Srcs = @("lib\crt0.S", "lib\syscall.S", "init\main.c", "init\service.c", "init\config.c") },
         @{ Name = "test-service"; Srcs = @("lib\crt0.S", "lib\syscall.S", "services\test-service\test-service.c") },
         @{ Name = "crash-test"; Srcs = @("services\crash-test\start.S") },
@@ -430,6 +432,7 @@ function Invoke-RoboBuildUserland {
         ("/bin/b=" + $elfs["b"]),
         ("/bin/fd-test=" + $elfs["fd-test"]),
         ("/bin/robofs-test=" + $elfs["robofs-test"]),
+        ("/bin/robo=" + $elfs["robo"]),
         ("/System/init=" + $elfs["init"]),
         ("/System/services/test-service=" + $elfs["test-service"]),
         ("/System/services/crash-test=" + $elfs["crash-test"]),
@@ -526,6 +529,21 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "fs\block\memdev.c"),
         (Join-Path $kroot "fs\rfs\rfs.c"),
         (Join-Path $kroot "fs\rfs\rfs_test.c"),
+        (Join-Path $kroot "arch\x86_64\acpi\acpi.c"),
+        (Join-Path $kroot "arch\x86_64\mmio.c"),
+        (Join-Path $kroot "pci\pci.c"),
+        (Join-Path $kroot "device\model.c"),
+        (Join-Path $kroot "drivers\registry.c"),
+        (Join-Path $kroot "drivers\package.c"),
+        (Join-Path $kroot "drivers\manager.c"),
+        (Join-Path $kroot "drivers\signature\sha256.c"),
+        (Join-Path $kroot "drivers\signature\sha512.c"),
+        (Join-Path $kroot "drivers\signature\ed25519.c"),
+        (Join-Path $kroot "drivers\builtin\fb_generic.c"),
+        (Join-Path $kroot "storage\virtio_blk.c"),
+        (Join-Path $kroot "graphics\gfx.c"),
+        (Join-Path $kroot "input\input.c"),
+        (Join-Path $kroot "input\ps2.c"),
         (Join-Path $kroot "src\kserial.c"),
         (Join-Path $kroot "src\kfb.c"),
         (Join-Path $kroot "src\kboot.c"),
@@ -567,6 +585,16 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "fs\block"),
         (Join-Path $kroot "fs\rfs"),
         (Join-Path $kroot "syscall"),
+        (Join-Path $kroot "pci"),
+        (Join-Path $kroot "device"),
+        (Join-Path $kroot "drivers"),
+        (Join-Path $kroot "drivers\signature"),
+        (Join-Path $kroot "drivers\builtin"),
+        (Join-Path $kroot "storage"),
+        (Join-Path $kroot "graphics"),
+        (Join-Path $kroot "input"),
+        (Join-Path $kroot "irq"),
+        (Join-Path $kroot "arch\x86_64\acpi"),
         (Join-Path $script:Repo "sdk\include\robosys"),
         (Join-Path $script:Boot "include\roboticela")
     )
@@ -1032,6 +1060,56 @@ function Invoke-RoboTestRfs {
     if ($LASTEXITCODE -ne 0) { throw "rfs host tests failed" }
 }
 
+function Invoke-RoboBuildDriverSigTest {
+    $kroot = $script:KernelRoot
+    $kobj = Join-Path $kroot "build\obj\driver-sig-test"
+    New-Item -ItemType Directory -Force -Path $kobj | Out-Null
+    $clang = Get-Clang
+    $cflags = @(
+        "-std=c11", "-O2",
+        "-D_CRT_SECURE_NO_WARNINGS",
+        "-DDRIVER_HOST_TEST",
+        "-I", $kroot,
+        "-I", (Join-Path $kroot "include"),
+        "-I", (Join-Path $script:Repo "sdk\include")
+    )
+    $srcs = @(
+        (Join-Path $kroot "tests\test_driver_sig.c"),
+        (Join-Path $kroot "drivers\registry.c"),
+        (Join-Path $kroot "drivers\package.c"),
+        (Join-Path $kroot "drivers\signature\sha256.c"),
+        (Join-Path $kroot "drivers\signature\sha512.c"),
+        (Join-Path $kroot "drivers\signature\ed25519.c")
+    )
+    $deps = Get-HeaderDeps @(
+        (Join-Path $kroot "drivers"),
+        (Join-Path $kroot "drivers\signature"),
+        (Join-Path $kroot "device"),
+        (Join-Path $kroot "pci"),
+        (Join-Path $kroot "syscall"),
+        (Join-Path $script:Repo "sdk\include\robosys")
+    )
+    $objs = @()
+    $compiled = $false
+    foreach ($src in $srcs) {
+        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
+        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
+        $objs += $obj
+    }
+    if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:DriverSigTestOut $objs)) {
+        Write-Step "LD" "kernel\build\test_driver_sig.exe"
+        & $clang -o $script:DriverSigTestOut @objs
+        if ($LASTEXITCODE -ne 0) { throw "driver signature host test link failed" }
+    }
+}
+
+function Invoke-RoboTestDriverSig {
+    Invoke-RoboBuildDriverSigTest
+    Write-Step "TEST" "test_driver_sig.exe"
+    & $script:DriverSigTestOut
+    if ($LASTEXITCODE -ne 0) { throw "driver signature host tests failed" }
+}
+
 function Invoke-RoboBuildImage {
     param([string]$Flags = "")
     Invoke-RoboBuildKernel
@@ -1177,6 +1255,7 @@ function Invoke-RoboTestHost {
     Invoke-RoboTestContextLayout
     Invoke-RoboTestElf
     Invoke-RoboTestRfs
+    Invoke-RoboTestDriverSig
 }
 
 function Invoke-RoboClean {
