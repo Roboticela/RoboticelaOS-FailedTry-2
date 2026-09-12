@@ -66,15 +66,61 @@ static uint16_t map_set1(uint8_t sc, int ext)
     }
     switch (sc) {
     case 0x01: return ROBO_KEY_ESC;
+    case 0x02: return ROBO_KEY_1;
+    case 0x03: return ROBO_KEY_2;
+    case 0x04: return ROBO_KEY_3;
+    case 0x05: return ROBO_KEY_4;
+    case 0x06: return ROBO_KEY_5;
+    case 0x07: return ROBO_KEY_6;
+    case 0x08: return ROBO_KEY_7;
+    case 0x09: return ROBO_KEY_8;
+    case 0x0A: return ROBO_KEY_9;
+    case 0x0B: return ROBO_KEY_0;
+    case 0x0C: return ROBO_KEY_MINUS;
+    case 0x0D: return ROBO_KEY_EQUAL;
+    case 0x0E: return ROBO_KEY_BACKSPACE;
+    case 0x0F: return ROBO_KEY_TAB;
+    case 0x10: return ROBO_KEY_Q;
+    case 0x11: return ROBO_KEY_W;
+    case 0x12: return ROBO_KEY_E;
+    case 0x13: return ROBO_KEY_R;
+    case 0x14: return ROBO_KEY_T;
+    case 0x15: return ROBO_KEY_Y;
+    case 0x16: return ROBO_KEY_U;
+    case 0x17: return ROBO_KEY_I;
+    case 0x18: return ROBO_KEY_O;
+    case 0x19: return ROBO_KEY_P;
+    case 0x1A: return ROBO_KEY_LBRACKET;
+    case 0x1B: return ROBO_KEY_RBRACKET;
     case 0x1C: return ROBO_KEY_ENTER;
-    case 0x39: return ROBO_KEY_SPACE;
-    case 0x2A:
-    case 0x36: return ROBO_KEY_LSHIFT;
     case 0x1D: return ROBO_KEY_LCTRL;
     case 0x1E: return ROBO_KEY_A;
+    case 0x1F: return ROBO_KEY_S;
+    case 0x20: return ROBO_KEY_D;
+    case 0x21: return ROBO_KEY_F;
+    case 0x22: return ROBO_KEY_G;
+    case 0x23: return ROBO_KEY_H;
+    case 0x24: return ROBO_KEY_J;
+    case 0x25: return ROBO_KEY_K;
+    case 0x26: return ROBO_KEY_L;
+    case 0x27: return ROBO_KEY_SEMICOLON;
+    case 0x28: return ROBO_KEY_QUOTE;
+    case 0x29: return ROBO_KEY_GRAVE;
+    case 0x2A: return ROBO_KEY_LSHIFT;
+    case 0x2B: return ROBO_KEY_BACKSLASH;
+    case 0x2C: return ROBO_KEY_Z;
+    case 0x2D: return ROBO_KEY_X;
+    case 0x2E: return ROBO_KEY_C;
+    case 0x2F: return ROBO_KEY_V;
+    case 0x30: return ROBO_KEY_B;
+    case 0x31: return ROBO_KEY_N;
+    case 0x32: return ROBO_KEY_M;
+    case 0x33: return ROBO_KEY_COMMA;
+    case 0x34: return ROBO_KEY_DOT;
+    case 0x35: return ROBO_KEY_SLASH;
+    case 0x36: return ROBO_KEY_LSHIFT;
+    case 0x39: return ROBO_KEY_SPACE;
     default:
-        if (sc >= 0x10 && sc < 0x80)
-            return (uint16_t)sc;
         return ROBO_KEY_UNKNOWN;
     }
 }

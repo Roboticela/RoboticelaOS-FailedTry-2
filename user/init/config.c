@@ -1,10 +1,17 @@
 #include "config.h"
 
 /*
- * v1 starts only services that exist on RoboFS. Future paths such as
- * /System/services/device-manager are documented, not shipped empty.
+ * Production boot: terminal owns the screen.
+ * Compositor / window-server stay available for selftest and later UI work.
  */
 static const RoboServiceConfig g_services[] = {
+    {
+        "terminal",
+        "/System/services/terminal",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
+    },
     {
         "test-service",
         "/System/services/test-service",
@@ -29,14 +36,14 @@ static const RoboServiceConfig g_services[] = {
     {
         "compositor",
         "/System/services/compositor",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_NEVER,
         0
     },
     {
         "window-server",
         "/System/services/window-server",
-        ROBO_SVC_ENABLED,
+        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_NEVER,
         0
     },

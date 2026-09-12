@@ -2,7 +2,7 @@
 #include "config.h"
 #include <robosys/syscall.h>
 
-#define ROBO_SVC_MAX 8
+#define ROBO_SVC_MAX 12
 
 static RoboService g_svc[ROBO_SVC_MAX];
 static unsigned g_n;

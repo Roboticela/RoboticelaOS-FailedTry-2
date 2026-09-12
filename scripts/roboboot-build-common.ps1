@@ -486,7 +486,8 @@ function Invoke-RoboBuildUserland {
         "-mno-red-zone", "-fno-builtin",
         "-isystem", $libc.Inc,
         "-I", $libc.Inc,
-        "-I", $libc.Sdk
+        "-I", $libc.Sdk,
+        "-I", $user
     )
     $sdkdeps = Get-HeaderDeps @(
         $libc.Inc,
@@ -502,7 +503,11 @@ function Invoke-RoboBuildUserland {
         @{ Name = "b"; Srcs = @("iso\b.c"); Libc = $true },
         @{ Name = "fd-test"; Srcs = @("fd-test\fd-test.c"); Libc = $true },
         @{ Name = "robofs-test"; Srcs = @("robofs-test\robofs-test.c"); Libc = $true },
-        @{ Name = "robo"; Srcs = @("robo\main.c"); Libc = $true },
+        @{ Name = "robo"; Srcs = @("robo\main.c", "lib\toolchain.c"); Libc = $true },
+        @{ Name = "terminal"; Srcs = @("terminal\main.c"); Libc = $true },
+        @{ Name = "clang-shim"; Srcs = @("clang\shim.c", "lib\toolchain.c"); Libc = $true },
+        @{ Name = "clangxx-shim"; Srcs = @("clang\shim.c", "lib\toolchain.c"); Libc = $true },
+        @{ Name = "clang-rt"; Srcs = @("clang\runtime.c"); Libc = $true },
         @{ Name = "init"; Srcs = @("init\main.c", "init\service.c", "init\config.c"); Libc = $true },
         @{ Name = "test-service"; Srcs = @("services\test-service\test-service.c"); Libc = $true },
         @{ Name = "crash-test"; Srcs = @("services\crash-test\start.S"); Libc = $false },
@@ -564,6 +569,10 @@ function Invoke-RoboBuildUserland {
     New-Item -ItemType Directory -Force -Path (Split-Path $initrd) | Out-Null
     $txt = Join-Path $ubuild "test.txt"
     [IO.File]::WriteAllBytes($txt, [Text.Encoding]::ASCII.GetBytes("Roboticela OS"))
+    $catalogIndex = Join-Path $ubuild "robo-catalog-index.txt"
+    [IO.File]::WriteAllText($catalogIndex, "llvm 18.1.8`n")
+    $defaults = Join-Path $ubuild "robo-toolchains-defaults.txt"
+    [IO.File]::WriteAllText($defaults, "llvm=18.1.8`n")
     Write-Step "FS" "volumes\sys\initrd"
     & $py $pack "-o" $initrd (
         ("/bin/hello=" + $elfs["hello"]),
@@ -574,12 +583,22 @@ function Invoke-RoboBuildUserland {
         ("/bin/fd-test=" + $elfs["fd-test"]),
         ("/bin/robofs-test=" + $elfs["robofs-test"]),
         ("/bin/robo=" + $elfs["robo"]),
+        ("/bin/terminal=" + $elfs["terminal"]),
+        ("/bin/clang=" + $elfs["clang-shim"]),
+        ("/bin/clang++=" + $elfs["clangxx-shim"]),
         ("/System/init=" + $elfs["init"]),
         ("/System/services/test-service=" + $elfs["test-service"]),
         ("/System/services/crash-test=" + $elfs["crash-test"]),
         ("/System/services/isol-test=" + $elfs["isol-test"]),
         ("/System/services/window-server=" + $elfs["window-server"]),
         ("/System/services/compositor=" + $elfs["compositor"]),
+        ("/System/services/terminal=" + $elfs["terminal"]),
+        ("/System/robo/catalog/index=" + $catalogIndex),
+        ("/System/robo/catalog/llvm/18.1.8/bin/clang=" + $elfs["clang-rt"]),
+        ("/System/robo/catalog/llvm/18.1.8/bin/clang++=" + $elfs["clang-rt"]),
+        ("/System/toolchains/defaults=" + $defaults),
+        ("/System/toolchains/llvm/18.1.8/bin/clang=" + $elfs["clang-rt"]),
+        ("/System/toolchains/llvm/18.1.8/bin/clang++=" + $elfs["clang-rt"]),
         ("/bin/window-test=" + $elfs["window-test"]),
         ("/bin/window-peer=" + $elfs["window-peer"]),
         ("/bin/window-child=" + $elfs["window-child"]),
