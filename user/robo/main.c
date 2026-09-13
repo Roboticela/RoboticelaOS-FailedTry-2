@@ -351,6 +351,34 @@ static int driver_status(void)
     return 0;
 }
 
+static int cmd_runtime(int argc, char **argv)
+{
+    char buf[512];
+    int fd;
+    robo_long n;
+    (void)argc;
+    (void)argv;
+    line("Roboticela Runtime");
+    line("------------------");
+    fd = (int)robo_open("/System/runtime/engines.manifest", (int)ROBO_O_RDONLY, 0);
+    if (fd < 0) {
+        line("engines.manifest: missing");
+        line("Expected under /System/runtime/");
+        return 1;
+    }
+    for (;;) {
+        n = robo_read(fd, buf, sizeof(buf) - 1);
+        if (n <= 0)
+            break;
+        buf[n] = 0;
+        put(buf);
+    }
+    robo_close(fd);
+    line("");
+    line("Bins: /System/runtime/robosail /bin/robospark /bin/robolayer-demo");
+    return 0;
+}
+
 static void usage(void)
 {
     line("robo — Roboticela package manager");
@@ -363,6 +391,7 @@ static void usage(void)
     line("  robo uninstall llvm@18.1.8");
     line("");
     line("  robo driver status");
+    line("  robo runtime");
     line("");
     line("C/C++ only. After install: clang / clang++");
 }
@@ -391,6 +420,8 @@ int main(int argc, char **argv)
         line("usage: robo driver status");
         return 1;
     }
+    if (seq(argv[1], "runtime"))
+        return cmd_runtime(argc - 2, argv + 2);
     usage();
     return 1;
 }

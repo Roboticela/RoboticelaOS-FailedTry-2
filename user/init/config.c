@@ -1,13 +1,27 @@
 #include "config.h"
 
 /*
- * Production boot: terminal owns the screen.
- * Compositor / window-server stay available for selftest and later UI work.
+ * Production boot: graphical stack (no terminal).
+ * Order: compositor → window-server → RoboSail (multi-window browser).
  */
 static const RoboServiceConfig g_services[] = {
     {
-        "terminal",
-        "/System/services/terminal",
+        "compositor",
+        "/System/services/compositor",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
+    },
+    {
+        "window-server",
+        "/System/services/window-server",
+        ROBO_SVC_ENABLED,
+        ROBO_RESTART_NEVER,
+        0
+    },
+    {
+        "robosail",
+        "/System/runtime/robosail",
         ROBO_SVC_ENABLED,
         ROBO_RESTART_NEVER,
         0
@@ -32,20 +46,6 @@ static const RoboServiceConfig g_services[] = {
         ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
         ROBO_RESTART_ON_FAILURE,
         2
-    },
-    {
-        "compositor",
-        "/System/services/compositor",
-        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
-        ROBO_RESTART_NEVER,
-        0
-    },
-    {
-        "window-server",
-        "/System/services/window-server",
-        ROBO_SVC_ENABLED | ROBO_SVC_SELFTEST,
-        ROBO_RESTART_NEVER,
-        0
     },
     {
         "window-test",

@@ -13,7 +13,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet(
         "all", "assets", "host", "efi", "image", "esp", "bootloader", "kernel",
-        "combine", "test", "check", "qemu", "qemu-test", "run",
+        "combine", "runtime", "test", "check", "qemu", "qemu-test", "run",
         "clean", "distclean", "info", "help"
     )]
     [string]$Target = "all",
@@ -49,6 +49,7 @@ Targets:
   bootloader   UEFI app only (individual)
   combine      build kernel + bootloader, then stage a USB ESP tree in repo build\
   image, esp   same as combine
+  runtime      verify engine trees + rebuild guest runtime / initrd
   test, check  host unit tests
   qemu-test    headless bootloader + kernel selftests
   qemu         combine, then boot the real OS in QEMU (no selftests)
@@ -89,6 +90,7 @@ try {
         "combine" { Invoke-RoboCombine }
         "image" { Invoke-RoboCombine }
         "esp" { Invoke-RoboCombine }
+        "runtime" { Invoke-RoboBuildRuntime }
         "all" {
             Invoke-RoboBuildHost
             Invoke-RoboCombine

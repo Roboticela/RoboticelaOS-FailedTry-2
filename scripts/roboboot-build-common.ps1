@@ -467,15 +467,96 @@ function Test-RoboNoHostLibc([string]$Elf) {
     }
 }
 
+function Get-RoboRuntimeRoot {
+    return (Join-Path $script:Repo "runtime")
+}
+
+function Assert-RoboRuntimeEngines {
+    $rt = Get-RoboRuntimeRoot
+    $required = @(
+        @{ Name = "RoboSpark/V8"; Path = (Join-Path $rt "robospark\v8\include\v8.h") },
+        @{ Name = "RoboLayer/Skia"; Path = (Join-Path $rt "robolayer\skia\include\core\SkCanvas.h") },
+        @{ Name = "RoboBridge/Mojo"; Path = (Join-Path $rt "robobridge\mojo\public") },
+        @{ Name = "RoboKit/Blink"; Path = (Join-Path $rt "robokit\blink") },
+        @{ Name = "shared/base"; Path = (Join-Path $rt "shared\base") },
+        @{ Name = "shared/net"; Path = (Join-Path $rt "shared\net") },
+        @{ Name = "RoboCore API"; Path = (Join-Path $rt "robocore\include\robocore\robocore.h") },
+        @{ Name = "RoboSail"; Path = (Join-Path $rt "robosail\src\main.c") }
+    )
+    $missing = @()
+    foreach ($r in $required) {
+        if (-not (Test-Path $r.Path)) { $missing += $r.Name }
+    }
+    if ($missing.Count -gt 0) {
+        Write-Host "  WARN    runtime engines incomplete: $($missing -join ', ')"
+        Write-Host "          Run: .\runtime\tools\sync-engines-from-chromium.ps1 -Engine all"
+        Write-Host "               .\runtime\tools\sync-chromium-shared.ps1 -Set critical"
+        # Soft-fail: guest APIs still build; full trees optional for compile
+    } else {
+        Write-Step "RUNTIME" "engines present under runtime/"
+    }
+}
+
+function New-RoboRuntimeManifest {
+    param([string]$OutFile)
+    $rt = Get-RoboRuntimeRoot
+    function Count-CsvRows([string]$csv) {
+        if (-not (Test-Path $csv)) { return 0 }
+        return [Math]::Max(0, (Get-Content $csv | Measure-Object -Line).Lines - 1)
+    }
+    function Eng-Line([string]$id, [string]$rel, [string]$csvRel) {
+        $path = Join-Path $rt $rel
+        $present = if (Test-Path $path) { "present" } else { "missing" }
+        $files = Count-CsvRows (Join-Path $rt $csvRel)
+        return "engine.$id.status=$present`nengine.$id.path=$rel`nengine.$id.files=$files"
+    }
+    $lines = @(
+        "# RoboticelaOS Runtime Engines Manifest",
+        "version=1",
+        "generated=$(Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')",
+        "guest.bins=robospark,robolayer-demo,robosail",
+        "guest.apis=robocore,robospark,robolayer,robobridge,robokit,roboaqua",
+        "boot.services=compositor,window-server,robosail",
+        (Eng-Line "robospark" "robospark\v8" "robospark\V8_FILE_ACTIONS.csv"),
+        (Eng-Line "robolayer" "robolayer\skia" "robolayer\SKIA_FILE_ACTIONS.csv"),
+        (Eng-Line "robobridge" "robobridge\mojo" "robobridge\MOJO_FILE_ACTIONS.csv"),
+        (Eng-Line "robokit" "robokit\blink" "robokit\BLINK_FILE_ACTIONS.csv"),
+        (Eng-Line "shared_base" "shared\base" "shared\base_FILE_ACTIONS.csv"),
+        (Eng-Line "shared_net" "shared\net" "shared\net_FILE_ACTIONS.csv"),
+        (Eng-Line "shared_content" "shared\content" "shared\content_FILE_ACTIONS.csv")
+    )
+    $dir = Split-Path $OutFile -Parent
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    [IO.File]::WriteAllText($OutFile, ($lines -join "`n") + "`n")
+    Write-Step "RUNTIME" "engines.manifest"
+}
+
+function Invoke-RoboBuildRuntime {
+    Assert-RoboRuntimeEngines
+    Write-Step "RUNTIME" "build guest runtime ELFs via userland"
+    Invoke-RoboBuildKernel  # includes userland + initrd pack with runtime
+}
+
 function Invoke-RoboBuildUserland {
+    Assert-RoboRuntimeEngines
     $kroot = $script:KernelRoot
     $user = Join-Path $script:Repo "user"
+    $runtime = Get-RoboRuntimeRoot
     $ubuild = Join-Path $kroot "build\user"
     New-Item -ItemType Directory -Force -Path $ubuild | Out-Null
+    $manifest = Join-Path $ubuild "engines.manifest"
+    New-RoboRuntimeManifest -OutFile $manifest
     $clang = Get-Clang
     $ld = Get-LdLld
     $ldscript = Join-Path $user "linker.ld"
     $libc = Invoke-RoboBuildLibc
+    $engineDefines = @()
+    if (Test-Path (Join-Path $runtime "robospark\v8\include\v8.h")) {
+        $engineDefines += "-DROBOSPARK_ENGINE_TREE=1"
+    }
+    if (Test-Path (Join-Path $runtime "robolayer\skia\include\core\SkCanvas.h")) {
+        $engineDefines += "-DROBOLAYER_ENGINE_TREE=1"
+    }
     $cflags = @(
         "-target", "x86_64-unknown-none",
         "-std=c11", "-O2",
@@ -487,13 +568,25 @@ function Invoke-RoboBuildUserland {
         "-isystem", $libc.Inc,
         "-I", $libc.Inc,
         "-I", $libc.Sdk,
-        "-I", $user
-    )
+        "-I", $user,
+        "-I", (Join-Path $runtime "robocore\include"),
+        "-I", (Join-Path $runtime "robospark\include"),
+        "-I", (Join-Path $runtime "robolayer\include"),
+        "-I", (Join-Path $runtime "robobridge\include"),
+        "-I", (Join-Path $runtime "robokit\include"),
+        "-I", (Join-Path $runtime "roboaqua\include")
+    ) + $engineDefines
     $sdkdeps = Get-HeaderDeps @(
         $libc.Inc,
         (Join-Path $libc.Sdk "robosys"),
         (Join-Path $libc.Sdk "robowindow"),
-        (Join-Path $libc.Sdk "robocompositor")
+        (Join-Path $libc.Sdk "robocompositor"),
+        (Join-Path $runtime "robocore\include"),
+        (Join-Path $runtime "robospark\include"),
+        (Join-Path $runtime "robolayer\include"),
+        (Join-Path $runtime "robobridge\include"),
+        (Join-Path $runtime "robokit\include"),
+        (Join-Path $runtime "roboaqua\include")
     )
     $progs = @(
         @{ Name = "hello"; Srcs = @("hello\hello.c"); Libc = $true },
@@ -536,18 +629,47 @@ function Invoke-RoboBuildUserland {
         @{ Name = "argv-test"; Srcs = @("argv-test\main.c"); Libc = $true },
         @{ Name = "thread-test"; Srcs = @("thread-test\main.c"); Libc = $true },
         @{ Name = "file-test"; Srcs = @("file-test\main.c"); Libc = $true },
-        @{ Name = "network-test"; Srcs = @("network-test\main.c"); Libc = $true }
+        @{ Name = "network-test"; Srcs = @("network-test\main.c"); Libc = $true },
+        @{ Name = "robospark"; Root = $runtime; Srcs = @(
+            "robocore\src\robocore.c",
+            "robospark\src\robospark.c",
+            "robospark\cli\main.c"
+        ); Libc = $true },
+        @{ Name = "robolayer-demo"; Root = $runtime; Srcs = @(
+            "robocore\src\robocore.c",
+            "robolayer\src\robolayer.c",
+            "robolayer\demo\main.c"
+        ); Libc = $true },
+        @{ Name = "robosail"; Root = $runtime; Srcs = @(
+            "robocore\src\robocore.c",
+            "robospark\src\robospark.c",
+            "robolayer\src\robolayer.c",
+            "robobridge\src\robobridge.c",
+            "roboaqua\src\roboaqua.c",
+            "robokit\src\robokit.c",
+            "robosail\src\main.c"
+        ); ExtraUserSrcs = @("lib\window.c"); Libc = $true }
     )
     $elfs = @{}
     foreach ($p in $progs) {
         $objs = @()
         $i = 0
+        $srcRoot = if ($p.ContainsKey("Root") -and $p.Root) { $p.Root } else { $user }
         foreach ($rel in $p.Srcs) {
-            $src = Join-Path $user $rel
+            $src = Join-Path $srcRoot $rel
             $obj = Join-Path $ubuild ($p.Name + "_" + $i + ".o")
             if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
             $objs += $obj
             $i++
+        }
+        if ($p.ContainsKey("ExtraUserSrcs") -and $p.ExtraUserSrcs) {
+            foreach ($rel in $p.ExtraUserSrcs) {
+                $src = Join-Path $user $rel
+                $obj = Join-Path $ubuild ($p.Name + "_" + $i + ".o")
+                if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+                $objs += $obj
+                $i++
+            }
         }
         $elf = Join-Path $ubuild ($p.Name + ".elf")
         $linkobjs = $objs
@@ -583,7 +705,6 @@ function Invoke-RoboBuildUserland {
         ("/bin/fd-test=" + $elfs["fd-test"]),
         ("/bin/robofs-test=" + $elfs["robofs-test"]),
         ("/bin/robo=" + $elfs["robo"]),
-        ("/bin/terminal=" + $elfs["terminal"]),
         ("/bin/clang=" + $elfs["clang-shim"]),
         ("/bin/clang++=" + $elfs["clangxx-shim"]),
         ("/System/init=" + $elfs["init"]),
@@ -592,7 +713,6 @@ function Invoke-RoboBuildUserland {
         ("/System/services/isol-test=" + $elfs["isol-test"]),
         ("/System/services/window-server=" + $elfs["window-server"]),
         ("/System/services/compositor=" + $elfs["compositor"]),
-        ("/System/services/terminal=" + $elfs["terminal"]),
         ("/System/robo/catalog/index=" + $catalogIndex),
         ("/System/robo/catalog/llvm/18.1.8/bin/clang=" + $elfs["clang-rt"]),
         ("/System/robo/catalog/llvm/18.1.8/bin/clang++=" + $elfs["clang-rt"]),
@@ -609,6 +729,14 @@ function Invoke-RoboBuildUserland {
         ("/bin/thread-test=" + $elfs["thread-test"]),
         ("/bin/file-test=" + $elfs["file-test"]),
         ("/bin/network-test=" + $elfs["network-test"]),
+        ("/bin/robospark=" + $elfs["robospark"]),
+        ("/bin/robolayer-demo=" + $elfs["robolayer-demo"]),
+        ("/bin/robosail=" + $elfs["robosail"]),
+        ("/System/runtime/robospark=" + $elfs["robospark"]),
+        ("/System/runtime/robolayer-demo=" + $elfs["robolayer-demo"]),
+        ("/System/runtime/robosail=" + $elfs["robosail"]),
+        ("/System/runtime/demo.html=" + (Join-Path $runtime "robosail\demo.html")),
+        ("/System/runtime/engines.manifest=" + $manifest),
         ("/test.txt=" + $txt)
     )
     if ($LASTEXITCODE -ne 0) { throw "RoboFS pack failed" }

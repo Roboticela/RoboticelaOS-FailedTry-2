@@ -1,4 +1,7 @@
 .freebuff/
 Bootloader-RefCode/
 /build/
-/runtime/vendor/
+/runtime/Out/
+/runtime/Vendor/
+/runtime/Tools/ucd/source/
+Chromium/
