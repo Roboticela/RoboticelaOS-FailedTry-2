@@ -61,7 +61,7 @@ static void make_dec(const char *ascii, uint8_t scale, uint8_t neg, robo_i18n_de
 
 static void test_number_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.20.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.22.0");
     ROBO_CHECK_STR_EQ(robo_i18n_cldr_version_string(), "46");
 }
 

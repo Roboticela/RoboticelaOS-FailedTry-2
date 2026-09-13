@@ -74,12 +74,17 @@ generated offline into committed C tables (`RoboCldrData.h` /
 - `unitPreferenceData.json` + `measurementSystem-category-temperature`
 - `RoboMeasurePrefData` / `RoboI18NMeasure` preference context
 
+### Goal 4.21
+- `currencyData.json` (fractions, region→currency) + `codeMappings.json` (ISO numeric)
+- `currencyFormats-*` patterns + plural currency names → `RoboCurrencyData`
+- `RoboI18NCurrency` formatting (symbol/code/name/accounting; cash opt-in)
+
 ## Not imported here
 
 Percent/compact number patterns, full unit catalog (~188), general unit/currency
-parsing, full message catalogs beyond RoboMsg demos, and complete LDML collation
-rule compilation for every locale (esp. CJK) remain for later goals. IANA tzdb
-is a separate pin (see `i18n/TZDB.md`).
+parsing, FX conversion, full message catalogs beyond RoboMsg demos, and complete
+LDML collation rule compilation for every locale (esp. CJK) remain for later
+goals. IANA tzdb is a separate pin (see `i18n/TZDB.md`).
 
 ## Policy
 

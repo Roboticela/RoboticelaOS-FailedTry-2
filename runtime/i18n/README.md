@@ -1,6 +1,6 @@
 # RoboI18N
 
-Internationalization for Roboticela Runtime (**Goals 4.1–4.20**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.21**).
 
 ## Scope
 
@@ -16,7 +16,7 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.20**).
 | Numbering-system metadata + digits | Translator UI / TMS |
 | Locale-aware decimal number formatting | TAI/UTC leap-second modeling |
 | CLDR parentLocales + root inheritance | General unit / currency *parsing* |
-| CLDR cardinal / ordinal plural categories | Currency formatting (4.21) |
+| CLDR cardinal / ordinal plural categories | |
 | Date/time/instant/duration primitives | |
 | Calendar abstraction + CLDR calendar metadata | |
 | **IANA tzdb** (offsets, DST, aliases, fixed) | |
@@ -26,6 +26,7 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.20**).
 | Relative-time formatting (+ special ±2 forms) | |
 | **Measurement unit formatting + conversion** | |
 | **Measurement systems / unit preferences** | |
+| **Currency metadata + formatting** | |
 | Calendar arithmetic / date-time utilities | |
 | Locale-aware collation (UCA + CLDR) | |
 | Locale display names (CLDR) | |
@@ -37,8 +38,8 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.20**).
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.20.0` |
-| Generator | `1.17.0` |
+| RoboI18N API | `0.21.0` |
+| Generator | `1.18.0` |
 | RoboMsgFmt syntax | **1** |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
 | CLDR | **46** (JSON **46.0.0**) |
@@ -70,6 +71,11 @@ API: `RoboI18NUnit.h`, `RoboI18NRelativeTime.h`.
 
 See **`MeasurePrefs.md`**. Measurement systems (metric/US/UK) and preferred
 units by category/region. Distinct from formatting. API: `RoboI18NMeasure.h`.
+
+## Currency (Goal 4.21)
+
+See **`Currency.md`**. ISO 4217 + CLDR currency metadata, patterns, accounting,
+and opt-in cash rounding. API: `RoboI18NCurrency.h`. No FX conversion / parsing.
 
 ## Time zones (Goals 4.14–4.15)
 

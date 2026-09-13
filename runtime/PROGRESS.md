@@ -761,7 +761,28 @@
 - [x] Intl / conversion / fuzz tests; Debug / Release / Sanitize green
 - [x] Documentation; PROGRESS updated
 
+## Goal 4.21 — Currency Data and Currency Formatting
+
+**Status:** complete
+
+**Done:**
+
+- CLDR `currencyData` + `codeMappings` + `currencyFormats` → `RoboCurrencyData.*`
+- `RoboI18NCurrency` — lookup, region/locale defaults, symbol/code/name/accounting
+- Standard vs cash precision; `format_minor` for exact minor units; no FX conversion
+- Suite `SuiteRoboI18NCurrency.c` (intl matrix, accounting, cash, fuzz)
+- Docs `i18n/Currency.md`
+- API **0.21.0** / generator **1.18.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **436/436**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Currency metadata + locale-aware formatting on Goal 4.3 numbers
+- [x] Fraction digits / cash rounding separated; accounting from CLDR patterns
+- [x] Intl / precision / robustness tests; Debug / Release / Sanitize green
+- [x] Documentation; PROGRESS updated
+
 ## Next
 
-- Goal 4.21+ (do not start until requested)
+- Goal 4.22+ (do not start until requested)
 

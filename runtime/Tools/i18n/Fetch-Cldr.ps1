@@ -1,4 +1,4 @@
-# Download selected CLDR 46 JSON files for RoboI18N (Goals 4.2–4.19).
+# Download selected CLDR 46 JSON files for RoboI18N (Goals 4.2–4.21).
 # Reads Tools/i18n/manifest.json. Does NOT run during normal Build.ps1.
 
 $ErrorActionPreference = "Stop"
@@ -202,11 +202,28 @@ try {
     Write-Host "WARN skip unitPreferenceData.json : $_"
 }
 
+# Currency supplemental (Goal 4.21)
+$urlCurr = "$jsonRoot/cldr-core/supplemental/currencyData.json"
+$destCurr = Join-Path $SuppDir "currencyData.json"
+try {
+    Fetch-File $urlCurr $destCurr "f3850c34c68334d01d0de903bfef030092394763964bed9870834a28df77cce9"
+} catch {
+    Write-Host "WARN skip currencyData.json : $_"
+}
+$urlMap = "$jsonRoot/cldr-core/supplemental/codeMappings.json"
+$destMap = Join-Path $SuppDir "codeMappings.json"
+try {
+    Fetch-File $urlMap $destMap ""
+} catch {
+    Write-Host "WARN skip codeMappings.json : $_"
+}
+
 Write-Host "Fetched supplemental into $SuppDir"
 Write-Host "Numbers in $NumDir; dates in $DatesDir; collation in $CollDir; localenames in $LocalenamesDir; units in $UnitsDir."
 Write-Host "UCA DUCET: .\Fetch-Uca.ps1 then generate_uca.py / generate_collation.py"
 Write-Host "Display names: python $Here\generate_display.py --write-golden"
 Write-Host "Units: python $Here\generate_units.py --write-golden"
 Write-Host "Measure prefs: python $Here\generate_measure_prefs.py --write-golden"
+Write-Host "Currency: python $Here\generate_currency.py"
 Write-Host "Relative: python $Here\generate_relative.py --write-golden"
 Write-Host "Next: python $Here\generate_cldr.py --write-golden"

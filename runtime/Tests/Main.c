@@ -55,6 +55,8 @@ void robo_test_register_i18n_locale_negotiate(void);
 void robo_test_register_i18n_ordinal(void);
 void robo_test_register_i18n_unit(void);
 void robo_test_register_i18n_measure(void);
+void robo_test_register_i18n_currency(void);
+void robo_test_register_i18n_parse(void);
 
 int main(int argc, char **argv)
 {
@@ -147,5 +149,7 @@ int main(int argc, char **argv)
     robo_test_register_i18n_ordinal();
     robo_test_register_i18n_unit();
     robo_test_register_i18n_measure();
+    robo_test_register_i18n_currency();
+    robo_test_register_i18n_parse();
     return robo_test_main(argc, argv);
 }

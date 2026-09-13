@@ -86,6 +86,11 @@ Curated CLDR type-subtype keys × long/short/narrow, plural `unitPattern`s,
 `measurementData.json` → `RoboMeasurePrefData.*` via `generate_measure_prefs.py`.
 Runtime: `RoboI18NMeasure.h`.
 
+### Currency (Goal 4.21)
+
+`currencyData.json` + `codeMappings.json` + `currencyFormats-*` + plural names →
+`RoboCurrencyData.*` via `generate_currency.py`. Runtime: `RoboI18NCurrency.h`.
+
 ### Display names (Goal 4.10)
 
 `localenames/*/{languages,scripts,territories,localeDisplayNames}.json`,

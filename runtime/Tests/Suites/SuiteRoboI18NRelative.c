@@ -37,7 +37,7 @@ static void expect_rel(const char *tag,
 
 static void test_rel_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.20.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.22.0");
     ROBO_CHECK_STR_EQ(ROBO_REL_CLDR_VERSION, "46");
     ROBO_CHECK(robo_rel_units_count > 100u);
 }

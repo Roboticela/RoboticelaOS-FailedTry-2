@@ -38,7 +38,7 @@ static void expect_ord(const char *tag, const char *input, const char *want_name
 
 static void test_ord_version(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.20.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.22.0");
     ROBO_CHECK_STR_EQ(ROBO_PLURAL_CLDR_VERSION, "46");
     ROBO_CHECK(robo_plural_ordinal_index_count >= 100u);
 }
