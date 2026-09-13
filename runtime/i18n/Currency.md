@@ -1,8 +1,7 @@
 # Currency Data & Formatting (Goal 4.21)
 
 Goal **4.21** formats money amounts with locale-aware currency patterns.
-It does **not** parse currency strings (Goal 4.22) and does **not** convert
-between currencies / apply exchange rates.
+Parsing is Goal **4.22** — see `Parse.md`.
 
 ```text
 Currency metadata          (ISO 4217 + CLDR fractions / region map)
@@ -23,6 +22,7 @@ Keep these concepts separate:
 | Currency precision | standard fraction digits + rounding increment |
 | Cash rounding | optional cashDigits / cashRounding (explicit opt-in) |
 | Currency formatting | patterns, placement, symbols/names |
+| Currency parsing | Goal 4.22 (`RoboI18NParse.h`) |
 | Currency conversion | **out of scope** |
 
 ## CLDR / ISO sources

@@ -1,6 +1,6 @@
 # RoboI18N
 
-Internationalization for Roboticela Runtime (**Goals 4.1–4.21**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.24**).
 
 ## Scope
 
@@ -8,14 +8,14 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.21**).
 |---|---|
 | BCP 47 / RFC 5646 language tags | Percent / compact / scientific |
 | Parse, format, canonicalize (IANA) | Full ICU MessageFormat parity |
-| Equality / matching / truncation parent | Full-text search / transliteration |
+| Equality / matching / truncation parent | Full-text indexing / transliteration |
 | Default locale + preference lists | Fonts / shaping / layout |
 | **Runtime locale service** (extensions, resolve, fallback) | Holiday databases |
 | **Locale negotiation / Accept-Language** | Recurrence / scheduling engines |
 | CLDR likely subtags maximize/minimize | Full LDML rule builder for every locale |
 | Numbering-system metadata + digits | Translator UI / TMS |
 | Locale-aware decimal number formatting | TAI/UTC leap-second modeling |
-| CLDR parentLocales + root inheritance | General unit / currency *parsing* |
+| CLDR parentLocales + root inheritance | General unit / currency *parsing* beyond 4.22 |
 | CLDR cardinal / ordinal plural categories | |
 | Date/time/instant/duration primitives | |
 | Calendar abstraction + CLDR calendar metadata | |
@@ -27,6 +27,9 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.21**).
 | **Measurement unit formatting + conversion** | |
 | **Measurement systems / unit preferences** | |
 | **Currency metadata + formatting** | |
+| **Number / currency parsing** | |
+| **Date / time parsing** | |
+| **Locale-aware search / string matching** | |
 | Calendar arithmetic / date-time utilities | |
 | Locale-aware collation (UCA + CLDR) | |
 | Locale display names (CLDR) | |
@@ -38,8 +41,8 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.21**).
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.21.0` |
-| Generator | `1.18.0` |
+| RoboI18N API | `0.24.0` |
+| Generator | `1.21.0` |
 | RoboMsgFmt syntax | **1** |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
 | CLDR | **46** (JSON **46.0.0**) |
@@ -76,6 +79,23 @@ units by category/region. Distinct from formatting. API: `RoboI18NMeasure.h`.
 
 See **`Currency.md`**. ISO 4217 + CLDR currency metadata, patterns, accounting,
 and opt-in cash rounding. API: `RoboI18NCurrency.h`. No FX conversion / parsing.
+
+## Number & currency parsing (Goal 4.22)
+
+See **`Parse.md`**. Strict/permissive locale-aware number and currency parsers
+over `robo_i18n_decimal_t`. API: `RoboI18NParse.h`.
+
+## Date & time parsing (Goal 4.23)
+
+See **`DateTimeParse.md`**. Strict/permissive locale-aware date/time parsers
+over calendar fields, local date-time, and optional instant resolution.
+API: `RoboI18NDateTimeParse.h`.
+
+## Search & matching (Goal 4.24)
+
+See **`Search.md`**. Explicit modes for exact / canonical / casefold / collation
+substring search with UTF-8 byte ranges. Not transliteration or FTS indexing.
+API: `RoboI18NSearch.h`.
 
 ## Time zones (Goals 4.14–4.15)
 
@@ -138,6 +158,7 @@ Do **not** confuse:
 | Code-point order | `robo_i18n_compare_utf8_codepoints` |
 | Canonical equivalence | `RoboUnicodeNorm` (NFC/NFD) |
 | Locale-aware collation | `robo_i18n_collator_*` (UTS #10) |
+| Search / substring matching | `robo_i18n_searcher_*` (Goal 4.24) |
 
 Pipeline: STRICT UTF-8 decode → NFD → collation elements → level weights / sort key.
 

@@ -782,7 +782,69 @@
 - [x] Intl / precision / robustness tests; Debug / Release / Sanitize green
 - [x] Documentation; PROGRESS updated
 
+## Goal 4.22 — Currency/Number Parsing
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NParse` — strict/permissive number + currency parsers
+- Localized digits, grouping, decimal/sign symbols; currency symbol/code/name
+- Ambiguity reporting; `require_currency` / accepted sets; round-trip tests
+- Suite `SuiteRoboI18NParse.c`; docs `i18n/Parse.md`
+- API **0.22.0** / generator **1.19.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **448/448**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Number + currency parsing with structured diagnostics
+- [x] Strict vs permissive; ambiguity never silent in strict
+- [x] Intl / round-trip / digit / fuzz tests; Debug / Release / Sanitize green
+- [x] Documentation; PROGRESS updated
+
+## Goal 4.23 — Date/Time Parsing
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NDateTimeParse` — strict/permissive date/time/zoned parsers
+- CLDR styles/patterns/skeletons; localized names & digits; calendar fields
+- Timezone offset/IANA parsing; DST ambiguity policies; no invented UTC
+- Suite `SuiteRoboI18NDateTimeParse.c`; docs `i18n/DateTimeParse.md`
+- API **0.23.0** / generator **1.20.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **461/461**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Date/time parsing with structured diagnostics
+- [x] Strict vs permissive; missing zone never invents UTC
+- [x] Intl / round-trip / calendar / DST / digit / fuzz tests green
+- [x] Documentation; PROGRESS updated
+
+## Goal 4.24 — Locale-Aware Search & String Matching
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NSearch` — explicit modes (exact / codepoint / canonical / casefold /
+  canonical+casefold / collation); diacritic-insensitive option; grapheme-safe ranges
+- Reusable searcher with owned collator; UTF-8 byte hit ranges; find / iter / find_all
+- Builds on RoboUnicode norm/casefold/grapheme + Goal 4.9 collation (no duplicated UCA)
+- No transliteration; logical (not visual) order; input / find_all limits
+- Suite `SuiteRoboI18NSearch.c`; docs `i18n/Search.md`
+- API **0.24.0** / generator **1.21.0** / CLDR **46** / Unicode **16.0.0**
+- Debug / Release / ASan+UBSan: **472/472**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Explicit matching modes (not one fuzzy compare)
+- [x] Canonical / casefold / diacritic / collation search with source byte ranges
+- [x] Grapheme-safe defaults; intl + RTL + fuzz tests; Debug / Release / Sanitize green
+- [x] Documentation; PROGRESS updated
+
 ## Next
 
-- Goal 4.22+ (do not start until requested)
+- Goal 4.25+ (do not start until requested)
 

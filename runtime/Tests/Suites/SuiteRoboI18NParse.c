@@ -60,7 +60,7 @@ static void expect_number_fail(const char *tag,
 
 static void test_parse_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.22.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.24.0");
     ROBO_CHECK_STR_EQ(robo_i18n_parse_err_string(ROBO_I18N_PARSE_ERR_NONE), "ok");
 }
 

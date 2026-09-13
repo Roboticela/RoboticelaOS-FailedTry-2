@@ -1,5 +1,5 @@
 /*
- * RoboI18N — internationalization foundation (Goals 4.1–4.22).
+ * RoboI18N — internationalization foundation (Goals 4.1–4.24).
  *
  * Locale identification (BCP 47 / RFC 5646), CLDR locale-data metadata,
  * runtime locale service (extensions, resolve, fallback, negotiation),
@@ -9,7 +9,8 @@
  * (IANA tzdb + CLDR timezone display), localized date/time formatting,
  * interval / relative-time formatting, measurement unit formatting,
  * measurement systems / unit preferences, currency metadata / formatting,
- * number/currency parsing,
+ * number/currency parsing, date/time parsing,
+ * locale-aware search / string matching,
  * calendar arithmetic / date-time utilities,
  * locale-aware collation (UCA + CLDR tailorings), locale display names,
  * application message catalogs (RoboMsg), RoboMsgFmt message formatting, and
@@ -38,6 +39,8 @@
 #include "RoboI18N/RoboI18NMeasure.h"
 #include "RoboI18N/RoboI18NCurrency.h"
 #include "RoboI18N/RoboI18NParse.h"
+#include "RoboI18N/RoboI18NDateTimeParse.h"
+#include "RoboI18N/RoboI18NSearch.h"
 #include "RoboI18N/RoboI18NDateTimeArith.h"
 #include "RoboI18N/RoboI18NCollation.h"
 #include "RoboI18N/RoboI18NDisplayNames.h"

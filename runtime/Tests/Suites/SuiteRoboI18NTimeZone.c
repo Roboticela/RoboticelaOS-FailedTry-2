@@ -12,7 +12,7 @@
 
 static void test_tz_version(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.22.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.24.0");
     ROBO_CHECK_STR_EQ(robo_i18n_tzdb_version_string(), "2026c");
     ROBO_CHECK_STR_EQ(robo_tzdb_version_string(), "2026c");
 }
