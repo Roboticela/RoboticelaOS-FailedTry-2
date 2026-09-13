@@ -243,6 +243,11 @@ typedef struct robo_ucd_range16 {
     uint16_t value;
 } robo_ucd_range16_t;
 
+typedef struct robo_ucd_scx_set {
+    uint16_t offset; /* into robo_ucd_scx_pool */
+    uint16_t count;
+} robo_ucd_scx_set_t;
+
 robo_unicode_general_category_t robo_ucd_general_category(robo_uchar32_t cp);
 robo_unicode_script_t robo_ucd_script(robo_uchar32_t cp);
 unsigned robo_ucd_combining_class(robo_uchar32_t cp);
@@ -258,6 +263,28 @@ int robo_ucd_is_extended_pictographic(robo_uchar32_t cp);
 const char *robo_ucd_version_string(void);
 const char *robo_ucd_general_category_name(robo_unicode_general_category_t gc);
 const char *robo_ucd_script_name(robo_unicode_script_t sc);
+
+/**
+ * Script_Extensions for @p cp.
+ * Returns the number of scripts (always >= 1 for valid cps).
+ * Writes min(count, capacity) entries into @p out when out != NULL.
+ * If the code point has no explicit SCX, writes the single Script value.
+ */
+size_t robo_ucd_script_extensions(robo_uchar32_t cp,
+                                  robo_unicode_script_t *out,
+                                  size_t capacity);
+
+/** 1 if Script_Extensions (or Script if no SCX) includes @p sc. */
+int robo_ucd_has_script(robo_uchar32_t cp, robo_unicode_script_t sc);
+
+/** ISO 15924 short name (Latn, Arab, Zyyy, …); "?" if out of range. */
+const char *robo_ucd_script_short_name(robo_unicode_script_t sc);
+
+/**
+ * Resolve long or short script name (case-sensitive Unicode aliases).
+ * Also accepts Qaai → Inherited. Returns ROBO_U_SCRIPT_UNKNOWN on failure.
+ */
+robo_unicode_script_t robo_ucd_script_from_name(const char *name);
 
 #ifdef __cplusplus
 }

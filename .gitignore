@@ -5,3 +5,4 @@ Bootloader-RefCode/
 /runtime/Vendor/
 /runtime/Tools/ucd/source/
 Chromium/
+**/__pycache__/

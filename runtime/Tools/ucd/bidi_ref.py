@@ -33,7 +33,6 @@ _bracket_type: dict[int, str] = {}  # cp -> 'o' | 'c'
 _loaded = False
 
 REMOVE_TYPES = frozenset({"RLE", "LRE", "RLO", "LRO", "PDF", "BN"})
-EXPLICIT_EMBED = frozenset({"RLE", "LRE", "RLO", "LRO"})
 ISOLATE_INIT = frozenset({"LRI", "RLI", "FSI"})
 NI_TYPES = frozenset({"B", "S", "WS", "ON", "FSI", "LRI", "RLI", "PDI"})
 STRONG_P2 = frozenset({"L", "R", "AL"})
@@ -496,8 +495,6 @@ def _isolating_run_sequences(
             sequences_runs.append([ri])
             assigned[ri] = True
 
-    paragraph_level_for_sos = None  # filled by caller via levels of neighbors
-
     result = []
     for seq in sequences_runs:
         indices: list[int] = []
@@ -727,7 +724,7 @@ def _apply_N(
 
     # N0
     pairs = _identify_bracket_pairs(codepoints, types, indices)
-    idx_set = set(indices)
+    pos_in_irs = {idx: k for k, idx in enumerate(indices)}
 
     for open_pos, close_pos in pairs:
         # Inspect content strictly between brackets, only within IRS
@@ -776,16 +773,13 @@ def _apply_N(
 
         types[open_pos] = new_t
         types[close_pos] = new_t
-        # Following original-NSM characters after each bracket
+        # Original-NSM characters that follow the bracket within this IRS
+        # (X9-removed characters between them are skipped by IRS construction).
         for bracket_pos in (open_pos, close_pos):
-            # next characters in paragraph that were NSM before W1
-            j = bracket_pos + 1
-            while j < len(types) and was_nsm[j]:
-                # only if still in this IRS and adjacent
-                if j not in idx_set:
-                    break
-                types[j] = new_t
-                j += 1
+            k = pos_in_irs[bracket_pos] + 1
+            while k < m and was_nsm[indices[k]]:
+                types[indices[k]] = new_t
+                k += 1
 
     # Helper: type at local k with sos/eos
     def strong_for_N1(t: str) -> Optional[str]:
@@ -854,30 +848,54 @@ def _apply_L1(
     original_types: list[str],
     paragraph_level: int,
 ) -> None:
-    """Reset levels for S, B, and trailing WS/isolates (original types)."""
+    """
+    Reset levels for S, B, and trailing WS/isolates (original types).
+
+    Characters removed by X9 (RLE/LRE/RLO/LRO/PDF/BN) are skipped when
+    locating contiguous WS/isolate sequences and the end of the line, matching
+    BidiTest.txt / common UBA reference practice (they have no resolved level).
+    """
     n = len(levels)
+
+    def is_ws_or_isolate(t: str) -> bool:
+        return t == "WS" or t in ISOLATE_INIT or t == "PDI"
+
+    def is_removed(t: str) -> bool:
+        return t in REMOVE_TYPES
+
     # Segment / paragraph separators
     for i, t in enumerate(original_types):
         if t in ("S", "B"):
             levels[i] = paragraph_level
 
-    def is_ws_or_isolate(t: str) -> bool:
-        return t == "WS" or t in ISOLATE_INIT or t == "PDI"
-
-    # Sequences of WS/isolates preceding S or B
+    # Sequences of WS/isolates preceding S or B (skipping X9-removed)
     for i, t in enumerate(original_types):
         if t not in ("S", "B"):
             continue
         j = i - 1
-        while j >= 0 and is_ws_or_isolate(original_types[j]):
+        while j >= 0:
+            tj = original_types[j]
+            if is_removed(tj):
+                j -= 1
+                continue
+            if is_ws_or_isolate(tj):
+                levels[j] = paragraph_level
+                j -= 1
+                continue
+            break
+
+    # Trailing WS/isolates at end of line (skipping X9-removed)
+    j = n - 1
+    while j >= 0:
+        tj = original_types[j]
+        if is_removed(tj):
+            j -= 1
+            continue
+        if is_ws_or_isolate(tj):
             levels[j] = paragraph_level
             j -= 1
-
-    # Trailing WS/isolates at end of line (entire paragraph = one line in tests)
-    j = n - 1
-    while j >= 0 and is_ws_or_isolate(original_types[j]):
-        levels[j] = paragraph_level
-        j -= 1
+            continue
+        break
 
 
 def _reorder_L2(levels: list[int], removed: list[bool]) -> list[int]:
@@ -929,74 +947,8 @@ def analyze(
     """
     load_data()
     cps = list(codepoints)
-    n = len(cps)
     original_types = [bidi_class(cp) for cp in cps]
-    was_nsm = [t == "NSM" for t in original_types]
-    types = list(original_types)
-
-    matching_pdi = _matching_pdis(original_types)
-    matching_init = _matching_initiators(matching_pdi)
-
-    if paragraph_level is None:
-        paragraph_level = determine_paragraph_level(types)
-    else:
-        paragraph_level = int(paragraph_level)
-
-    levels, types = resolve_explicit(types, paragraph_level, matching_pdi)
-
-    removed = [original_types[i] in REMOVE_TYPES for i in range(n)]
-
-    # Assign placeholder levels for removed chars (won't appear in output)
-    for i in range(n):
-        if removed[i] and levels[i] < 0:
-            levels[i] = 0
-
-    sequences = _isolating_run_sequences(
-        levels, original_types, matching_pdi, matching_init
-    )
-
-    # Fill sos/eos
-    for seq in sequences:
-        first = seq["indices"][0]
-        last = seq["indices"][-1]
-        prev = seq["_prev_level"]
-        if prev is None:
-            prev = paragraph_level
-        seq["sos"] = _sos_eos_type(levels[first], prev)
-
-        if seq["_use_para_eos"]:
-            nxt = paragraph_level
-        else:
-            nxt = seq["_next_level"]
-            if nxt is None:
-                nxt = paragraph_level
-        seq["eos"] = _sos_eos_type(levels[last], nxt)
-
-    for seq in sequences:
-        idxs = seq["indices"]
-        sos, eos = seq["sos"], seq["eos"]
-        lev = seq["level"]
-        _apply_W(types, idxs, sos)
-        _apply_N(cps, types, idxs, sos, eos, lev, was_nsm)
-        _apply_I(types, levels, idxs)
-
-    _apply_L1(levels, original_types, paragraph_level)
-
-    visual = _reorder_L2(levels, removed)
-    logical_to_visual: list[Optional[int]] = [None] * n
-    for vi, li in enumerate(visual):
-        logical_to_visual[li] = vi
-
-    # Levels for output: None means 'x' (removed)
-    out_levels: list = [None if removed[i] else levels[i] for i in range(n)]
-
-    return BidiResult(
-        paragraph_level=paragraph_level,
-        levels=out_levels,
-        types=types,
-        visual_to_logical=visual,
-        logical_to_visual=logical_to_visual,
-    )
+    return _analyze_with_types(cps, original_types, paragraph_level)
 
 
 # ---------------------------------------------------------------------------
@@ -1140,10 +1092,8 @@ def run_abstract_tests(
             classes = parts[0].split()
             bitset = int(parts[1].strip())
 
-            # Analyze using abstract types by inventing code points per class
-            # We temporarily override by feeding fake cps and monkeypatching —
-            # cleaner: run internal path with explicit types.
-            for bit, pl in ((1, 0), (2, 1), (4, None)):
+            # bitset: 1=auto-LTR (P2/P3), 2=LTR, 4=RTL  (per BidiTest.txt)
+            for bit, pl in ((1, None), (2, 0), (4, 1)):
                 if (bitset & bit) == 0:
                     continue
                 result = _analyze_abstract(classes, paragraph_level=pl)
@@ -1166,7 +1116,7 @@ def run_abstract_tests(
                 else:
                     failed += 1
                     if len(failures) < max_failures_print:
-                        dir_name = {1: "LTR", 2: "RTL", 4: "Auto"}[bit]
+                        dir_name = {1: "Auto", 2: "LTR", 4: "RTL"}[bit]
                         failures.append(
                             f"line {line_no} [{dir_name}]: {'; '.join(reasons)}\n"
                             f"  classes={' '.join(classes)}"
@@ -1335,7 +1285,7 @@ if __name__ == "__main__":
 #   N0     bracket pairs (BD16) within IRS; EN/AN count as R
 #   N1–N2  remaining neutrals / isolate formatting (NI)
 #   I1–I2  implicit level adjustments
-#   L1     reset S/B and trailing WS+isolates to paragraph level (original types)
+#   L1     reset S/B and WS+isolates before S/B or at EOL (skip X9-removed)
 #   L2     reverse runs from highest level down to 1
 #
 # BidiCharacterTest fields

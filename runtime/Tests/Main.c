@@ -30,6 +30,8 @@ void robo_test_register_unicode_case(void);
 void robo_test_register_unicode_word(void);
 void robo_test_register_unicode_sentence(void);
 void robo_test_register_unicode_line(void);
+void robo_test_register_unicode_bidi(void);
+void robo_test_register_unicode_script(void);
 
 int main(int argc, char **argv)
 {
@@ -97,5 +99,7 @@ int main(int argc, char **argv)
     robo_test_register_unicode_word();
     robo_test_register_unicode_sentence();
     robo_test_register_unicode_line();
+    robo_test_register_unicode_bidi();
+    robo_test_register_unicode_script();
     return robo_test_main(argc, argv);
 }

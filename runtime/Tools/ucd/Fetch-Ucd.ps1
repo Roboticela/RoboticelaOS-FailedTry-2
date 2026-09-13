@@ -29,7 +29,13 @@ $files = @(
     @{ Name = "SentenceBreakProperty.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/SentenceBreakProperty.txt" },
     @{ Name = "SentenceBreakTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/SentenceBreakTest.txt" },
     @{ Name = "LineBreak.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/LineBreak.txt" },
-    @{ Name = "LineBreakTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/LineBreakTest.txt" }
+    @{ Name = "LineBreakTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/LineBreakTest.txt" },
+    @{ Name = "DerivedBidiClass.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/extracted/DerivedBidiClass.txt" },
+    @{ Name = "BidiBrackets.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiBrackets.txt" },
+    @{ Name = "BidiMirroring.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiMirroring.txt" },
+    @{ Name = "BidiTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiTest.txt" },
+    @{ Name = "BidiCharacterTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiCharacterTest.txt" },
+    @{ Name = "ScriptExtensions.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/ScriptExtensions.txt" }
 )
 
 foreach ($f in $files) {
@@ -46,3 +52,4 @@ Write-Host "         and: python $($Here)\generate_case.py"
 Write-Host "         and: python $($Here)\generate_word.py"
 Write-Host "         and: python $($Here)\generate_sentence.py"
 Write-Host "         and: python $($Here)\generate_linebreak.py"
+Write-Host "         and: python $($Here)\generate_bidi.py"

@@ -1,6 +1,6 @@
 # RoboUnicode
 
-Unicode foundation for Roboticela Runtime (**Goals 3.3–3.10**).
+Unicode foundation for Roboticela Runtime (**Goals 3.3–3.12**).
 
 **Pinned Unicode Standard / UCD version:** **16.0.0**
 
@@ -14,6 +14,8 @@ Unicode foundation for Roboticela Runtime (**Goals 3.3–3.10**).
 | Word segmentation | `RoboUnicodeWord.h`, `RoboUnicodeWord.c`, `RoboWordData.h`, `data/robo_word_data.c` |
 | Sentence segmentation | `RoboUnicodeSentence.h`, `RoboUnicodeSentence.c`, `RoboSentenceData.h`, `data/robo_sentence_data.c` |
 | Line breaking | `RoboUnicodeLine.h`, `RoboUnicodeLine.c`, `RoboLineData.h`, `data/robo_line_data.c` |
+| Bidirectional Algorithm | `RoboUnicodeBidi.h`, `RoboUnicodeBidi.c`, `RoboBidiData.h`, `data/robo_bidi_data.c` |
+| Script / Script_Extensions | `RoboUnicodeProps.h` (+ UCD), `RoboUcdData.h`, `data/robo_ucd_data.c` |
 | Tooling | `Tools/ucd/` (fetch + generate) |
 
 ## Terminology (critical)
@@ -28,19 +30,22 @@ Unicode foundation for Roboticela Runtime (**Goals 3.3–3.10**).
 | **Word boundary** | UAX #29 Word Boundary — **not** a linguistic dictionary word |
 | **Sentence boundary** | UAX #29 Sentence Boundary — **not** an NLP sentence parser |
 | **Line-break opportunity** | UAX #14 — legal wrap points; **not** visual layout |
+| **Bidi level / visual order** | UAX #9 — embedding levels + reorder; **not** shaping |
 | **Glyph** | Font shaping/rendering unit — **not yet** |
 
 **Never assume** 1 byte = 1 character, or 1 code point = 1 displayed character,
-or 1 grapheme = 1 word, or 1 word = 1 sentence, or 1 word = 1 line-break unit.
+or 1 grapheme = 1 word, or 1 word = 1 sentence, or 1 word = 1 line-break unit,
+or 1 bidi level = 1 glyph.
 
 `RoboString::size` is **bytes**. Code-point count uses encoding APIs.
 Grapheme count uses `robo_unicode_grapheme_*` or `robo_string_grapheme_count()`.
 Word segments use `robo_unicode_word_*` (UTF-8 byte ranges).
 Sentence segments use `robo_unicode_sentence_*` (UTF-8 byte ranges).
 Line-break opportunities use `robo_unicode_line_*` (UTF-8 byte ranges + kind).
+Bidi analysis uses `robo_unicode_bidi_*` (per code point levels + visual map).
 Property lookups use `robo_unicode_category` / `script` / … (UCD).
 
-### Bytes → code points → graphemes → words → sentences → line breaks
+### Bytes → code points → graphemes → words → sentences → line breaks → bidi
 
 ```text
 bytes
@@ -54,10 +59,11 @@ word boundaries     (UAX #29 Word_Break)
 sentence boundaries (UAX #29 Sentence_Break)
   ↓
 line-break opportunities (UAX #14 Line_Break)
+  ↓
+bidi levels + visual order (UAX #9)   ← independent of line breaks
 ```
 
-These are **independent** layers. A line-break opportunity may fall between
-grapheme clusters and does **not** imply a word or sentence boundary.
+Line breaking and bidi are **separate**. Future layout combines them.
 
 | Measure | API | Notes |
 |---|---|---|
@@ -68,6 +74,9 @@ grapheme clusters and does **not** imply a word or sentence boundary.
 | **Word byte range** | `word_start`, `word_end` | Half-open `[start, end)` in UTF-8 bytes |
 | **Sentence byte range** | `sentence_start`, `sentence_end` | Half-open `[start, end)` in UTF-8 bytes |
 | **Line segment** | `line_start`, `line_end` + `op` | Half-open bytes; `op` is mandatory/allowed |
+| **Bidi level** | `levels[i]` per code point | Embedding level; `0xFF` = X9-removed |
+| **Visual index** | `visual_to_logical[v]` | L2 reorder; excludes X9-removed |
+| **UTF-8 end map** | `byte_ends[i]` (analyze_utf8) | Exclusive UTF-8 end offset of code point `i` |
 
 ## Architecture
 
@@ -81,8 +90,8 @@ RoboUnicode
 ├── Word segmentation     ← Goal 3.8
 ├── Sentence segmentation ← Goal 3.9
 ├── Line breaking         ← Goal 3.10
-├── Bidirectional Algorithm ← later
-├── Script Detection      ← later (Script property exists; detection algorithms later)
+├── Bidirectional Algorithm ← Goal 3.11
+├── Script / Script_Extensions ← Goal 3.12
 └── Unicode Algorithms    ← later
 ```
 
@@ -100,11 +109,11 @@ Word segmentation     ← Goal 3.8
   ↓
 Sentence segmentation ← Goal 3.9
   ↓
-Line breaking         ← Goal 3.10 (this release)
+Line breaking         ← Goal 3.10
   ↓
 Bidi (UAX #9)         ← Goal 3.11
   ↓
-Script detection      ← Goal 3.12
+Script / SCX (UAX #24) ← Goal 3.12 (this release)
   ↓
 Text shaping          ← RoboTextShape
   ↓
@@ -112,6 +121,194 @@ Font selection        ← RoboFont
   ↓
 Text rendering        ← RoboTextRender
 ```
+
+## Goal 3.12 — Script and Script_Extensions (UAX #24)
+
+Provides official Unicode **Script** and **Script_Extensions** for every
+scalar value in Unicode 16.0.0. Required later for script-run segmentation,
+font fallback, and shaping — but this goal is property lookup only.
+
+### Script vs Script_Extensions
+
+| Property | Meaning |
+|---|---|
+| **Script** | Primary script assignment (`robo_unicode_script`) |
+| **Script_Extensions** | Set of scripts with which the character is commonly used |
+
+`Script_Extensions` is **not** always `{Script}`. Many Common/Inherited
+characters (punctuation, combining marks) list multiple concrete scripts in
+SCX while Script remains Common or Inherited.
+
+### Public API (`RoboUnicodeProps.h`)
+
+```c
+robo_unicode_script(cp);
+robo_unicode_script_extensions(cp, out, capacity);
+robo_unicode_has_script(cp, script);
+robo_unicode_script_name(script);        /* "Arabic" */
+robo_unicode_script_short_name(script);  /* "Arab" / Zyyy / Zinh / Zzzz */
+robo_unicode_script_from_name("Arab");   /* also Qaai → Inherited */
+robo_unicode_script_runs(cps, n, out, cap, &count); /* heuristic only */
+```
+
+Script identifiers: dense `robo_unicode_script_t` enum covering **all**
+Unicode 16.0.0 scripts (Common, Inherited, Unknown, …), generated from
+`Scripts.txt` — not a hand-picked subset.
+
+### Script-run helper (heuristic)
+
+`robo_unicode_script_runs` is a **shaping-prep heuristic**, not UCD truth:
+
+- Concrete scripts form/continue runs of that script.
+- Common/Inherited continue the previous concrete script when present;
+  otherwise behave as Common.
+- Unknown starts its own run.
+
+Raw property APIs never invent a neighbor’s script for combining marks.
+
+### Relationship to bidi
+
+Independent of Goal 3.11. `Script=Arabic` does not imply bidi class `AL`.
+
+### Data sources / generation
+
+| File | Role |
+|---|---|
+| `Scripts.txt` | Script property |
+| `ScriptExtensions.txt` | Script_Extensions |
+| `PropertyValueAliases.txt` | ISO 15924 short names + Qaai |
+
+```powershell
+python .\runtime\Tools\ucd\generate_ucd.py
+python .\runtime\Tools\ucd\validate_script.py
+```
+
+SCX storage: deduplicated sorted `uint16` pools + range-indexed set ids
+(near-O(1) binary search). No per-query allocation.
+
+Conformance fixture: `Tests/Data/robo_script_conformance.bin`
+(204 SCX ranges + 2,253 Script samples).
+
+### Known limitations
+
+- No font fallback, language detection, or OpenType shaping.
+- Script-run helper is minimal; full HarfBuzz-style itemization is later.
+
+## Goal 3.11 — Unicode Bidirectional Algorithm (UAX #9)
+
+Implements the **Unicode Bidirectional Algorithm** (Unicode 16.0.0): paragraph
+direction, explicit embeddings/overrides/isolates, weak and neutral resolution
+(including paired brackets N0), implicit levels, and L2 visual reordering.
+
+**Bidi ordering is not text shaping.**
+
+Arabic / Persian / Urdu / Hebrew **glyph joining and OpenType shaping** are
+later (`RoboTextShape` / fonts). This goal only produces levels and visual
+order over Unicode scalar values.
+
+### Public API (`RoboUnicodeBidi.h`)
+
+```c
+robo_unicode_bidi_class(cp);                    /* raw Bidi_Class */
+robo_unicode_bidi_paragraph_direction(cps, n);  /* P2/P3 → 0 or 1 */
+robo_unicode_bidi_analyze(cps, n, para_dir, &out);
+robo_unicode_bidi_analyze_utf8(src, len, mode, para_dir, &out);
+robo_unicode_bidi_resolve_levels(...);
+robo_unicode_bidi_reorder(levels, n, visual_to_logical, &vis);
+robo_unicode_bidi_result_destroy(&out);
+robo_unicode_bidi_ucd_version_string();         /* "16.0.0" */
+```
+
+Paragraph direction request:
+
+| Enum | Behavior |
+|---|---|
+| `ROBO_BIDI_LTR` | Force paragraph level 0 |
+| `ROBO_BIDI_RTL` | Force paragraph level 1 |
+| `ROBO_BIDI_AUTO` | P2/P3 first-strong (default 0 if none) |
+
+Result fields:
+
+- `paragraph_level` — resolved base level (0 or 1)
+- `levels[i]` — resolved embedding level, or `ROBO_BIDI_LEVEL_REMOVED` (`0xFF`) for
+  characters removed by X9 (`RLE`/`LRE`/`RLO`/`LRO`/`PDF`/`BN`)
+- `visual_to_logical[]` — L2 visual order over **non-removed** positions
+- `byte_ends[]` — optional exclusive UTF-8 ends per code point (`analyze_utf8`)
+
+Directional formatting controls remain addressable in the logical index space;
+X9-removed ones keep index slots with `LEVEL_REMOVED` and are omitted from
+`visual_to_logical`. Isolates (`LRI`/`RLI`/`FSI`/`PDI`) are **not** X9-removed.
+
+### Rules implemented
+
+| Phase | Rules |
+|---|---|
+| Paragraph | P2, P3 |
+| Explicit | X1–X8 (embeddings, overrides, isolates, FSI, PDF, PDI, B) |
+| Remove | X9 |
+| Isolating runs | X10 / BD13 |
+| Weak | W1–W7 |
+| Neutrals | N0 (brackets), N1, N2 |
+| Implicit | I1, I2 |
+| Line / reorder | L1, L2 |
+
+Max embedding depth 125; bracket stack 63 (UAX #9). Bracket equivalence
+`U+232A` ↔ `U+3009` for N0 pairing.
+
+### Unicode data sources
+
+| File | Used for |
+|---|---|
+| `extracted/DerivedBidiClass.txt` | `Bidi_Class` |
+| `BidiBrackets.txt` | Paired brackets (N0) |
+| `BidiMirroring.txt` | Fetched for attribution (mirroring glyphs = later) |
+| `BidiCharacterTest.txt` | Official character-level conformance |
+| `BidiTest.txt` | Official abstract-class conformance (Python oracle) |
+
+### Generation
+
+```powershell
+python .\runtime\Tools\ucd\generate_bidi.py
+```
+
+Produces `RoboBidiData.h`, `data/robo_bidi_data.c`, and
+`Tests/Data/robo_bidi_character_conformance.bin` (**91,707** cases) plus
+metadata header. Reference oracle: `Tools/ucd/bidi_ref.py`
+(CharacterTest **91,707/91,707**, abstract BidiTest **770,241/770,241**).
+
+### Source-index mapping
+
+```text
+UTF-8 bytes  --decode-->  code points (logical i)
+                              │
+                              ├─ levels[i]
+                              ├─ byte_ends[i]   (exclusive UTF-8 end)
+                              └─ visual_to_logical[v] → logical i
+```
+
+Grapheme clusters remain a **separate** layer (Goal 3.6). Future layout maps
+bidi levels back through code-point ranges into grapheme/byte ranges; this
+API does not collapse graphemes into single bidi units.
+
+### Invalid UTF-8
+
+Same STRICT → `ROBO_PARSE_ERROR` / REPLACE → U+FFFD policy as other RoboUnicode
+UTF-8 entry points. Replacement characters participate in bidi like any other
+scalar.
+
+### Performance
+
+- One decode + one property pass per analysis; tables are immutable.
+- Per-call heap for levels/visual/IRS (RoboMem); no mutable globals.
+- Prefer `resolve_levels` when visual order is not needed yet.
+
+### Known limitations
+
+- No Arabic/Hebrew shaping, mirroring glyph selection, fonts, or CSS
+  `direction` / `unicode-bidi`.
+- No multi-paragraph streaming API (callers split on `B` / newlines).
+- Abstract `BidiTest.txt` is validated by the Python oracle; the C suite runs
+  `BidiCharacterTest` (sufficient for production character paths).
 
 ## Goal 3.10 — Unicode Line Breaking (UAX #14)
 

@@ -21,20 +21,23 @@ Downloads official UCD files into `Tools/ucd/source/` (gitignored).
 
 ```powershell
 python .\runtime\Tools\ucd\generate_ucd.py
+python .\runtime\Tools\ucd\validate_script.py
 python .\runtime\Tools\ucd\generate_norm.py
 python .\runtime\Tools\ucd\generate_grapheme.py
 python .\runtime\Tools\ucd\generate_case.py
 python .\runtime\Tools\ucd\generate_word.py
 python .\runtime\Tools\ucd\generate_sentence.py
 python .\runtime\Tools\ucd\generate_linebreak.py
+python .\runtime\Tools\ucd\generate_bidi.py
 ```
 
 ### Property tables (`generate_ucd.py`)
 
 | Output | Role |
 |---|---|
-| `Include/RoboUnicode/RoboUcdData.h` | Enums + internal lookup decls |
-| `Source/RoboUnicode/data/robo_ucd_data.c` | Compressed range tables + binary search |
+| `Include/RoboUnicode/RoboUcdData.h` | Enums + Script/SCX lookup decls |
+| `Source/RoboUnicode/data/robo_ucd_data.c` | Compressed range tables + SCX pools |
+| `Tests/Data/robo_script_conformance.bin` | Script + Script_Extensions validation |
 
 ### Normalization tables (`generate_norm.py`)
 
@@ -83,6 +86,17 @@ python .\runtime\Tools\ucd\generate_linebreak.py
 | `Include/RoboUnicode/RoboLineData.h` | Line_Break enums + lookup decls |
 | `Source/RoboUnicode/data/robo_line_data.c` | Compressed Line_Break range tables |
 | `Tests/Data/robo_line_conformance.inc` | Official `LineBreakTest.txt` vectors |
+
+### Bidi tables (`generate_bidi.py`)
+
+| Output | Role |
+|---|---|
+| `Include/RoboUnicode/RoboBidiData.h` | Bidi_Class enums + bracket lookup |
+| `Source/RoboUnicode/data/robo_bidi_data.c` | Compressed Bidi_Class + BidiBrackets |
+| `Tests/Data/robo_bidi_character_conformance.bin` | Packed `BidiCharacterTest.txt` (91,707) |
+| `Tests/Data/robo_bidi_character_conformance.h` | Case-count / magic metadata |
+
+Reference oracle: `bidi_ref.py` (also runs abstract `BidiTest.txt`).
 
 Do not hand-edit generated files. Re-run after upgrading Unicode version
 (update URLs in `Fetch-Ucd.ps1` and `UCD_VERSION` in all generators).
@@ -136,3 +150,19 @@ Composition pairs require CCC(first character) == 0 (from `UnicodeData.txt`).
 - `LineBreak.txt` — `Line_Break` property
 - `auxiliary/LineBreakTest.txt` — conformance vectors
 - Runtime also uses existing UCD Gc / East_Asian_Width / Extended_Pictographic
+
+### Bidirectional Algorithm (`generate_bidi.py`)
+
+- `extracted/DerivedBidiClass.txt` — `Bidi_Class`
+- `BidiBrackets.txt` — paired brackets for N0
+- `BidiMirroring.txt` — fetched for completeness (glyph mirroring later)
+- `BidiCharacterTest.txt` — packed into `.bin` conformance fixture
+- `BidiTest.txt` — abstract-class suite (Python `bidi_ref.py`)
+
+### Script / Script_Extensions (`generate_ucd.py`)
+
+- `Scripts.txt` — primary `Script` property (all scripts)
+- `ScriptExtensions.txt` — `Script_Extensions` multi-script sets
+- `PropertyValueAliases.txt` — ISO 15924 short names (`sc ; Arab ; Arabic`)
+- Validator: `validate_script.py`
+- Fixture: `Tests/Data/robo_script_conformance.bin`

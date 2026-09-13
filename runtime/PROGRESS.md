@@ -139,6 +139,63 @@
 - [x] No layout/CSS/hyphenation/bidi/shaping
 - [x] Existing suites still pass
 
+## Goal 3.11 — Unicode Bidirectional Algorithm (UAX #9)
+
+**Status:** complete
+
+**Done:**
+
+- Official Unicode **16.0.0** Bidi_Class + bracket tables (`Tools/ucd/generate_bidi.py`)
+- Full UBA: P2–P3, X1–X10, W1–W7, N0–N2 (brackets), I1–I2, L1–L2
+- Public API `RoboUnicodeBidi.h` — class lookup, paragraph direction (LTR/RTL/AUTO),
+  analyze / analyze_utf8, resolve_levels, reorder, result destroy
+- Levels + visual order; X9-removed → `ROBO_BIDI_LEVEL_REMOVED`; UTF-8 `byte_ends`
+- Official `BidiCharacterTest.txt` conformance: **91,707 / 91,707**
+- Python oracle also green on abstract `BidiTest.txt`: **770,241 / 770,241**
+- Unit coverage: ASCII, Arabic, Persian, Urdu, Hebrew, mixed, EN/AN digits,
+  punctuation/brackets, NSM, embeddings/overrides, isolates/FSI, paragraphs,
+  empty/long/invalid UTF-8
+- Documented: bidi ≠ shaping; separate from line breaking; source-index mapping
+- Debug / Release / ASan+UBSan: **166/166** tests pass
+
+**Definition of done:**
+
+- [x] Full UAX #9 (not Arabic=RTL heuristics)
+- [x] Official BidiCharacterTest conformance
+- [x] Embeddings, overrides, isolates, weak/neutral/implicit, L2 reorder
+- [x] Explicit vs AUTO paragraph direction
+- [x] Bytes / code points / levels / visual order distinguished
+- [x] Invalid UTF-8 policy matches RoboUnicode
+- [x] No shaping/fonts/layout/CSS bidi
+- [x] Existing suites still pass
+
+## Goal 3.12 — Script and Script_Extensions (UAX #24)
+
+**Status:** complete
+
+**Done:**
+
+- Extended UCD pipeline for **Script_Extensions** + ISO 15924 short names
+  (`Scripts.txt`, `ScriptExtensions.txt`, `PropertyValueAliases.txt`)
+- Full `robo_unicode_script_t` enum (all Unicode 16.0.0 scripts)
+- API: `script`, `script_extensions`, `has_script`, long/short names, `from_name`
+- Minimal `script_runs` heuristic (documented; Common/Inherited continuation)
+- Compact SCX: 110 unique sets, 174 ranges, sorted uint16 pool
+- Conformance: 204 SCX ranges + 2,253 Script samples; `validate_script.py` green
+- Coverage: Latin…Hangul catalogue, Persian/Urdu Arabic letters, historical
+  scripts, Common/Inherited/SCX, independent of bidi
+- Debug / Release / ASan+UBSan: **172/172** tests pass
+
+**Definition of done:**
+
+- [x] Official Script + Script_Extensions (not hand tables)
+- [x] Script ≠ Script_Extensions documented and tested
+- [x] All Unicode 16 scripts representable
+- [x] Short/long names + Qaai
+- [x] Independent of bidi / normalization / segmentation
+- [x] No font/shaping/RoboText work
+- [x] Existing suites still pass
+
 ## Next
 
-- Goal 3.11 — Unicode Bidirectional Algorithm (do not start until requested)
+- Goal 3.13 — Unicode emoji properties (do not start until requested)
