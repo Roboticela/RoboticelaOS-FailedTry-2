@@ -1,8 +1,10 @@
 /*
- * RoboI18N — internationalization foundation (Goal 4.1).
+ * RoboI18N — internationalization foundation (Goals 4.1–4.4).
  *
- * Locale identification (BCP 47 / RFC 5646). Not language detection.
- * Not number/date formatting, plural rules, collation, or messages yet.
+ * Locale identification (BCP 47 / RFC 5646), CLDR locale-data metadata,
+ * number formatting, and plural-rule categories.
+ * Not language detection. Not message formatting, currency, date/time,
+ * collation, or fonts yet.
  *
  * Unicode Script != locale language != region. See i18n/README.md.
  */
@@ -11,6 +13,9 @@
 #define ROBO_I18N_H
 
 #include "RoboI18N/RoboI18NLocale.h"
+#include "RoboI18N/RoboI18NLocaleData.h"
+#include "RoboI18N/RoboI18NNumber.h"
+#include "RoboI18N/RoboI18NPlural.h"
 #include "RoboI18N/RoboI18NVersion.h"
 
 #ifdef __cplusplus

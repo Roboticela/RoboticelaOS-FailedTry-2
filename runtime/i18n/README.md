@@ -1,143 +1,147 @@
 # RoboI18N
 
-Internationalization foundation for Roboticela Runtime (**Goal 4.1**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.3**).
 
-## Scope (this goal)
+## Scope
 
-| In scope | Out of scope |
+| In scope | Out of scope (later goals) |
 |---|---|
-| BCP 47 / RFC 5646 language tags | Number / date / time formatting |
-| Parse, format, canonicalize | Plural rules |
-| Equality / matching / truncation fallback | Collation |
-| Default locale abstraction | Message translation / catalogs |
-| Locale preference lists | Automatic language detection |
-| IANA Preferred-Value tables | Full CLDR dataset |
-| CLDR integration **architecture** | Fonts / shaping / layout |
+| BCP 47 / RFC 5646 language tags | Currency / percent / compact / scientific |
+| Parse, format, canonicalize (IANA) | Date / time formatting |
+| Equality / matching / truncation parent | Plural rules |
+| Default locale + preference lists | Collation |
+| CLDR likely subtags maximize/minimize | Message translation / catalogs |
+| Numbering-system metadata + digits | Fonts / shaping / layout |
+| **Locale-aware decimal number formatting** | Calendar arithmetic |
+| Calendar preference identifiers | Locale display names |
+| Measurement system preference | |
+| CLDR parentLocales + root inheritance | |
 
 ## Standards relationship
 
 ```text
 BCP 47 (RFC 5646)     — language tag grammar + IANA registry
-Unicode (RoboUnicode) — scripts, text algorithms (separate)
-CLDR                  — locale data for formatting (future; versioned separately)
+Unicode (RoboUnicode) — scripts, text algorithms (separate pin)
+CLDR 46               — locale data (this module; versioned separately)
 ```
 
 **Unicode Script ≠ locale.** Example:
 
 | Concept | Example |
 |---|---|
-| Language | Arabic (`ar`) |
-| Unicode Script | `Arab` (property on code points) |
-| Region | Saudi Arabia (`SA`) |
-| Locale | `ar-SA` |
-
-Locale parsing is **not** language identification/detection from arbitrary text.
+| Language | Urdu (`ur`) |
+| Unicode Script | `Arab` (code-point property; not assumed from language name) |
+| Region | Pakistan (`PK`) |
+| Locale | `ur-PK` (script filled only via CLDR likely subtags when maximized) |
 
 ## Versions
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.1.0` (`RoboI18NVersion.h`) |
+| RoboI18N API | `0.3.0` |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
-| CLDR | `none` (architecture only; not imported) |
-| Unicode / UCD | independent — see `Tools/ucd/` |
+| CLDR | **46** (JSON **46.0.0**) |
+| Unicode version in CLDR metadata | **16.0.0** |
+| Unicode / UCD / Emoji | independent — see `Tools/ucd/` |
 
-`Unicode version != CLDR version != IANA File-Date`.
+`Unicode UCD != CLDR != IANA File-Date` — track each explicitly.
 
-## Locale model
+## Locale model (Goal 4.1)
 
-Value type `robo_i18n_locale_t` (no heap for parse/format):
+Value type `robo_i18n_locale_t` (no heap for parse/format).
 
-- `language` — lowercase primary language
-- `script` — Title case (e.g. `Hans`) or empty
-- `region` — UPPER alpha or digit region, or empty
-- `variants[]` — lowercase
-- `extensions` — e.g. `u-ca-gregory`
-- `privateuse` — e.g. `x-private`
+### Truncation parent vs CLDR data parent
 
-### Distinctions
-
-| Concept | Meaning |
+| API | Behavior |
 |---|---|
-| Syntactic validity | Tag matches BCP 47 structure |
-| Canonical form | Correct casing + IANA Preferred-Value |
-| Preferred locale | Future (CLDR likely subtags / matching) |
+| `robo_i18n_locale_parent` | Truncation (private → extensions → variants → region → script) |
+| `robo_i18n_locale_data_parent` | CLDR `parentLocales` map, else truncation, else `root` |
 
-Unknown-but-structurally-valid subtags are accepted (not catastrophic failure).
-
-## Public API
-
-```c
-#include "RoboI18N/RoboI18N.h"
-
-robo_i18n_locale_parse(tag, len, &loc);
-robo_i18n_locale_parse_canonical(tag, len, &loc);
-robo_i18n_locale_canonicalize(&loc);
-robo_i18n_locale_format(&loc, buf, cap, &n);
-robo_i18n_locale_equal(&a, &b);
-robo_i18n_locale_matches(&range, &candidate);
-robo_i18n_locale_parent(&loc, &parent);
-
-robo_i18n_set_default_locale(&loc);
-robo_i18n_get_default_locale(&out);   /* default und until set */
-
-robo_i18n_locale_list_parse(text, len, &list);
-robo_i18n_locale_list_destroy(list);
-```
-
-## Fallback algorithm
-
-Truncation parent (resource-lookup style), **not** CLDR likely-subtags:
-
-1. Remove private-use  
-2. Else remove extensions  
-3. Else remove last variant  
-4. Else remove region  
-5. Else remove script  
-6. Else `ROBO_NOT_FOUND` (language-only has no parent)
-
-Example: `zh-Hant-TW` → `zh-Hant` → `zh`.
-
-## Default locale
-
-Process-wide copy. Initial / unset → `und` (**not** hard-coded `en-US`).
-
-Goal 4.1 does not read OS settings. Future sources: OS, app config, env, user prefs, API override.
-
-**Thread safety:** locale values are immutable copies; default locale get/set must be synchronized by the caller until RoboThread provides primitives. Prefer passing locales explicitly.
-
-## Memory ownership
-
-| Object | Ownership |
-|---|---|
-| `robo_i18n_locale_t` | Caller stack/value; no destroy |
-| `robo_i18n_locale_list_t` | Heap via RoboMem; `*_destroy` |
-
-## Data pipeline
+## Number formatting (Goal 4.3)
 
 ```text
-IANA language-subtag-registry
-        ↓ Fetch-Iana.ps1 (explicit)
-Tools/i18n/source/          (gitignored)
-        ↓ generate_iana.py
-RoboIanaData.h + robo_iana_data.c   (committed Preferred-Value maps)
+locale + options
+       ↓
+robo_i18n_number_formatter_t   (stack, no heap, reusable)
+       ↓
+int64 / uint64 / decimal / double
+       ↓
+UTF-8 string (CLDR symbols + digits + grouping)
 ```
 
-Normal `Build.ps1` does **not** download IANA/CLDR data.
+### Numeric representations
 
-CLDR future layout: `Tools/i18n/cldr_manifest.json` (see file).
+| Type | Precision | Notes |
+|---|---|---|
+| `int64_t` / `uint64_t` | Exact | Preferred for integers |
+| `robo_i18n_decimal_t` | Exact | ASCII digit payload + scale + sign |
+| `double` | Approximate | IEEE-754; NaN / ±∞ / −0 handled; \|x\| ≥ 1e18 → `ROBO_NOT_SUPPORTED` |
+
+Do not expect exact decimal results from binary floating-point without an explicit decimal input.
+
+### Options (defaults)
+
+| Option | Default |
+|---|---|
+| `min_integer_digits` | 1 |
+| `min_fraction_digits` | 0 |
+| `max_fraction_digits` | −1 → CLDR pattern max (often 3) |
+| `use_grouping` | 1 |
+| `show_plus` | 0 |
+| `rounding` | `ROBO_I18N_ROUND_HALF_EVEN` |
+| `numbering_system` | empty → locale default |
+
+Symbols (decimal / group / ± / NaN / ∞), grouping sizes, and `minimumGroupingDigits` come from CLDR — not English assumptions.
+
+### Examples
+
+| Locale | Value | Typical output |
+|---|---|---|
+| `en-US` | 1234567 | `1,234,567` |
+| `de-DE` | 1234.56 | `1.234,56` |
+| `fr-FR` | 1234.56 | `1 234,56` (U+202F group) |
+| `hi-IN` (latn) | 1234567 | `12,34,567` |
+| `ar-SA` | 1234 | Arabic-Indic digits + `٬` |
+
+### Thread safety
+
+Formatters are not synchronized. Own one per thread, or protect externally. Configuration is fixed after `init`. Symbol pointers refer to immortal generated tables.
+
+### Public API
+
+```c
+#include "RoboI18N/RoboI18N.h"   /* includes Number.h */
+
+robo_i18n_number_options_init(&opts);
+robo_i18n_number_formatter_init(&fmt, &locale, &opts);
+robo_i18n_number_format_i64(&fmt, value, buf, cap, &len);
+robo_i18n_number_format_to_string(&fmt, &dec, &str);
+robo_i18n_number_formatter_destroy(&fmt);
+```
+
+## CLDR data pipeline
+
+```text
+IANA registry  → Fetch-Iana.ps1 → generate_iana.py → RoboIanaData.*
+CLDR 46 JSON   → Fetch-Cldr.ps1 → generate_cldr.py → RoboCldrData.*
+```
+
+Goal 4.3 adds per-locale × numbering-system rows: symbols, pattern, primary/secondary grouping, `minimumGroupingDigits` (511 rows).
+
+Sources under `Tools/i18n/source/` are gitignored. Generated C is committed.
+`python generate_cldr.py --repro` checks determinism.
 
 ## Layout
 
 ```text
-Include/RoboI18N/
+Include/RoboI18N/   (Locale, LocaleData, Number, …)
 Source/RoboI18N/
 Tools/i18n/
-i18n/README.md          ← this file
-Tests/Suites/SuiteRoboI18N.c
+i18n/README.md
+Tests/Suites/SuiteRoboI18N*.c
 ```
 
 ## Attribution
 
-IANA Language Subtag Registry is published by IANA. See `Tools/i18n/IANA_ATTRIBUTION.md`.
-CLDR (future) has its own Unicode/CLDR license — documented when imported.
+- IANA: `Tools/i18n/IANA_ATTRIBUTION.md`
+- CLDR: `Tools/i18n/CLDR_ATTRIBUTION.md` (Unicode License)

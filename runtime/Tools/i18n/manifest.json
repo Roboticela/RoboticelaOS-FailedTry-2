@@ -1,6 +1,6 @@
 {
-  "robo_i18n_version": "0.1.0",
-  "generator_version": "1.0.0",
+  "robo_i18n_version": "0.4.0",
+  "generator_version": "1.3.0",
   "iana": {
     "file_date": "2026-05-05",
     "url": "https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry",
@@ -10,23 +10,76 @@
     "required_for_runtime_generation": true
   },
   "cldr": {
-    "version": "none",
-    "note": "CLDR is a separate version stream from Unicode and IANA. Not imported in Goal 4.1.",
-    "planned_uses": [
-      "likely subtags",
-      "locale display names",
-      "number/date formatting",
-      "calendars",
-      "plural rules",
-      "numbering systems",
-      "collation",
-      "locale parent overrides"
+    "version": "46",
+    "package": "46.0.0",
+    "unicode_version": "16.0.0",
+    "note": "CLDR 46 JSON; Unicode 16.0.0 from supplemental version._unicodeVersion. Do not mix releases.",
+    "attribution": "Tools/i18n/CLDR_ATTRIBUTION.md",
+    "numbers_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-numbers-full/main",
+    "supplemental_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental",
+    "categories": [
+      "likelySubtags",
+      "numberingSystems",
+      "calendarPreferenceData",
+      "measurementData",
+      "parentLocales",
+      "localeNumberingDefaults",
+      "plurals",
+      "ordinals"
     ],
-    "files": []
+    "supplemental_files": [
+      {
+        "name": "likelySubtags.json",
+        "category": "likelySubtags",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/likelySubtags.json",
+        "sha256": "bd98c1a08b6795bfc52f56014d5f522ab8d42ef92dfc3febd8e7bbb3ab84b48f"
+      },
+      {
+        "name": "numberingSystems.json",
+        "category": "numberingSystems",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/numberingSystems.json",
+        "sha256": "213dab3fa71e00b52bd5ad091cf79f12602968d1482f1a15889a29984ea5c4ac"
+      },
+      {
+        "name": "calendarPreferenceData.json",
+        "category": "calendarPreferenceData",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/calendarPreferenceData.json",
+        "sha256": "4982ce8134d371b82028cdec7e1a0a3fd6448880adca8904776f87343728bde5"
+      },
+      {
+        "name": "measurementData.json",
+        "category": "measurementData",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/measurementData.json",
+        "sha256": "fcf9cec9c5430aa3c30bcf4e17727689cae5d1b11ad5c32c675c700a2ba3dd63"
+      },
+      {
+        "name": "parentLocales.json",
+        "category": "parentLocales",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/parentLocales.json",
+        "sha256": "9de8518adad3f1c0b4610c6e113cdf32a48556ebf4ae03af65f56226b8eb4bab"
+      },
+      {
+        "name": "plurals.json",
+        "category": "plurals",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/plurals.json",
+        "sha256": "ce19668400e9f7904e8b3939d1f0a2872fe8da7bdea9f45f5d50b3a2bac3b382"
+      },
+      {
+        "name": "ordinals.json",
+        "category": "ordinals",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/ordinals.json",
+        "sha256": "c7921e770bf7c038c39500a3921858eefef2e8344656c70e01d1c50be53fc790"
+      }
+    ]
   },
   "generated_outputs": [
     "Include/RoboI18N/RoboIanaData.h",
-    "Source/RoboI18N/data/robo_iana_data.c"
+    "Source/RoboI18N/data/robo_iana_data.c",
+    "Include/RoboI18N/RoboCldrData.h",
+    "Source/RoboI18N/data/robo_cldr_data.c",
+    "Include/RoboI18N/RoboPluralData.h",
+    "Source/RoboI18N/data/robo_plural_data.c",
+    "Tests/Data/robo_plural_samples.txt"
   ],
-  "offline_policy": "Build.ps1 compiles committed tables only; Fetch-Iana.ps1 + generate_iana.py are explicit developer steps."
+  "offline_policy": "Build.ps1 compiles committed tables only; Fetch-Iana.ps1 / Fetch-Cldr.ps1 + generate_*.py are explicit developer steps."
 }

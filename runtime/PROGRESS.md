@@ -269,7 +269,7 @@
 - Locale preference lists with optional `q=` weights
 - CLDR architecture/manifest only (`version: none`) — no invented locale data
 - Suite: basic/script/region/complex/invalid/canon/match/fallback/list/fuzz/microbench
-- Debug / Release / ASan+UBSan: **197/197** tests pass
+- Debug / Release / ASan+UBSan: **197/197** tests pass (at Goal 4.1 completion)
 
 **Definition of done:**
 
@@ -281,6 +281,61 @@
 - [x] No Chromium dependency
 - [x] Existing Unicode tests still pass
 
+## Goal 4.2 — RoboI18N Locale Data and CLDR Integration
+
+**Status:** complete
+
+**Done:**
+
+- CLDR **46** (JSON 46.0.0) pin; Unicode association **16.0.0** from CLDR metadata
+- Generator `Tools/i18n/generate_cldr.py` + `Fetch-Cldr.ps1` + manifest checksums
+- Compact tables: string pool, likely subtags, numbering systems, calendar prefs,
+  measurement, parentLocales, per-locale numbering defaults
+- APIs: maximize/minimize, data parent/root inheritance, numbering/calendar/measurement
+- Suites: `SuiteRoboI18NCldr.c` (intl locales, digits, inheritance, microbench)
+- Deterministic generation (`--repro` + `cldr_golden_hashes.json`)
+- Docs: `i18n/README.md`, `CLDR_ATTRIBUTION.md`, architecture/version pins
+- No number/date formatting, plurals, collation, or messages
+- Debug / Release / ASan+UBSan: **209/209** tests pass
+- Generated `robo_cldr_data.c` ≈ **511 KiB** source (string pool + tables)
+
+**Definition of done:**
+
+- [x] Versioned CLDR subset, offline builds
+- [x] Likely subtags maximize/minimize from CLDR data
+- [x] Numbering-system metadata (incl. non-Latin digits)
+- [x] Calendar preference metadata (ids only)
+- [x] Measurement preferences
+- [x] Locale data inheritance including root
+- [x] International coverage tests (ur/ar/fa/he/hi/bn/th/zh/ja/ko/…)
+- [x] No Chromium dependency; no premature formatting subsystems
+
+## Goal 4.3 — Numbering Systems and Number Formatting Foundation
+
+**Status:** complete
+
+**Done:**
+
+- Extended CLDR generator: symbols, decimal patterns, grouping sizes,
+  `minimumGroupingDigits` (511 locale×nsys rows); `robo_cldr_data.c` ≈ **556 KiB**
+- Public API `RoboI18NNumber.h`: reusable stack formatter, options, rounding modes
+- Exact `int64`/`uint64`/`robo_i18n_decimal_t`; documented IEEE-754 `double` path
+- Locale symbols (en/de/fr), Indian grouping (hi/bn), localized digits (arab/arabext/deva/beng/thai)
+- Buffer size query + `RoboString` append; no visual/rendering code
+- Suite `SuiteRoboI18NNumber.c`; Debug / Release / ASan+UBSan: **221/221**
+- Docs: `i18n/README.md`, architecture, version **0.3.0**
+
+**Definition of done:**
+
+- [x] CLDR-driven decimal/group/sign/NaN/∞ symbols
+- [x] Grouping primary/secondary + min grouping threshold
+- [x] Numbering-system digit substitution
+- [x] Integer exactness (incl. UINT64_MAX)
+- [x] Documented rounding (default half-even)
+- [x] International locale coverage tests
+- [x] No currency/date/plural/collation/fonts
+- [x] No Chromium dependency
+
 ## Next
 
-- Goal 4.2+ — locale display / numbering systems / formatting (do not start until requested)
+- Goal 4.4+ — currency / percent / plurals / display names (do not start until requested)

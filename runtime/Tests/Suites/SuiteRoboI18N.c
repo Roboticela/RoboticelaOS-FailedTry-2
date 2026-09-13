@@ -33,9 +33,9 @@ static void expect_parse_ok(const char *tag, const char *want_lang, const char *
 
 static void test_i18n_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.1.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.4.0");
     ROBO_CHECK_STR_EQ(robo_i18n_iana_file_date(), "2026-05-05");
-    ROBO_CHECK_STR_EQ(robo_i18n_cldr_version_string(), "none");
+    ROBO_CHECK_STR_EQ(robo_i18n_cldr_version_string(), "46");
 }
 
 static void test_i18n_basic(void)

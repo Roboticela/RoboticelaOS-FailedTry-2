@@ -103,10 +103,10 @@ API names below are **planned boundaries**, not implemented headers yet (except 
 
 | | |
 |---|---|
-| **Responsibility** | Locale / language-tag foundation (BCP 47): parse, canonicalize (IANA), match, truncation fallback, default locale, preference lists. Future CLDR-backed formatting lives here but is not Goal 4.1. |
+| **Responsibility** | Locale / language-tag foundation (BCP 47), CLDR-derived locale metadata, and locale-aware decimal number formatting (symbols, grouping, numbering-system digits). Not currency/date/plural/collation yet. |
 | **May depend on** | RoboBase, RoboMem, RoboContainers, RoboUnicode. |
 | **Must NOT depend on it** | RoboBase … RoboUnicode (until a reviewed exception). Must not be depended on by HTML/CSS/DOM/Layout/Graphics yet. |
-| **Public C API boundary** | `Include/RoboI18N/RoboI18N.h`, `RoboI18NLocale.h`. Guide: `i18n/README.md`. IANA File-Date **2026-05-05**; CLDR `none`. |
+| **Public C API boundary** | `Include/RoboI18N/RoboI18N.h`, `RoboI18NLocale.h`, `RoboI18NLocaleData.h`, `RoboI18NNumber.h`. Guide: `i18n/README.md`. IANA File-Date **2026-05-05**; CLDR **46** / Unicode **16.0.0** (CLDR metadata). |
 
 ---
 

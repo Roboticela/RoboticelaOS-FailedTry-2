@@ -35,6 +35,9 @@ void robo_test_register_unicode_script(void);
 void robo_test_register_unicode_emoji(void);
 void robo_test_register_unicode_infra(void);
 void robo_test_register_i18n(void);
+void robo_test_register_i18n_cldr(void);
+void robo_test_register_i18n_number(void);
+void robo_test_register_i18n_plural(void);
 
 int main(int argc, char **argv)
 {
@@ -107,5 +110,8 @@ int main(int argc, char **argv)
     robo_test_register_unicode_emoji();
     robo_test_register_unicode_infra();
     robo_test_register_i18n();
+    robo_test_register_i18n_cldr();
+    robo_test_register_i18n_number();
+    robo_test_register_i18n_plural();
     return robo_test_main(argc, argv);
 }

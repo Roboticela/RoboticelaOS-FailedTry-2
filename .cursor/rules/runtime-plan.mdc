@@ -1,2612 +1,821 @@
 ---
 alwaysApply: true
 ---
-# Phase 1 — Define the Roboticela architecture
 
-Your final architecture should be approximately:
+### Current completed status
+
+* **Phase 0 — Project & Architecture:** complete
+* **Phase 1 — Core Runtime:** complete
+* **Phase 2 — Memory:** complete
+* **Phase 3 — Containers & Data Foundations:** complete
+* **Phase 4 — Unicode & I18N:** complete through **4.27**
+* **Next:** **Phase 5.1 — RoboFont**
+
+The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
+
+---
+
+# Phase 5 — RoboFont
+
+5.1 RoboFont architecture & font model
+5.2 SFNT container parser
+5.3 TrueType table parsing
+5.4 OpenType table parsing
+5.5 CFF/CFF2 support
+5.6 `cmap` character-to-glyph mapping
+5.7 Font metrics
+5.8 Glyph outlines
+5.9 Font naming & metadata
+5.10 Font style/weight/stretch model
+5.11 Font selection
+5.12 Font discovery
+5.13 Font loading & caching
+5.14 Font coverage analysis
+5.15 Font fallback
+5.16 Generic font families
+5.17 Emoji fonts
+5.18 Variable fonts
+5.19 Color fonts
+5.20 Font validation/security
+5.21 Font conformance tests
+5.22 RoboFont final integration/API freeze
+
+# Phase 6 — RoboText & Text Shaping
+
+6.1 RoboText architecture
+6.2 Unicode/font integration
+6.3 Script runs
+6.4 Direction runs
+6.5 Bidirectional text integration
+6.6 OpenType feature model
+6.7 Glyph substitution
+6.8 Glyph positioning
+6.9 Ligatures
+6.10 Kerning
+6.11 Arabic shaping
+6.12 Persian/Urdu shaping
+6.13 Hebrew
+6.14 Devanagari
+6.15 Bengali
+6.16 Indic complex scripts
+6.17 Thai/SE Asian scripts
+6.18 Chinese/Japanese/Korean
+6.19 Emoji/variation selectors
+6.20 Vertical text
+6.21 Glyph runs
+6.22 Text measurement
+6.23 Text-selection mapping
+6.24 Text-editing integration
+6.25 Text-shaping conformance
+6.26 RoboText final integration
+
+# Phase 7 — RoboGraphics
+
+7.1 Graphics architecture
+7.2 Pixel formats
+7.3 Images/bitmaps
+7.4 Image decoding foundation
+7.5 PNG
+7.6 JPEG
+7.7 WebP
+7.8 AVIF
+7.9 SVG foundation
+7.10 Paths
+7.11 Lines/curves
+7.12 Transforms
+7.13 Clipping
+7.14 Alpha compositing
+7.15 Gradients
+7.16 Shadows
+7.17 Filters
+7.18 Color management
+7.19 HDR/color spaces
+7.20 Graphics backend abstraction
+7.21 CPU raster backend
+7.22 GPU backend
+7.23 Graphics testing
+
+# Phase 8 — RoboHTML & DOM
+
+8.1 HTML architecture
+8.2 HTML tokenizer
+8.3 HTML tree builder
+8.4 Document model
+8.5 Element model
+8.6 Attribute model
+8.7 Text nodes
+8.8 DOM traversal
+8.9 DOM mutation
+8.10 DOM events
+8.11 Event propagation
+8.12 Event listeners
+8.13 Custom events
+8.14 Document lifecycle
+8.15 Forms
+8.16 Input elements
+8.17 Links/navigation
+8.18 Images
+8.19 Tables
+8.20 Templates
+8.21 Shadow DOM
+8.22 Web Components
+8.23 DOM security
+8.24 DOM conformance
+8.25 DOM final integration
+
+# Phase 9 — RoboCSS
+
+9.1 CSS architecture
+9.2 CSS tokenizer
+9.3 CSS parser
+9.4 CSSOM
+9.5 Selectors
+9.6 Cascade
+9.7 Specificity
+9.8 Inheritance
+9.9 Computed values
+9.10 CSS variables
+9.11 Colors
+9.12 Units
+9.13 Box model
+9.14 Display
+9.15 Positioning
+9.16 Overflow
+9.17 Flexbox
+9.18 Grid
+9.19 Tables
+9.20 Multi-column layout
+9.21 Transforms
+9.22 Transitions
+9.23 Animations
+9.24 Media queries
+9.25 Container queries
+9.26 Logical properties
+9.27 Writing modes
+9.28 CSS fonts
+9.29 CSS text
+9.30 CSS images
+9.31 CSS backgrounds
+9.32 CSS borders
+9.33 CSS filters
+9.34 CSS conformance
+
+# Phase 10 — RoboLayout
+
+10.1 Layout architecture
+10.2 Formatting contexts
+10.3 Block layout
+10.4 Inline layout
+10.5 Text layout
+10.6 Line boxes
+10.7 Baselines
+10.8 Intrinsic sizes
+10.9 Percentage resolution
+10.10 Flex layout
+10.11 Grid layout
+10.12 Absolute/fixed positioning
+10.13 Tables
+10.14 Fragmentation
+10.15 Pagination
+10.16 Writing modes
+10.17 RTL layout
+10.18 Scroll layout
+10.19 Layout invalidation
+10.20 Layout performance
+10.21 Layout conformance
+
+# Phase 11 — RoboPaint & Rendering
+
+11.1 Paint architecture
+11.2 Paint records
+11.3 Display lists
+11.4 Text painting
+11.5 Image painting
+11.6 Background painting
+11.7 Borders
+11.8 Shadows
+11.9 Clipping
+11.10 Transforms
+11.11 Opacity
+11.12 Filters
+11.13 Stacking contexts
+11.14 Hit testing
+11.15 Paint invalidation
+11.16 Rasterization
+11.17 Rendering pipeline
+11.18 Screenshot/framebuffer output
+11.19 Pixel conformance tests
+
+# Phase 12 — RoboCompositor
+
+12.1 Compositor architecture
+12.2 Layer tree
+12.3 Compositing
+12.4 Damage tracking
+12.5 Tile management
+12.6 Raster scheduling
+12.7 GPU resource management
+12.8 Surface management
+12.9 Frame scheduling
+12.10 VSync
+12.11 Scrolling
+12.12 Smooth scrolling
+12.13 Animations
+12.14 Compositor thread
+12.15 GPU/CPU synchronization
+12.16 Memory management
+12.17 Compositor performance
+12.18 Visual conformance
+
+# Phase 13 — RoboWindow & Input
+
+13.1 Window architecture
+13.2 Native window abstraction
+13.3 Display management
+13.4 DPI/scale factors
+13.5 Mouse input
+13.6 Keyboard input
+13.7 Touch input
+13.8 Pointer events
+13.9 IME
+13.10 Clipboard
+13.11 Drag & drop
+13.12 Selection
+13.13 Accessibility input
+13.14 Focus management
+13.15 Window lifecycle
+13.16 Multi-window support
+13.17 Fullscreen
+13.18 Input security
+
+# Phase 14 — RoboJS Engine
+
+14.1 JavaScript runtime architecture
+14.2 JavaScript lexer/parser
+14.3 AST
+14.4 Bytecode
+14.5 Interpreter
+14.6 JavaScript values/types
+14.7 Objects/prototypes
+14.8 Functions/closures
+14.9 Arrays/maps/iterators
+14.10 Exceptions
+14.11 Modules/import/export
+14.12 Promises
+14.13 async/await
+14.14 Garbage collection
+14.15 JavaScript standard library
+14.16 Web IDL foundation
+14.17 DOM JavaScript bindings
+14.18 Event loop
+14.19 Timers
+14.20 Microtasks
+14.21 Workers
+14.22 Shared workers architecture
+14.23 JS security
+14.24 JavaScript conformance
+
+# Phase 15 — Web Networking
+
+15.1 URL parser
+15.2 URL/origin model
+15.3 DNS
+15.4 TCP
+15.5 TLS
+15.6 HTTP/1.1
+15.7 HTTP/2
+15.8 HTTP/3
+15.9 Fetch architecture
+15.10 Request/response
+15.11 Headers
+15.12 Streaming
+15.13 Proxy support
+15.14 WebSocket
+15.15 Server-Sent Events
+15.16 Network connection management
+15.17 Network security
+15.18 Network diagnostics
+15.19 Network conformance
+
+**Explicitly excluded:** browser cookies and CORS as application architecture.
+
+# Phase 16 — RoboDB & PostgreSQL
+
+16.1 RoboDB architecture
+16.2 PostgreSQL connection layer
+16.3 Connection pooling
+16.4 Query execution
+16.5 Prepared statements
+16.6 Transactions
+16.7 Result sets
+16.8 PostgreSQL type system
+16.9 JSON/JSONB
+16.10 Arrays
+16.11 UUID
+16.12 Date/time types
+16.13 Binary data
+16.14 PostgreSQL errors
+16.15 Query cancellation/timeouts
+16.16 Database migrations
+16.17 Schema management
+16.18 Connection security
+16.19 Prisma integration
+16.20 Prisma/RoboDB testing
+16.21 Database concurrency/performance
+16.22 Final PostgreSQL API freeze
+
+**Database policy:** PostgreSQL is the primary database. Do not introduce a second database unless a demonstrated runtime requirement makes it necessary.
+
+# Phase 17 — RoboOS Native API
+
+17.1 Native API architecture
+17.2 Capability/permission model
+17.3 OS information
+17.4 CPU information
+17.5 Memory information
+17.6 Storage information
+17.7 Process information
+17.8 Process creation
+17.9 Process control
+17.10 Environment variables
+17.11 System services
+17.12 System time
+17.13 Power management
+17.14 Shutdown/reboot
+17.15 Sleep/wake
+17.16 User/session information
+17.17 Native paths
+17.18 Filesystem
+17.19 File watching
+17.20 Device enumeration
+17.21 USB
+17.22 Serial
+17.23 Bluetooth
+17.24 Network interfaces
+17.25 Wi-Fi
+17.26 Display devices
+17.27 GPU information
+17.28 Keyboard devices
+17.29 Mouse/pointer devices
+17.30 Touch devices
+17.31 Camera
+17.32 Microphone
+17.33 Audio devices
+17.34 Printers
+17.35 Clipboard
+17.36 Notifications
+17.37 Native dialogs
+17.38 System settings
+17.39 Default applications
+17.40 File associations
+17.41 URI/protocol handlers
+17.42 Native application launching
+17.43 Window management
+17.44 Desktop integration
+17.45 Accessibility
+17.46 OS event subscriptions
+17.47 Native API security
+17.48 Native API conformance
+
+# Phase 18 — RoboHardware
+
+18.1 Hardware architecture
+18.2 Device manager
+18.3 Device enumeration
+18.4 USB devices
+18.5 PCI/PCIe information
+18.6 Bluetooth devices
+18.7 Wi-Fi devices
+18.8 Network adapters
+18.9 Storage devices
+18.10 Cameras
+18.11 Microphones
+18.12 Speakers
+18.13 Displays
+18.14 GPUs
+18.15 Keyboards
+18.16 Mice
+18.17 Touchscreens
+18.18 Game controllers
+18.19 Printers
+18.20 Sensors
+18.21 Battery
+18.22 Power state
+18.23 Hardware events
+18.24 Device permissions
+18.25 Hardware security
+
+# Phase 19 — RoboSystem Services
+
+19.1 Service manager
+19.2 Background services
+19.3 Service lifecycle
+19.4 IPC services
+19.5 System event bus
+19.6 Notification service
+19.7 Logging service
+19.8 Time service
+19.9 Network service
+19.10 Storage service
+19.11 Device service
+19.12 Audio service
+19.13 Graphics service
+19.14 Update service
+19.15 Application service integration
+
+# Phase 20 — RoboFilesystem
+
+20.1 RoboFS architecture
+20.2 File handles
+20.3 Directories
+20.4 Streams
+20.5 File metadata
+20.6 Atomic operations
+20.7 Temporary files
+20.8 Application data directories
+20.9 Upload/storage management
+20.10 File permissions
+20.11 Filesystem sandboxing
+20.12 Storage limits
+20.13 File watching
+20.14 Large-file streaming
+20.15 Filesystem security
+
+# Phase 21 — RoboServer / Backend Runtime
+
+21.1 Backend application architecture
+21.2 HTTP server
+21.3 Request processing
+21.4 Response processing
+21.5 Routing
+21.6 Middleware
+21.7 JSON APIs
+21.8 Forms
+21.9 File uploads
+21.10 Streaming responses
+21.11 WebSocket backend
+21.12 SSE backend
+21.13 Backend errors
+21.14 Backend logging
+21.15 Backend configuration
+21.16 Backend lifecycle
+21.17 Backend performance
+21.18 Backend conformance
+
+# Phase 22 — Authentication & Application Identity
+
+22.1 Application identity architecture
+22.2 User identity
+22.3 Credential management
+22.4 Secure credential storage
+22.5 Persistent login state
+22.6 Account switching
+22.7 Credential revocation
+22.8 Roles
+22.9 Permissions
+22.10 Capability authorization
+22.11 Secrets management
+22.12 Authentication APIs
+22.13 Authorization APIs
+22.14 Identity security
+22.15 Identity conformance
+
+No cookie-based architecture is required.
+
+# Phase 23 — RoboAPI / Application Bridge
+
+23.1 RoboAPI architecture
+23.2 Frontend/backend bridge
+23.3 RPC
+23.4 Typed RPC
+23.5 Streaming RPC
+23.6 Database API
+23.7 Filesystem API
+23.8 Network API
+23.9 Authentication API
+23.10 Native OS API bridge
+23.11 Hardware API bridge
+23.12 Process API
+23.13 Worker API
+23.14 Job API
+23.15 Event subscriptions
+23.16 Capability enforcement
+23.17 API versioning
+23.18 API freeze
+
+# Phase 24 — Web-Compatible Storage APIs
+
+These exist **only where web compatibility requires them**, not as Roboticela's primary database.
+
+24.1 Storage API architecture
+24.2 Origin storage compatibility
+24.3 Session storage compatibility
+24.4 Local storage compatibility
+24.5 IndexedDB compatibility
+24.6 Cache API
+24.7 Storage limits
+24.8 Storage permissions
+24.9 Storage isolation
+24.10 Storage conformance
+
+The authoritative application database remains PostgreSQL.
+
+# Phase 25 — Media
+
+25.1 Media architecture
+25.2 Audio
+25.3 Video
+25.4 Media containers
+25.5 Audio codecs
+25.6 Video codecs
+25.7 Media streams
+25.8 Web Audio architecture
+25.9 Audio processing
+25.10 Video rendering
+25.11 Media synchronization
+25.12 Camera
+25.13 Microphone
+25.14 Media permissions
+25.15 Media security
+25.16 Media conformance
+
+# Phase 26 — Web APIs
+
+26.1 Web API architecture
+26.2 Fetch API
+26.3 Streams API
+26.4 URL API
+26.5 Encoding API
+26.6 Web Crypto
+26.7 Web Workers
+26.8 Notifications
+26.9 Clipboard API
+26.10 Fullscreen API
+26.11 History API
+26.12 WebSockets
+26.13 Server-Sent Events
+26.14 File APIs
+26.15 Blob/ArrayBuffer
+26.16 WebRTC architecture
+26.17 Permissions API
+26.18 Geolocation
+26.19 Device APIs
+26.20 Web API conformance
+
+# Phase 27 — Accessibility
+
+27.1 Accessibility architecture
+27.2 Accessibility tree
+27.3 ARIA
+27.4 Roles
+27.5 States/properties
+27.6 Keyboard accessibility
+27.7 Screen-reader integration
+27.8 Focus navigation
+27.9 High contrast
+27.10 Reduced motion
+27.11 Accessibility testing
+27.12 Accessibility conformance
+
+# Phase 28 — Service Workers & Offline Runtime
+
+28.1 Service Worker architecture
+28.2 Worker lifecycle
+28.3 Fetch interception
+28.4 Cache integration
+28.5 Background synchronization
+28.6 Push architecture
+28.7 Offline application model
+28.8 Service Worker security
+28.9 Service Worker conformance
+
+# Phase 29 — Multi-Process Runtime
+
+29.1 Process architecture
+29.2 Runtime process
+29.3 UI process
+29.4 JavaScript process
+29.5 Network process
+29.6 GPU process
+29.7 Database/backend process
+29.8 Worker processes
+29.9 IPC
+29.10 Shared memory
+29.11 Process sandboxing
+29.12 Crash isolation
+29.13 Process lifecycle
+29.14 Resource limits
+29.15 Multi-process security
+
+# Phase 30 — Application Packaging
+
+30.1 Application manifest
+30.2 Application structure
+30.3 Application dependencies
+30.4 Configuration
+30.5 Environment configuration
+30.6 Secrets configuration
+30.7 PostgreSQL configuration
+30.8 Prisma configuration
+30.9 Build/package system
+30.10 Application installation
+30.11 Application upgrades
+30.12 Application rollback
+30.13 Application permissions
+30.14 Application signing
+
+# Phase 31 — Developer Toolchain
+
+31.1 `robo` CLI
+31.2 Project creation
+31.3 Development runtime
+31.4 Frontend build
+31.5 Backend build
+31.6 Prisma commands
+31.7 Database commands
+31.8 Migration commands
+31.9 Testing
+31.10 Debugging
+31.11 Profiling
+31.12 Logging
+31.13 Packaging
+31.14 Deployment
+
+# Phase 32 — Background Jobs & Queues
+
+32.1 Job architecture
+32.2 Queue abstraction
+32.3 Worker execution
+32.4 Scheduled jobs
+32.5 Delayed jobs
+32.6 Retries
+32.7 Dead-letter handling
+32.8 Persistent queues
+32.9 Job cancellation
+32.10 Job monitoring
+32.11 Worker isolation
+
+# Phase 33 — Advanced Web Platform
+
+33.1 Web Components completion
+33.2 Shadow DOM completion
+33.3 Custom Elements
+33.4 Resize Observer
+33.5 Intersection Observer
+33.6 Mutation Observer
+33.7 Performance APIs
+33.8 History/navigation
+33.9 Page lifecycle
+33.10 Broadcast communication
+33.11 Streams completion
+33.12 Advanced workers
+33.13 Web platform integration
+
+# Phase 34 — Browser/Web Standards Compatibility
+
+34.1 HTML conformance
+34.2 CSS conformance
+34.3 DOM conformance
+34.4 JavaScript conformance
+34.5 Fetch conformance
+34.6 URL/origin conformance
+34.7 Web API conformance
+34.8 Storage compatibility conformance
+34.9 Media conformance
+34.10 Accessibility conformance
+34.11 Internationalization conformance
+34.12 Web-platform regression suite
+
+# Phase 35 — RoboVisualTest
+
+35.1 Visual testing architecture
+35.2 HTML reference tests
+35.3 CSS reference tests
+35.4 Layout screenshots
+35.5 Paint screenshots
+35.6 Text rendering comparisons
+35.7 Font/shaping comparisons
+35.8 Arabic/Persian/Urdu tests
+35.9 Indic tests
+35.10 CJK tests
+35.11 Emoji tests
+35.12 RTL tests
+35.13 Animation tests
+35.14 Pixel-difference engine
+35.15 Tolerance-based comparison
+35.16 Regression gallery
+35.17 Automated visual regression
+35.18 Chromium reference comparison
+35.19 Independent-runtime validation
+
+# Phase 36 — Performance
+
+36.1 Runtime profiling
+36.2 JavaScript performance
+36.3 DOM performance
+36.4 CSS performance
+36.5 Layout performance
+36.6 Paint performance
+36.7 Compositor performance
+36.8 Font/text performance
+36.9 Network performance
+36.10 PostgreSQL performance
+36.11 Filesystem performance
+36.12 IPC performance
+36.13 Memory optimization
+36.14 Startup optimization
+36.15 GPU performance
+36.16 Benchmark suite
+
+# Phase 37 — Security Hardening
+
+37.1 Security architecture audit
+37.2 Memory safety
+37.3 IPC security
+37.4 Process isolation
+37.5 Application capabilities
+37.6 Native API permissions
+37.7 Hardware permissions
+37.8 Database security
+37.9 Credential security
+37.10 Network security
+37.11 JavaScript sandboxing
+37.12 Web content isolation
+37.13 Font security
+37.14 Media security
+37.15 File security
+37.16 Fuzzing
+37.17 Sanitizer validation
+37.18 Penetration/security testing
+
+# Phase 38 — Final Runtime Integration
+
+38.1 Full dependency audit
+38.2 API audit
+38.3 ABI/build audit
+38.4 Thread-safety audit
+38.5 Memory-safety audit
+38.6 Security audit
+38.7 Unicode/CLDR/tzdb/font-data audit
+38.8 Web-standard audit
+38.9 Native OS API audit
+38.10 Hardware API audit
+38.11 PostgreSQL/Prisma audit
+38.12 Performance audit
+38.13 Visual regression audit
+38.14 Multi-process audit
+38.15 License/source audit
+38.16 Chromium dependency scan
+38.17 Remove temporary Chromium dependency
+38.18 Build without `chromium/`
+38.19 Full A-to-Z application test
+38.20 Runtime API freeze
+38.21 Roboticela Runtime 1.0 validation
+
+---
+
+## Final target
+
+The completed architecture should ultimately be:
 
 ```text
-                         Roboticela OS
-                              │
-                       ┌──────┴──────┐
-                       │ RoboShell    │
-                       └──────┬──────┘
-                              │
-                         Robo Runtime
-                              │
-       ┌──────────────────────┼──────────────────────┐
-       │                      │                      │
-    RoboHTML                RoboCSS                RoboJS
-       │                      │                      │
-       └──────────────┬───────┴──────────────────────┘
-                      │
-                    RoboDOM
-                      │
-                 RoboLayout
-                      │
-                  RoboPaint
-                      │
-                 RoboRender
-                      │
-               RoboCompositor
-                      │
-               RoboGraphics
-                      │
-             Roboticela Platform
-                      │
-                Roboticela OS
-```
-
-This becomes your master architecture document.
-
----
-
-# Phase 2 — Create the source tree
-
-I would change your `runtime/` into:
-
-```text
-runtime/
-│
-├── base/
-├── memory/
-├── thread/
-├── event/
-├── ipc/
-│
-├── javascript/
-│   └── robojs/
-│
-├── web/
-│   ├── dom/
-│   ├── html/
-│   ├── css/
-│   ├── layout/
-│   ├── paint/
-│   └── render/
-│
-├── graphics/
-├── compositor/
-├── window/
-├── input/
-├── font/
-├── network/
-├── tls/
-├── storage/
-├── media/
-│
-├── security/
-├── api/
-│
-├── shell/
-├── applications/
-│
-├── platform/
-│
-├── include/
-├── tests/
-└── docs/
-```
-
-Everything you write is C.
-
-For example:
-
-```text
-runtime/web/html/
-    parser.c
-    tokenizer.c
-    document.c
-    element.c
-    attribute.c
-```
-
-and:
-
-```text
-runtime/web/css/
-    parser.c
-    selector.c
-    stylesheet.c
-    property.c
-    style.c
-```
-
----
-
-# Phase 3 — RoboBase
-
-Start with the boring stuff.
-
-Implement:
-
-```text
-RoboBase
-├── logging
-├── errors
-├── assertions
-├── configuration
-├── debugging
-└── utilities
-```
-
-Then:
-
-```text
-RoboMem
-├── allocator
-├── arena
-├── pool
-└── heap
-```
-
-Then:
-
-```text
-RoboContainers
-├── vector
-├── list
-├── hashmap
-├── set
-├── queue
-└── stack
-```
-
-These become dependencies of almost everything else.
-
----
-
-# Phase 4 — RoboThread + RoboEvent
-
-Implement:
-
-```text
-RoboThread
-├── thread
-├── mutex
-├── semaphore
-├── condition
-└── atomic
-```
-
-Then:
-
-```text
-RoboEvent
-├── event queue
-├── task queue
-├── timer
-├── callback
-├── microtask
-└── event loop
-```
-
-Your runtime eventually needs:
-
-```text
-                 RoboEvent
-                     │
-      ┌──────────────┼──────────────┐
-      │              │              │
-   RoboJS         RoboNet       RoboRender
-```
-
----
-
-# Phase 5 — RoboIPC
-
-Build your own IPC system:
-
-```text
-RoboIPC
-├── message
-├── channel
-├── endpoint
-├── serialization
-└── shared memory
-```
-
-Eventually:
-
-```text
-Robo Runtime
-     │
-     ├── RoboJS process
-     ├── rendering process
-     ├── network service
-     └── system services
-```
-
----
-
-# Phase 6 — RoboGraphics
-
-Before HTML, you need somewhere to draw.
-
-Implement:
-
-```text
-RoboGraphics
-├── display
-├── surface
-├── framebuffer
-├── image
-├── texture
-├── path
-├── rectangle
-├── clipping
-├── bitmap
-└── drawing
-```
-
-First test:
-
-```text
-RoboGraphics
-     ↓
-create display
-     ↓
-draw rectangle
-     ↓
-draw text
-```
-
-If that works, you have a visual foundation.
-
----
-
-# Phase 7 — RoboFont
-
-Text rendering becomes its own subsystem.
-
-```text
-RoboFont
-├── font loading
-├── glyphs
-├── text measurement
-├── shaping
-└── rasterization
-```
-
-This is important because HTML/CSS UI is heavily dependent on text.
-
----
-
-# Phase 8 — RoboDOM
-
-Now create your document model.
-
-```text
-RoboDOM
-├── Document
-├── Node
-├── Element
-├── Text
-├── Attribute
-├── Event
-└── Tree
-```
-
-Conceptually:
-
-```text
-Document
-└── html
-    ├── head
-    └── body
-        ├── div
-        │   ├── text
-        │   └── button
-        └── ...
-```
-
-All implemented in C.
-
----
-
-# Phase 9 — RoboHTML
-
-Now:
-
-```text
-HTML source
-     ↓
-RoboHTML tokenizer
-     ↓
-RoboHTML parser
-     ↓
-RoboDOM
-```
-
-Start with a small subset:
-
-```html
-<div>
-    <button>Hello</button>
-</div>
-```
-
-Then gradually add:
-
-```text
-headings
-paragraphs
-images
-links
-forms
-tables
-lists
-semantic elements
-```
-
-Don't attempt complete browser HTML compatibility initially.
-
----
-
-# Phase 10 — RoboCSS
-
-Now:
-
-```text
-CSS
- ↓
-RoboCSS parser
- ↓
-selectors
- ↓
-style rules
- ↓
-computed style
- ↓
-RoboDOM
-```
-
-Start with:
-
-```css
-window {
-    width: 800px;
-}
-
-button {
-    padding: 10px;
-}
-```
-
-Then implement:
-
-```text
-colors
-fonts
-margin
-padding
-border
-width/height
-display
-position
-flex
-grid
-transforms
-animations
-```
-
----
-
-# Phase 11 — RoboLayout
-
-This converts the DOM + CSS into geometry.
-
-```text
-RoboDOM
-   +
-RoboCSS
-   ↓
-RoboLayout
-   ↓
-boxes
-```
-
-For example:
-
-```text
-Document
-   ↓
-Layout tree
-
-┌─────────────────────┐
-│ Header              │
-├─────────────────────┤
-│                     │
-│ Content             │
-│                     │
-├─────────────────────┤
-│ Footer              │
-└─────────────────────┘
-```
-
-Start with:
-
-1. block layout
-2. inline layout
-3. flex
-4. absolute positioning
-5. grid
-
----
-
-# Phase 12 — RoboPaint
-
-Once layout works:
-
-```text
-RoboLayout
-     ↓
-RoboPaint
-     ↓
-paint commands
-```
-
-For example:
-
-```text
-draw background
-draw border
-draw text
-draw image
-draw shadow
-```
-
-Don't immediately render directly to the screen.
-
-Generate a paint representation first.
-
----
-
-# Phase 13 — RoboRender
-
-Then:
-
-```text
-HTML
- ↓
-DOM
- ↓
-CSS
- ↓
-Layout
- ↓
-Paint
- ↓
-Render
- ↓
-Compositor
- ↓
-Display
-```
-
-This is your core web rendering pipeline.
-
----
-
-# Phase 14 — RoboCompositor
-
-Implement:
-
-```text
-RoboCompositor
-├── layer
-├── surface
-├── transform
-├── clipping
-├── z-order
-├── damage tracking
-└── frame scheduling
-```
-
-Then you can have:
-
-```text
-Desktop
-├── wallpaper layer
-├── taskbar layer
-├── window layer
-│   ├── app 1
-│   ├── app 2
-│   └── app 3
-└── cursor layer
-```
-
----
-
-# Phase 15 — RoboWindow
-
-Now connect the renderer to OS windows.
-
-```text
-RoboWindow
-├── create
-├── destroy
-├── resize
-├── move
-├── focus
-├── minimize
-└── maximize
-```
-
----
-
-# Phase 16 — RoboJS
-
-Now connect JavaScript to everything.
-
-Your stack becomes:
-
-```text
-JavaScript
-     ↓
-RoboJS
-     ↓
-RoboDOM
-     ↓
-RoboHTML / RoboCSS
-     ↓
-RoboLayout
-     ↓
-RoboPaint
-     ↓
-RoboRender
-     ↓
-RoboCompositor
-     ↓
-RoboGraphics
-```
-
-And separately:
-
-```text
-JavaScript
-     ↓
-RoboJS
-     ↓
-RoboAPI
-     ↓
-Roboticela OS
-```
-
-That's the architecture you're describing.
-
----
-
-# Phase 17 — RoboAPI
-
-This is where you make the platform yours.
-
-For example:
-
-```javascript
-roboticela.window.create()
-roboticela.fs.read()
-roboticela.process.spawn()
-roboticela.network.request()
-roboticela.display.primary()
-roboticela.input.on()
-roboticela.notification.show()
-```
-
-Your JavaScript application can therefore access the OS without knowing anything about the underlying implementation.
-
----
-
-# Phase 18 — RoboNet
-
-Then implement networking.
-
-```text
-RoboNet
-├── sockets
-├── DNS
-├── HTTP
-├── HTTP/2
-├── WebSocket
-└── URL
-```
-
-And:
-
-```text
-RoboTLS
-├── TLS
-├── certificates
-└── verification
-```
-
-For security-critical cryptography, **do not invent cryptographic algorithms yourself**. Use properly licensed, audited cryptographic implementations where appropriate, even if the surrounding runtime is written in C.
-
----
-
-# Phase 19 — RoboStorage
-
-Implement:
-
-```text
-RoboStorage
-├── files
-├── application data
-├── cache
-├── key/value storage
-└── database
-```
-
-Think in terms of OS applications rather than browser profiles.
-
----
-
-# Phase 20 — RoboMedia
-
-If Roboticela applications need media:
-
-```text
-RoboMedia
-├── audio
-├── video
-├── image
-├── codecs
-└── streaming
-```
-
-This can be postponed until the core desktop works.
-
----
-
-# Phase 21 — RoboSecurity
-
-Before third-party applications:
-
-```text
-RoboSecurity
-├── permissions
-├── sandbox
-├── process isolation
-├── IPC permissions
-├── filesystem permissions
-└── network permissions
-```
-
----
-
-# Phase 22 — RoboShell
-
-Now build the actual OS desktop.
-
-```text
-RoboShell
-├── desktop
-├── taskbar
-├── launcher
-├── window manager
-├── notifications
-├── system tray
-└── settings
-```
-
-And importantly:
-
-**The shell itself can be written using RoboHTML + RoboCSS + RoboJS.**
-
-So:
-
-```text
-Roboticela boot
-       ↓
-Robo runtime
-       ↓
-RoboJS
-       ↓
-RoboHTML
-       ↓
-RoboCSS
-       ↓
-RoboDOM
-       ↓
-RoboLayout
-       ↓
-RoboRender
-       ↓
-Roboticela Desktop
-```
-
-That's a very clean design.
-
----
-
-# Phase 23 — System applications
-
-Then:
-
-```text
-applications/
-├── file-manager/
-├── settings/
-├── terminal/
-├── calculator/
-├── text-editor/
-└── system-monitor/
-```
-
-Each application can use your stack.
-
----
-
-# Phase 24 — Remove Chromium
-
-This is the **last phase**, not the first.
-
-You should eventually be able to build:
-
-```text
-runtime/
-     ↓
-C compiler
-     ↓
-RoboBase
-     ↓
-RoboJS
-RoboHTML
-RoboCSS
-RoboDOM
-RoboLayout
-RoboRender
-RoboNet
-RoboStorage
-RoboShell
-     ↓
-Roboticela OS
-```
-
-with:
-
-```text
-chromium/
-```
-
-completely absent.
-
-Then you can physically delete:
-
-```text
-chromium/
-```
-
-and do a clean build from scratch.
-
----
-
-## How to use the huge Chromium source
-
-This is the part that will save you the most time.
-
-**Do not read Chromium from top to bottom.**
-
-For every subsystem, use this cycle:
-
-```text
-                    chromium/
-                       │
-                       ▼
-             Identify subsystem
-                       │
-                       ▼
-             Understand behavior
-                       │
-                       ▼
-            Write Robo specification
-                       │
-                       ▼
-             Design C interfaces
-                       │
-                       ▼
-             Implement in runtime/
-                       │
-                       ▼
-                    Tests
-                       │
-                       ▼
-              Mark subsystem done
-```
-
-For example:
-
-```text
-Chromium HTML implementation
-          ↓
-"What does an HTML parser need to do?"
-          ↓
-RoboHTML specification
-          ↓
-runtime/web/html/*.c
-          ↓
-HTML tests
-          ↓
-Done
-```
-
-Then move on.
-
----
-
-# The order matters
-
-I strongly recommend **not** starting with RoboJS.
-
-The dependency order should be approximately:
-
-```text
-                 RoboBase
-                    │
-        ┌───────────┼───────────┐
-        ↓           ↓           ↓
-    RoboMem    RoboThread    RoboIPC
-        │           │           │
-        └───────────┼───────────┘
-                    ↓
-                RoboEvent
-                    │
-             ┌──────┴──────┐
-             ↓             ↓
-        RoboGraphics    RoboWindow
-             │             │
-             └──────┬──────┘
-                    ↓
-                RoboDOM
-                    │
-             ┌──────┴──────┐
-             ↓             ↓
-          RoboHTML      RoboCSS
-             │             │
-             └──────┬──────┘
-                    ↓
-                RoboLayout
-                    ↓
-                RoboPaint
-                    ↓
-                RoboRender
-                    ↓
-             RoboCompositor
-                    │
-                    ↓
-                 RoboJS
-                    │
-                    ↓
-                RoboAPI
-                    │
-                    ↓
-                RoboShell
-                    │
-                    ↓
-             Roboticela OS
-```
-
-Networking, storage, fonts, security, media, etc. plug into the appropriate places.
-
-### And one more important distinction
-
-If your requirement is **"everything in our runtime must be C"**, then even the names shouldn't necessarily correspond one-to-one with Chromium's internals.
-
-For example, you don't need to create:
-
-```text
-RoboBlink
-RoboSkia
-RoboChromium
-RoboMojo
-```
-
-Instead, make your own conceptual components:
-
-```text
-RoboHTML
-RoboCSS
-RoboDOM
-RoboLayout
-RoboPaint
-RoboRender
-RoboGraphics
-RoboIPC
-RoboJS
-```
-
-That gives Roboticela OS its **own architecture**, rather than Chromium with "Robo" put in front of everything.
-
-Your overall goal is:
-
-Chromium source
-     │
-     │ temporary reference only
-     ▼
-Roboticela runtime
-     │
-     ├── RoboBase
-     ├── RoboMem
-     ├── RoboThread
-     ├── RoboEvent
-     ├── RoboIPC
-     ├── RoboGraphics
-     ├── RoboWindow
-     ├── RoboDOM
-     ├── RoboHTML
-     ├── RoboCSS
-     ├── RoboLayout
-     ├── RoboPaint
-     ├── RoboRender
-     ├── RoboJS
-     ├── RoboNet
-     ├── RoboStorage
-     ├── RoboSecurity
-     ├── RoboAPI
-     └── RoboShell
-              │
-              ▼
-        Roboticela OS
-The small-goal roadmap
-Stage 0 — Project rules
-
-Goal 0.1: Freeze the Chromium reference.
-
-Goal 0.2: Record Chromium version/commit.
-
-Goal 0.3: Define the Roboticela runtime license and attribution policy.
-
-Goal 0.4: Create runtime/.
-
-Goal 0.5: Write ARCHITECTURE.md.
-
-Goal 0.6: Define the rule:
-
-Chromium is a temporary reference; the final runtime must not depend on Chromium.
-
-Stage 1 — RoboBase
-Goal 1.1
-
-Create the C project/build system.
-
-Goal 1.2
-
-Create logging.
-
-Goal 1.3
-
-Create error handling.
-
-Goal 1.4
-
-Create assertions/debugging.
-
-Goal 1.5
-
-Create configuration handling.
-
-Milestone:
-
-RoboBase test
-     ↓
-compile
-     ↓
-run
-     ↓
-PASS
-Stage 2 — RoboMem
-Goal 2.1
-
-Basic allocator.
-
-Goal 2.2
-
-Arena allocator.
-
-Goal 2.3
-
-Memory pools.
-
-Goal 2.4
-
-Memory debugging.
-
-Goal 2.5
-
-Leak detection.
-
-Milestone:
-
-allocate
- ↓
-use
- ↓
-free
- ↓
-memory test passes
-Stage 3 — RoboContainers
-
-Build only what you need.
-
-Goal 3.1
-
-Dynamic array.
-
-Goal 3.2
-
-Hash map.
-
-Goal 3.3
-
-Set.
-
-Goal 3.4
-
-Queue.
-
-Goal 3.5
-
-String builder.
-
-Goal 3.6
-
-Tests for all containers.
-
-Stage 4 — RoboThread
-Goal 4.1
-
-Thread abstraction.
-
-Goal 4.2
-
-Mutex.
-
-Goal 4.3
-
-Condition variable.
-
-Goal 4.4
-
-Semaphore.
-
-Goal 4.5
-
-Atomic operations.
-
-Goal 4.6
-
-Thread-local storage.
-
-Milestone:
-
-create 10 threads
- ↓
-run jobs
- ↓
-synchronize
- ↓
-PASS
-Stage 5 — RoboEvent
-Goal 5.1
-
-Event structure.
-
-Goal 5.2
-
-Event queue.
-
-Goal 5.3
-
-Task queue.
-
-Goal 5.4
-
-Timer.
-
-Goal 5.5
-
-Event loop.
-
-Goal 5.6
-
-Microtask queue.
-
-Milestone:
-
-RoboEvent
-   ↓
-timer
-   ↓
-callback
-   ↓
-event loop
-   ↓
-PASS
-Stage 6 — RoboIPC
-Goal 6.1
-
-Message structure.
-
-Goal 6.2
-
-Serialization.
-
-Goal 6.3
-
-IPC channel.
-
-Goal 6.4
-
-IPC endpoint.
-
-Goal 6.5
-
-Shared memory.
-
-Goal 6.6
-
-IPC tests.
-
-Stage 7 — RoboPlatform
-
-This is where you start making it Roboticela OS-specific.
-
-Goal 7.1
-
-Clock.
-
-Goal 7.2
-
-Filesystem abstraction.
-
-Goal 7.3
-
-Process abstraction.
-
-Goal 7.4
-
-Thread abstraction.
-
-Goal 7.5
-
-Display abstraction.
-
-Goal 7.6
-
-Input abstraction.
-
-Goal 7.7
-
-Audio abstraction.
-
-Goal 7.8
-
-Network abstraction.
-
-Stage 8 — RoboGraphics
-Goal 8.1
-
-Display.
-
-Goal 8.2
-
-Surface.
-
-Goal 8.3
-
-Framebuffer.
-
-Goal 8.4
-
-Bitmap.
-
-Goal 8.5
-
-Rectangle drawing.
-
-Goal 8.6
-
-Image drawing.
-
-Goal 8.7
-
-Clipping.
-
-Goal 8.8
-
-Basic text drawing.
-
-Major milestone:
-
-Roboticela OS
-      ↓
-RoboGraphics
-      ↓
-screen
-      ↓
-"Hello Roboticela"
-Stage 9 — RoboFont
-Goal 9.1
-
-Font loading.
-
-Goal 9.2
-
-Glyph representation.
-
-Goal 9.3
-
-Text measurement.
-
-Goal 9.4
-
-Glyph rasterization.
-
-Goal 9.5
-
-Text layout.
-
-Stage 10 — RoboWindow
-Goal 10.1
-
-Window structure.
-
-Goal 10.2
-
-Create window.
-
-Goal 10.3
-
-Destroy window.
-
-Goal 10.4
-
-Resize.
-
-Goal 10.5
-
-Move.
-
-Goal 10.6
-
-Focus.
-
-Goal 10.7
-
-Z-order.
-
-Stage 11 — RoboDOM
-Goal 11.1
-
-Node.
-
-Goal 11.2
-
-Element.
-
-Goal 11.3
-
-Text node.
-
-Goal 11.4
-
-Attributes.
-
-Goal 11.5
-
-Parent/child relationships.
-
-Goal 11.6
-
-DOM traversal.
-
-Goal 11.7
-
-DOM events.
-
-Stage 12 — RoboHTML
-Goal 12.1
-
-Tokenizer.
-
-Goal 12.2
-
-Tag parsing.
-
-Goal 12.3
-
-Attribute parsing.
-
-Goal 12.4
-
-Text parsing.
-
-Goal 12.5
-
-Tree construction.
-
-Goal 12.6
-
-Error recovery.
-
-Goal 12.7
-
-HTML → RoboDOM.
-
-First target:
-
-<div>
-    <button>Hello</button>
-</div>
-
-must produce the correct DOM tree.
-
-Stage 13 — RoboCSS
-Goal 13.1
-
-CSS tokenizer.
-
-Goal 13.2
-
-Property parser.
-
-Goal 13.3
-
-Selector parser.
-
-Goal 13.4
-
-Style rules.
-
-Goal 13.5
-
-Computed style.
-
-Goal 13.6
-
-Inheritance.
-
-Goal 13.7
-
-CSS → RoboDOM styles.
-
-Start tiny:
-
-button {
-    width: 100px;
-    height: 40px;
-}
-Stage 14 — RoboLayout
-Goal 14.1
-
-Box model.
-
-Goal 14.2
-
-Block layout.
-
-Goal 14.3
-
-Inline layout.
-
-Goal 14.4
-
-Flex layout.
-
-Goal 14.5
-
-Absolute positioning.
-
-Goal 14.6
-
-Basic grid.
-
-Milestone:
-
-HTML
- +
-CSS
- ↓
-RoboLayout
- ↓
-correct rectangles
-Stage 15 — RoboPaint
-Goal 15.1
-
-Paint background.
-
-Goal 15.2
-
-Paint borders.
-
-Goal 15.3
-
-Paint text.
-
-Goal 15.4
-
-Paint images.
-
-Goal 15.5
-
-Paint clipping.
-
-Goal 15.6
-
-Create paint command list.
-
-Stage 16 — RoboRender
-
-Connect:
-
-RoboHTML
-    ↓
-RoboDOM
-    ↓
-RoboCSS
-    ↓
-RoboLayout
-    ↓
-RoboPaint
-    ↓
-RoboRender
-    ↓
-RoboGraphics
-Goal 16.1
-
-Render a div.
-
-Goal 16.2
-
-Render text.
-
-Goal 16.3
-
-Render button.
-
-Goal 16.4
-
-Render image.
-
-Goal 16.5
-
-Render complete simple page.
-
-Stage 17 — RoboCompositor
-Goal 17.1
-
-Layers.
-
-Goal 17.2
-
-Surfaces.
-
-Goal 17.3
-
-Transforms.
-
-Goal 17.4
-
-Clipping.
-
-Goal 17.5
-
-Z-order.
-
-Goal 17.6
-
-Frame scheduling.
-
-Stage 18 — RoboJS
-
-This is a large project by itself, so divide it further.
-
-Goal 18.1
-
-JavaScript lexer.
-
-Goal 18.2
-
-Parser.
-
-Goal 18.3
-
-AST.
-
-Goal 18.4
-
-Values.
-
-Goal 18.5
-
-Objects.
-
-Goal 18.6
-
-Functions.
-
-Goal 18.7
-
-Scopes.
-
-Goal 18.8
-
-Closures.
-
-Goal 18.9
-
-Bytecode.
-
-Goal 18.10
-
-VM.
-
-Goal 18.11
-
-Garbage collector.
-
-Goal 18.12
-
-Built-in objects.
-
-Goal 18.13
-
-Promises.
-
-Goal 18.14
-
-Modules.
-
-Goal 18.15
-
-Timers/events.
-
-This is where you should expect a very large amount of work.
-
-Stage 19 — Connect RoboJS to RoboHTML/RoboCSS
-
-Now:
-
-JavaScript
-    ↓
-RoboJS
-    ↓
-RoboDOM
-    ↓
-RoboHTML
-RoboCSS
-    ↓
-RoboLayout
-    ↓
-RoboRender
-
-Test:
-
-const button = document.createElement("button");
-button.textContent = "Hello Roboticela";
-document.body.appendChild(button);
-Stage 20 — RoboAPI
-
-Expose OS functionality:
-
-roboticela.window
-roboticela.filesystem
-roboticela.process
-roboticela.display
-roboticela.input
-roboticela.network
-roboticela.audio
-roboticela.notifications
-
-Each API gets its own small milestone.
-
-Stage 21 — RoboNet
-Goal 21.1
-
-URL parser.
-
-Goal 21.2
-
-Sockets.
-
-Goal 21.3
-
-DNS.
-
-Goal 21.4
-
-HTTP.
-
-Goal 21.5
-
-HTTPS/TLS integration.
-
-Goal 21.6
-
-WebSocket.
-
-Stage 22 — RoboStorage
-Goal 22.1
-
-Application files.
-
-Goal 22.2
-
-Key/value storage.
-
-Goal 22.3
-
-Cache.
-
-Goal 22.4
-
-Database layer.
-
-Goal 22.5
-
-Application isolation.
-
-Stage 23 — RoboSecurity
-Goal 23.1
-
-Application identity.
-
-Goal 23.2
-
-Permissions.
-
-Goal 23.3
-
-Sandbox.
-
-Goal 23.4
-
-Filesystem restrictions.
-
-Goal 23.5
-
-Network restrictions.
-
-Goal 23.6
-
-IPC restrictions.
-
-Stage 24 — RoboShell
-
-Finally:
-
-RoboShell
-├── desktop
-├── launcher
-├── taskbar
-├── notifications
-├── window manager
-└── settings
-
-And your desktop can itself be:
-
-RoboHTML
-+
-RoboCSS
-+
-RoboJS
-Stage 25 — Applications
-
-Build:
-
-File Manager
-Terminal
-Settings
-Calculator
-Text Editor
-System Monitor
-
-using your own runtime.
-
-Stage 26 — Chromium independence
-
-Now create a clean build environment containing only:
-
-Roboticela OS
-runtime/
-compiler/toolchain
-required independent third-party libraries
-
-No:
-
-chromium/
-
-Then:
-
-clean checkout
-     ↓
-build
-     ↓
-boot
-     ↓
-desktop
-     ↓
-applications
-
-Only after this succeeds:
-
-DELETE chromium/
-
-
-
-Yes — **full Unicode, internationalization, text shaping, font handling, and complex-script rendering should be part of the architecture**, not an afterthought.
-
-For the later prompts, we should explicitly include a dedicated text stack:
-
-```text
-RoboUnicode
-├── Unicode properties
-├── UTF-8 / UTF-16 / UTF-32
-├── normalization
-├── case mapping
-├── grapheme clusters
-├── word/line segmentation
-├── bidi
-├── locale data
-└── Unicode version management
-
-RoboI18N
-├── locale
-├── language/region
-├── number formatting
-├── date/time formatting
-├── plural rules
-├── collation
-├── messages
-└── localization resources
-
-RoboFont
-├── font discovery
-├── font loading
-├── font collections
-├── glyph mapping
-├── variation fonts
-├── fallback
-├── emoji fonts
-└── font metrics
-
-RoboText
-├── script detection
-├── bidi processing
-├── shaping
-├── ligatures
-├── kerning
-├── glyph runs
-├── line breaking
-├── text measurement
-└── vertical writing where appropriate
-
-RoboTextRender
-├── glyph rasterization
-├── antialiasing
-├── hinting
-├── subpixel/advanced rendering where supported
-└── integration with RoboPaint/RoboGraphics
-```
-
-And this needs to feed into:
-
-```text
-RoboHTML
-   ↓
-RoboDOM
-   ↓
-RoboCSS
-   ↓
-RoboLayout
-   ↓
-RoboText
-   ↓
-RoboFont
-   ↓
-RoboTextRender
-   ↓
-RoboPaint
-   ↓
-RoboCompositor
-   ↓
-RoboGraphics
-```
-
-We should also explicitly support scripts such as **Arabic, Urdu, Persian, Hindi, Bengali, Chinese, Japanese, Korean, Thai, Hebrew, Devanagari**, etc., including right-to-left text and complex shaping.
-
-One important architectural distinction: we can use Chromium as a **reference for understanding the required behavior**, but we should not blindly copy Chromium's implementation. For Unicode/font standards, we'll also need to account for the relevant Unicode specifications and font/text standards and use appropriately licensed third-party libraries/data where implementing everything ourselves would be unreasonable.
-
-So I'll treat **full international text support as a first-class requirement** in the subsequent prompts, especially when we reach RoboString, RoboUnicode, RoboFont, RoboText, RoboLayout, and RoboRender.
-
-Yes. Here is the **full roadmap** so you can see where Roboticela Runtime is going from the current Unicode work all the way to a complete independent browser/runtime stack.
-
-The exact goal numbers may be adjusted as implementation reveals dependencies, but this is the intended roadmap.
-
-## Phase 0 — Project & Architecture
-
-| Goal    | What happens                                                            |
-| ------- | ----------------------------------------------------------------------- |
-| **0.1** | Create `runtime/` project skeleton and build system                     |
-| **0.2** | Freeze/document Chromium as temporary technical reference               |
-| **0.3** | Define Roboticela architecture, module boundaries, and dependency rules |
-
----
-
-# Phase 1 — RoboBase
-
-Foundation that everything else uses.
-
-| Goal    | What happens                                    |
-| ------- | ----------------------------------------------- |
-| **1.1** | `RoboBase` initialization, shutdown, versioning |
-| **1.2** | `RoboLog` logging system                        |
-| **1.3** | `RoboError` / result and error handling         |
-| **1.4** | `RoboAssert` / debug / panic infrastructure     |
-| **1.5** | Unified test framework and test runner          |
-
----
-
-# Phase 2 — Memory
-
-Independent memory-management foundation.
-
-| Goal    | What happens                                          |
-| ------- | ----------------------------------------------------- |
-| **2.1** | Basic `RoboMem` allocator                             |
-| **2.2** | Arena allocator                                       |
-| **2.3** | Fixed-size memory pool                                |
-| **2.4** | Debug allocator, leak detection, corruption detection |
-| **2.5** | Integrate and stabilize complete memory subsystem     |
-
----
-
-# Phase 3 — Unicode
-
-This is where we currently are.
-
-### Core Unicode
-
-| Goal     | What happens                                                  |
-| -------- | ------------------------------------------------------------- |
-| **3.1**  | `RoboArray` containers                                        |
-| **3.2**  | `RoboString` UTF-8 string                                     |
-| **3.3**  | UTF-8 / UTF-16 / UTF-32 encoding foundation                   |
-| **3.4**  | Unicode Character Database/property system                    |
-| **3.5**  | Unicode normalization — NFC/NFD/NFKC/NFKD                     |
-| **3.6**  | Extended Grapheme Cluster segmentation                        |
-| **3.7**  | Unicode case mapping and case folding                         |
-| **3.8**  | Unicode word segmentation                                     |
-| **3.9**  | Unicode sentence segmentation                                 |
-| **3.10** | Unicode line breaking — UAX #14                               |
-| **3.11** | Unicode Bidirectional Algorithm — UAX #9                      |
-| **3.12** | Unicode script detection and script properties                |
-| **3.13** | Unicode emoji properties and extended emoji handling          |
-| **3.14** | Unicode data generation/versioning/conformance infrastructure |
-
-The end result is that RoboUnicode understands much more than simply UTF-8 bytes.
-
-For example:
-
-```text
-UTF-8
-  ↓
-Unicode scalar values
-  ↓
-Unicode properties
-  ↓
-Normalization
-  ↓
-Grapheme clusters
-  ↓
-Words
-  ↓
-Sentences
-  ↓
-Line breaks
-  ↓
-Bidirectional levels
-  ↓
-Script / emoji information
-```
-
----
-
-# Phase 4 — Internationalization
-
-This is the **RoboI18N** layer.
-
-| Goal     | What happens                                 |
-| -------- | -------------------------------------------- |
-| **4.1**  | Locale representation                        |
-| **4.2**  | Language/region/script identifiers           |
-| **4.3**  | Locale fallback                              |
-| **4.4**  | Number formatting                            |
-| **4.5**  | Date/time formatting                         |
-| **4.6**  | Decimal/grouping symbols                     |
-| **4.7**  | Plural rules                                 |
-| **4.8**  | List formatting                              |
-| **4.9**  | Relative time formatting                     |
-| **4.10** | Collation / locale-aware comparison          |
-| **4.11** | Localization/message formatting              |
-| **4.12** | Time zones and calendar infrastructure       |
-| **4.13** | I18N data/version/conformance infrastructure |
-
-This is what makes the runtime genuinely international rather than merely Unicode-capable.
-
----
-
-# Phase 5 — Fonts
-
-**RoboFont**
-
-This is critical for Arabic, Urdu, Persian, Hindi, Chinese, Japanese, Korean, emoji, etc.
-
-| Goal     | What happens                   |
-| -------- | ------------------------------ |
-| **5.1**  | Font abstraction               |
-| **5.2**  | Font discovery                 |
-| **5.3**  | Font file loading              |
-| **5.4**  | SFNT/TrueType/OpenType parsing |
-| **5.5**  | Glyph mapping                  |
-| **5.6**  | Font metrics                   |
-| **5.7**  | Font collections               |
-| **5.8**  | Variable fonts                 |
-| **5.9**  | Font fallback                  |
-| **5.10** | Emoji font selection           |
-| **5.11** | Script/language-aware fallback |
-| **5.12** | Font cache                     |
-| **5.13** | Font validation/security       |
-
----
-
-# Phase 6 — Text Shaping
-
-This is where Unicode text becomes **glyph sequences**.
-
-**RoboTextShape**
-
-| Goal     | What happens                     |
-| -------- | -------------------------------- |
-| **6.1**  | Text-shaping architecture        |
-| **6.2**  | Script run segmentation          |
-| **6.3**  | Directional run handling         |
-| **6.4**  | Glyph mapping                    |
-| **6.5**  | Character → glyph clusters       |
-| **6.6**  | Ligatures                        |
-| **6.7**  | Kerning                          |
-| **6.8**  | OpenType features                |
-| **6.9**  | Arabic shaping                   |
-| **6.10** | Persian/Urdu shaping             |
-| **6.11** | Indic shaping                    |
-| **6.12** | Hebrew shaping                   |
-| **6.13** | Thai and Southeast Asian shaping |
-| **6.14** | CJK handling                     |
-| **6.15** | Emoji shaping                    |
-| **6.16** | Complex-script conformance       |
-| **6.17** | Shaping cache/performance        |
-
-This is one of the most important stages for your requirement of **real Arabic, Urdu, Persian, Hindi, Bengali, Hebrew, etc.**
-
----
-
-# Phase 7 — Text Layout
-
-**RoboTextLayout**
-
-| Goal     | What happens                   |
-| -------- | ------------------------------ |
-| **7.1**  | Text-run abstraction           |
-| **7.2**  | Glyph-run layout               |
-| **7.3**  | Bidi-aware layout              |
-| **7.4**  | Line construction              |
-| **7.5**  | Unicode line-break integration |
-| **7.6**  | Font metrics integration       |
-| **7.7**  | Text measurement               |
-| **7.8**  | Alignment                      |
-| **7.9**  | Tabs                           |
-| **7.10** | Wrapping                       |
-| **7.11** | Vertical text                  |
-| **7.12** | Selection/cursor geometry      |
-| **7.13** | Hit testing                    |
-| **7.14** | Caret movement by grapheme     |
-| **7.15** | Word/sentence navigation       |
-| **7.16** | Large-document performance     |
-
-At this point, Roboticela should be able to take something like:
-
-```text
-English العربية اردو हिन्दी 日本語 한국어
-```
-
-and correctly determine:
-
-* Unicode characters
-* grapheme clusters
-* words
-* direction
-* scripts
-* glyphs
-* glyph positions
-* line breaks
-* visual ordering
-* cursor positions
-
----
-
-# Phase 8 — Graphics
-
-**RoboGraphics**
-
-| Goal     | What happens                 |
-| -------- | ---------------------------- |
-| **8.1**  | Graphics abstraction         |
-| **8.2**  | Pixel formats                |
-| **8.3**  | Images/bitmaps               |
-| **8.4**  | Surfaces                     |
-| **8.5**  | Paths                        |
-| **8.6**  | Transforms                   |
-| **8.7**  | Clipping                     |
-| **8.8**  | Compositing                  |
-| **8.9**  | Antialiasing                 |
-| **8.10** | GPU abstraction              |
-| **8.11** | CPU fallback                 |
-| **8.12** | Graphics resource management |
-
----
-
-# Phase 9 — Text Rendering
-
-**RoboTextRender**
-
-| Goal     | What happens                         |
-| -------- | ------------------------------------ |
-| **9.1**  | Glyph rasterization abstraction      |
-| **9.2**  | Glyph bitmap rendering               |
-| **9.3**  | Antialiasing                         |
-| **9.4**  | Hinting                              |
-| **9.5**  | Subpixel positioning where supported |
-| **9.6**  | Text drawing                         |
-| **9.7**  | Selection/caret rendering            |
-| **9.8**  | Emoji/color glyph rendering          |
-| **9.9**  | High-DPI text rendering              |
-| **9.10** | Text rendering cache                 |
-
----
-
-# Phase 10 — Windowing & Input
-
-**RoboWindow / RoboInput**
-
-| Goal      | What happens                    |
-| --------- | ------------------------------- |
-| **10.1**  | Window abstraction              |
-| **10.2**  | Window creation/destruction     |
-| **10.3**  | Display enumeration             |
-| **10.4**  | DPI/scaling                     |
-| **10.5**  | Keyboard input                  |
-| **10.6**  | Mouse                           |
-| **10.7**  | Touch                           |
-| **10.8**  | Pointer events                  |
-| **10.9**  | IME/text input                  |
-| **10.10** | Clipboard                       |
-| **10.11** | Drag and drop                   |
-| **10.12** | Accessibility input integration |
-
----
-
-# Phase 11 — DOM
-
-**RoboDOM**
-
-Now we begin the actual web/document model.
-
-| Goal      | What happens      |
-| --------- | ----------------- |
-| **11.1**  | Node abstraction  |
-| **11.2**  | Document          |
-| **11.3**  | Element           |
-| **11.4**  | Text nodes        |
-| **11.5**  | Attributes        |
-| **11.6**  | Tree operations   |
-| **11.7**  | DOM traversal     |
-| **11.8**  | Events            |
-| **11.9**  | Mutation handling |
-| **11.10** | DOM serialization |
-| **11.11** | DOM APIs          |
-
----
-
-# Phase 12 — HTML
-
-**RoboHTML**
-
-| Goal      | What happens                  |
-| --------- | ----------------------------- |
-| **12.1**  | HTML tokenizer                |
-| **12.2**  | Token types                   |
-| **12.3**  | Character references/entities |
-| **12.4**  | HTML tree builder             |
-| **12.5**  | Error recovery                |
-| **12.6**  | Document parsing              |
-| **12.7**  | Forms                         |
-| **12.8**  | Metadata                      |
-| **12.9**  | Links/resources               |
-| **12.10** | HTML conformance testing      |
-
-The goal is standards-compatible HTML parsing, not a toy parser.
-
----
-
-# Phase 13 — CSS
-
-**RoboCSS**
-
-| Goal      | What happens               |
-| --------- | -------------------------- |
-| **13.1**  | CSS tokenizer              |
-| **13.2**  | CSS parser                 |
-| **13.3**  | Selectors                  |
-| **13.4**  | Specificity                |
-| **13.5**  | Cascade                    |
-| **13.6**  | Inheritance                |
-| **13.7**  | Values                     |
-| **13.8**  | Colors                     |
-| **13.9**  | Units                      |
-| **13.10** | Box-model properties       |
-| **13.11** | Typography properties      |
-| **13.12** | Directionality properties  |
-| **13.13** | Display/positioning        |
-| **13.14** | Flexbox                    |
-| **13.15** | Grid                       |
-| **13.16** | CSS parsing/error recovery |
-| **13.17** | CSS conformance tests      |
-
-This will eventually feed the layout engine.
-
----
-
-# Phase 14 — Layout
-
-**RoboLayout**
-
-| Goal      | What happens               |
-| --------- | -------------------------- |
-| **14.1**  | Layout tree                |
-| **14.2**  | Style → layout conversion  |
-| **14.3**  | Block layout               |
-| **14.4**  | Inline layout              |
-| **14.5**  | Text layout integration    |
-| **14.6**  | Margin/padding/border      |
-| **14.7**  | Width/height               |
-| **14.8**  | Flexbox                    |
-| **14.9**  | Grid                       |
-| **14.10** | Absolute/fixed positioning |
-| **14.11** | Overflow                   |
-| **14.12** | Scrolling                  |
-| **14.13** | Fragmentation              |
-| **14.14** | Reflow/invalidation        |
-| **14.15** | Layout performance         |
-
----
-
-# Phase 15 — Painting
-
-**RoboPaint**
-
-| Goal      | What happens       |
-| --------- | ------------------ |
-| **15.1**  | Paint tree         |
-| **15.2**  | Backgrounds        |
-| **15.3**  | Borders            |
-| **15.4**  | Images             |
-| **15.5**  | Text               |
-| **15.6**  | Clipping           |
-| **15.7**  | Shadows            |
-| **15.8**  | Transforms         |
-| **15.9**  | Opacity            |
-| **15.10** | Paint invalidation |
-| **15.11** | Display lists      |
-
----
-
-# Phase 16 — Rendering & Compositing
-
-**RoboRender / RoboCompositor**
-
-| Goal      | What happens                         |
-| --------- | ------------------------------------ |
-| **16.1**  | Rendering pipeline                   |
-| **16.2**  | Display-list execution               |
-| **16.3**  | Layers                               |
-| **16.4**  | Compositor                           |
-| **16.5**  | Damage tracking                      |
-| **16.6**  | GPU compositing                      |
-| **16.7**  | CPU fallback                         |
-| **16.8**  | Animation/compositor synchronization |
-| **16.9**  | Frame scheduling                     |
-| **16.10** | VSync                                |
-| **16.11** | Rendering performance                |
-
-At this stage the runtime starts looking like a real browser engine.
-
----
-
-# Phase 17 — JavaScript
-
-**RoboJS / RoboJS Engine**
-
-| Goal      | What happens                       |
-| --------- | ---------------------------------- |
-| **17.1**  | JavaScript engine architecture     |
-| **17.2**  | Lexer                              |
-| **17.3**  | Parser                             |
-| **17.4**  | AST                                |
-| **17.5**  | Values/types                       |
-| **17.6**  | Objects                            |
-| **17.7**  | Functions                          |
-| **17.8**  | Scope/environment                  |
-| **17.9**  | Closures                           |
-| **17.10** | Exceptions                         |
-| **17.11** | Arrays                             |
-| **17.12** | Strings                            |
-| **17.13** | Numbers                            |
-| **17.14** | Promises                           |
-| **17.15** | Event loop integration             |
-| **17.16** | Modules                            |
-| **17.17** | Garbage collection                 |
-| **17.18** | Optimization/JIT where appropriate |
-| **17.19** | ECMAScript conformance             |
-
-This is intentionally a major subsystem of its own.
-
----
-
-# Phase 18 — Web APIs
-
-**RoboAPI**
-
-| Goal      | What happens                          |
-| --------- | ------------------------------------- |
-| **18.1**  | JS ↔ native binding system            |
-| **18.2**  | `window`                              |
-| **18.3**  | `document`                            |
-| **18.4**  | Events                                |
-| **18.5**  | Timers                                |
-| **18.6**  | Fetch                                 |
-| **18.7**  | URL                                   |
-| **18.8**  | Storage                               |
-| **18.9**  | Console                               |
-| **18.10** | Web workers                           |
-| **18.11** | Streams                               |
-| **18.12** | Encoding APIs                         |
-| **18.13** | History/navigation                    |
-| **18.14** | Notifications and other selected APIs |
-
----
-
-# Phase 19 — Networking
-
-**RoboNet**
-
-| Goal      | What happens                  |
-| --------- | ----------------------------- |
-| **19.1**  | Network abstraction           |
-| **19.2**  | DNS                           |
-| **19.3**  | TCP                           |
-| **19.4**  | UDP                           |
-| **19.5**  | HTTP/1.1                      |
-| **19.6**  | TLS integration               |
-| **19.7**  | HTTP/2                        |
-| **19.8**  | HTTP/3/QUIC where appropriate |
-| **19.9**  | Connection pooling            |
-| **19.10** | Proxy support                 |
-| **19.11** | Cookies                       |
-| **19.12** | Cache                         |
-| **19.13** | Fetch integration             |
-| **19.14** | Network security policies     |
-
----
-
-# Phase 20 — Storage
-
-**RoboStorage**
-
-| Goal      | What happens                 |
-| --------- | ---------------------------- |
-| **20.1**  | File abstraction             |
-| **20.2**  | Paths                        |
-| **20.3**  | Streams                      |
-| **20.4**  | Persistent key/value storage |
-| **20.5**  | Database abstraction         |
-| **20.6**  | Browser cache                |
-| **20.7**  | Cookies                      |
-| **20.8**  | Indexed-style storage        |
-| **20.9**  | Quotas                       |
-| **20.10** | Crash-safe persistence       |
-
----
-
-# Phase 21 — Security
-
-**RoboSecurity**
-
-| Goal      | What happens           |
-| --------- | ---------------------- |
-| **21.1**  | Security architecture  |
-| **21.2**  | Process isolation      |
-| **21.3**  | Sandboxing             |
-| **21.4**  | Permissions            |
-| **21.5**  | Origin model           |
-| **21.6**  | Same-origin policy     |
-| **21.7**  | Certificate validation |
-| **21.8**  | Secure storage         |
-| **21.9**  | Content security       |
-| **21.10** | Resource isolation     |
-| **21.11** | Security auditing      |
-| **21.12** | Fuzzing infrastructure |
-
-Security-sensitive algorithms should use **well-established audited implementations/libraries where appropriate**, rather than inventing cryptography.
-
----
-
-# Phase 22 — IPC & Process Architecture
-
-**RoboIPC**
-
-| Goal      | What happens          |
-| --------- | --------------------- |
-| **22.1**  | IPC primitives        |
-| **22.2**  | Message serialization |
-| **22.3**  | Channels              |
-| **22.4**  | Process management    |
-| **22.5**  | Renderer process      |
-| **22.6**  | Network process       |
-| **22.7**  | GPU process           |
-| **22.8**  | Sandbox boundaries    |
-| **22.9**  | Crash handling        |
-| **22.10** | Process lifecycle     |
-
----
-
-# Phase 23 — Browser/Shell
-
-**RoboShell**
-
-| Goal      | What happens               |
-| --------- | -------------------------- |
-| **23.1**  | Browser application        |
-| **23.2**  | Tabs                       |
-| **23.3**  | Windows                    |
-| **23.4**  | Navigation                 |
-| **23.5**  | Address bar                |
-| **23.6**  | History                    |
-| **23.7**  | Bookmarks                  |
-| **23.8**  | Downloads                  |
-| **23.9**  | Settings                   |
-| **23.10** | Developer tools foundation |
-| **23.11** | Error pages                |
-| **23.12** | Accessibility              |
-| **23.13** | User profiles              |
-
----
-
-# Phase 24 — Media
-
-**RoboMedia**
-
-| Goal     | What happens          |
-| -------- | --------------------- |
-| **24.1** | Media abstraction     |
-| **24.2** | Audio                 |
-| **24.3** | Video                 |
-| **24.4** | Image decoding        |
-| **24.5** | Codecs                |
-| **24.6** | Streaming             |
-| **24.7** | Synchronization       |
-| **24.8** | Hardware acceleration |
-
----
-
-# Phase 25 — Accessibility
-
-**RoboAccessibility**
-
-| Goal     | What happens              |
-| -------- | ------------------------- |
-| **25.1** | Accessibility tree        |
-| **25.2** | Roles/states              |
-| **25.3** | Screen-reader integration |
-| **25.4** | Keyboard navigation       |
-| **25.5** | Focus management          |
-| **25.6** | High contrast             |
-| **25.7** | Reduced motion            |
-| **25.8** | Accessibility testing     |
-
----
-
-# Phase 26 — Standards & Compatibility
-
-This phase is about becoming genuinely standards-compatible.
-
-| Goal     | What happens                   |
-| -------- | ------------------------------ |
-| **26.1** | HTML conformance               |
-| **26.2** | CSS conformance                |
-| **26.3** | ECMAScript conformance         |
-| **26.4** | Unicode conformance            |
-| **26.5** | Web Platform Tests integration |
-| **26.6** | Layout compatibility           |
-| **26.7** | Rendering compatibility        |
-| **26.8** | Network compatibility          |
-| **26.9** | Interoperability testing       |
-
----
-
-# Phase 27 — Performance
-
-| Goal      | What happens                    |
-| --------- | ------------------------------- |
-| **27.1**  | Profiling infrastructure        |
-| **27.2**  | CPU optimization                |
-| **27.3**  | Memory optimization             |
-| **27.4**  | Rendering optimization          |
-| **27.5**  | Text optimization               |
-| **27.6**  | JS optimization                 |
-| **27.7**  | Network optimization            |
-| **27.8**  | Startup optimization            |
-| **27.9**  | Caching                         |
-| **27.10** | Large-page/document performance |
-
----
-
-# Phase 28 — Reliability
-
-| Goal     | What happens              |
-| -------- | ------------------------- |
-| **28.1** | Crash handling            |
-| **28.2** | Recovery                  |
-| **28.3** | Fuzzing                   |
-| **28.4** | Sanitizer coverage        |
-| **28.5** | Memory-safety audit       |
-| **28.6** | Thread-safety audit       |
-| **28.7** | IPC audit                 |
-| **28.8** | Security audit            |
-| **28.9** | Long-running stress tests |
-
----
-
-# Phase 29 — Roboticela Integration
-
-Finally the runtime becomes an actual OS-level component.
-
-| Goal      | What happens                              |
-| --------- | ----------------------------------------- |
-| **29.1**  | Integrate Robo Runtime with Roboticela OS |
-| **29.2**  | Native window manager integration         |
-| **29.3**  | Native graphics integration               |
-| **29.4**  | OS filesystem integration                 |
-| **29.5**  | OS networking integration                 |
-| **29.6**  | OS permissions                            |
-| **29.7**  | OS process model                          |
-| **29.8**  | Native notifications                      |
-| **29.9**  | System settings integration               |
-| **29.10** | Default browser/runtime                   |
-| **29.11** | Application/runtime API                   |
-| **29.12** | Final Chromium removal                    |
-
----
-
-## The big picture
-
-The overall evolution is basically:
-
-```text
-                    ROBO RUNTIME
+                    ROBOTICELAOS
                          │
-        ┌────────────────┴────────────────┐
-        │                                 │
-    Foundation                         Unicode
-        │                                 │
-   Memory/Thread                    Internationalization
-   Events/IPC                            │
-        │                              Fonts
-        │                                 │
-    Platform                       Text Shaping
-        │                                 │
-    Graphics                       Text Layout
-        │                                 │
-    Window/Input                    Text Rendering
-        │                                 │
-        └──────────────┬──────────────────┘
-                       │
-                      DOM
-                       │
-              ┌────────┴────────┐
-              │                 │
-            HTML               CSS
-              │                 │
-              └────────┬────────┘
-                       │
-                     Layout
-                       │
-                    Painting
-                       │
-                  Compositor
-                       │
-                 ┌─────┴─────┐
-                 │           │
-             JavaScript    Network
-                 │           │
-                 └─────┬─────┘
-                       │
-                    Web APIs
-                       │
-                 Security/IPC
-                       │
-                    RoboShell
-                       │
-                  Roboticela OS
+                ROBOTICELA RUNTIME
+                         │
+       ┌─────────────────┼──────────────────┐
+       │                 │                  │
+   Web/UI Runtime   Application Runtime   Native Runtime
+       │                 │                  │
+ HTML/CSS/DOM/JS      Prisma/Postgres      OS APIs
+ Fonts/Text           Backend JS           Filesystem
+ Layout/Paint         RPC/API              Processes
+ Graphics             Jobs                 Hardware
+ Compositor           Services             Devices
+       │                 │                  │
+       └─────────────────┼──────────────────┘
+                         │
+                  Roboticela APIs
 ```
 
-### Where you are now
-
-You are currently around:
-
-**Goal 3.11 — Unicode Bidirectional Algorithm.**
-
-So the immediate remaining Unicode work is approximately:
+And the final application developer experience is essentially:
 
 ```text
-3.11  Bidi                    ← current
-3.12  Script detection
-3.13  Emoji properties
-3.14  Unicode data infrastructure
-        ↓
-4.x   Internationalization
-        ↓
-5.x   Fonts
-        ↓
-6.x   Text shaping
-        ↓
-7.x   Text layout
-        ↓
-8.x   Graphics
-        ↓
-9.x   Text rendering
-        ↓
-10.x  Window/Input
-        ↓
-11.x  DOM
-        ↓
-12.x  HTML
-        ↓
-13.x  CSS
-        ↓
-14.x  Layout
-        ↓
-15.x  Painting
-        ↓
-16.x  Rendering/Compositor
-        ↓
-17.x  JavaScript
-        ↓
-18.x  Web APIs
-        ↓
-19.x  Networking
-        ↓
-20.x  Storage
-        ↓
-21.x  Security
-        ↓
-22.x  IPC/processes
-        ↓
-23.x  Browser/Shell
-        ↓
-...
-        ↓
-29.x  Full Roboticela OS integration
+HTML + CSS + JavaScript
+          │
+          ├── UI
+          ├── PostgreSQL via Prisma
+          ├── Files
+          ├── Backend
+          ├── Network
+          ├── Processes
+          ├── Hardware
+          ├── Graphics
+          ├── Audio/Video
+          ├── OS services
+          ├── Windows
+          ├── Devices
+          ├── Authentication
+          ├── Jobs
+          └── Native OS operations
 ```
-
-**Important:** this is a roadmap, not a promise that every subsystem must be reinvented from scratch. Where mature, standards-compliant, appropriately licensed libraries make sense—especially for things like TLS, font parsing, image/video codecs, or complex text shaping—we can build Roboticela-specific abstractions around them. The key requirement remains that **the final runtime has no dependency on Chromium itself**.
-

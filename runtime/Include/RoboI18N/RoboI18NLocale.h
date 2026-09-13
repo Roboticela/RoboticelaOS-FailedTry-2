@@ -4,7 +4,7 @@
  * Distinctions:
  *   syntactic validity  — grammar of subtags
  *   canonical form      — casing + IANA Preferred-Value replacements
- *   preferred locale    — future (CLDR likely subtags / matching) — not this goal
+ *   preferred locale    — CLDR likely subtags (see RoboI18NLocaleData.h)
  *
  * Locale objects are value types (no heap). Locale lists allocate via RoboMem.
  */
