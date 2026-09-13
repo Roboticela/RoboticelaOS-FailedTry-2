@@ -66,12 +66,20 @@ generated offline into committed C tables (`RoboCldrData.h` /
 - historical metaZones `usesMetazone` `_from`/`_to` ranges
 - recursive exemplar cities; timezone display API + DateTimeFormat `z`/`v`/`V`/`O`
 
+### Goal 4.19
+- `cldr-units-full` `units/*/units.json` → `RoboUnitData` / `RoboI18NUnit`
+- extended `dateFields` relative-type −2/+2 in `RoboRelData` / relative AUTO
+
+### Goal 4.20
+- `unitPreferenceData.json` + `measurementSystem-category-temperature`
+- `RoboMeasurePrefData` / `RoboI18NMeasure` preference context
+
 ## Not imported here
 
-Percent/compact number patterns, units measure formatting, full message
-catalogs, and complete LDML collation rule compilation for every locale
-(esp. CJK) remain for later goals. IANA tzdb is a separate pin
-(see `i18n/TZDB.md`).
+Percent/compact number patterns, full unit catalog (~188), general unit/currency
+parsing, full message catalogs beyond RoboMsg demos, and complete LDML collation
+rule compilation for every locale (esp. CJK) remain for later goals. IANA tzdb
+is a separate pin (see `i18n/TZDB.md`).
 
 ## Policy
 

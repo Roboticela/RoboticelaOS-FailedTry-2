@@ -1,8 +1,11 @@
 /*
- * RoboI18N relative-time formatting (Goal 4.7).
+ * RoboI18N relative-time formatting (Goals 4.7 / 4.19).
  *
  * Formats a relative quantity (value + unit + direction) using CLDR
  * dateFields relative / relativeTime patterns and RoboI18N plural rules.
+ *
+ * AUTO mode uses CLDR relative-type keywords for −2…+1…+2 when present
+ * (e.g. yesterday / today / tomorrow / day-before-yesterday).
  *
  * Does NOT compute “how far away” a calendar date is — callers supply the
  * relative value. Does NOT invent English words.
@@ -44,7 +47,7 @@ typedef enum robo_i18n_relative_width {
 
 /**
  * numeric  — always use relativeTime patterns ("in 1 day")
- * auto     — use relative-type keywords for -1/0/1 when CLDR provides them
+ * auto     — use relative-type keywords for −2…+2 when CLDR provides them
  */
 typedef enum robo_i18n_relative_numeric {
     ROBO_I18N_REL_NUMERIC_AUTO = 0,

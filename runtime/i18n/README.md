@@ -1,6 +1,6 @@
 # RoboI18N
 
-Internationalization for Roboticela Runtime (**Goals 4.1–4.16**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.20**).
 
 ## Scope
 
@@ -11,18 +11,21 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.16**).
 | Equality / matching / truncation parent | Full-text search / transliteration |
 | Default locale + preference lists | Fonts / shaping / layout |
 | **Runtime locale service** (extensions, resolve, fallback) | Holiday databases |
-| CLDR likely subtags maximize/minimize | Recurrence / scheduling engines |
-| Numbering-system metadata + digits | Full LDML rule builder for every locale |
-| Locale-aware decimal number formatting | Translator UI / TMS |
-| CLDR parentLocales + root inheritance | TAI/UTC leap-second modeling |
-| CLDR cardinal / ordinal plural categories | |
+| **Locale negotiation / Accept-Language** | Recurrence / scheduling engines |
+| CLDR likely subtags maximize/minimize | Full LDML rule builder for every locale |
+| Numbering-system metadata + digits | Translator UI / TMS |
+| Locale-aware decimal number formatting | TAI/UTC leap-second modeling |
+| CLDR parentLocales + root inheritance | General unit / currency *parsing* |
+| CLDR cardinal / ordinal plural categories | Currency formatting (4.21) |
 | Date/time/instant/duration primitives | |
 | Calendar abstraction + CLDR calendar metadata | |
 | **IANA tzdb** (offsets, DST, aliases, fixed) | |
 | **Localized timezone names / GMT / exemplars** | |
 | Localized date/time formatting | |
 | Date/time interval formatting | |
-| Relative-time formatting | |
+| Relative-time formatting (+ special ±2 forms) | |
+| **Measurement unit formatting + conversion** | |
+| **Measurement systems / unit preferences** | |
 | Calendar arithmetic / date-time utilities | |
 | Locale-aware collation (UCA + CLDR) | |
 | Locale display names (CLDR) | |
@@ -34,8 +37,8 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.16**).
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.16.0` |
-| Generator | `1.15.0` |
+| RoboI18N API | `0.20.0` |
+| Generator | `1.17.0` |
 | RoboMsgFmt syntax | **1** |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
 | CLDR | **46** (JSON **46.0.0**) |
@@ -46,6 +49,27 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.16**).
 
 See **`LocaleService.md`**. Central resolve / fallback / Unicode extensions /
 capability queries. API: `RoboI18NLocaleService.h`.
+
+## Locale negotiation (Goal 4.17)
+
+See **`LocaleNegotiate.md`**. Accept-Language / language-range negotiation.
+API: `RoboI18NLocaleNegotiate.h`. Not language detection.
+
+## Ordinal plurals (Goal 4.18)
+
+See **`OrdinalPlurals.md`**. CLDR ordinal categories distinct from cardinal;
+`selectordinal` in RoboMsgFmt. API: `RoboI18NPlural.h`.
+
+## Units & relative time (Goal 4.19)
+
+See **`Units.md`**. CLDR unit formatting (long/short/narrow), compound `per`,
+conversion foundation; relative AUTO ±2 keywords on the Goal 4.7 foundation.
+API: `RoboI18NUnit.h`, `RoboI18NRelativeTime.h`.
+
+## Measurement preferences (Goal 4.20)
+
+See **`MeasurePrefs.md`**. Measurement systems (metric/US/UK) and preferred
+units by category/region. Distinct from formatting. API: `RoboI18NMeasure.h`.
 
 ## Time zones (Goals 4.14–4.15)
 

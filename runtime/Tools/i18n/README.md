@@ -66,12 +66,25 @@ Pins: `robo_i18n_version.py` / `manifest.json`.
 `weekData`, `calendarData`, `dates/*/ca-*.json` → `RoboCalData.*` via
 `generate_calendar.py` (names, styles, `availableFormats`, **`intervalFormats`**).
 
-### Relative time data (Goal 4.7)
+### Relative time data (Goals 4.7 / 4.19)
 
 `dates/*/dateFields.json` → `RoboRelData.*` via `generate_relative.py`.
 
 Fields: year/quarter/month/week/day/hour/minute/second × long/short/narrow,
-with `relative-type-{−1,0,1}` keywords and past/future plural patterns.
+with `relative-type-{−2,−1,0,1,2}` keywords and past/future plural patterns.
+
+### Unit formatting data (Goal 4.19)
+
+`units/*/units.json` → `RoboUnitData.*` via `generate_units.py`.
+
+Curated CLDR type-subtype keys × long/short/narrow, plural `unitPattern`s,
+`perUnitPattern`, and compound `per`/`times` patterns. Runtime: `RoboI18NUnit.h`.
+
+### Measurement preferences (Goal 4.20)
+
+`supplemental/unitPreferenceData.json` + temperature rows from
+`measurementData.json` → `RoboMeasurePrefData.*` via `generate_measure_prefs.py`.
+Runtime: `RoboI18NMeasure.h`.
 
 ### Display names (Goal 4.10)
 
@@ -101,18 +114,23 @@ Reversed intervals: rejected unless `normalize_reversed` is set.
 Instant intervals convert both endpoints with the **same** zone (IANA via tzdb).
 Ambiguous local results are refused.
 
-## Relative-time formatting (Goal 4.7)
+## Relative-time formatting (Goals 4.7 / 4.19)
 
 API: `RoboI18NRelativeTime.h`.
 
 ```text
 value + unit
-    → (auto && |value|∈{0,1} && keyword?) → relative-type string
-    → else plural_cardinal(|value|) → relativeTime past/future pattern
-    → substitute {0} via number formatter
+  → AUTO: relative-type keywords (−2…+2) when CLDR provides them
+  → else past/future pattern by cardinal plural + {0} number
 ```
 
+Goal 4.7 foundation; Goal 4.19 adds −2/+2 special forms (locale-dependent).
+
 Modes: `ROBO_I18N_REL_NUMERIC_AUTO` | `_ALWAYS`.
+
+## Unit formatting (Goal 4.19)
+
+API: `RoboI18NUnit.h`. See `i18n/Units.md`.
 
 ## Known limitations
 
@@ -122,5 +140,6 @@ Modes: `ROBO_I18N_REL_NUMERIC_AUTO` | `_ALWAYS`.
 * islamic/hebrew/persian/chinese interval formatting → `ROBO_NOT_SUPPORTED`.
 * Leap seconds not modeled (POSIX 86400-second days).
 * Collation: root UCA full; selected CLDR remaps; full LDML for all locales later.
+* Units: curated allowlist (not full CLDR unit catalog); no unit parsing.
 * Logical UTF-8 only (no bidi visual reordering).
 * Formatters are single-owner (no global mutable caches).

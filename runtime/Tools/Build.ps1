@@ -54,6 +54,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\RoboI18NLocale.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NLocaleData.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NLocaleService.c"),
+    (Join-Path $SourceDir "RoboI18N\RoboI18NLocaleNegotiate.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NNumber.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NPlural.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDateTime.c"),
@@ -62,6 +63,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\RoboI18NDateTimeFormat.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDateTimeInterval.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NRelativeTime.c"),
+    (Join-Path $SourceDir "RoboI18N\RoboI18NUnit.c"),
+    (Join-Path $SourceDir "RoboI18N\RoboI18NMeasure.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDateTimeArith.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NCollation.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDisplayNames.c"),
@@ -82,6 +85,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\data\robo_plural_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_cal_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_rel_data.c"),
+    (Join-Path $SourceDir "RoboI18N\data\robo_unit_data.c"),
+    (Join-Path $SourceDir "RoboI18N\data\robo_measure_pref_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_uca_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_coll_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_disp_data.c"),
@@ -124,6 +129,8 @@ $SuiteSrcs = @(
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeFormat.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NInterval.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NRelative.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NUnit.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NMeasure.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -132,7 +139,9 @@ $SuiteSrcs = @(
     (Join-Path $SuitesDir "SuiteRoboI18NMessageValidate.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NTimeZone.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NTimeZoneDisplay.c"),
-    (Join-Path $SuitesDir "SuiteRoboI18NLocaleService.c")
+    (Join-Path $SuitesDir "SuiteRoboI18NLocaleService.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NLocaleNegotiate.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NOrdinal.c")
 )
 
 $RuntimeElf = Join-Path $OutDir "RoboticelaRuntime.elf"

@@ -1,11 +1,15 @@
 /*
- * RoboI18N — internationalization foundation (Goals 4.1–4.16).
+ * RoboI18N — internationalization foundation (Goals 4.1–4.20).
  *
  * Locale identification (BCP 47 / RFC 5646), CLDR locale-data metadata,
  * runtime locale service (extensions, resolve, fallback, negotiation),
+ * Accept-Language / language-range negotiation,
+ * cardinal and ordinal plural rules,
  * number formatting, plural-rule categories, date/time/calendar/timezone
  * (IANA tzdb + CLDR timezone display), localized date/time formatting,
- * interval / relative-time formatting, calendar arithmetic / date-time utilities,
+ * interval / relative-time formatting, measurement unit formatting,
+ * measurement systems / unit preferences,
+ * calendar arithmetic / date-time utilities,
  * locale-aware collation (UCA + CLDR tailorings), locale display names,
  * application message catalogs (RoboMsg), RoboMsgFmt message formatting, and
  * message-format validation/compatibility. Not language detection.
@@ -20,6 +24,7 @@
 #include "RoboI18N/RoboI18NLocale.h"
 #include "RoboI18N/RoboI18NLocaleData.h"
 #include "RoboI18N/RoboI18NLocaleService.h"
+#include "RoboI18N/RoboI18NLocaleNegotiate.h"
 #include "RoboI18N/RoboI18NNumber.h"
 #include "RoboI18N/RoboI18NPlural.h"
 #include "RoboI18N/RoboI18NDateTime.h"
@@ -28,6 +33,8 @@
 #include "RoboI18N/RoboI18NDateTimeFormat.h"
 #include "RoboI18N/RoboI18NDateTimeInterval.h"
 #include "RoboI18N/RoboI18NRelativeTime.h"
+#include "RoboI18N/RoboI18NUnit.h"
+#include "RoboI18N/RoboI18NMeasure.h"
 #include "RoboI18N/RoboI18NDateTimeArith.h"
 #include "RoboI18N/RoboI18NCollation.h"
 #include "RoboI18N/RoboI18NDisplayNames.h"

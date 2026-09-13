@@ -267,14 +267,18 @@ robo_result_t robo_i18n_relative_time_format(const robo_i18n_relative_formatter_
     abs_v = i64_abs(rel->value);
     past = rel->value < 0;
 
-    if (fmt->options.numeric == ROBO_I18N_REL_NUMERIC_AUTO && abs_v <= 1) {
+    if (fmt->options.numeric == ROBO_I18N_REL_NUMERIC_AUTO && abs_v <= 2) {
         int32_t idx = -1;
-        if (rel->value == -1) {
+        if (rel->value == -2) {
+            idx = row->relative_m2;
+        } else if (rel->value == -1) {
             idx = row->relative_m1;
         } else if (rel->value == 0) {
             idx = row->relative_0;
         } else if (rel->value == 1) {
             idx = row->relative_1;
+        } else if (rel->value == 2) {
+            idx = row->relative_2;
         }
         if (idx >= 0) {
             pattern = robo_rel_str(idx);

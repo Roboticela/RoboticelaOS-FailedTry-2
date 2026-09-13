@@ -108,7 +108,8 @@ Matching: UTF-8 **byte-exact** against the string form of the argument
 
 Exact selectors (`=N`) are tried first when the value is an integral decimal
 (no visible fraction digits). Otherwise CLDR cardinal (`plural`) or ordinal
-(`selectordinal`) categories from Goal 4.4 are used. `other` is required.
+(`selectordinal`) categories from Goals 4.4 / 4.18 are used. `other` is required.
+See **`OrdinalPlurals.md`**.
 
 ### Date / time
 

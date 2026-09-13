@@ -17,7 +17,7 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 
 # Phase 5 — RoboFont
 
-5.1 RoboFont architecture & font model ✅
+5.1 RoboFont architecture & font model
 5.2 SFNT container parser
 5.3 TrueType table parsing
 5.4 OpenType table parsing

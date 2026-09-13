@@ -1,4 +1,4 @@
-# Download selected CLDR 46 JSON files for RoboI18N (Goals 4.2–4.10).
+# Download selected CLDR 46 JSON files for RoboI18N (Goals 4.2–4.19).
 # Reads Tools/i18n/manifest.json. Does NOT run during normal Build.ps1.
 
 $ErrorActionPreference = "Stop"
@@ -174,8 +174,39 @@ try {
     Write-Host "WARN skip metaZones.json : $_"
 }
 
+# Measurement units (Goal 4.19) — cldr-units-full
+$UnitsDir = Join-Path $OutRoot "units"
+New-Item -ItemType Directory -Force -Path $UnitsDir | Out-Null
+$unitLocales = @(
+    "en", "en-GB", "fr", "de", "es", "ru", "pl", "ar", "fa", "ur", "he", "hi",
+    "bn", "th", "zh", "zh-Hans", "ja", "ko", "it"
+)
+foreach ($loc in $unitLocales) {
+    $dir = Join-Path $UnitsDir $loc
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $url = "$jsonRoot/cldr-units-full/main/$loc/units.json"
+    $dest = Join-Path $dir "units.json"
+    try {
+        Fetch-File $url $dest ""
+    } catch {
+        Write-Host "WARN skip units $loc : $_"
+    }
+}
+
+# Unit preference data (Goal 4.20)
+$urlPref = "$jsonRoot/cldr-core/supplemental/unitPreferenceData.json"
+$destPref = Join-Path $SuppDir "unitPreferenceData.json"
+try {
+    Fetch-File $urlPref $destPref ""
+} catch {
+    Write-Host "WARN skip unitPreferenceData.json : $_"
+}
+
 Write-Host "Fetched supplemental into $SuppDir"
-Write-Host "Numbers in $NumDir; dates in $DatesDir; collation in $CollDir; localenames in $LocalenamesDir."
+Write-Host "Numbers in $NumDir; dates in $DatesDir; collation in $CollDir; localenames in $LocalenamesDir; units in $UnitsDir."
 Write-Host "UCA DUCET: .\Fetch-Uca.ps1 then generate_uca.py / generate_collation.py"
 Write-Host "Display names: python $Here\generate_display.py --write-golden"
+Write-Host "Units: python $Here\generate_units.py --write-golden"
+Write-Host "Measure prefs: python $Here\generate_measure_prefs.py --write-golden"
+Write-Host "Relative: python $Here\generate_relative.py --write-golden"
 Write-Host "Next: python $Here\generate_cldr.py --write-golden"

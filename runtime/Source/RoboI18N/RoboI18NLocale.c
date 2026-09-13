@@ -652,6 +652,36 @@ robo_result_t robo_i18n_locale_list_get(const robo_i18n_locale_list_t *list,
     return ROBO_OK;
 }
 
+robo_result_t robo_i18n_locale_list_get_q_milli(const robo_i18n_locale_list_t *list,
+                                                size_t index,
+                                                uint16_t *out_q_milli)
+{
+    float w;
+    unsigned m;
+    if (!list || !out_q_milli || index >= list->count) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!list->weights) {
+        *out_q_milli = 1000u;
+        return ROBO_OK;
+    }
+    w = list->weights[index];
+    if (w <= 0.0f) {
+        *out_q_milli = 0u;
+        return ROBO_OK;
+    }
+    if (w >= 1.0f) {
+        *out_q_milli = 1000u;
+        return ROBO_OK;
+    }
+    m = (unsigned)(w * 1000.0f + 0.5f);
+    if (m > 1000u) {
+        m = 1000u;
+    }
+    *out_q_milli = (uint16_t)m;
+    return ROBO_OK;
+}
+
 static float parse_q(const char *s, size_t len)
 {
     /* Parse q-value in [0,1] without libc float conversion. */

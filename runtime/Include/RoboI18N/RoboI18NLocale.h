@@ -129,6 +129,14 @@ robo_result_t robo_i18n_locale_list_get(const robo_i18n_locale_list_t *list,
                                         size_t index,
                                         robo_i18n_locale_t *out);
 
+/**
+ * Optional weight from list parse (millipercent, 0..1000). Default 1000 if
+ * the list was not created with q-values. Goal 4.17.
+ */
+robo_result_t robo_i18n_locale_list_get_q_milli(const robo_i18n_locale_list_t *list,
+                                                size_t index,
+                                                uint16_t *out_q_milli);
+
 #ifdef __cplusplus
 }
 #endif

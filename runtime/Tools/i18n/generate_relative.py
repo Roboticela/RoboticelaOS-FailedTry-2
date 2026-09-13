@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Emit RoboI18N relative-time tables from CLDR dateFields.json (Goal 4.7).
+Emit RoboI18N relative-time tables from CLDR dateFields.json (Goals 4.7 / 4.19).
 
 Inputs: Tools/i18n/source/cldr-46.0.0/dates/*/dateFields.json
 Outputs:
@@ -124,9 +124,11 @@ def write_relative(*, repro: bool, write_golden: bool) -> int:
                 if (
                     past[5] < 0
                     and future[5] < 0
+                    and rel(-2) < 0
                     and rel(-1) < 0
                     and rel(0) < 0
                     and rel(1) < 0
+                    and rel(2) < 0
                 ):
                     continue
 
@@ -135,9 +137,11 @@ def write_relative(*, repro: bool, write_golden: bool) -> int:
                         "locale": loc_i,
                         "unit": unit_i,
                         "width": width_i,
+                        "rel_m2": rel(-2),
                         "rel_m1": rel(-1),
                         "rel_0": rel(0),
                         "rel_1": rel(1),
+                        "rel_2": rel(2),
                         "past": past,
                         "future": future,
                     }
@@ -164,13 +168,16 @@ def write_relative(*, repro: bool, write_golden: bool) -> int:
             "",
             "/* unit: 0=year … 7=second; width: 0=long 1=short 2=narrow */",
             "/* past/future[6]: zero,one,two,few,many,other — -1 = missing */",
+            "/* relative_m2/m1/0/1/2: CLDR relative-type keywords (−2…+2); -1 = absent */",
             "typedef struct robo_rel_unit {",
             "    int32_t locale;",
             "    uint8_t unit;",
             "    uint8_t width;",
+            "    int32_t relative_m2;",
             "    int32_t relative_m1;",
             "    int32_t relative_0;",
             "    int32_t relative_1;",
+            "    int32_t relative_2;",
             "    int32_t past[6];",
             "    int32_t future[6];",
             "} robo_rel_unit_t;",
@@ -214,7 +221,7 @@ def write_relative(*, repro: bool, write_golden: bool) -> int:
         c_lines.append(
             "    {"
             f"{r['locale']}, {r['unit']}u, {r['width']}u, "
-            f"{r['rel_m1']}, {r['rel_0']}, {r['rel_1']}, "
+            f"{r['rel_m2']}, {r['rel_m1']}, {r['rel_0']}, {r['rel_1']}, {r['rel_2']}, "
             f"{{{past}}}, {{{fut}}}"
             "},"
         )

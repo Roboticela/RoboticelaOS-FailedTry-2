@@ -677,7 +677,91 @@
 - [x] Documentation + version metadata
 - [x] Debug / Release / Sanitize green
 
+## Goal 4.17 — Locale Negotiation, Accept-Language, and Language Matching
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NLocaleNegotiate` — language ranges, q millipercent, Accept-Language parse/serialize
+- Script-sensitive matching via CLDR likely subtags; region ranking; `q=0` exclusions; `*`
+- Deterministic `negotiate_ex` + match metadata; preference normalize (highest-q / first-wins)
+- Goal 4.16 `locale_negotiate` delegates to the new engine
+- Suite `SuiteRoboI18NLocaleNegotiate.c`; docs `i18n/LocaleNegotiate.md`
+- API **0.17.0** (generator **1.15.0**, no new CLDR tables)
+- Debug / Release / ASan+UBSan: **395/395**
+
+**Definition of done:**
+
+- [x] Ranges, weights, matching, negotiation, Accept-Language, limits, fuzz
+- [x] Intl + cross-subsystem tests; Debug / Release / Sanitize green
+
+## Goal 4.18 — Ordinal Plural Rules
+
+**Status:** complete
+
+**Done:**
+
+- Confirmed CLDR 46 ordinal bytecode path (`ordinals.json` → `robo_plural_ordinal_index`)
+- API: `plural_ordinal` / `ordinal_i64`, `has_rules`, `category_from_name`; categories always include `other`
+- Cardinal vs ordinal remain distinct; locale fallback shared with Goal 4.4
+- RoboMsgFmt `selectordinal` + exact-selector precedence verified
+- Suite `SuiteRoboI18NOrdinal.c`; docs `i18n/OrdinalPlurals.md`
+- API **0.18.0** (generator **1.15.0**; existing plural tables)
+- Debug / Release / ASan+UBSan: **408/408** (CLDR plural samples **14335/14335**)
+
+**Definition of done:**
+
+- [x] Ordinal categories + CLDR data + operands + locale integration
+- [x] Message-format selectordinal + exact selectors
+- [x] Intl / conformance / fuzz coverage
+- [x] Documentation; Debug / Release / Sanitize green
+
+## Goal 4.19 — Relative Time and Unit Formatting
+
+**Status:** complete
+
+**Done:**
+
+- CLDR units tables (`generate_units.py` → `RoboUnitData.*`): 60 curated units × 3 widths × 19 locales
+- `RoboI18NUnit` — long/short/narrow formatting, plural patterns, compound `per`, conversion foundation
+- Extended Goal 4.7 relative AUTO for CLDR `relative-type--2` / `+2` (e.g. anteayer / vorgestern)
+- Suites `SuiteRoboI18NUnit.c` (+ relative ±2); docs `i18n/Units.md`
+- API **0.19.0** / generator **1.16.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **417/417**
+- No unit parsing (deferred); no Chromium dependency
+
+**Definition of done:**
+
+- [x] Locale-aware unit formatting (styles, plurals, compounds)
+- [x] Conversion separated from localization (exact vs approximate documented)
+- [x] Relative-time production layer on 4.7 foundation (special forms ±2)
+- [x] Intl / fuzz tests; Debug / Release / Sanitize green
+- [x] Documentation; PROGRESS updated
+
+## Goal 4.20 — Measurement Systems and Unit Preferences
+
+**Status:** complete
+
+**Done:**
+
+- CLDR `unitPreferenceData` + temperature measurement systems → `RoboMeasurePrefData.*`
+- `RoboI18NMeasure` preference context (system, category overrides, `ms` keyword)
+- Preferred-unit resolution with documented precedence; integrate convert→format
+- Suite `SuiteRoboI18NMeasure.c` (region matrix, lang≠region, conversions, fuzz)
+- Docs `i18n/MeasurePrefs.md`
+- API **0.20.0** / generator **1.17.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **425/425**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Measurement systems + locale-derived preferred units
+- [x] User/app overrides without global mutable state
+- [x] Integration with Goal 4.19 convert/format
+- [x] Intl / conversion / fuzz tests; Debug / Release / Sanitize green
+- [x] Documentation; PROGRESS updated
+
 ## Next
 
-- Goal 4.17+ (do not start until requested)
+- Goal 4.21+ (do not start until requested)
 

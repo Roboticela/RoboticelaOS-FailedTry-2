@@ -1,0 +1,14 @@
+{
+  "cldr": "46",
+  "generator": "1.18.0",
+  "api": "0.21.0",
+  "currencyData_sha256": "f3850c34c68334d01d0de903bfef030092394763964bed9870834a28df77cce9",
+  "codeMappings_sha256": "1621e10823afcf2b4a747e66541d113ea20679583ce1f6acb0127936853aface",
+  "meta_count": 307,
+  "region_count": 255,
+  "fmt_count": 31,
+  "plural_name_count": 320,
+  "string_count": 1036,
+  "header_sha256": "33cf32b6b96d17b243788b4edaaf20805b3fea547df43fa7bd970792adbe5dea",
+  "source_sha256": "d9849b712dc7d8c4d00705d2d78d0f79a579be2f00e1525ac2d96bbcfd367b77"
+}

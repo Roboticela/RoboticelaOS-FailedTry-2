@@ -8,6 +8,7 @@
 #include "RoboI18N/RoboDispData.h"
 #include "RoboI18N/RoboHcData.h"
 #include "RoboI18N/RoboI18NCalendar.h"
+#include "RoboI18N/RoboI18NLocaleNegotiate.h"
 #include "RoboI18N/RoboI18NVersion.h"
 
 #include <string.h>
@@ -637,74 +638,30 @@ robo_result_t robo_i18n_locale_negotiate(const robo_i18n_locale_list_t *requeste
                                          robo_i18n_locale_t *out_best,
                                          robo_i18n_match_t *out_match)
 {
-    size_t ri;
-    size_t ai;
-    robo_i18n_match_t best_match = ROBO_I18N_MATCH_NONE;
-    int found = 0;
-    robo_i18n_locale_t best;
+    robo_i18n_preference_list_t *prefs = NULL;
+    robo_i18n_negotiate_result_t res;
+    robo_result_t r;
 
     if (!requested || !available || available_count == 0 || !out_best) {
         return ROBO_INVALID_ARGUMENT;
     }
-    memset(&best, 0, sizeof(best));
-
-    for (ri = 0; ri < robo_i18n_locale_list_size(requested); ri++) {
-        robo_i18n_locale_t req;
-        robo_i18n_match_t pref_best = ROBO_I18N_MATCH_NONE;
-        robo_i18n_locale_t pref_loc;
-        int pref_found = 0;
-
-        if (robo_i18n_locale_list_get(requested, ri, &req) != ROBO_OK) {
-            continue;
-        }
-        memset(&pref_loc, 0, sizeof(pref_loc));
-        for (ai = 0; ai < available_count; ai++) {
-            robo_i18n_match_t m;
-            /* Lookup-style score: language must match; region/script are bonuses.
-             * Unlike matches(range,candidate), a region on the preference does not
-             * reject a language-only available locale. */
-            if (!req.language[0] || !available[ai].language[0] ||
-                strcmp(req.language, available[ai].language) != 0) {
-                m = ROBO_I18N_MATCH_NONE;
-            } else if (robo_i18n_locale_equal(&req, &available[ai])) {
-                m = ROBO_I18N_MATCH_EXACT;
-            } else if (req.region[0] && available[ai].region[0] &&
-                       strcmp(req.region, available[ai].region) == 0) {
-                m = ROBO_I18N_MATCH_REGION;
-            } else if (req.script[0] && available[ai].script[0] &&
-                       strcmp(req.script, available[ai].script) == 0) {
-                m = ROBO_I18N_MATCH_SCRIPT;
-            } else {
-                m = ROBO_I18N_MATCH_LANGUAGE;
-            }
-            if (m > pref_best) {
-                pref_best = m;
-                pref_loc = available[ai];
-                pref_found = 1;
-                if (m == ROBO_I18N_MATCH_EXACT) {
-                    break;
-                }
-            }
-        }
-        if (pref_found && pref_best >= ROBO_I18N_MATCH_LANGUAGE) {
-            *out_best = pref_loc;
-            if (out_match) {
-                *out_match = pref_best;
-            }
-            return ROBO_OK;
-        }
-        if (pref_found && pref_best > best_match) {
-            best_match = pref_best;
-            best = pref_loc;
-            found = 1;
-        }
+    r = robo_i18n_preference_list_from_locale_list(requested, &prefs);
+    if (r != ROBO_OK) {
+        return r;
     }
-    if (!found) {
-        return ROBO_NOT_FOUND;
+    r = robo_i18n_preference_list_normalize(prefs);
+    if (r != ROBO_OK) {
+        robo_i18n_preference_list_destroy(prefs);
+        return r;
     }
-    *out_best = best;
+    r = robo_i18n_locale_negotiate_ex(prefs, available, available_count, &res);
+    robo_i18n_preference_list_destroy(prefs);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    *out_best = res.selected;
     if (out_match) {
-        *out_match = best_match;
+        *out_match = robo_i18n_negotiate_kind_to_match(res.kind);
     }
     return ROBO_OK;
 }

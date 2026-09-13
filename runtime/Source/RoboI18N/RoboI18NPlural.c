@@ -1,5 +1,5 @@
 /*
- * CLDR plural-rule evaluation (Goal 4.4).
+ * CLDR plural-rule evaluation (Goals 4.4 / 4.18).
  */
 
 #include "RoboI18N/RoboI18NPlural.h"
@@ -34,6 +34,27 @@ const char *robo_i18n_plural_category_name(robo_i18n_plural_category_t cat)
         return "";
     }
     return CAT_NAMES[cat];
+}
+
+robo_result_t robo_i18n_plural_category_from_name(const char *name,
+                                                  robo_i18n_plural_category_t *out)
+{
+    size_t i;
+    if (!out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!name || !name[0]) {
+        *out = ROBO_I18N_PLURAL_OTHER;
+        return ROBO_NOT_FOUND;
+    }
+    for (i = 0; i < 6u; i++) {
+        if (strcmp(CAT_NAMES[i], name) == 0) {
+            *out = (robo_i18n_plural_category_t)i;
+            return ROBO_OK;
+        }
+    }
+    *out = ROBO_I18N_PLURAL_OTHER;
+    return ROBO_NOT_FOUND;
 }
 
 static void format_tag_lang(const robo_i18n_locale_t *loc, char *buf, size_t cap)
@@ -675,6 +696,27 @@ robo_result_t robo_i18n_plural_cardinal_i64(const robo_i18n_locale_t *locale,
     return robo_i18n_plural_cardinal(locale, &dec, out_cat);
 }
 
+robo_result_t robo_i18n_plural_ordinal_i64(const robo_i18n_locale_t *locale,
+                                           int64_t value,
+                                           robo_i18n_plural_category_t *out_cat)
+{
+    robo_i18n_decimal_t dec;
+    robo_result_t r = robo_i18n_decimal_from_i64(value, &dec);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    return robo_i18n_plural_ordinal(locale, &dec, out_cat);
+}
+
+int robo_i18n_plural_has_rules(const robo_i18n_locale_t *locale,
+                               robo_i18n_plural_kind_t kind)
+{
+    if (!locale || locale->language[0] == '\0') {
+        return 0;
+    }
+    return resolve_index(locale, kind) != NULL;
+}
+
 robo_result_t robo_i18n_plural_categories(const robo_i18n_locale_t *locale,
                                           robo_i18n_plural_kind_t kind,
                                           robo_i18n_plural_category_t *out,
@@ -685,6 +727,7 @@ robo_result_t robo_i18n_plural_categories(const robo_i18n_locale_t *locale,
     const uint8_t *p;
     const uint8_t *end;
     size_t n = 0;
+    int saw_other = 0;
 
     if (!locale || !out_count) {
         return ROBO_INVALID_ARGUMENT;
@@ -710,8 +753,17 @@ robo_result_t robo_i18n_plural_categories(const robo_i18n_locale_t *locale,
         }
         blen = (uint16_t)(p[0] | (p[1] << 8));
         p += 2 + blen;
+        if (cat == (uint8_t)ROBO_I18N_PLURAL_OTHER) {
+            saw_other = 1;
+        }
         if (n < cap && out) {
             out[n] = (robo_i18n_plural_category_t)cat;
+        }
+        n++;
+    }
+    if (!saw_other) {
+        if (n < cap && out) {
+            out[n] = ROBO_I18N_PLURAL_OTHER;
         }
         n++;
     }

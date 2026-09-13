@@ -51,6 +51,10 @@ void robo_test_register_i18n_message_validate(void);
 void robo_test_register_i18n_timezone(void);
 void robo_test_register_i18n_timezone_display(void);
 void robo_test_register_i18n_locale_service(void);
+void robo_test_register_i18n_locale_negotiate(void);
+void robo_test_register_i18n_ordinal(void);
+void robo_test_register_i18n_unit(void);
+void robo_test_register_i18n_measure(void);
 
 int main(int argc, char **argv)
 {
@@ -139,5 +143,9 @@ int main(int argc, char **argv)
     robo_test_register_i18n_timezone();
     robo_test_register_i18n_timezone_display();
     robo_test_register_i18n_locale_service();
+    robo_test_register_i18n_locale_negotiate();
+    robo_test_register_i18n_ordinal();
+    robo_test_register_i18n_unit();
+    robo_test_register_i18n_measure();
     return robo_test_main(argc, argv);
 }

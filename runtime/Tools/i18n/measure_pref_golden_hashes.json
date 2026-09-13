@@ -1,0 +1,12 @@
+{
+  "RoboMeasurePrefData.h": "ce7f6113e0a875e0758f75f106b9ec226dd62d61ca7072d151075cae39515f42",
+  "cldr": "46",
+  "generator": "1.17.0",
+  "measurementData.json": "fcf9cec9c5430aa3c30bcf4e17727689cae5d1b11ad5c32c675c700a2ba3dd63",
+  "pref_rows": 48,
+  "robo_measure_pref_data.c": "64a041c199d1e4ef1a803f11f52503a16f940e51db8b229dad9cb32017d8a3c9",
+  "system_rows": 5,
+  "temp_rows": 7,
+  "unicode": "16.0.0",
+  "unitPreferenceData.json": "b7211a1a5cdcacbea27e317b38bfa50893e144d3e9ab06205290e2bb91105214"
+}
