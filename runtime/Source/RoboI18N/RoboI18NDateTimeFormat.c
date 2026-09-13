@@ -8,6 +8,7 @@
 #include "RoboI18N/RoboI18NDateTimeFormat.h"
 
 #include "RoboI18N/RoboCalData.h"
+#include "RoboI18N/RoboI18NDisplayNames.h"
 #include "RoboI18N/RoboI18NLocaleData.h"
 
 #include <string.h>
@@ -755,6 +756,7 @@ typedef struct fmt_ctx {
     robo_i18n_time_t time;
     robo_i18n_weekday_t weekday;
     int32_t offset_seconds; /* known zone offset for display; 0 if UTC */
+    const robo_i18n_instant_t *instant; /* non-NULL when formatting an instant */
     int have_time;
     int have_date;
 } fmt_ctx_t;
@@ -807,17 +809,45 @@ static robo_result_t emit_zone(const fmt_ctx_t *ctx,
                                int writing)
 {
     int32_t off = ctx->offset_seconds;
-    char tmp[64];
+    char tmp[128];
     size_t n = 0;
+    robo_result_t r;
+    robo_i18n_timezone_name_style_t style;
+    const robo_i18n_instant_t *inst = ctx->instant;
 
-    /* Localized zone names are not available without CLDR tz names / tzdb.
-     * Expose GMT-offset / id forms only. */
-    if (field == 'V' || field == 'v') {
-        const char *id = ctx->fmt->timezone.id;
-        if (ctx->fmt->timezone.kind == ROBO_I18N_TZ_UTC) {
-            id = "UTC";
-        } else if (ctx->fmt->timezone.kind == ROBO_I18N_TZ_IANA && id[0]) {
-            return emit_text(buf, buf_cap, pos, id, writing);
+    /* Localized names via Goal 4.15 display layer. */
+    if (field == 'z') {
+        style = count >= 4 ? ROBO_I18N_TZ_DISP_SPECIFIC_LONG : ROBO_I18N_TZ_DISP_SPECIFIC_SHORT;
+        r = robo_i18n_timezone_display_name_at(&ctx->fmt->timezone, inst, style, &ctx->fmt->locale,
+                                               NULL, tmp, sizeof(tmp), &n);
+        if (r == ROBO_OK) {
+            return append_bytes(buf, buf_cap, pos, tmp, n, writing);
+        }
+    } else if (field == 'v') {
+        style = count >= 4 ? ROBO_I18N_TZ_DISP_LONG_GENERIC : ROBO_I18N_TZ_DISP_SHORT_GENERIC;
+        r = robo_i18n_timezone_display_name_at(&ctx->fmt->timezone, inst, style, &ctx->fmt->locale,
+                                               NULL, tmp, sizeof(tmp), &n);
+        if (r == ROBO_OK) {
+            return append_bytes(buf, buf_cap, pos, tmp, n, writing);
+        }
+    } else if (field == 'V') {
+        if (count >= 4) {
+            style = ROBO_I18N_TZ_DISP_EXEMPLAR_CITY;
+        } else if (count == 1) {
+            style = ROBO_I18N_TZ_DISP_IDENTIFIER;
+        } else {
+            style = ROBO_I18N_TZ_DISP_EXEMPLAR_CITY;
+        }
+        r = robo_i18n_timezone_display_name_at(&ctx->fmt->timezone, inst, style, &ctx->fmt->locale,
+                                               NULL, tmp, sizeof(tmp), &n);
+        if (r == ROBO_OK) {
+            return append_bytes(buf, buf_cap, pos, tmp, n, writing);
+        }
+    } else if (field == 'O') {
+        r = robo_i18n_timezone_display_name_at(&ctx->fmt->timezone, inst, ROBO_I18N_TZ_DISP_GMT,
+                                               &ctx->fmt->locale, NULL, tmp, sizeof(tmp), &n);
+        if (r == ROBO_OK) {
+            return append_bytes(buf, buf_cap, pos, tmp, n, writing);
         }
     }
 
@@ -826,11 +856,8 @@ static robo_result_t emit_zone(const fmt_ctx_t *ctx,
     }
     if (field == 'Z' && count < 5) {
         n = format_offset_ascii(tmp, sizeof(tmp), off, 0, 0, 2);
-    } else if (field == 'O' && count < 4) {
-        n = format_offset_ascii(tmp, sizeof(tmp), off, 0, 1, 1);
     } else if (field == 'X' || field == 'x') {
         if (count == 1) {
-            /* ±HH */
             int sign = off < 0 ? -1 : 1;
             int hours = (int)((off < 0 ? -off : off) / 3600);
             tmp[0] = (char)(sign < 0 ? '-' : '+');
@@ -843,8 +870,10 @@ static robo_result_t emit_zone(const fmt_ctx_t *ctx,
         } else {
             n = format_offset_ascii(tmp, sizeof(tmp), off, 1, 0, 2);
         }
+    } else if (field == 'Z' && count >= 5) {
+        n = format_offset_ascii(tmp, sizeof(tmp), off, 1, 0, 2);
     } else {
-        /* z / zzzz / OOOO / ZZZZZ / v / V fallback → GMT±HH:MM */
+        /* Fallback GMT±HH:MM ASCII if localized path failed. */
         n = format_offset_ascii(tmp, sizeof(tmp), off, 1, 1, 2);
     }
     if (n == 0) {
@@ -1217,6 +1246,7 @@ robo_result_t robo_i18n_datetime_format_instant(const robo_i18n_datetime_formatt
         return r;
     }
     ctx.offset_seconds = off;
+    ctx.instant = instant;
     return format_ctx(&ctx, buf, buf_cap, out_len);
 }
 

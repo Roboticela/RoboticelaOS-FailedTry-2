@@ -60,11 +60,17 @@ generated offline into committed C tables (`RoboCldrData.h` /
 - timeZoneNames (exemplarCity, metazone long names, gmtFormat) + metaZones
 - generated into `RoboDispData` / consumed by `RoboI18NDisplayNames`
 
+### Goal 4.15
+- timeZoneNames short generic/standard/daylight; zone-level name overrides
+- gmtZeroFormat, regionFormat-type-*, fallbackFormat
+- historical metaZones `usesMetazone` `_from`/`_to` ranges
+- recursive exemplar cities; timezone display API + DateTimeFormat `z`/`v`/`V`/`O`
+
 ## Not imported here
 
 Percent/compact number patterns, units measure formatting, full message
 catalogs, and complete LDML collation rule compilation for every locale
-(esp. CJK) remain for later goals. IANA tzdb is a separate future pin
+(esp. CJK) remain for later goals. IANA tzdb is a separate pin
 (see `i18n/TZDB.md`).
 
 ## Policy

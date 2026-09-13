@@ -1,13 +1,14 @@
 /*
- * RoboI18N — internationalization foundation (Goals 4.1–4.14).
+ * RoboI18N — internationalization foundation (Goals 4.1–4.15).
  *
  * Locale identification (BCP 47 / RFC 5646), CLDR locale-data metadata,
  * number formatting, plural-rule categories, date/time/calendar/timezone
- * (IANA tzdb), localized date/time formatting, interval / relative-time
- * formatting, calendar arithmetic / date-time utilities, locale-aware
- * collation (UCA + CLDR tailorings), locale display names, application
- * message catalogs (RoboMsg), RoboMsgFmt message formatting, and message-format
- * validation/compatibility. Not language detection. Not a full ICU MessageFormat clone.
+ * (IANA tzdb + CLDR timezone display), localized date/time formatting,
+ * interval / relative-time formatting, calendar arithmetic / date-time utilities,
+ * locale-aware collation (UCA + CLDR tailorings), locale display names,
+ * application message catalogs (RoboMsg), RoboMsgFmt message formatting, and
+ * message-format validation/compatibility. Not language detection.
+ * Not a full ICU MessageFormat clone.
  *
  * Unicode Script != locale language != region. See i18n/README.md.
  */

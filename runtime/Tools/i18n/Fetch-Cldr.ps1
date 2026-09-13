@@ -126,7 +126,7 @@ foreach ($loc in $collLocales) {
 
 # Locale display names (Goal 4.10) — localenames + currencies + timeZoneNames + metaZones
 $dispLocales = @(
-    "en", "en-GB", "ur", "ar", "ar-SA", "fa", "he", "hi", "bn", "th",
+    "und", "en", "en-GB", "ur", "ar", "ar-SA", "fa", "he", "hi", "bn", "th",
     "zh", "zh-Hans", "zh-Hant", "ja", "ko", "de", "fr", "es", "tr", "ru", "pl"
 )
 $jsonRoot = "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json"

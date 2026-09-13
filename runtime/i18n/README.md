@@ -1,6 +1,6 @@
 # RoboI18N
 
-Internationalization for Roboticela Runtime (**Goals 4.1–4.14**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.15**).
 
 ## Scope
 
@@ -18,6 +18,7 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.14**).
 | Date/time/instant/duration primitives | |
 | Calendar abstraction + CLDR calendar metadata | |
 | **IANA tzdb** (offsets, DST, aliases, fixed) | |
+| **Localized timezone names / GMT / exemplars** | |
 | Localized date/time formatting | |
 | Date/time interval formatting | |
 | Relative-time formatting | |
@@ -32,18 +33,19 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.14**).
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.14.0` |
-| Generator | `1.13.0` |
+| RoboI18N API | `0.15.0` |
+| Generator | `1.14.0` |
 | RoboMsgFmt syntax | **1** |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
 | CLDR | **46** (JSON **46.0.0**) |
 | Unicode / UCA (DUCET) | **16.0.0** |
 | IANA tzdb | **2026c** |
 
-## Time zones (Goal 4.14)
+## Time zones (Goals 4.14–4.15)
 
-See **`TZDB.md`**. API: `RoboI18NTimeZone.h`. Data: `RoboTzData` from
-`Tools/i18n/generate_tzdb.py`. Attribution: `Tools/i18n/TZDB_ATTRIBUTION.md`.
+- **Rules / conversions:** `TZDB.md` — `RoboI18NTimeZone.h`, `RoboTzData`
+- **Display / formatting:** `TZDisplay.md` — `robo_i18n_timezone_display_name_at`,
+  CLDR metazone/exemplar/GMT via `generate_display.py`
 
 ## Message validation (Goal 4.13)
 

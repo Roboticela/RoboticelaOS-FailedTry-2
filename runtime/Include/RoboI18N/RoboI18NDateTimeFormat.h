@@ -8,7 +8,7 @@
  *   - invent localized data
  *   - perform bidi visual reordering (logical order only)
  *   - implement relative time or interval formatting
- *   - invent localized zone names (offset / id only until tz names exist)
+ *   - invent localized zone names (uses CLDR display / GMT; never fabricates)
  *
  * Ambiguous/nonexistent local times: prefer formatting from an instant.
  * Formatting from a local datetime + zone that requires conversion returns

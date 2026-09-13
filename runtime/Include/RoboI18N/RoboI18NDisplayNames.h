@@ -1,18 +1,24 @@
 /*
- * RoboI18N locale display names (Goal 4.10).
+ * RoboI18N locale display names (Goals 4.10 + 4.15).
  *
  * Distinguishes:
  *   identifier being described  (e.g. "ur", "Latn", "PK", "Asia/Karachi")
  *   vs display locale           (locale that provides the human-readable name)
  *
+ * Time-zone display (Goal 4.15) is localized *presentation* data from CLDR —
+ * not tzdb transition rules (Goal 4.14). Instant selects metazone windows and
+ * standard vs daylight forms via RoboI18NTimeZone.
+ *
  * Data: CLDR 46 (RoboDispData). Fallback chain:
  *   display locale → CLDR parentLocales / truncation parents → "en" →
- *   stable identifier (if FALLBACK_CODE) or ROBO_NOT_FOUND.
+ *   documented style fallbacks → stable identifier (if FALLBACK_CODE) or
+ *   ROBO_NOT_FOUND.
  *
  * Never invents translations. Output is logical UTF-8 (no bidi reordering).
  *
  * Ownership: write into caller buffers. Tables are immutable process data.
  * Thread safety: pure lookups; no global mutable state.
+ * Language: C.
  */
 
 #ifndef ROBO_I18N_DISPLAY_NAMES_H
@@ -45,18 +51,32 @@ typedef enum robo_i18n_currency_name_style {
     ROBO_I18N_CURRENCY_NARROW_SYMBOL = 2
 } robo_i18n_currency_name_style_t;
 
+/**
+ * Time-zone display styles (Goal 4.15).
+ *
+ * SPECIFIC_* pick standard vs daylight from @p instant (via tzdb DST).
+ * GENERIC_* never commit to DST; they use CLDR generic forms.
+ * GMT formats the offset with CLDR gmtFormat/hourFormat (and numbering digits).
+ * IDENTIFIER returns the requested zone id (aliases keep the requested spelling).
+ */
 typedef enum robo_i18n_timezone_name_style {
     ROBO_I18N_TZ_DISP_EXEMPLAR_CITY = 0,
     ROBO_I18N_TZ_DISP_LONG_GENERIC = 1,
     ROBO_I18N_TZ_DISP_LONG_STANDARD = 2,
     ROBO_I18N_TZ_DISP_LONG_DAYLIGHT = 3,
-    ROBO_I18N_TZ_DISP_GMT = 4 /**< Formatted via CLDR gmtFormat + offset; needs FIXED/UTC. */
+    ROBO_I18N_TZ_DISP_GMT = 4,
+    ROBO_I18N_TZ_DISP_SHORT_GENERIC = 5,
+    ROBO_I18N_TZ_DISP_SHORT_STANDARD = 6,
+    ROBO_I18N_TZ_DISP_SHORT_DAYLIGHT = 7,
+    ROBO_I18N_TZ_DISP_SPECIFIC_LONG = 8,
+    ROBO_I18N_TZ_DISP_SPECIFIC_SHORT = 9,
+    ROBO_I18N_TZ_DISP_IDENTIFIER = 10
 } robo_i18n_timezone_name_style_t;
 
 /**
  * Options for display-name lookups.
  * fallback defaults to FALLBACK_CODE.
- * dialect: reserved (CLDR -alt-menu / dialect); ignored in Goal 4.10 → standard names.
+ * dialect: reserved (CLDR -alt-menu / dialect); ignored → standard names.
  */
 typedef struct robo_i18n_display_options {
     robo_i18n_display_fallback_t fallback;
@@ -124,9 +144,26 @@ robo_result_t robo_i18n_numbering_system_display_name(
     size_t *out_len);
 
 /**
- * Time-zone display names from CLDR. Exemplar city / metazone long names when
- * present. GMT style formats offset for FIXED/UTC zones; IANA without tzdb
- * → ROBO_NOT_SUPPORTED for GMT style.
+ * Time-zone display name at a specific instant (preferred API).
+ *
+ * @p instant may be NULL for styles that do not need DST/metazone windows
+ * (EXEMPLAR, IDENTIFIER, LONG/SHORT GENERIC/STANDARD/DAYLIGHT explicit forms).
+ * GMT and SPECIFIC_* require an instant for IANA zones (FIXED/UTC OK without).
+ * Unknown IANA id → ROBO_NOT_FOUND from timezone layer before display lookup.
+ * Aliases: data lookup uses canonical id; IDENTIFIER returns requested id.
+ */
+robo_result_t robo_i18n_timezone_display_name_at(const robo_i18n_timezone_t *tz,
+                                                 const robo_i18n_instant_t *instant,
+                                                 robo_i18n_timezone_name_style_t style,
+                                                 const robo_i18n_locale_t *display_locale,
+                                                 const robo_i18n_display_options_t *options,
+                                                 char *out,
+                                                 size_t out_cap,
+                                                 size_t *out_len);
+
+/**
+ * Convenience wrapper: calls display_name_at with @p instant = NULL.
+ * For GMT on IANA without instant → ROBO_INVALID_ARGUMENT.
  */
 robo_result_t robo_i18n_timezone_display_name(const robo_i18n_timezone_t *tz,
                                               robo_i18n_timezone_name_style_t style,

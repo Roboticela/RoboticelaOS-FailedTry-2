@@ -128,7 +128,8 @@ $SuiteSrcs = @(
     (Join-Path $SuitesDir "SuiteRoboI18NMessage.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NMessageFormat.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NMessageValidate.c"),
-    (Join-Path $SuitesDir "SuiteRoboI18NTimeZone.c")
+    (Join-Path $SuitesDir "SuiteRoboI18NTimeZone.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NTimeZoneDisplay.c")
 )
 
 $RuntimeElf = Join-Path $OutDir "RoboticelaRuntime.elf"

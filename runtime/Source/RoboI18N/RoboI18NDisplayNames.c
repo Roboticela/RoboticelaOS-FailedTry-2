@@ -8,6 +8,7 @@
 #include "RoboI18N/RoboDispData.h"
 #include "RoboI18N/RoboI18NLocaleData.h"
 
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -506,45 +507,41 @@ robo_result_t robo_i18n_numbering_system_display_name(
     return finish_name(name, key, numbering_len, opt, out, out_cap, out_len);
 }
 
-static int lookup_mz_for_iana(const char *iana, size_t len, char *mz_out, size_t mz_cap)
+static int lookup_mz_for_iana_at(const char *iana,
+                                 size_t len,
+                                 int64_t unix_sec,
+                                 char *mz_out,
+                                 size_t mz_cap)
 {
-    uint32_t lo = 0;
-    uint32_t hi = robo_disp_iana_metazone_count;
-    while (lo < hi) {
-        uint32_t mid = lo + (hi - lo) / 2u;
-        const char *id = robo_disp_string(robo_disp_iana_metazones[mid].iana_id);
-        int cmp;
-        if (!id) {
-            lo = mid + 1u;
+    uint32_t i;
+    char canon[ROBO_I18N_TZ_ID_MAX + 1u];
+    size_t canon_len = 0;
+    robo_i18n_timezone_t tz;
+    const char *lookup = iana;
+    size_t lookup_len = len;
+
+    /* Prefer canonical IANA id for CLDR metazone tables. */
+    if (robo_i18n_timezone_from_id(iana, len, &tz) == ROBO_OK &&
+        tz.kind == ROBO_I18N_TZ_IANA &&
+        robo_i18n_timezone_canonical_id(&tz, canon, sizeof(canon), &canon_len) == ROBO_OK &&
+        canon_len > 0 && canon_len < sizeof(canon)) {
+        lookup = canon;
+        lookup_len = canon_len;
+    }
+
+    for (i = 0; i < robo_disp_iana_mz_range_count; i++) {
+        const char *id = robo_disp_string(robo_disp_iana_mz_ranges[i].iana_id);
+        if (!id || strlen(id) != lookup_len || memcmp(id, lookup, lookup_len) != 0) {
             continue;
         }
-        cmp = strncmp(id, iana, len);
-        if (cmp == 0 && id[len] == '\0') {
-            const char *mz = robo_disp_string(robo_disp_iana_metazones[mid].metazone);
+        if (unix_sec >= robo_disp_iana_mz_ranges[i].from_unix &&
+            unix_sec < robo_disp_iana_mz_ranges[i].to_unix) {
+            const char *mz = robo_disp_string(robo_disp_iana_mz_ranges[i].metazone);
             if (!mz) {
                 return 0;
             }
-            strncpy(mz_out, mz, mz_cap - 1);
-            mz_out[mz_cap - 1] = '\0';
-            return 1;
-        }
-        if (cmp < 0 || (cmp == 0 && strlen(id) < len)) {
-            lo = mid + 1u;
-        } else {
-            hi = mid;
-        }
-    }
-    /* Linear fallback if sort by string index isn't lexical by content —
-     * indices aren't lexical. Scan. */
-    for (lo = 0; lo < robo_disp_iana_metazone_count; lo++) {
-        const char *id = robo_disp_string(robo_disp_iana_metazones[lo].iana_id);
-        if (id && strlen(id) == len && memcmp(id, iana, len) == 0) {
-            const char *mz = robo_disp_string(robo_disp_iana_metazones[lo].metazone);
-            if (!mz) {
-                return 0;
-            }
-            strncpy(mz_out, mz, mz_cap - 1);
-            mz_out[mz_cap - 1] = '\0';
+            strncpy(mz_out, mz, mz_cap - 1u);
+            mz_out[mz_cap - 1u] = '\0';
             return 1;
         }
     }
@@ -596,23 +593,161 @@ static const robo_disp_tz_metazone_row_t *resolve_metazone_row(
     return NULL;
 }
 
-static void format_gmt(int32_t offset_seconds, const char *gmt_fmt, const char *hour_fmt,
-                       char *out, size_t cap)
+static const robo_disp_tz_zone_row_t *resolve_zone_row(const robo_i18n_locale_t *display_locale,
+                                                       const char *iana,
+                                                       size_t iana_len)
 {
-    char hm[16];
+    robo_i18n_locale_t cur;
+    char tag[128];
+    int32_t loc_idx;
+    int guard = 0;
+
+    if (display_locale) {
+        cur = *display_locale;
+    } else {
+        (void)robo_i18n_locale_parse_canonical("en", 2, &cur);
+    }
+    for (;;) {
+        uint32_t i;
+        format_tag(&cur, tag, sizeof(tag));
+        if (tag[0] && find_locale_idx(tag, strlen(tag), &loc_idx)) {
+            for (i = 0; i < robo_disp_tz_zone_count; i++) {
+                if (robo_disp_tz_zones[i].display_locale == loc_idx &&
+                    str_eq_idx(robo_disp_tz_zones[i].iana_id, iana, iana_len)) {
+                    return &robo_disp_tz_zones[i];
+                }
+            }
+        }
+        if (!next_display_locale(&cur)) {
+            break;
+        }
+        if (++guard > 16) {
+            break;
+        }
+    }
+    if (find_locale_idx("en", 2, &loc_idx)) {
+        uint32_t i;
+        for (i = 0; i < robo_disp_tz_zone_count; i++) {
+            if (robo_disp_tz_zones[i].display_locale == loc_idx &&
+                str_eq_idx(robo_disp_tz_zones[i].iana_id, iana, iana_len)) {
+                return &robo_disp_tz_zones[i];
+            }
+        }
+    }
+    return NULL;
+}
+
+static int digit_glyph_at(const char *glyphs, int digit, const char **out, size_t *out_len)
+{
+    size_t i;
+    size_t n;
+    const char *p;
+    if (!glyphs || digit < 0 || digit > 9) {
+        return 0;
+    }
+    p = glyphs;
+    for (i = 0; i < (size_t)digit; i++) {
+        if ((unsigned char)p[0] < 0x80u) {
+            if (!p[0]) {
+                return 0;
+            }
+            p++;
+        } else if ((p[0] & 0xE0) == 0xC0 && p[1]) {
+            p += 2;
+        } else if ((p[0] & 0xF0) == 0xE0 && p[1] && p[2]) {
+            p += 3;
+        } else if ((p[0] & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+            p += 4;
+        } else {
+            return 0;
+        }
+    }
+    if ((unsigned char)p[0] < 0x80u) {
+        n = 1;
+    } else if ((p[0] & 0xE0) == 0xC0) {
+        n = 2;
+    } else if ((p[0] & 0xF0) == 0xE0) {
+        n = 3;
+    } else if ((p[0] & 0xF8) == 0xF0) {
+        n = 4;
+    } else {
+        return 0;
+    }
+    *out = p;
+    *out_len = n;
+    return 1;
+}
+
+static void apply_numbering_digits(char *buf, size_t cap, const robo_i18n_locale_t *loc)
+{
+    robo_i18n_numbering_system_t ns;
+    char ns_id[16];
+    char tmp[128];
+    size_t oi = 0;
+    const char *src;
+    if (!buf || !loc || cap == 0) {
+        return;
+    }
+    if (robo_i18n_locale_default_numbering_system(loc, ns_id, sizeof(ns_id)) != ROBO_OK) {
+        return;
+    }
+    if (robo_i18n_numbering_system_get(ns_id, &ns) != ROBO_OK || !ns.digits[0]) {
+        return;
+    }
+    for (src = buf; *src && oi + 1 < sizeof(tmp);) {
+        if (*src >= '0' && *src <= '9') {
+            const char *g = NULL;
+            size_t glen = 0;
+            if (!digit_glyph_at(ns.digits, *src - '0', &g, &glen) || oi + glen >= sizeof(tmp)) {
+                tmp[oi++] = *src++;
+                continue;
+            }
+            memcpy(tmp + oi, g, glen);
+            oi += glen;
+            src++;
+        } else {
+            tmp[oi++] = *src++;
+        }
+    }
+    tmp[oi] = '\0';
+    strncpy(buf, tmp, cap - 1u);
+    buf[cap - 1u] = '\0';
+}
+
+static void format_gmt(int32_t offset_seconds,
+                       const char *gmt_fmt,
+                       const char *gmt_zero,
+                       const char *hour_fmt,
+                       char *out,
+                       size_t cap)
+{
+    char hm[32];
     int neg = offset_seconds < 0;
     int32_t abs_s = neg ? -offset_seconds : offset_seconds;
     int hours = (int)(abs_s / 3600);
     int mins = (int)((abs_s % 3600) / 60);
+    int secs = (int)(abs_s % 60);
     const char *pos_pat = hour_fmt;
     const char *neg_pat = hour_fmt;
-    const char *semi = strchr(hour_fmt, ';');
-    char pattern_buf[32];
+    const char *semi = hour_fmt ? strchr(hour_fmt, ';') : NULL;
+    char pattern_buf[48];
     const char *pat;
     char *dst;
     const char *src;
     size_t oi = 0;
 
+    if (offset_seconds == 0 && gmt_zero && gmt_zero[0]) {
+        strncpy(out, gmt_zero, cap - 1u);
+        out[cap - 1u] = '\0';
+        return;
+    }
+    if (!gmt_fmt) {
+        gmt_fmt = "GMT{0}";
+    }
+    if (!hour_fmt) {
+        hour_fmt = "+HH:mm;-HH:mm";
+        semi = strchr(hour_fmt, ';');
+    }
     if (semi) {
         size_t n = (size_t)(semi - hour_fmt);
         if (n >= sizeof(pattern_buf)) {
@@ -624,14 +759,18 @@ static void format_gmt(int32_t offset_seconds, const char *gmt_fmt, const char *
         neg_pat = semi + 1;
     }
     pat = neg ? neg_pat : pos_pat;
-    /* Expand HH:mm style */
     dst = hm;
     for (src = pat; *src && (size_t)(dst - hm) < sizeof(hm) - 1; src++) {
         if (src[0] == 'H' && src[1] == 'H') {
             dst += sprintf(dst, "%02d", hours);
             src++;
+        } else if (src[0] == 'H') {
+            dst += sprintf(dst, "%d", hours);
         } else if (src[0] == 'm' && src[1] == 'm') {
             dst += sprintf(dst, "%02d", mins);
+            src++;
+        } else if (src[0] == 's' && src[1] == 's') {
+            dst += sprintf(dst, "%02d", secs);
             src++;
         } else {
             *dst++ = *src;
@@ -639,7 +778,6 @@ static void format_gmt(int32_t offset_seconds, const char *gmt_fmt, const char *
     }
     *dst = '\0';
 
-    /* Substitute {0} in gmtFormat */
     for (src = gmt_fmt; *src && oi + 1 < cap; src++) {
         if (src[0] == '{' && src[1] == '0' && src[2] == '}') {
             size_t n = strlen(hm);
@@ -656,6 +794,277 @@ static void format_gmt(int32_t offset_seconds, const char *gmt_fmt, const char *
     out[oi] = '\0';
 }
 
+static const robo_disp_tz_pattern_row_t *resolve_tz_patterns(
+    const robo_i18n_locale_t *display_locale)
+{
+    robo_i18n_locale_t cur;
+    char tag[128];
+    int32_t loc_idx;
+    int guard = 0;
+    if (display_locale) {
+        cur = *display_locale;
+    } else {
+        (void)robo_i18n_locale_parse_canonical("en", 2, &cur);
+    }
+    for (;;) {
+        uint32_t i;
+        format_tag(&cur, tag, sizeof(tag));
+        if (tag[0] && find_locale_idx(tag, strlen(tag), &loc_idx)) {
+            for (i = 0; i < robo_disp_tz_pattern_count; i++) {
+                if (robo_disp_tz_patterns[i].display_locale == loc_idx) {
+                    return &robo_disp_tz_patterns[i];
+                }
+            }
+        }
+        if (!next_display_locale(&cur)) {
+            break;
+        }
+        if (++guard > 16) {
+            break;
+        }
+    }
+    return NULL;
+}
+
+static const char *pick_idx(int32_t a, int32_t b, int32_t c)
+{
+    if (a >= 0) {
+        return robo_disp_string(a);
+    }
+    if (b >= 0) {
+        return robo_disp_string(b);
+    }
+    if (c >= 0) {
+        return robo_disp_string(c);
+    }
+    return NULL;
+}
+
+static const char *name_from_zone_row(const robo_disp_tz_zone_row_t *z,
+                                      robo_i18n_timezone_name_style_t style,
+                                      int is_dst)
+{
+    if (!z) {
+        return NULL;
+    }
+    switch (style) {
+    case ROBO_I18N_TZ_DISP_LONG_GENERIC:
+        return pick_idx(z->long_generic, z->long_standard, -1);
+    case ROBO_I18N_TZ_DISP_LONG_STANDARD:
+        return pick_idx(z->long_standard, z->long_generic, -1);
+    case ROBO_I18N_TZ_DISP_LONG_DAYLIGHT:
+        return pick_idx(z->long_daylight, z->long_generic, z->long_standard);
+    case ROBO_I18N_TZ_DISP_SHORT_GENERIC:
+        return pick_idx(z->short_generic, z->short_standard, -1);
+    case ROBO_I18N_TZ_DISP_SHORT_STANDARD:
+        return pick_idx(z->short_standard, z->short_generic, -1);
+    case ROBO_I18N_TZ_DISP_SHORT_DAYLIGHT:
+        return pick_idx(z->short_daylight, z->short_generic, z->short_standard);
+    case ROBO_I18N_TZ_DISP_SPECIFIC_LONG:
+        return is_dst ? pick_idx(z->long_daylight, z->long_standard, z->long_generic)
+                      : pick_idx(z->long_standard, z->long_generic, -1);
+    case ROBO_I18N_TZ_DISP_SPECIFIC_SHORT:
+        return is_dst ? pick_idx(z->short_daylight, z->short_standard, z->short_generic)
+                      : pick_idx(z->short_standard, z->short_generic, -1);
+    default:
+        return NULL;
+    }
+}
+
+static const char *name_from_mz_row(const robo_disp_tz_metazone_row_t *row,
+                                    robo_i18n_timezone_name_style_t style,
+                                    int is_dst)
+{
+    if (!row) {
+        return NULL;
+    }
+    switch (style) {
+    case ROBO_I18N_TZ_DISP_LONG_GENERIC:
+        return pick_idx(row->long_generic, row->long_standard, -1);
+    case ROBO_I18N_TZ_DISP_LONG_STANDARD:
+        return pick_idx(row->long_standard, row->long_generic, -1);
+    case ROBO_I18N_TZ_DISP_LONG_DAYLIGHT:
+        return pick_idx(row->long_daylight, row->long_generic, row->long_standard);
+    case ROBO_I18N_TZ_DISP_SHORT_GENERIC:
+        return pick_idx(row->short_generic, row->short_standard, -1);
+    case ROBO_I18N_TZ_DISP_SHORT_STANDARD:
+        return pick_idx(row->short_standard, row->short_generic, -1);
+    case ROBO_I18N_TZ_DISP_SHORT_DAYLIGHT:
+        return pick_idx(row->short_daylight, row->short_generic, row->short_standard);
+    case ROBO_I18N_TZ_DISP_SPECIFIC_LONG:
+        return is_dst ? pick_idx(row->long_daylight, row->long_standard, row->long_generic)
+                      : pick_idx(row->long_standard, row->long_generic, -1);
+    case ROBO_I18N_TZ_DISP_SPECIFIC_SHORT:
+        return is_dst ? pick_idx(row->short_daylight, row->short_standard, row->short_generic)
+                      : pick_idx(row->short_standard, row->short_generic, -1);
+    default:
+        return NULL;
+    }
+}
+
+static int64_t instant_unix_sec(const robo_i18n_instant_t *instant)
+{
+    if (!instant) {
+        return 0;
+    }
+    if (instant->unix_ms >= 0) {
+        return instant->unix_ms / 1000;
+    }
+    return -(((-instant->unix_ms) + 999) / 1000);
+}
+
+robo_result_t robo_i18n_timezone_display_name_at(const robo_i18n_timezone_t *tz,
+                                                 const robo_i18n_instant_t *instant,
+                                                 robo_i18n_timezone_name_style_t style,
+                                                 const robo_i18n_locale_t *display_locale,
+                                                 const robo_i18n_display_options_t *options,
+                                                 char *out,
+                                                 size_t out_cap,
+                                                 size_t *out_len)
+{
+    robo_i18n_display_options_t scratch;
+    const robo_i18n_display_options_t *opt;
+    char mz[64];
+    char canon[ROBO_I18N_TZ_ID_MAX + 1u];
+    size_t canon_len = 0;
+    const char *name = NULL;
+    const char *iana;
+    const char *lookup_id;
+    size_t lookup_len;
+    int is_dst = 0;
+    int64_t sec;
+
+    if (!tz || !out_len) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    opt = opts_or_default(options, &scratch);
+    iana = tz->id[0] ? tz->id : "UTC";
+    lookup_id = iana;
+    lookup_len = strlen(iana);
+    sec = instant_unix_sec(instant);
+
+    if (tz->kind == ROBO_I18N_TZ_IANA) {
+        if (robo_i18n_timezone_canonical_id(tz, canon, sizeof(canon), &canon_len) == ROBO_OK &&
+            canon_len > 0) {
+            lookup_id = canon;
+            lookup_len = canon_len;
+        }
+        if (instant) {
+            (void)robo_i18n_timezone_is_dst_at(tz, instant, &is_dst);
+        }
+    }
+
+    if (style == ROBO_I18N_TZ_DISP_IDENTIFIER) {
+        return finish_name(NULL, iana, strlen(iana), opt, out, out_cap, out_len);
+    }
+
+    if (style == ROBO_I18N_TZ_DISP_GMT) {
+        int32_t off = 0;
+        const robo_disp_tz_pattern_row_t *pat;
+        const char *gmt_fmt = "GMT{0}";
+        const char *gmt_zero = "GMT";
+        const char *hour_fmt = "+HH:mm;-HH:mm";
+        char buf[96];
+        robo_result_t r;
+
+        if (tz->kind == ROBO_I18N_TZ_SYSTEM) {
+            return ROBO_NOT_SUPPORTED;
+        }
+        if (tz->kind == ROBO_I18N_TZ_UTC || tz->kind == ROBO_I18N_TZ_FIXED) {
+            off = tz->offset_seconds;
+        } else {
+            if (!instant) {
+                return ROBO_INVALID_ARGUMENT;
+            }
+            r = robo_i18n_timezone_offset_at(tz, instant, &off);
+            if (r != ROBO_OK) {
+                return r;
+            }
+        }
+        pat = resolve_tz_patterns(display_locale);
+        if (pat) {
+            gmt_fmt = robo_disp_string(pat->gmt_format);
+            gmt_zero = robo_disp_string(pat->gmt_zero_format);
+            hour_fmt = robo_disp_string(pat->hour_format);
+        }
+        format_gmt(off, gmt_fmt, gmt_zero, hour_fmt, buf, sizeof(buf));
+        if (display_locale) {
+            apply_numbering_digits(buf, sizeof(buf), display_locale);
+        }
+        return write_out(buf, out, out_cap, out_len);
+    }
+
+    if (style == ROBO_I18N_TZ_DISP_EXEMPLAR_CITY) {
+        name = resolve_name(robo_disp_tz_exemplars, robo_disp_tz_exemplar_count, display_locale,
+                            lookup_id, lookup_len);
+        if (!name) {
+            name = resolve_name(robo_disp_tz_exemplars, robo_disp_tz_exemplar_count,
+                                display_locale, iana, strlen(iana));
+        }
+        if (!name) {
+            /* Structural id presentation: last path segment, '_' → ' ' (not a translation). */
+            const char *slash = strrchr(lookup_id, '/');
+            const char *city = slash ? slash + 1 : lookup_id;
+            char pretty[ROBO_I18N_TZ_ID_MAX + 1u];
+            size_t i;
+            size_t clen = strlen(city);
+            if (clen >= sizeof(pretty)) {
+                clen = sizeof(pretty) - 1u;
+            }
+            for (i = 0; i < clen; i++) {
+                pretty[i] = (city[i] == '_') ? ' ' : city[i];
+            }
+            pretty[clen] = '\0';
+            return finish_name(NULL, pretty, clen, opt, out, out_cap, out_len);
+        }
+        return finish_name(name, lookup_id, lookup_len, opt, out, out_cap, out_len);
+    }
+
+    /* Zone-specific CLDR names first, then metazone. */
+    name = name_from_zone_row(resolve_zone_row(display_locale, lookup_id, lookup_len), style,
+                              is_dst);
+    if (!name &&
+        lookup_mz_for_iana_at(lookup_id, lookup_len, sec, mz, sizeof(mz))) {
+        name = name_from_mz_row(resolve_metazone_row(display_locale, mz, strlen(mz)), style,
+                                is_dst);
+    }
+
+    /* Style-specific fallbacks before identifier. */
+    if (!name) {
+        if (style == ROBO_I18N_TZ_DISP_SPECIFIC_SHORT ||
+            style == ROBO_I18N_TZ_DISP_SHORT_GENERIC ||
+            style == ROBO_I18N_TZ_DISP_SHORT_STANDARD ||
+            style == ROBO_I18N_TZ_DISP_SHORT_DAYLIGHT) {
+            /* short → long generic → exemplar → GMT → id */
+            name = name_from_zone_row(resolve_zone_row(display_locale, lookup_id, lookup_len),
+                                      ROBO_I18N_TZ_DISP_LONG_GENERIC, is_dst);
+            if (!name && lookup_mz_for_iana_at(lookup_id, lookup_len, sec, mz, sizeof(mz))) {
+                name = name_from_mz_row(resolve_metazone_row(display_locale, mz, strlen(mz)),
+                                        ROBO_I18N_TZ_DISP_LONG_GENERIC, is_dst);
+            }
+        }
+    }
+    if (!name &&
+        (style == ROBO_I18N_TZ_DISP_SPECIFIC_LONG || style == ROBO_I18N_TZ_DISP_LONG_GENERIC ||
+         style == ROBO_I18N_TZ_DISP_SPECIFIC_SHORT || style == ROBO_I18N_TZ_DISP_SHORT_GENERIC)) {
+        name = resolve_name(robo_disp_tz_exemplars, robo_disp_tz_exemplar_count, display_locale,
+                            lookup_id, lookup_len);
+    }
+    if (!name &&
+        (style == ROBO_I18N_TZ_DISP_SPECIFIC_LONG || style == ROBO_I18N_TZ_DISP_SPECIFIC_SHORT ||
+         style == ROBO_I18N_TZ_DISP_LONG_GENERIC || style == ROBO_I18N_TZ_DISP_SHORT_GENERIC)) {
+        /* GMT offset as last localized representation before identifier. */
+        if (tz->kind != ROBO_I18N_TZ_SYSTEM &&
+            (instant || tz->kind == ROBO_I18N_TZ_UTC || tz->kind == ROBO_I18N_TZ_FIXED)) {
+            return robo_i18n_timezone_display_name_at(tz, instant, ROBO_I18N_TZ_DISP_GMT,
+                                                      display_locale, options, out, out_cap,
+                                                      out_len);
+        }
+    }
+
+    return finish_name(name, lookup_id, lookup_len, opt, out, out_cap, out_len);
+}
+
 robo_result_t robo_i18n_timezone_display_name(const robo_i18n_timezone_t *tz,
                                               robo_i18n_timezone_name_style_t style,
                                               const robo_i18n_locale_t *display_locale,
@@ -664,100 +1073,8 @@ robo_result_t robo_i18n_timezone_display_name(const robo_i18n_timezone_t *tz,
                                               size_t out_cap,
                                               size_t *out_len)
 {
-    robo_i18n_display_options_t scratch;
-    const robo_i18n_display_options_t *opt;
-    char mz[64];
-    const char *name = NULL;
-    const char *iana;
-
-    if (!tz || !out_len) {
-        return ROBO_INVALID_ARGUMENT;
-    }
-    opt = opts_or_default(options, &scratch);
-    iana = tz->id[0] ? tz->id : "UTC";
-
-    if (style == ROBO_I18N_TZ_DISP_GMT) {
-        int32_t off = 0;
-        char tag[128];
-        int32_t loc_idx;
-        const char *gmt_fmt = "GMT{0}";
-        const char *hour_fmt = "+HH:mm;-HH:mm";
-        char buf[64];
-        robo_i18n_locale_t cur;
-        int guard = 0;
-
-        if (tz->kind == ROBO_I18N_TZ_IANA || tz->kind == ROBO_I18N_TZ_SYSTEM) {
-            return ROBO_NOT_SUPPORTED;
-        }
-        off = tz->offset_seconds;
-        if (display_locale) {
-            cur = *display_locale;
-        } else {
-            (void)robo_i18n_locale_parse_canonical("en", 2, &cur);
-        }
-        for (;;) {
-            uint32_t i;
-            format_tag(&cur, tag, sizeof(tag));
-            if (tag[0] && find_locale_idx(tag, strlen(tag), &loc_idx)) {
-                for (i = 0; i < robo_disp_tz_pattern_count; i++) {
-                    if (robo_disp_tz_patterns[i].display_locale == loc_idx) {
-                        gmt_fmt = robo_disp_string(robo_disp_tz_patterns[i].gmt_format);
-                        hour_fmt = robo_disp_string(robo_disp_tz_patterns[i].hour_format);
-                        goto got_pat;
-                    }
-                }
-            }
-            if (!next_display_locale(&cur)) {
-                break;
-            }
-            if (++guard > 16) {
-                break;
-            }
-        }
-    got_pat:
-        if (!gmt_fmt) {
-            gmt_fmt = "GMT{0}";
-        }
-        if (!hour_fmt) {
-            hour_fmt = "+HH:mm;-HH:mm";
-        }
-        format_gmt(off, gmt_fmt, hour_fmt, buf, sizeof(buf));
-        return write_out(buf, out, out_cap, out_len);
-    }
-
-    if (style == ROBO_I18N_TZ_DISP_EXEMPLAR_CITY) {
-        name = resolve_name(robo_disp_tz_exemplars, robo_disp_tz_exemplar_count,
-                            display_locale, iana, strlen(iana));
-        if (!name) {
-            /* Fall back to last path segment */
-            const char *slash = strrchr(iana, '/');
-            const char *city = slash ? slash + 1 : iana;
-            return finish_name(NULL, city, strlen(city), opt, out, out_cap, out_len);
-        }
-        return finish_name(name, iana, strlen(iana), opt, out, out_cap, out_len);
-    }
-
-    if (!lookup_mz_for_iana(iana, strlen(iana), mz, sizeof(mz))) {
-        return finish_name(NULL, iana, strlen(iana), opt, out, out_cap, out_len);
-    }
-    {
-        const robo_disp_tz_metazone_row_t *row =
-            resolve_metazone_row(display_locale, mz, strlen(mz));
-        if (row) {
-            int32_t idx = -1;
-            if (style == ROBO_I18N_TZ_DISP_LONG_GENERIC) {
-                idx = row->long_generic >= 0 ? row->long_generic : row->long_standard;
-            } else if (style == ROBO_I18N_TZ_DISP_LONG_STANDARD) {
-                idx = row->long_standard;
-            } else if (style == ROBO_I18N_TZ_DISP_LONG_DAYLIGHT) {
-                idx = row->long_daylight >= 0 ? row->long_daylight : row->long_standard;
-            }
-            if (idx >= 0) {
-                name = robo_disp_string(idx);
-            }
-        }
-    }
-    return finish_name(name, iana, strlen(iana), opt, out, out_cap, out_len);
+    return robo_i18n_timezone_display_name_at(tz, NULL, style, display_locale, options, out,
+                                              out_cap, out_len);
 }
 
 static void apply_pattern2(const char *pat, const char *a, const char *b, char *out, size_t cap)

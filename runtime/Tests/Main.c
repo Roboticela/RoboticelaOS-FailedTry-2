@@ -49,6 +49,7 @@ void robo_test_register_i18n_message(void);
 void robo_test_register_i18n_message_format(void);
 void robo_test_register_i18n_message_validate(void);
 void robo_test_register_i18n_timezone(void);
+void robo_test_register_i18n_timezone_display(void);
 
 int main(int argc, char **argv)
 {
@@ -135,5 +136,6 @@ int main(int argc, char **argv)
     robo_test_register_i18n_message_format();
     robo_test_register_i18n_message_validate();
     robo_test_register_i18n_timezone();
+    robo_test_register_i18n_timezone_display();
     return robo_test_main(argc, argv);
 }

@@ -1,4 +1,4 @@
-# RoboI18N tooling (Goals 4.1–4.14)
+# RoboI18N tooling (Goals 4.1–4.15)
 
 ## Offline builds
 
@@ -56,8 +56,8 @@ Pins: `robo_i18n_version.py` / `manifest.json`.
 | CLDR | **46** (JSON package 46.0.0) |
 | Unicode (from CLDR metadata) | **16.0.0** |
 | IANA tzdb | **2026c** |
-| Generator | **1.13.0** |
-| RoboI18N API | **0.14.0** |
+| Generator | **1.14.0** |
+| RoboI18N API | **0.15.0** |
 
 ### Calendar / date-time / interval data
 

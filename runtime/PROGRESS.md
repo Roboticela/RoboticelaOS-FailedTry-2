@@ -618,7 +618,7 @@
 - Leap-second policy: POSIX 86400-day days (not modeled)
 - Suite `SuiteRoboI18NTimeZone.c` (DST, round-trip, intl, fuzz)
 - Docs: `i18n/TZDB.md`, `Tools/i18n/TZDB_ATTRIBUTION.md`
-- API **0.14.0** / generator **1.13.0**
+- API **0.14.0** / generator **1.13.0** (bumped by later goals)
 - Debug / Release / ASan+UBSan: **361/361**
 
 **Definition of done:**
@@ -629,7 +629,31 @@
 - [x] Integration with existing datetime APIs; no Chromium
 - [x] Debug / Release / Sanitize green
 
+## Goal 4.15 — Time Zone Formatting, Names, and Display Data
+
+**Status:** complete
+
+**Done:**
+
+- Timezone display styles: exemplar, long/short generic/std/dst, specific, GMT, identifier
+- `robo_i18n_timezone_display_name_at` (instant-aware metazone + DST)
+- CLDR data: short metazone names, zone overrides, historical mz ranges, gmtZeroFormat
+- GMT formatting with locale patterns + numbering-system digits
+- Exemplar cities (CLDR or structural `_`→` ` fallback)
+- Alias → canonical data lookup; requested id for IDENTIFIER
+- Date/time formatter `z`/`v`/`V`/`O` wired to display layer
+- Suite `SuiteRoboI18NTimeZoneDisplay.c`; docs `i18n/TZDisplay.md`
+- API **0.15.0** / generator **1.14.0**
+- Debug / Release / ASan+UBSan: **369/369**
+
+**Definition of done:**
+
+- [x] Localized names + GMT + exemplar + metazone windows
+- [x] Formatter integration + fallbacks + intl tests
+- [x] Generated/validated CLDR display data; no Chromium
+- [x] Debug / Release / Sanitize green
+
 ## Next
 
-- Goal 4.15+ (do not start until requested)
+- Goal 4.16+ (do not start until requested)
 
