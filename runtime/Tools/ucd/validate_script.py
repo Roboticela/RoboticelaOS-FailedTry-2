@@ -18,9 +18,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
+from robo_unicode_version import UCD_VERSION
 from generate_ucd import (  # type: ignore
     MAX_CP,
-    UCD_VERSION,
     SRC,
     build_scx_tables,
     parse_property_file,
@@ -30,9 +30,7 @@ from generate_ucd import (  # type: ignore
 
 
 def main() -> int:
-    if UCD_VERSION != "16.0.0":
-        print(f"Unexpected UCD version pin: {UCD_VERSION}", file=sys.stderr)
-        return 1
+    print(f"Validating Script/SCX against Unicode {UCD_VERSION}")
 
     script_props = parse_property_file(SRC / "Scripts.txt")
     script_names = sorted(script_props.keys())

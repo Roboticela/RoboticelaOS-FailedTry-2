@@ -196,6 +196,91 @@
 - [x] No font/shaping/RoboText work
 - [x] Existing suites still pass
 
+## Goal 3.13 — Unicode Emoji Properties and Extended Emoji Handling (UTS #51)
+
+**Status:** complete
+
+**Done:**
+
+- Extended shared UCD bool properties: Emoji_Modifier, Emoji_Modifier_Base,
+  Emoji_Component, Regional_Indicator, Variation_Selector (+ existing Emoji /
+  Emoji_Presentation / Extended_Pictographic)
+- Official **Emoji 16.0** RGI sequence trie (`generate_emoji.py`) from
+  `emoji-sequences.txt` + `emoji-zwj-sequences.txt`
+- Public API `RoboUnicodeEmoji.h` — classify / UTF-8 match / next + kinds
+- Property wrappers remain on `RoboUnicodeProps.h` (no duplicate tables)
+- Boundaries documented: properties ≠ sequences ≠ graphemes ≠ glyphs ≠ paint
+- UAX #29 grapheme algorithm unchanged; sequence layer is parallel catalog
+- Conformance: fully-qualified `emoji-test.txt` ∩ catalog **3,781 / 3,781**
+- Coverage: keycap/flag/modifier/ZWJ/tag/VS, invalid UTF-8, intl mixes
+- Debug / Release / ASan+UBSan: **182/182** tests pass
+
+**Definition of done:**
+
+- [x] Official UTS #51 / emoji-data (not hand-coded famous emoji)
+- [x] Independent emoji property bits preserved
+- [x] RGI sequence categories (basic/keycap/flag/tag/modifier/ZWJ)
+- [x] UTF-8 byte ranges; STRICT invalid UTF-8 = same RoboUnicode policy
+- [x] Grapheme relationship documented; no unofficial emoji-grapheme algo
+- [x] No fonts / color glyphs / shaping / layout / graphics
+- [x] Existing suites still pass
+- [x] Chromium remains reference-only
+
+## Goal 3.14 — Unicode Data Generation, Versioning, Validation, Conformance
+
+**Status:** complete
+
+**Done:**
+
+- Audit: `unicode/AUDIT.md`; upgrade workflow: `unicode/UPGRADE.md`
+- Single pin: `Tools/ucd/robo_unicode_version.py` → `RoboUnicodeVersion.h`
+- Machine-readable `manifest.json` (official URLs, SHA-256, roles)
+- Orchestrator: `generate_all.py` (validate → generate → golden / repro)
+- `verify_pipeline.py`, `golden_hashes.json`, `measure_tables.py`
+- `Fetch-Ucd.ps1` reads manifest + verifies checksums
+- Attribution: `Docs/UnicodeDataAttribution.md`
+- Infra suite: cross-module version coherence, broad scripts, microbench
+- Offline policy: normal `Build.ps1` never downloads or regenerates
+- Deterministic generation: `--repro` green (31 artifacts)
+- Debug / Release / ASan+UBSan: **185/185** tests pass
+
+**Definition of done:**
+
+- [x] One coherent Unicode / Emoji version across all modules
+- [x] Manifest + checksum validation
+- [x] Reproducible generation without wall-clock metadata
+- [x] Golden hashes detect generator drift
+- [x] Conformance fixtures remain official Unicode data
+- [x] No Chromium dependency; no fonts/shaping/layout
+- [x] Goals 3.3–3.13 still pass
+
+## Goal 4.1 — RoboI18N Foundation (Locale / BCP 47)
+
+**Status:** complete
+
+**Done:**
+
+- Module: `Include/RoboI18N/`, `Source/RoboI18N/`, guide `i18n/README.md`
+- BCP 47 parse/format for language / script / region / variants / extensions / private-use
+- Value-type `robo_i18n_locale_t` (no heap for ordinary parse)
+- IANA Preferred-Value + grandfathered/redundant tables (`generate_iana.py`, File-Date 2026-05-05)
+- Equality, range matching, truncation `parent` fallback
+- Default locale abstraction (`und`, not hard-coded `en-US`)
+- Locale preference lists with optional `q=` weights
+- CLDR architecture/manifest only (`version: none`) — no invented locale data
+- Suite: basic/script/region/complex/invalid/canon/match/fallback/list/fuzz/microbench
+- Debug / Release / ASan+UBSan: **197/197** tests pass
+
+**Definition of done:**
+
+- [x] BCP 47 foundation (not stringly `"en"` only)
+- [x] Canonicalization from IANA (not invented maps)
+- [x] Fallback documented and tested
+- [x] Unicode Script ≠ locale documented
+- [x] No formatting / plural / collation / messages / detection
+- [x] No Chromium dependency
+- [x] Existing Unicode tests still pass
+
 ## Next
 
-- Goal 3.13 — Unicode emoji properties (do not start until requested)
+- Goal 4.2+ — locale display / numbering systems / formatting (do not start until requested)

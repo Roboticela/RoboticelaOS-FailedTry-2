@@ -1,12 +1,15 @@
 # RoboUnicode
 
-Unicode foundation for Roboticela Runtime (**Goals 3.3–3.12**).
+Unicode foundation for Roboticela Runtime (**Goals 3.3–3.14**).
 
-**Pinned Unicode Standard / UCD version:** **16.0.0**
+**Pinned Unicode Standard / UCD version:** **16.0.0**  
+**Pinned Emoji / UTS #51 data:** **Emoji 16.0** (same train as Unicode 16.0.0)  
+**Authoritative pins:** `Tools/ucd/robo_unicode_version.py` → `Include/RoboUnicode/RoboUnicodeVersion.h`
 
 | Layer | Headers / sources |
 |---|---|
 | Encoding | `Include/RoboUnicode/RoboUnicode.h`, `Source/RoboUnicode/RoboUnicode.c` |
+| Version pin | `RoboUnicodeVersion.h` |
 | Character Database | `RoboUnicodeProps.h`, `RoboUcdData.h`, `data/robo_ucd_data.c` |
 | Normalization | `RoboUnicodeNorm.h`, `RoboUnicodeNorm.c`, `RoboNormData.h`, `data/robo_norm_data.c` |
 | Grapheme clusters | `RoboUnicodeGrapheme.h`, `RoboUnicodeGrapheme.c`, `RoboGraphemeData.h`, `data/robo_grapheme_data.c` |
@@ -16,7 +19,11 @@ Unicode foundation for Roboticela Runtime (**Goals 3.3–3.12**).
 | Line breaking | `RoboUnicodeLine.h`, `RoboUnicodeLine.c`, `RoboLineData.h`, `data/robo_line_data.c` |
 | Bidirectional Algorithm | `RoboUnicodeBidi.h`, `RoboUnicodeBidi.c`, `RoboBidiData.h`, `data/robo_bidi_data.c` |
 | Script / Script_Extensions | `RoboUnicodeProps.h` (+ UCD), `RoboUcdData.h`, `data/robo_ucd_data.c` |
-| Tooling | `Tools/ucd/` (fetch + generate) |
+| Emoji properties / RGI sequences | `RoboUnicodeEmoji.h`, `RoboEmojiData.h`, `data/robo_emoji_data.c` |
+| Data pipeline | `Tools/ucd/` — see `AUDIT.md`, `UPGRADE.md` |
+
+Docs: [`AUDIT.md`](AUDIT.md) · [`UPGRADE.md`](UPGRADE.md) · [`Docs/UnicodeDataAttribution.md`](../Docs/UnicodeDataAttribution.md)
+
 
 ## Terminology (critical)
 
@@ -26,16 +33,20 @@ Unicode foundation for Roboticela Runtime (**Goals 3.3–3.12**).
 | **Code unit** | UTF-16 `uint16` or UTF-32 `uint32` storage unit |
 | **Code point** | Integer in `0 .. 0x10FFFF` (may be a surrogate) |
 | **Scalar value** | Code point **excluding** surrogates `U+D800..U+DFFF` |
+| **Emoji property** | UCD boolean on a **single** code point (`Emoji`, `Emoji_Presentation`, …) |
+| **Emoji sequence** | Official multi-code-point RGI sequence (UTS #51 catalog) |
 | **Grapheme cluster** | User-perceived character (UAX #29 Extended Grapheme Cluster) |
 | **Word boundary** | UAX #29 Word Boundary — **not** a linguistic dictionary word |
 | **Sentence boundary** | UAX #29 Sentence Boundary — **not** an NLP sentence parser |
 | **Line-break opportunity** | UAX #14 — legal wrap points; **not** visual layout |
 | **Bidi level / visual order** | UAX #9 — embedding levels + reorder; **not** shaping |
 | **Glyph** | Font shaping/rendering unit — **not yet** |
+| **Color emoji appearance** | Font / text-render decision — **not** this subsystem |
 
 **Never assume** 1 byte = 1 character, or 1 code point = 1 displayed character,
 or 1 grapheme = 1 word, or 1 word = 1 sentence, or 1 word = 1 line-break unit,
-or 1 bidi level = 1 glyph.
+or 1 bidi level = 1 glyph, or **1 emoji sequence = 1 grapheme cluster**,
+or **1 emoji property = color rendering**.
 
 `RoboString::size` is **bytes**. Code-point count uses encoding APIs.
 Grapheme count uses `robo_unicode_grapheme_*` or `robo_string_grapheme_count()`.
@@ -43,7 +54,8 @@ Word segments use `robo_unicode_word_*` (UTF-8 byte ranges).
 Sentence segments use `robo_unicode_sentence_*` (UTF-8 byte ranges).
 Line-break opportunities use `robo_unicode_line_*` (UTF-8 byte ranges + kind).
 Bidi analysis uses `robo_unicode_bidi_*` (per code point levels + visual map).
-Property lookups use `robo_unicode_category` / `script` / … (UCD).
+Emoji sequences use `robo_unicode_emoji_sequence_*` (UTF-8 byte ranges + kind).
+Property lookups use `robo_unicode_category` / `script` / `is_emoji` / … (UCD).
 
 ### Bytes → code points → graphemes → words → sentences → line breaks → bidi
 
@@ -63,6 +75,10 @@ line-break opportunities (UAX #14 Line_Break)
 bidi levels + visual order (UAX #9)   ← independent of line breaks
 ```
 
+Emoji **properties** attach to scalars. Emoji **sequences** are a parallel
+catalog (UTS #51 RGI) that may span one or more scalars. Higher layers may
+combine grapheme results with sequence results; they are not interchangeable.
+
 Line breaking and bidi are **separate**. Future layout combines them.
 
 | Measure | API | Notes |
@@ -77,6 +93,7 @@ Line breaking and bidi are **separate**. Future layout combines them.
 | **Bidi level** | `levels[i]` per code point | Embedding level; `0xFF` = X9-removed |
 | **Visual index** | `visual_to_logical[v]` | L2 reorder; excludes X9-removed |
 | **UTF-8 end map** | `byte_ends[i]` (analyze_utf8) | Exclusive UTF-8 end offset of code point `i` |
+| **Emoji sequence range** | `out_start` / `out_end` + kind | Half-open UTF-8 bytes; RGI catalog match |
 
 ## Architecture
 
@@ -92,6 +109,8 @@ RoboUnicode
 ├── Line breaking         ← Goal 3.10
 ├── Bidirectional Algorithm ← Goal 3.11
 ├── Script / Script_Extensions ← Goal 3.12
+├── Emoji properties / RGI sequences ← Goal 3.13
+├── Data generation / versioning / conformance ← Goal 3.14
 └── Unicode Algorithms    ← later
 ```
 
@@ -113,7 +132,11 @@ Line breaking         ← Goal 3.10
   ↓
 Bidi (UAX #9)         ← Goal 3.11
   ↓
-Script / SCX (UAX #24) ← Goal 3.12 (this release)
+Script / SCX (UAX #24) ← Goal 3.12
+  ↓
+Emoji props / RGI (UTS #51) ← Goal 3.13
+  ↓
+Data pipeline / conformance infra ← Goal 3.14 (this release)
   ↓
 Text shaping          ← RoboTextShape
   ↓
@@ -122,7 +145,172 @@ Font selection        ← RoboFont
 Text rendering        ← RoboTextRender
 ```
 
+## Goal 3.14 — Unicode Data Generation, Versioning, Validation, Conformance
+
+Centralizes the Unicode data pipeline so upgrades are reproducible and safe.
+
+```text
+Official Unicode Data (manifest + SHA-256)
+        ↓
+Tools/ucd generators (build-time Python)
+        ↓
+Validated compact runtime tables (committed)
+        ↓
+RoboUnicode public APIs
+        ↓
+Conformance fixtures + unit suites
+```
+
+### Single version pin
+
+| Source of truth | Location |
+|---|---|
+| Generators | `Tools/ucd/robo_unicode_version.py` |
+| C runtime | `Include/RoboUnicode/RoboUnicodeVersion.h` (synced) |
+| Manifest | `Tools/ucd/manifest.json` |
+
+All of UCD / norm / grapheme / case / word / sentence / line / bidi / script /
+emoji must report the same Unicode **16.0.0** (emoji data **16.0**).
+
+### Offline builds
+
+`Build.ps1` compiles **already-generated** tables. It does **not** download
+Unicode data and does **not** run Python generators.
+
+Explicit regeneration: see [`UPGRADE.md`](UPGRADE.md).
+
+### Pipeline commands
+
+```powershell
+.\runtime\Tools\ucd\Fetch-Ucd.ps1
+python .\runtime\Tools\ucd\generate_all.py
+python .\runtime\Tools\ucd\generate_all.py --repro
+python .\runtime\Tools\ucd\generate_all.py --update-golden
+python .\runtime\Tools\ucd\verify_pipeline.py --sizes
+```
+
+Golden hashes: `Tools/ucd/golden_hashes.json` (detect accidental generator drift).
+
+### Public API stability
+
+Generated arrays stay internal (`*Data.h` / `data/*.c`). Callers use
+`robo_unicode_*` behavior APIs — not raw table layouts.
+
+### Conformance
+
+Official Unicode tests are imported as fixtures (`.inc` / `.bin`), not thousands
+of handwritten cases. Suites report structured diagnostics on failure
+(category, version, input, expected, actual). Host suite
+`SuiteRoboUnicodeInfra.c` checks cross-module version coherence and broad
+script samples.
+
+Attribution: [`Docs/UnicodeDataAttribution.md`](../Docs/UnicodeDataAttribution.md).
+
+## Goal 3.13 — Unicode Emoji Properties and Extended Emoji Handling (UTS #51)
+
+
+Provides **code-point emoji properties** (shared UCD) and **RGI emoji sequence**
+recognition for Unicode / Emoji **16.0**. This layer identifies Unicode facts
+only — not fonts, color glyphs, shaping, or layout.
+
+### Boundaries (must not be confused)
+
+| Concept | Owner | Notes |
+|---|---|---|
+| **Code-point properties** | UCD / `RoboUnicodeProps` | `Emoji`, `Emoji_Presentation`, `Emoji_Modifier`, `Emoji_Modifier_Base`, `Emoji_Component`, `Extended_Pictographic`, `Regional_Indicator`, `Variation_Selector` — independent bits |
+| **Emoji sequences** | UTS #51 catalog / `RoboUnicodeEmoji` | Official RGI entries from `emoji-sequences.txt` + `emoji-zwj-sequences.txt` |
+| **Extended grapheme clusters** | UAX #29 / `RoboUnicodeGrapheme` | Unchanged; emoji ZWJ / RI / ExtPict already participate via GB rules |
+| **Glyphs** | Future `RoboFont` / shaping | Not created here |
+| **Rendered appearance** | Future text render | Text vs emoji presentation is a *selection hint*, not a paint decision |
+
+An RGI sequence may equal one grapheme cluster (e.g. many flags) or relate
+differently for other text; callers must not assume identity.
+
+### Public APIs
+
+**Properties** (`RoboUnicodeProps.h`):
+
+```c
+robo_unicode_is_emoji(cp);
+robo_unicode_is_emoji_presentation(cp);
+robo_unicode_is_emoji_modifier(cp);
+robo_unicode_is_emoji_modifier_base(cp);
+robo_unicode_is_emoji_component(cp);
+robo_unicode_is_extended_pictographic(cp);
+robo_unicode_is_regional_indicator(cp);
+robo_unicode_is_variation_selector(cp);
+```
+
+**Sequences** (`RoboUnicodeEmoji.h`):
+
+```c
+robo_unicode_emoji_sequence_classify(cps, len);   /* exact full match → kind */
+robo_unicode_emoji_sequence_match(utf8, len, off, mode, &end, &kind);
+robo_unicode_emoji_sequence_next(utf8, len, off, mode, &start, &end, &kind);
+robo_unicode_emoji_ucd_version_string();          /* "16.0.0" */
+robo_unicode_emoji_version_string();              /* "16.0" */
+robo_unicode_emoji_seq_kind_name(kind);
+```
+
+Kinds: `NONE`, `BASIC`, `KEYCAP`, `FLAG`, `TAG`, `MODIFIER`, `ZWJ`.
+
+- UTF-8 APIs take explicit lengths (no null-termination requirement).
+- Longest RGI match from `offset`; incomplete sequences → `NONE` (not an error).
+- Invalid UTF-8 under `STRICT` → `ROBO_PARSE_ERROR` (same policy as RoboUnicode).
+- No heap allocation for ordinary lookups.
+
+### Sequence storage
+
+Compact **code-point trie** generated from the official RGI lists (longest match).
+Chosen for memory efficiency + streaming-friendly O(length) match without building
+a temporary string-wide code-point array for the whole buffer.
+
+### Data sources / generation
+
+| File | Role |
+|---|---|
+| `ucd/emoji/emoji-data.txt` | Code-point emoji boolean properties (via `generate_ucd.py`) |
+| `PropList.txt` | `Regional_Indicator`, `Variation_Selector` |
+| `emoji-sequences.txt` | Basic / keycap / flag / tag / modifier RGI |
+| `emoji-zwj-sequences.txt` | ZWJ RGI (family, profession, gender-style, …) |
+| `emoji-test.txt` | Fully-qualified conformance cases → `.bin` fixture |
+
+URLs (Emoji 16.0): `https://www.unicode.org/Public/emoji/16.0/…`  
+UCD emoji-data: `https://www.unicode.org/Public/16.0.0/ucd/emoji/emoji-data.txt`
+
+```powershell
+.\runtime\Tools\ucd\Fetch-Ucd.ps1
+python .\runtime\Tools\ucd\generate_ucd.py
+python .\runtime\Tools\ucd\generate_emoji.py
+```
+
+Outputs: `RoboEmojiData.h`, `data/robo_emoji_data.c`,
+`Tests/Data/robo_emoji_conformance.bin` (+ `.h`).
+
+License: Unicode Data Files — see `Tools/ucd/UNICODE_DATA_LICENSE.txt`.
+
+### Grapheme relationship
+
+- UAX #29 remains authoritative for grapheme segmentation.
+- Extended_Pictographic / ZWJ / RI / modifiers continue to drive GB rules via
+  existing grapheme tables.
+- Sequence APIs answer “is this an official RGI emoji sequence?” — a different question.
+
+### Deliberately not in this goal
+
+- Font discovery, color emoji glyphs, COLR/CBDT, SVG-in-OT
+- Shaping / HarfBuzz-style processing
+- Layout, CSS `emoji` presentation, DOM
+- Invented / hand-maintained “famous emoji” lists
+
+### Conformance / tests
+
+- Fully-qualified `emoji-test.txt` cases ∩ catalog: **3,781 / 3,781**
+- Unit: properties, keycap/flag/modifier/ZWJ/tag/VS, UTF-8 match/next,
+  invalid UTF-8, mixed Arabic/Urdu/Persian/Hebrew/Indic/Thai/CJK + emoji
+
 ## Goal 3.12 — Script and Script_Extensions (UAX #24)
+
 
 Provides official Unicode **Script** and **Script_Extensions** for every
 scalar value in Unicode 16.0.0. Required later for script-run segmentation,
@@ -825,7 +1013,9 @@ Runtime never parses UCD text files.
 - `robo_unicode_east_asian_width`
 - `robo_unicode_is_whitespace` / `alphabetic` / `uppercase` / `lowercase`
 - `robo_unicode_is_default_ignorable`
-- `robo_unicode_is_emoji` / `emoji_presentation` / `extended_pictographic`
+- `robo_unicode_is_emoji` / `emoji_presentation` / `emoji_modifier` /
+  `emoji_modifier_base` / `emoji_component` / `extended_pictographic` /
+  `regional_indicator` / `variation_selector`
 - `robo_unicode_ucd_version_string`
 
 See `Tools/ucd/README.md` for UCD fetch/generate details.

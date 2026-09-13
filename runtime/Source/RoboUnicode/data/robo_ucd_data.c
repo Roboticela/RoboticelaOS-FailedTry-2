@@ -7630,6 +7630,69 @@ static const robo_ucd_range_t robo_ucd_emoji_presentation_ranges[] = {
 };
 static const size_t robo_ucd_emoji_presentation_ranges_count = 80;
 
+static const robo_ucd_range_t robo_ucd_emoji_modifier_ranges[] = {
+    { 0x1F3FBu, 0x1F3FFu },
+};
+static const size_t robo_ucd_emoji_modifier_ranges_count = 1;
+
+static const robo_ucd_range_t robo_ucd_emoji_modifier_base_ranges[] = {
+    { 0x261Du, 0x261Du },
+    { 0x26F9u, 0x26F9u },
+    { 0x270Au, 0x270Du },
+    { 0x1F385u, 0x1F385u },
+    { 0x1F3C2u, 0x1F3C4u },
+    { 0x1F3C7u, 0x1F3C7u },
+    { 0x1F3CAu, 0x1F3CCu },
+    { 0x1F442u, 0x1F443u },
+    { 0x1F446u, 0x1F450u },
+    { 0x1F466u, 0x1F478u },
+    { 0x1F47Cu, 0x1F47Cu },
+    { 0x1F481u, 0x1F483u },
+    { 0x1F485u, 0x1F487u },
+    { 0x1F48Fu, 0x1F48Fu },
+    { 0x1F491u, 0x1F491u },
+    { 0x1F4AAu, 0x1F4AAu },
+    { 0x1F574u, 0x1F575u },
+    { 0x1F57Au, 0x1F57Au },
+    { 0x1F590u, 0x1F590u },
+    { 0x1F595u, 0x1F596u },
+    { 0x1F645u, 0x1F647u },
+    { 0x1F64Bu, 0x1F64Fu },
+    { 0x1F6A3u, 0x1F6A3u },
+    { 0x1F6B4u, 0x1F6B6u },
+    { 0x1F6C0u, 0x1F6C0u },
+    { 0x1F6CCu, 0x1F6CCu },
+    { 0x1F90Cu, 0x1F90Cu },
+    { 0x1F90Fu, 0x1F90Fu },
+    { 0x1F918u, 0x1F91Fu },
+    { 0x1F926u, 0x1F926u },
+    { 0x1F930u, 0x1F939u },
+    { 0x1F93Cu, 0x1F93Eu },
+    { 0x1F977u, 0x1F977u },
+    { 0x1F9B5u, 0x1F9B6u },
+    { 0x1F9B8u, 0x1F9B9u },
+    { 0x1F9BBu, 0x1F9BBu },
+    { 0x1F9CDu, 0x1F9CFu },
+    { 0x1F9D1u, 0x1F9DDu },
+    { 0x1FAC3u, 0x1FAC5u },
+    { 0x1FAF0u, 0x1FAF8u },
+};
+static const size_t robo_ucd_emoji_modifier_base_ranges_count = 40;
+
+static const robo_ucd_range_t robo_ucd_emoji_component_ranges[] = {
+    { 0x0023u, 0x0023u },
+    { 0x002Au, 0x002Au },
+    { 0x0030u, 0x0039u },
+    { 0x200Du, 0x200Du },
+    { 0x20E3u, 0x20E3u },
+    { 0xFE0Fu, 0xFE0Fu },
+    { 0x1F1E6u, 0x1F1FFu },
+    { 0x1F3FBu, 0x1F3FFu },
+    { 0x1F9B0u, 0x1F9B3u },
+    { 0xE0020u, 0xE007Fu },
+};
+static const size_t robo_ucd_emoji_component_ranges_count = 10;
+
 static const robo_ucd_range_t robo_ucd_extended_pictographic_ranges[] = {
     { 0x00A9u, 0x00A9u },
     { 0x00AEu, 0x00AEu },
@@ -7711,6 +7774,19 @@ static const robo_ucd_range_t robo_ucd_extended_pictographic_ranges[] = {
     { 0x1FC00u, 0x1FFFDu },
 };
 static const size_t robo_ucd_extended_pictographic_ranges_count = 78;
+
+static const robo_ucd_range_t robo_ucd_regional_indicator_ranges[] = {
+    { 0x1F1E6u, 0x1F1FFu },
+};
+static const size_t robo_ucd_regional_indicator_ranges_count = 1;
+
+static const robo_ucd_range_t robo_ucd_variation_selector_ranges[] = {
+    { 0x180Bu, 0x180Du },
+    { 0x180Fu, 0x180Fu },
+    { 0xFE00u, 0xFE0Fu },
+    { 0xE0100u, 0xE01EFu },
+};
+static const size_t robo_ucd_variation_selector_ranges_count = 4;
 
 static const uint16_t robo_ucd_scx_pool[] = {
     7u, 20u, 26u, 35u, 37u, 41u, 42u, 43u, 45u, 47u, 50u, 73u, 80u, 81u, 113u, 133u,
@@ -8008,12 +8084,57 @@ int robo_ucd_is_emoji_presentation(robo_uchar32_t cp)
 }
 
 
+int robo_ucd_is_emoji_modifier(robo_uchar32_t cp)
+{
+    if (cp > ROBO_UCHAR32_MAX) {
+        return 0;
+    }
+    return robo_ucd_bsearch_bool(robo_ucd_emoji_modifier_ranges, robo_ucd_emoji_modifier_ranges_count, cp);
+}
+
+
+int robo_ucd_is_emoji_modifier_base(robo_uchar32_t cp)
+{
+    if (cp > ROBO_UCHAR32_MAX) {
+        return 0;
+    }
+    return robo_ucd_bsearch_bool(robo_ucd_emoji_modifier_base_ranges, robo_ucd_emoji_modifier_base_ranges_count, cp);
+}
+
+
+int robo_ucd_is_emoji_component(robo_uchar32_t cp)
+{
+    if (cp > ROBO_UCHAR32_MAX) {
+        return 0;
+    }
+    return robo_ucd_bsearch_bool(robo_ucd_emoji_component_ranges, robo_ucd_emoji_component_ranges_count, cp);
+}
+
+
 int robo_ucd_is_extended_pictographic(robo_uchar32_t cp)
 {
     if (cp > ROBO_UCHAR32_MAX) {
         return 0;
     }
     return robo_ucd_bsearch_bool(robo_ucd_extended_pictographic_ranges, robo_ucd_extended_pictographic_ranges_count, cp);
+}
+
+
+int robo_ucd_is_regional_indicator(robo_uchar32_t cp)
+{
+    if (cp > ROBO_UCHAR32_MAX) {
+        return 0;
+    }
+    return robo_ucd_bsearch_bool(robo_ucd_regional_indicator_ranges, robo_ucd_regional_indicator_ranges_count, cp);
+}
+
+
+int robo_ucd_is_variation_selector(robo_uchar32_t cp)
+{
+    if (cp > ROBO_UCHAR32_MAX) {
+        return 0;
+    }
+    return robo_ucd_bsearch_bool(robo_ucd_variation_selector_ranges, robo_ucd_variation_selector_ranges_count, cp);
 }
 
 static const char *const robo_ucd_gc_names[] = {

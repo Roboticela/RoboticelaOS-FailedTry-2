@@ -62,9 +62,34 @@ int robo_unicode_is_emoji_presentation(robo_uchar32_t cp)
     return robo_ucd_is_emoji_presentation(cp);
 }
 
+int robo_unicode_is_emoji_modifier(robo_uchar32_t cp)
+{
+    return robo_ucd_is_emoji_modifier(cp);
+}
+
+int robo_unicode_is_emoji_modifier_base(robo_uchar32_t cp)
+{
+    return robo_ucd_is_emoji_modifier_base(cp);
+}
+
+int robo_unicode_is_emoji_component(robo_uchar32_t cp)
+{
+    return robo_ucd_is_emoji_component(cp);
+}
+
 int robo_unicode_is_extended_pictographic(robo_uchar32_t cp)
 {
     return robo_ucd_is_extended_pictographic(cp);
+}
+
+int robo_unicode_is_regional_indicator(robo_uchar32_t cp)
+{
+    return robo_ucd_is_regional_indicator(cp);
+}
+
+int robo_unicode_is_variation_selector(robo_uchar32_t cp)
+{
+    return robo_ucd_is_variation_selector(cp);
 }
 
 const char *robo_unicode_category_name(robo_unicode_general_category_t gc)

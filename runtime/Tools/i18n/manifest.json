@@ -1,0 +1,32 @@
+{
+  "robo_i18n_version": "0.1.0",
+  "generator_version": "1.0.0",
+  "iana": {
+    "file_date": "2026-05-05",
+    "url": "https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry",
+    "local_name": "language-subtag-registry",
+    "sha256": "d37aad0022eb65f0fe1af34133a824a1df5bcb9d9dc60b27e8d545480b876d72",
+    "purpose": "BCP 47 Preferred-Value / grandfathered / redundant canonicalization",
+    "required_for_runtime_generation": true
+  },
+  "cldr": {
+    "version": "none",
+    "note": "CLDR is a separate version stream from Unicode and IANA. Not imported in Goal 4.1.",
+    "planned_uses": [
+      "likely subtags",
+      "locale display names",
+      "number/date formatting",
+      "calendars",
+      "plural rules",
+      "numbering systems",
+      "collation",
+      "locale parent overrides"
+    ],
+    "files": []
+  },
+  "generated_outputs": [
+    "Include/RoboI18N/RoboIanaData.h",
+    "Source/RoboI18N/data/robo_iana_data.c"
+  ],
+  "offline_policy": "Build.ps1 compiles committed tables only; Fetch-Iana.ps1 + generate_iana.py are explicit developer steps."
+}

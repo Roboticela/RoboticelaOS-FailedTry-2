@@ -37,7 +37,12 @@ int robo_unicode_is_default_ignorable(robo_uchar32_t cp);
 
 int robo_unicode_is_emoji(robo_uchar32_t cp);
 int robo_unicode_is_emoji_presentation(robo_uchar32_t cp);
+int robo_unicode_is_emoji_modifier(robo_uchar32_t cp);
+int robo_unicode_is_emoji_modifier_base(robo_uchar32_t cp);
+int robo_unicode_is_emoji_component(robo_uchar32_t cp);
 int robo_unicode_is_extended_pictographic(robo_uchar32_t cp);
+int robo_unicode_is_regional_indicator(robo_uchar32_t cp);
+int robo_unicode_is_variation_selector(robo_uchar32_t cp);
 
 const char *robo_unicode_category_name(robo_unicode_general_category_t gc);
 const char *robo_unicode_script_name(robo_unicode_script_t sc);

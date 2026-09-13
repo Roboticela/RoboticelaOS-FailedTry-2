@@ -92,10 +92,21 @@ API names below are **planned boundaries**, not implemented headers yet (except 
 
 | | |
 |---|---|
-| **Responsibility** | Unicode encoding forms (UTF-8/16/32), validation, iteration; later UCD properties, normalization, segmentation, bidi. |
+| **Responsibility** | Unicode encoding (UTF-8/16/32), UCD properties, normalization, segmentation (grapheme/word/sentence/line), bidi, Script/SCX, emoji properties and RGI sequences; build-time data pipeline (Goal 3.14). |
 | **May depend on** | RoboBase. |
 | **Must NOT depend on it** | RoboBase, RoboMem (encode/decode are buffer-based; string helpers may use Mem via RoboString). |
-| **Public C API boundary** | `Include/RoboUnicode/RoboUnicode.h`, `RoboUnicodeProps.h`, `RoboUcdData.h`. Guide: `unicode/README.md`. Version pin: Unicode **16.0.0**. |
+| **Public C API boundary** | `Include/RoboUnicode/RoboUnicode.h` (+ Props/Norm/Grapheme/Case/Word/Sentence/Line/Bidi/Emoji). Version pin: `RoboUnicodeVersion.h` (**16.0.0** / Emoji **16.0**). Guide: `unicode/README.md`. Data pipeline: `Tools/ucd/` (generators are build-time only; not a runtime dependency). |
+
+---
+
+### RoboI18N
+
+| | |
+|---|---|
+| **Responsibility** | Locale / language-tag foundation (BCP 47): parse, canonicalize (IANA), match, truncation fallback, default locale, preference lists. Future CLDR-backed formatting lives here but is not Goal 4.1. |
+| **May depend on** | RoboBase, RoboMem, RoboContainers, RoboUnicode. |
+| **Must NOT depend on it** | RoboBase … RoboUnicode (until a reviewed exception). Must not be depended on by HTML/CSS/DOM/Layout/Graphics yet. |
+| **Public C API boundary** | `Include/RoboI18N/RoboI18N.h`, `RoboI18NLocale.h`. Guide: `i18n/README.md`. IANA File-Date **2026-05-05**; CLDR `none`. |
 
 ---
 

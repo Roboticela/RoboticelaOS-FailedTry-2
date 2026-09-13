@@ -1,8 +1,8 @@
 /*
  * RoboUnicode — encoding foundation (Goal 3.3).
  *
- * Unicode version for encoding algorithms: 16.0.0 (Unicode Standard, Ch. 3).
- * Future UCD property tables will pin the same version; see unicode/README.md.
+ * Unicode version pin: Include/RoboUnicode/RoboUnicodeVersion.h
+ * (synced from Tools/ucd/robo_unicode_version.py — Goal 3.14).
  *
  * Terminology (do not conflate):
  *   byte            — 8-bit unit in a UTF-8 sequence
@@ -17,6 +17,7 @@
 #define ROBO_UNICODE_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboUnicode/RoboUnicodeVersion.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -24,12 +25,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/** Pinned Unicode Standard version for encoding rules (Goal 3.3). */
-#define ROBO_UNICODE_VERSION_MAJOR 16
-#define ROBO_UNICODE_VERSION_MINOR 0
-#define ROBO_UNICODE_VERSION_PATCH 0
-#define ROBO_UNICODE_VERSION_STRING "16.0.0"
 
 /** Unicode scalar / code point container (0 .. 0x10FFFF). */
 typedef uint32_t robo_uchar32_t;

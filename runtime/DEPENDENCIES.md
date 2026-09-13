@@ -82,6 +82,7 @@ Applications
 | RoboHTML and RoboCSS | May both depend on RoboDOM. Must not depend on each other. |
 | RoboNet, RoboStorage, RoboSecurity | May depend on RoboPlatform / RoboIPC / RoboEvent / RoboAPI facades as documented. Must not depend on layout/paint/JS engines. |
 | RoboGraphics and RoboWindow | Window may use Graphics. Graphics must not depend on Window. |
+| RoboI18N | May depend on RoboBase, RoboMem, RoboContainers, RoboUnicode. Must not depend on HTML/CSS/DOM/Layout/Graphics/Render/Window/Shell. Unicode and higher UI must not depend on RoboI18N until a documented exception. |
 
 ## Forbidden edges
 

@@ -32,6 +32,9 @@ void robo_test_register_unicode_sentence(void);
 void robo_test_register_unicode_line(void);
 void robo_test_register_unicode_bidi(void);
 void robo_test_register_unicode_script(void);
+void robo_test_register_unicode_emoji(void);
+void robo_test_register_unicode_infra(void);
+void robo_test_register_i18n(void);
 
 int main(int argc, char **argv)
 {
@@ -101,5 +104,8 @@ int main(int argc, char **argv)
     robo_test_register_unicode_line();
     robo_test_register_unicode_bidi();
     robo_test_register_unicode_script();
+    robo_test_register_unicode_emoji();
+    robo_test_register_unicode_infra();
+    robo_test_register_i18n();
     return robo_test_main(argc, argv);
 }

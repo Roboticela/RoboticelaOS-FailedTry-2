@@ -1,0 +1,304 @@
+{
+  "unicode_version": "16.0.0",
+  "emoji_version": "16.0",
+  "generator_version": "1.0.0",
+  "base_url_ucd": "https://www.unicode.org/Public/16.0.0/ucd",
+  "base_url_emoji": "https://www.unicode.org/Public/emoji/16.0",
+  "license": "Unicode License Agreement \u2014 see UNICODE_DATA_LICENSE.txt and Docs/UnicodeDataAttribution.md",
+  "notes": [
+    "Normal runtime builds use already-generated tables; they do not download Unicode data.",
+    "Regeneration is an explicit developer step: Fetch-Ucd.ps1 then generate_all.py.",
+    "Emoji 16.0 is the official emoji data train paired with Unicode 16.0.0."
+  ],
+  "files": [
+    {
+      "name": "UnicodeData.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/UnicodeData.txt",
+      "sha256": "ff58e5823bd095166564a006e47d111130813dcf8bf234ef79fa51a870edb48f",
+      "purpose": "General_Category, CCC, simple case, decompositions",
+      "role": "runtime_generation",
+      "required": true,
+      "check_version_header": false
+    },
+    {
+      "name": "Scripts.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/Scripts.txt",
+      "sha256": "9e88f0a677df47311106340be8ede2ecdacd9c1c931831218d2be6d5508e0039",
+      "purpose": "Script property",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "ScriptExtensions.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/ScriptExtensions.txt",
+      "sha256": "049117ce26b9769fe2749b06eef51a50a89faef4a97764dd2d81daa715980700",
+      "purpose": "Script_Extensions",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "PropertyValueAliases.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/PropertyValueAliases.txt",
+      "sha256": "440fd3e5460b9bfe31da67b6f923992e1989d31fe2ed91e091c4b8f8e2620bf9",
+      "purpose": "Script short names (ISO 15924)",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "EastAsianWidth.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/EastAsianWidth.txt",
+      "sha256": "43adc76c0686a42cb370764eb8cfe2b2a45b10b855e5572a2db4a0eecce15d5b",
+      "purpose": "East_Asian_Width",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "PropList.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/PropList.txt",
+      "sha256": "53d614508e2a0b2305a8aa21cd60d993de9326cdf65993660dfcce4503548583",
+      "purpose": "White_Space, Regional_Indicator, Variation_Selector",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "DerivedCoreProperties.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/DerivedCoreProperties.txt",
+      "sha256": "39d35161f2954497f69e08bdb9e701493f476a3d30222de20028feda36c1dabd",
+      "purpose": "Alphabetic, Uppercase, Lowercase, Default_Ignorable, Cased, Case_Ignorable, InCB",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "emoji-data.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/emoji/emoji-data.txt",
+      "sha256": "f1365a5173eee18e1f98b240cdc492e84a25f1ce7e0c9d1094eb29c41a22696a",
+      "purpose": "Emoji boolean properties",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "CompositionExclusions.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/CompositionExclusions.txt",
+      "sha256": "89e83cf9cc8bef6c1f8bf77e42cf6f0341dfa42e66261f4dbe9b492e7a23c8ee",
+      "purpose": "NFC composition exclusions",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "DerivedNormalizationProps.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/DerivedNormalizationProps.txt",
+      "sha256": "4d4c03892dea9146d674b686e495df2d55a28d071ac474041d73518f887abddc",
+      "purpose": "Fetched for completeness; Hangul handled algorithmically",
+      "role": "reference",
+      "required": true
+    },
+    {
+      "name": "NormalizationTest.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/NormalizationTest.txt",
+      "sha256": "d811971453e7075e1ad56fb1b301eece5aa80757b81f6156e74a1bfb3ae5ceb1",
+      "purpose": "Normalization conformance vectors",
+      "role": "conformance",
+      "required": true
+    },
+    {
+      "name": "GraphemeBreakProperty.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/auxiliary/GraphemeBreakProperty.txt",
+      "sha256": "c29360bd6f7132811d701d29069541e827eb44bfc4c8fbde8c370d6982689dc1",
+      "purpose": "Grapheme_Cluster_Break",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "GraphemeBreakTest.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/auxiliary/GraphemeBreakTest.txt",
+      "sha256": "ee2b9354d270ac061b29f09662cafea06341d77e704b8cc6bd72aaeeda363cb5",
+      "purpose": "Grapheme break conformance",
+      "role": "conformance",
+      "required": true
+    },
+    {
+      "name": "SpecialCasing.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/SpecialCasing.txt",
+      "sha256": "8d5de354eef79f2395a54c9c7dcebbaf3d30fc962d0f85611ea97aa973a0c451",
+      "purpose": "Full unconditional case mappings",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "CaseFolding.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/CaseFolding.txt",
+      "sha256": "6f1f9c588eb4a5c718d9e8f93b782685e5c7fec872cf05e8e6878053599e09bb",
+      "purpose": "Case folding C/F/S",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "WordBreakProperty.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/auxiliary/WordBreakProperty.txt",
+      "sha256": "476464e71a4b7b779b8ba7c5671f4338fea77da8e6b6b05fb82b3fdd14603779",
+      "purpose": "Word_Break",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "WordBreakTest.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/auxiliary/WordBreakTest.txt",
+      "sha256": "ad985d5721f3fa6b45495663dfe44180f2f68976100dee0ea7451ef1a8f838e8",
+      "purpose": "Word break conformance",
+      "role": "conformance",
+      "required": true
+    },
+    {
+      "name": "SentenceBreakProperty.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/auxiliary/SentenceBreakProperty.txt",
+      "sha256": "20aab5eca3842c7a27cc6756d74488a4a5f744c8dca2948ec1128f26a60d1f79",
+      "purpose": "Sentence_Break",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "SentenceBreakTest.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/auxiliary/SentenceBreakTest.txt",
+      "sha256": "0aef84034ee1789eb71021454fac384e83080b05922272d63cf297f4bf08150e",
+      "purpose": "Sentence break conformance",
+      "role": "conformance",
+      "required": true
+    },
+    {
+      "name": "LineBreak.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/LineBreak.txt",
+      "sha256": "e97e4259d0d20fab150b9c7b4b28abfae5cd78ca97e7f4ac6ed20d685d5f4a7c",
+      "purpose": "Line_Break",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "LineBreakTest.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/auxiliary/LineBreakTest.txt",
+      "sha256": "910759a611a479f37df4f535d2e64d7589be3c5ac5f7491cf1fb4fa4cdb211e9",
+      "purpose": "Line break conformance",
+      "role": "conformance",
+      "required": true
+    },
+    {
+      "name": "DerivedBidiClass.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/extracted/DerivedBidiClass.txt",
+      "sha256": "71ed943a49c58568d8d92e80ecc2ba2f06e62aee9c8ebb0e6e8bd2c3ed8b180e",
+      "purpose": "Bidi_Class",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "BidiBrackets.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/BidiBrackets.txt",
+      "sha256": "b8f32554c6f658821fb0ee742d21c5b1f2086b9bf13071fed04894b022f93d67",
+      "purpose": "Paired brackets (N0)",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "BidiMirroring.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/BidiMirroring.txt",
+      "sha256": "d7afdadd1bbd66f5a663ac0e8f7958f18fd9491fc0bc59ec5877cb82db71db7d",
+      "purpose": "Reserved for future glyph mirroring",
+      "role": "reference",
+      "required": true
+    },
+    {
+      "name": "BidiTest.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/BidiTest.txt",
+      "sha256": "93e5eb9d88ca89dcf895f5576486a3363762ad2aa8f2db2fa56fe60cb82b9520",
+      "purpose": "Abstract bidi conformance (Python oracle)",
+      "role": "conformance",
+      "required": true
+    },
+    {
+      "name": "BidiCharacterTest.txt",
+      "url": "https://www.unicode.org/Public/16.0.0/ucd/BidiCharacterTest.txt",
+      "sha256": "d04a51a90052dcd71c4e91ee5b3a9d973ee35c12406b5a99875ac8163c8f2804",
+      "purpose": "Character bidi conformance (C + Python)",
+      "role": "conformance",
+      "required": true
+    },
+    {
+      "name": "emoji-sequences.txt",
+      "url": "https://www.unicode.org/Public/emoji/16.0/emoji-sequences.txt",
+      "sha256": "3fe3c77e72e8f26df302dc7d99b106c5d08fd808ef7246fb5d4502d659fe659c",
+      "purpose": "RGI emoji sequences (non-ZWJ)",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "emoji-zwj-sequences.txt",
+      "url": "https://www.unicode.org/Public/emoji/16.0/emoji-zwj-sequences.txt",
+      "sha256": "9423ec235474356f970a696506737e2d5d65453a67f45df66b8bbe920c3fab83",
+      "purpose": "RGI emoji ZWJ sequences",
+      "role": "runtime_generation",
+      "required": true
+    },
+    {
+      "name": "emoji-test.txt",
+      "url": "https://www.unicode.org/Public/emoji/16.0/emoji-test.txt",
+      "sha256": "24f0c534e86cf142e2496953e8f0e46a3e702392911eddcd29c6cced85139697",
+      "purpose": "Emoji sequence conformance (fully-qualified)",
+      "role": "conformance",
+      "required": true
+    }
+  ],
+  "generators": [
+    "generate_ucd.py",
+    "generate_norm.py",
+    "generate_grapheme.py",
+    "generate_case.py",
+    "generate_word.py",
+    "generate_sentence.py",
+    "generate_linebreak.py",
+    "generate_bidi.py",
+    "generate_emoji.py"
+  ],
+  "validators": [
+    "validate_script.py"
+  ],
+  "generated_outputs": [
+    "Include/RoboUnicode/RoboUnicodeVersion.h",
+    "Include/RoboUnicode/RoboUcdData.h",
+    "Include/RoboUnicode/RoboNormData.h",
+    "Include/RoboUnicode/RoboGraphemeData.h",
+    "Include/RoboUnicode/RoboCaseData.h",
+    "Include/RoboUnicode/RoboWordData.h",
+    "Include/RoboUnicode/RoboSentenceData.h",
+    "Include/RoboUnicode/RoboLineData.h",
+    "Include/RoboUnicode/RoboBidiData.h",
+    "Include/RoboUnicode/RoboEmojiData.h",
+    "Source/RoboUnicode/data/robo_ucd_data.c",
+    "Source/RoboUnicode/data/robo_norm_data.c",
+    "Source/RoboUnicode/data/robo_grapheme_data.c",
+    "Source/RoboUnicode/data/robo_case_data.c",
+    "Source/RoboUnicode/data/robo_word_data.c",
+    "Source/RoboUnicode/data/robo_sentence_data.c",
+    "Source/RoboUnicode/data/robo_line_data.c",
+    "Source/RoboUnicode/data/robo_bidi_data.c",
+    "Source/RoboUnicode/data/robo_emoji_data.c",
+    "Tests/Data/robo_norm_conformance.inc",
+    "Tests/Data/robo_grapheme_conformance.inc",
+    "Tests/Data/robo_case_conformance.inc",
+    "Tests/Data/robo_word_conformance.inc",
+    "Tests/Data/robo_sentence_conformance.inc",
+    "Tests/Data/robo_line_conformance.inc",
+    "Tests/Data/robo_script_conformance.bin",
+    "Tests/Data/robo_script_conformance.h",
+    "Tests/Data/robo_bidi_character_conformance.bin",
+    "Tests/Data/robo_bidi_character_conformance.h",
+    "Tests/Data/robo_emoji_conformance.bin",
+    "Tests/Data/robo_emoji_conformance.h"
+  ],
+  "representations": {
+    "ucd_bool_and_enum": "Compressed inclusive code-point ranges (binary search) for sparse Unicode properties",
+    "script_extensions": "Deduplicated sorted uint16 script-id pools + range to set-id",
+    "normalization": "One-step decomp maps + composition pair table; Hangul algorithmic",
+    "case": "Simple 1:1 tables + full multi-cp expansions + fold status tables",
+    "segmentation": "Compressed Grapheme/Word/Sentence/Line break property ranges",
+    "bidi": "Compressed Bidi_Class ranges + bracket pairs",
+    "emoji_sequences": "Compact code-point trie for longest-match RGI sequences"
+  }
+}

@@ -1,55 +1,46 @@
-# Download Unicode 16.0.0 UCD source files for RoboUnicode table generation.
+# Download official Unicode / Emoji data for RoboUnicode table generation.
+# Reads Tools/ucd/manifest.json (authoritative URLs + expected checksums).
+# Does NOT regenerate runtime tables — run: python generate_all.py
 
 param(
-    [string]$Version = "16.0.0"
+    [switch]$SkipChecksumVerify
 )
 
 $ErrorActionPreference = "Stop"
 $Here = $PSScriptRoot
 $OutDir = Join-Path $Here "source"
-New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+$ManifestPath = Join-Path $Here "manifest.json"
 
-$files = @(
-    @{ Name = "UnicodeData.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/UnicodeData.txt" },
-    @{ Name = "Scripts.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/Scripts.txt" },
-    @{ Name = "EastAsianWidth.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/EastAsianWidth.txt" },
-    @{ Name = "PropList.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/PropList.txt" },
-    @{ Name = "DerivedCoreProperties.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/DerivedCoreProperties.txt" },
-    @{ Name = "emoji-data.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/emoji/emoji-data.txt" },
-    @{ Name = "PropertyValueAliases.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/PropertyValueAliases.txt" },
-    @{ Name = "CompositionExclusions.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/CompositionExclusions.txt" },
-    @{ Name = "DerivedNormalizationProps.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/DerivedNormalizationProps.txt" },
-    @{ Name = "NormalizationTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/NormalizationTest.txt" },
-    @{ Name = "GraphemeBreakProperty.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/GraphemeBreakProperty.txt" },
-    @{ Name = "GraphemeBreakTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/GraphemeBreakTest.txt" },
-    @{ Name = "SpecialCasing.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/SpecialCasing.txt" },
-    @{ Name = "CaseFolding.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/CaseFolding.txt" },
-    @{ Name = "WordBreakProperty.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/WordBreakProperty.txt" },
-    @{ Name = "WordBreakTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/WordBreakTest.txt" },
-    @{ Name = "SentenceBreakProperty.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/SentenceBreakProperty.txt" },
-    @{ Name = "SentenceBreakTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/SentenceBreakTest.txt" },
-    @{ Name = "LineBreak.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/LineBreak.txt" },
-    @{ Name = "LineBreakTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/auxiliary/LineBreakTest.txt" },
-    @{ Name = "DerivedBidiClass.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/extracted/DerivedBidiClass.txt" },
-    @{ Name = "BidiBrackets.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiBrackets.txt" },
-    @{ Name = "BidiMirroring.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiMirroring.txt" },
-    @{ Name = "BidiTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiTest.txt" },
-    @{ Name = "BidiCharacterTest.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/BidiCharacterTest.txt" },
-    @{ Name = "ScriptExtensions.txt"; Url = "https://www.unicode.org/Public/$Version/ucd/ScriptExtensions.txt" }
-)
-
-foreach ($f in $files) {
-    $dest = Join-Path $OutDir $f.Name
-    Write-Host "GET $($f.Url)"
-    Invoke-WebRequest -Uri $f.Url -OutFile $dest -UseBasicParsing
-    Write-Host ("OK {0} ({1} bytes)" -f $f.Name, (Get-Item $dest).Length)
+if (-not (Test-Path $ManifestPath)) {
+    throw "Missing manifest: $ManifestPath"
 }
 
-Write-Host "Done. Run: python $($Here)\generate_ucd.py"
-Write-Host "         python $($Here)\generate_norm.py"
-Write-Host "         and: python $($Here)\generate_grapheme.py"
-Write-Host "         and: python $($Here)\generate_case.py"
-Write-Host "         and: python $($Here)\generate_word.py"
-Write-Host "         and: python $($Here)\generate_sentence.py"
-Write-Host "         and: python $($Here)\generate_linebreak.py"
-Write-Host "         and: python $($Here)\generate_bidi.py"
+$manifest = Get-Content -Raw -Path $ManifestPath | ConvertFrom-Json
+$Version = $manifest.unicode_version
+$EmojiVersion = $manifest.emoji_version
+Write-Host "Unicode $Version / Emoji $EmojiVersion (from manifest.json)"
+
+New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+foreach ($f in $manifest.files) {
+    $dest = Join-Path $OutDir $f.name
+    Write-Host "GET $($f.url)"
+    Invoke-WebRequest -Uri $f.url -OutFile $dest -UseBasicParsing
+    $len = (Get-Item $dest).Length
+    Write-Host ("OK {0} ({1} bytes)" -f $f.name, $len)
+
+    if (-not $SkipChecksumVerify -and $f.sha256) {
+        $hash = (Get-FileHash -Path $dest -Algorithm SHA256).Hash.ToLower()
+        $want = $f.sha256.ToLower()
+        if ($hash -ne $want) {
+            throw "Checksum mismatch for $($f.name)`n  expected $want`n  actual   $hash"
+        }
+        Write-Host "OK sha256 $($f.name)"
+    }
+}
+
+Write-Host ""
+Write-Host "Done. Next (explicit regeneration — not part of normal builds):"
+Write-Host "  python $Here\generate_all.py"
+Write-Host "  python $Here\generate_all.py --repro"
+Write-Host "  python $Here\verify_pipeline.py --sizes"

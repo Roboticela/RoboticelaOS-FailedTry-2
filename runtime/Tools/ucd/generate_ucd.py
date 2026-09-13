@@ -25,6 +25,8 @@ import struct
 import sys
 from pathlib import Path
 
+from robo_unicode_version import UCD_VERSION
+
 ROOT = Path(__file__).resolve().parents[2]  # runtime/
 SRC = Path(__file__).resolve().parent / "source"
 OUT_H = ROOT / "Include" / "RoboUnicode" / "RoboUcdData.h"
@@ -32,7 +34,6 @@ OUT_C = ROOT / "Source" / "RoboUnicode" / "data" / "robo_ucd_data.c"
 OUT_TEST_BIN = ROOT / "Tests" / "Data" / "robo_script_conformance.bin"
 OUT_TEST_META = ROOT / "Tests" / "Data" / "robo_script_conformance.h"
 
-UCD_VERSION = "16.0.0"
 MAX_CP = 0x110000
 
 GC_ORDER = [
@@ -55,7 +56,12 @@ BOOL_PROPS = [
     "Default_Ignorable_Code_Point",
     "Emoji",
     "Emoji_Presentation",
+    "Emoji_Modifier",
+    "Emoji_Modifier_Base",
+    "Emoji_Component",
     "Extended_Pictographic",
+    "Regional_Indicator",
+    "Variation_Selector",
 ]
 
 
@@ -414,8 +420,18 @@ def main() -> int:
     bool_maps = {p: [False] * MAX_CP for p in BOOL_PROPS}
     for path, names in (
         (SRC / "DerivedCoreProperties.txt", {"Alphabetic", "Uppercase", "Lowercase", "Default_Ignorable_Code_Point"}),
-        (SRC / "PropList.txt", {"White_Space"}),
-        (SRC / "emoji-data.txt", {"Emoji", "Emoji_Presentation", "Extended_Pictographic"}),
+        (SRC / "PropList.txt", {"White_Space", "Regional_Indicator", "Variation_Selector"}),
+        (
+            SRC / "emoji-data.txt",
+            {
+                "Emoji",
+                "Emoji_Presentation",
+                "Emoji_Modifier",
+                "Emoji_Modifier_Base",
+                "Emoji_Component",
+                "Extended_Pictographic",
+            },
+        ),
     ):
         props = parse_property_file(path, names)
         for name, ranges in props.items():

@@ -19,6 +19,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from robo_unicode_version import UCD_VERSION
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = Path(__file__).resolve().parent / "source"
 OUT_H = ROOT / "Include" / "RoboUnicode" / "RoboBidiData.h"
@@ -26,7 +28,6 @@ OUT_C = ROOT / "Source" / "RoboUnicode" / "data" / "robo_bidi_data.c"
 OUT_TEST_BIN = ROOT / "Tests" / "Data" / "robo_bidi_character_conformance.bin"
 OUT_TEST_META = ROOT / "Tests" / "Data" / "robo_bidi_character_conformance.h"
 
-UCD_VERSION = "16.0.0"
 MAX_CP = 0x110000
 
 # Enum order for C

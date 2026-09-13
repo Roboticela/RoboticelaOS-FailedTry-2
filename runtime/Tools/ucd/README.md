@@ -2,12 +2,20 @@
 
 ## Version
 
-**Unicode 16.0.0** (matches `ROBO_UNICODE_VERSION_STRING`).
+**Unicode 16.0.0** / **Emoji 16.0** — pinned in `robo_unicode_version.py`
+(synced to `Include/RoboUnicode/RoboUnicodeVersion.h`).
+
+Do not scatter version literals across generators.
 
 ## License
 
 Unicode Data Files are under the Unicode License Agreement.
-See `UNICODE_DATA_LICENSE.txt` and https://www.unicode.org/license.txt
+See `UNICODE_DATA_LICENSE.txt` and `../../Docs/UnicodeDataAttribution.md`.
+
+## Offline builds
+
+`Build.ps1` uses **committed** generated tables. It never downloads Unicode
+data and never invokes these scripts. Regeneration is an explicit developer step.
 
 ## Fetch sources
 
@@ -15,21 +23,36 @@ See `UNICODE_DATA_LICENSE.txt` and https://www.unicode.org/license.txt
 .\runtime\Tools\ucd\Fetch-Ucd.ps1
 ```
 
-Downloads official UCD files into `Tools/ucd/source/` (gitignored).
+Downloads official files listed in `manifest.json` into `source/` (gitignored)
+and verifies SHA-256 checksums.
 
-## Generate runtime tables
+## Generate / verify
 
 ```powershell
-python .\runtime\Tools\ucd\generate_ucd.py
-python .\runtime\Tools\ucd\validate_script.py
-python .\runtime\Tools\ucd\generate_norm.py
-python .\runtime\Tools\ucd\generate_grapheme.py
-python .\runtime\Tools\ucd\generate_case.py
-python .\runtime\Tools\ucd\generate_word.py
-python .\runtime\Tools\ucd\generate_sentence.py
-python .\runtime\Tools\ucd\generate_linebreak.py
-python .\runtime\Tools\ucd\generate_bidi.py
+python .\runtime\Tools\ucd\generate_all.py              # all generators
+python .\runtime\Tools\ucd\generate_all.py --verify-only
+python .\runtime\Tools\ucd\generate_all.py --repro      # deterministic check
+python .\runtime\Tools\ucd\generate_all.py --update-golden
+python .\runtime\Tools\ucd\verify_pipeline.py --sizes
+python .\runtime\Tools\ucd\measure_tables.py
 ```
+
+Upgrade workflow: `../../unicode/UPGRADE.md`  
+Audit: `../../unicode/AUDIT.md`
+
+### Key files
+
+| File | Role |
+|---|---|
+| `robo_unicode_version.py` | Single Unicode/Emoji/generator version pin |
+| `manifest.json` | Official URLs, SHA-256, roles, generated outputs |
+| `golden_hashes.json` | SHA-256 of committed generated artifacts |
+| `ucd_common.py` | Shared validation / hashing helpers |
+| `generate_all.py` | Orchestrator |
+| `verify_pipeline.py` | Source + golden verification |
+| `generate_*.py` | Per-subsystem table generators |
+| `validate_script.py` | Script/SCX independent check |
+| `bidi_ref.py` / `lb_ref.py` | Python oracles |
 
 ### Property tables (`generate_ucd.py`)
 
@@ -63,29 +86,10 @@ python .\runtime\Tools\ucd\generate_bidi.py
 | `Source/RoboUnicode/data/robo_case_data.c` | Mapping tables + Cased/Case_Ignorable |
 | `Tests/Data/robo_case_conformance.inc` | CaseFolding + SpecialCasing fixtures |
 
-### Word segmentation tables (`generate_word.py`)
+### Word / sentence / line
 
-| Output | Role |
-|---|---|
-| `Include/RoboUnicode/RoboWordData.h` | Word_Break enums + lookup decls |
-| `Source/RoboUnicode/data/robo_word_data.c` | Compressed Word_Break range tables |
-| `Tests/Data/robo_word_conformance.inc` | Official `WordBreakTest.txt` vectors |
-
-### Sentence segmentation tables (`generate_sentence.py`)
-
-| Output | Role |
-|---|---|
-| `Include/RoboUnicode/RoboSentenceData.h` | Sentence_Break enums + lookup decls |
-| `Source/RoboUnicode/data/robo_sentence_data.c` | Compressed Sentence_Break range tables |
-| `Tests/Data/robo_sentence_conformance.inc` | Official `SentenceBreakTest.txt` vectors |
-
-### Line breaking tables (`generate_linebreak.py`)
-
-| Output | Role |
-|---|---|
-| `Include/RoboUnicode/RoboLineData.h` | Line_Break enums + lookup decls |
-| `Source/RoboUnicode/data/robo_line_data.c` | Compressed Line_Break range tables |
-| `Tests/Data/robo_line_conformance.inc` | Official `LineBreakTest.txt` vectors |
+Same pattern: `generate_word.py`, `generate_sentence.py`, `generate_linebreak.py`
+→ `*Data.h`, `robo_*_data.c`, `robo_*_conformance.inc`.
 
 ### Bidi tables (`generate_bidi.py`)
 
@@ -93,76 +97,31 @@ python .\runtime\Tools\ucd\generate_bidi.py
 |---|---|
 | `Include/RoboUnicode/RoboBidiData.h` | Bidi_Class enums + bracket lookup |
 | `Source/RoboUnicode/data/robo_bidi_data.c` | Compressed Bidi_Class + BidiBrackets |
-| `Tests/Data/robo_bidi_character_conformance.bin` | Packed `BidiCharacterTest.txt` (91,707) |
+| `Tests/Data/robo_bidi_character_conformance.bin` | Packed `BidiCharacterTest.txt` |
 | `Tests/Data/robo_bidi_character_conformance.h` | Case-count / magic metadata |
 
-Reference oracle: `bidi_ref.py` (also runs abstract `BidiTest.txt`).
+### Emoji / UTS #51 tables (`generate_emoji.py`)
+
+| Output | Role |
+|---|---|
+| `Include/RoboUnicode/RoboEmojiData.h` | Sequence kinds + trie decls |
+| `Source/RoboUnicode/data/robo_emoji_data.c` | Compact RGI code-point trie |
+| `Tests/Data/robo_emoji_conformance.bin` | Packed fully-qualified `emoji-test.txt` |
+
+Code-point emoji booleans remain in `generate_ucd.py` (shared UCD).
 
 Do not hand-edit generated files. Re-run after upgrading Unicode version
-(update URLs in `Fetch-Ucd.ps1` and `UCD_VERSION` in all generators).
+(update `robo_unicode_version.py` + `manifest.json`).
 
-## Inputs used
+## Compact representations
 
-### Properties (`generate_ucd.py`)
+Documented in `manifest.json` → `representations`:
 
-- `UnicodeData.txt` — General_Category, Canonical_Combining_Class
-- `Scripts.txt` — Script
-- `EastAsianWidth.txt` — East_Asian_Width
-- `DerivedCoreProperties.txt` — Alphabetic, Uppercase, Lowercase, Default_Ignorable_Code_Point
-- `PropList.txt` — White_Space
-- `emoji/emoji-data.txt` — Emoji, Emoji_Presentation, Extended_Pictographic
+- Sparse properties: compressed inclusive ranges + binary search
+- Script_Extensions: deduplicated uint16 pools
+- Normalization: decomp maps + composition pairs (Hangul algorithmic)
+- Emoji RGI: code-point trie (longest match)
 
-### Normalization (`generate_norm.py`)
+## Inputs
 
-- `UnicodeData.txt` — field 5 decomposition mappings (canonical + compatibility)
-- `CompositionExclusions.txt` — characters excluded from composition
-- `NormalizationTest.txt` — conformance test vectors (optional but recommended)
-- `DerivedNormalizationProps.txt` — fetched for completeness; Hangul uses algorithmic rules at runtime
-
-Composition pairs require CCC(first character) == 0 (from `UnicodeData.txt`).
-
-### Grapheme segmentation (`generate_grapheme.py`)
-
-- `auxiliary/GraphemeBreakProperty.txt` — Grapheme_Cluster_Break
-- `DerivedCoreProperties.txt` — Indic_Conjunct_Break (GB9c)
-- `auxiliary/GraphemeBreakTest.txt` — conformance vectors
-
-### Case mapping (`generate_case.py`)
-
-- `UnicodeData.txt` — simple upper/lower/title (fields 12–14)
-- `SpecialCasing.txt` — full unconditional mappings + Final_Sigma
-- `CaseFolding.txt` — statuses C/F/S (T skipped for locale-independent fold)
-- `DerivedCoreProperties.txt` — `Cased`, `Case_Ignorable`
-
-### Word segmentation (`generate_word.py`)
-
-- `auxiliary/WordBreakProperty.txt` — `Word_Break` property
-- `auxiliary/WordBreakTest.txt` — conformance vectors
-- Extended_Pictographic for WB3c comes from existing UCD emoji tables at runtime
-
-### Sentence segmentation (`generate_sentence.py`)
-
-- `auxiliary/SentenceBreakProperty.txt` — `Sentence_Break` property
-- `auxiliary/SentenceBreakTest.txt` — conformance vectors
-
-### Line breaking (`generate_linebreak.py`)
-
-- `LineBreak.txt` — `Line_Break` property
-- `auxiliary/LineBreakTest.txt` — conformance vectors
-- Runtime also uses existing UCD Gc / East_Asian_Width / Extended_Pictographic
-
-### Bidirectional Algorithm (`generate_bidi.py`)
-
-- `extracted/DerivedBidiClass.txt` — `Bidi_Class`
-- `BidiBrackets.txt` — paired brackets for N0
-- `BidiMirroring.txt` — fetched for completeness (glyph mirroring later)
-- `BidiCharacterTest.txt` — packed into `.bin` conformance fixture
-- `BidiTest.txt` — abstract-class suite (Python `bidi_ref.py`)
-
-### Script / Script_Extensions (`generate_ucd.py`)
-
-- `Scripts.txt` — primary `Script` property (all scripts)
-- `ScriptExtensions.txt` — `Script_Extensions` multi-script sets
-- `PropertyValueAliases.txt` — ISO 15924 short names (`sc ; Arab ; Arabic`)
-- Validator: `validate_script.py`
-- Fixture: `Tests/Data/robo_script_conformance.bin`
+See `manifest.json` `files[]` for the complete list with URLs and checksums.

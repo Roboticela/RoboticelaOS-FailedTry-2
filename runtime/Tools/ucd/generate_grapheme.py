@@ -18,13 +18,14 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from robo_unicode_version import UCD_VERSION
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = Path(__file__).resolve().parent / "source"
 OUT_H = ROOT / "Include" / "RoboUnicode" / "RoboGraphemeData.h"
 OUT_C = ROOT / "Source" / "RoboUnicode" / "data" / "robo_grapheme_data.c"
 OUT_TEST = ROOT / "Tests" / "Data" / "robo_grapheme_conformance.inc"
 
-UCD_VERSION = "16.0.0"
 MAX_CP = 0x110000
 
 GB_ORDER = [
