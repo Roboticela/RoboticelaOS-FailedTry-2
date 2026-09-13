@@ -4,6 +4,7 @@
 
 #include "RoboI18N/RoboI18NMessage.h"
 
+#include "RoboI18N/RoboI18NLocaleData.h"
 #include "RoboI18N/RoboMsgData.h"
 #include "RoboMem/RoboMem.h"
 
@@ -287,11 +288,15 @@ static const char *select_text_blob(const robo_i18n_catalog_t *cat,
 static int next_parent(robo_i18n_locale_t *cur)
 {
     robo_i18n_locale_t parent;
-    if (robo_i18n_locale_parent(cur, &parent) == ROBO_OK) {
-        *cur = parent;
-        return 1;
+    /* Prefer CLDR parentLocales / data inheritance over truncation parent. */
+    if (robo_i18n_locale_data_parent(cur, &parent) != ROBO_OK) {
+        return 0;
     }
-    return 0;
+    if (robo_i18n_locale_equal(cur, &parent)) {
+        return 0;
+    }
+    *cur = parent;
+    return 1;
 }
 
 static const char *resolve_message(const robo_i18n_catalog_t *catalog,

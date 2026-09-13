@@ -4,10 +4,10 @@ alwaysApply: true
 
 ### Current completed status
 
-* **Phase 0 — Project & Architecture:** complete
-* **Phase 1 — Core Runtime:** complete
-* **Phase 2 — Memory:** complete
-* **Phase 3 — Containers & Data Foundations:** complete
+* **Phase 0 — Project & Architecture:** complete ✅
+* **Phase 1 — Core Runtime:** complete ✅
+* **Phase 2 — Memory:** complete ✅
+* **Phase 3 — Containers & Data Foundations:** complete ✅
 * **Phase 4 — Unicode & I18N:** complete through **4.27**
 * **Next:** **Phase 5.1 — RoboFont**
 
@@ -17,7 +17,7 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 
 # Phase 5 — RoboFont
 
-5.1 RoboFont architecture & font model
+5.1 RoboFont architecture & font model ✅
 5.2 SFNT container parser
 5.3 TrueType table parsing
 5.4 OpenType table parsing

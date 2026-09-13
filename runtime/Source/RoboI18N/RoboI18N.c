@@ -1,5 +1,6 @@
 #include "RoboI18N/RoboI18N.h"
 
+#include "RoboI18N/RoboI18NLocaleService.h"
 #include "RoboI18N/RoboIanaData.h"
 
 const char *robo_i18n_version_string(void)
@@ -30,4 +31,5 @@ robo_result_t robo_i18n_init(void)
 
 void robo_i18n_shutdown(void)
 {
+    robo_i18n_clear_application_locale();
 }

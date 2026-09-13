@@ -53,6 +53,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\RoboI18N.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NLocale.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NLocaleData.c"),
+    (Join-Path $SourceDir "RoboI18N\RoboI18NLocaleService.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NNumber.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NPlural.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDateTime.c"),
@@ -85,7 +86,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\data\robo_coll_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_disp_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_msg_data.c"),
-    (Join-Path $SourceDir "RoboI18N\data\robo_tz_data.c")
+    (Join-Path $SourceDir "RoboI18N\data\robo_tz_data.c"),
+    (Join-Path $SourceDir "RoboI18N\data\robo_hc_data.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -129,7 +131,8 @@ $SuiteSrcs = @(
     (Join-Path $SuitesDir "SuiteRoboI18NMessageFormat.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NMessageValidate.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NTimeZone.c"),
-    (Join-Path $SuitesDir "SuiteRoboI18NTimeZoneDisplay.c")
+    (Join-Path $SuitesDir "SuiteRoboI18NTimeZoneDisplay.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NLocaleService.c")
 )
 
 $RuntimeElf = Join-Path $OutDir "RoboticelaRuntime.elf"

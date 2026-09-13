@@ -10,6 +10,7 @@
 #include "RoboI18N/RoboI18NCollation.h"
 
 #include "RoboI18N/RoboCollData.h"
+#include "RoboI18N/RoboI18NLocaleService.h"
 #include "RoboI18N/RoboUcaData.h"
 #include "RoboMem/RoboMem.h"
 #include "RoboUnicode/RoboNormData.h"
@@ -123,6 +124,8 @@ robo_result_t robo_i18n_collator_create(const robo_i18n_locale_t *locale,
                                         robo_i18n_collator_t **out)
 {
     robo_i18n_collator_t *c;
+    char resolved_type[32];
+    const char *type_use;
     if (!locale || !out) {
         return ROBO_INVALID_ARGUMENT;
     }
@@ -136,7 +139,16 @@ robo_result_t robo_i18n_collator_create(const robo_i18n_locale_t *locale,
     } else {
         robo_i18n_collator_options_init(&c->options);
     }
-    bind_tailoring(c, collation_type);
+    type_use = collation_type;
+    if (!type_use || !type_use[0]) {
+        if (robo_i18n_locale_resolve_collation(locale, NULL, resolved_type,
+                                               sizeof(resolved_type)) == ROBO_OK) {
+            type_use = resolved_type;
+        } else {
+            type_use = "standard";
+        }
+    }
+    bind_tailoring(c, type_use);
     *out = c;
     return ROBO_OK;
 }

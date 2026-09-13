@@ -1,6 +1,6 @@
 # RoboI18N
 
-Internationalization for Roboticela Runtime (**Goals 4.1–4.15**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.16**).
 
 ## Scope
 
@@ -10,11 +10,12 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.15**).
 | Parse, format, canonicalize (IANA) | Full ICU MessageFormat parity |
 | Equality / matching / truncation parent | Full-text search / transliteration |
 | Default locale + preference lists | Fonts / shaping / layout |
-| CLDR likely subtags maximize/minimize | Holiday databases |
-| Numbering-system metadata + digits | Recurrence / scheduling engines |
-| Locale-aware decimal number formatting | Full LDML rule builder for every locale |
-| CLDR parentLocales + root inheritance | Translator UI / TMS |
-| CLDR cardinal / ordinal plural categories | TAI/UTC leap-second modeling |
+| **Runtime locale service** (extensions, resolve, fallback) | Holiday databases |
+| CLDR likely subtags maximize/minimize | Recurrence / scheduling engines |
+| Numbering-system metadata + digits | Full LDML rule builder for every locale |
+| Locale-aware decimal number formatting | Translator UI / TMS |
+| CLDR parentLocales + root inheritance | TAI/UTC leap-second modeling |
+| CLDR cardinal / ordinal plural categories | |
 | Date/time/instant/duration primitives | |
 | Calendar abstraction + CLDR calendar metadata | |
 | **IANA tzdb** (offsets, DST, aliases, fixed) | |
@@ -33,13 +34,18 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.15**).
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.15.0` |
-| Generator | `1.14.0` |
+| RoboI18N API | `0.16.0` |
+| Generator | `1.15.0` |
 | RoboMsgFmt syntax | **1** |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
 | CLDR | **46** (JSON **46.0.0**) |
 | Unicode / UCA (DUCET) | **16.0.0** |
 | IANA tzdb | **2026c** |
+
+## Locale service (Goal 4.16)
+
+See **`LocaleService.md`**. Central resolve / fallback / Unicode extensions /
+capability queries. API: `RoboI18NLocaleService.h`.
 
 ## Time zones (Goals 4.14–4.15)
 

@@ -10,6 +10,7 @@
 #include "RoboI18N/RoboCalData.h"
 #include "RoboI18N/RoboI18NDisplayNames.h"
 #include "RoboI18N/RoboI18NLocaleData.h"
+#include "RoboI18N/RoboI18NLocaleService.h"
 
 #include <string.h>
 
@@ -29,6 +30,44 @@ void robo_i18n_dtfmt_options_init(robo_i18n_dtfmt_options_t *opts)
     memset(opts, 0, sizeof(*opts));
     opts->date_style = ROBO_I18N_CAL_STYLE_MEDIUM;
     opts->time_style = ROBO_I18N_CAL_STYLE_MEDIUM;
+}
+
+/** Remap hour-cycle letters in @p pattern to match resolved CLDR hc id. */
+static void apply_hour_cycle_to_pattern(char *pattern, size_t cap, const char *hc)
+{
+    char want = 'H';
+    size_t i;
+    int in_quote = 0;
+    (void)cap;
+    if (!pattern || !hc || !hc[0]) {
+        return;
+    }
+    if (strcmp(hc, "h12") == 0) {
+        want = 'h';
+    } else if (strcmp(hc, "h11") == 0) {
+        want = 'K';
+    } else if (strcmp(hc, "h24") == 0) {
+        want = 'k';
+    } else {
+        want = 'H'; /* h23 */
+    }
+    for (i = 0; pattern[i]; i++) {
+        char c = pattern[i];
+        if (c == '\'') {
+            if (pattern[i + 1] == '\'') {
+                i++;
+                continue;
+            }
+            in_quote = !in_quote;
+            continue;
+        }
+        if (in_quote) {
+            continue;
+        }
+        if (c == 'h' || c == 'H' || c == 'K' || c == 'k') {
+            pattern[i] = want;
+        }
+    }
 }
 
 static void format_locale_tag(const robo_i18n_locale_t *loc, char *buf, size_t cap)
@@ -96,6 +135,12 @@ static robo_result_t compile_pattern(robo_i18n_datetime_formatter_t *fmt, const 
         return ROBO_INVALID_ARGUMENT;
     }
     memcpy(fmt->pattern, pattern, plen + 1u);
+    if (fmt->options.hour_cycle[0]) {
+        apply_hour_cycle_to_pattern(fmt->pattern, sizeof(fmt->pattern),
+                                    fmt->options.hour_cycle);
+        plen = strlen(fmt->pattern);
+    }
+    pattern = fmt->pattern;
     fmt->token_count = 0;
     {
         size_t pack = plen + 1u; /* quoted literals packed after pattern NUL */
@@ -574,35 +619,60 @@ static robo_result_t init_common(robo_i18n_datetime_formatter_t *fmt,
 {
     robo_i18n_number_options_t nopts;
     robo_result_t r;
+    char cal_id[32];
+    char tz_id[ROBO_I18N_TZ_ID_MAX + 1u];
+    char hc[8];
 
     if (!fmt || !locale) {
         return ROBO_INVALID_ARGUMENT;
     }
     memset(fmt, 0, sizeof(*fmt));
     fmt->locale = *locale;
+    if (opts) {
+        fmt->options = *opts;
+    } else {
+        robo_i18n_dtfmt_options_init(&fmt->options);
+    }
+
     if (calendar) {
         fmt->calendar = *calendar;
     } else {
-        r = robo_i18n_calendar_from_kind(ROBO_I18N_CAL_GREGORIAN, &fmt->calendar);
-        if (r != ROBO_OK) {
-            return r;
+        robo_i18n_locale_settings_t st;
+        cal_id[0] = '\0';
+        if (robo_i18n_locale_resolve(locale, NULL, &st) == ROBO_OK &&
+            st.calendar_src == ROBO_I18N_SRC_EXTENSION && st.calendar[0]) {
+            size_t n = strlen(st.calendar);
+            if (n >= sizeof(cal_id)) {
+                n = sizeof(cal_id) - 1u;
+            }
+            memcpy(cal_id, st.calendar, n);
+            cal_id[n] = '\0';
+        }
+        if (!cal_id[0] ||
+            robo_i18n_calendar_from_id(cal_id, strlen(cal_id), &fmt->calendar) != ROBO_OK ||
+            !robo_i18n_calendar_has_conversion(&fmt->calendar)) {
+            r = robo_i18n_calendar_from_kind(ROBO_I18N_CAL_GREGORIAN, &fmt->calendar);
+            if (r != ROBO_OK) {
+                return r;
+            }
         }
     }
     if (!robo_i18n_calendar_has_conversion(&fmt->calendar)) {
         return ROBO_NOT_SUPPORTED;
     }
+
     if (tz) {
         fmt->timezone = *tz;
     } else {
-        r = robo_i18n_timezone_utc(&fmt->timezone);
-        if (r != ROBO_OK) {
-            return r;
+        tz_id[0] = '\0';
+        (void)robo_i18n_locale_resolve_timezone(locale, NULL, tz_id, sizeof(tz_id));
+        if (!tz_id[0] ||
+            robo_i18n_timezone_from_id(tz_id, strlen(tz_id), &fmt->timezone) != ROBO_OK) {
+            r = robo_i18n_timezone_utc(&fmt->timezone);
+            if (r != ROBO_OK) {
+                return r;
+            }
         }
-    }
-    if (opts) {
-        fmt->options = *opts;
-    } else {
-        robo_i18n_dtfmt_options_init(&fmt->options);
     }
 
     robo_i18n_number_options_init(&nopts);
@@ -620,6 +690,17 @@ static robo_result_t init_common(robo_i18n_datetime_formatter_t *fmt,
     r = robo_i18n_number_formatter_init(&fmt->number, &fmt->locale, &nopts);
     if (r != ROBO_OK) {
         return r;
+    }
+
+    hc[0] = '\0';
+    if (robo_i18n_locale_resolve_hour_cycle(
+            locale, fmt->options.hour_cycle[0] ? fmt->options.hour_cycle : NULL, hc,
+            sizeof(hc)) == ROBO_OK &&
+        hc[0]) {
+        size_t n = strlen(hc);
+        if (n < sizeof(fmt->options.hour_cycle)) {
+            memcpy(fmt->options.hour_cycle, hc, n + 1u);
+        }
     }
     return ROBO_OK;
 }

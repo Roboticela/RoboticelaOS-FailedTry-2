@@ -1,4 +1,4 @@
-# RoboI18N tooling (Goals 4.1–4.15)
+# RoboI18N tooling (Goals 4.1–4.16)
 
 ## Offline builds
 
@@ -26,6 +26,8 @@ Or individually:
 python .\runtime\Tools\i18n\generate_calendar.py --write-golden
 python .\runtime\Tools\i18n\generate_relative.py --write-golden
 python .\runtime\Tools\i18n\generate_display.py --write-golden
+python .\runtime\Tools\i18n\generate_hour_cycle.py
+python .\runtime\Tools\i18n\validate_locale_consistency.py
 ```
 
 ## IANA tzdb (Goal 4.14)

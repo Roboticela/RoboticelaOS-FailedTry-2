@@ -17,7 +17,7 @@ static void parse_tag(const char *tag, robo_i18n_locale_t *out)
 
 static void test_arith_version(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.15.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.16.0");
 }
 
 static void test_duration_vs_period(void)

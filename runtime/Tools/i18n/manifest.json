@@ -85,6 +85,12 @@
         "category": "calendarData",
         "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/calendarData.json",
         "sha256": "11e81ac38e7fd705bbccb38039832b5ead5bcd933b1100b3d28629da5456def2"
+      },
+      {
+        "name": "timeData.json",
+        "category": "timeData",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/timeData.json",
+        "sha256": "14e407c3933256249a167a78a53711523c763349f7e1daec73957970fce339dd"
       }
     ]
   },

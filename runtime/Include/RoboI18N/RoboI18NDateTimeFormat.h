@@ -49,7 +49,8 @@ typedef enum robo_i18n_dtfmt_kind {
 typedef struct robo_i18n_dtfmt_options {
     robo_i18n_cal_format_style_t date_style; /* DATE / DATETIME */
     robo_i18n_cal_format_style_t time_style; /* TIME / DATETIME */
-    char numbering_system[16];               /* empty = locale default */
+    char numbering_system[16];               /* empty = locale service resolve */
+    char hour_cycle[8];                      /* empty = locale service; h11/h12/h23/h24 */
 } robo_i18n_dtfmt_options_t;
 
 /**

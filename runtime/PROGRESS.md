@@ -653,7 +653,31 @@
 - [x] Generated/validated CLDR display data; no Chromium
 - [x] Debug / Release / Sanitize green
 
+## Goal 4.16 — Locale Data Completeness, Fallback, and Runtime Locale Service
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NLocaleService` — Unicode keywords (`ca`/`nu`/`hc`/`co`/`tz`), resolve settings, fallback chain, negotiate
+- Application vs default vs effective locale abstraction (no OS coupling)
+- Centralized numbering / calendar / hour-cycle / collation / timezone selection with documented precedence
+- CLDR `timeData` → `robo_hc_data` (`generate_hour_cycle.py`)
+- Number, DateTimeFormat, Collation, Message wired to the service / data parents
+- Capability queries + `robo_i18n_data_versions`
+- Consistency validator `validate_locale_consistency.py`
+- Suite `SuiteRoboI18NLocaleService.c`; docs `i18n/LocaleService.md`
+- API **0.16.0** / generator **1.15.0**
+- Debug / Release / ASan+UBSan: **381/381**
+
+**Definition of done:**
+
+- [x] RoboLocale runtime context + centralized resolve/fallback/matching
+- [x] Cross-subsystem consistency + intl/robustness tests
+- [x] Documentation + version metadata
+- [x] Debug / Release / Sanitize green
+
 ## Next
 
-- Goal 4.16+ (do not start until requested)
+- Goal 4.17+ (do not start until requested)
 

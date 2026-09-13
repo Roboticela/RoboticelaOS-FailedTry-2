@@ -6,6 +6,7 @@
 
 #include "RoboI18N/RoboCldrData.h"
 #include "RoboI18N/RoboI18NLocaleData.h"
+#include "RoboI18N/RoboI18NLocaleService.h"
 
 #include <string.h>
 
@@ -164,8 +165,11 @@ robo_result_t robo_i18n_number_formatter_init(robo_i18n_number_formatter_t *fmt,
     fmt->options = local_opts;
 
     if (local_opts.numbering_system[0]) {
-        copy_id(nsys, sizeof(nsys), local_opts.numbering_system);
-    } else if (robo_i18n_locale_default_numbering_system(locale, nsys, sizeof(nsys)) !=
+        if (robo_i18n_locale_resolve_numbering(locale, local_opts.numbering_system, nsys,
+                                               sizeof(nsys)) != ROBO_OK) {
+            copy_id(nsys, sizeof(nsys), local_opts.numbering_system);
+        }
+    } else if (robo_i18n_locale_resolve_numbering(locale, NULL, nsys, sizeof(nsys)) !=
                ROBO_OK) {
         copy_id(nsys, sizeof(nsys), "latn");
     }

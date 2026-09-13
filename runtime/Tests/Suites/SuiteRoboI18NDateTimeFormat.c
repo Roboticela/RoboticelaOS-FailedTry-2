@@ -68,7 +68,7 @@ static void expect_time(const char *tag,
 
 static void test_dtfmt_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.15.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.16.0");
     ROBO_CHECK_STR_EQ(robo_i18n_cldr_version_string(), "46");
     ROBO_CHECK_STR_EQ(ROBO_CAL_CLDR_VERSION, "46");
     ROBO_CHECK(robo_cal_available_formats_count > 1000u);
