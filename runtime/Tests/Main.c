@@ -60,6 +60,8 @@ void robo_test_register_i18n_parse(void);
 void robo_test_register_i18n_datetime_parse(void);
 void robo_test_register_i18n_search(void);
 void robo_test_register_i18n_translit(void);
+void robo_test_register_i18n_conformance(void);
+void robo_test_register_i18n_phase4(void);
 
 int main(int argc, char **argv)
 {
@@ -157,5 +159,7 @@ int main(int argc, char **argv)
     robo_test_register_i18n_datetime_parse();
     robo_test_register_i18n_search();
     robo_test_register_i18n_translit();
+    robo_test_register_i18n_conformance();
+    robo_test_register_i18n_phase4();
     return robo_test_main(argc, argv);
 }

@@ -39,7 +39,7 @@ static void expect_unit(const char *tag,
 
 static void test_meas_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.27.0");
     ROBO_CHECK_STR_EQ(robo_i18n_measure_cldr_version_string(), "46");
     ROBO_CHECK_STR_EQ(ROBO_MPREF_CLDR_VERSION, "46");
     ROBO_CHECK(robo_mpref_units_count > 20u);

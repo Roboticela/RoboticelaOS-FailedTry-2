@@ -795,4 +795,6 @@ void robo_i18n_data_versions(robo_i18n_data_versions_t *out)
     out->unicode_version = ROBO_CLDR_UNICODE_VERSION_STRING;
     out->tzdb_version = ROBO_TZDB_VERSION_STRING_PIN;
     out->iana_file_date = ROBO_IANA_REGISTRY_FILE_DATE;
+    out->uca_version = ROBO_UCA_VERSION_STRING_PIN;
+    out->iso4217_source = ROBO_ISO4217_SOURCE_STRING;
 }

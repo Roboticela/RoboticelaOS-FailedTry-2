@@ -19,7 +19,7 @@ static void translit(const char *id, const char *in, char *out, size_t out_cap, 
 
 static void test_translit_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.27.0");
     ROBO_CHECK_STR_EQ(robo_i18n_translit_cldr_version_string(), "46");
     ROBO_CHECK(robo_i18n_translit_id_count() >= 8u);
 }

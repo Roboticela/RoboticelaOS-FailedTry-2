@@ -8,8 +8,8 @@ alwaysApply: true
 * **Phase 1 — Core Runtime:** complete ✅
 * **Phase 2 — Memory:** complete ✅
 * **Phase 3 — Containers & Data Foundations:** complete ✅
-* **Phase 4 — Unicode & I18N:** complete through **4.27**
-* **Next:** **Phase 5.1 — RoboFont**
+* **Phase 4 — Unicode & I18N:** complete through **4.27** (API frozen) ✅
+* **Next:** **Phase 5.1 — RoboFont** (do not start until requested)
 
 The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
 

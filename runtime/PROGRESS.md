@@ -864,7 +864,51 @@
 - [x] Explicit direction / normalization stages / security limits
 - [x] Multilingual matrix + fuzz tests; docs; PROGRESS updated
 
+## Goal 4.26 — Locale Data Completeness and Conformance Suite
+
+**Status:** complete
+
+**Done:**
+
+- Authoritative data/version manifest (`Tools/i18n/manifest.json`,
+  `i18n/DataManifest.md`) covering Unicode/Emoji/UCA/CLDR/tzdb/IANA/ISO4217-via-CLDR
+- `verify_i18n_pipeline.py` — pin coherence, `i18n_golden_hashes.json`, locale
+  consistency, Chromium include/link audit
+- Expanded `validate_locale_consistency.py` + `robo_i18n_data_versions` (UCA + ISO4217)
+- Conformance suite `SuiteRoboI18NConformance.c` — 18-locale corpus, numbering,
+  plural kinds, search≠translit, RTL/fuzz/perf smoke
+- Completeness report `i18n/CompletenessReport.md` + `Completeness.md`
+- API **0.26.0** / generator **1.24.0** / CLDR **46** / Unicode **16.0.0** / tzdb **2026c**
+- Debug / Release / ASan+UBSan: **495/495**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Version / generator / golden / locale audits
+- [x] Conformance + regression corpus; Chromium independence check
+- [x] Documentation; PROGRESS updated
+
+## Goal 4.27 — Final Integration, API Freeze, and Phase 4 Validation
+
+**Status:** complete — **Phase 4 frozen**
+
+**Done:**
+
+- Public API freeze (`ROBO_I18N_API_FROZEN`, API **0.27.0** / generator **1.25.0**)
+- Architecture / UTF-8 / performance / license / Phase4 docs
+- Final suite `SuiteRoboI18NPhase4.c` — 20-locale regional matrix, format/parse
+  round trips, message plural≠ordinal, Unicode-heavy, search byte ranges,
+  concurrent formatters, fuzz/perf
+- Dependency + Chromium independence re-audit; completeness limitation review
+- Debug / Release / ASan+UBSan + `verify_i18n_pipeline.py` green
+
+**Definition of done:**
+
+- [x] Integration audit + dependency direction documented
+- [x] Public API frozen; UTF-8 / locale / version contracts documented
+- [x] Final regression / sanitizer / Chromium validation
+- [x] PROGRESS marks Phase 4 complete
+
 ## Next
 
-- Goal 4.26+ (do not start until requested)
+- Phase 5.1 — RoboFont (do not start until requested)
 

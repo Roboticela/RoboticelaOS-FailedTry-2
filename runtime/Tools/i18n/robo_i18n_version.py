@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Authoritative version pins for RoboI18N tooling (Goals 4.1-4.25)."""
+"""Authoritative version pins for RoboI18N tooling (Goals 4.1–4.27).
+
+Also see Tools/ucd/robo_unicode_version.py for UCD / Emoji pins. Goal 4.26+
+requires Unicode ↔ CLDR coherence: CLDR_UNICODE_VERSION must equal UCD_VERSION.
+
+Goal 4.27 freezes the Phase 4 public API at ROBO_I18N_VERSION 0.27.0.
+"""
 
 from __future__ import annotations
 
-GENERATOR_VERSION = "1.23.0"
+GENERATOR_VERSION = "1.25.0"
 
 # IANA Language Subtag Registry (BCP 47) — independent of Unicode/CLDR versions.
 IANA_REGISTRY_FILE_DATE = "2026-05-05"
@@ -27,10 +33,41 @@ TZDB_NOTE = (
     "source text under Tools/i18n/source/tzdb-2026c/. Leap seconds not modeled."
 )
 
-# Runtime module API version.
+# UCA / DUCET pin (must match Unicode / UCD major.minor).
+UCA_VERSION = "16.0.0"
+
+# ISO 4217 currency codes arrive via CLDR supplemental codeMappings (not a
+# separate ISO download). Document the CLDR package as the authoritative source.
+ISO4217_SOURCE = "CLDR-46-codeMappings"
+ISO4217_NOTE = (
+    "Currency alpha/numeric codes and minor units from CLDR 46 supplemental "
+    "codeMappings.json + currencyData; not a separate ISO 4217 dump."
+)
+
+# Runtime module API version — Phase 4 freeze (Goal 4.27).
 ROBO_I18N_VERSION_MAJOR = 0
-ROBO_I18N_VERSION_MINOR = 25
+ROBO_I18N_VERSION_MINOR = 27
 ROBO_I18N_VERSION_PATCH = 0
 ROBO_I18N_VERSION = (
     f"{ROBO_I18N_VERSION_MAJOR}.{ROBO_I18N_VERSION_MINOR}.{ROBO_I18N_VERSION_PATCH}"
 )
+
+# Public API freeze marker (1 = Phase 4 frozen).
+ROBO_I18N_API_FROZEN = 1
+
+
+def assert_ucd_cldr_coherent() -> None:
+    """Fail if Unicode UCD pin disagrees with CLDR's Unicode association."""
+    from pathlib import Path
+
+    ucd_ver = Path(__file__).resolve().parent.parent / "ucd" / "robo_unicode_version.py"
+    if not ucd_ver.is_file():
+        raise SystemExit(f"missing UCD version pin: {ucd_ver}")
+    ns: dict = {}
+    exec(ucd_ver.read_text(encoding="utf-8"), ns)
+    ucd = ns.get("UCD_VERSION")
+    if ucd != CLDR_UNICODE_VERSION:
+        raise SystemExit(
+            f"incompatible pins: UCD_VERSION={ucd!r} "
+            f"CLDR_UNICODE_VERSION={CLDR_UNICODE_VERSION!r}"
+        )

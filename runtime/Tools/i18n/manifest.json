@@ -1,23 +1,7 @@
 {
-  "robo_i18n_version": "0.5.0",
-  "generator_version": "1.4.0",
-  "iana": {
-    "file_date": "2026-05-05",
-    "url": "https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry",
-    "local_name": "language-subtag-registry",
-    "sha256": "d37aad0022eb65f0fe1af34133a824a1df5bcb9d9dc60b27e8d545480b876d72",
-    "purpose": "BCP 47 Preferred-Value / grandfathered / redundant canonicalization",
-    "required_for_runtime_generation": true
-  },
+  "api_frozen": true,
   "cldr": {
-    "version": "46",
-    "package": "46.0.0",
-    "unicode_version": "16.0.0",
-    "note": "CLDR 46 JSON; Unicode 16.0.0 from supplemental version._unicodeVersion. Do not mix releases.",
     "attribution": "Tools/i18n/CLDR_ATTRIBUTION.md",
-    "numbers_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-numbers-full/main",
-    "dates_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-dates-full/main",
-    "supplemental_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental",
     "categories": [
       "likelySubtags",
       "numberingSystems",
@@ -31,70 +15,78 @@
       "calendarData",
       "calendarNamesPatterns"
     ],
+    "dates_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-dates-full/main",
+    "note": "CLDR 46 JSON; Unicode 16.0.0 from supplemental version._unicodeVersion. Do not mix releases.",
+    "numbers_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-numbers-full/main",
+    "package": "46.0.0",
+    "supplemental_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental",
     "supplemental_files": [
       {
-        "name": "likelySubtags.json",
         "category": "likelySubtags",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/likelySubtags.json",
-        "sha256": "bd98c1a08b6795bfc52f56014d5f522ab8d42ef92dfc3febd8e7bbb3ab84b48f"
+        "name": "likelySubtags.json",
+        "sha256": "bd98c1a08b6795bfc52f56014d5f522ab8d42ef92dfc3febd8e7bbb3ab84b48f",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/likelySubtags.json"
       },
       {
-        "name": "numberingSystems.json",
         "category": "numberingSystems",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/numberingSystems.json",
-        "sha256": "213dab3fa71e00b52bd5ad091cf79f12602968d1482f1a15889a29984ea5c4ac"
+        "name": "numberingSystems.json",
+        "sha256": "213dab3fa71e00b52bd5ad091cf79f12602968d1482f1a15889a29984ea5c4ac",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/numberingSystems.json"
       },
       {
-        "name": "calendarPreferenceData.json",
         "category": "calendarPreferenceData",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/calendarPreferenceData.json",
-        "sha256": "4982ce8134d371b82028cdec7e1a0a3fd6448880adca8904776f87343728bde5"
+        "name": "calendarPreferenceData.json",
+        "sha256": "4982ce8134d371b82028cdec7e1a0a3fd6448880adca8904776f87343728bde5",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/calendarPreferenceData.json"
       },
       {
-        "name": "measurementData.json",
         "category": "measurementData",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/measurementData.json",
-        "sha256": "fcf9cec9c5430aa3c30bcf4e17727689cae5d1b11ad5c32c675c700a2ba3dd63"
+        "name": "measurementData.json",
+        "sha256": "fcf9cec9c5430aa3c30bcf4e17727689cae5d1b11ad5c32c675c700a2ba3dd63",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/measurementData.json"
       },
       {
-        "name": "parentLocales.json",
         "category": "parentLocales",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/parentLocales.json",
-        "sha256": "9de8518adad3f1c0b4610c6e113cdf32a48556ebf4ae03af65f56226b8eb4bab"
+        "name": "parentLocales.json",
+        "sha256": "9de8518adad3f1c0b4610c6e113cdf32a48556ebf4ae03af65f56226b8eb4bab",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/parentLocales.json"
       },
       {
-        "name": "plurals.json",
         "category": "plurals",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/plurals.json",
-        "sha256": "ce19668400e9f7904e8b3939d1f0a2872fe8da7bdea9f45f5d50b3a2bac3b382"
+        "name": "plurals.json",
+        "sha256": "ce19668400e9f7904e8b3939d1f0a2872fe8da7bdea9f45f5d50b3a2bac3b382",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/plurals.json"
       },
       {
-        "name": "ordinals.json",
         "category": "ordinals",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/ordinals.json",
-        "sha256": "c7921e770bf7c038c39500a3921858eefef2e8344656c70e01d1c50be53fc790"
+        "name": "ordinals.json",
+        "sha256": "c7921e770bf7c038c39500a3921858eefef2e8344656c70e01d1c50be53fc790",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/ordinals.json"
       },
       {
-        "name": "weekData.json",
         "category": "weekData",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/weekData.json",
-        "sha256": "7667d479f415418288ed1ab0390bb440892626f4549612d875becc4334708c77"
+        "name": "weekData.json",
+        "sha256": "7667d479f415418288ed1ab0390bb440892626f4549612d875becc4334708c77",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/weekData.json"
       },
       {
-        "name": "calendarData.json",
         "category": "calendarData",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/calendarData.json",
-        "sha256": "11e81ac38e7fd705bbccb38039832b5ead5bcd933b1100b3d28629da5456def2"
+        "name": "calendarData.json",
+        "sha256": "11e81ac38e7fd705bbccb38039832b5ead5bcd933b1100b3d28629da5456def2",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/calendarData.json"
       },
       {
-        "name": "timeData.json",
         "category": "timeData",
-        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/timeData.json",
-        "sha256": "14e407c3933256249a167a78a53711523c763349f7e1daec73957970fce339dd"
+        "name": "timeData.json",
+        "sha256": "14e407c3933256249a167a78a53711523c763349f7e1daec73957970fce339dd",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/timeData.json"
       }
-    ]
+    ],
+    "unicode_version": "16.0.0",
+    "version": "46"
   },
-  "generated_outputs": [
+  "generated_artifacts": [
+    "Include/RoboI18N/RoboI18NVersion.h",
     "Include/RoboI18N/RoboIanaData.h",
     "Source/RoboI18N/data/robo_iana_data.c",
     "Include/RoboI18N/RoboCldrData.h",
@@ -103,7 +95,99 @@
     "Source/RoboI18N/data/robo_plural_data.c",
     "Tests/Data/robo_plural_samples.txt",
     "Include/RoboI18N/RoboCalData.h",
-    "Source/RoboI18N/data/robo_cal_data.c"
+    "Source/RoboI18N/data/robo_cal_data.c",
+    "Include/RoboI18N/RoboRelData.h",
+    "Source/RoboI18N/data/robo_rel_data.c",
+    "Include/RoboI18N/RoboHcData.h",
+    "Source/RoboI18N/data/robo_hc_data.c",
+    "Include/RoboI18N/RoboDispData.h",
+    "Source/RoboI18N/data/robo_disp_data.c",
+    "Include/RoboI18N/RoboUnitData.h",
+    "Source/RoboI18N/data/robo_unit_data.c",
+    "Include/RoboI18N/RoboMeasurePrefData.h",
+    "Source/RoboI18N/data/robo_measure_pref_data.c",
+    "Include/RoboI18N/RoboCurrencyData.h",
+    "Source/RoboI18N/data/robo_currency_data.c",
+    "Include/RoboI18N/RoboMsgData.h",
+    "Source/RoboI18N/data/robo_msg_data.c",
+    "Include/RoboI18N/RoboTzData.h",
+    "Source/RoboI18N/data/robo_tz_data.c",
+    "Include/RoboI18N/RoboUcaData.h",
+    "Source/RoboI18N/data/robo_uca_data.c",
+    "Include/RoboI18N/RoboCollData.h",
+    "Source/RoboI18N/data/robo_coll_data.c",
+    "Include/RoboI18N/RoboTranslitData.h",
+    "Source/RoboI18N/data/robo_translit_data.c"
   ],
-  "offline_policy": "Build.ps1 compiles committed tables only; Fetch-Iana.ps1 / Fetch-Cldr.ps1 + generate_*.py are explicit developer steps."
+  "generator_version": "1.25.0",
+  "iana": {
+    "file_date": "2026-05-05",
+    "local_name": "language-subtag-registry",
+    "purpose": "BCP 47 Preferred-Value / grandfathered / redundant canonicalization",
+    "required_for_runtime_generation": true,
+    "sha256": "d37aad0022eb65f0fe1af34133a824a1df5bcb9d9dc60b27e8d545480b876d72",
+    "url": "https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry"
+  },
+  "iana_language_subtag_registry": {
+    "file_date": "2026-05-05"
+  },
+  "iso4217": {
+    "note": "Via CLDR supplemental codeMappings; no separate ISO dump.",
+    "source": "CLDR-46-codeMappings"
+  },
+  "offline_policy": "Build.ps1 compiles committed tables only; Fetch-*.ps1 + generate_*.py and verify_i18n_pipeline.py are explicit developer steps.",
+  "phase4_regression_locales": [
+    "en-US",
+    "en-GB",
+    "fr-FR",
+    "de-DE",
+    "es-ES",
+    "tr-TR",
+    "ru-RU",
+    "uk-UA",
+    "pl-PL",
+    "ar-SA",
+    "fa-IR",
+    "ur-PK",
+    "he-IL",
+    "hi-IN",
+    "bn-BD",
+    "th-TH",
+    "zh-CN",
+    "zh-TW",
+    "ja-JP",
+    "ko-KR"
+  ],
+  "regression_locales": [
+    "en",
+    "fr",
+    "de",
+    "es",
+    "tr",
+    "ru",
+    "pl",
+    "uk",
+    "ar",
+    "fa",
+    "ur",
+    "he",
+    "hi",
+    "bn",
+    "th",
+    "zh",
+    "ja",
+    "ko"
+  ],
+  "robo_i18n_version": "0.27.0",
+  "schema_version": 1,
+  "tzdb": {
+    "version": "2026c"
+  },
+  "unicode": {
+    "cldr_unicode_association": "16.0.0",
+    "emoji_version": "16.0",
+    "note": "UCD/Emoji from Tools/ucd; UCA and CLDR Unicode association must match UCD.",
+    "uca_version": "16.0.0",
+    "ucd_version": "16.0.0"
+  }
 }

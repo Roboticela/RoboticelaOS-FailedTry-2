@@ -143,6 +143,8 @@ $SuiteSrcs = @(
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeParse.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NSearch.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NTranslit.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NConformance.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NPhase4.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),

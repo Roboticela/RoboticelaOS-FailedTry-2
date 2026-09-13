@@ -78,7 +78,7 @@ static void expect_currency_dec(const char *tag,
 
 static void test_currency_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.27.0");
     ROBO_CHECK_STR_EQ(robo_i18n_currency_cldr_version_string(), "46");
     ROBO_CHECK_STR_EQ(ROBO_CURRENCY_CLDR_VERSION, "46");
     ROBO_CHECK(robo_curr_meta_count > 100u);

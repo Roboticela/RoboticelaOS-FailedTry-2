@@ -1,9 +1,19 @@
-# RoboI18N tooling (Goals 4.1–4.16)
+# RoboI18N tooling (Goals 4.1–4.27)
 
 ## Offline builds
 
-`Build.ps1` compiles committed IANA + CLDR + RoboMsg + tzdb tables. It does **not**
-download or regenerate data.
+`Build.ps1` compiles committed IANA + CLDR + RoboMsg + tzdb + UCA + translit tables.
+It does **not** download or regenerate data.
+
+## Completeness / freeze (Goals 4.26–4.27)
+
+```powershell
+python .\runtime\Tools\i18n\verify_i18n_pipeline.py
+python .\runtime\Tools\i18n\verify_i18n_pipeline.py --update-golden
+python .\runtime\Tools\i18n\verify_i18n_pipeline.py --update-manifest --report
+```
+
+Pins: `robo_i18n_version.py` (`ROBO_I18N_API_FROZEN`). Docs: `runtime/i18n/Phase4.md`.
 
 ## IANA (BCP 47 Preferred-Value)
 

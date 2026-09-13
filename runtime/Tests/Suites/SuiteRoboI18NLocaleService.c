@@ -23,13 +23,16 @@ static void parse_tag(const char *tag, robo_i18n_locale_t *out)
 static void test_ls_version(void)
 {
     robo_i18n_data_versions_t v;
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.27.0");
     robo_i18n_data_versions(&v);
-    ROBO_CHECK_STR_EQ(v.api_version, "0.25.0");
-    ROBO_CHECK_STR_EQ(v.generator_version, "1.22.0");
+    ROBO_CHECK_STR_EQ(v.api_version, "0.27.0");
+    ROBO_CHECK_STR_EQ(v.generator_version, "1.25.0");
     ROBO_CHECK_STR_EQ(v.cldr_version, "46");
     ROBO_CHECK_STR_EQ(v.unicode_version, "16.0.0");
     ROBO_CHECK_STR_EQ(v.tzdb_version, "2026c");
+    ROBO_CHECK_STR_EQ(v.iana_file_date, "2026-05-05");
+    ROBO_CHECK_STR_EQ(v.uca_version, "16.0.0");
+    ROBO_CHECK_STR_EQ(v.iso4217_source, "CLDR-46-codeMappings");
     ROBO_CHECK(robo_hc_region_count > 100u);
 }
 

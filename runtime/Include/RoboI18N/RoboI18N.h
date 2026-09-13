@@ -1,5 +1,9 @@
 /*
- * RoboI18N — internationalization foundation (Goals 4.1–4.25).
+ * RoboI18N — internationalization foundation (Goals 4.1–4.27).
+ *
+ * Phase 4 public API is FROZEN (ROBO_I18N_API_FROZEN == 1). Applications must
+ * include this umbrella or the individual RoboI18N*.h headers listed below.
+ * Generated table headers (Robo*Data.h) are NOT part of the frozen public API.
  *
  * Locale identification (BCP 47 / RFC 5646), CLDR locale-data metadata,
  * runtime locale service (extensions, resolve, fallback, negotiation),
@@ -18,7 +22,8 @@
  * message-format validation/compatibility. Not language detection.
  * Not a full ICU MessageFormat clone.
  *
- * Unicode Script != locale language != region. See i18n/README.md.
+ * Unicode Script != locale language != region. See i18n/README.md,
+ * i18n/ApiFreeze.md, i18n/Utf8Contract.md, i18n/Architecture.md.
  */
 
 #ifndef ROBO_I18N_H
@@ -61,7 +66,8 @@ const char *robo_i18n_cldr_version_string(void);
 
 /**
  * Initialize process-wide default locale to "und" (undefined).
- * Safe to call multiple times. Does not read OS settings in Goal 4.1.
+ * Safe to call multiple times. Does not read OS settings in Phase 4.
+ * Process-wide default locale: caller synchronizes concurrent set/get.
  */
 robo_result_t robo_i18n_init(void);
 

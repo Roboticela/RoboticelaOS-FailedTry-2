@@ -26,7 +26,7 @@ static void make_utc_instant(int y, int mo, int d, int h, int mi, robo_i18n_inst
 
 static void test_tzdisp_version(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.27.0");
     ROBO_CHECK_STR_EQ(robo_i18n_display_cldr_version_string(), "46");
     ROBO_CHECK(robo_disp_tz_metazone_count > 100u);
     ROBO_CHECK(robo_disp_iana_mz_range_count > 100u);

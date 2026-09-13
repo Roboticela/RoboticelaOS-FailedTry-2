@@ -211,6 +211,8 @@ typedef struct robo_i18n_data_versions {
     const char *unicode_version;
     const char *tzdb_version;
     const char *iana_file_date;
+    const char *uca_version;
+    const char *iso4217_source;
 } robo_i18n_data_versions_t;
 
 void robo_i18n_data_versions(robo_i18n_data_versions_t *out);

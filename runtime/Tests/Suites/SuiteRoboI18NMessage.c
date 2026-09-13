@@ -17,7 +17,7 @@ static void parse_tag(const char *tag, robo_i18n_locale_t *out)
 static void test_msg_versions(void)
 {
     robo_i18n_catalog_t *cat = NULL;
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.27.0");
     ROBO_CHECK_EQ_INT(robo_i18n_catalog_open_demo(&cat), ROBO_OK);
     ROBO_CHECK(cat != NULL);
     ROBO_CHECK_STR_EQ(robo_i18n_catalog_id(cat), "robo.demo");
