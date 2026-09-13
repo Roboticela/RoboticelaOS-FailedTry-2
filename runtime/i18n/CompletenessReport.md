@@ -14,6 +14,7 @@ tzdb **2026c**, UCA **16.0.0**.
 | Plural samples (CLDR) | `Tests/Data/robo_plural_samples.txt` |
 | International regression corpus | `SuiteRoboI18NConformance.c` + `SuiteRoboI18NPhase4.c` |
 | API freeze | `ROBO_I18N_API_FROZEN=1` (0.27.0) |
+| Host suite (Debug/Release/Sanitize) | **507/507** |
 | Chromium independence | verify + Build.ps1 Assert-NoChromiumPath |
 
 ## Regression locales

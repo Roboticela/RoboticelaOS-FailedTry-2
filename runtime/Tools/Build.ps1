@@ -99,7 +99,23 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\data\robo_msg_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_tz_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_hc_data.c"),
-    (Join-Path $SourceDir "RoboI18N\data\robo_translit_data.c")
+    (Join-Path $SourceDir "RoboI18N\data\robo_translit_data.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFont.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontStyle.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontMetrics.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontSource.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontFace.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontInstance.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontBinary.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontSfnt.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontTtTables.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontTtGlyf.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontTt.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontOtCommon.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontOtCmap.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontOtLayout.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontOtExtra.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontOt.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -145,6 +161,10 @@ $SuiteSrcs = @(
     (Join-Path $SuitesDir "SuiteRoboI18NTranslit.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NConformance.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NPhase4.c"),
+    (Join-Path $SuitesDir "SuiteRoboFont.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontSfnt.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontTrueType.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontOpenType.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),

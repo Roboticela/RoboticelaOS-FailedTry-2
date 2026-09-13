@@ -11,6 +11,7 @@ RoboI18N Phase 4 is **complete and API-frozen**.
 | CLDR | **46** |
 | tzdb | **2026c** |
 | ISO 4217 | CLDR-46-codeMappings |
+| Host suite | **507/507** (Debug / Release / ASan+UBSan) |
 
 ## Validation checklist
 

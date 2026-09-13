@@ -62,6 +62,10 @@ void robo_test_register_i18n_search(void);
 void robo_test_register_i18n_translit(void);
 void robo_test_register_i18n_conformance(void);
 void robo_test_register_i18n_phase4(void);
+void robo_test_register_font(void);
+void robo_test_register_font_sfnt(void);
+void robo_test_register_font_tt(void);
+void robo_test_register_font_ot(void);
 
 int main(int argc, char **argv)
 {
@@ -161,5 +165,9 @@ int main(int argc, char **argv)
     robo_test_register_i18n_translit();
     robo_test_register_i18n_conformance();
     robo_test_register_i18n_phase4();
+    robo_test_register_font();
+    robo_test_register_font_sfnt();
+    robo_test_register_font_tt();
+    robo_test_register_font_ot();
     return robo_test_main(argc, argv);
 }

@@ -900,6 +900,7 @@
   concurrent formatters, fuzz/perf
 - Dependency + Chromium independence re-audit; completeness limitation review
 - Debug / Release / ASan+UBSan + `verify_i18n_pipeline.py` green
+- Host suite: **507/507**
 
 **Definition of done:**
 
@@ -910,5 +911,99 @@
 
 ## Next
 
-- Phase 5.1 — RoboFont (do not start until requested)
+- ~~Goal 5.1 — RoboFont foundation~~
+- ~~Goal 5.2 — SFNT container parser~~
+- ~~Goal 5.3 — TrueType table parsing~~
+- ~~Goal 5.4 — OpenType table parsing~~ (complete below)
+
+## Goal 5.1 — RoboFont Architecture and Font Model Foundation
+
+**Status:** complete
+
+**Done:**
+
+- Public API under `Include/RoboFont/` — types, style, metrics, source, face, instance
+- Memory-backed font sources (copy / borrow) with retain/release ownership
+- Face vs instance separation; format magic sniff (SFNT/WOFF/WOFF2) without parsing
+- Metrics value model + font-unit ↔ CSS-px helpers; glyph ID type
+- Docs: `runtime/font/README.md`, `Architecture.md`, `Api.md`
+- Suite `SuiteRoboFont.c` (9 tests); Build.ps1 integration
+- Test registry capacity raised (`ROBO_TEST_MAX` 512→640) for Phase 5 growth
+- Independent of Chromium / Skia / OS font managers
+- Debug / Release (`-Filter font`): **9/9**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Architecture + fundamental types + source/face/instance foundation
+- [x] Unit tests; documentation; Chromium-independence (build VERIFY)
+- [x] Stop after 5.1 (no SFNT parsing / Goal 5.2)
+
+## Goal 5.2 — SFNT Container Parser
+
+**Status:** complete
+
+**Done:**
+
+- Big-endian bounds-checked reader (`RoboFontBinary.h` / `.c`)
+- SFNT header + table directory parser (`RoboFontSfnt.h` / `.c`)
+- Supported signatures: `0x00010000`, `'true'`, `'typ1'`, `'OTTO'`; TTC via `'ttcf'` + face index
+- Table lookup / enumeration / bounded byte views; duplicate + overlap rejection
+- SFNT table checksum (padded BE uint32 sum); optional verify flag (no `head` adjustment yet)
+- Defensive limits (max tables / source size); fuzz entry `robo_font_sfnt_fuzz_parse`
+- Docs: `runtime/font/docs/Sfnt.md`; README / Architecture updated; version **0.2.0**
+- Tests: `runtime/font/tests/SuiteRoboFontSfnt.c`
+- Debug / Release / ASan+UBSan (`-Filter font`): **17/17**; VERIFY: no Chromium paths
+- Chromium-independence via Build.ps1 VERIFY
+
+**Definition of done:**
+
+- [x] Safe memory-backed SFNT parse, enumerate, lookup, view, checksum
+- [x] Malformed-input tests; no Chromium dependency
+- [x] Stop after 5.2 (no TrueType semantic tables / Goal 5.3)
+
+## Goal 5.3 — TrueType Font Table Parsing
+
+**Status:** complete
+
+**Done:**
+
+- Parsers: `head`, `hhea`, `maxp`, `hmtx`, `loca`, `glyf` (simple+composite+flags), `name`, `OS/2`, `post`
+- Cross-table validation; composite depth/cycle caps; head checksumAdjustment verify option
+- Face integration: `robo_font_face_parse_truetype`, glyph_count from `maxp`, style from OS/2
+- Metrics bridge from head/hhea/(OS/2 typo); name UTF-16BE → UTF-8 via RoboUnicode
+- Docs: `docs/TrueType.md`; version **0.3.0**
+- Tests: `font/tests/SuiteRoboFontTrueType.c` (synthetic fixtures)
+- Debug / Release / ASan (`-Filter font.`): **23/23**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Safe TT table parse + glyf structure + naming/style metadata
+- [x] Malformed tests; Chromium-independence
+- [x] Stop after 5.3 (no OpenType layout / Goal 5.4; no cmap / 5.6)
+
+## Goal 5.4 — OpenType Font Table Parsing
+
+**Status:** complete
+
+**Done:**
+
+- Outline technology detection (TrueType / CFF / CFF2 presence; bodies deferred to 5.5)
+- Table family registry (`robo_font_ot_table_family`) over SFNT directory
+- Shared structures: Offset helpers, Coverage 1–2, ClassDef 1–2, Device, ScriptList / FeatureList / LookupList
+- `cmap` structural parse (formats 0/2/4/6/8/10/12/13/14 metadata; no Goal 5.6 mapping)
+- GDEF / GSUB / GPOS structural parsers (no substitution/positioning)
+- BASE, JSTF, MATH, kern, COLR, CPAL, STAT structural parsers
+- Resource limits + RoboError; fuzz entry `robo_font_ot_fuzz_parse`
+- Docs: `docs/OpenType.md`; version **0.4.0**
+- Tests: `font/tests/SuiteRoboFontOpenType.c`
+
+**Definition of done:**
+
+- [x] Safe OpenType structure parse + layout foundations for Phase 6
+- [x] Malformed nested-offset tests; Chromium-independence
+- [x] Stop after 5.4 (no CFF / Goal 5.5; no shaping / Phase 6)
+
+## Next
+
+- Goal 5.5 — CFF/CFF2 support (do not start until requested)
 
