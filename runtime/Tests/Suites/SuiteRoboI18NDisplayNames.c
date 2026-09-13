@@ -17,7 +17,7 @@ static void parse_tag(const char *tag, robo_i18n_locale_t *out)
 
 static void test_disp_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.24.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
     ROBO_CHECK_STR_EQ(robo_i18n_display_cldr_version_string(), "46");
     ROBO_CHECK(robo_disp_language_count > 1000u);
     ROBO_CHECK(robo_disp_script_count > 100u);

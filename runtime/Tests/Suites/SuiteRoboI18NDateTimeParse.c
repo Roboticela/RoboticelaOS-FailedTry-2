@@ -15,7 +15,7 @@ static void parse_tag(const char *tag, robo_i18n_locale_t *out)
 
 static void test_dtparse_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.24.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.25.0");
     ROBO_CHECK_STR_EQ(robo_i18n_dtparse_err_string(ROBO_I18N_DTPARSE_ERR_NONE), "ok");
     ROBO_CHECK_STR_EQ(robo_i18n_dtparse_err_string(ROBO_I18N_DTPARSE_ERR_AMBIGUOUS_LOCAL),
                       "ambiguous_local");

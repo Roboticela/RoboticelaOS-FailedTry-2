@@ -59,6 +59,7 @@ void robo_test_register_i18n_currency(void);
 void robo_test_register_i18n_parse(void);
 void robo_test_register_i18n_datetime_parse(void);
 void robo_test_register_i18n_search(void);
+void robo_test_register_i18n_translit(void);
 
 int main(int argc, char **argv)
 {
@@ -155,5 +156,6 @@ int main(int argc, char **argv)
     robo_test_register_i18n_parse();
     robo_test_register_i18n_datetime_parse();
     robo_test_register_i18n_search();
+    robo_test_register_i18n_translit();
     return robo_test_main(argc, argv);
 }

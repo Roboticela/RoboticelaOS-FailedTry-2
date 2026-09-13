@@ -1,6 +1,6 @@
 # RoboI18N
 
-Internationalization for Roboticela Runtime (**Goals 4.1–4.24**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.25**).
 
 ## Scope
 
@@ -8,7 +8,7 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.24**).
 |---|---|
 | BCP 47 / RFC 5646 language tags | Percent / compact / scientific |
 | Parse, format, canonicalize (IANA) | Full ICU MessageFormat parity |
-| Equality / matching / truncation parent | Full-text indexing / transliteration |
+| Equality / matching / truncation parent | Full-text indexing |
 | Default locale + preference lists | Fonts / shaping / layout |
 | **Runtime locale service** (extensions, resolve, fallback) | Holiday databases |
 | **Locale negotiation / Accept-Language** | Recurrence / scheduling engines |
@@ -30,6 +30,7 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.24**).
 | **Number / currency parsing** | |
 | **Date / time parsing** | |
 | **Locale-aware search / string matching** | |
+| **Transliteration (CLDR transforms)** | |
 | Calendar arithmetic / date-time utilities | |
 | Locale-aware collation (UCA + CLDR) | |
 | Locale display names (CLDR) | |
@@ -41,8 +42,8 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.24**).
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.24.0` |
-| Generator | `1.21.0` |
+| RoboI18N API | `0.25.0` |
+| Generator | `1.22.0` |
 | RoboMsgFmt syntax | **1** |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
 | CLDR | **46** (JSON **46.0.0**) |
@@ -96,6 +97,12 @@ API: `RoboI18NDateTimeParse.h`.
 See **`Search.md`**. Explicit modes for exact / canonical / casefold / collation
 substring search with UTF-8 byte ranges. Not transliteration or FTS indexing.
 API: `RoboI18NSearch.h`.
+
+## Transliteration (Goal 4.25)
+
+See **`Transliteration.md`**. CLDR transform rule-sets, forward/reverse IDs,
+reusable transliterators, streaming hold buffer. Not search/collation/translation.
+API: `RoboI18NTranslit.h`.
 
 ## Time zones (Goals 4.14–4.15)
 

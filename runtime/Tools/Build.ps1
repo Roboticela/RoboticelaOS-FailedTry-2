@@ -69,6 +69,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\RoboI18NParse.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDateTimeParse.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NSearch.c"),
+    (Join-Path $SourceDir "RoboI18N\RoboI18NTranslit.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDateTimeArith.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NCollation.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NDisplayNames.c"),
@@ -97,7 +98,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboI18N\data\robo_disp_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_msg_data.c"),
     (Join-Path $SourceDir "RoboI18N\data\robo_tz_data.c"),
-    (Join-Path $SourceDir "RoboI18N\data\robo_hc_data.c")
+    (Join-Path $SourceDir "RoboI18N\data\robo_hc_data.c"),
+    (Join-Path $SourceDir "RoboI18N\data\robo_translit_data.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -140,6 +142,7 @@ $SuiteSrcs = @(
     (Join-Path $SuitesDir "SuiteRoboI18NParse.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeParse.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NSearch.c"),
+    (Join-Path $SuitesDir "SuiteRoboI18NTranslit.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),

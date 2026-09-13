@@ -844,7 +844,27 @@
 - [x] Grapheme-safe defaults; intl + RTL + fuzz tests; Debug / Release / Sanitize green
 - [x] Documentation; PROGRESS updated
 
+## Goal 4.25 — Transliteration Foundation
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NTranslit` — CLDR transform pipeline (curated IDs), offline
+  `generate_translit.py` + `Fetch-Transforms.ps1`
+- Compact rule tables; forward/reverse IDs; reusable transliterator; streaming hold
+- Distinct from search/collation/translation; search does not auto-transliterate
+- Suite `SuiteRoboI18NTranslit.c`; docs `i18n/Transliteration.md`
+- API **0.25.0** / generator **1.22.0** / CLDR **46**
+- Debug / Release / ASan+UBSan validation; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Data-driven transliteration engine + CLDR transform compilation
+- [x] Explicit direction / normalization stages / security limits
+- [x] Multilingual matrix + fuzz tests; docs; PROGRESS updated
+
 ## Next
 
-- Goal 4.25+ (do not start until requested)
+- Goal 4.26+ (do not start until requested)
 

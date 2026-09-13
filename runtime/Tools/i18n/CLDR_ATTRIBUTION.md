@@ -79,18 +79,24 @@ generated offline into committed C tables (`RoboCldrData.h` /
 - `currencyFormats-*` patterns + plural currency names → `RoboCurrencyData`
 - `RoboI18NCurrency` formatting (symbol/code/name/accounting; cash opt-in)
 
+### Goal 4.25
+- Curated `common/transforms/*.xml` (CLDR **46**) → `RoboTranslitData`
+- Fetched via `Fetch-Transforms.ps1`; compiled by `generate_translit.py`
+- Consumed by `RoboI18NTranslit` (no runtime XML parsing)
+
 ## Not imported here
 
 Percent/compact number patterns, full unit catalog (~188), general unit/currency
-parsing, FX conversion, full message catalogs beyond RoboMsg demos, and complete
-LDML collation rule compilation for every locale (esp. CJK) remain for later
-goals. IANA tzdb is a separate pin (see `i18n/TZDB.md`).
+parsing, FX conversion, full message catalogs beyond RoboMsg demos, complete
+LDML collation rule compilation for every locale (esp. CJK), and the full CLDR
+transform catalog remain for later goals. IANA tzdb is a separate pin
+(see `i18n/TZDB.md`).
 
 ## Policy
 
 - Do not invent locale data.
 - Do not mix CLDR releases in one generation.
 - Normal `Build.ps1` does not download CLDR/UCA; use `Fetch-Cldr.ps1` /
-  `Fetch-Uca.ps1` then generators explicitly.
+  `Fetch-Uca.ps1` / `Fetch-Transforms.ps1` then generators explicitly.
 - Unicode UCD / Emoji versions are independent pins under `Tools/ucd/`.
 - UCA **16.0.0** must match RoboUnicode **16.0.0** (do not mix with ICU 17 data).
