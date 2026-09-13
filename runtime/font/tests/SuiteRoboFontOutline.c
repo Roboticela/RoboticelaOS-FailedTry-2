@@ -405,10 +405,413 @@ static void test_outline_affine(void)
     ROBO_CHECK_EQ_INT(robo_font_affine_multiply(&a, &b, &c), ROBO_OK);
 }
 
+static size_t build_composite_glyf(uint8_t *b, uint16_t component_gid)
+{
+    uint8_t *p = b;
+    put_i16(&p, -1);
+    put_i16(&p, 0);
+    put_i16(&p, 0);
+    put_i16(&p, 100);
+    put_i16(&p, 100);
+    put_u16(&p, (uint16_t)(ROBO_FONT_GLYF_COMP_ARGS_WORDS | ROBO_FONT_GLYF_COMP_ARGS_XY));
+    put_u16(&p, component_gid);
+    put_i16(&p, 10);
+    put_i16(&p, 20);
+    return (size_t)(p - b);
+}
+
+static void test_outline_tt_composite(void)
+{
+    uint8_t head[64], hhea[64], maxp[64], hmtx[16], loca[16], glyf[128];
+    uint8_t font[512];
+    synth_table_t tabs[6];
+    size_t g0 = build_square_glyf(glyf);
+    size_t g1 = build_composite_glyf(glyf + g0, 0);
+    uint8_t *lp = loca;
+    size_t n;
+    robo_font_source_t *src = NULL;
+    robo_font_face_t *face = NULL;
+    robo_font_outline_t *o = NULL;
+    robo_font_bbox_t bb;
+
+    put_u32(&lp, 0);
+    put_u32(&lp, (uint32_t)g0);
+    put_u32(&lp, (uint32_t)(g0 + g1));
+
+    tabs[0].tag = ROBO_FONT_TAG_HEAD;
+    tabs[0].data = head;
+    tabs[0].length = (uint32_t)build_head(head, 1000);
+    tabs[1].tag = ROBO_FONT_TAG_HHEA;
+    tabs[1].data = hhea;
+    tabs[1].length = (uint32_t)build_hhea(hhea, 2);
+    tabs[2].tag = ROBO_FONT_TAG_MAXP;
+    tabs[2].data = maxp;
+    tabs[2].length = (uint32_t)build_maxp(maxp, 2);
+    tabs[3].tag = ROBO_FONT_TAG_HMTX;
+    tabs[3].data = hmtx;
+    tabs[3].length = (uint32_t)build_hmtx(hmtx, 2);
+    tabs[4].tag = ROBO_FONT_TAG_LOCA;
+    tabs[4].data = loca;
+    tabs[4].length = 12u;
+    tabs[5].tag = ROBO_FONT_TAG_GLYF;
+    tabs[5].data = glyf;
+    tabs[5].length = (uint32_t)(g0 + g1);
+
+    n = build_sfnt(font, sizeof(font), ROBO_FONT_SFNT_VERSION_TRUE, tabs, 6);
+    ROBO_CHECK_EQ_INT(robo_font_source_create_memory_copy(font, n, &src), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_create(src, 0, &face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_parse_outlines(face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_glyph_outline(face, 1, &o), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)robo_font_outline_status(o), (int)ROBO_FONT_OUTLINE_STATUS_OK);
+    ROBO_CHECK_EQ_INT(robo_font_outline_bounds(o, &bb), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)bb.x_min, 10);
+    ROBO_CHECK_EQ_INT((int)bb.y_min, 20);
+    ROBO_CHECK_EQ_INT((int)bb.x_max, 110);
+    ROBO_CHECK_EQ_INT((int)bb.y_max, 120);
+    robo_font_outline_release(o);
+    robo_font_face_release(face);
+    robo_font_source_release(src);
+}
+
+static void test_outline_metrics_cross(void)
+{
+    uint8_t head[64], hhea[64], maxp[64], hmtx[8], loca[12], glyf[64];
+    uint8_t font[384];
+    synth_table_t tabs[6];
+    size_t gn = build_square_glyf(glyf);
+    uint8_t *lp = loca;
+    size_t n;
+    robo_font_source_t *src = NULL;
+    robo_font_face_t *face = NULL;
+    robo_font_outline_t *o = NULL;
+    robo_font_glyph_metrics_t gm;
+    robo_font_bbox_t bb;
+
+    put_u32(&lp, 0);
+    put_u32(&lp, (uint32_t)gn);
+    tabs[0].tag = ROBO_FONT_TAG_HEAD;
+    tabs[0].data = head;
+    tabs[0].length = (uint32_t)build_head(head, 1000);
+    tabs[1].tag = ROBO_FONT_TAG_HHEA;
+    tabs[1].data = hhea;
+    tabs[1].length = (uint32_t)build_hhea(hhea, 1);
+    tabs[2].tag = ROBO_FONT_TAG_MAXP;
+    tabs[2].data = maxp;
+    tabs[2].length = (uint32_t)build_maxp(maxp, 1);
+    tabs[3].tag = ROBO_FONT_TAG_HMTX;
+    tabs[3].data = hmtx;
+    tabs[3].length = (uint32_t)build_hmtx(hmtx, 1);
+    tabs[4].tag = ROBO_FONT_TAG_LOCA;
+    tabs[4].data = loca;
+    tabs[4].length = 8u;
+    tabs[5].tag = ROBO_FONT_TAG_GLYF;
+    tabs[5].data = glyf;
+    tabs[5].length = (uint32_t)gn;
+
+    n = build_sfnt(font, sizeof(font), ROBO_FONT_SFNT_VERSION_TRUE, tabs, 6);
+    ROBO_CHECK_EQ_INT(robo_font_source_create_memory_copy(font, n, &src), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_create(src, 0, &face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_parse_metrics(face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_parse_outlines(face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_glyph_metrics(face, 0, &gm), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_glyph_outline(face, 0, &o), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_outline_bounds(o, &bb), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)gm.advance_width, 200);
+    ROBO_CHECK(bb.x_max > bb.x_min);
+    /* LSB from hmtx is 0; outline xmin is 0 — consistent */
+    ROBO_CHECK_EQ_INT((int)bb.x_min, (int)gm.left_side_bearing);
+    robo_font_outline_release(o);
+    robo_font_face_release(face);
+    robo_font_source_release(src);
+}
+
+/* CFF1 helpers (subset of SuiteRoboFontCff patterns) */
+static void dict_put_small(uint8_t **p, int32_t v) { put_u8(p, (uint8_t)(v + 139)); }
+static void dict_put_int(uint8_t **p, int32_t v)
+{
+    if (v >= -107 && v <= 107) {
+        dict_put_small(p, v);
+    } else if (v >= -32768 && v <= 32767) {
+        put_u8(p, 28);
+        put_u16(p, (uint16_t)(int16_t)v);
+    } else {
+        put_u8(p, 29);
+        put_u32(p, (uint32_t)v);
+    }
+}
+static size_t write_index1(uint8_t *buf, const uint8_t *obj, uint32_t obj_len)
+{
+    uint8_t *p = buf;
+    put_u16(&p, 1u);
+    put_u8(&p, 1u);
+    put_u8(&p, 1u);
+    put_u8(&p, (uint8_t)(1u + obj_len));
+    memcpy(p, obj, obj_len);
+    p += obj_len;
+    return (size_t)(p - buf);
+}
+static size_t write_empty_index1(uint8_t *buf)
+{
+    uint8_t *p = buf;
+    put_u16(&p, 0u);
+    return 2u;
+}
+
+static size_t build_cff1_with_cs(uint8_t *out, size_t cap, const uint8_t *cs, uint32_t cs_len)
+{
+    uint8_t name[] = {'T', 'e', 's', 't'};
+    uint8_t topd[32];
+    uint8_t *t;
+    uint8_t privd[8];
+    uint8_t *pv;
+    size_t priv_len, top_len, pos, cs_pos, charset_pos, priv_pos, top_index_size,
+        base_after_indexes, est_top = 20u;
+
+    if (cap < 256u || cs_len == 0u || cs_len > 200u) {
+        return 0u;
+    }
+    pv = privd;
+    dict_put_small(&pv, 0);
+    put_u8(&pv, 20);
+    priv_len = (size_t)(pv - privd);
+
+    top_index_size = 5u + est_top;
+    base_after_indexes = 4u + (2u + 1u + 2u + 4u) + top_index_size + 2u + 2u;
+    cs_pos = base_after_indexes;
+    charset_pos = cs_pos + 5u + cs_len;
+    priv_pos = charset_pos + 1u;
+
+    t = topd;
+    dict_put_int(&t, (int32_t)charset_pos);
+    put_u8(&t, 15);
+    dict_put_int(&t, (int32_t)cs_pos);
+    put_u8(&t, 17);
+    dict_put_int(&t, (int32_t)priv_len);
+    dict_put_int(&t, (int32_t)priv_pos);
+    put_u8(&t, 18);
+    top_len = (size_t)(t - topd);
+
+    top_index_size = 5u + top_len;
+    base_after_indexes = 4u + (2u + 1u + 2u + 4u) + top_index_size + 2u + 2u;
+    cs_pos = base_after_indexes;
+    charset_pos = cs_pos + 5u + cs_len;
+    priv_pos = charset_pos + 1u;
+
+    t = topd;
+    dict_put_int(&t, (int32_t)charset_pos);
+    put_u8(&t, 15);
+    dict_put_int(&t, (int32_t)cs_pos);
+    put_u8(&t, 17);
+    dict_put_int(&t, (int32_t)priv_len);
+    dict_put_int(&t, (int32_t)priv_pos);
+    put_u8(&t, 18);
+    top_len = (size_t)(t - topd);
+
+    memset(out, 0, cap);
+    pos = 0u;
+    out[pos++] = 1;
+    out[pos++] = 0;
+    out[pos++] = 4;
+    out[pos++] = 1;
+    pos += write_index1(out + pos, name, 4u);
+    pos += write_index1(out + pos, topd, (uint32_t)top_len);
+    pos += write_empty_index1(out + pos);
+    pos += write_empty_index1(out + pos);
+    if (pos != cs_pos) {
+        return 0u;
+    }
+    pos += write_index1(out + pos, cs, cs_len);
+    if (pos != charset_pos) {
+        return 0u;
+    }
+    out[pos++] = 0;
+    if (pos != priv_pos) {
+        return 0u;
+    }
+    memcpy(out + pos, privd, priv_len);
+    pos += priv_len;
+    return pos;
+}
+
+static void test_outline_cff_path(void)
+{
+    /* Type 2: no closepath — endchar closes. 0 0 rmoveto; 100 0 / 0 50 rlineto; endchar */
+    uint8_t cs[] = {(uint8_t)(0 + 139), (uint8_t)(0 + 139), 21, (uint8_t)(100 + 139),
+                    (uint8_t)(0 + 139), 5, (uint8_t)(0 + 139), (uint8_t)(50 + 139), 5,
+                    0x0e};
+    uint8_t cff[256];
+    uint8_t font[512];
+    synth_table_t tabs[1];
+    size_t cff_len;
+    size_t n;
+    robo_font_source_t *src = NULL;
+    robo_font_face_t *face = NULL;
+    robo_font_outline_t *o = NULL;
+    char dump[2048];
+    robo_font_bbox_t bb;
+
+    cff_len = build_cff1_with_cs(cff, sizeof(cff), cs, (uint32_t)sizeof(cs));
+    ROBO_CHECK(cff_len > 0u);
+    tabs[0].tag = ROBO_FONT_TAG_CFF;
+    tabs[0].data = cff;
+    tabs[0].length = (uint32_t)cff_len;
+    n = build_sfnt(font, sizeof(font), ROBO_FONT_SFNT_VERSION_OTTO, tabs, 1u);
+    ROBO_CHECK(n > 0u);
+
+    ROBO_CHECK_EQ_INT(robo_font_source_create_memory_copy(font, n, &src), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_create(src, 0, &face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_parse_outlines(face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_glyph_outline(face, 0, &o), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)robo_font_outline_status(o), (int)ROBO_FONT_OUTLINE_STATUS_OK);
+    ROBO_CHECK_EQ_INT((int)robo_font_outline_tech(o), (int)ROBO_FONT_OUTLINE_CFF);
+    ROBO_CHECK_EQ_INT(robo_font_outline_bounds(o, &bb), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)bb.x_min, 0);
+    ROBO_CHECK_EQ_INT((int)bb.x_max, 100);
+    ROBO_CHECK_EQ_INT((int)bb.y_max, 50);
+    ROBO_CHECK_EQ_INT(robo_font_outline_dump(o, dump, sizeof(dump), NULL), ROBO_OK);
+    ROBO_CHECK(strstr(dump, "LINE") != NULL);
+    ROBO_CHECK(strstr(dump, "CLOSE") != NULL);
+    ROBO_CHECK_EQ_INT(robo_font_outline_fuzz_parse(font, n), ROBO_OK);
+    robo_font_outline_release(o);
+    robo_font_face_release(face);
+    robo_font_source_release(src);
+}
+
+static void test_outline_cff_cubic(void)
+{
+    /* 0 0 rmoveto  30 0  0 40  30 0 rrcurveto  endchar */
+    uint8_t cs[] = {(uint8_t)(0 + 139),
+                    (uint8_t)(0 + 139),
+                    21,
+                    (uint8_t)(30 + 139),
+                    (uint8_t)(0 + 139),
+                    (uint8_t)(0 + 139),
+                    (uint8_t)(40 + 139),
+                    (uint8_t)(30 + 139),
+                    (uint8_t)(0 + 139),
+                    8,
+                    0x0e};
+    uint8_t cff[256];
+    uint8_t font[512];
+    synth_table_t tabs[1];
+    size_t cff_len;
+    size_t n;
+    robo_font_source_t *src = NULL;
+    robo_font_face_t *face = NULL;
+    robo_font_outline_t *o = NULL;
+    char dump[2048];
+
+    cff_len = build_cff1_with_cs(cff, sizeof(cff), cs, (uint32_t)sizeof(cs));
+    ROBO_CHECK(cff_len > 0u);
+    tabs[0].tag = ROBO_FONT_TAG_CFF;
+    tabs[0].data = cff;
+    tabs[0].length = (uint32_t)cff_len;
+    n = build_sfnt(font, sizeof(font), ROBO_FONT_SFNT_VERSION_OTTO, tabs, 1u);
+    ROBO_CHECK_EQ_INT(robo_font_source_create_memory_copy(font, n, &src), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_create(src, 0, &face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_parse_outlines(face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_glyph_outline(face, 0, &o), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)robo_font_outline_status(o), (int)ROBO_FONT_OUTLINE_STATUS_OK);
+    ROBO_CHECK_EQ_INT(robo_font_outline_dump(o, dump, sizeof(dump), NULL), ROBO_OK);
+    ROBO_CHECK(strstr(dump, "CUBIC") != NULL);
+    robo_font_outline_release(o);
+    robo_font_face_release(face);
+    robo_font_source_release(src);
+}
+
+static void test_outline_cff_empty(void)
+{
+    uint8_t cs[] = {0x0e};
+    uint8_t cff[256];
+    uint8_t font[512];
+    synth_table_t tabs[1];
+    size_t cff_len;
+    size_t n;
+    robo_font_source_t *src = NULL;
+    robo_font_face_t *face = NULL;
+    robo_font_outline_t *o = NULL;
+
+    cff_len = build_cff1_with_cs(cff, sizeof(cff), cs, 1u);
+    ROBO_CHECK(cff_len > 0u);
+    tabs[0].tag = ROBO_FONT_TAG_CFF;
+    tabs[0].data = cff;
+    tabs[0].length = (uint32_t)cff_len;
+    n = build_sfnt(font, sizeof(font), ROBO_FONT_SFNT_VERSION_OTTO, tabs, 1u);
+    ROBO_CHECK_EQ_INT(robo_font_source_create_memory_copy(font, n, &src), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_create(src, 0, &face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_parse_outlines(face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_glyph_outline(face, 0, &o), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)robo_font_outline_status(o), (int)ROBO_FONT_OUTLINE_STATUS_EMPTY);
+    robo_font_outline_release(o);
+    robo_font_face_release(face);
+    robo_font_source_release(src);
+}
+
+static void test_outline_golden_square(void)
+{
+    uint8_t head[64], hhea[64], maxp[64], hmtx[8], loca[12], glyf[64];
+    uint8_t font[384];
+    synth_table_t tabs[6];
+    size_t gn = build_square_glyf(glyf);
+    uint8_t *lp = loca;
+    size_t n;
+    robo_font_source_t *src = NULL;
+    robo_font_face_t *face = NULL;
+    robo_font_outline_t *o = NULL;
+    char dump[1024];
+    const char *expect =
+        "gid=0 status=0 tech=1 contours=1 bounds=0,0,100,100\n"
+        "C 0 closed=1 segs=6\n"
+        "  MOVE 0 0\n"
+        "  LINE 100 0\n"
+        "  LINE 100 100\n"
+        "  LINE 0 100\n"
+        "  LINE 0 0\n"
+        "  CLOSE\n";
+
+    put_u32(&lp, 0);
+    put_u32(&lp, (uint32_t)gn);
+    tabs[0].tag = ROBO_FONT_TAG_HEAD;
+    tabs[0].data = head;
+    tabs[0].length = (uint32_t)build_head(head, 1000);
+    tabs[1].tag = ROBO_FONT_TAG_HHEA;
+    tabs[1].data = hhea;
+    tabs[1].length = (uint32_t)build_hhea(hhea, 1);
+    tabs[2].tag = ROBO_FONT_TAG_MAXP;
+    tabs[2].data = maxp;
+    tabs[2].length = (uint32_t)build_maxp(maxp, 1);
+    tabs[3].tag = ROBO_FONT_TAG_HMTX;
+    tabs[3].data = hmtx;
+    tabs[3].length = (uint32_t)build_hmtx(hmtx, 1);
+    tabs[4].tag = ROBO_FONT_TAG_LOCA;
+    tabs[4].data = loca;
+    tabs[4].length = 8u;
+    tabs[5].tag = ROBO_FONT_TAG_GLYF;
+    tabs[5].data = glyf;
+    tabs[5].length = (uint32_t)gn;
+
+    n = build_sfnt(font, sizeof(font), ROBO_FONT_SFNT_VERSION_TRUE, tabs, 6);
+    ROBO_CHECK_EQ_INT(robo_font_source_create_memory_copy(font, n, &src), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_create(src, 0, &face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_parse_outlines(face), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_face_glyph_outline(face, 0, &o), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_font_outline_dump(o, dump, sizeof(dump), NULL), ROBO_OK);
+    ROBO_CHECK_STR_EQ(dump, expect);
+    robo_font_outline_release(o);
+    robo_font_face_release(face);
+    robo_font_source_release(src);
+}
+
 void robo_test_register_font_outline(void)
 {
     robo_test_register("font.outline.tt_simple", test_outline_tt_simple);
     robo_test_register("font.outline.tt_implied", test_outline_tt_implied);
     robo_test_register("font.outline.tt_cycle", test_outline_tt_composite_cycle);
+    robo_test_register("font.outline.tt_composite", test_outline_tt_composite);
     robo_test_register("font.outline.affine", test_outline_affine);
+    robo_test_register("font.outline.metrics_cross", test_outline_metrics_cross);
+    robo_test_register("font.outline.cff_path", test_outline_cff_path);
+    robo_test_register("font.outline.cff_cubic", test_outline_cff_cubic);
+    robo_test_register("font.outline.cff_empty", test_outline_cff_empty);
+    robo_test_register("font.outline.golden_square", test_outline_golden_square);
 }

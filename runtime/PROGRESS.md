@@ -1063,7 +1063,7 @@
 - Face/instance integration; fuzz entry `robo_font_metrics_fuzz_parse`
 - Docs: `docs/Metrics.md`; version **0.7.0**
 - Tests: `font/tests/SuiteRoboFontMetrics.c`
-- Debug / Release / ASan+UBSan (`-Filter font.`): **55/55**; VERIFY: no Chromium paths
+- Debug / Release / ASan+UBSan (`-Filter font.`): **65/65**; VERIFY: no Chromium paths
 
 **Definition of done:**
 
@@ -1071,7 +1071,29 @@
 - [x] Malformed/fuzz survivability; Chromium-independence
 - [x] Stop after 5.7 (no final outlines / Goal 5.8; no shaping / Phase 6)
 
+## Goal 5.8 — Glyph Outlines
+
+**Status:** complete
+
+**Done:**
+
+- Unified immutable `robo_font_outline_t` (MOVE/LINE/QUAD/CUBIC/CLOSE)
+- TrueType simple glyf → quads with implied on-curve midpoints
+- TrueType composite flatten: affine, depth/cycle/component limits
+- CFF/CFF2 CharString IR → cubics; hints skipped; subr limits inherited
+- Mathematical curve extrema for bounds; empty / `.notdef` support
+- Face-local outline cache (FIFO ≤ 512); golden `outline_dump`; fuzz entry
+- Docs: `docs/Outlines.md`; version **0.8.0**
+- Tests: `font/tests/SuiteRoboFontOutline.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): **65/65**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Safe TT/CFF/CFF2 → one geometric outline representation
+- [x] Composite security + resource limits; metrics cross-check
+- [x] Stop after 5.8 (no naming/metadata / Goal 5.9; no shaping / Phase 6)
+
 ## Next
 
-- Goal 5.8 — Glyph outlines (do not start until requested)
+- Goal 5.9 — Font naming & metadata (do not start until requested)
 

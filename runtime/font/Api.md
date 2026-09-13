@@ -1,4 +1,4 @@
-# RoboFont Public API (Goals 5.1–5.7)
+# RoboFont Public API (Goals 5.1–5.8)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
@@ -7,8 +7,9 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontTypes.h` | face/instance/glyph IDs, font units, sizes, bbox |
 | `RoboFontStyle.h` | weight, stretch, style, style_desc |
 | `RoboFontMetrics.h` | layout metrics, metrics info, scaling, vertical foundation |
+| `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
 | `RoboFontSource.h` | memory copy/borrow sources |
-| `RoboFontFace.h` | face + TT / cmap / metrics parse |
+| `RoboFontFace.h` | face + TT / cmap / metrics / outlines parse |
 | `RoboFontInstance.h` | instance create, metrics sync/scale |
 | `RoboFontBinary.h` | big-endian bounds-checked reader / spans |
 | `RoboFontSfnt.h` | SFNT container parse, table lookup, checksums |
@@ -17,7 +18,17 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, fuzz entry |
-| `RoboFontVersion.h` | `0.7.0` |
+| `RoboFontVersion.h` | `0.8.0` |
+
+## Outlines (5.8)
+
+| API | Role |
+|---|---|
+| `robo_font_outline_from_tt` / `_from_cff` / `_from_sfnt` | Build outline |
+| `robo_font_face_parse_outlines` / `face_glyph_outline` | Face + cache |
+| `robo_font_outline_dump` | Golden ASCII dump |
+| `robo_font_outline_fuzz_parse` | Malformed-input entry |
+| `robo_font_affine_identity` / `_multiply` / `_apply` | Composite math |
 
 ## Metrics (5.7)
 
@@ -31,5 +42,5 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `robo_font_instance_sync_metrics` / `scale_advance` | Sized instance |
 | `robo_font_metrics_fuzz_parse` | Malformed-input entry |
 
-Details: `docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`, `docs/OpenType.md`,
-`docs/TrueType.md`, `docs/Sfnt.md`.
+Details: `docs/Outlines.md`, `docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`,
+`docs/OpenType.md`, `docs/TrueType.md`, `docs/Sfnt.md`.

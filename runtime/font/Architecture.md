@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.7)
+# RoboFont Architecture (Goals 5.1–5.8)
 
 ## Layering
 
@@ -20,7 +20,9 @@ cmap map        Unicode scalar → glyph ID; UVS foundation (Goal 5.6)
     ↓
 Metrics info    global + glyph advances/LSB/bbox; vertical foundation (5.7)
     ↓
-Font Face       resource identity + collection index + optional TT/cmap/metrics
+Glyph outlines  unified MOVE/LINE/QUAD/CUBIC/CLOSE paths (Goal 5.8)
+    ↓
+Font Face       resource identity + collection index + TT/cmap/metrics/outlines
     ↓
 Font Instance   face + pixel size + style request (+ future variation axes)
     ↓
@@ -32,9 +34,16 @@ Glyph ID        face-local index (≠ Unicode code point)
 
 | Technology | Tables | Outline source | Horizontal metrics |
 |---|---|---|---|
-| TrueType | `glyf` + `loca` | TT glyph programs | `hmtx` |
-| CFF | `CFF ` | Type 2 CharStrings | `hmtx` |
-| CFF2 | `CFF2` | Type 2 CharStrings (+ VStore) | `hmtx` |
+| TrueType | `glyf` + `loca` | TT → QUAD paths | `hmtx` |
+| CFF | `CFF ` | Type 2 → CUBIC paths | `hmtx` |
+| CFF2 | `CFF2` | Type 2 → CUBIC (+ VStore later) | `hmtx` |
+
+```text
+TrueType glyf ─────┐
+                   ├──> RoboGlyphOutline
+CFF CharStrings ───┤
+CFF2 CharStrings ──┘
+```
 
 Do not fabricate a `glyf` view for CFF fonts. Metrics stay in shared SFNT tables.
 
@@ -46,13 +55,15 @@ Do not fabricate a `glyf` view for CFF fonts. Metrics stay in shared SFNT tables
 | Glyph ID | Face-local drawing ID (`< maxp.numGlyphs`) |
 | Layout metrics | Policy-selected ascent/descent/line_gap |
 | Windows clip | `usWin*` — not default line spacing |
+| Outline path | Geometry in font units (not pixels) |
 | Grapheme cluster | Segmentation — later text layer |
 | Glyph position | Shaping — Phase 6 |
 
 ## Ownership & lifetime
 
-- Source / SFNT / TT / OT / CFF / cmap / metrics info / face / instance use
-  explicit retain/release.
+- Source / SFNT / TT / OT / CFF / cmap / metrics info / outline / face / instance
+  use explicit retain/release.
+- Face-local outline cache (FIFO ≤ 512); outlines immutable after build.
 - Metrics info retains TT; after create, global snapshot is immutable and
   reader-safe.
 
