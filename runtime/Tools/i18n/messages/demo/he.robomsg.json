@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "he",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "שלום, {name}!",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "התחברות"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "ההתחברות נכשלה"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "שפה"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "פתח",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "פתח",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} פריט",
+        "other": "{count} פריטים"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "ברוך הבא 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

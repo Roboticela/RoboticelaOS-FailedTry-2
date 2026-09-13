@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "en",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "Hello, {name}!",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "Sign in"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "Sign-in failed"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "Language"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "Open",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "Open",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} item",
+        "other": "{count} items"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "Welcome 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

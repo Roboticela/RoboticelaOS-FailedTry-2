@@ -38,6 +38,17 @@ void robo_test_register_i18n(void);
 void robo_test_register_i18n_cldr(void);
 void robo_test_register_i18n_number(void);
 void robo_test_register_i18n_plural(void);
+void robo_test_register_i18n_datetime(void);
+void robo_test_register_i18n_datetime_format(void);
+void robo_test_register_i18n_interval(void);
+void robo_test_register_i18n_relative(void);
+void robo_test_register_i18n_datetime_arith(void);
+void robo_test_register_i18n_collation(void);
+void robo_test_register_i18n_display_names(void);
+void robo_test_register_i18n_message(void);
+void robo_test_register_i18n_message_format(void);
+void robo_test_register_i18n_message_validate(void);
+void robo_test_register_i18n_timezone(void);
 
 int main(int argc, char **argv)
 {
@@ -113,5 +124,16 @@ int main(int argc, char **argv)
     robo_test_register_i18n_cldr();
     robo_test_register_i18n_number();
     robo_test_register_i18n_plural();
+    robo_test_register_i18n_datetime();
+    robo_test_register_i18n_datetime_format();
+    robo_test_register_i18n_interval();
+    robo_test_register_i18n_relative();
+    robo_test_register_i18n_datetime_arith();
+    robo_test_register_i18n_collation();
+    robo_test_register_i18n_display_names();
+    robo_test_register_i18n_message();
+    robo_test_register_i18n_message_format();
+    robo_test_register_i18n_message_validate();
+    robo_test_register_i18n_timezone();
     return robo_test_main(argc, argv);
 }

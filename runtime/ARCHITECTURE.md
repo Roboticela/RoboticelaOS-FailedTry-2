@@ -103,10 +103,10 @@ API names below are **planned boundaries**, not implemented headers yet (except 
 
 | | |
 |---|---|
-| **Responsibility** | Locale / language-tag foundation (BCP 47), CLDR-derived locale metadata, and locale-aware decimal number formatting (symbols, grouping, numbering-system digits). Not currency/date/plural/collation yet. |
+| **Responsibility** | Locale / language-tag foundation (BCP 47), CLDR-derived locale metadata, locale-aware decimal number formatting, CLDR plural categories, date/time/calendar/timezone foundations, localized date/time formatting (styles/patterns/skeletons), date/time intervals, relative time, calendar arithmetic / date-time utilities, locale-aware collation (UCA + CLDR tailorings), locale display names, application message catalogs (RoboMsg), RoboMsgFmt formatting, and message-format validation/compatibility. Not a full ICU MessageFormat clone. |
 | **May depend on** | RoboBase, RoboMem, RoboContainers, RoboUnicode. |
 | **Must NOT depend on it** | RoboBase … RoboUnicode (until a reviewed exception). Must not be depended on by HTML/CSS/DOM/Layout/Graphics yet. |
-| **Public C API boundary** | `Include/RoboI18N/RoboI18N.h`, `RoboI18NLocale.h`, `RoboI18NLocaleData.h`, `RoboI18NNumber.h`. Guide: `i18n/README.md`. IANA File-Date **2026-05-05**; CLDR **46** / Unicode **16.0.0** (CLDR metadata). |
+| **Public C API boundary** | `Include/RoboI18N/RoboI18N.h`, Locale/LocaleData/Number/Plural/DateTime/TimeZone/Calendar/DateTimeFormat/DateTimeInterval/RelativeTime/DateTimeArith/Collation/DisplayNames/Message/MessageFormat/MessageValidate. Guide: `i18n/README.md`, `i18n/RoboMsg.md`, `i18n/RoboMsgFormat.md`, `i18n/TZDB.md`. IANA File-Date **2026-05-05**; CLDR **46** / Unicode+UCA **16.0.0**; IANA tzdb **2026c**; API **0.14.0**. |
 
 ---
 

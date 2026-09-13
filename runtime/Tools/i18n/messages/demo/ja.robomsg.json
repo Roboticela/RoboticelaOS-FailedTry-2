@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "ja",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "こんにちは、{name}さん！",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "サインイン"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "サインインに失敗しました"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "言語"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "開く",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "開ける",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} 件",
+        "other": "{count} 件"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "ようこそ 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

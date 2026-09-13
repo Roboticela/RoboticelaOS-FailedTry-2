@@ -29,6 +29,8 @@ from robo_i18n_version import (
     GENERATOR_VERSION,
 )
 from generate_plurals import write_plurals
+from generate_calendar import write_calendar
+from generate_relative import write_relative
 
 
 HERE = Path(__file__).resolve().parent
@@ -675,7 +677,13 @@ def main(argv: list[str] | None = None) -> int:
                     raise SystemExit(f"repro failed: golden mismatch for {name}")
         print("CLDR generation reproducible OK")
         print("stats:", json.dumps(stats))
-        return write_plurals(repro=True, write_golden=False)
+        rc = write_plurals(repro=True, write_golden=False)
+        if rc != 0:
+            return rc
+        rc = write_calendar(repro=True, write_golden=False)
+        if rc != 0:
+            return rc
+        return write_relative(repro=True, write_golden=False)
 
     OUT_H.parent.mkdir(parents=True, exist_ok=True)
     OUT_C.parent.mkdir(parents=True, exist_ok=True)
@@ -709,7 +717,13 @@ def main(argv: list[str] | None = None) -> int:
         f"loc_num={stats['loc_num']} numfmt={stats['numfmt']} bytes_c={stats['bytes_c']}"
     )
     print("checksums:", json.dumps(checksums, indent=2, sort_keys=True))
-    return write_plurals(repro=False, write_golden=write_golden)
+    rc = write_plurals(repro=False, write_golden=write_golden)
+    if rc != 0:
+        return rc
+    rc = write_calendar(repro=False, write_golden=write_golden)
+    if rc != 0:
+        return rc
+    return write_relative(repro=False, write_golden=write_golden)
 
 if __name__ == "__main__":
     raise SystemExit(main())

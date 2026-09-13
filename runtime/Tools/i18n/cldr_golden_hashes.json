@@ -1,14 +1,16 @@
 {
-  "RoboCldrData.h": "f0a37dd5ea2a127b4a14f3b460a46095bbf43935d33f9e0c4431b005f60df619",
+  "RoboCldrData.h": "7bc6b3e68dd760ef3ba082cbdcef170fe527f70bd1bcf6dae67a6214680cc6a6",
   "cldr_version": "46",
-  "generator_version": "1.2.0",
-  "robo_cldr_data.c": "c7a6f34a8ee4cfbc84650d487ed67ae703bd737dadd98dc8bd2b6338b9c4c93e",
+  "generator_version": "1.4.0",
+  "robo_cldr_data.c": "f96b14577f9bfcc3ecb49fc7bfd889f3b10d62e067dfcf06c95341f049d1d392",
   "sources": {
     "calendarPreferenceData.json": "4982ce8134d371b82028cdec7e1a0a3fd6448880adca8904776f87343728bde5",
     "likelySubtags.json": "bd98c1a08b6795bfc52f56014d5f522ab8d42ef92dfc3febd8e7bbb3ab84b48f",
     "measurementData.json": "fcf9cec9c5430aa3c30bcf4e17727689cae5d1b11ad5c32c675c700a2ba3dd63",
     "numberingSystems.json": "213dab3fa71e00b52bd5ad091cf79f12602968d1482f1a15889a29984ea5c4ac",
-    "parentLocales.json": "9de8518adad3f1c0b4610c6e113cdf32a48556ebf4ae03af65f56226b8eb4bab"
+    "ordinals.json": "c7921e770bf7c038c39500a3921858eefef2e8344656c70e01d1c50be53fc790",
+    "parentLocales.json": "9de8518adad3f1c0b4610c6e113cdf32a48556ebf4ae03af65f56226b8eb4bab",
+    "plurals.json": "ce19668400e9f7904e8b3939d1f0a2872fe8da7bdea9f45f5d50b3a2bac3b382"
   },
   "unicode_version": "16.0.0"
 }

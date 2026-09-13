@@ -1,0 +1,24 @@
+{
+  "generator_version": "1.14.0",
+  "cldr_version": "46",
+  "tzdb_version_pin": "2026c",
+  "api_version": "0.15.0",
+  "outputs": {
+    "RoboDispData.h": "8c2f547ebe0ac27b80f1de2806a9e6d012a8da17dab0fa7eba5c2979282223b0",
+    "robo_disp_data.c": "c558ffeb27344cffa1452af9fb79ed9e629f2f7e7340f88cda3b5fb57cfd31d0"
+  },
+  "stats": {
+    "locales": 21,
+    "strings": 36334,
+    "languages": 12605,
+    "scripts": 3311,
+    "territories": 6176,
+    "currencies": 5759,
+    "calendars": 362,
+    "numbering": 1341,
+    "tz_metazones": 3228,
+    "tz_zones": 65,
+    "tz_exemplars": 6792,
+    "iana_mz_ranges": 669
+  }
+}

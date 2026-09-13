@@ -1,10 +1,13 @@
 /*
- * RoboI18N — internationalization foundation (Goals 4.1–4.4).
+ * RoboI18N — internationalization foundation (Goals 4.1–4.14).
  *
  * Locale identification (BCP 47 / RFC 5646), CLDR locale-data metadata,
- * number formatting, and plural-rule categories.
- * Not language detection. Not message formatting, currency, date/time,
- * collation, or fonts yet.
+ * number formatting, plural-rule categories, date/time/calendar/timezone
+ * (IANA tzdb), localized date/time formatting, interval / relative-time
+ * formatting, calendar arithmetic / date-time utilities, locale-aware
+ * collation (UCA + CLDR tailorings), locale display names, application
+ * message catalogs (RoboMsg), RoboMsgFmt message formatting, and message-format
+ * validation/compatibility. Not language detection. Not a full ICU MessageFormat clone.
  *
  * Unicode Script != locale language != region. See i18n/README.md.
  */
@@ -16,6 +19,18 @@
 #include "RoboI18N/RoboI18NLocaleData.h"
 #include "RoboI18N/RoboI18NNumber.h"
 #include "RoboI18N/RoboI18NPlural.h"
+#include "RoboI18N/RoboI18NDateTime.h"
+#include "RoboI18N/RoboI18NTimeZone.h"
+#include "RoboI18N/RoboI18NCalendar.h"
+#include "RoboI18N/RoboI18NDateTimeFormat.h"
+#include "RoboI18N/RoboI18NDateTimeInterval.h"
+#include "RoboI18N/RoboI18NRelativeTime.h"
+#include "RoboI18N/RoboI18NDateTimeArith.h"
+#include "RoboI18N/RoboI18NCollation.h"
+#include "RoboI18N/RoboI18NDisplayNames.h"
+#include "RoboI18N/RoboI18NMessage.h"
+#include "RoboI18N/RoboI18NMessageFormat.h"
+#include "RoboI18N/RoboI18NMessageValidate.h"
 #include "RoboI18N/RoboI18NVersion.h"
 
 #ifdef __cplusplus

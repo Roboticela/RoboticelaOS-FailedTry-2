@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "zh",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "你好，{name}！",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "登录"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "登录失败"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "语言"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "打开",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "打开",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} 项",
+        "other": "{count} 项"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "欢迎 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

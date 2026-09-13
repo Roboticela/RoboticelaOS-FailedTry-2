@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define ROBO_TEST_MAX 256
+#define ROBO_TEST_MAX 384
 #define ROBO_TEST_NAME_MAX 96
 
 typedef struct robo_test_case {

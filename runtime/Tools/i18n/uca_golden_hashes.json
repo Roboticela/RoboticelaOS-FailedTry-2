@@ -1,0 +1,15 @@
+{
+  "generator_version": "1.8.0",
+  "uca_version": "16.0.0",
+  "source_sha256": "7b47769f4a95615ada83b6812dea1d2a76d74580b1e4d7af48d383eb902017f0",
+  "outputs": {
+    "RoboUcaData.h": "4002f6883888ad46570ea1bea439656642adbb265305213974ef3f7df8f9cec8",
+    "robo_uca_data.c": "ade53f2002c014b6969f07d09f88b89f5f417bfc5425f0628539bdedb08b1ee9"
+  },
+  "stats": {
+    "singles": 38443,
+    "contractions": 964,
+    "ce_pool": 45509,
+    "implicit_ranges": 4
+  }
+}

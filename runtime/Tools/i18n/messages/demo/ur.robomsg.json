@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "ur",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "السلام علیکم، {name}!",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "سائن ان"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "سائن ان ناکام"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "زبان"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "کھولیں",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "کھولیں",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} آئٹم",
+        "other": "{count} آئٹمز"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "خوش آمدید 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

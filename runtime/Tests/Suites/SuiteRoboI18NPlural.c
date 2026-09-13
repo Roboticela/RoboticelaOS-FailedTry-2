@@ -100,7 +100,7 @@ static void expect_ordinal(const char *tag, const char *input, const char *want_
 
 static void test_plural_versions(void)
 {
-    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.4.0");
+    ROBO_CHECK_STR_EQ(robo_i18n_version_string(), "0.14.0");
     ROBO_CHECK_STR_EQ(robo_i18n_cldr_version_string(), "46");
     ROBO_CHECK_STR_EQ(ROBO_PLURAL_CLDR_VERSION, "46");
     ROBO_CHECK_STR_EQ(ROBO_PLURAL_UNICODE_VERSION, "16.0.0");

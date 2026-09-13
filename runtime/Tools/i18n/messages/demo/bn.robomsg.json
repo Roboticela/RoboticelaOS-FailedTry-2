@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "bn",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "হ্যালো, {name}!",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "সাইন ইন"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "সাইন ইন ব্যর্থ"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "ভাষা"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "খুলুন",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "খুলুন",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} আইটেম",
+        "other": "{count} আইটেম"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "স্বাগতম 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

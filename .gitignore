@@ -7,3 +7,6 @@ Bootloader-RefCode/
 /runtime/Tools/i18n/source/
 Chromium/
 **/__pycache__/
+
+# Generated TZif tree (recreated by generate_tzdb.py)
+runtime/Tools/i18n/source/tzdb-*/zoneinfo/

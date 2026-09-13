@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "ko",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "안녕하세요, {name}님!",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "로그인"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "로그인 실패"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "언어"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "열기",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "열기",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count}개 항목",
+        "other": "{count}개 항목"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "환영합니다 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

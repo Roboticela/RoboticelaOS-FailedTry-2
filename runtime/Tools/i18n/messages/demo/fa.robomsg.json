@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "fa",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "سلام، {name}!",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "ورود"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "ورود ناموفق"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "زبان"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "باز کردن",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "باز کردن",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} مورد",
+        "other": "{count} مورد"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "خوش آمدید 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

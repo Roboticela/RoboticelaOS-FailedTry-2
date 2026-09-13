@@ -1,6 +1,6 @@
 {
-  "robo_i18n_version": "0.4.0",
-  "generator_version": "1.3.0",
+  "robo_i18n_version": "0.5.0",
+  "generator_version": "1.4.0",
   "iana": {
     "file_date": "2026-05-05",
     "url": "https://www.iana.org/assignments/language-subtag-registry/language-subtag-registry",
@@ -16,6 +16,7 @@
     "note": "CLDR 46 JSON; Unicode 16.0.0 from supplemental version._unicodeVersion. Do not mix releases.",
     "attribution": "Tools/i18n/CLDR_ATTRIBUTION.md",
     "numbers_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-numbers-full/main",
+    "dates_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-dates-full/main",
     "supplemental_base_url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental",
     "categories": [
       "likelySubtags",
@@ -25,7 +26,10 @@
       "parentLocales",
       "localeNumberingDefaults",
       "plurals",
-      "ordinals"
+      "ordinals",
+      "weekData",
+      "calendarData",
+      "calendarNamesPatterns"
     ],
     "supplemental_files": [
       {
@@ -69,6 +73,18 @@
         "category": "ordinals",
         "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/ordinals.json",
         "sha256": "c7921e770bf7c038c39500a3921858eefef2e8344656c70e01d1c50be53fc790"
+      },
+      {
+        "name": "weekData.json",
+        "category": "weekData",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/weekData.json",
+        "sha256": "7667d479f415418288ed1ab0390bb440892626f4549612d875becc4334708c77"
+      },
+      {
+        "name": "calendarData.json",
+        "category": "calendarData",
+        "url": "https://raw.githubusercontent.com/unicode-org/cldr-json/46.0.0/cldr-json/cldr-core/supplemental/calendarData.json",
+        "sha256": "11e81ac38e7fd705bbccb38039832b5ead5bcd933b1100b3d28629da5456def2"
       }
     ]
   },
@@ -79,7 +95,9 @@
     "Source/RoboI18N/data/robo_cldr_data.c",
     "Include/RoboI18N/RoboPluralData.h",
     "Source/RoboI18N/data/robo_plural_data.c",
-    "Tests/Data/robo_plural_samples.txt"
+    "Tests/Data/robo_plural_samples.txt",
+    "Include/RoboI18N/RoboCalData.h",
+    "Source/RoboI18N/data/robo_cal_data.c"
   ],
   "offline_policy": "Build.ps1 compiles committed tables only; Fetch-Iana.ps1 / Fetch-Cldr.ps1 + generate_*.py are explicit developer steps."
 }

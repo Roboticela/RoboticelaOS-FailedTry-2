@@ -1,0 +1,52 @@
+{
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locale": "tr",
+  "messages": [
+    {
+      "id": "app.greeting",
+      "text": "Merhaba, {name}!",
+      "description": "Greeting with user name"
+    },
+    {
+      "id": "app.login.title",
+      "text": "Oturum aç"
+    },
+    {
+      "id": "app.login.failure",
+      "text": "Oturum açma başarısız"
+    },
+    {
+      "id": "app.settings.language",
+      "text": "Dil"
+    },
+    {
+      "id": "app.action.open",
+      "context": "file",
+      "text": "Aç",
+      "description": "Open a file"
+    },
+    {
+      "id": "app.action.open",
+      "context": "door",
+      "text": "Aç",
+      "description": "Open a door"
+    },
+    {
+      "id": "app.items",
+      "plural": {
+        "one": "{count} öğe",
+        "other": "{count} öğe"
+      }
+    },
+    {
+      "id": "app.welcome_emoji",
+      "text": "Hoş geldiniz 👋"
+    },
+    {
+      "id": "app.combining",
+      "text": "café"
+    }
+  ]
+}

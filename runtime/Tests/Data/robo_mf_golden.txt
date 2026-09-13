@@ -1,0 +1,17 @@
+# RoboMsgFmt golden semantic tests (Goal 4.13)
+# format: locale|template|argspec|expected
+# argspec: name=s:text or name=i:number, comma-separated; empty OK
+# expected may be empty to mean "any non-empty success"
+en|Hello, {name}!|name=s:Ada|Hello, Ada!
+en|{count, number}|count=i:1234|1,234
+en|{g, select, male {He} female {She} other {They}}|g=s:female|She
+en|{n, plural, =0 {none} one {# item} other {# items}}|n=i:1|1 item
+ur|سلام {name}|name=s:علی|سلام علی
+he|שלום {name}|name=s:עולם|שלום עולם
+zh|你好，{name}|name=s:李|你好，李
+ja|{n, number}|n=i:42|42
+fa|{n, number}|n=i:7|
+bn|{n, number}|n=i:3|
+th|{n, number}|n=i:9|
+ko|{n, number}|n=i:8|
+hi|{n, number}|n=i:6|

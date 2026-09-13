@@ -29,15 +29,49 @@ generated offline into committed C tables (`RoboCldrData.h` /
 - minimum grouping digits
 - primary/secondary grouping sizes derived from patterns
 
+### Goal 4.4
+- cardinal plural rules (`plurals.json`)
+- ordinal plural rules (`ordinals.json`)
+
+### Goal 4.5
+- weekData (first day / weekend)
+- calendarData (Japanese era start dates)
+- calendar names + date/time/dateTime patterns (`dates/*/ca-*.json`)
+
+### Goal 4.6
+- narrow month/weekday names
+- `availableFormats` skeletons (same `ca-*.json` sources)
+- consumed at runtime by `RoboI18NDateTimeFormat` (no extra CLDR packages)
+
+### Goal 4.7
+- `intervalFormats` / `intervalFormatFallback` from `ca-*.json`
+- `dateFields.json` relative + relativeTime patterns (fetched per date locale)
+- consumed by `RoboI18NDateTimeInterval` and `RoboI18NRelativeTime`
+
+### Goal 4.9
+- CLDR `common/collation/*.xml` metadata + selected remaps (`RoboCollData`)
+- Unicode UCA DUCET `allkeys.txt` **16.0.0** (`RoboUcaData`) — separate UCA pin
+- consumed by `RoboI18NCollation`
+
+### Goal 4.10
+- locale display names: languages, scripts, territories, keys/types
+  (calendars, numbering systems), localeDisplayPattern
+- currency displayName / symbol / symbol-alt-narrow
+- timeZoneNames (exemplarCity, metazone long names, gmtFormat) + metaZones
+- generated into `RoboDispData` / consumed by `RoboI18NDisplayNames`
+
 ## Not imported here
 
-Currency/percent/compact patterns, plural rules, collation, display names, units,
-time zones, and message catalogs remain for later goals.
+Percent/compact number patterns, units measure formatting, full message
+catalogs, and complete LDML collation rule compilation for every locale
+(esp. CJK) remain for later goals. IANA tzdb is a separate future pin
+(see `i18n/TZDB.md`).
 
 ## Policy
 
 - Do not invent locale data.
 - Do not mix CLDR releases in one generation.
-- Normal `Build.ps1` does not download CLDR; use `Fetch-Cldr.ps1` then
-  `generate_cldr.py` explicitly.
+- Normal `Build.ps1` does not download CLDR/UCA; use `Fetch-Cldr.ps1` /
+  `Fetch-Uca.ps1` then generators explicitly.
 - Unicode UCD / Emoji versions are independent pins under `Tools/ucd/`.
+- UCA **16.0.0** must match RoboUnicode **16.0.0** (do not mix with ICU 17 data).

@@ -1,0 +1,28 @@
+{
+  "generator_version": "1.10.0",
+  "robo_i18n_version": "0.11.0",
+  "format_version": 1,
+  "catalog_id": "robo.demo",
+  "catalog_version": "1.0.0",
+  "locales": [
+    "ar",
+    "bn",
+    "de",
+    "en",
+    "es",
+    "fa",
+    "fr",
+    "he",
+    "hi",
+    "ja",
+    "ko",
+    "th",
+    "tr",
+    "ur",
+    "zh"
+  ],
+  "entry_count": 135,
+  "sha256_h": "b98fffecf1a87ebee5ccbe31637d4118c37810dc3b760b21ebb4a34032300fd2",
+  "sha256_c": "6b1db24c8d148390678be1de36e067301fac521e5ed938f3a03c0e02398915d9",
+  "sha256_blob": "cc16d15d54e2eed702d6d2bc4bf52506e9adbf6140e275fc39fc0ac1b08833fc"
+}

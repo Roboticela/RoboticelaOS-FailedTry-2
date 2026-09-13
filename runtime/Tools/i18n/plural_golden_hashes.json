@@ -1,8 +1,8 @@
 {
-  "RoboPluralData.h": "1ca8071f57cc991be9b00b92eaeaec77427196a909ee37dadf7d64d5eaa56d38",
+  "RoboPluralData.h": "8de83fcaab7cbfcbe384422cfe97a747716a8ae55e9b81eb50d7f6b79cf1df71",
   "cldr_version": "46",
-  "generator_version": "1.3.0",
-  "robo_plural_data.c": "d37eefe9fdadd9ba037e860159466f03845b42cad6197a654262a300af15a82b",
+  "generator_version": "1.4.0",
+  "robo_plural_data.c": "43904c506b72fd3bf048ec9462dc55c4e4fbfb3bfbe4fab2ceb1f622089b6276",
   "robo_plural_samples.txt": "378e77a60693fe07ecf4257a6affd299fe15f7014733d67d5d51145dc6b140b2",
   "sources": {
     "ordinals.json": "c7921e770bf7c038c39500a3921858eefef2e8344656c70e01d1c50be53fc790",

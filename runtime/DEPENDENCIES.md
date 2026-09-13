@@ -82,7 +82,7 @@ Applications
 | RoboHTML and RoboCSS | May both depend on RoboDOM. Must not depend on each other. |
 | RoboNet, RoboStorage, RoboSecurity | May depend on RoboPlatform / RoboIPC / RoboEvent / RoboAPI facades as documented. Must not depend on layout/paint/JS engines. |
 | RoboGraphics and RoboWindow | Window may use Graphics. Graphics must not depend on Window. |
-| RoboI18N | May depend on RoboBase, RoboMem, RoboContainers, RoboUnicode. Must not depend on HTML/CSS/DOM/Layout/Graphics/Render/Window/Shell. Unicode and higher UI must not depend on RoboI18N until a documented exception. |
+| RoboI18N | May depend on RoboBase, RoboMem, RoboContainers, RoboUnicode. Must not depend on HTML/CSS/DOM/Layout/Graphics/Render/Window/Shell. Unicode and higher UI must not depend on RoboI18N until a documented exception. Date/time formatting, intervals, relative time, calendar arithmetic, collation, display names, application message catalogs, RoboMsgFmt formatting, message-format validation, and IANA tzdb timezone conversion use integer/UCA/CLDR/tzdb tables from Unicode UCA 16.0.0, CLDR 46, and IANA tzdb 2026c plus RoboMsg catalogs; duration (fixed ms) is distinct from period (calendar units); collation is distinct from normalization/casefold/binary compare; display names are distinct from locale identifiers; application RoboMsg catalogs are distinct from CLDR; RoboMsgFmt interprets templates and delegates number/date/plural to existing RoboI18N APIs (not a second formatter stack); validation analyzes contracts without formatting; timezone conversion lives in RoboI18NTimeZone (not formatters) and must not pull platform clocks into RoboBase. See `i18n/TZDB.md`. |
 
 ## Forbidden edges
 

@@ -333,9 +333,303 @@
 - [x] Integer exactness (incl. UINT64_MAX)
 - [x] Documented rounding (default half-even)
 - [x] International locale coverage tests
-- [x] No currency/date/plural/collation/fonts
+- [x] No currency/date/message/collation/fonts
 - [x] No Chromium dependency
+
+## Goal 4.4 — Plural Rules and Locale-Aware Plural Categories
+
+**Status:** complete
+
+**Done:**
+
+- CLDR 46 `plurals.json` / `ordinals.json` → build-time bytecode (`plural_compile.py`)
+- Public API `RoboI18NPlural.h`: cardinal/ordinal select, operands, category names
+- Exact decimal operands (`n,i,v,w,f,t`; `e/c=0` for ordinary inputs); negative → abs
+- Locale resolve: language-region → language-script → language → data parents (`pt-PT` vs `pt`)
+- Generated samples from CLDR `@integer`/`@decimal` → `Tests/Data/robo_plural_samples.txt`
+- Suite `SuiteRoboI18NPlural.c` (ar/ru/pl/fr/en/ja/… + official samples)
+- Debug / Release / ASan+UBSan: **241/241**; CLDR samples **14335/14335**
+- Version **0.4.0** / generator **1.3.0**; no message formatting
+- Perf (Release): ~60k selects in ~14 ms
+
+**Definition of done:**
+
+- [x] Data-driven cardinal rules (not English binary plural)
+- [x] Cardinal + ordinal APIs; ordinal rules from CLDR
+- [x] Operands preserve trailing zeros (`1` vs `1.0` vs `1.00`)
+- [x] Locale fallback without wrong-language selection
+- [x] Official CLDR sample coverage + Arabic/Slavic/decimal/negative/large tests
+- [x] No Chromium dependency; no message engine
+
+## Goal 4.5 — Date/Time and Calendar Foundation
+
+**Status:** complete
+
+**Done:**
+
+- Date/time model: instant (`unix_ms`), Gregorian date, wall time (ns), datetime, duration
+- Calendar abstraction: gregorian/iso8601/buddhist/japanese conversions; islamic/hebrew/persian/chinese metadata-only
+- CLDR calendar generator: weekData, era starts, names/patterns → `RoboCalData.*`
+- Time-zone abstraction: UTC + fixed offsets; IANA deferred to Goal 4.14 (`i18n/TZDB.md`)
+- Locale week/weekend + calendar display metadata APIs
+- Suite `SuiteRoboI18NDateTime.c`; version was **0.5.0** / generator **1.4.0** at completion
+- Debug / Release / ASan+UBSan: **252/252** at Goal 4.5 completion
+- Localized date/time formatting deferred to Goal 4.6
+
+**Definition of done:**
+
+- [x] Documented model separating instant / local / calendar / zone / locale
+- [x] Gregorian + ISO week primitives; leap-year rules
+- [x] Instant UTC round-trips; fixed-offset zones
+- [x] CLDR calendar metadata generated/validated
+- [x] tzdb architecture documented (data not embedded)
+- [x] No Chromium dependency; no full formatting engine
+
+## Goal 4.6 — Localized Date/Time Formatting
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NDateTimeFormat` — style / pattern / skeleton formatters on top of Goal 4.5
+- CLDR short/medium/long/full date & time; datetime combination via `{0}`/`{1}` patterns
+- Compiled pattern tokens (no re-parse per format call)
+- Skeleton normalize + exact/`availableFormats` match + documented best-match scoring
+- Month/weekday/era/day-period names (wide/abbr/narrow where generated)
+- Numbering-system digits via `robo_i18n_number_formatter`
+- Zone display: GMT/ISO offsets + IANA id; **no invented localized zone names**
+- Calendars with conversion only (gregorian/buddhist/japanese); islamic/hebrew/persian/chinese → `ROBO_NOT_SUPPORTED`
+- Suite `SuiteRoboI18NDateTimeFormat.c`; API was **0.6.0** / generator **1.5.0** at completion
+- `availableFormats` tables in `RoboCalData.*`
+- Test harness limit raised to 384 cases
+- Debug / Release / ASan+UBSan: **263/263** at Goal 4.6 completion
+
+**Definition of done:**
+
+- [x] Localized date / time / datetime formatting
+- [x] CLDR styles + patterns + skeleton foundation
+- [x] Localized field names + numbering systems
+- [x] Calendar selection where conversion exists
+- [x] Time-zone fields integrated with existing abstraction
+- [x] RTL / non-Latin semantic string tests
+- [x] Deterministic CLDR generation; no Chromium
+
+## Goal 4.7 — Date/Time Interval and Relative Time Foundation
+
+**Status:** complete
+
+**Done:**
+
+- Interval model (`robo_i18n_datetime_interval_t` / instant interval) with explicit reverse handling
+- CLDR `intervalFormats` + fallbacks in `RoboCalData.*` (2274+ patterns)
+- Greatest-difference field selection + ICU-style repeated-letter pattern split
+- Relative-time model + `dateFields` tables (`RoboRelData.*`) for 18 locales
+- Auto keywords (yesterday/today/…) vs always-numeric modes
+- Plural categories via existing `robo_i18n_plural_*` + number formatting for `{0}`
+- Suites `SuiteRoboI18NInterval.c`, `SuiteRoboI18NRelative.c`
+- API **0.7.0** / generator **1.6.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **276/276**
+
+**Definition of done:**
+
+- [x] Interval model + CLDR interval formatting with field collapse
+- [x] Relative-time formatting with plural integration
+- [x] Numeric and natural modes where CLDR provides them
+- [x] Non-Latin / RTL / Slavic plural tests
+- [x] Calendar / timezone interaction where supported
+- [x] Deterministic generation; no Chromium
+
+## Goal 4.8 — Calendar Arithmetic and Date/Time Utilities
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NDateTimeArith` — period vs duration, date/instant arithmetic, comparisons
+- End-of-month policy: **CLAMP** to last valid day (e.g. Jan 31 + 1 month → Feb 28/29)
+- ISO week start/end / weeks-in-year; locale week boundaries (CLDR first day) distinct from ISO
+- Civil boundaries (day/month/quarter/year); zone-aware start-of-day and instant+period (FIXED/UTC)
+- Calendar-aware `add_period` via Gregorian bridge for gregorian/iso8601/buddhist/japanese; islamic/persian/hebrew → `ROBO_NOT_SUPPORTED`
+- Business-day abstraction (CLDR weekend + optional holiday hook; no holiday DB)
+- Checked integer overflow (`ROBO_ERROR` / existing `ROBO_NOT_SUPPORTED` on instant overflow)
+- Suite `SuiteRoboI18NDateTimeArith.c` (invariants, clamp, calendars, business days, fuzz)
+- API **0.8.0** / generator **1.7.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **290/290**
+
+**Definition of done:**
+
+- [x] Date / duration / period arithmetic with documented EOM policy
+- [x] Instant arithmetic with overflow checks
+- [x] ISO week + boundary utilities
+- [x] Time-zone-aware period semantics (FIXED/UTC; IANA → unsupported until tzdb)
+- [x] Business-day architecture without hard-coded holidays
+- [x] Multi-calendar support / explicit unsupported errors
+- [x] Property/fuzz invariants; Debug / Release / Sanitize green
+- [x] No Chromium dependency
+
+## Goal 4.9 — Locale-Aware Collation Foundation
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NCollation` / `robo_i18n_collator_t` — locale-bound collator (no hidden global locale)
+- UCA / DUCET **16.0.0** tables (`RoboUcaData`, `generate_uca.py`, `Fetch-Uca.ps1`)
+- Strengths: primary…identical; alternate non-ignorable/shifted; numeric digit-run option
+- Pipeline: STRICT UTF-8 → NFD → CE formation (contractions/expansions/implicit) → level compare / sort keys
+- Binary / code-point helpers kept separate from linguistic compare
+- CLDR **46** collation metadata + compiled remaps for selected tailorings (sv/es/de-phonebook/tr/…)
+- Large CJK/Arabic rule CDATA: architecture present (type metadata); runtime uses root UCA until full LDML builder
+- Conformance sample from Unicode `CollationTest_NON_IGNORABLE_SHORT.txt`
+- Suite `SuiteRoboI18NCollation.c`
+- API **0.9.0** / generator **1.8.0** / UCA **16.0.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **300/300**
+
+**Definition of done:**
+
+- [x] RoboCollator with compare / equal / sort keys
+- [x] UCA foundation + authoritative allkeys data (deterministic)
+- [x] Locale tailoring architecture + representative remaps
+- [x] Strength / alternate / numeric / case-first options
+- [x] Invalid UTF-8 → `ROBO_PARSE_ERROR`
+- [x] International locale smoke + fuzz + UCA sample tests
+- [x] Debug / Release / Sanitize green; no Chromium
+
+## Goal 4.10 — Locale Display Names and Localization Data Foundation
+
+**Status:** complete
+
+**Done:**
+
+- `RoboI18NDisplayNames` — language / script / region / currency / calendar /
+  numbering-system / time-zone / composed locale display names
+- Identifier vs display locale always distinct; output is logical UTF-8 (no bidi reorder)
+- Compact CLDR **46** tables (`RoboDispData`, `generate_display.py`) from
+  localenames, currencies, timeZoneNames, metaZones
+- Fallback: display locale → CLDR parent / truncation → **en** tables →
+  identifier (`FALLBACK_CODE`, default) or `ROBO_NOT_FOUND`
+- Locale composition via CLDR `localePattern` / `localeSeparator` (not naive join)
+- Currency name / symbol / narrow symbol; no conversion rates
+- TZ: exemplar city, metazone long names, GMT format for FIXED/UTC; IANA GMT
+  without tzdb → `ROBO_NOT_SUPPORTED` where offset is required
+- Context: standard names only; `dialect` option reserved
+- Suite `SuiteRoboI18NDisplayNames.c` (RTL/non-Latin smoke + fuzz)
+- API **0.10.0** / generator **1.9.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **310/310**
+
+**Definition of done:**
+
+- [x] All display-name categories listed in Goal 4.10
+- [x] Deterministic generated data + version metadata
+- [x] Explicit missing-data / fallback policy
+- [x] International locale coverage + fuzz; no invented translations
+- [x] Debug / Release / Sanitize green; no Chromium
+
+## Goal 4.11 — Message Localization and Resource Catalog Foundation
+
+**Status:** complete
+
+**Done:**
+
+- RoboMsg source format (`.robomsg.json`) + `generate_messages.py` validator/compiler
+- Generated `RoboMsgData` tables + `RMSG` binary blob (`robo_msg_demo_blob`)
+- `RoboI18NMessage` — catalog open/load/close, exists/get/format/format_id
+- Stable message IDs; optional translator `context`; named `{placeholder}` + `{{`/`}}` escapes
+- Plural map architecture selecting via existing `robo_i18n_plural_*`
+- Locale fallback: exact → truncation parents → **configured** fallback (not assumed English)
+- Missing-message: `NOT_FOUND` or `RETURN_ID` (never empty success)
+- Demo catalogs for 15 locales (RTL / non-Latin / emoji / combining)
+- Suite `SuiteRoboI18NMessage.c` (fallback, blob load, fuzz)
+- Docs: `i18n/RoboMsg.md`
+- API **0.11.0** / generator **1.10.0**
+- Debug / Release / ASan+UBSan: **319/319**
+
+**Definition of done:**
+
+- [x] Catalog format + compiler + runtime generated catalogs
+- [x] Deterministic fallback / missing / placeholder / plural architecture
+- [x] International coverage + malformed rejection + fuzz
+- [x] Debug / Release / Sanitize green; no Chromium
+
+## Goal 4.12 — RoboI18N Message Formatting Engine
+
+**Status:** complete
+
+**Done:**
+
+- RoboMsgFmt parser + AST + formatter (`RoboI18NMessageFormat`)
+- Literals, named args, `number` / `date` / `time`, `select`, `plural`, `selectordinal`
+- Exact plural selectors (`=N`), `#` → existing number formatter
+- Nested select/plural; depth / size / output limits
+- Explicit value model (string / i64 / u64 / decimal / double / bool / date/time/instant)
+- Catalog integration: `robo_i18n_message_format_mf`
+- Ordinal architecture via existing `robo_i18n_plural_ordinal`
+- Suite `SuiteRoboI18NMessageFormat.c` (intl + malformed + fuzz)
+- Docs: `i18n/RoboMsgFormat.md`
+- API **0.12.0** / generator **1.11.0** (bumped by later goals)
+- Debug / Release / ASan+UBSan: **334/334**
+
+**Definition of done:**
+
+- [x] Parser + reusable message representation
+- [x] select / cardinal plural / exact / `#` / nesting
+- [x] Number + date/time delegated to RoboI18N
+- [x] Ordinal API boundary integrated
+- [x] Catalog integration; malformed + Unicode + intl tests
+- [x] Debug / Release / Sanitize green; no Chromium
+
+## Goal 4.13 — Message Formatting Validation and Compatibility Layer
+
+**Status:** complete
+
+**Done:**
+
+- RoboMsgFmt syntax version **1** + optional `#!robo-mf/1` prologue
+- Structured diagnostics (`robo_i18n_mf_diagnostic_t`)
+- `message_validate` / `mf_validate_ex` / `mf_parse_ex` with limits
+- Static argument analysis + contract compatibility
+- Duplicate-branch rejection; type-conflict detection
+- Catalog entry enumeration + catalog-wide / fallback validation
+- Golden + negative + fuzz suite (`SuiteRoboI18NMessageValidate.c`)
+- Docs: `i18n/RoboMsgFormat.md` validation section
+- API **0.13.0** / generator **1.12.0** (bumped by later goals)
+- Debug / Release / ASan+UBSan: **350/350**
+
+**Definition of done:**
+
+- [x] Versioning + validation + diagnostics + analysis
+- [x] Catalog / fallback compatibility
+- [x] Limits, golden, negative, fuzz
+- [x] Debug / Release / Sanitize green; no Chromium
+
+## Goal 4.14 — Time Zones and Time Zone Database Foundation
+
+**Status:** complete
+
+**Done:**
+
+- Time-zone model: Instant / local / offset / IANA zone / fixed / UTC (not locale)
+- IANA tzdb **2026c** pipeline: `Fetch-Tzdb.ps1` + `generate_tzdb.py`
+- Compact `RoboTzData` tables (zones, aliases, transitions, string pool)
+- TZif parse + POSIX TZ footer expansion through 2100
+- Lookup, offset/DST/abbr, instant↔local, next/prev transition
+- Ambiguous / nonexistent local times with EARLIER / LATER / REJECT
+- Aliases (Link) without duplicating rules; fixed-offset zones ±18h
+- Leap-second policy: POSIX 86400-day days (not modeled)
+- Suite `SuiteRoboI18NTimeZone.c` (DST, round-trip, intl, fuzz)
+- Docs: `i18n/TZDB.md`, `Tools/i18n/TZDB_ATTRIBUTION.md`
+- API **0.14.0** / generator **1.13.0**
+- Debug / Release / ASan+UBSan: **361/361**
+
+**Definition of done:**
+
+- [x] Model + public API + tzdb integration + reproducible generation
+- [x] Instant↔local + ambiguity/gap + transitions + aliases + fixed
+- [x] Historical range documented; validation + golden hashes
+- [x] Integration with existing datetime APIs; no Chromium
+- [x] Debug / Release / Sanitize green
 
 ## Next
 
-- Goal 4.4+ — currency / percent / plurals / display names (do not start until requested)
+- Goal 4.15+ (do not start until requested)
+
