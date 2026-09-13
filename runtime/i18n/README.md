@@ -1,6 +1,6 @@
 # RoboI18N
 
-Internationalization for Roboticela Runtime (**Goals 4.1–4.3**).
+Internationalization for Roboticela Runtime (**Goals 4.1–4.4**).
 
 ## Scope
 
@@ -8,14 +8,15 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.3**).
 |---|---|
 | BCP 47 / RFC 5646 language tags | Currency / percent / compact / scientific |
 | Parse, format, canonicalize (IANA) | Date / time formatting |
-| Equality / matching / truncation parent | Plural rules |
+| Equality / matching / truncation parent | Message formatting / catalogs |
 | Default locale + preference lists | Collation |
-| CLDR likely subtags maximize/minimize | Message translation / catalogs |
-| Numbering-system metadata + digits | Fonts / shaping / layout |
-| **Locale-aware decimal number formatting** | Calendar arithmetic |
-| Calendar preference identifiers | Locale display names |
+| CLDR likely subtags maximize/minimize | Fonts / shaping / layout |
+| Numbering-system metadata + digits | Calendar arithmetic |
+| Locale-aware decimal number formatting | Locale display names |
+| Calendar preference identifiers | |
 | Measurement system preference | |
 | CLDR parentLocales + root inheritance | |
+| **CLDR cardinal / ordinal plural categories** | |
 
 ## Standards relationship
 
@@ -23,6 +24,7 @@ Internationalization for Roboticela Runtime (**Goals 4.1–4.3**).
 BCP 47 (RFC 5646)     — language tag grammar + IANA registry
 Unicode (RoboUnicode) — scripts, text algorithms (separate pin)
 CLDR 46               — locale data (this module; versioned separately)
+UTS #35               — plural operands and rule syntax
 ```
 
 **Unicode Script ≠ locale.** Example:
@@ -38,13 +40,14 @@ CLDR 46               — locale data (this module; versioned separately)
 
 | Dataset | Pin |
 |---|---|
-| RoboI18N API | `0.3.0` |
+| RoboI18N API | `0.4.0` |
+| Generator | `1.3.0` |
 | IANA Language Subtag Registry | File-Date **2026-05-05** |
 | CLDR | **46** (JSON **46.0.0**) |
 | Unicode version in CLDR metadata | **16.0.0** |
 | Unicode / UCD / Emoji | independent — see `Tools/ucd/` |
 
-`Unicode UCD != CLDR != IANA File-Date` — track each explicitly.
+`Unicode UCD != CLDR != IANA File-Date` — track each explicitly. Plural tables use the same CLDR pin as number formatting.
 
 ## Locale model (Goal 4.1)
 
@@ -79,66 +82,108 @@ UTF-8 string (CLDR symbols + digits + grouping)
 
 Do not expect exact decimal results from binary floating-point without an explicit decimal input.
 
-### Options (defaults)
+Trailing fractional zeros matter for plurals: `1`, `1.0`, and `1.00` are distinct when `v` differs.
 
-| Option | Default |
+## Plural rules (Goal 4.4)
+
+```text
+locale + number
+       ↓
+CLDR operands (n, i, v, w, f, t, e/c)
+       ↓
+compiled bytecode evaluation
+       ↓
+category: zero | one | two | few | many | other
+```
+
+### Cardinal vs ordinal
+
+| Kind | Use |
 |---|---|
-| `min_integer_digits` | 1 |
-| `min_fraction_digits` | 0 |
-| `max_fraction_digits` | −1 → CLDR pattern max (often 3) |
-| `use_grouping` | 1 |
-| `show_plus` | 0 |
-| `rounding` | `ROBO_I18N_ROUND_HALF_EVEN` |
-| `numbering_system` | empty → locale default |
+| Cardinal | quantity (“1 item”, “2 items”) |
+| Ordinal | ranking (“1st”, “2nd”) |
 
-Symbols (decimal / group / ± / NaN / ∞), grouping sizes, and `minimumGroupingDigits` come from CLDR — not English assumptions.
+These are separate CLDR rule sets. Do not mix them. Message formatting (selecting a branch from a category) is a **later** goal — this API only returns the category.
 
-### Examples
+### Categories
 
-| Locale | Value | Typical output |
-|---|---|---|
-| `en-US` | 1234567 | `1,234,567` |
-| `de-DE` | 1234.56 | `1.234,56` |
-| `fr-FR` | 1234.56 | `1 234,56` (U+202F group) |
-| `hi-IN` (latn) | 1234567 | `12,34,567` |
-| `ar-SA` | 1234 | Arabic-Indic digits + `٬` |
+Canonical CLDR names: `zero`, `one`, `two`, `few`, `many`, `other`.
 
-### Thread safety
+`other` is always the safe fallback. Not every locale defines every category. `one` does **not** mean “exactly one” in every language.
 
-Formatters are not synchronized. Own one per thread, or protect externally. Configuration is fixed after `init`. Symbol pointers refer to immortal generated tables.
+### Operands (UTS #35)
+
+| Operand | Meaning |
+|---|---|
+| `n` | Absolute value of the source number |
+| `i` | Integer digits of `n` |
+| `v` | Number of visible fraction digits |
+| `w` | Visible fraction digits without trailing zeros (count) |
+| `f` | Visible fraction digits as an integer |
+| `t` | Visible fraction digits without trailing zeros as an integer |
+| `e` / `c` | Compact decimal exponent (`0` for ordinary decimal inputs) |
+
+Negative inputs keep a sign flag; **operands use the absolute value** (CLDR).
+
+### Decimal representation for plurals
+
+Prefer `robo_i18n_decimal_t` or an ASCII decimal string so scale (visible fraction length) is preserved. Do not round-trip through `double` when trailing zeros matter.
+
+Precision limit: `ROBO_I18N_DECIMAL_DIGITS_MAX` (40) significant ASCII digits.
+
+### Rule representation
+
+Build-time parser (`Tools/i18n/plural_compile.py`) compiles CLDR rule expressions to compact bytecode (`PL_TEST` / `AND` / `OR` / `TRUE`). Runtime evaluates immutable generated tables — never reparses rule strings.
+
+### Locale fallback
+
+Lookup order for the current locale: `language-region` → `language-script` → `language`, then CLDR data parents. Example: `pt-PT` must not silently use Brazilian `pt` rules.
+
+Unknown languages with no plural data yield `other`.
 
 ### Public API
 
 ```c
-#include "RoboI18N/RoboI18N.h"   /* includes Number.h */
+#include "RoboI18N/RoboI18N.h"   /* includes Plural.h */
 
-robo_i18n_number_options_init(&opts);
-robo_i18n_number_formatter_init(&fmt, &locale, &opts);
-robo_i18n_number_format_i64(&fmt, value, buf, cap, &len);
-robo_i18n_number_format_to_string(&fmt, &dec, &str);
-robo_i18n_number_formatter_destroy(&fmt);
+robo_i18n_plural_cardinal(&locale, &dec, &cat);
+robo_i18n_plural_ordinal(&locale, &dec, &cat);
+robo_i18n_plural_cardinal_i64(&locale, value, &cat);
+robo_i18n_plural_category_name(cat);   /* "one", … */
+robo_i18n_plural_categories(&locale, kind, out, cap, &n);
 ```
+
+### Thread safety
+
+Generated rule tables are immutable. Evaluation is safe for concurrent callers. No mutable global plural cache.
+
+### Limitations
+
+- Compact-decimal samples (`1c6`) are not evaluated as `e ≠ 0` inputs in this goal (`e` is always 0 for public APIs).
+- Message / ICU MessageFormat selection is intentionally absent.
 
 ## CLDR data pipeline
 
 ```text
 IANA registry  → Fetch-Iana.ps1 → generate_iana.py → RoboIanaData.*
 CLDR 46 JSON   → Fetch-Cldr.ps1 → generate_cldr.py → RoboCldrData.*
+                                    (+ generate_plurals.py) → RoboPluralData.*
 ```
 
-Goal 4.3 adds per-locale × numbering-system rows: symbols, pattern, primary/secondary grouping, `minimumGroupingDigits` (511 rows).
+`generate_cldr.py` also emits plural bytecode and `Tests/Data/robo_plural_samples.txt` from CLDR `@integer` / `@decimal` samples.
 
 Sources under `Tools/i18n/source/` are gitignored. Generated C is committed.
-`python generate_cldr.py --repro` checks determinism.
+`python generate_cldr.py --repro` checks determinism (including plurals).
 
 ## Layout
 
 ```text
-Include/RoboI18N/   (Locale, LocaleData, Number, …)
+Include/RoboI18N/   (Locale, LocaleData, Number, Plural, …)
 Source/RoboI18N/
 Tools/i18n/
 i18n/README.md
 Tests/Suites/SuiteRoboI18N*.c
+Tests/Data/robo_plural_samples.txt
 ```
 
 ## Attribution

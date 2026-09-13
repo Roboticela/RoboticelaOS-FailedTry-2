@@ -266,6 +266,15 @@ static void test_plural_celtic_baltic(void)
     expect_cardinal("lv", "2", "other");
 }
 
+static void test_plural_pt_region(void)
+{
+    /* Brazilian Portuguese treats 0 as "one"; European Portuguese does not. */
+    expect_cardinal("pt", "0", "one");
+    expect_cardinal("pt-BR", "0", "one");
+    expect_cardinal("pt-PT", "0", "other");
+    expect_cardinal("pt-PT", "1", "one");
+}
+
 static void test_plural_east_asian(void)
 {
     expect_cardinal("ja", "0", "other");
@@ -531,6 +540,7 @@ void robo_test_register_i18n_plural(void)
     robo_test_register("i18n.plural.slavic", test_plural_slavic);
     robo_test_register("i18n.plural.arabic", test_plural_arabic);
     robo_test_register("i18n.plural.celtic_baltic", test_plural_celtic_baltic);
+    robo_test_register("i18n.plural.pt_region", test_plural_pt_region);
     robo_test_register("i18n.plural.east_asian", test_plural_east_asian);
     robo_test_register("i18n.plural.decimals", test_plural_decimals);
     robo_test_register("i18n.plural.negatives", test_plural_negatives);
