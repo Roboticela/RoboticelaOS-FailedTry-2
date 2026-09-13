@@ -64,48 +64,55 @@ static void test_translit_ukrainian(void)
 
 static void test_translit_latin_ascii(void)
 {
-    uint32_t idx = 0;
-    robo_i18n_transliterator_t tr;
     char out[256];
     size_t n = 0;
-    /* Rule-set is registered and runnable; remaps depend on compiled subset. */
+    uint32_t idx = 0;
     ROBO_CHECK_EQ_INT(robo_i18n_translit_find_id("Latin-ASCII", &idx), ROBO_OK);
-    ROBO_CHECK_EQ_INT(robo_i18n_transliterator_create(idx, NULL, &tr), ROBO_OK);
-    ROBO_CHECK_EQ_INT(robo_i18n_transliterate(&tr, "AE", 2, out, sizeof(out), &n, NULL, 0, NULL),
-                      ROBO_OK);
-    ROBO_CHECK_STR_EQ(out, "AE"); /* identity path */
-    robo_i18n_transliterator_destroy(&tr);
+    ROBO_CHECK(idx != 0u); /* must not collapse to Cyrillic-Latin */
+    /* Æ → AE */
+    translit("Latin-ASCII", "\xC3\x86", out, sizeof(out), &n);
+    ROBO_CHECK_STR_EQ(out, "AE");
+    /* ß → ss */
+    translit("Latin-ASCII", "\xC3\x9F", out, sizeof(out), &n);
+    ROBO_CHECK_STR_EQ(out, "ss");
 }
 
 static void test_translit_script_matrix(void)
 {
-    /* Representative scripts: require successful transliteration (non-empty,
-     * and preferably ASCII Latin output). Exact spellings vary by CLDR system. */
-    static const struct {
-        const char *id;
-        const char *in;
-    } cases[] = {
-        {"Greek-Latin", "\xCE\xBB"},                 /* λ */
-        {"Arabic-Latin", "\xD8\xA8"},                /* ب */
-        {"Hebrew-Latin", "\xD7\x91"},                /* ב */
-        {"Devanagari-Latin", "\xE0\xA4\x95"},        /* क */
-        {"Bengali-Latin", "\xE0\xA6\x95"},            /* ক */
-        {"Hangul-Latin", "\xED\x95\x9C"},             /* 한 */
-        {"Katakana-Latin", "\xE3\x82\xAB"},           /* カ */
-        {"Hiragana-Latin", "\xE3\x81\x8B"},           /* か */
-    };
-    size_t i;
-    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
-        char out[256];
-        size_t n = 0;
-        uint32_t idx = 0;
-        ROBO_CHECK_EQ_INT(robo_i18n_translit_find_id(cases[i].id, &idx), ROBO_OK);
-        translit(cases[i].id, cases[i].in, out, sizeof(out), &n);
-        ROBO_CHECK(n > 0);
-        /* Output should not be identical bytes for these 1-glyph samples when
-         * rules applied; if unchanged, still OK if pipeline ran (ROBO_OK). */
-        (void)out;
-    }
+    char out[256];
+    size_t n = 0;
+    /* Greek λ → l */
+    translit("Greek-Latin", "\xCE\xBB", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK(out[0] == 'l' || out[0] == 'L');
+    /* Arabic ب → b (BGN-style Latin) */
+    translit("Arabic-Latin", "\xD8\xA8", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK((out[0] >= 'a' && out[0] <= 'z') || (out[0] >= 'A' && out[0] <= 'Z'));
+    /* Hebrew ב */
+    translit("Hebrew-Latin", "\xD7\x91", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK((out[0] >= 'a' && out[0] <= 'z') || (out[0] >= 'A' && out[0] <= 'Z'));
+    /* Devanagari क */
+    translit("Devanagari-Latin", "\xE0\xA4\x95", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK((out[0] >= 'a' && out[0] <= 'z') || (out[0] >= 'A' && out[0] <= 'Z'));
+    /* Bengali ক */
+    translit("Bengali-Latin", "\xE0\xA6\x95", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK((out[0] >= 'a' && out[0] <= 'z') || (out[0] >= 'A' && out[0] <= 'Z'));
+    /* Hangul 한 */
+    translit("Hangul-Latin", "\xED\x95\x9C", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK((out[0] >= 'a' && out[0] <= 'z') || (out[0] >= 'A' && out[0] <= 'Z'));
+    /* Katakana カ */
+    translit("Katakana-Latin", "\xE3\x82\xAB", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK((out[0] >= 'a' && out[0] <= 'z') || (out[0] >= 'A' && out[0] <= 'Z'));
+    /* Hiragana か */
+    translit("Hiragana-Latin", "\xE3\x81\x8B", out, sizeof(out), &n);
+    ROBO_CHECK(n >= 1);
+    ROBO_CHECK((out[0] >= 'a' && out[0] <= 'z') || (out[0] >= 'A' && out[0] <= 'Z'));
 }
 
 static void test_translit_rtl_logical(void)

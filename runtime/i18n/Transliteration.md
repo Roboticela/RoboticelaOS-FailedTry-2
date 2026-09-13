@@ -35,6 +35,10 @@ Latin is **not** assumed as the only source or destination.
 Unsupported rule features (cursor `|`, segments `$1`, most function transforms) are
 skipped at generate time with warnings; architecture remains extensible.
 
+Alias IDs in the string pool are **double-NUL terminated** so lookup cannot spill
+across rule-sets. Bidirectional (`↔`) rules reverse to context-free jamo/script→Latin
+keys where Latin-side medial contexts would otherwise block start-of-text matches.
+
 Attribution: Unicode CLDR (see `Tools/i18n/CLDR_ATTRIBUTION.md`).
 
 ## Matching modes / direction

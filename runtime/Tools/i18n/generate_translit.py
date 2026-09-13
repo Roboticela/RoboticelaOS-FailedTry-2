@@ -534,25 +534,37 @@ def unescape_literal(text: str) -> list[int]:
                 i += 1
             continue
         if ch == "'":
+            # ICU: '' is a literal apostrophe; '...' is a quoted run.
+            if i + 1 < len(text) and text[i + 1] == "'":
+                out.append(ord("'"))
+                i += 2
+                continue
             i += 1
             buf: list[int] = []
-            while i < len(text) and text[i] != "'":
+            while i < len(text):
+                if text[i] == "'":
+                    if i + 1 < len(text) and text[i + 1] == "'":
+                        buf.append(ord("'"))
+                        i += 2
+                        continue
+                    i += 1
+                    break
                 if text[i] == "\\":
-                    # recurse single
                     sub = unescape_literal(text[i:])
                     if sub:
                         buf.append(sub[0])
-                    # advance past escaped char roughly
                     i += 1
                     if i < len(text) and text[i] == "u":
-                        i += 5
+                        if i + 1 < len(text) and text[i + 1] == "{":
+                            j = text.find("}", i + 2)
+                            i = (j + 1) if j >= 0 else len(text)
+                        else:
+                            i += 5
                     else:
                         i += 1
                 else:
                     buf.append(ord(text[i]))
                     i += 1
-            if i < len(text) and text[i] == "'":
-                i += 1
             out.extend(buf)
             continue
         if ch == "$":
@@ -634,6 +646,12 @@ def split_statements(body: str) -> list[str]:
     depth = 0
     while i < len(body):
         ch = body[i]
+        # Backslash escapes next character (including ', ;, →).
+        if ch == "\\" and i + 1 < len(body):
+            buf.append(ch)
+            buf.append(body[i + 1])
+            i += 2
+            continue
         if ch == "[" and not in_quote:
             depth += 1
             buf.append(ch)
@@ -645,7 +663,13 @@ def split_statements(body: str) -> list[str]:
             i += 1
             continue
         # Quotes only matter outside UnicodeSets (sets use ' for literals).
+        # ICU '' is an escaped apostrophe, not a toggle.
         if ch == "'" and depth == 0:
+            if i + 1 < len(body) and body[i + 1] == "'":
+                buf.append("'")
+                buf.append("'")
+                i += 2
+                continue
             in_quote = not in_quote
             buf.append(ch)
             i += 1
@@ -663,6 +687,68 @@ def split_statements(body: str) -> list[str]:
     if stmt:
         parts.append(stmt)
     return parts
+
+
+def find_unescaped_arrow(stmt: str) -> tuple[str | None, int]:
+    """Return (arrow, index) for the first unescaped transform arrow."""
+    arrows = (ARROW_BOTH, ARROW_FWD, ARROW_REV, "↔", "→", "←")
+    i = 0
+    while i < len(stmt):
+        if stmt[i] == "\\" and i + 1 < len(stmt):
+            i += 2
+            continue
+        for a in arrows:
+            if stmt.startswith(a, i):
+                return a, i
+        i += 1
+    return None, -1
+
+
+def parse_context_side(left: str, vars_map: dict[str, object]) -> tuple[CpSet | None, list[int], CpSet | None]:
+    """Parse ICU left-hand side: before{key}after | before}key | key{after | key."""
+    left = left.strip()
+    before: CpSet | None = None
+    after: CpSet | None = None
+
+    def side_to_set(text: str) -> CpSet | None:
+        text = text.strip()
+        if not text:
+            return None
+        if text.startswith("$") and text[1:] in vars_map and isinstance(vars_map[text[1:]], CpSet):
+            return vars_map[text[1:]]  # type: ignore
+        if text.startswith("["):
+            return SetParser(text, vars_map).parse()
+        try:
+            return SetParser(f"[{text}]", vars_map).parse()
+        except Exception:
+            return string_to_set("".join(chr(c) for c in parse_side_to_cps(text, vars_map)))
+
+    m = re.search(r"\{([^{}]*)\}", left)
+    if m:
+        key_text = m.group(1)
+        before_t = left[: m.start()].strip()
+        after_t = left[m.end() :].strip()
+        if before_t:
+            before = side_to_set(before_t)
+        if after_t:
+            after = side_to_set(after_t)
+        return before, parse_side_to_cps(key_text, vars_map), after
+
+    # before}key  (preceding context)
+    if "}" in left and "{" not in left:
+        before_t, key_text = left.split("}", 1)
+        if before_t.strip():
+            before = side_to_set(before_t)
+        return before, parse_side_to_cps(key_text, vars_map), None
+
+    # key{after  (following context)
+    if "{" in left and "}" not in left:
+        key_text, after_t = left.split("{", 1)
+        if after_t.strip():
+            after = side_to_set(after_t)
+        return None, parse_side_to_cps(key_text, vars_map), after
+
+    return None, parse_side_to_cps(left, vars_map), None
 
 
 def expand_vars_in_text(text: str, vars_map: dict[str, object]) -> str:
@@ -729,60 +815,28 @@ def try_parse_rule(stmt: str, vars_map: dict[str, object], order: int) -> Rule |
         return None
     if re.search(r"\$\d", stmt):
         return None
-    # find arrow
-    arrow = None
-    for a in (ARROW_BOTH, ARROW_FWD, ARROW_REV, "↔", "→", "←"):
-        if a in stmt:
-            arrow = a
-            break
-    # also ASCII fallbacks rarely used
+    arrow, aidx = find_unescaped_arrow(stmt)
     if arrow is None:
         return None
-    left, right = stmt.split(arrow, 1)
-    left = left.strip()
-    right = right.strip()
-    # parse before { key } after
-    before = None
-    after = None
-    key_text = left
-    m = re.search(r"\{([^{}]*)\}", left)
-    if m:
-        key_text = m.group(1)
-        before_t = left[: m.start()].strip()
-        after_t = left[m.end() :].strip()
-        if before_t:
-            if before_t.startswith("$") and before_t[1:] in vars_map and isinstance(vars_map[before_t[1:]], CpSet):
-                before = vars_map[before_t[1:]]  # type: ignore
-            elif before_t.startswith("["):
-                before = SetParser(before_t, vars_map).parse()
-            else:
-                # try as set expression wrapped
-                try:
-                    before = SetParser(before_t if before_t.startswith("[") else f"[{before_t}]", vars_map).parse()
-                except Exception:
-                    before = string_to_set(
-                        "".join(chr(c) for c in parse_side_to_cps(before_t, vars_map))
-                    )
-        if after_t:
-            if after_t.startswith("$") and after_t[1:] in vars_map and isinstance(vars_map[after_t[1:]], CpSet):
-                after = vars_map[after_t[1:]]  # type: ignore
-            else:
-                try:
-                    after = SetParser(after_t if after_t.startswith("[") else f"[{after_t}]", vars_map).parse()
-                except Exception:
-                    after = string_to_set(
-                        "".join(chr(c) for c in parse_side_to_cps(after_t, vars_map))
-                    )
+    left = stmt[:aidx].strip()
+    right = stmt[aidx + len(arrow) :].strip()
     try:
-        key = parse_side_to_cps(key_text, vars_map)
+        before, key, after = parse_context_side(left, vars_map)
         repl = parse_side_to_cps(right, vars_map)
     except Exception:
         return None
     if not key and not repl and arrow != ARROW_BOTH:
-        # deletion rules like Mn+ → ;
         if not key:
             return None
     return Rule(before=before, key=key, after=after, repl=repl, order=order)
+
+
+def rule_side_is_clean(cps: list[int]) -> bool:
+    """Reject misparsed sides that leaked syntax into literals."""
+    for cp in cps:
+        if cp in (0x2190, 0x2192, 0x2194, 0x0A, 0x0D, ord(";"), ord("{"), ord("}")):
+            return False
+    return True
 
 
 def compile_body(body: str, direction: str, catalog: dict[str, Path], depth: int = 0) -> tuple[list[Stage], int]:
@@ -876,11 +930,7 @@ def compile_body(body: str, direction: str, catalog: dict[str, Path], depth: int
             continue
 
         # conversion rule
-        arrow = None
-        for a in (ARROW_BOTH, ARROW_FWD, ARROW_REV):
-            if a in stmt:
-                arrow = a
-                break
+        arrow, _aidx = find_unescaped_arrow(stmt)
         if arrow is None:
             skipped += 1
             continue
@@ -912,23 +962,20 @@ def compile_body(body: str, direction: str, catalog: dict[str, Path], depth: int
             # reverse direction keeps lhs←rhs as lhs→rhs (parsed key=lhs repl=rhs)
         elif arrow == ARROW_BOTH:
             if direction == "reverse":
+                # Jamo/script ↔ Latin rules carry Latin-side contexts that must
+                # not become ante-context on the jamo key. ICU Jamo-Latin uses
+                # context-free jamo→latin short names for the reverse pass.
                 rule = Rule(
-                    before=rule.after,
+                    before=None,
                     key=rule.repl,
-                    after=rule.before,
+                    after=None,
                     repl=rule.key,
                     order=rule.order,
                 )
         if not rule.key:
             skipped += 1
             continue
-        # Reject clearly misparsed keys (arrows / newlines leaked into literals).
-        bad = False
-        for cp in rule.key:
-            if cp in (0x2190, 0x2192, 0x2194, 0x0A, 0x0D, ord(";")):
-                bad = True
-                break
-        if bad:
+        if not rule_side_is_clean(rule.key) or not rule_side_is_clean(rule.repl):
             skipped += 1
             continue
         cur_rules.append(rule)
@@ -1101,7 +1148,9 @@ def emit(ids: list[CompiledId]) -> None:
             }
         )
 
-    # String pool for ids + aliases
+    # String pool for ids + aliases.
+    # Aliases are packed as NUL-separated strings ending with an extra NUL
+    # (double-NUL terminator) so runtime walks cannot spill into later IDs.
     str_pool = bytearray()
     str_pool.append(0)
 
@@ -1111,9 +1160,18 @@ def emit(ids: list[CompiledId]) -> None:
         str_pool.append(0)
         return off
 
+    def add_alias_blob(alias_str: str) -> int:
+        """Pack aliases with a double-NUL terminator."""
+        off = len(str_pool)
+        if alias_str:
+            str_pool.extend(alias_str.encode("utf-8"))
+            str_pool.append(0)
+        str_pool.append(0)  # end-of-list
+        return off
+
     for row in id_rows:
         row["id_off"] = add_str(row["id"])
-        row["alias_off"] = add_str(row["aliases"]) if row["aliases"] else 0
+        row["alias_off"] = add_alias_blob(row["aliases"]) if row["aliases"] else 0
 
     # set ranges flat
     range_pool: list[tuple[int, int]] = []
@@ -1181,7 +1239,7 @@ typedef struct robo_translit_stage {{
 
 typedef struct robo_translit_id {{
     uint32_t id_off;
-    uint32_t alias_off; /* NUL-separated aliases; empty if 0 */
+    uint32_t alias_off; /* NUL-separated aliases; double-NUL terminated; 0 = none */
     uint8_t direction;  /* 1 forward, 2 reverse */
     uint8_t reversible;
     uint16_t source_script; /* robo_unicode_script_t */

@@ -852,11 +852,11 @@
 
 - `RoboI18NTranslit` — CLDR transform pipeline (curated IDs), offline
   `generate_translit.py` + `Fetch-Transforms.ps1`
-- Compact rule tables; forward/reverse IDs; reusable transliterator; streaming hold
+- Compact rule tables (2835 rules / 16 IDs); forward/reverse; streaming hold
 - Distinct from search/collation/translation; search does not auto-transliterate
 - Suite `SuiteRoboI18NTranslit.c`; docs `i18n/Transliteration.md`
-- API **0.25.0** / generator **1.22.0** / CLDR **46**
-- Debug / Release / ASan+UBSan validation; VERIFY: no Chromium paths
+- API **0.25.0** / generator **1.23.0** / CLDR **46**
+- Debug / Release / ASan+UBSan: **484/484**; VERIFY: no Chromium paths
 
 **Definition of done:**
 

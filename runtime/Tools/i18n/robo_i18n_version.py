@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-GENERATOR_VERSION = "1.22.0"
+GENERATOR_VERSION = "1.23.0"
 
 # IANA Language Subtag Registry (BCP 47) — independent of Unicode/CLDR versions.
 IANA_REGISTRY_FILE_DATE = "2026-05-05"
