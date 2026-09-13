@@ -1,12 +1,11 @@
 /*
- * RoboFont instance — sized / configured use of a face (Goal 5.1).
+ * RoboFont instance — sized / configured use of a face (Goals 5.1 + 5.7).
  *
  * Face = resource identity. Instance = face + pixel size + style request
- * (+ reserved variation slots for later variable fonts).
+ * (+ reserved variation slots for later variable fonts / instance metrics).
  *
- * Does not rasterize glyphs. Metrics from SFNT are unavailable until later
- * goals; callers may attach test metrics via robo_font_instance_set_metrics
- * for foundation testing only.
+ * Does not rasterize glyphs. Call robo_font_instance_sync_metrics after
+ * face parse_metrics, or attach metrics manually for tests.
  */
 
 #ifndef ROBO_FONT_INSTANCE_H
@@ -27,7 +26,8 @@ typedef struct robo_font_instance robo_font_instance_t;
 /**
  * Create an instance of @p face at @p pixel_size (> 0).
  * @p style NULL → defaults. Non-zero reserved_axis_count → ROBO_NOT_SUPPORTED.
- * Retains @p face.
+ * Retains @p face. If the face already has metrics info, layout metrics are
+ * copied onto the instance automatically.
  */
 robo_result_t robo_font_instance_create(robo_font_face_t *face,
                                         robo_font_pixel_size_t pixel_size,
@@ -48,13 +48,17 @@ robo_result_t robo_font_instance_style(const robo_font_instance_t *inst,
 
 /**
  * Attach metrics (e.g. for tests). Copies @p metrics.
- * Real fonts will populate this from tables in later goals.
  */
 robo_result_t robo_font_instance_set_metrics(robo_font_instance_t *inst,
                                              const robo_font_metrics_t *metrics);
 
 /**
- * Read metrics. ROBO_NOT_FOUND if none set / not yet parsed from the face.
+ * Copy canonical layout metrics from the face's metrics info (if parsed).
+ */
+robo_result_t robo_font_instance_sync_metrics(robo_font_instance_t *inst);
+
+/**
+ * Read metrics. ROBO_NOT_FOUND if none set / not yet synced from the face.
  */
 robo_result_t robo_font_instance_metrics(const robo_font_instance_t *inst,
                                          robo_font_metrics_t *out);
@@ -66,6 +70,15 @@ robo_result_t robo_font_instance_metrics(const robo_font_instance_t *inst,
 robo_result_t robo_font_instance_units_to_pixels(const robo_font_instance_t *inst,
                                                  robo_font_unit_t units,
                                                  float *out_pixels);
+
+/**
+ * Scale glyph advance (font units) to pixels with rounding policy.
+ * Requires synced/attached metrics.
+ */
+robo_result_t robo_font_instance_scale_advance(const robo_font_instance_t *inst,
+                                               uint16_t advance_width,
+                                               robo_font_round_mode_t round_mode,
+                                               float *out_pixels);
 
 #ifdef __cplusplus
 }

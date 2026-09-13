@@ -1,6 +1,6 @@
 # RoboFont
 
-Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.4**).
+Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.7**).
 
 RoboFont is an independent RoboticelaOS runtime subsystem.
 
@@ -20,16 +20,20 @@ Skia, or operating-system font managers.
 | `runtime/font/tests/SuiteRoboFontSfnt.c` | Goal 5.2 SFNT tests |
 | `runtime/font/tests/SuiteRoboFontTrueType.c` | Goal 5.3 TrueType tests |
 | `runtime/font/tests/SuiteRoboFontOpenType.c` | Goal 5.4 OpenType tests |
+| `runtime/font/tests/SuiteRoboFontCff.c` | Goal 5.5 CFF/CFF2 tests |
+| `runtime/font/tests/SuiteRoboFontCmap.c` | Goal 5.6 cmap mapping tests |
+| `runtime/font/tests/SuiteRoboFontMetrics.c` | Goal 5.7 metrics tests |
 | `runtime/font/` | Documentation |
 
 ## Architecture
 
 ```text
-Font Source → SFNT (5.2) → TrueType tables (5.3) → OpenType structures (5.4)
-         → Face → Instance → Metrics
+Font Source → SFNT (5.2) → TrueType (5.3) / OpenType (5.4) / CFF·CFF2 (5.5)
+         → cmap (5.6) → metrics (5.7) → Face → Instance
 ```
 
-See **Architecture.md**, **docs/Sfnt.md**, **docs/TrueType.md**, **docs/OpenType.md**.
+See **Architecture.md**, **docs/Sfnt.md**, **docs/TrueType.md**, **docs/OpenType.md**,
+**docs/Cff.md**, **docs/Cmap.md**, **docs/Metrics.md**.
 
 ## Goal status
 
@@ -38,12 +42,14 @@ See **Architecture.md**, **docs/Sfnt.md**, **docs/TrueType.md**, **docs/OpenType
 | **5.1** | Types, memory sources, face/instance, style, metrics helpers |
 | **5.2** | SFNT header + table directory, BE reader, checksums, bounded views |
 | **5.3** | head/hhea/maxp/hmtx/loca/glyf/name/OS/2/post + cross-validation |
-| **5.4** | OpenType outline detect, table families, Coverage/ClassDef/Device, cmap structural, GDEF/GSUB/GPOS, BASE/JSTF/MATH/kern/COLR/CPAL/STAT |
+| **5.4** | OpenType structures, layout foundations, color/STAT (no shaping) |
+| **5.5** | CFF/CFF2 INDEX/DICT/CharStrings/CID/VStore (no final outlines) |
+| **5.6** | Unicode `cmap` formats 0/2/4/6/10/12/13 + format 14 UVS foundation |
+| **5.7** | Unified font/glyph metrics, scaling, vertical foundation |
 
-**Not** in scope yet: CFF/CFF2 bodies (5.5), full `cmap` mapping (5.6), shaping (Phase 6), discovery, rasterization.
-
-Goal 5.4 parses and represents OpenType structures. It does **not** perform text shaping.
+**Not** in scope yet: final glyph outlines (5.8), shaping (Phase 6), discovery,
+rasterization.
 
 ## Version
 
-RoboFont **0.4.0**
+RoboFont **0.7.0**

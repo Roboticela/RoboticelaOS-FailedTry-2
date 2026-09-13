@@ -55,6 +55,13 @@ robo_result_t robo_font_instance_create(robo_font_face_t *face,
     inst->style = local;
     robo_font_metrics_clear(&inst->metrics);
     inst->has_metrics = 0u;
+    if (robo_font_face_metrics_info(face)) {
+        robo_font_metrics_t lm;
+        if (robo_font_face_layout_metrics(face, &lm) == ROBO_OK && lm.valid) {
+            inst->metrics = lm;
+            inst->has_metrics = 1u;
+        }
+    }
     *out = inst;
     return ROBO_OK;
 }
@@ -120,6 +127,20 @@ robo_result_t robo_font_instance_set_metrics(robo_font_instance_t *inst,
     return ROBO_OK;
 }
 
+robo_result_t robo_font_instance_sync_metrics(robo_font_instance_t *inst)
+{
+    robo_font_metrics_t lm;
+    if (!inst) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (robo_font_face_layout_metrics(inst->face, &lm) != ROBO_OK || !lm.valid) {
+        return ROBO_NOT_FOUND;
+    }
+    inst->metrics = lm;
+    inst->has_metrics = 1u;
+    return ROBO_OK;
+}
+
 robo_result_t robo_font_instance_metrics(const robo_font_instance_t *inst,
                                          robo_font_metrics_t *out)
 {
@@ -146,4 +167,20 @@ robo_result_t robo_font_instance_units_to_pixels(const robo_font_instance_t *ins
     }
     return robo_font_units_to_pixels(units, inst->metrics.units_per_em, inst->pixel_size,
                                      out_pixels);
+}
+
+robo_result_t robo_font_instance_scale_advance(const robo_font_instance_t *inst,
+                                               uint16_t advance_width,
+                                               robo_font_round_mode_t round_mode,
+                                               float *out_pixels)
+{
+    if (!inst || !out_pixels) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!inst->has_metrics || !inst->metrics.valid) {
+        return ROBO_NOT_FOUND;
+    }
+    return robo_font_scale_font_units((robo_font_unit_t)advance_width,
+                                      inst->metrics.units_per_em, inst->pixel_size,
+                                      round_mode, out_pixels);
 }

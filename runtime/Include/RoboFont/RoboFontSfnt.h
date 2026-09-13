@@ -38,6 +38,8 @@ typedef uint32_t robo_font_tag_t;
 #define ROBO_FONT_TAG_HEAD ROBO_FONT_TAG('h', 'e', 'a', 'd')
 #define ROBO_FONT_TAG_HHEA ROBO_FONT_TAG('h', 'h', 'e', 'a')
 #define ROBO_FONT_TAG_HMTX ROBO_FONT_TAG('h', 'm', 't', 'x')
+#define ROBO_FONT_TAG_VHEA ROBO_FONT_TAG('v', 'h', 'e', 'a')
+#define ROBO_FONT_TAG_VMTX ROBO_FONT_TAG('v', 'm', 't', 'x')
 #define ROBO_FONT_TAG_MAXP ROBO_FONT_TAG('m', 'a', 'x', 'p')
 #define ROBO_FONT_TAG_NAME ROBO_FONT_TAG('n', 'a', 'm', 'e')
 #define ROBO_FONT_TAG_CMAP ROBO_FONT_TAG('c', 'm', 'a', 'p')

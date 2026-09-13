@@ -914,7 +914,8 @@
 - ~~Goal 5.1 — RoboFont foundation~~
 - ~~Goal 5.2 — SFNT container parser~~
 - ~~Goal 5.3 — TrueType table parsing~~
-- ~~Goal 5.4 — OpenType table parsing~~ (complete below)
+- ~~Goal 5.4 — OpenType table parsing~~
+- ~~Goal 5.5 — CFF/CFF2 support~~ (complete below)
 
 ## Goal 5.1 — RoboFont Architecture and Font Model Foundation
 
@@ -996,6 +997,7 @@
 - Resource limits + RoboError; fuzz entry `robo_font_ot_fuzz_parse`
 - Docs: `docs/OpenType.md`; version **0.4.0**
 - Tests: `font/tests/SuiteRoboFontOpenType.c`
+- Debug / Release / ASan (`-Filter font.`): **30/30**; VERIFY: no Chromium paths
 
 **Definition of done:**
 
@@ -1003,7 +1005,73 @@
 - [x] Malformed nested-offset tests; Chromium-independence
 - [x] Stop after 5.4 (no CFF / Goal 5.5; no shaping / Phase 6)
 
+## Goal 5.5 — CFF / CFF2 Font Support
+
+**Status:** complete
+
+**Done:**
+
+- CFF1 header, INDEX (offSize 1–4), DICT operands/operators, Top/Private/Font DICT
+- String INDEX, charset (0/1/2), Encoding (0/1 + supplement), FDSelect (0/3)
+- Type 2 CharString IR + local/global subrs (bias, depth/call caps)
+- CID-keyed ROS / FDArray / per-FD Private
+- CFF2 header, Card32 INDEX, FDArray/FDSelect, Item Variation Store foundation
+- Outline tech integration via existing `robo_font_ot_detect_outline`
+- Resource limits + RoboError; fuzz entry `robo_font_cff_fuzz_parse`
+- Docs: `docs/Cff.md`; version **0.5.0**
+- Tests: `font/tests/SuiteRoboFontCff.c`
+- Debug / Release / ASan (`-Filter font.`): **36/36**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Safe CFF/CFF2 structure parse + CharString IR for Goal 5.8
+- [x] Malformed tests; Chromium-independence
+- [x] Stop after 5.5 (no cmap mapping / Goal 5.6; no final outlines / 5.8)
+
+## Goal 5.6 — Character-to-Glyph Mapping (`cmap`)
+
+**Status:** complete
+
+**Done:**
+
+- Immutable `robo_font_cmap_map_t` from SFNT `cmap` or raw span
+- Formats 0, 2, 4, 6, 10, 12, 13 + format 14 UVS foundation
+- Deterministic Unicode subtable selection (platform/encoding/format scoring)
+- Unicode scalar validation; GID checks vs `maxp.numGlyphs`
+- Face API: `parse_cmap` / `lookup_glyph`; fuzz entry `robo_font_cmap_fuzz_parse`
+- Docs: `docs/Cmap.md`; version **0.6.0**
+- Tests: `font/tests/SuiteRoboFontCmap.c` (synthetic fixtures)
+- Debug / Release / ASan+UBSan (`-Filter font.`): **48/48**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Safe Unicode→GID across TT / CFF / CFF2 outline technologies
+- [x] Supplementary planes + UVS foundation; malformed/fuzz survivability
+- [x] Stop after 5.6 (no metrics depth / Goal 5.7; no shaping / Phase 6)
+
+## Goal 5.7 — Font Metrics
+
+**Status:** complete
+
+**Done:**
+
+- Immutable `robo_font_metrics_info_t` from TT/SFNT (TrueType, CFF, CFF2 via `hmtx`)
+- Canonical layout policy (OS/2 USE_TYPO_METRICS vs hhea); distinct win/typo/hhea fields
+- Glyph advances/LSB (full + compact `hmtx`); RSB + glyf bbox when available
+- Cap/x-height, avg width, underline/strikeout/caret; weight/width classes
+- Safe scaling + rounding; vertical `vhea`/`vmtx` foundation
+- Face/instance integration; fuzz entry `robo_font_metrics_fuzz_parse`
+- Docs: `docs/Metrics.md`; version **0.7.0**
+- Tests: `font/tests/SuiteRoboFontMetrics.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): **55/55**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Safe unified metrics API across outline technologies
+- [x] Malformed/fuzz survivability; Chromium-independence
+- [x] Stop after 5.7 (no final outlines / Goal 5.8; no shaping / Phase 6)
+
 ## Next
 
-- Goal 5.5 — CFF/CFF2 support (do not start until requested)
+- Goal 5.8 — Glyph outlines (do not start until requested)
 

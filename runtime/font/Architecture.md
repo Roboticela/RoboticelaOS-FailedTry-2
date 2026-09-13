@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.4)
+# RoboFont Architecture (Goals 5.1–5.7)
 
 ## Layering
 
@@ -13,7 +13,14 @@ OpenType model  outline tech, table families, shared OT structures,
                 cmap (structural), GDEF/GSUB/GPOS, BASE/JSTF/MATH,
                 kern, COLR/CPAL, STAT (Goal 5.4 — parse only)
     ↓
-Font Face       resource identity + collection index + optional TT parse
+CFF / CFF2      INDEX, DICT, CharStrings IR, charset/encoding,
+                CID FDArray/FDSelect, CFF2 VStore (Goal 5.5)
+    ↓
+cmap map        Unicode scalar → glyph ID; UVS foundation (Goal 5.6)
+    ↓
+Metrics info    global + glyph advances/LSB/bbox; vertical foundation (5.7)
+    ↓
+Font Face       resource identity + collection index + optional TT/cmap/metrics
     ↓
 Font Instance   face + pixel size + style request (+ future variation axes)
     ↓
@@ -21,22 +28,33 @@ Metrics         typographic measures (font units → CSS px)
 Glyph ID        face-local index (≠ Unicode code point)
 ```
 
+## Outline technologies
+
+| Technology | Tables | Outline source | Horizontal metrics |
+|---|---|---|---|
+| TrueType | `glyf` + `loca` | TT glyph programs | `hmtx` |
+| CFF | `CFF ` | Type 2 CharStrings | `hmtx` |
+| CFF2 | `CFF2` | Type 2 CharStrings (+ VStore) | `hmtx` |
+
+Do not fabricate a `glyf` view for CFF fonts. Metrics stay in shared SFNT tables.
+
 ## Distinctions
 
 | Concept | Meaning |
 |---|---|
-| Unicode code point | Scalar value |
-| Glyph ID | Face-local drawing ID (`maxp.numGlyphs` range) |
-| Glyph cluster / position | Shaping output (Phase 6; consumes 5.4 structures) |
-
-**Never assume** 1 code point = 1 glyph. Full `cmap` mapping is Goal 5.6.
+| Unicode code point | Scalar value (validated; not UTF-8/UTF-16 units) |
+| Glyph ID | Face-local drawing ID (`< maxp.numGlyphs`) |
+| Layout metrics | Policy-selected ascent/descent/line_gap |
+| Windows clip | `usWin*` — not default line spacing |
+| Grapheme cluster | Segmentation — later text layer |
+| Glyph position | Shaping — Phase 6 |
 
 ## Ownership & lifetime
 
-- Source / SFNT / TT / OT / face / instance use explicit retain/release (non-atomic).
-- TT retains SFNT; face may retain SFNT+TT after `parse_truetype`.
-- OT bundle retains SFNT; table byte views valid while owning SFNT/source live.
-- No global font cache (→ Goal 5.13).
+- Source / SFNT / TT / OT / CFF / cmap / metrics info / face / instance use
+  explicit retain/release.
+- Metrics info retains TT; after create, global snapshot is immutable and
+  reader-safe.
 
 ## Dependencies
 

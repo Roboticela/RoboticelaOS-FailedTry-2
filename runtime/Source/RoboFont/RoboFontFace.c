@@ -1,5 +1,8 @@
 #include "RoboFont/RoboFontFace.h"
 
+#include "RoboFont/RoboFontCff.h"
+#include "RoboFont/RoboFontCmap.h"
+#include "RoboFont/RoboFontOt.h"
 #include "RoboFont/RoboFontSfnt.h"
 #include "RoboFont/RoboFontTt.h"
 #include "RoboMem/RoboMem.h"
@@ -15,6 +18,10 @@ struct robo_font_face {
     robo_font_style_desc_t style;
     robo_font_sfnt_t *sfnt;
     robo_font_tt_t *tt;
+    robo_font_cmap_map_t *cmap;
+    robo_font_metrics_info_t *metrics;
+    robo_font_cff_font_t *cff;
+    robo_font_outline_cache_t *outline_cache;
 };
 
 static uint64_t g_next_face_id = 1u;
@@ -95,6 +102,22 @@ void robo_font_face_release(robo_font_face_t *face)
     if (face->refs != 0u) {
         return;
     }
+    if (face->metrics) {
+        robo_font_metrics_info_release(face->metrics);
+        face->metrics = NULL;
+    }
+    if (face->outline_cache) {
+        robo_font_outline_cache_release(face->outline_cache);
+        face->outline_cache = NULL;
+    }
+    if (face->cff) {
+        robo_font_cff_release(face->cff);
+        face->cff = NULL;
+    }
+    if (face->cmap) {
+        robo_font_cmap_map_release(face->cmap);
+        face->cmap = NULL;
+    }
     if (face->tt) {
         robo_font_tt_release(face->tt);
         face->tt = NULL;
@@ -145,16 +168,48 @@ robo_result_t robo_font_face_glyph_count(const robo_font_face_t *face,
         return ROBO_INVALID_ARGUMENT;
     }
     *out_count = 0u;
-    if (!face->tt) {
+    if (face->tt) {
+        *out_count = robo_font_tt_num_glyphs(face->tt);
+        return ROBO_OK;
+    }
+    if (face->metrics) {
+        const robo_font_metrics_global_t *g = robo_font_metrics_info_global(face->metrics);
+        if (g) {
+            *out_count = g->num_glyphs;
+            return ROBO_OK;
+        }
+    }
+    if (face->cmap) {
+        *out_count = robo_font_cmap_map_num_glyphs(face->cmap);
+        return ROBO_OK;
+    }
+    if (face->sfnt) {
+        return robo_font_sfnt_num_glyphs(face->sfnt, out_count);
+    }
+    return ROBO_NOT_SUPPORTED;
+}
+
+static robo_result_t face_ensure_sfnt(robo_font_face_t *face)
+{
+    robo_font_sfnt_t *sfnt = NULL;
+    robo_result_t res;
+    if (face->sfnt) {
+        return ROBO_OK;
+    }
+    if (face->format != ROBO_FONT_FORMAT_SFNT) {
         return ROBO_NOT_SUPPORTED;
     }
-    *out_count = robo_font_tt_num_glyphs(face->tt);
+    res = robo_font_sfnt_parse(face->source, face->face_index, ROBO_FONT_SFNT_FLAGS_NONE,
+                               &sfnt);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    face->sfnt = sfnt;
     return ROBO_OK;
 }
 
 robo_result_t robo_font_face_parse_truetype(robo_font_face_t *face, uint32_t tt_flags)
 {
-    robo_font_sfnt_t *sfnt = NULL;
     robo_font_tt_t *tt = NULL;
     robo_result_t res;
 
@@ -164,22 +219,15 @@ robo_result_t robo_font_face_parse_truetype(robo_font_face_t *face, uint32_t tt_
     if (face->tt) {
         return ROBO_OK;
     }
-    if (face->format != ROBO_FONT_FORMAT_SFNT) {
-        return ROBO_NOT_SUPPORTED;
-    }
-
-    res = robo_font_sfnt_parse(face->source, face->face_index, ROBO_FONT_SFNT_FLAGS_NONE,
-                               &sfnt);
+    res = face_ensure_sfnt(face);
     if (res != ROBO_OK) {
         return res;
     }
-    res = robo_font_tt_parse(sfnt, tt_flags, &tt);
+    res = robo_font_tt_parse(face->sfnt, tt_flags, &tt);
     if (res != ROBO_OK) {
-        robo_font_sfnt_release(sfnt);
         return res;
     }
 
-    face->sfnt = sfnt;
     face->tt = tt;
     (void)robo_font_tt_style_desc(tt, &face->style);
     return ROBO_OK;
@@ -188,4 +236,166 @@ robo_result_t robo_font_face_parse_truetype(robo_font_face_t *face, uint32_t tt_
 const robo_font_tt_t *robo_font_face_truetype(const robo_font_face_t *face)
 {
     return face ? face->tt : NULL;
+}
+
+robo_result_t robo_font_face_parse_cmap(robo_font_face_t *face)
+{
+    uint32_t num_glyphs = 0u;
+    robo_font_cmap_map_t *map = NULL;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->cmap) {
+        return ROBO_OK;
+    }
+    res = face_ensure_sfnt(face);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    if (face->tt) {
+        num_glyphs = robo_font_tt_num_glyphs(face->tt);
+    } else {
+        res = robo_font_sfnt_num_glyphs(face->sfnt, &num_glyphs);
+        if (res != ROBO_OK) {
+            return res;
+        }
+    }
+    res = robo_font_cmap_map_create(face->sfnt, num_glyphs, &map);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    face->cmap = map;
+    return ROBO_OK;
+}
+
+const robo_font_cmap_map_t *robo_font_face_cmap(const robo_font_face_t *face)
+{
+    return face ? face->cmap : NULL;
+}
+
+robo_result_t robo_font_face_lookup_glyph(const robo_font_face_t *face,
+                                          uint32_t code_point,
+                                          robo_font_cmap_lookup_result_t *out)
+{
+    if (!face || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!face->cmap) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    return robo_font_cmap_lookup(face->cmap, code_point, out);
+}
+
+robo_result_t robo_font_face_parse_metrics(robo_font_face_t *face)
+{
+    robo_font_metrics_info_t *info = NULL;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->metrics) {
+        return ROBO_OK;
+    }
+    res = face_ensure_sfnt(face);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    /* Ensure TT parse so metrics and face->tt stay coherent. */
+    if (!face->tt) {
+        res = robo_font_face_parse_truetype(face, ROBO_FONT_TT_FLAGS_NONE);
+        if (res != ROBO_OK) {
+            return res;
+        }
+    }
+    res = robo_font_metrics_info_create_from_tt(face->tt, &info);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    face->metrics = info;
+    return ROBO_OK;
+}
+
+const robo_font_metrics_info_t *robo_font_face_metrics_info(const robo_font_face_t *face)
+{
+    return face ? face->metrics : NULL;
+}
+
+robo_result_t robo_font_face_layout_metrics(const robo_font_face_t *face,
+                                            robo_font_metrics_t *out)
+{
+    if (!face || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!face->metrics) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    return robo_font_metrics_info_layout(face->metrics, out);
+}
+
+robo_result_t robo_font_face_glyph_metrics(const robo_font_face_t *face,
+                                           robo_glyph_id_t glyph_id,
+                                           robo_font_glyph_metrics_t *out)
+{
+    if (!face || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!face->metrics) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    return robo_font_metrics_info_glyph(face->metrics, glyph_id, out);
+}
+
+robo_result_t robo_font_face_parse_outlines(robo_font_face_t *face)
+{
+    robo_font_outline_tech_t tech;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->outline_cache) {
+        return ROBO_OK;
+    }
+    res = face_ensure_sfnt(face);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    tech = robo_font_ot_detect_outline(face->sfnt);
+    if (tech == ROBO_FONT_OUTLINE_TRUETYPE) {
+        if (!face->tt) {
+            res = robo_font_face_parse_truetype(face, ROBO_FONT_TT_FLAGS_NONE);
+            if (res != ROBO_OK) {
+                return res;
+            }
+        }
+    } else if (tech == ROBO_FONT_OUTLINE_CFF || tech == ROBO_FONT_OUTLINE_CFF2) {
+        if (!face->cff) {
+            res = robo_font_cff_parse(face->sfnt, ROBO_FONT_CFF_FLAGS_PARSE_ALL, &face->cff);
+            if (res != ROBO_OK) {
+                return res;
+            }
+        }
+    } else {
+        return ROBO_NOT_SUPPORTED;
+    }
+    res = robo_font_outline_cache_create(&face->outline_cache);
+    return res;
+}
+
+robo_result_t robo_font_face_glyph_outline(robo_font_face_t *face,
+                                           robo_glyph_id_t glyph_id,
+                                           robo_font_outline_t **out)
+{
+    if (!face || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    *out = NULL;
+    if (!face->outline_cache || !face->sfnt) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    return robo_font_outline_cache_get(face->outline_cache, face->sfnt, face->tt,
+                                       face->cff, glyph_id, out);
 }

@@ -18,8 +18,8 @@ glyf / loca / hmtx …           Coverage, ClassDef, ScriptList,
 | Detection | Meaning |
 |---|---|
 | `glyf` + `loca` | TrueType outlines |
-| `CFF ` | CFF outlines (body → Goal 5.5) |
-| `CFF2` | CFF2 outlines (body → Goal 5.5) |
+| `CFF ` | CFF outlines (body → Goal 5.5 / `docs/Cff.md`) |
+| `CFF2` | CFF2 outlines (body → Goal 5.5 / `docs/Cff.md`) |
 
 ## Table families
 
@@ -47,10 +47,13 @@ Lookup types validated (GSUB 1–8, GPOS 1–9). Subtable bytes are located but
 
 GDEF: glyph/mark class defs + attach/ligCaret/markGlyphSets/itemVarStore offsets.
 
-## cmap (structural only)
+## cmap (structural + mapping)
 
-Encoding records + subtable format/length validation for formats
-0, 2, 4, 6, 8, 10, 12, 13, 14. Full character→glyph mapping is Goal **5.6**.
+**Goal 5.4** — Encoding records + subtable format/length validation for formats
+0, 2, 4, 6, 8, 10, 12, 13, 14 (`robo_font_cmap_parse`).
+
+**Goal 5.6** — Full character→glyph mapping, selection policy, UVS foundation:
+see **`docs/Cmap.md`** and `RoboFontCmap.h`.
 
 ## Security
 

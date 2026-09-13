@@ -1,4 +1,4 @@
-# RoboFont Public API (Goals 5.1–5.4)
+# RoboFont Public API (Goals 5.1–5.7)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
@@ -6,40 +6,30 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 |---|---|
 | `RoboFontTypes.h` | face/instance/glyph IDs, font units, sizes, bbox |
 | `RoboFontStyle.h` | weight, stretch, style, style_desc |
-| `RoboFontMetrics.h` | metrics value type + unit↔pixel helpers |
+| `RoboFontMetrics.h` | layout metrics, metrics info, scaling, vertical foundation |
 | `RoboFontSource.h` | memory copy/borrow sources |
-| `RoboFontFace.h` | face + optional `parse_truetype` |
-| `RoboFontInstance.h` | instance create, metrics attach/query |
+| `RoboFontFace.h` | face + TT / cmap / metrics parse |
+| `RoboFontInstance.h` | instance create, metrics sync/scale |
 | `RoboFontBinary.h` | big-endian bounds-checked reader / spans |
 | `RoboFontSfnt.h` | SFNT container parse, table lookup, checksums |
 | `RoboFontTt.h` | TrueType table parse, hmtx/loca/glyf, name/OS/2/post |
 | `RoboFontOtCommon.h` | Coverage, ClassDef, Device, Script/Feature/Lookup lists |
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
-| `RoboFontVersion.h` | `0.4.0` |
+| `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
+| `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, fuzz entry |
+| `RoboFontVersion.h` | `0.7.0` |
 
-## TrueType (5.3)
-
-| API | Role |
-|---|---|
-| `robo_font_tt_parse` | Bundle parse + cross-validation |
-| `robo_font_tt_advance_width` / `left_side_bearing` | hmtx |
-| `robo_font_tt_glyph_offset` / `glyph_length` | loca |
-| `robo_font_tt_parse_glyph` | simple/composite structure |
-| `robo_font_name_get_utf8` | decoded names |
-| `robo_font_tt_metrics` / `style_desc` | model bridge |
-| `robo_font_face_parse_truetype` | attach TT to face |
-
-## OpenType (5.4)
+## Metrics (5.7)
 
 | API | Role |
 |---|---|
-| `robo_font_ot_detect_outline` | TT / CFF / CFF2 / unknown |
-| `robo_font_ot_table_family` | core / metric / layout / color / … |
-| `robo_font_ot_parse` | Optional bundle of present OT tables |
-| `robo_font_ot_coverage_*` / `class_def_*` | Shared structure parsers + queries |
-| `robo_font_cmap_parse_structural` | Encoding records + format metadata |
-| `robo_font_gsub_parse` / `gpos_parse` / `gdef_parse` | Layout structure (no execution) |
-| `robo_font_*_parse` (BASE/JSTF/MATH/kern/COLR/CPAL/STAT) | Structural parsers |
-| `robo_font_ot_fuzz_parse` | Malformed-input entry |
+| `robo_font_metrics_info_create` / `_from_tt` | Immutable metrics info |
+| `robo_font_metrics_info_global` / `_layout` / `_glyph` | Queries |
+| `robo_font_metrics_info_glyph_vertical` | Optional vhea/vmtx |
+| `robo_font_scale_font_units` | Safe FUnit → size scaling + rounding |
+| `robo_font_face_parse_metrics` / `face_glyph_metrics` | Face path |
+| `robo_font_instance_sync_metrics` / `scale_advance` | Sized instance |
+| `robo_font_metrics_fuzz_parse` | Malformed-input entry |
 
-Details: `docs/OpenType.md`, `docs/TrueType.md`, `docs/Sfnt.md`.
+Details: `docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`, `docs/OpenType.md`,
+`docs/TrueType.md`, `docs/Sfnt.md`.

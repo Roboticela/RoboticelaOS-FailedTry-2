@@ -2,7 +2,8 @@
  * RoboFont OpenType semantic tables (Goal 5.4).
  *
  * Parses and represents OpenType structures for later shaping/color/selection.
- * Does NOT execute GSUB/GPOS, shape text, parse CFF, or fully map cmap (5.6).
+ * Does NOT execute GSUB/GPOS, shape text, or fully map cmap (5.6).
+ * CFF/CFF2 table bodies are Goal 5.5 (`RoboFontCff.h`).
  *
  * Ownership: robo_font_ot_t retains the SFNT (and thus the source).
  */
@@ -27,8 +28,8 @@ extern "C" {
 typedef enum robo_font_outline_tech {
     ROBO_FONT_OUTLINE_UNKNOWN = 0,
     ROBO_FONT_OUTLINE_TRUETYPE = 1, /* glyf + loca */
-    ROBO_FONT_OUTLINE_CFF = 2,      /* 'CFF ' table present; body → Goal 5.5 */
-    ROBO_FONT_OUTLINE_CFF2 = 3,     /* 'CFF2' table present; body → Goal 5.5 */
+    ROBO_FONT_OUTLINE_CFF = 2,      /* 'CFF ' table present */
+    ROBO_FONT_OUTLINE_CFF2 = 3,     /* 'CFF2' table present */
     ROBO_FONT_OUTLINE_UNSUPPORTED = 4
 } robo_font_outline_tech_t;
 

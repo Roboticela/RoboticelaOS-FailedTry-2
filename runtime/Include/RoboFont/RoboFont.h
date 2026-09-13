@@ -1,23 +1,26 @@
 /*
- * RoboFont — font subsystem (Goals 5.1–5.4).
+ * RoboFont — font subsystem (Goals 5.1–5.8).
  *
  * Independent RoboticelaOS runtime subsystem. Chromium is only a temporary
  * technical reference. RoboFont must never depend on Chromium headers,
  * libraries, source, build targets, Skia, or OS font managers.
  *
  * Architecture:
- *   Font Source → SFNT → TrueType (5.3) / OpenType structures (5.4) → Face
+ *   Font Source → SFNT → TrueType / OpenType / CFF·CFF2 → cmap → metrics → outlines → Face
  *
- * Goal 5.4 parses OpenType structures; it does not shape text or parse CFF.
+ * Goal 5.8 converts glyf / CharStrings into a unified geometric outline.
  */
 
 #ifndef ROBO_FONT_H
 #define ROBO_FONT_H
 
 #include "RoboFont/RoboFontBinary.h"
+#include "RoboFont/RoboFontCff.h"
+#include "RoboFont/RoboFontCmap.h"
 #include "RoboFont/RoboFontFace.h"
 #include "RoboFont/RoboFontInstance.h"
 #include "RoboFont/RoboFontMetrics.h"
+#include "RoboFont/RoboFontOutline.h"
 #include "RoboFont/RoboFontOt.h"
 #include "RoboFont/RoboFontSfnt.h"
 #include "RoboFont/RoboFontSource.h"
