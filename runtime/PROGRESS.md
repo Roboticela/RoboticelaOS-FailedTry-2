@@ -1755,7 +1755,110 @@
 - [x] Chromium independence verified via Build.ps1 scan
 - [x] Ready for Phase 7; stop after 6.15
 
+- Phase 7 — RoboWindow & QEMU Display (do not start until requested)
+
+## Goal 7.1 — RoboWindow architecture
+
+**Status:** complete
+
+**Done:**
+
+- Module: `Include/RoboWindow/*`, `Source/RoboWindow/*`, `window/docs`, `window/tests`
+- Identity, lifecycle, config/state, display placeholders, events, opaque native handle
+- Backend vtable + null architecture backend; mock backend in tests
+- Present contract (borrow RoboGraphics surface; present → `ROBO_NOT_SUPPORTED`)
+- Suite: `SuiteRoboWindow.c` (`window.*`); version **0.1.0**; **12/12** Debug + Release
+- Docs: architecture, lifecycle, backend, threading, graphics, test strategy
+- Build.ps1 Chromium/OS-toolkit independence scan for RoboWindow
+- Validation: Verify OK (Font/Graphics/Window Chromium scans); `graphics.*` **143/143**;
+  no toolkit linkage
+
+**Definition of done:**
+
+- [x] Platform-independent architecture only; no OS/QEMU windows
+- [x] No Chromium / toolkit linkage
+- [x] Ready for Goal 7.2; stop after 7.1
+
 ## Next
 
-- Phase 7 — RoboWindow & QEMU Display (do not start until requested)
+- Goal 7.2 — Native window abstraction (do not start until requested)
+
+## Goal 7.2 — RoboWindow native window abstraction
+
+**Status:** complete
+
+**Done:**
+
+- Opaque native handle: token + generation, validity/equal/assign/invalidate
+- Backend capabilities query; required caps on vtable registration
+- Backend ops: set_title (UTF-8), focus; size/position with min/max + state sync
+- Owner-thread bind/enter/require (`ROBO_PERMISSION_DENIED` off-thread)
+- Present boundary still returns `ROBO_NOT_SUPPORTED` without present cap
+- Suite: `SuiteRoboWindowNative.c` (`window.native.*`); version **0.2.0**
+- Docs: Native, Capabilities, Backend, Threading updates
+- Validation: `window.*` **22/22** Debug + Release; `graphics.*` **143/143**;
+  Verify Chromium/toolkit OK
+
+**Definition of done:**
+
+- [x] No real OS/QEMU windows; no Chromium/toolkit deps
+- [x] Phase 7.1 + 7.2 window tests; graphics regression
+- [x] Ready for Goal 7.3; stop after 7.2
+
+## Next
+
+- Goal 7.3 — Display abstraction (do not start until requested)
+
+## Goal 7.3 — RoboDisplay abstraction
+
+**Status:** complete
+
+**Done:**
+
+- Dedicated `RoboDisplay` module: identity, info, orientation, connection,
+  modes, scale/DPI helpers, refresh validation
+- Backend vtable + capabilities; **null** (empty) and **placeholder**
+  (1280×800 primary) backends — no host enumeration
+- Manager: init/shutdown/refresh/count/at/get/primary/modes
+- RoboWindow bridge: placeholder on window init; get/set associated display
+- Window version **0.3.0**; display version **0.1.0**
+- Suite: `SuiteRoboDisplay.c` (`display.*`) with mock backend
+- Docs: `display/README.md`, `display/docs/`
+- Validation: `display.*` **12/12**; `window.*` **22/22**; `graphics.*` **143/143**;
+  Verify Chromium/toolkit OK
+
+**Definition of done:**
+
+- [x] No real host/QEMU display; no Chromium/toolkit deps in core abstraction
+- [x] Phase 7.1–7.3 + graphics regression
+- [x] Ready for Goal 7.4; stop after 7.3
+
+## Next
+
+- Goal 7.4 — Framebuffer presentation (do not start until requested)
+
+## Goal 7.4 — Framebuffer presentation
+
+**Status:** complete
+
+**Done:**
+
+- Presentation validation (surface/FB dims, stride, implemented formats,
+  backend format mask + max size)
+- `robo_window_present` / `robo_window_present_framebuffer` synchronous path
+- Caps: `present_format_mask`, `present_max_width/height`
+- Mock present backend with pixel-copy integrity checks (test-only)
+- Suite: `SuiteRoboWindowPresent.c` (`window.present.*`); version **0.4.0**
+- Docs: `Present.md`, Graphics/Capabilities/Native updates
+- Validation: present + window + display + graphics; Verify OK
+
+**Definition of done:**
+
+- [x] No host/QEMU/GPU present; no Chromium/toolkit deps
+- [x] Phase 7.1–7.4 + graphics regression
+- [x] Ready for Goal 7.5; stop after 7.4
+
+## Next
+
+- Goal 7.5 — Window creation (do not start until requested)
 

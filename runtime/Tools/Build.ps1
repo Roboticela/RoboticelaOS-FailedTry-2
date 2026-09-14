@@ -157,7 +157,21 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboGraphics\RoboGraphicsImage.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphicsFrame.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphicsBackend.c"),
-    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsCapabilities.c")
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsCapabilities.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboDisplay.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboDisplayTypes.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboDisplayInfo.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboDisplayBackend.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindow.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowLifecycle.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowConfig.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowState.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowDisplay.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowEvent.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowBackend.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowNative.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowThread.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowPresent.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -240,6 +254,10 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsEncode.c"),
     (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsScreenshot.c"),
     (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsPhase6.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindow.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowNative.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowPresent.c"),
+    (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplay.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -365,6 +383,50 @@ function Assert-RoboGraphicsChromiumIndependence {
         }
     }
     Write-Host "RoboGraphics Chromium-independence source scan: OK"
+}
+
+function Assert-RoboWindowChromiumIndependence {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboWindow"),
+        (Join-Path $RuntimeRoot "Source\RoboWindow"),
+        (Join-Path $RuntimeRoot "window")
+    )
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|vulkan|GL/gl|d3d1[12]|Metal/Metal|windows\.h|X11/|wayland|AppKit|Cocoa|SDL|GLFW|Qt)|third_party[/\\](chromium|skia)|\bnamespace\s+(blink|skia|ui)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboWindow Chromium/OS-toolkit dependency leaked into sources:`n$sample"
+        }
+    }
+    Write-Host "RoboWindow Chromium-independence source scan: OK"
+}
+
+function Assert-RoboDisplayChromiumIndependence {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboDisplay"),
+        (Join-Path $RuntimeRoot "Source\RoboDisplay"),
+        (Join-Path $RuntimeRoot "display")
+    )
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|vulkan|GL/gl|d3d1[12]|Metal/Metal|windows\.h|X11/|wayland|AppKit|Cocoa|SDL|GLFW|Qt)|third_party[/\\](chromium|skia)|\bnamespace\s+(blink|skia|ui|display)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency|ui/display'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboDisplay Chromium/OS-toolkit dependency leaked into sources:`n$sample"
+        }
+    }
+    Write-Host "RoboDisplay Chromium-independence source scan: OK"
 }
 
 function Test-ElfFile([string]$Path) {
@@ -572,6 +634,8 @@ Write-Host "OK   no Chromium paths"
 if ($Verify) {
     Assert-RoboFontChromiumIndependence
     Assert-RoboGraphicsChromiumIndependence
+    Assert-RoboWindowChromiumIndependence
+    Assert-RoboDisplayChromiumIndependence
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 

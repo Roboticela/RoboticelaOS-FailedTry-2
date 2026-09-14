@@ -64,7 +64,7 @@ Goal 6.14 captures an immutable owned snapshot of a surface or framebuffer
 (region STRICT/CLIP) and exports via 6.13; front/back buffers reserved.
 Goal 6.15 freezes RoboGraphics API v1 (0.15.0), consolidates tests, and
 documents Phase 6 completion — no new raster features.
-Presentation (`robo_gfx_present_*`, future window/QEMU)
+Presentation (`robo_gfx_present_*`, RoboWindow Goal 7.1+)
 consumes surfaces.
 The same buffer path may be used for:
 
