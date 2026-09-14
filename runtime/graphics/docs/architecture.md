@@ -18,6 +18,8 @@ RoboGraphics API
       ├── Raster       CPU immediate draw context (6.11)
       ├── Text         glyph bridge to RoboFont (6.12)
       ├── Encode       PNG/BMP image output (6.13)
+      ├── Screenshot   surface/FB capture + export (6.14)
+      ├── Tests        Phase 6 validation / API freeze (6.15)
       ├── Image        format-agnostic image container
       ├── Frame        finished-raster metadata
       ├── Backend      raster vs present identifiers
@@ -58,6 +60,10 @@ scaled metrics, outline→path conversion, and outline-stroke draw through
 the raster (no shaping / fill / AA).
 Goal 6.13 encodes surface pixels to PNG/BMP (memory or sink) without
 rendering — format conversion + deterministic encoders only.
+Goal 6.14 captures an immutable owned snapshot of a surface or framebuffer
+(region STRICT/CLIP) and exports via 6.13; front/back buffers reserved.
+Goal 6.15 freezes RoboGraphics API v1 (0.15.0), consolidates tests, and
+documents Phase 6 completion — no new raster features.
 Presentation (`robo_gfx_present_*`, future window/QEMU)
 consumes surfaces.
 The same buffer path may be used for:

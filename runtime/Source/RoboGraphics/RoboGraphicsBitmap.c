@@ -279,7 +279,7 @@ static robo_result_t copy_rect_same_format(const robo_gfx_surface_t *src,
         return ROBO_OK;
     }
 
-    /* Overlapping same-surface copy (Chromium ScrollCanvas-style direction). */
+    /* Overlapping same-surface copy (direction-aware row copies / memmove). */
     if (dy > sy) {
         for (y = h; y > 0u; y--) {
             uint32_t yi = y - 1u;

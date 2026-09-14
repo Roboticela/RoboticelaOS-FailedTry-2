@@ -30,6 +30,7 @@
 #include "RoboGraphics/RoboGraphicsPath.h"
 #include "RoboGraphics/RoboGraphicsPixelFormat.h"
 #include "RoboGraphics/RoboGraphicsRaster.h"
+#include "RoboGraphics/RoboGraphicsScreenshot.h"
 #include "RoboGraphics/RoboGraphicsSurface.h"
 #include "RoboGraphics/RoboGraphicsText.h"
 #include "RoboGraphics/RoboGraphicsTransform.h"

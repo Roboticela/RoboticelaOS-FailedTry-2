@@ -97,6 +97,8 @@ void robo_test_register_graphics_composite(void);
 void robo_test_register_graphics_raster(void);
 void robo_test_register_graphics_text(void);
 void robo_test_register_graphics_encode(void);
+void robo_test_register_graphics_screenshot(void);
+void robo_test_register_graphics_phase6(void);
 
 int main(int argc, char **argv)
 {
@@ -231,5 +233,7 @@ int main(int argc, char **argv)
     robo_test_register_graphics_raster();
     robo_test_register_graphics_text();
     robo_test_register_graphics_encode();
+    robo_test_register_graphics_screenshot();
+    robo_test_register_graphics_phase6();
     return robo_test_main(argc, argv);
 }

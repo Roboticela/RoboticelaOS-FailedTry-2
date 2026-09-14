@@ -1702,13 +1702,60 @@
 - Docs: `graphics/docs/ImageOutput.md`
 - Suite: `graphics/tests/SuiteRoboGraphicsEncode.c` (`graphics.encode.*`)
 - Version **0.13.0**
+- Debug / Release / Sanitize `graphics.*`: **124/124** each (includes 9 `graphics.encode.*`)
+- Chromium-independence scan: OK
 
 **Definition of done:**
 
 - [x] No decoding / JPEG / scaling / Chromium dependency
 - [x] Ready for Goal 6.14; stop after 6.13
 
+## Goal 6.14 — Screenshot / framebuffer export
+
+**Status:** complete
+
+**Done:**
+
+- Capture pipeline: surface|framebuffer → region → owned snapshot → 6.13 encode
+- Region policies: full extent, STRICT enclose, CLIP intersect
+- FRONT/BACK capture sources reserved (`ROBO_NOT_SUPPORTED` until present/swap)
+- Immutable snapshot; image wrapper; one-shot export helpers
+- Docs: `graphics/docs/Screenshot.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsScreenshot.c` (`graphics.shot.*`)
+- Version **0.14.0**
+- Debug / Release / Sanitize `graphics.*`: **132/132** each (includes 8 `graphics.shot.*`)
+- Chromium-independence scan: OK
+
+**Definition of done:**
+
+- [x] No window/QEMU/OS capture; no duplicate encoders; no Chromium dependency
+- [x] Ready for Goal 6.15; stop after 6.14
+
+## Goal 6.15 — RoboGraphics tests / Phase 6 freeze
+
+**Status:** complete
+
+**Done:**
+
+- Test hierarchy documented (`graphics/docs/TestStrategy.md`, `tests/README.md`)
+- Phase 6 integration suite: `SuiteRoboGraphicsPhase6.c` (`graphics.p6.*`)
+  - freeze pin, visual fixture, raster→shot→encode, path/transform,
+    font→text bridge, alpha overlap, determinism, safety, perf smoke,
+    Chromium-independence smoke
+- Docs: `Phase6.md`, `ApiFreeze.md`; README/architecture updated
+- **RoboGraphics API v1** frozen at **0.15.0** (`ROBO_GRAPHICS_API_FROZEN=1`)
+- Chromium comment cleanup in bitmap overlap path
+- Validation: `graphics.*` **143/143** Debug + Release + ASan/UBSan;
+  `font.*` **183/183** regression; Chromium-independence Verify OK;
+  no Chromium linkage
+
+**Definition of done:**
+
+- [x] Phase 6 independently testable; no Phase 7 features
+- [x] Chromium independence verified via Build.ps1 scan
+- [x] Ready for Phase 7; stop after 6.15
+
 ## Next
 
-- Goal 6.14 — Screenshot / framebuffer export (do not start until requested)
+- Phase 7 — RoboWindow & QEMU Display (do not start until requested)
 
