@@ -39,6 +39,7 @@ typedef struct robo_font_tt robo_font_tt_t;
 typedef struct robo_font_sfnt robo_font_sfnt_t;
 typedef struct robo_font_emoji_info robo_font_emoji_info_t;
 typedef struct robo_font_variation_model robo_font_variation_model_t;
+typedef struct robo_font_color_info robo_font_color_info_t;
 typedef struct robo_font_outline_request robo_font_outline_request_t;
 
 robo_result_t robo_font_face_create(robo_font_source_t *source,
@@ -84,6 +85,10 @@ const robo_font_emoji_info_t *robo_font_face_emoji(const robo_font_face_t *face)
 /** Lazy variation model (Goal 5.18). Idempotent; ROBO_NOT_FOUND if no fvar. */
 robo_result_t robo_font_face_parse_variation(robo_font_face_t *face);
 const robo_font_variation_model_t *robo_font_face_variation(const robo_font_face_t *face);
+
+/** Lazy color-font info (Goal 5.19). Idempotent; ROBO_NOT_FOUND if no color tables. */
+robo_result_t robo_font_face_parse_color(robo_font_face_t *face);
+const robo_font_color_info_t *robo_font_face_color(const robo_font_face_t *face);
 
 robo_result_t robo_font_face_parse_metrics(robo_font_face_t *face);
 const robo_font_metrics_info_t *robo_font_face_metrics_info(const robo_font_face_t *face);

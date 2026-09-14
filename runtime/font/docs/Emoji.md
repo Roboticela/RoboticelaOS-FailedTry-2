@@ -16,6 +16,9 @@ Generic family `emoji` (5.16) + Selector (5.11)
 Fallback (5.15) when primary lacks emoji coverage
 ```
 
+Color glyph details (Goal 5.19) are queried via `robo_font_face_color`
+without moving emoji selection into the color parser.
+
 ## Classification
 
 | Kind | Meaning |

@@ -1,4 +1,4 @@
-# RoboFont Public API (Goals 5.1–5.18)
+# RoboFont Public API (Goals 5.1–5.19)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
@@ -16,11 +16,12 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontGenericFamily.h` | generic-family config, resolver, select/fallback glue |
 | `RoboFontEmoji.h` | emoji kind/capabilities, sequence foundation, select |
 | `RoboFontVariation.h` | fvar/avar model, coords, named instances, opsz |
+| `RoboFontColor.h` | COLR/CPAL, CBDT/CBLC, sbix, SVG, palettes, paints |
 | `RoboFontMetrics.h` | layout metrics, metrics info, scaling |
 | `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
 | `RoboFontName.h` | name table decode, locale lookup, metadata snapshot |
 | `RoboFontSource.h` | memory copy/borrow sources |
-| `RoboFontFace.h` | face + TT / cmap / coverage / emoji / variation / … |
+| `RoboFontFace.h` | face + TT / cmap / coverage / emoji / variation / color / … |
 | `RoboFontInstance.h` | instance create, variation coords, metrics sync/scale |
 | `RoboFontBinary.h` | big-endian bounds-checked reader / spans |
 | `RoboFontSfnt.h` | SFNT container parse, table lookup, checksums |
@@ -29,7 +30,16 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, foreach, fuzz entry |
-| `RoboFontVersion.h` | `0.18.0` |
+| `RoboFontVersion.h` | `0.19.0` |
+
+## Color fonts (5.19)
+
+| API | Role |
+|---|---|
+| `robo_font_color_info_*` | Unified color capabilities + glyph queries |
+| `robo_font_face_parse_color` | Lazy face-attached color info |
+| `robo_font_color_resolve_palette_color` | Palette selection + overrides |
+| `robo_font_color_fuzz_parse` | Malformed-table robustness |
 
 ## Variable fonts (5.18)
 

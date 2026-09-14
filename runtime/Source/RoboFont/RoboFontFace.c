@@ -4,6 +4,7 @@
 #include "RoboFont/RoboFontClassification.h"
 #include "RoboFont/RoboFontCmap.h"
 #include "RoboFont/RoboFontCoverage.h"
+#include "RoboFont/RoboFontColor.h"
 #include "RoboFont/RoboFontEmoji.h"
 #include "RoboFont/RoboFontName.h"
 #include "RoboFont/RoboFontOt.h"
@@ -31,6 +32,9 @@ struct robo_font_face {
     robo_font_variation_model_t *variation;
     int variation_building;
     int variation_absent; /* 1 if parse found no fvar */
+    robo_font_color_info_t *color;
+    int color_building;
+    int color_absent; /* 1 if parse found no color tables */
     robo_font_metrics_info_t *metrics;
     robo_font_cff_font_t *cff;
     robo_font_outline_cache_t *outline_cache;
@@ -147,6 +151,10 @@ void robo_font_face_release(robo_font_face_t *face)
     if (face->variation) {
         robo_font_variation_model_release(face->variation);
         face->variation = NULL;
+    }
+    if (face->color) {
+        robo_font_color_info_release(face->color);
+        face->color = NULL;
     }
     if (face->cmap) {
         robo_font_cmap_map_release(face->cmap);
@@ -474,6 +482,44 @@ robo_result_t robo_font_face_parse_variation(robo_font_face_t *face)
 const robo_font_variation_model_t *robo_font_face_variation(const robo_font_face_t *face)
 {
     return face ? face->variation : NULL;
+}
+
+robo_result_t robo_font_face_parse_color(robo_font_face_t *face)
+{
+    robo_font_color_info_t *info = NULL;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->color) {
+        return ROBO_OK;
+    }
+    if (face->color_absent) {
+        return ROBO_NOT_FOUND;
+    }
+    if (face->color_building) {
+        return ROBO_BUSY;
+    }
+    face->color_building = 1;
+    res = robo_font_color_info_create_from_face(face, NULL, &info);
+    if (res == ROBO_NOT_FOUND) {
+        face->color_absent = 1;
+        face->color_building = 0;
+        return ROBO_NOT_FOUND;
+    }
+    if (res != ROBO_OK) {
+        face->color_building = 0;
+        return res;
+    }
+    face->color = info;
+    face->color_building = 0;
+    return ROBO_OK;
+}
+
+const robo_font_color_info_t *robo_font_face_color(const robo_font_face_t *face)
+{
+    return face ? face->color : NULL;
 }
 
 robo_result_t robo_font_face_lookup_glyph(const robo_font_face_t *face,

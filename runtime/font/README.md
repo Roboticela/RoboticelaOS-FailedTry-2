@@ -1,6 +1,6 @@
 # RoboFont
 
-Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.18**).
+Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.19**).
 
 RoboFont is an independent RoboticelaOS runtime subsystem.
 
@@ -34,6 +34,7 @@ Skia, or operating-system font managers.
 | `runtime/font/tests/SuiteRoboFontGenericFamily.c` | Goal 5.16 generic-family tests |
 | `runtime/font/tests/SuiteRoboFontEmoji.c` | Goal 5.17 emoji font tests |
 | `runtime/font/tests/SuiteRoboFontVariation.c` | Goal 5.18 variable font tests |
+| `runtime/font/tests/SuiteRoboFontColor.c` | Goal 5.19 color font tests |
 | `runtime/font/` | Documentation |
 
 ## Architecture
@@ -44,7 +45,7 @@ Discovery (5.12) → Registry → Loader/Cache (5.13) → Selection (5.11)
 Font Source → SFNT (5.2) → TrueType (5.3) / OpenType (5.4) / CFF·CFF2 (5.5)
          → cmap (5.6) → Coverage (5.14) → Fallback (5.15)
          → Generic Families (5.16) → Emoji Fonts (5.17) → Variation (5.18)
-         → metrics (5.7) → outlines (5.8)
+         → Color Fonts (5.19) → metrics (5.7) → outlines (5.8)
          → naming (5.9) → classification (5.10) → Face → Instance
 ```
 
@@ -52,7 +53,7 @@ See **Architecture.md**, **docs/Sfnt.md**, **docs/TrueType.md**, **docs/OpenType
 **docs/Cff.md**, **docs/Cmap.md**, **docs/Metrics.md**, **docs/Outlines.md**,
 **docs/Naming.md**, **docs/Classification.md**, **docs/Selection.md**,
 **docs/Discovery.md**, **docs/Loading.md**, **docs/Coverage.md**, **docs/Fallback.md**,
-**docs/GenericFamilies.md**, **docs/Emoji.md**, **docs/Variation.md**.
+**docs/GenericFamilies.md**, **docs/Emoji.md**, **docs/Variation.md**, **docs/Color.md**.
 
 ## Goal status
 
@@ -76,10 +77,11 @@ See **Architecture.md**, **docs/Sfnt.md**, **docs/TrueType.md**, **docs/OpenType
 | **5.16** | Generic families (serif/sans/…/system-ui/emoji/math/ui-*) |
 | **5.17** | Emoji font classification, capabilities, select/fallback glue |
 | **5.18** | Variable fonts: fvar/avar, coords, named instances, selection |
+| **5.19** | Color fonts: COLR/CPAL, CBDT/CBLC, sbix, SVG (parse only) |
 
-**Not** in scope yet: color-glyph rendering (5.19), gvar/HVAR interpolation,
+**Not** in scope yet: color-glyph rendering, gvar/HVAR interpolation,
 CSS variation settings, shaping (Phase 6), rasterization.
 
 ## Version
 
-RoboFont **0.18.0**
+RoboFont **0.19.0**

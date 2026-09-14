@@ -1331,7 +1331,30 @@
 - [x] No gvar/HVAR/CFF2 blend execution; no Chromium dependency
 - [x] Stop after 5.18 (no color fonts / Goal 5.19)
 
+## Goal 5.19 — Color Fonts
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontColor` — unified COLR/CPAL, CBDT/CBLC, sbix, SVG representation
+- COLR v0 layers + COLR v1 paint DAG (bounded, tagged, no rasterization)
+- CPAL palettes, selection/override foundation
+- Face-lazy immutable color cache; variation coords attachable
+- Emoji selection can query color via face color capabilities
+- Fuzz entry; docs `docs/Color.md`
+- Version **0.19.0**
+- Tests: `font/tests/SuiteRoboFontColor.c`
+
+**Definition of done:**
+
+- [x] Color capabilities detected safely across major OpenType mechanisms
+- [x] COLR/CPAL/paint/bitmap/sbix/SVG represented without execution/rendering
+- [x] Palettes queryable; glyph IDs integrate with face/instance model
+- [x] Malformed color data cannot crash the runtime; Chromium-independent
+- [x] Stop after 5.19 (no Goal 5.20)
+
 ## Next
 
-- Goal 5.19 — Color fonts (do not start until requested)
+- Goal 5.20 — Font validation/security (do not start until requested)
 

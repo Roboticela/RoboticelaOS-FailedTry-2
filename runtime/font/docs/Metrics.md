@@ -91,7 +91,8 @@ readers are safe under the existing face/info retain lifetime.
 ## Variable fonts
 
 API shape allows a future `RoboFontInstanceMetrics` path. This goal does **not**
-evaluate `HVAR`/`VVAR`/`MVAR`/`gvar`.
+evaluate `HVAR`/`VVAR`/`MVAR`/`gvar` (Goal 5.18 exposes PENDING when
+variation coordinates are set but deltas are not applied).
 
 ## Fuzzing
 
