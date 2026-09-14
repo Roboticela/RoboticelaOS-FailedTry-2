@@ -10,6 +10,7 @@ Designed for eventual UI / raster / compositor / GPU threads. Goal 6.1 does
 | Framebuffer create/release | **thread-compatible** (refcount not atomic) |
 | Framebuffer pixel mutation | **thread-confined** to owner context |
 | Surface create/release | **thread-compatible** (refcount not atomic) |
+| Surface map/unmap | **thread-confined** |
 | Surface pixel mutation | **thread-confined** to owner context |
 | Image retain/release | **thread-compatible** |
 | Frame begin/end | **thread-confined** with its surface |

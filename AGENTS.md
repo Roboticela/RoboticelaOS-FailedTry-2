@@ -3663,7 +3663,7 @@ alwaysApply: true
 * **Phase 3 — Containers & Data Foundations:** complete ✅
 * **Phase 4 — Unicode & I18N:** complete through **4.27** (API frozen) ✅
 * **Phase 5 — RoboFont:** Goals **5.1–5.22** complete (API v1 frozen) ✅
-* **Phase 6 — RoboGraphics:** Goals **6.1–6.3** complete; **Next:** Goal **6.4**
+* **Phase 6 — RoboGraphics:** Goals **6.1–6.5** complete; **Next:** Goal **6.6**
 
 The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
 

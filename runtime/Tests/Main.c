@@ -87,6 +87,8 @@ void robo_test_register_font_phase5(void);
 void robo_test_register_graphics(void);
 void robo_test_register_graphics_pixel_format(void);
 void robo_test_register_graphics_framebuffer(void);
+void robo_test_register_graphics_surface(void);
+void robo_test_register_graphics_bitmap(void);
 
 int main(int argc, char **argv)
 {
@@ -211,5 +213,7 @@ int main(int argc, char **argv)
     robo_test_register_graphics();
     robo_test_register_graphics_pixel_format();
     robo_test_register_graphics_framebuffer();
+    robo_test_register_graphics_surface();
+    robo_test_register_graphics_bitmap();
     return robo_test_main(argc, argv);
 }

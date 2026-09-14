@@ -17,6 +17,7 @@
 
 #include "RoboBase/RoboError.h"
 #include "RoboGraphics/RoboGraphicsBackend.h"
+#include "RoboGraphics/RoboGraphicsBitmap.h"
 #include "RoboGraphics/RoboGraphicsCapabilities.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
 #include "RoboGraphics/RoboGraphicsFrame.h"

@@ -1,8 +1,8 @@
 # RoboGraphics
 
-Independent graphics subsystem for Roboticela Runtime (**Goals 6.1–6.3**).
+Independent graphics subsystem for Roboticela Runtime (**Goals 6.1–6.5**).
 
-**Version:** 0.3.0 (API not frozen)
+**Version:** 0.5.0 (API not frozen)
 
 RoboGraphics must never depend on Chromium headers/libraries, Skia, Vulkan,
 OpenGL, Direct3D, Metal, or OS window APIs. Chromium may be consulted as a
@@ -25,7 +25,9 @@ RoboGraphics API
       ├── Geometry / Color
       ├── Pixel Formats   (6.2 — RGBA8/BGRA8/RGB8/Gray8/Alpha8)
       ├── Framebuffer     (6.3 — owned/borrowed 2D pixel store)
-      ├── Surface / Image / Frame
+      ├── Surface         (6.4 — resource + map/access)
+      ├── Bitmap ops      (6.5 — get/set/clear/fill/copy)
+      ├── Image / Frame
       ├── CPU Raster (next)
       └── Presentation → RoboWindow / QEMU
 ```
@@ -37,13 +39,17 @@ RoboGraphics API
 | **6.1** | Architecture foundation |
 | **6.2** | Pixel formats, addressing, conversion |
 | **6.3** | Framebuffer storage & addressing |
-| **6.4+** | Surface depth, bitmap ops, … |
+| **6.4** | Surface/buffer abstraction |
+| **6.5** | Basic bitmap operations |
+| **6.6+** | Pixels/rects drawing, lines, … |
 
 ## Docs
 
 * [architecture.md](docs/architecture.md)
 * [PixelFormats.md](docs/PixelFormats.md)
 * [Framebuffer.md](docs/Framebuffer.md)
+* [Surface.md](docs/Surface.md)
+* [Bitmap.md](docs/Bitmap.md)
 * [coordinates.md](docs/coordinates.md)
 * [ownership.md](docs/ownership.md)
 * [threading.md](docs/threading.md)
@@ -53,5 +59,5 @@ RoboGraphics API
 
 ```powershell
 .\runtime\Tools\Build.ps1 -Configuration Debug -Verify -Test -Filter "graphics."
-.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "graphics.fb"
+.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "graphics.bmp"
 ```

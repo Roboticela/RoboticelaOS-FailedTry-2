@@ -9,7 +9,8 @@ RoboGraphics API
       ├── Color        RGBA8 / float foundation
       ├── PixelFormat  byte layouts, pack/unpack, convert (6.2)
       ├── Framebuffer  owned / borrowed 2D pixel store (6.3)
-      ├── Surface      owned / borrowed pixel buffers
+      ├── Surface      resource abstraction + CPU map (6.4)
+      ├── Bitmap       get/set/clear/fill/copy on surfaces (6.5)
       ├── Image        format-agnostic image container
       ├── Frame        finished-raster metadata
       ├── Backend      raster vs present identifiers
@@ -23,7 +24,7 @@ RoboHTML → RoboCSS → RoboLayout → RoboPaint
                     ↓
                RoboGraphics
                     ↓
-               Framebuffer → Surface (6.4+)
+               Surface → Framebuffer (CPU) / future GPU
                     ↓
           RoboWindow / QEMU presentation
 ```
@@ -31,8 +32,10 @@ RoboHTML → RoboCSS → RoboLayout → RoboPaint
 ## Raster vs presentation
 
 Goal 6.3 framebuffers are the explicit CPU pixel store with stride and row/pixel
-addressing. Surfaces (6.1 foundation; deepened in 6.4+) and presentation
-(`robo_gfx_present_*`, future window/QEMU) build on that store.
+addressing. Goal 6.4 surfaces wrap that store as a general resource with access
+modes and map/unmap. Goal 6.5 adds deterministic bitmap ops (pixel, clear,
+fill_rect, copy). Presentation (`robo_gfx_present_*`, future window/QEMU)
+consumes surfaces.
 The same buffer path may be used for:
 
 * headless tests

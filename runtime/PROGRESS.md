@@ -1489,7 +1489,52 @@
 - [x] Tests + docs; no Chromium dependency
 - [x] Ready for Goal 6.4; stop after 6.3
 
+## Goal 6.4 — Surface/Buffer Abstraction
+
+**Status:** complete
+
+**Done:**
+
+- Surface wraps Goal 6.3 framebuffer as CPU backing (owned / borrowed)
+- Explicit access modes + `map` / `unmap` with `robo_gfx_surface_map_t`
+- Row/pixel/offset APIs delegate to framebuffer (no duplicated arithmetic)
+- Clear via Goal 6.2 `pixel_pack`; no separate public Buffer type
+- Docs: `graphics/docs/Surface.md` (+ README / architecture / ownership / threading)
+- Suite: `graphics/tests/SuiteRoboGraphicsSurface.c` (`graphics.surf.*`)
+- Version **0.4.0**
+- Debug / Release / Sanitize `graphics.*`: **40/40**
+
+**Definition of done:**
+
+- [x] Clear Surface abstraction on 6.3 framebuffer foundation
+- [x] CPU-owned surfaces; dimensions/format/stride/overflow-safe
+- [x] Mapping, access modes, ownership, lifetime, addressing
+- [x] RoboMem / RoboError / thread-safety docs; invalid states safe
+- [x] Tests + docs; no Chromium dependency
+- [x] Ready for Goal 6.5; stop after 6.4
+
+## Goal 6.5 — Basic Bitmap Operations
+
+**Status:** complete
+
+**Done:**
+
+- Surface-based bitmap ops (no duplicate Bitmap type): get/set pixel, clear, fill_rect, copy, copy_rect
+- Logical RGBA8 via Goal 6.2 pack/unpack/convert; replace writes (no blending)
+- Contained-rect bounds contract; empty rect no-op; overlap-safe same-surface blit
+- Docs: `graphics/docs/Bitmap.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsBitmap.c` (`graphics.bmp.*`)
+- Version **0.5.0**
+- Debug / Release / Sanitize `graphics.*` validation
+
+**Definition of done:**
+
+- [x] Pixel read/write, clear, fill_rect, copy with correct formats
+- [x] Bounds + overflow + overlap safety; RoboError / RoboMem
+- [x] Tests + docs; no Chromium dependency
+- [x] Ready for Goal 6.6; stop after 6.5
+
 ## Next
 
-- Goal 6.4 — Surface/Buffer abstraction (do not start until requested)
+- Goal 6.6 — Pixels and Rectangles (do not start until requested)
 
