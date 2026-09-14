@@ -128,7 +128,13 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboFont\RoboFontOutlineCff.c"),
     (Join-Path $SourceDir "RoboFont\RoboFontName.c"),
     (Join-Path $SourceDir "RoboFont\RoboFontClassification.c"),
-    (Join-Path $SourceDir "RoboFont\RoboFontSelection.c")
+    (Join-Path $SourceDir "RoboFont\RoboFontSelection.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontDiscovery.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontLoader.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontCoverage.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontFallback.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontGenericFamily.c"),
+    (Join-Path $SourceDir "RoboFont\RoboFontEmoji.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -185,6 +191,12 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontName.c"),
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontClassification.c"),
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontSelection.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontDiscovery.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontLoader.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontCoverage.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontFallback.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontGenericFamily.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontEmoji.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),

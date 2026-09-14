@@ -1,8 +1,8 @@
 /*
- * RoboFont face — underlying font resource identity (Goals 5.1–5.10).
+ * RoboFont face — underlying font resource identity (Goals 5.1–5.14).
  *
- * Optional TT / cmap / metrics / outlines / metadata / classification via
- * parse_* APIs. Ownership: face retains source and optional backends.
+ * Optional TT / cmap / coverage / metrics / outlines / metadata / classification
+ * via parse_* APIs. Ownership: face retains source and optional backends.
  */
 
 #ifndef ROBO_FONT_FACE_H
@@ -11,6 +11,7 @@
 #include "RoboBase/RoboError.h"
 #include "RoboFont/RoboFontClassification.h"
 #include "RoboFont/RoboFontCmap.h"
+#include "RoboFont/RoboFontCoverage.h"
 #include "RoboFont/RoboFontMetrics.h"
 #include "RoboFont/RoboFontName.h"
 #include "RoboFont/RoboFontOutline.h"
@@ -35,6 +36,8 @@ typedef enum robo_font_format {
 
 typedef struct robo_font_face robo_font_face_t;
 typedef struct robo_font_tt robo_font_tt_t;
+typedef struct robo_font_sfnt robo_font_sfnt_t;
+typedef struct robo_font_emoji_info robo_font_emoji_info_t;
 
 robo_result_t robo_font_face_create(robo_font_source_t *source,
                                     uint32_t face_index,
@@ -63,6 +66,18 @@ const robo_font_cmap_map_t *robo_font_face_cmap(const robo_font_face_t *face);
 robo_result_t robo_font_face_lookup_glyph(const robo_font_face_t *face,
                                           uint32_t code_point,
                                           robo_font_cmap_lookup_result_t *out);
+
+/** Lazy cmap-backed coverage (Goal 5.14). Idempotent; immutable after build. */
+robo_result_t robo_font_face_parse_coverage(robo_font_face_t *face);
+const robo_font_coverage_t *robo_font_face_coverage(const robo_font_face_t *face);
+
+/** Ensure SFNT container is parsed (shared by metrics/emoji/…). */
+robo_result_t robo_font_face_parse_sfnt(robo_font_face_t *face);
+const robo_font_sfnt_t *robo_font_face_sfnt(const robo_font_face_t *face);
+
+/** Lazy emoji capability analysis (Goal 5.17). Idempotent; immutable after build. */
+robo_result_t robo_font_face_parse_emoji(robo_font_face_t *face);
+const robo_font_emoji_info_t *robo_font_face_emoji(const robo_font_face_t *face);
 
 robo_result_t robo_font_face_parse_metrics(robo_font_face_t *face);
 const robo_font_metrics_info_t *robo_font_face_metrics_info(const robo_font_face_t *face);

@@ -632,3 +632,54 @@ robo_result_t robo_font_sfnt_fuzz_parse(const uint8_t *data, size_t size)
     robo_font_source_release(src);
     return res;
 }
+
+robo_result_t robo_font_sfnt_probe_face_count(const uint8_t *data,
+                                              size_t size,
+                                              uint32_t *out_count)
+{
+    uint32_t tag;
+    uint32_t ttc_version;
+    uint32_t num_fonts;
+
+    if (!out_count) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    *out_count = 0u;
+    if (!data || size < 4u) {
+        return ROBO_PARSE_ERROR;
+    }
+    tag = ((uint32_t)data[0] << 24) | ((uint32_t)data[1] << 16) |
+          ((uint32_t)data[2] << 8) | (uint32_t)data[3];
+    if (tag == ROBO_FONT_SFNT_VERSION_TTCF) {
+        if (size < 12u) {
+            return ROBO_PARSE_ERROR;
+        }
+        ttc_version = ((uint32_t)data[4] << 24) | ((uint32_t)data[5] << 16) |
+                      ((uint32_t)data[6] << 8) | (uint32_t)data[7];
+        num_fonts = ((uint32_t)data[8] << 24) | ((uint32_t)data[9] << 16) |
+                    ((uint32_t)data[10] << 8) | (uint32_t)data[11];
+        if (ttc_version != 0x00010000u && ttc_version != 0x00020000u) {
+            return ROBO_NOT_SUPPORTED;
+        }
+        if (num_fonts == 0u || num_fonts > ROBO_FONT_SFNT_MAX_TABLES) {
+            return ROBO_PARSE_ERROR;
+        }
+        *out_count = num_fonts;
+        return ROBO_OK;
+    }
+    if (!robo_font_sfnt_version_is_supported(tag)) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    *out_count = 1u;
+    return ROBO_OK;
+}
+
+robo_result_t robo_font_sfnt_probe_face_count_source(const robo_font_source_t *source,
+                                                     uint32_t *out_count)
+{
+    if (!source) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    return robo_font_sfnt_probe_face_count(robo_font_source_bytes(source),
+                                           robo_font_source_size(source), out_count);
+}

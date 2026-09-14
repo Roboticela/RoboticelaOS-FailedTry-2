@@ -3,6 +3,8 @@
 #include "RoboFont/RoboFontCff.h"
 #include "RoboFont/RoboFontClassification.h"
 #include "RoboFont/RoboFontCmap.h"
+#include "RoboFont/RoboFontCoverage.h"
+#include "RoboFont/RoboFontEmoji.h"
 #include "RoboFont/RoboFontName.h"
 #include "RoboFont/RoboFontOt.h"
 #include "RoboFont/RoboFontSfnt.h"
@@ -21,6 +23,10 @@ struct robo_font_face {
     robo_font_sfnt_t *sfnt;
     robo_font_tt_t *tt;
     robo_font_cmap_map_t *cmap;
+    robo_font_coverage_t *coverage;
+    int coverage_building; /* concurrent lazy-init: ROBO_BUSY while set */
+    robo_font_emoji_info_t *emoji;
+    int emoji_building;
     robo_font_metrics_info_t *metrics;
     robo_font_cff_font_t *cff;
     robo_font_outline_cache_t *outline_cache;
@@ -125,6 +131,14 @@ void robo_font_face_release(robo_font_face_t *face)
     if (face->cff) {
         robo_font_cff_release(face->cff);
         face->cff = NULL;
+    }
+    if (face->coverage) {
+        robo_font_coverage_release(face->coverage);
+        face->coverage = NULL;
+    }
+    if (face->emoji) {
+        robo_font_emoji_info_release(face->emoji);
+        face->emoji = NULL;
     }
     if (face->cmap) {
         robo_font_cmap_map_release(face->cmap);
@@ -336,6 +350,84 @@ robo_result_t robo_font_face_parse_cmap(robo_font_face_t *face)
 const robo_font_cmap_map_t *robo_font_face_cmap(const robo_font_face_t *face)
 {
     return face ? face->cmap : NULL;
+}
+
+robo_result_t robo_font_face_parse_coverage(robo_font_face_t *face)
+{
+    robo_font_coverage_t *cov = NULL;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->coverage) {
+        return ROBO_OK;
+    }
+    if (face->coverage_building) {
+        return ROBO_BUSY;
+    }
+    face->coverage_building = 1;
+    res = robo_font_face_parse_cmap(face);
+    if (res != ROBO_OK) {
+        face->coverage_building = 0;
+        return res;
+    }
+    res = robo_font_coverage_create_from_cmap(face->cmap, NULL, &cov);
+    if (res != ROBO_OK) {
+        face->coverage_building = 0;
+        return res;
+    }
+    face->coverage = cov;
+    face->coverage_building = 0;
+    return ROBO_OK;
+}
+
+const robo_font_coverage_t *robo_font_face_coverage(const robo_font_face_t *face)
+{
+    return face ? face->coverage : NULL;
+}
+
+robo_result_t robo_font_face_parse_sfnt(robo_font_face_t *face)
+{
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    return face_ensure_sfnt(face);
+}
+
+const robo_font_sfnt_t *robo_font_face_sfnt(const robo_font_face_t *face)
+{
+    return face ? face->sfnt : NULL;
+}
+
+robo_result_t robo_font_face_parse_emoji(robo_font_face_t *face)
+{
+    robo_font_emoji_info_t *info = NULL;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->emoji) {
+        return ROBO_OK;
+    }
+    if (face->emoji_building) {
+        return ROBO_BUSY;
+    }
+    face->emoji_building = 1;
+    res = robo_font_emoji_info_create_from_face(face, NULL, &info);
+    if (res != ROBO_OK) {
+        face->emoji_building = 0;
+        return res;
+    }
+    face->emoji = info;
+    face->emoji_building = 0;
+    return ROBO_OK;
+}
+
+const robo_font_emoji_info_t *robo_font_face_emoji(const robo_font_face_t *face)
+{
+    return face ? face->emoji : NULL;
 }
 
 robo_result_t robo_font_face_lookup_glyph(const robo_font_face_t *face,

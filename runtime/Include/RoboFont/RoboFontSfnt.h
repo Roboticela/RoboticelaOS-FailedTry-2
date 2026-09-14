@@ -177,6 +177,18 @@ robo_result_t robo_font_sfnt_fuzz_parse(const uint8_t *data, size_t size);
 /** True if @p version is an accepted single-font SFNT scaler type. */
 int robo_font_sfnt_version_is_supported(uint32_t version);
 
+/**
+ * Probe how many faces a blob contains without fully parsing tables.
+ * Single SFNT → 1. TTC/OTC (`ttcf`) → numFonts (capped).
+ * Unsupported / too short → ROBO_PARSE_ERROR or ROBO_NOT_SUPPORTED.
+ */
+robo_result_t robo_font_sfnt_probe_face_count(const uint8_t *data,
+                                              size_t size,
+                                              uint32_t *out_count);
+
+robo_result_t robo_font_sfnt_probe_face_count_source(const robo_font_source_t *source,
+                                                     uint32_t *out_count);
+
 #ifdef __cplusplus
 }
 #endif

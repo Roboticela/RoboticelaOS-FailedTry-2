@@ -21,7 +21,8 @@ static void test_error_codes_and_strings(void)
         ROBO_TIMEOUT,
         ROBO_IO_ERROR,
         ROBO_PARSE_ERROR,
-        ROBO_INIT_ERROR
+        ROBO_INIT_ERROR,
+        ROBO_BUSY
     };
     const int n = (int)(sizeof(codes) / sizeof(codes[0]));
     int i;

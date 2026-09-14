@@ -1,18 +1,25 @@
-# RoboFont Public API (Goals 5.1–5.11)
+# RoboFont Public API (Goals 5.1–5.17)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
 | Header | Contents |
 |---|---|
 | `RoboFontTypes.h` | face/instance/glyph IDs, font units, sizes, bbox |
-| `RoboFontStyle.h` | weight, stretch, style, categories, style_desc |
+| `RoboFontStyle.h` | weight, stretch, style, generic-family IDs, style_desc |
 | `RoboFontClassification.h` | raw + normalized style/weight/stretch classification |
 | `RoboFontSelection.h` | select request, match score, face selection |
-| `RoboFontMetrics.h` | layout metrics, metrics info, scaling, vertical foundation |
+| `RoboFontDiscovery.h` | discovery sources, IO, scan, virtual FS, fuzz |
+| `RoboFontRegistry.h` | registrations, queries, invalidate hook |
+| `RoboFontLoader.h` | load request/result, cache, eviction, fuzz |
+| `RoboFontCoverage.h` | Unicode coverage query, ranges, scripts, UVS, stats |
+| `RoboFontFallback.h` | coverage-first fallback resolver, policy, score, cache |
+| `RoboFontGenericFamily.h` | generic-family config, resolver, select/fallback glue |
+| `RoboFontEmoji.h` | emoji kind/capabilities, sequence foundation, select |
+| `RoboFontMetrics.h` | layout metrics, metrics info, scaling |
 | `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
 | `RoboFontName.h` | name table decode, locale lookup, metadata snapshot |
 | `RoboFontSource.h` | memory copy/borrow sources |
-| `RoboFontFace.h` | face + TT / cmap / metrics / outlines / metadata / class |
+| `RoboFontFace.h` | face + TT / cmap / coverage / emoji / metrics / … |
 | `RoboFontInstance.h` | instance create, metrics sync/scale |
 | `RoboFontBinary.h` | big-endian bounds-checked reader / spans |
 | `RoboFontSfnt.h` | SFNT container parse, table lookup, checksums |
@@ -20,8 +27,73 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOtCommon.h` | Coverage, ClassDef, Device, Script/Feature/Lookup lists |
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
-| `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, fuzz entry |
-| `RoboFontVersion.h` | `0.11.0` |
+| `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, foreach, fuzz entry |
+| `RoboFontVersion.h` | `0.17.0` |
+
+## Emoji fonts (5.17)
+
+| API | Role |
+|---|---|
+| `robo_font_emoji_info_*` | Kind + capability analysis |
+| `robo_font_emoji_sequence_*` | Multi-CP request foundation (no shaping) |
+| `robo_font_emoji_select` | Prefer configured/classified emoji faces |
+| `robo_font_emoji_resolve_fallback` | Emoji-aware glue to Goal 5.15 |
+| `robo_font_face_parse_emoji` | Lazy face-attached cache |
+
+## Generic families (5.16)
+
+| API | Role |
+|---|---|
+| `robo_font_generic_config_*` | Explicit mappings + generation |
+| `robo_font_generic_resolver_*` | Layered resolve + cache |
+| `robo_font_generic_resolve` | Generic → concrete family list |
+| `robo_font_generic_resolve_select` | + Goal 5.11 selection |
+| `robo_font_generic_resolve_fallback` | + Goal 5.15 fallback |
+| `robo_font_generic_fuzz_parse` | Malformed-input entry |
+
+## Fallback (5.15)
+
+| API | Role |
+|---|---|
+| `robo_font_fallback_resolver_create` / `_destroy` | Resolver + policy + cache |
+| `robo_font_fallback_resolver_set_policy` | Replace owned policy |
+| `robo_font_fallback_resolve` / `_resolve_codepoint` | Resolve request |
+| `robo_font_fallback_face_covers` | Coverage probe helper |
+| `robo_font_fallback_score_compare` | Deterministic score order |
+| `robo_font_fallback_resolver_cache_clear` / `_stats` | Decision cache |
+| `robo_font_fallback_fuzz_resolve` | Malformed / pathological entry |
+
+## Coverage (5.14)
+
+| API | Role |
+|---|---|
+| `robo_font_coverage_create_from_cmap` | Build from cmap (no outlines) |
+| `robo_font_face_parse_coverage` | Lazy attach to face |
+| `robo_font_coverage_query` / `_contains` / `_glyph` | Exact membership |
+| `robo_font_coverage_query_uvs` | Format-14 variation selectors |
+| `robo_font_coverage_range*` / `_script*` / `_stats` | Ranges & aggregates |
+| `robo_font_coverage_fuzz_parse` | Malformed-input entry |
+
+## Loader & cache (5.13)
+
+| API | Role |
+|---|---|
+| `robo_font_loader_create` / `_destroy` | Loader + cache lifetime |
+| `robo_font_loader_load` / `_load_registration` | On-demand load |
+| `robo_font_loader_state` | Query load state |
+| `robo_font_cache_*` | Invalidate, clear, evict, stats |
+| `robo_font_loader_fuzz_parse` | Malformed-input entry |
+
+## Discovery & registry (5.12)
+
+| API | Role |
+|---|---|
+| `robo_font_registry_create` / `_destroy` | Registry lifetime |
+| `robo_font_registry_set_io` | Injectable filesystem IO |
+| `robo_font_registry_add_*_source` | Memory / file / directory |
+| `robo_font_registry_scan_source` / `_scan_all` / `_refresh_source` | Discover |
+| `robo_font_registry_collect_faces` / `_for_family` | Selection candidates |
+| `robo_font_registry_set_invalidate_hook` | Loader integration |
 
 ## Selection (5.11)
 
@@ -30,52 +102,9 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `robo_font_select` | Best face among loaded candidates |
 | `robo_font_select_score_face` | Score one face |
 | `robo_font_match_score_compare` | Deterministic score compare |
-| `robo_font_select_*_dist` | Stretch / style / weight distance keys |
-| `robo_font_selection_fuzz_parse` | Malformed-input entry |
 
-## Classification (5.10)
-
-| API | Role |
-|---|---|
-| `robo_font_classify` | Raw bag → normalized classification |
-| `robo_font_classification_info_create` / `_from_sfnt` | Build snapshot |
-| `robo_font_face_parse_classification` / `face_classification` | Face |
-| `robo_font_weight_category` / `stretch_from_width_class` | Helpers |
-| `robo_font_classification_fuzz_parse` | Malformed-input entry |
-
-## Naming & metadata (5.9)
-
-| API | Role |
-|---|---|
-| `robo_font_name_info_create` / `_from_span` | Decode + metadata |
-| `robo_font_name_info_lookup` | Localized name-ID query |
-| `robo_font_name_info_metadata` | Normalized snapshot |
-| `robo_font_metadata_preferred_family` / `_subfamily` | 16→21→1 / 17→22→2 |
-| `robo_font_face_parse_metadata` / `face_name_info` / `face_metadata` | Face |
-| `robo_font_name_fuzz_parse` | Malformed-input entry |
-
-## Outlines (5.8)
-
-| API | Role |
-|---|---|
-| `robo_font_outline_from_tt` / `_from_cff` / `_from_sfnt` | Build outline |
-| `robo_font_face_parse_outlines` / `face_glyph_outline` | Face + cache |
-| `robo_font_outline_dump` | Golden ASCII dump |
-| `robo_font_outline_fuzz_parse` | Malformed-input entry |
-| `robo_font_affine_identity` / `_multiply` / `_apply` | Composite math |
-
-## Metrics (5.7)
-
-| API | Role |
-|---|---|
-| `robo_font_metrics_info_create` / `_from_tt` | Immutable metrics info |
-| `robo_font_metrics_info_global` / `_layout` / `_glyph` | Queries |
-| `robo_font_metrics_info_glyph_vertical` | Optional vhea/vmtx |
-| `robo_font_scale_font_units` | Safe FUnit → size scaling + rounding |
-| `robo_font_face_parse_metrics` / `face_glyph_metrics` | Face path |
-| `robo_font_instance_sync_metrics` / `scale_advance` | Sized instance |
-| `robo_font_metrics_fuzz_parse` | Malformed-input entry |
-
-Details: `docs/Selection.md`, `docs/Classification.md`, `docs/Naming.md`,
-`docs/Outlines.md`, `docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`,
-`docs/OpenType.md`, `docs/TrueType.md`, `docs/Sfnt.md`.
+Details: `docs/Emoji.md`, `docs/GenericFamilies.md`, `docs/Fallback.md`, `docs/Coverage.md`,
+`docs/Loading.md`, `docs/Discovery.md`, `docs/Selection.md`,
+`docs/Classification.md`, `docs/Naming.md`, `docs/Outlines.md`,
+`docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`, `docs/OpenType.md`,
+`docs/TrueType.md`, `docs/Sfnt.md`.

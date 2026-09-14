@@ -36,12 +36,13 @@ typedef enum robo_result {
     ROBO_TIMEOUT            = 8,
     ROBO_IO_ERROR           = 9,
     ROBO_PARSE_ERROR        = 10,
-    ROBO_INIT_ERROR         = 11
+    ROBO_INIT_ERROR         = 11,
+    ROBO_BUSY               = 12  /* in progress; caller may retry */
 } robo_result_t;
 
 /** Inclusive bounds of known result codes (for validation / tests). */
 #define ROBO_RESULT_FIRST ROBO_OK
-#define ROBO_RESULT_LAST  ROBO_INIT_ERROR
+#define ROBO_RESULT_LAST  ROBO_BUSY
 
 /* Goal 1.1 aliases — prefer the names above in new code. */
 #define ROBO_ERR_ALREADY_INITIALIZED ROBO_ALREADY_EXISTS

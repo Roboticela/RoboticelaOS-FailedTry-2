@@ -1234,6 +1234,105 @@ robo_result_t robo_font_cmap_lookup_uvs(const robo_font_cmap_map_t *map,
     return ROBO_OK;
 }
 
+static robo_result_t foreach_emit_mapped(const cmap_body_t *b,
+                                         uint32_t num_glyphs,
+                                         uint32_t cp,
+                                         robo_font_cmap_mapped_fn fn,
+                                         void *user)
+{
+    robo_font_cmap_lookup_result_t r;
+    robo_result_t res = lookup_body(b, cp, num_glyphs, &r);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    if (r.status != ROBO_FONT_CMAP_MAPPED) {
+        return ROBO_OK;
+    }
+    return fn(cp, r.glyph_id, user);
+}
+
+static robo_result_t foreach_range(const cmap_body_t *b,
+                                   uint32_t num_glyphs,
+                                   uint32_t first,
+                                   uint32_t last,
+                                   robo_font_cmap_mapped_fn fn,
+                                   void *user)
+{
+    uint32_t cp;
+    if (last < first) {
+        return ROBO_OK;
+    }
+    for (cp = first; cp <= last; cp++) {
+        robo_result_t res = foreach_emit_mapped(b, num_glyphs, cp, fn, user);
+        if (res != ROBO_OK) {
+            return res;
+        }
+        if (cp == 0xFFFFFFFFu) {
+            break;
+        }
+    }
+    return ROBO_OK;
+}
+
+robo_result_t robo_font_cmap_foreach_mapped(const robo_font_cmap_map_t *map,
+                                            robo_font_cmap_mapped_fn fn,
+                                            void *user)
+{
+    const cmap_body_t *b;
+    uint32_t i;
+
+    if (!map || !fn || !map->has_primary) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    b = &map->primary;
+    switch (b->format) {
+    case 0:
+        return foreach_range(b, map->num_glyphs, 0u, 0xFFu, fn, user);
+    case 2:
+        /* Format 2 domain is BMP; sparse — scan with lookup. */
+        return foreach_range(b, map->num_glyphs, 0u, 0xFFFFu, fn, user);
+    case 4:
+        for (i = 0u; i < b->fmt4_seg_count; i++) {
+            uint16_t start = b->fmt4_segs[i].start;
+            uint16_t end = b->fmt4_segs[i].end;
+            robo_result_t res;
+            if (end == 0xFFFFu && start == 0xFFFFu) {
+                continue;
+            }
+            res = foreach_range(b, map->num_glyphs, start, end, fn, user);
+            if (res != ROBO_OK) {
+                return res;
+            }
+        }
+        return ROBO_OK;
+    case 6:
+        if (b->fmt6_count == 0u) {
+            return ROBO_OK;
+        }
+        return foreach_range(b, map->num_glyphs, b->fmt6_first,
+                             (uint32_t)b->fmt6_first + (uint32_t)b->fmt6_count - 1u,
+                             fn, user);
+    case 10:
+        if (b->fmt10_count == 0u) {
+            return ROBO_OK;
+        }
+        return foreach_range(b, map->num_glyphs, b->fmt10_start,
+                             b->fmt10_start + b->fmt10_count - 1u, fn, user);
+    case 12:
+    case 13:
+        for (i = 0u; i < b->group_count; i++) {
+            robo_result_t res = foreach_range(b, map->num_glyphs, b->groups[i].start,
+                                              b->groups[i].end, fn, user);
+            if (res != ROBO_OK) {
+                return res;
+            }
+        }
+        return ROBO_OK;
+    default:
+        return ROBO_NOT_SUPPORTED;
+    }
+}
+
 robo_result_t robo_font_cmap_fuzz_parse(const uint8_t *data, size_t size)
 {
     robo_font_source_t *src = NULL;

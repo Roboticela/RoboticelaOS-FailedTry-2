@@ -48,6 +48,8 @@ const char *robo_error_string(robo_result_t r)
         return "Parse error";
     case ROBO_INIT_ERROR:
         return "Initialization error";
+    case ROBO_BUSY:
+        return "Busy";
     default:
         return "Unknown error";
     }

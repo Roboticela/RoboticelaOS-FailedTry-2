@@ -73,6 +73,12 @@ void robo_test_register_font_outline(void);
 void robo_test_register_font_name(void);
 void robo_test_register_font_classification(void);
 void robo_test_register_font_selection(void);
+void robo_test_register_font_discovery(void);
+void robo_test_register_font_loader(void);
+void robo_test_register_font_coverage(void);
+void robo_test_register_font_fallback(void);
+void robo_test_register_font_generic(void);
+void robo_test_register_font_emoji(void);
 
 int main(int argc, char **argv)
 {
@@ -183,5 +189,11 @@ int main(int argc, char **argv)
     robo_test_register_font_name();
     robo_test_register_font_classification();
     robo_test_register_font_selection();
+    robo_test_register_font_discovery();
+    robo_test_register_font_loader();
+    robo_test_register_font_coverage();
+    robo_test_register_font_fallback();
+    robo_test_register_font_generic();
+    robo_test_register_font_emoji();
     return robo_test_main(argc, argv);
 }

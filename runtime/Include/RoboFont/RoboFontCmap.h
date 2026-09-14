@@ -113,6 +113,22 @@ robo_result_t robo_font_cmap_lookup_uvs(const robo_font_cmap_map_t *map,
                                         robo_font_cmap_uvs_result_t *out);
 
 /**
+ * Visit every Unicode scalar the primary cmap maps (status == MAPPED),
+ * including explicit mappings to glyph 0 (`.notdef`).
+ * Visits are in ascending code-point order.
+ * @p fn may return non-OK to abort early (that result is propagated).
+ *
+ * Used by Goal 5.14 coverage construction — does not re-parse cmap formats.
+ */
+typedef robo_result_t (*robo_font_cmap_mapped_fn)(uint32_t code_point,
+                                                  robo_glyph_id_t glyph_id,
+                                                  void *user);
+
+robo_result_t robo_font_cmap_foreach_mapped(const robo_font_cmap_map_t *map,
+                                            robo_font_cmap_mapped_fn fn,
+                                            void *user);
+
+/**
  * Read maxp.numGlyphs from SFNT without a full TrueType parse.
  * Supports maxp versions 0.5 and 1.0.
  */

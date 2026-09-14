@@ -1163,7 +1163,152 @@
 - [x] Caller-supplied faces matched deterministically with inspectable scores
 - [x] Stop after 5.11 (no discovery / Goal 5.12; no fallback / 5.15)
 
+## Goal 5.12 — Font Discovery
+
+**Status:** complete
+
+**Done:**
+
+- Explicit discovery sources: memory, file, directory (optional recursive)
+- Injectable filesystem IO + stub + virtual in-memory tree (no OS-wide scan)
+- Format filter: `.ttf` / `.otf` / `.ttc` / `.otc` + SFNT signatures
+- TTC/OTC multi-face registration with shared source bytes
+- `RoboFontRegistry` / `RoboFontRegistration` with stable IDs + origin key
+- Duplicate policy: `(source_id, origin, face_index)` + PostScript/style heuristic
+- Registry queries, collect faces → Goal 5.11 selection
+- Refresh/rescan; security limits; fail-soft scan; fuzz entry
+- Lazy: metadata + classification at register; cmap/outlines on demand
+- Docs: `docs/Discovery.md`; version **0.12.0**
+- Tests: `font/tests/SuiteRoboFontDiscovery.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): **95/95**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Explicit file/dir/memory discovery registers distinct faces
+- [x] Collections and duplicates handled deterministically
+- [x] Selector consumes discovered candidates
+- [x] Stop after 5.12 (no loading/caching / Goal 5.13; no fallback / 5.15)
+
+## Goal 5.13 — Font Loading & Caching
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontLoader` / `RoboFontCache` bound to registry with invalidate hook
+- Load request/result: policies for load / cache / validate
+- Lazy STANDARD load (cmap+metrics); outlines remain on demand
+- Bounded LRU cache (max faces / approx bytes); pin + bypass policies
+- Eviction preserves consumer-retained faces
+- In-flight `LOADING` + `ROBO_BUSY` (no partial publish)
+- Permanent vs retryable failure handling
+- TTC multi-face load; virtual file source; refresh invalidation
+- Docs: `docs/Loading.md`; version **0.13.0**
+- Tests: `font/tests/SuiteRoboFontLoader.c` (+ repeated-hit baseline)
+- Debug / Release / ASan+UBSan (`-Filter font.`): **100/100**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Registered fonts load on demand and cache safely
+- [x] Collection faces independent; malformed inputs safe
+- [x] Stop after 5.13 (no coverage analysis / Goal 5.14; no fallback / 5.15)
+
+## Goal 5.14 — Font Coverage Analysis
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontCoverage` immutable layer on Goal 5.6 cmap (no outline preload)
+- Query: unsupported / `.notdef` / usable / invalid scalar / no cmap
+- Compact usable ranges + binary-search membership; glyph lookup API
+- Script + Script_Extensions analysis (script ≠ language); emoji scalar stats
+- Format-14 UVS coverage wrapper; face lazy attach + loader approx bytes
+- Concurrent build → `ROBO_BUSY`; fuzz entry; lookup bench baseline
+- Docs: `docs/Coverage.md`; version **0.14.0**
+- Tests: `font/tests/SuiteRoboFontCoverage.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): **108/108**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Exact Unicode coverage + safe glyph IDs
+- [x] Ranges, scripts/SCX, UVS, `.notdef`/empty-outline policy documented
+- [x] Cache-integrated immutable coverage; malformed input safe
+- [x] Stop after 5.14 (no fallback / Goal 5.15)
+
+## Goal 5.15 — Font Fallback
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontFallbackResolver` — coverage-first alternate-face resolution
+- Request/result/policy/score model (not CSS); sequence foundation without shaping
+- Primary fast path via Goal 5.14 coverage; candidates only from Goal 5.12 registry
+- Stages: PRIMARY → PREFERRED → SCRIPT → GENERAL → LAST_RESORT → NONE
+- Deterministic scoring (coverage hard gate; selection distances for style)
+- Script relevance + language preference hooks (no hard-coded language DB)
+- Bounded decision cache keyed by registry generation; explicit no-fallback
+- Docs: `docs/Fallback.md`; version **0.15.0**
+- Tests: `font/tests/SuiteRoboFontFallback.c` (primary, script, preferred, cache,
+  sequence/language/fuzz, primary-hit bench)
+- Debug / Release / ASan+UBSan (`-Filter font.`): **113/113**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Missing characters trigger fallback; primary coverage avoids unnecessary scan
+- [x] Coverage-valid candidates; style/weight/stretch preserved when available
+- [x] Script/language hints influence ranking without hard-coded language lists
+- [x] Configurable chains; registry changes invalidate stale decisions
+- [x] Sequence API foundation without shaping; malformed input safe
+- [x] Stop after 5.15 (no generic families / Goal 5.16)
+
+## Goal 5.16 — Generic Font Families
+
+**Status:** complete
+
+**Done:**
+
+- Extended `robo_font_generic_family_t` (serif…ui-rounded + none)
+- `RoboFontGenericConfig` — explicit ordered mappings + language overlays
+- Layered resolver: application → runtime → platform → optional related
+- Empty portable platform defaults; no hard-coded font lists
+- `resolve` / `resolve_select` / `resolve_fallback` integrate 5.11 + 5.15
+- Bounded cache keyed by config/registry/resolver generation
+- Docs: `docs/GenericFamilies.md`; version **0.16.0**
+- Tests: `font/tests/SuiteRoboFontGenericFamily.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): **118/118**; VERIFY: no Chromium
+
+**Definition of done:**
+
+- [x] All required generic categories; explicit configurable mappings
+- [x] Platform defaults without polluting portable core; app overrides
+- [x] Deterministic priority; selection + fallback integration
+- [x] Config changes invalidate; missing mapping → explicit unresolved
+- [x] system-ui / emoji / math remain explicit; no Chromium dependency
+- [x] Stop after 5.16 (no emoji font policy / Goal 5.17)
+
+## Goal 5.17 — Emoji Fonts
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontEmoji` — kind/capabilities, color vs mono, bitmap/vector flags
+- Coverage + UVS (FE0E/FE0F) probes; sequence request foundation (no shaping)
+- Selection + fallback glue via generic `emoji` and Goal 5.15
+- Face-lazy immutable cache; fuzz entry; docs `docs/Emoji.md`
+- Version **0.17.0**
+- Tests: `font/tests/SuiteRoboFontEmoji.c`
+
+**Definition of done:**
+
+- [x] Emoji-capable fonts identified without name-only authority
+- [x] Color/mono/bitmap/vector capabilities represented where supported
+- [x] Generic `emoji` + fallback integration; conservative sequence support
+- [x] No Chromium dependency; stop after 5.17 (no variable fonts / 5.18)
+
 ## Next
 
-- Goal 5.12 — Font discovery (do not start until requested)
+- Goal 5.18 — Variable fonts (do not start until requested)
 

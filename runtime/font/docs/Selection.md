@@ -2,7 +2,9 @@
 
 Deterministic matching of a structured request against **already-loaded**
 `RoboFontFace` candidates. No discovery, fallback, CSS parsing, or glyph
-geometry changes.
+geometry changes. Goal 5.12 registries and Goal 5.13 loaders supply
+candidates (`collect_faces` / `loader_load`); selection itself stays
+discovery- and load-free.
 
 ```text
 RoboFontSelectRequest

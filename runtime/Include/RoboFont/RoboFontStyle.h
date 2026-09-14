@@ -104,7 +104,9 @@ typedef enum robo_font_style {
 } robo_font_style_t;
 
 /**
- * Generic family concept (CSS generic-family). Matching is later.
+ * Generic font-family identifiers (Goal 5.16).
+ * Semantic categories — not concrete faces. Matching/config in
+ * RoboFontGenericFamily.
  */
 typedef enum robo_font_generic_family {
     ROBO_FONT_GENERIC_NONE = 0,
@@ -113,8 +115,18 @@ typedef enum robo_font_generic_family {
     ROBO_FONT_GENERIC_MONOSPACE = 3,
     ROBO_FONT_GENERIC_CURSIVE = 4,
     ROBO_FONT_GENERIC_FANTASY = 5,
-    ROBO_FONT_GENERIC_SYSTEM_UI = 6
+    ROBO_FONT_GENERIC_SYSTEM_UI = 6,
+    ROBO_FONT_GENERIC_EMOJI = 7,
+    ROBO_FONT_GENERIC_MATH = 8,
+    ROBO_FONT_GENERIC_UI_SERIF = 9,
+    ROBO_FONT_GENERIC_UI_SANS_SERIF = 10,
+    ROBO_FONT_GENERIC_UI_MONOSPACE = 11,
+    ROBO_FONT_GENERIC_UI_ROUNDED = 12,
+    ROBO_FONT_GENERIC_COUNT = 13
 } robo_font_generic_family_t;
+
+/** Alias for invalid / unset (same as NONE). */
+#define ROBO_FONT_GENERIC_UNKNOWN ROBO_FONT_GENERIC_NONE
 
 /**
  * Face/instance style request (selection parameters).
