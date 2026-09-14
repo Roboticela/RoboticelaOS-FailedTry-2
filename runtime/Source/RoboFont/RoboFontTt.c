@@ -1,5 +1,6 @@
 #include "RoboFont/RoboFontTt.h"
 
+#include "RoboFont/RoboFontClassification.h"
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
@@ -570,46 +571,23 @@ robo_result_t robo_font_tt_metrics(const robo_font_tt_t *tt, robo_font_metrics_t
                                   &bb);
 }
 
-static robo_font_stretch_t width_class_to_stretch(uint16_t wc)
-{
-    static const robo_font_stretch_t map[10] = {
-        0,
-        ROBO_FONT_STRETCH_ULTRA_CONDENSED,
-        ROBO_FONT_STRETCH_EXTRA_CONDENSED,
-        ROBO_FONT_STRETCH_CONDENSED,
-        ROBO_FONT_STRETCH_SEMI_CONDENSED,
-        ROBO_FONT_STRETCH_NORMAL,
-        ROBO_FONT_STRETCH_SEMI_EXPANDED,
-        ROBO_FONT_STRETCH_EXPANDED,
-        ROBO_FONT_STRETCH_EXTRA_EXPANDED,
-        ROBO_FONT_STRETCH_ULTRA_EXPANDED};
-    if (wc < 1u || wc > 9u) {
-        return ROBO_FONT_STRETCH_NORMAL;
-    }
-    return map[wc];
-}
-
 robo_result_t robo_font_tt_style_desc(const robo_font_tt_t *tt,
                                       robo_font_style_desc_t *out)
 {
+    robo_font_classification_info_t *info = NULL;
+    const robo_font_classification_t *cls;
+    robo_result_t res;
+
     if (!tt || !out) {
         return ROBO_INVALID_ARGUMENT;
     }
-    robo_font_style_desc_init(out);
-    if (tt->has_os2) {
-        out->weight = (robo_font_weight_t)tt->os2.us_weight_class;
-        out->stretch = width_class_to_stretch(tt->os2.us_width_class);
-        if ((tt->os2.fs_selection & 0x01u) != 0u) {
-            out->style = ROBO_FONT_STYLE_ITALIC;
-        }
-    } else {
-        if ((tt->head.mac_style & 0x01u) != 0u) {
-            out->weight = ROBO_FONT_WEIGHT_BOLD;
-        }
-        if ((tt->head.mac_style & 0x02u) != 0u) {
-            out->style = ROBO_FONT_STYLE_ITALIC;
-        }
+    res = robo_font_classification_info_create(tt, NULL, NULL, &info);
+    if (res != ROBO_OK) {
+        return res;
     }
+    cls = robo_font_classification_info_get(info);
+    robo_font_classification_to_style_desc(cls, out);
+    robo_font_classification_info_release(info);
     return ROBO_OK;
 }
 

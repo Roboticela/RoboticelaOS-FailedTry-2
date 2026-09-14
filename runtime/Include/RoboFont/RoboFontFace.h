@@ -1,16 +1,18 @@
 /*
- * RoboFont face — underlying font resource identity (Goals 5.1–5.8).
+ * RoboFont face — underlying font resource identity (Goals 5.1–5.10).
  *
- * Optional TT / cmap / metrics / outlines via parse_* APIs.
- * Ownership: face retains source and optional backends.
+ * Optional TT / cmap / metrics / outlines / metadata / classification via
+ * parse_* APIs. Ownership: face retains source and optional backends.
  */
 
 #ifndef ROBO_FONT_FACE_H
 #define ROBO_FONT_FACE_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboFont/RoboFontClassification.h"
 #include "RoboFont/RoboFontCmap.h"
 #include "RoboFont/RoboFontMetrics.h"
+#include "RoboFont/RoboFontName.h"
 #include "RoboFont/RoboFontOutline.h"
 #include "RoboFont/RoboFontSource.h"
 #include "RoboFont/RoboFontStyle.h"
@@ -74,6 +76,14 @@ robo_result_t robo_font_face_parse_outlines(robo_font_face_t *face);
 robo_result_t robo_font_face_glyph_outline(robo_font_face_t *face,
                                            robo_glyph_id_t glyph_id,
                                            robo_font_outline_t **out);
+
+robo_result_t robo_font_face_parse_metadata(robo_font_face_t *face);
+const robo_font_name_info_t *robo_font_face_name_info(const robo_font_face_t *face);
+const robo_font_metadata_t *robo_font_face_metadata(const robo_font_face_t *face);
+
+robo_result_t robo_font_face_parse_classification(robo_font_face_t *face);
+const robo_font_classification_t *robo_font_face_classification(
+    const robo_font_face_t *face);
 
 #ifdef __cplusplus
 }

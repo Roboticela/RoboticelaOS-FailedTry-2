@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.8)
+# RoboFont Architecture (Goals 5.1–5.10)
 
 ## Layering
 
@@ -22,7 +22,11 @@ Metrics info    global + glyph advances/LSB/bbox; vertical foundation (5.7)
     ↓
 Glyph outlines  unified MOVE/LINE/QUAD/CUBIC/CLOSE paths (Goal 5.8)
     ↓
-Font Face       resource identity + collection index + TT/cmap/metrics/outlines
+Naming/metadata name decode, locale lookup, RoboFontMetadata (Goal 5.9)
+    ↓
+Classification  style/weight/stretch raw + normalized (Goal 5.10)
+    ↓
+Font Face       TT/cmap/metrics/outlines/name_info/classification
     ↓
 Font Instance   face + pixel size + style request (+ future variation axes)
     ↓
@@ -56,19 +60,25 @@ Do not fabricate a `glyf` view for CFF fonts. Metrics stay in shared SFNT tables
 | Layout metrics | Policy-selected ascent/descent/line_gap |
 | Windows clip | `usWin*` — not default line spacing |
 | Outline path | Geometry in font units (not pixels) |
+| Font-authored name | Decoded `name` string as stored in the font |
+| Normalized metadata | Snapshot fields with avail / source name ID |
+| Preferred family | Policy 16 → 21 → 1 (not weight inference) |
+| Normalized weight/stretch/style | Classification for later matching (not selection yet) |
+| Raw OS/2 class fields | Font-authored; preserved beside normalized values |
 | Grapheme cluster | Segmentation — later text layer |
 | Glyph position | Shaping — Phase 6 |
 
 ## Ownership & lifetime
 
-- Source / SFNT / TT / OT / CFF / cmap / metrics info / outline / face / instance
-  use explicit retain/release.
+- Source / SFNT / TT / OT / CFF / cmap / metrics info / outline / name_info /
+  classification / face / instance use explicit retain/release.
 - Face-local outline cache (FIFO ≤ 512); outlines immutable after build.
+- Name info + metadata + classification immutable after create; face-local only.
 - Metrics info retains TT; after create, global snapshot is immutable and
   reader-safe.
 
 ## Dependencies
 
-Allowed: RoboBase, RoboMem, RoboUnicode (name UTF-16BE decode).
+Allowed: RoboBase, RoboMem, RoboUnicode (UTF-16BE), RoboI18N locale (BCP-47).
 
 Forbidden: Chromium, Skia, OS font APIs, RoboHTML/CSS/Layout/Paint.

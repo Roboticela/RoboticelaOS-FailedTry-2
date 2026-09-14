@@ -70,6 +70,8 @@ void robo_test_register_font_cff(void);
 void robo_test_register_font_cmap(void);
 void robo_test_register_font_metrics(void);
 void robo_test_register_font_outline(void);
+void robo_test_register_font_name(void);
+void robo_test_register_font_classification(void);
 
 int main(int argc, char **argv)
 {
@@ -177,5 +179,7 @@ int main(int argc, char **argv)
     robo_test_register_font_cmap();
     robo_test_register_font_metrics();
     robo_test_register_font_outline();
+    robo_test_register_font_name();
+    robo_test_register_font_classification();
     return robo_test_main(argc, argv);
 }

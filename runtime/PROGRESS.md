@@ -1093,7 +1093,55 @@
 - [x] Composite security + resource limits; metrics cross-check
 - [x] Stop after 5.8 (no naming/metadata / Goal 5.9; no shaping / Phase 6)
 
+## Goal 5.9 — Font Naming & Metadata
+
+**Status:** complete
+
+**Done:**
+
+- Safe `name` table decode on existing SFNT/TT parse (no second SFNT parser)
+- Structured entries: platform/encoding/language/name ID + UTF-8 + locale tag
+- Standard name IDs 0–25; unknown IDs retained numerically
+- UTF-16BE via RoboUnicode; MacRoman map; unsupported encodings explicit
+- Windows/Mac/format-1 → BCP-47 locale association (RoboI18N)
+- Deterministic localized lookup (exact → language → platform pref → default)
+- `RoboFontMetadata` with PRESENT / FALLBACK / UNAVAILABLE / … avail flags
+- Legacy / typographic / WWS family & subfamily kept distinct; preferred helpers
+- PostScript structural check (no rewrite); version text + optional parse
+- Duplicate policy (lowest index among equal score); resource limits; fuzz entry
+- Face: `parse_metadata` / `face_name_info` / `face_metadata`; face-local cache
+- Docs: `docs/Naming.md`; version **0.9.0**
+- Tests: `font/tests/SuiteRoboFontName.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): **71/71**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Safe decode, locale lookup, normalized metadata, limits, no Chromium deps
+- [x] Stop after 5.9 (no style/weight/stretch / Goal 5.10; no shaping / Phase 6)
+
+## Goal 5.10 — Font Style / Weight / Stretch Model
+
+**Status:** complete
+
+**Done:**
+
+- Extended style primitives: weight categories, width classes, UNKNOWN style
+- `RoboFontClassification`: raw OS/2/head/post/STAT tags/name layers + normalized
+- Deterministic precedence for weight, stretch, style (documented)
+- fsSelection bit policy (influence vs preserve-only); WWS flag retained
+- Bold/italic bits never silently override stronger numeric OS/2 fields
+- STAT axis tags retained for variable prep; no fvar/avar/gvar (Goal 5.18)
+- Face `parse_classification`; `tt_style_desc` uses classification
+- Fuzz entry; docs `docs/Classification.md`; version **0.10.0**
+- Tests: `font/tests/SuiteRoboFontClassification.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): all pass; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Style/weight/stretch normalized without losing raw metadata
+- [x] Stop after 5.10 (no selection / Goal 5.11; no variable fonts / 5.18)
+
 ## Next
 
-- Goal 5.9 — Font naming & metadata (do not start until requested)
+- Goal 5.11 — Font selection (do not start until requested)
 

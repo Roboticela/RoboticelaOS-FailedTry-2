@@ -1,7 +1,9 @@
 #include "RoboFont/RoboFontFace.h"
 
 #include "RoboFont/RoboFontCff.h"
+#include "RoboFont/RoboFontClassification.h"
 #include "RoboFont/RoboFontCmap.h"
+#include "RoboFont/RoboFontName.h"
 #include "RoboFont/RoboFontOt.h"
 #include "RoboFont/RoboFontSfnt.h"
 #include "RoboFont/RoboFontTt.h"
@@ -22,6 +24,8 @@ struct robo_font_face {
     robo_font_metrics_info_t *metrics;
     robo_font_cff_font_t *cff;
     robo_font_outline_cache_t *outline_cache;
+    robo_font_name_info_t *name_info;
+    robo_font_classification_info_t *classification;
 };
 
 static uint64_t g_next_face_id = 1u;
@@ -105,6 +109,14 @@ void robo_font_face_release(robo_font_face_t *face)
     if (face->metrics) {
         robo_font_metrics_info_release(face->metrics);
         face->metrics = NULL;
+    }
+    if (face->classification) {
+        robo_font_classification_info_release(face->classification);
+        face->classification = NULL;
+    }
+    if (face->name_info) {
+        robo_font_name_info_release(face->name_info);
+        face->name_info = NULL;
     }
     if (face->outline_cache) {
         robo_font_outline_cache_release(face->outline_cache);
@@ -230,7 +242,58 @@ robo_result_t robo_font_face_parse_truetype(robo_font_face_t *face, uint32_t tt_
 
     face->tt = tt;
     (void)robo_font_tt_style_desc(tt, &face->style);
+    /* Classification is built lazily via parse_classification. */
     return ROBO_OK;
+}
+
+robo_result_t robo_font_face_parse_classification(robo_font_face_t *face)
+{
+    robo_font_ot_t *ot = NULL;
+    const robo_font_stat_t *stat = NULL;
+    const robo_font_metadata_t *meta = NULL;
+    robo_font_classification_info_t *info = NULL;
+    const robo_font_classification_t *cls;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->classification) {
+        return ROBO_OK;
+    }
+    res = robo_font_face_parse_truetype(face, ROBO_FONT_TT_FLAGS_NONE);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    if (robo_font_ot_parse(face->sfnt, ROBO_FONT_OT_FLAGS_PARSE_EXTRA, &ot) == ROBO_OK &&
+        ot) {
+        stat = robo_font_ot_stat(ot);
+    }
+    if (!face->name_info) {
+        (void)robo_font_face_parse_metadata(face);
+    }
+    meta = robo_font_face_metadata(face);
+    res = robo_font_classification_info_create(face->tt, stat, meta, &info);
+    if (ot) {
+        robo_font_ot_release(ot);
+    }
+    if (res != ROBO_OK) {
+        return res;
+    }
+    cls = robo_font_classification_info_get(info);
+    if (cls) {
+        face->style = cls->style_desc;
+    }
+    face->classification = info;
+    return ROBO_OK;
+}
+
+const robo_font_classification_t *robo_font_face_classification(
+    const robo_font_face_t *face)
+{
+    return face && face->classification
+               ? robo_font_classification_info_get(face->classification)
+               : NULL;
 }
 
 const robo_font_tt_t *robo_font_face_truetype(const robo_font_face_t *face)
@@ -398,4 +461,34 @@ robo_result_t robo_font_face_glyph_outline(robo_font_face_t *face,
     }
     return robo_font_outline_cache_get(face->outline_cache, face->sfnt, face->tt,
                                        face->cff, glyph_id, out);
+}
+
+robo_result_t robo_font_face_parse_metadata(robo_font_face_t *face)
+{
+    robo_result_t res;
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->name_info) {
+        return ROBO_OK;
+    }
+    res = face_ensure_sfnt(face);
+    if (res != ROBO_OK) {
+        return res;
+    }
+    /* Prefer TT name table when available (already validated). */
+    if (!face->tt) {
+        (void)robo_font_face_parse_truetype(face, ROBO_FONT_TT_FLAGS_NONE);
+    }
+    return robo_font_name_info_create(face->sfnt, face->tt, NULL, &face->name_info);
+}
+
+const robo_font_name_info_t *robo_font_face_name_info(const robo_font_face_t *face)
+{
+    return face ? face->name_info : NULL;
+}
+
+const robo_font_metadata_t *robo_font_face_metadata(const robo_font_face_t *face)
+{
+    return face && face->name_info ? robo_font_name_info_metadata(face->name_info) : NULL;
 }

@@ -1,15 +1,17 @@
-# RoboFont Public API (Goals 5.1–5.8)
+# RoboFont Public API (Goals 5.1–5.10)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
 | Header | Contents |
 |---|---|
 | `RoboFontTypes.h` | face/instance/glyph IDs, font units, sizes, bbox |
-| `RoboFontStyle.h` | weight, stretch, style, style_desc |
+| `RoboFontStyle.h` | weight, stretch, style, categories, style_desc |
+| `RoboFontClassification.h` | raw + normalized style/weight/stretch classification |
 | `RoboFontMetrics.h` | layout metrics, metrics info, scaling, vertical foundation |
 | `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
+| `RoboFontName.h` | name table decode, locale lookup, metadata snapshot |
 | `RoboFontSource.h` | memory copy/borrow sources |
-| `RoboFontFace.h` | face + TT / cmap / metrics / outlines parse |
+| `RoboFontFace.h` | face + TT / cmap / metrics / outlines / metadata / class |
 | `RoboFontInstance.h` | instance create, metrics sync/scale |
 | `RoboFontBinary.h` | big-endian bounds-checked reader / spans |
 | `RoboFontSfnt.h` | SFNT container parse, table lookup, checksums |
@@ -18,7 +20,28 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, fuzz entry |
-| `RoboFontVersion.h` | `0.8.0` |
+| `RoboFontVersion.h` | `0.10.0` |
+
+## Classification (5.10)
+
+| API | Role |
+|---|---|
+| `robo_font_classify` | Raw bag → normalized classification |
+| `robo_font_classification_info_create` / `_from_sfnt` | Build snapshot |
+| `robo_font_face_parse_classification` / `face_classification` | Face |
+| `robo_font_weight_category` / `stretch_from_width_class` | Helpers |
+| `robo_font_classification_fuzz_parse` | Malformed-input entry |
+
+## Naming & metadata (5.9)
+
+| API | Role |
+|---|---|
+| `robo_font_name_info_create` / `_from_span` | Decode + metadata |
+| `robo_font_name_info_lookup` | Localized name-ID query |
+| `robo_font_name_info_metadata` | Normalized snapshot |
+| `robo_font_metadata_preferred_family` / `_subfamily` | 16→21→1 / 17→22→2 |
+| `robo_font_face_parse_metadata` / `face_name_info` / `face_metadata` | Face |
+| `robo_font_name_fuzz_parse` | Malformed-input entry |
 
 ## Outlines (5.8)
 
@@ -42,5 +65,6 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `robo_font_instance_sync_metrics` / `scale_advance` | Sized instance |
 | `robo_font_metrics_fuzz_parse` | Malformed-input entry |
 
-Details: `docs/Outlines.md`, `docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`,
-`docs/OpenType.md`, `docs/TrueType.md`, `docs/Sfnt.md`.
+Details: `docs/Classification.md`, `docs/Naming.md`, `docs/Outlines.md`,
+`docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`, `docs/OpenType.md`,
+`docs/TrueType.md`, `docs/Sfnt.md`.
