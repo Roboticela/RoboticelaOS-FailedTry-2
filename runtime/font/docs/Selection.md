@@ -121,7 +121,8 @@ Malformed candidates are skipped; they do not crash selection.
 ## Not in this goal
 
 Discovery, fallback, generic families, CSS `@font-face`, variable axes
-(`fvar` / interpolation), rasterization, shaping.
+(`fvar` / coordinate model — Goal 5.18; glyph/metric interpolation later),
+rasterization, shaping.
 
 ## API
 

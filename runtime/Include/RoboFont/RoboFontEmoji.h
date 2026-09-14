@@ -108,7 +108,9 @@ typedef struct robo_font_emoji_info robo_font_emoji_info_t;
 typedef struct robo_font_emoji_analyze_options {
     /**
      * Treat the face as explicitly configured emoji (e.g. listed under
-     * generic family `emoji`). Sets CAP_CONFIGURED / KIND_CONFIGURED.
+     * generic family `emoji`). Always sets CAP_CONFIGURED. Structural
+     * COLOR/MONOCHROME kind is preserved when capabilities warrant it;
+     * otherwise kind becomes KIND_CONFIGURED.
      */
     int configured_as_emoji;
     /** Minimum usable emoji scalars for MONOCHROME without color tables. */

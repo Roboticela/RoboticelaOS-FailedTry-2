@@ -128,25 +128,34 @@ typedef enum robo_font_generic_family {
 /** Alias for invalid / unset (same as NONE). */
 #define ROBO_FONT_GENERIC_UNKNOWN ROBO_FONT_GENERIC_NONE
 
+/** Max tagged variation settings carried on a style/select request. */
+#define ROBO_FONT_STYLE_MAX_AXES 8u
+
+/**
+ * Explicit variable-font axis setting (user-space coordinate).
+ * tag == 0 → unused slot.
+ */
+typedef struct robo_font_axis_setting {
+    uint32_t tag;
+    float value;
+} robo_font_axis_setting_t;
+
 /**
  * Face/instance style request (selection parameters).
- * Variation axes reserved for later (Goal 5.18) — unused slots must be 0.
+ * Optional tagged axes (Goal 5.18) override registered-axis mapping from
+ * weight/stretch/style when a matching tag is present.
  */
 typedef struct robo_font_style_desc {
     robo_font_weight_t weight;   /* default NORMAL */
     robo_font_stretch_t stretch; /* default NORMAL */
     robo_font_style_t style;     /* default NORMAL */
-    /**
-     * Reserved for future variable-font axis coordinates.
-     * Non-zero → ROBO_NOT_SUPPORTED on instantiate until Goal 5.18.
-     */
-    float reserved_axes[8];
-    uint8_t reserved_axis_count; /* must be 0 until variable fonts */
+    robo_font_axis_setting_t axes[ROBO_FONT_STYLE_MAX_AXES];
+    uint8_t axis_count; /* ≤ ROBO_FONT_STYLE_MAX_AXES; 0 = none */
 } robo_font_style_desc_t;
 
 void robo_font_style_desc_init(robo_font_style_desc_t *out);
 
-/** Validate weight/stretch/style; axes must be empty until Goal 5.18. */
+/** Validate weight/stretch/style and axis settings (finite values, valid tags). */
 robo_result_t robo_font_style_desc_validate(const robo_font_style_desc_t *desc);
 
 #ifdef __cplusplus

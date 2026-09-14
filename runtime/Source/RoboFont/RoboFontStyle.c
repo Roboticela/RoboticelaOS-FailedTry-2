@@ -2,6 +2,17 @@
 
 #include <string.h>
 
+static int style_float_ok(float v)
+{
+    /* Freestanding-safe finite check (no math.h). */
+    union {
+        float f;
+        uint32_t u;
+    } bits;
+    bits.f = v;
+    return ((bits.u >> 23) & 0xFFu) != 0xFFu;
+}
+
 int robo_font_weight_is_valid(robo_font_weight_t w)
 {
     return w >= 1u && w <= 1000u;
@@ -112,11 +123,13 @@ void robo_font_style_desc_init(robo_font_style_desc_t *out)
     out->weight = ROBO_FONT_WEIGHT_NORMAL;
     out->stretch = ROBO_FONT_STRETCH_NORMAL;
     out->style = ROBO_FONT_STYLE_NORMAL;
-    out->reserved_axis_count = 0;
+    out->axis_count = 0;
 }
 
 robo_result_t robo_font_style_desc_validate(const robo_font_style_desc_t *desc)
 {
+    uint32_t i;
+
     if (!desc) {
         return ROBO_INVALID_ARGUMENT;
     }
@@ -130,8 +143,16 @@ robo_result_t robo_font_style_desc_validate(const robo_font_style_desc_t *desc)
         desc->style != ROBO_FONT_STYLE_OBLIQUE && desc->style != ROBO_FONT_STYLE_UNKNOWN) {
         return ROBO_INVALID_ARGUMENT;
     }
-    if (desc->reserved_axis_count != 0u) {
-        return ROBO_NOT_SUPPORTED;
+    if (desc->axis_count > ROBO_FONT_STYLE_MAX_AXES) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    for (i = 0u; i < desc->axis_count; i++) {
+        if (desc->axes[i].tag == 0u) {
+            return ROBO_INVALID_ARGUMENT;
+        }
+        if (!style_float_ok(desc->axes[i].value)) {
+            return ROBO_INVALID_ARGUMENT;
+        }
     }
     return ROBO_OK;
 }

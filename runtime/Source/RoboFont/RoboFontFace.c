@@ -9,6 +9,7 @@
 #include "RoboFont/RoboFontOt.h"
 #include "RoboFont/RoboFontSfnt.h"
 #include "RoboFont/RoboFontTt.h"
+#include "RoboFont/RoboFontVariation.h"
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
@@ -27,6 +28,9 @@ struct robo_font_face {
     int coverage_building; /* concurrent lazy-init: ROBO_BUSY while set */
     robo_font_emoji_info_t *emoji;
     int emoji_building;
+    robo_font_variation_model_t *variation;
+    int variation_building;
+    int variation_absent; /* 1 if parse found no fvar */
     robo_font_metrics_info_t *metrics;
     robo_font_cff_font_t *cff;
     robo_font_outline_cache_t *outline_cache;
@@ -139,6 +143,10 @@ void robo_font_face_release(robo_font_face_t *face)
     if (face->emoji) {
         robo_font_emoji_info_release(face->emoji);
         face->emoji = NULL;
+    }
+    if (face->variation) {
+        robo_font_variation_model_release(face->variation);
+        face->variation = NULL;
     }
     if (face->cmap) {
         robo_font_cmap_map_release(face->cmap);
@@ -430,6 +438,44 @@ const robo_font_emoji_info_t *robo_font_face_emoji(const robo_font_face_t *face)
     return face ? face->emoji : NULL;
 }
 
+robo_result_t robo_font_face_parse_variation(robo_font_face_t *face)
+{
+    robo_font_variation_model_t *model = NULL;
+    robo_result_t res;
+
+    if (!face) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (face->variation) {
+        return ROBO_OK;
+    }
+    if (face->variation_absent) {
+        return ROBO_NOT_FOUND;
+    }
+    if (face->variation_building) {
+        return ROBO_BUSY;
+    }
+    face->variation_building = 1;
+    res = robo_font_variation_model_create_from_face(face, &model);
+    if (res == ROBO_NOT_FOUND) {
+        face->variation_absent = 1;
+        face->variation_building = 0;
+        return ROBO_NOT_FOUND;
+    }
+    if (res != ROBO_OK) {
+        face->variation_building = 0;
+        return res;
+    }
+    face->variation = model;
+    face->variation_building = 0;
+    return ROBO_OK;
+}
+
+const robo_font_variation_model_t *robo_font_face_variation(const robo_font_face_t *face)
+{
+    return face ? face->variation : NULL;
+}
+
 robo_result_t robo_font_face_lookup_glyph(const robo_font_face_t *face,
                                           uint32_t code_point,
                                           robo_font_cmap_lookup_result_t *out)
@@ -553,6 +599,18 @@ robo_result_t robo_font_face_glyph_outline(robo_font_face_t *face,
     }
     return robo_font_outline_cache_get(face->outline_cache, face->sfnt, face->tt,
                                        face->cff, glyph_id, out);
+}
+
+robo_result_t robo_font_face_glyph_outline_at(robo_font_face_t *face,
+                                              const robo_font_outline_request_t *req,
+                                              robo_font_outline_t **out)
+{
+    if (!face || !req || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    /* Goal 5.18: accept coords but return static default outline. */
+    (void)req->coords;
+    return robo_font_face_glyph_outline(face, req->glyph_id, out);
 }
 
 robo_result_t robo_font_face_parse_metadata(robo_font_face_t *face)

@@ -15,7 +15,7 @@ static const uint8_t k_sfnt_magic[12] = {
 
 static void test_font_version(void)
 {
-    ROBO_CHECK_STR_EQ(robo_font_version_string(), "0.17.0");
+    ROBO_CHECK_STR_EQ(robo_font_version_string(), "0.18.0");
     ROBO_CHECK_EQ_INT(robo_font_init(), ROBO_OK);
     robo_font_shutdown();
 }
@@ -30,9 +30,13 @@ static void test_font_style_validate(void)
     ROBO_CHECK(!robo_font_weight_is_valid(1001));
     ROBO_CHECK(robo_font_stretch_is_valid(ROBO_FONT_STRETCH_NORMAL));
     ROBO_CHECK(!robo_font_stretch_is_valid(10));
-    d.reserved_axis_count = 1;
-    d.reserved_axes[0] = 400.0f;
-    ROBO_CHECK_EQ_INT(robo_font_style_desc_validate(&d), ROBO_NOT_SUPPORTED);
+    d.axis_count = 1;
+    d.axes[0].tag = 0;
+    d.axes[0].value = 400.0f;
+    ROBO_CHECK_EQ_INT(robo_font_style_desc_validate(&d), ROBO_INVALID_ARGUMENT);
+    d.axes[0].tag = ROBO_FONT_TAG_WGHT;
+    d.axes[0].value = 600.0f;
+    ROBO_CHECK_EQ_INT(robo_font_style_desc_validate(&d), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_font_style_desc_validate(NULL), ROBO_INVALID_ARGUMENT);
 }
 
@@ -161,14 +165,20 @@ static void test_font_face_instance(void)
     ROBO_CHECK(robo_font_instance_id(inst2) != iid);
     ROBO_CHECK(robo_font_instance_pixel_size(inst2) == 24.0f);
 
-    /* Variation axes rejected. */
+    /* Axis settings on a non-variable face: validate OK; coords skipped (NOT_FOUND). */
     robo_font_style_desc_init(&style);
-    style.reserved_axis_count = 1;
+    style.axis_count = 1;
+    style.axes[0].tag = ROBO_FONT_TAG_WGHT;
+    style.axes[0].value = 600.0f;
     {
-        robo_font_instance_t *bad = (robo_font_instance_t *)1;
-        ROBO_CHECK_EQ_INT(robo_font_instance_create(face, 12.0f, &style, &bad),
-                          ROBO_NOT_SUPPORTED);
-        ROBO_CHECK(bad == NULL);
+        robo_font_instance_t *with_axis = NULL;
+        ROBO_CHECK_EQ_INT(robo_font_instance_create(face, 12.0f, &style, &with_axis),
+                          ROBO_OK);
+        ROBO_CHECK(with_axis != NULL);
+        ROBO_CHECK(robo_font_instance_variation_coords(with_axis) == NULL);
+        ROBO_CHECK_EQ_INT((int)robo_font_instance_metrics_variation_state(with_axis),
+                          (int)ROBO_FONT_METRICS_VAR_STATIC);
+        robo_font_instance_release(with_axis);
     }
 
     robo_font_instance_release(inst2);

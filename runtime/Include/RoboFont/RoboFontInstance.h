@@ -1,8 +1,8 @@
 /*
- * RoboFont instance — sized / configured use of a face (Goals 5.1 + 5.7).
+ * RoboFont instance — sized / configured use of a face (Goals 5.1 + 5.7 + 5.18).
  *
  * Face = resource identity. Instance = face + pixel size + style request
- * (+ reserved variation slots for later variable fonts / instance metrics).
+ * (+ optional variation coordinates for variable fonts).
  *
  * Does not rasterize glyphs. Call robo_font_instance_sync_metrics after
  * face parse_metrics, or attach metrics manually for tests.
@@ -16,6 +16,7 @@
 #include "RoboFont/RoboFontMetrics.h"
 #include "RoboFont/RoboFontStyle.h"
 #include "RoboFont/RoboFontTypes.h"
+#include "RoboFont/RoboFontVariation.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,14 +26,27 @@ typedef struct robo_font_instance robo_font_instance_t;
 
 /**
  * Create an instance of @p face at @p pixel_size (> 0).
- * @p style NULL → defaults. Non-zero reserved_axis_count → ROBO_NOT_SUPPORTED.
+ * @p style NULL → defaults.
+ * When the face is variable, weight/stretch/style (+ style.axes) produce a
+ * shared variation-coordinate snapshot (no duplicate font load).
  * Retains @p face. If the face already has metrics info, layout metrics are
- * copied onto the instance automatically.
+ * copied onto the instance automatically (static; variation deltas pending).
  */
 robo_result_t robo_font_instance_create(robo_font_face_t *face,
                                         robo_font_pixel_size_t pixel_size,
                                         const robo_font_style_desc_t *style,
                                         robo_font_instance_t **out);
+
+/**
+ * Create with an explicit variation request (named instance / opsz / axes).
+ * @p var_req NULL → behave like create() using style only.
+ */
+robo_result_t robo_font_instance_create_variation(
+    robo_font_face_t *face,
+    robo_font_pixel_size_t pixel_size,
+    const robo_font_style_desc_t *style,
+    const robo_font_variation_request_t *var_req,
+    robo_font_instance_t **out);
 
 void robo_font_instance_retain(robo_font_instance_t *inst);
 void robo_font_instance_release(robo_font_instance_t *inst);
@@ -46,6 +60,13 @@ const robo_font_face_t *robo_font_instance_face(const robo_font_instance_t *inst
 robo_result_t robo_font_instance_style(const robo_font_instance_t *inst,
                                        robo_font_style_desc_t *out);
 
+/** Borrowed variation coordinates (NULL if static face or default unused). */
+const robo_font_variation_coords_t *robo_font_instance_variation_coords(
+    const robo_font_instance_t *inst);
+
+robo_font_metrics_variation_state_t robo_font_instance_metrics_variation_state(
+    const robo_font_instance_t *inst);
+
 /**
  * Attach metrics (e.g. for tests). Copies @p metrics.
  */
@@ -54,6 +75,7 @@ robo_result_t robo_font_instance_set_metrics(robo_font_instance_t *inst,
 
 /**
  * Copy canonical layout metrics from the face's metrics info (if parsed).
+ * Does not apply HVAR/MVAR; state becomes PENDING when coords are present.
  */
 robo_result_t robo_font_instance_sync_metrics(robo_font_instance_t *inst);
 

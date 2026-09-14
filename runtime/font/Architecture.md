@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.17)
+# RoboFont Architecture (Goals 5.1–5.18)
 
 ## Layering
 
@@ -32,6 +32,8 @@ Generic family  semantic → configured concrete families (Goal 5.16)
     ↓
 Emoji fonts     classification, color/mono capabilities, select (Goal 5.17)
     ↓
+Variation       fvar/avar model, normalize, named instances (Goal 5.18)
+    ↓
 Metrics info    global + glyph advances/LSB/bbox; vertical foundation (5.7)
     ↓
 Glyph outlines  unified MOVE/LINE/QUAD/CUBIC/CLOSE paths (Goal 5.8)
@@ -40,11 +42,11 @@ Naming/metadata name decode, locale lookup, RoboFontMetadata (Goal 5.9)
     ↓
 Classification  style/weight/stretch raw + normalized (Goal 5.10)
     ↓
-Selection       request ↔ loaded faces (Goal 5.11)
+Selection       request ↔ loaded faces (+ variable axes) (Goal 5.11)
     ↓
-Font Face       TT/cmap/coverage/metrics/outlines/name_info/classification
+Font Face       TT/cmap/coverage/emoji/variation/metrics/outlines/…
     ↓
-Font Instance   face + pixel size + style request (+ future variation axes)
+Font Instance   face + pixel size + style + optional variation coords
 ```
 
 ## Distinctions

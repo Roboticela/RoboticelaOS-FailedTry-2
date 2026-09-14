@@ -326,10 +326,21 @@ static size_t build_cmap_fmt4_ascii(uint8_t *buf, uint16_t cp, uint16_t gid)
     return (size_t)(p - buf);
 }
 
-static size_t build_cmap_fmt12_range(uint8_t *buf, uint32_t first, uint32_t last,
-                                     uint32_t start_gid)
+static size_t build_cmap_fmt12_flat(uint8_t *buf, size_t cap, uint32_t first,
+                                    uint32_t last, uint32_t gid)
 {
     uint8_t *p = buf;
+    uint32_t n;
+    uint32_t i;
+    uint32_t body;
+    if (last < first) {
+        return 0u;
+    }
+    n = last - first + 1u;
+    body = 16u + n * 12u;
+    if (cap < 12u + body) {
+        return 0u;
+    }
     put_u16(&p, 0);
     put_u16(&p, 1);
     put_u16(&p, 3);
@@ -337,13 +348,22 @@ static size_t build_cmap_fmt12_range(uint8_t *buf, uint32_t first, uint32_t last
     put_u32(&p, 12u);
     put_u16(&p, 12);
     put_u16(&p, 0);
-    put_u32(&p, 16u + 12u);
+    put_u32(&p, body);
     put_u32(&p, 0);
-    put_u32(&p, 1);
-    put_u32(&p, first);
-    put_u32(&p, last);
-    put_u32(&p, start_gid);
+    put_u32(&p, n);
+    for (i = 0u; i < n; i++) {
+        uint32_t cp = first + i;
+        put_u32(&p, cp);
+        put_u32(&p, cp);
+        put_u32(&p, gid);
+    }
     return (size_t)(p - buf);
+}
+
+static size_t build_cmap_fmt12_range(uint8_t *buf, size_t cap, uint32_t first,
+                                     uint32_t last, uint32_t gid)
+{
+    return build_cmap_fmt12_flat(buf, cap, first, last, gid);
 }
 
 static size_t build_minimal_colr(uint8_t *buf)
@@ -387,12 +407,12 @@ typedef struct {
 static size_t build_emoji_font(uint8_t *out, size_t cap, const emoji_font_spec_t *spec)
 {
     uint8_t head[64], hhea[64], maxp[64], hmtx[16], loca[16], post[64], os2[128];
-    uint8_t name[512], cmap[128], colr[32], cpal[32], sbix[8];
+    uint8_t name[512], cmap[1024], colr[32], cpal[32], sbix[8];
     synth_table_t tabs[16];
     uint32_t nt = 0u;
     size_t nn;
     size_t nc;
-    uint16_t glyphs = 32u;
+    uint16_t glyphs = 2u;
 
     if (!spec) {
         return 0u;
@@ -404,8 +424,12 @@ static size_t build_emoji_font(uint8_t *out, size_t cap, const emoji_font_spec_t
     if (spec->ascii_only) {
         nc = build_cmap_fmt4_ascii(cmap, spec->ascii_cp, 1u);
     } else {
-        nc = build_cmap_fmt12_range(cmap, spec->cmap_first, spec->cmap_last, 1u);
-        glyphs = (uint16_t)(2u + (spec->cmap_last - spec->cmap_first));
+        /* Flat groups → GID 1 so maxp/loca stay consistent. */
+        nc = build_cmap_fmt12_range(cmap, sizeof(cmap), spec->cmap_first,
+                                    spec->cmap_last, 1u);
+    }
+    if (nc == 0u) {
+        return 0u;
     }
 
     tabs[nt++] = (synth_table_t){ROBO_FONT_TAG_HEAD, head, (uint32_t)build_head(head)};
@@ -625,10 +649,9 @@ static void test_select_and_fallback(void)
     robo_font_emoji_select_request_t req;
     robo_font_emoji_selection_t sel;
     robo_font_fallback_result_t fres;
-    const char *emoji_fams[] = {"ColorEmoji", "MonoEmoji"};
+    const char *const emoji_fams[2] = {"ColorEmoji", "MonoEmoji"};
     uint32_t cp = 0x1F600u;
     emoji_font_spec_t spec;
-    const robo_font_registration_t *primary_rec = NULL;
     robo_font_face_t *primary = NULL;
 
     memset(&spec, 0, sizeof(spec));
@@ -661,6 +684,7 @@ static void test_select_and_fallback(void)
     ROBO_CHECK_EQ_INT(robo_font_registry_add_memory_source(reg, "b", b, nb, &s2), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_font_registry_add_memory_source(reg, "c", c, nc, &s3), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_font_registry_scan_all(reg, 0u, &dr), ROBO_OK);
+    ROBO_CHECK((int)robo_font_registry_registration_count(reg) >= 3);
 
     ROBO_CHECK_EQ_INT(robo_font_generic_config_create(&cfg), ROBO_OK);
     ROBO_CHECK_EQ_INT(
@@ -681,6 +705,8 @@ static void test_select_and_fallback(void)
     ROBO_CHECK_EQ_INT(sel.found, 1);
     ROBO_CHECK_STR_EQ(sel.family, "ColorEmoji");
     ROBO_CHECK_EQ_INT((int)sel.kind, (int)ROBO_FONT_EMOJI_KIND_COLOR);
+    ROBO_CHECK((sel.capabilities & ROBO_FONT_EMOJI_CAP_CONFIGURED) != 0u);
+    ROBO_CHECK((sel.capabilities & ROBO_FONT_EMOJI_CAP_COLOR) != 0u);
     robo_font_emoji_selection_clear(&sel);
 
     req.color_preference = ROBO_FONT_EMOJI_COLOR_REQUIRE_MONO;
@@ -717,7 +743,6 @@ static void test_select_and_fallback(void)
             const robo_font_registration_t *rec = NULL;
             ROBO_CHECK_EQ_INT(robo_font_registry_registration_at(reg, i, &rec), ROBO_OK);
             if (rec && strcmp(rec->family, "PlainSans") == 0) {
-                primary_rec = rec;
                 primary = rec->face;
                 break;
             }

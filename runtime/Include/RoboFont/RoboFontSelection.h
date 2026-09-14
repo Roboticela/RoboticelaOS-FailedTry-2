@@ -63,8 +63,8 @@ typedef enum robo_font_select_flags {
 
 /**
  * Selection request. Not a CSS type — reusable by RoboText / future CSS.
- * Strings are borrowed UTF-8 (not owned). reserved_axis_count must be 0
- * until Goal 5.18.
+ * Strings are borrowed UTF-8 (not owned). Optional axes (Goal 5.18) allow
+ * explicit variation settings and named-instance / optical-size hints.
  */
 typedef struct robo_font_select_request {
     const char *family;
@@ -83,9 +83,18 @@ typedef struct robo_font_select_request {
 
     uint32_t flags; /* robo_font_select_flags_t */
 
-    /* Reserved for Goal 5.18 variable axes — must be zeroed. */
-    float reserved_axes[8];
-    uint8_t reserved_axis_count;
+    /** Explicit variation axis settings (tagged user coords). */
+    robo_font_axis_setting_t axes[ROBO_FONT_STYLE_MAX_AXES];
+    uint8_t axis_count;
+
+    /** Named instance index when has_named_instance≠0. */
+    uint8_t has_named_instance;
+    uint32_t named_instance_index;
+
+    /** Optical size (opsz) preference. */
+    uint8_t has_optical_size;
+    float optical_size;
+    uint8_t optical_size_auto;
 } robo_font_select_request_t;
 
 /**

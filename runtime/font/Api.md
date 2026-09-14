@@ -1,11 +1,11 @@
-# RoboFont Public API (Goals 5.1–5.17)
+# RoboFont Public API (Goals 5.1–5.18)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
 | Header | Contents |
 |---|---|
 | `RoboFontTypes.h` | face/instance/glyph IDs, font units, sizes, bbox |
-| `RoboFontStyle.h` | weight, stretch, style, generic-family IDs, style_desc |
+| `RoboFontStyle.h` | weight, stretch, style, generic-family IDs, axis settings |
 | `RoboFontClassification.h` | raw + normalized style/weight/stretch classification |
 | `RoboFontSelection.h` | select request, match score, face selection |
 | `RoboFontDiscovery.h` | discovery sources, IO, scan, virtual FS, fuzz |
@@ -15,12 +15,13 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontFallback.h` | coverage-first fallback resolver, policy, score, cache |
 | `RoboFontGenericFamily.h` | generic-family config, resolver, select/fallback glue |
 | `RoboFontEmoji.h` | emoji kind/capabilities, sequence foundation, select |
+| `RoboFontVariation.h` | fvar/avar model, coords, named instances, opsz |
 | `RoboFontMetrics.h` | layout metrics, metrics info, scaling |
 | `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
 | `RoboFontName.h` | name table decode, locale lookup, metadata snapshot |
 | `RoboFontSource.h` | memory copy/borrow sources |
-| `RoboFontFace.h` | face + TT / cmap / coverage / emoji / metrics / … |
-| `RoboFontInstance.h` | instance create, metrics sync/scale |
+| `RoboFontFace.h` | face + TT / cmap / coverage / emoji / variation / … |
+| `RoboFontInstance.h` | instance create, variation coords, metrics sync/scale |
 | `RoboFontBinary.h` | big-endian bounds-checked reader / spans |
 | `RoboFontSfnt.h` | SFNT container parse, table lookup, checksums |
 | `RoboFontTt.h` | TrueType table parse, hmtx/loca/glyf, name/OS/2/post |
@@ -28,7 +29,18 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, foreach, fuzz entry |
-| `RoboFontVersion.h` | `0.17.0` |
+| `RoboFontVersion.h` | `0.18.0` |
+
+## Variable fonts (5.18)
+
+| API | Role |
+|---|---|
+| `robo_font_variation_model_*` | fvar/avar parse, axes, named instances |
+| `robo_font_variation_coords_*` | user → normalize → avar-adjusted |
+| `robo_font_variation_request_*` | style/opsz/named-instance request |
+| `robo_font_face_parse_variation` | Lazy face-attached model |
+| `robo_font_instance_create_variation` | Instance with explicit coords |
+| `robo_font_face_glyph_outline_at` | Outline request accepting coords (static) |
 
 ## Emoji fonts (5.17)
 

@@ -165,19 +165,16 @@ robo_result_t robo_font_emoji_info_create(
 
     if (opt->configured_as_emoji) {
         caps |= ROBO_FONT_EMOJI_CAP_CONFIGURED;
-        kind = ROBO_FONT_EMOJI_KIND_CONFIGURED;
-        if ((caps & ROBO_FONT_EMOJI_CAP_COLOR) == 0u &&
-            (caps & ROBO_FONT_EMOJI_CAP_COVERAGE) != 0u) {
-            caps |= ROBO_FONT_EMOJI_CAP_MONOCHROME;
-        }
-    } else if ((caps & ROBO_FONT_EMOJI_CAP_COLOR) != 0u &&
-               ((caps & ROBO_FONT_EMOJI_CAP_COVERAGE) != 0u || name_hint)) {
-        /* Color tables + (emoji coverage or name hint). Name alone with color
-         * tables is accepted only with coverage OR configured. Prefer coverage. */
-        if ((caps & ROBO_FONT_EMOJI_CAP_COVERAGE) != 0u) {
+    }
+
+    if ((caps & ROBO_FONT_EMOJI_CAP_COLOR) != 0u &&
+        ((caps & ROBO_FONT_EMOJI_CAP_COVERAGE) != 0u || name_hint ||
+         opt->configured_as_emoji)) {
+        /* Color tables + (emoji coverage, weak name hint, or explicit config). */
+        if ((caps & ROBO_FONT_EMOJI_CAP_COVERAGE) != 0u || opt->configured_as_emoji) {
             kind = ROBO_FONT_EMOJI_KIND_COLOR;
         } else {
-            /* Color tables but no emoji scalars — not classified as emoji font. */
+            /* Color tables + name hint only — not classified as an emoji font. */
             kind = ROBO_FONT_EMOJI_KIND_NONE;
             caps &= (uint32_t)~(ROBO_FONT_EMOJI_CAP_NAME_HINT);
         }
@@ -193,6 +190,22 @@ robo_result_t robo_font_emoji_info_create(
         /* Strip name hint from "supports" story when no coverage. */
         if ((caps & ROBO_FONT_EMOJI_CAP_COVERAGE) == 0u) {
             caps &= (uint32_t)~(ROBO_FONT_EMOJI_CAP_NAME_HINT);
+        }
+    }
+
+    /*
+     * Explicit configuration marks CAP_CONFIGURED. Preserve structural
+     * COLOR/MONOCHROME kind when tables/coverage already establish them;
+     * otherwise promote to KIND_CONFIGURED (e.g. ASCII-only mapped face).
+     */
+    if (opt->configured_as_emoji) {
+        if (kind == ROBO_FONT_EMOJI_KIND_NONE ||
+            kind == ROBO_FONT_EMOJI_KIND_INCIDENTAL) {
+            kind = ROBO_FONT_EMOJI_KIND_CONFIGURED;
+            if ((caps & ROBO_FONT_EMOJI_CAP_COLOR) == 0u &&
+                (caps & ROBO_FONT_EMOJI_CAP_COVERAGE) != 0u) {
+                caps |= ROBO_FONT_EMOJI_CAP_MONOCHROME;
+            }
         }
     }
 

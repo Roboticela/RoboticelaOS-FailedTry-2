@@ -1,9 +1,20 @@
 #include "RoboFont/RoboFontSelection.h"
 
+#include "RoboFont/RoboFontVariation.h"
 #include "RoboUnicode/RoboUnicodeCase.h"
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
+
+static int select_float_ok(float v)
+{
+    union {
+        float f;
+        uint32_t u;
+    } bits;
+    bits.f = v;
+    return ((bits.u >> 23) & 0xFFu) != 0xFFu;
+}
 
 void robo_font_select_request_init(robo_font_select_request_t *req)
 {
@@ -47,8 +58,19 @@ robo_result_t robo_font_select_request_validate(const robo_font_select_request_t
         req->style != ROBO_FONT_STYLE_OBLIQUE && req->style != ROBO_FONT_STYLE_UNKNOWN) {
         return ROBO_INVALID_ARGUMENT;
     }
-    if (req->reserved_axis_count != 0u) {
-        return ROBO_NOT_SUPPORTED;
+    if (req->axis_count > ROBO_FONT_STYLE_MAX_AXES) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    {
+        uint32_t i;
+        for (i = 0u; i < req->axis_count; i++) {
+            if (req->axes[i].tag == 0u || !select_float_ok(req->axes[i].value)) {
+                return ROBO_INVALID_ARGUMENT;
+            }
+        }
+    }
+    if (req->has_optical_size && !select_float_ok(req->optical_size)) {
+        return ROBO_INVALID_ARGUMENT;
     }
     return ROBO_OK;
 }
@@ -433,6 +455,36 @@ robo_result_t robo_font_select_score_face(const robo_font_select_request_t *req,
     if (req->weight == cls->weight) {
         out_score->exact_bits |= 4u;
     }
+
+    /* Variable-font axes can satisfy weight/stretch/style without another face. */
+    {
+        const robo_font_variation_model_t *vm = NULL;
+        if (robo_font_face_parse_variation(face) == ROBO_OK) {
+            vm = robo_font_face_variation(face);
+        }
+        if (vm) {
+            if (robo_font_variation_can_satisfy_weight(vm, req->weight)) {
+                out_score->weight_dist = 0u;
+                out_score->exact_bits |= 4u;
+            }
+            if (robo_font_variation_can_satisfy_stretch(vm, req->stretch)) {
+                out_score->stretch_dist = 0u;
+                out_score->exact_bits |= 1u;
+            }
+            if (req->style != ROBO_FONT_STYLE_NORMAL &&
+                robo_font_variation_can_satisfy_style(vm, req->style)) {
+                out_score->style_dist = 0u;
+                out_score->exact_bits |= 2u;
+            }
+            if (req->has_named_instance &&
+                req->named_instance_index <
+                    robo_font_variation_model_instance_count(vm)) {
+                /* Prefer faces that expose the requested named instance. */
+                out_score->exact_bits |= 8u;
+            }
+        }
+    }
+
     out_score->wws_flag = cls->wws_flag;
     return ROBO_OK;
 }
@@ -473,6 +525,11 @@ robo_result_t robo_font_select(const robo_font_select_request_t *req,
     out->requested.stretch = req->stretch;
     out->requested.style =
         (req->style == ROBO_FONT_STYLE_UNKNOWN) ? ROBO_FONT_STYLE_NORMAL : req->style;
+    out->requested.axis_count = req->axis_count;
+    if (req->axis_count > 0u) {
+        memcpy(out->requested.axes, req->axes,
+               sizeof(robo_font_axis_setting_t) * req->axis_count);
+    }
 
     memset(&best, 0, sizeof(best));
 
@@ -514,6 +571,21 @@ robo_result_t robo_font_select(const robo_font_select_request_t *req,
         out->family_kind = best.family_kind;
         if (cls) {
             out->selected = cls->style_desc;
+            /* When axes satisfy the request, surface the requested numerics. */
+            if (robo_font_face_variation(best_face)) {
+                const robo_font_variation_model_t *vm =
+                    robo_font_face_variation(best_face);
+                if (robo_font_variation_can_satisfy_weight(vm, req->weight)) {
+                    out->selected.weight = req->weight;
+                }
+                if (robo_font_variation_can_satisfy_stretch(vm, req->stretch)) {
+                    out->selected.stretch = req->stretch;
+                }
+                if (req->style != ROBO_FONT_STYLE_NORMAL &&
+                    robo_font_variation_can_satisfy_style(vm, req->style)) {
+                    out->selected.style = req->style;
+                }
+            }
         }
     }
     return ROBO_OK;

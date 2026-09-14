@@ -1308,7 +1308,30 @@
 - [x] Generic `emoji` + fallback integration; conservative sequence support
 - [x] No Chromium dependency; stop after 5.17 (no variable fonts / 5.18)
 
+## Goal 5.18 — Variable Fonts
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontVariation` — fvar/avar parse, axes, named instances, normalize
+- User → normalized → avar-adjusted coordinates; STAT tags informational
+- Instance sharing with variation coords; metrics state PENDING/STATIC
+- Selection prefers variable axes for weight/stretch/style when covered
+- Optical-size / named-instance request foundation; outline_at accepts coords
+- Face-lazy immutable model; fuzz entry; docs `docs/Variation.md`
+- Version **0.18.0**
+- Tests: `font/tests/SuiteRoboFontVariation.c`
+
+**Definition of done:**
+
+- [x] Variable fonts parsed safely with resource limits
+- [x] Axes, named instances, avar, STAT integration represented
+- [x] Selection + instance model use variation without duplicate loads
+- [x] No gvar/HVAR/CFF2 blend execution; no Chromium dependency
+- [x] Stop after 5.18 (no color fonts / Goal 5.19)
+
 ## Next
 
-- Goal 5.18 — Variable fonts (do not start until requested)
+- Goal 5.19 — Color fonts (do not start until requested)
 

@@ -38,7 +38,7 @@ Public geometry does **not** expose format-specific instructions.
 - Relative moves/lines; all curve encodings → `CUBIC`.
 - Width remains separate from path coordinates.
 - Subroutine depth / instruction limits inherited from CharString parse.
-- CFF2: static outlines; variation interpolation is Goal 5.18.
+- CFF2: static outlines; variation *coordinates* are Goal 5.18; blend/interp later.
 
 ## Bounds
 

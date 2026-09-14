@@ -24,10 +24,17 @@ Fallback (5.15) when primary lacks emoji coverage
 | `incidental` | A few emoji scalars in an otherwise normal font |
 | `monochrome` | Meaningful emoji coverage, no color glyph tables |
 | `color` | Color tables (COLR/CPAL, sbix, CBDT/CBLC, SVG) **and** emoji coverage |
-| `configured` | Explicitly marked via analysis options / generic `emoji` mapping |
+| `configured` | Explicitly marked, **without** structural mono/color classification |
 
 **Name hints** (family/full name containing `"emoji"`) are a weak signal only.
 A name alone never classifies a font as monochrome, color, or configured.
+
+When a face is listed under generic `emoji` (or `configured_as_emoji`):
+
+* `CAP_CONFIGURED` is always set
+* structural `color` / `monochrome` kind is **preserved** when tables/coverage warrant it
+* `configured` kind is used only when the face has no structural emoji classification
+  (e.g. an ASCII-only family explicitly mapped to `emoji`)
 
 Distinction:
 
