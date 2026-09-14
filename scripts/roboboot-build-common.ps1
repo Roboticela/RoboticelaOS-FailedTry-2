@@ -639,7 +639,20 @@ function Invoke-RoboBuildUserland {
         @{ Name = "thread-test"; Srcs = @("thread-test\main.c"); Libc = $true },
         @{ Name = "file-test"; Srcs = @("file-test\main.c"); Libc = $true },
         @{ Name = "network-test"; Srcs = @("network-test\main.c"); Libc = $true },
-        @{ Name = "robo-runtime"; Srcs = @("robo-runtime\main.c"); Libc = $true },
+        @{ Name = "robo-runtime"; Srcs = @("robo-runtime\main.c"); Libc = $true; RuntimeSrcs = @(
+            "Source\RoboMem\RoboMem.c",
+            "Source\RoboGraphics\RoboGraphics.c",
+            "Source\RoboGraphics\RoboGraphicsBackend.c",
+            "Source\RoboGraphics\RoboGraphicsBitmap.c",
+            "Source\RoboGraphics\RoboGraphicsCapabilities.c",
+            "Source\RoboGraphics\RoboGraphicsColor.c",
+            "Source\RoboGraphics\RoboGraphicsFrame.c",
+            "Source\RoboGraphics\RoboGraphicsFramebuffer.c",
+            "Source\RoboGraphics\RoboGraphicsGeometry.c",
+            "Source\RoboGraphics\RoboGraphicsImage.c",
+            "Source\RoboGraphics\RoboGraphicsPixelFormat.c",
+            "Source\RoboGraphics\RoboGraphicsSurface.c"
+        ) },
         # Legacy Chromium-engine demos — optional; skipped when sources absent.
         @{ Name = "robospark"; Root = $runtime; Optional = $true; Srcs = @(
             "robocore\src\robocore.c",
@@ -689,6 +702,18 @@ function Invoke-RoboBuildUserland {
             foreach ($rel in $p.ExtraUserSrcs) {
                 $src = Join-Path $user $rel
                 $obj = Join-Path $ubuild ($p.Name + "_" + $i + ".o")
+                if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+                $objs += $obj
+                $i++
+            }
+        }
+        if ($p.ContainsKey("RuntimeSrcs") -and $p.RuntimeSrcs) {
+            foreach ($rel in $p.RuntimeSrcs) {
+                $src = Join-Path $runtime $rel
+                if (-not (Test-Path -LiteralPath $src)) {
+                    throw ("missing runtime source for guest " + $p.Name + ": " + $src)
+                }
+                $obj = Join-Path $ubuild ($p.Name + "_rt_" + $i + ".o")
                 if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
                 $objs += $obj
                 $i++

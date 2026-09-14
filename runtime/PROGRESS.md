@@ -1534,7 +1534,31 @@
 - [x] Tests + docs; no Chromium dependency
 - [x] Ready for Goal 6.6; stop after 6.5
 
+## Goal 6.6 — Pixels and Rectangles
+
+**Status:** complete
+
+**Done:**
+
+- Canonical top-left / +X-right / +Y-down pixel coordinates (`pixel_x` / `pixel_y`)
+- Point/size/rect ops: equality, add/sub/translate, area, LTRB construction
+- Half-open rects; containment; intersect; bounding; translate; clip; inset/outset
+- Overflow-safe arithmetic (`_checked` + int64 intermediates; no signed wrap)
+- Negative logical geometry supported; storage indices validated separately
+- `pixel_bounds`, point get/set; bitmap containment via `rect_encloses`
+- Docs: `graphics/docs/Geometry.md` (+ coordinates / Bitmap / README)
+- Suite: `graphics/tests/SuiteRoboGraphicsGeometry.c` (`graphics.geom.*`)
+- Version **0.6.0**
+
+**Definition of done:**
+
+- [x] Point / size / rect complete for graphics use
+- [x] Half-open semantics, empty, negative coords, overflow safety documented
+- [x] Intersection, bounding, translate, clip; bitmap integration
+- [x] Tests + docs; no Chromium dependency
+- [x] Ready for Goal 6.7; stop after 6.6
+
 ## Next
 
-- Goal 6.6 — Pixels and Rectangles (do not start until requested)
+- Goal 6.7 — Lines (do not start until requested)
 

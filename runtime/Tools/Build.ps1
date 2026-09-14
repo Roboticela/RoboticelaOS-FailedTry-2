@@ -222,6 +222,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsFramebuffer.c"),
     (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsSurface.c"),
     (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsBitmap.c"),
+    (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsGeometry.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),

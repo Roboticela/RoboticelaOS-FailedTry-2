@@ -1,29 +1,15 @@
 #include "config.h"
 
 /*
- * Production boot: graphical stack (no terminal).
- * Order: compositor → window-server → RoboSail (multi-window browser).
+ * Boot: RoboGraphics visual preview on the framebuffer (QEMU).
+ * Compositor / window-server return when that stack is ready.
  */
 static const RoboServiceConfig g_services[] = {
     {
-        "compositor",
-        "/System/services/compositor",
+        "robo-runtime",
+        "/System/runtime/robo-runtime",
         ROBO_SVC_ENABLED,
-        ROBO_RESTART_NEVER,
-        0
-    },
-    {
-        "window-server",
-        "/System/services/window-server",
-        ROBO_SVC_ENABLED,
-        ROBO_RESTART_NEVER,
-        0
-    },
-    {
-        "robosail",
-        "/System/runtime/robosail",
-        ROBO_SVC_ENABLED,
-        ROBO_RESTART_NEVER,
+        ROBO_RESTART_ALWAYS,
         0
     },
     {

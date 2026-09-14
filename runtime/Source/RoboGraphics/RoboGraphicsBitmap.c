@@ -5,6 +5,10 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifndef INT32_MAX
+#define INT32_MAX 2147483647
+#endif
+
 static int surface_can_write(const robo_gfx_surface_t *surface)
 {
     robo_gfx_surface_access_t a;
@@ -17,41 +21,33 @@ static int surface_can_write(const robo_gfx_surface_t *surface)
            a == ROBO_GFX_SURFACE_ACCESS_READ_WRITE;
 }
 
-static int rect_fully_inside_u32(robo_gfx_rect_t rect,
-                                 uint32_t surf_w,
-                                 uint32_t surf_h)
+robo_result_t robo_gfx_surface_pixel_bounds(const robo_gfx_surface_t *surface,
+                                            robo_gfx_rect_t *out_bounds)
 {
-    uint32_t rx;
-    uint32_t ry;
-    uint32_t rw;
-    uint32_t rh;
-    uint32_t right;
-    uint32_t bottom;
+    uint32_t w;
+    uint32_t h;
 
-    if (rect.width < 0 || rect.height < 0) {
+    if (!surface || !out_bounds) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    w = robo_gfx_surface_width(surface);
+    h = robo_gfx_surface_height(surface);
+    if (w > (uint32_t)INT32_MAX || h > (uint32_t)INT32_MAX) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    *out_bounds = robo_gfx_rect(0, 0, (int32_t)w, (int32_t)h);
+    return ROBO_OK;
+}
+
+static int rect_inside_surface(robo_gfx_rect_t rect,
+                               const robo_gfx_surface_t *surface)
+{
+    robo_gfx_rect_t bounds;
+
+    if (robo_gfx_surface_pixel_bounds(surface, &bounds) != ROBO_OK) {
         return 0;
     }
-    if (rect.x < 0 || rect.y < 0) {
-        return 0;
-    }
-    rx = (uint32_t)rect.x;
-    ry = (uint32_t)rect.y;
-    rw = (uint32_t)rect.width;
-    rh = (uint32_t)rect.height;
-    if (rx > surf_w || ry > surf_h) {
-        return 0;
-    }
-    if (rw > surf_w - rx) {
-        return 0;
-    }
-    if (rh > surf_h - ry) {
-        return 0;
-    }
-    right = rx + rw;
-    bottom = ry + rh;
-    (void)right;
-    (void)bottom;
-    return 1;
+    return robo_gfx_rect_encloses(bounds, rect);
 }
 
 static robo_result_t pack_color(robo_gfx_pixel_format_t format,
@@ -159,6 +155,28 @@ robo_result_t robo_gfx_surface_set_pixel(robo_gfx_surface_t *surface,
     return ROBO_OK;
 }
 
+robo_result_t robo_gfx_surface_get_pixel_at(const robo_gfx_surface_t *surface,
+                                            robo_gfx_point_t p,
+                                            robo_gfx_color_rgba8_t *out_color)
+{
+    if (p.x < 0 || p.y < 0) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    return robo_gfx_surface_get_pixel(surface, (uint32_t)p.x, (uint32_t)p.y,
+                                      out_color);
+}
+
+robo_result_t robo_gfx_surface_set_pixel_at(robo_gfx_surface_t *surface,
+                                            robo_gfx_point_t p,
+                                            robo_gfx_color_rgba8_t color)
+{
+    if (p.x < 0 || p.y < 0) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    return robo_gfx_surface_set_pixel(surface, (uint32_t)p.x, (uint32_t)p.y,
+                                      color);
+}
+
 robo_result_t robo_gfx_surface_fill_rect(robo_gfx_surface_t *surface,
                                          robo_gfx_rect_t rect,
                                          robo_gfx_color_rgba8_t color)
@@ -182,8 +200,7 @@ robo_result_t robo_gfx_surface_fill_rect(robo_gfx_surface_t *surface,
     if (robo_gfx_rect_is_empty(rect)) {
         return ROBO_OK;
     }
-    if (!rect_fully_inside_u32(rect, robo_gfx_surface_width(surface),
-                               robo_gfx_surface_height(surface))) {
+    if (!rect_inside_surface(rect, surface)) {
         return ROBO_INVALID_ARGUMENT;
     }
     res = pack_color(robo_gfx_surface_format(surface), color, packed, sizeof(packed),
@@ -210,16 +227,15 @@ robo_result_t robo_gfx_surface_clear(robo_gfx_surface_t *surface,
                                      robo_gfx_color_rgba8_t color)
 {
     robo_gfx_rect_t full;
+    robo_result_t res;
 
     if (!surface) {
         return ROBO_INVALID_ARGUMENT;
     }
-    if (robo_gfx_surface_width(surface) > (uint32_t)INT32_MAX ||
-        robo_gfx_surface_height(surface) > (uint32_t)INT32_MAX) {
-        return ROBO_INVALID_ARGUMENT;
+    res = robo_gfx_surface_pixel_bounds(surface, &full);
+    if (res != ROBO_OK) {
+        return res;
     }
-    full = robo_gfx_rect(0, 0, (int32_t)robo_gfx_surface_width(surface),
-                         (int32_t)robo_gfx_surface_height(surface));
     return robo_gfx_surface_fill_rect(surface, full, color);
 }
 
@@ -343,8 +359,7 @@ robo_result_t robo_gfx_surface_copy_rect(const robo_gfx_surface_t *src,
     if (robo_gfx_rect_is_empty(src_rect)) {
         return ROBO_OK;
     }
-    if (!rect_fully_inside_u32(src_rect, robo_gfx_surface_width(src),
-                               robo_gfx_surface_height(src))) {
+    if (!rect_inside_surface(src_rect, src)) {
         return ROBO_INVALID_ARGUMENT;
     }
 
@@ -356,12 +371,8 @@ robo_result_t robo_gfx_surface_copy_rect(const robo_gfx_surface_t *src,
     if (dst_origin.x < 0 || dst_origin.y < 0) {
         return ROBO_INVALID_ARGUMENT;
     }
-    if (w > (uint32_t)INT32_MAX || h > (uint32_t)INT32_MAX) {
-        return ROBO_INVALID_ARGUMENT;
-    }
     dst_rect = robo_gfx_rect(dst_origin.x, dst_origin.y, (int32_t)w, (int32_t)h);
-    if (!rect_fully_inside_u32(dst_rect, robo_gfx_surface_width(dst),
-                               robo_gfx_surface_height(dst))) {
+    if (!rect_inside_surface(dst_rect, dst)) {
         return ROBO_INVALID_ARGUMENT;
     }
     dx = (uint32_t)dst_origin.x;
@@ -377,6 +388,7 @@ robo_result_t robo_gfx_surface_copy(const robo_gfx_surface_t *src,
                                     robo_gfx_surface_t *dst)
 {
     robo_gfx_rect_t full;
+    robo_result_t res;
 
     if (!src || !dst) {
         return ROBO_INVALID_ARGUMENT;
@@ -385,11 +397,9 @@ robo_result_t robo_gfx_surface_copy(const robo_gfx_surface_t *src,
         robo_gfx_surface_height(src) != robo_gfx_surface_height(dst)) {
         return ROBO_INVALID_ARGUMENT;
     }
-    if (robo_gfx_surface_width(src) > (uint32_t)INT32_MAX ||
-        robo_gfx_surface_height(src) > (uint32_t)INT32_MAX) {
-        return ROBO_INVALID_ARGUMENT;
+    res = robo_gfx_surface_pixel_bounds(src, &full);
+    if (res != ROBO_OK) {
+        return res;
     }
-    full = robo_gfx_rect(0, 0, (int32_t)robo_gfx_surface_width(src),
-                         (int32_t)robo_gfx_surface_height(src));
     return robo_gfx_surface_copy_rect(src, full, dst, robo_gfx_point(0, 0));
 }

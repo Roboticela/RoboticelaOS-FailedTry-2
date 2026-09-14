@@ -1,19 +1,21 @@
 /*
- * RoboGraphics basic bitmap operations (Goal 6.5).
+ * RoboGraphics basic bitmap operations (Goals 6.5 / 6.6).
  *
  * Operates on CPU-accessible surfaces from Goal 6.4 — no separate public
  * Bitmap type. Pixel formats / pack-unpack come from Goal 6.2.
+ * Geometry uses Goal 6.6 half-open rects / points.
  *
  * Bounds (fill_rect / copy_rect): rectangles must be fully contained in the
- * source/destination surface. Empty rects (width==0 or height==0) are a
- * successful no-op. No automatic clipping.
+ * relevant surface pixel bounds (robo_gfx_surface_pixel_bounds). Empty rects
+ * (width==0 or height==0) are a successful no-op. No automatic clipping —
+ * callers clip with robo_gfx_rect_clip when needed.
  *
  * Overlap: same-surface copy uses direction-aware row copies / memmove
  * (safe for overlapping regions). Different surfaces use memcpy.
  *
  * Threading: same as surfaces — caller synchronizes concurrent mutation.
  *
- * See graphics/docs/Bitmap.md.
+ * See graphics/docs/Bitmap.md and graphics/docs/Geometry.md.
  */
 
 #ifndef ROBO_GRAPHICS_BITMAP_H
@@ -29,6 +31,13 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Drawable pixel area as half-open RectI(0, 0, width, height).
+ * Surface too large for int32 → ROBO_INVALID_ARGUMENT.
+ */
+robo_result_t robo_gfx_surface_pixel_bounds(const robo_gfx_surface_t *surface,
+                                            robo_gfx_rect_t *out_bounds);
 
 /**
  * Read logical RGBA8 color at (x, y).
@@ -49,7 +58,18 @@ robo_result_t robo_gfx_surface_set_pixel(robo_gfx_surface_t *surface,
                                          robo_gfx_color_rgba8_t color);
 
 /**
- * Fill the entire surface with @p color (same as fill_rect of full bounds).
+ * Point overloads: @p p must lie in surface pixel bounds (non-negative storage).
+ * Negative geometry points → ROBO_INVALID_ARGUMENT.
+ */
+robo_result_t robo_gfx_surface_get_pixel_at(const robo_gfx_surface_t *surface,
+                                            robo_gfx_point_t p,
+                                            robo_gfx_color_rgba8_t *out_color);
+robo_result_t robo_gfx_surface_set_pixel_at(robo_gfx_surface_t *surface,
+                                            robo_gfx_point_t p,
+                                            robo_gfx_color_rgba8_t color);
+
+/**
+ * Fill the entire surface with @p color (same as fill_rect of pixel_bounds).
  * Requires write-capable access. Implemented formats only.
  */
 robo_result_t robo_gfx_surface_clear(robo_gfx_surface_t *surface,
@@ -57,7 +77,7 @@ robo_result_t robo_gfx_surface_clear(robo_gfx_surface_t *surface,
 
 /**
  * Fill @p rect with @p color.
- * @p rect must be valid (width/height >= 0) and fully inside the surface.
+ * @p rect must be valid and fully enclosed by surface pixel bounds.
  * Empty rect → ROBO_OK (no-op). Outside / overflow → ROBO_INVALID_ARGUMENT.
  */
 robo_result_t robo_gfx_surface_fill_rect(robo_gfx_surface_t *surface,

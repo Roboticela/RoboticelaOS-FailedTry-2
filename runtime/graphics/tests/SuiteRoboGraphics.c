@@ -11,7 +11,7 @@
 
 static void test_gfx_version(void)
 {
-    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.5.0");
+    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.6.0");
     ROBO_CHECK_EQ_INT(ROBO_GRAPHICS_API_FROZEN, 0);
     ROBO_CHECK_EQ_INT(robo_graphics_init(), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_graphics_init(), ROBO_OK);
@@ -253,7 +253,7 @@ static void test_gfx_smoke(void)
 static void test_gfx_chromium_independence(void)
 {
     /* Compile-time: only RoboGraphics / RoboBase / RoboMem types in call path. */
-    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.5.0");
+    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.6.0");
 }
 
 void robo_test_register_graphics(void)
