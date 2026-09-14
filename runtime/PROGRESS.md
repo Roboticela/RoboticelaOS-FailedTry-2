@@ -1525,7 +1525,7 @@
 - Docs: `graphics/docs/Bitmap.md`
 - Suite: `graphics/tests/SuiteRoboGraphicsBitmap.c` (`graphics.bmp.*`)
 - Version **0.5.0**
-- Debug / Release / Sanitize `graphics.*` validation
+- Debug / Release / Sanitize `graphics.*`: **46/46**
 
 **Definition of done:**
 

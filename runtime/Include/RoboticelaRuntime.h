@@ -1,17 +1,21 @@
 /*
- * Roboticela Runtime — public skeleton header.
+ * Roboticela Runtime — public umbrella header.
  *
- * Goal 0.1 only: version identity for the empty runtime tree.
- * No subsystems live here yet.
+ * Independent Chromium-class runtime for RoboticelaOS.
+ * Subsystems live under Include/Robo* — this header exports version identity.
+ *
+ * Chromium under chromium/ is temporary technical reference only and must
+ * never become a runtime dependency.
  */
 
 #ifndef ROBOTICELA_RUNTIME_H
 #define ROBOTICELA_RUNTIME_H
 
 #define ROBOTICELA_RUNTIME_VERSION_MAJOR 0
-#define ROBOTICELA_RUNTIME_VERSION_MINOR 0
-#define ROBOTICELA_RUNTIME_VERSION_PATCH 1
+#define ROBOTICELA_RUNTIME_VERSION_MINOR 6
+#define ROBOTICELA_RUNTIME_VERSION_PATCH 5
 
-#define ROBOTICELA_RUNTIME_VERSION_STRING "0.0.1"
+/** Tracks Phase 6 progress (graphics through Goal 6.5). */
+#define ROBOTICELA_RUNTIME_VERSION_STRING "0.6.5"
 
 #endif /* ROBOTICELA_RUNTIME_H */
