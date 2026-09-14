@@ -1396,7 +1396,29 @@
 - [x] No Chromium dependency
 - [x] Stop after 5.21 (no Goal 5.22)
 
+## Goal 5.22 — RoboFont Final Integration / API Freeze
+
+**Status:** complete
+
+**Done:**
+
+- Architecture / ownership / threading / security audits documented (`ApiFreeze.md`, `ApiInventory.md`)
+- Version **0.22.0** + `ROBO_FONT_API_FROZEN=1` (**RoboFont API v1**)
+- Phase 5 E2E acceptance suite `font/tests/SuiteRoboFontPhase5.c` (`font.p5.*`)
+- Performance baselines in `docs/Performance.md`; Chromium-independence Verify scan
+- Docs: `Phase5.md`, `Completeness.md`, `docs/Integration.md`, `docs/Security.md`, `docs/Testing.md`
+- Future consumer contracts documented; Phase 6 not started
+- Debug / Release / Sanitize `font.*`: **183/183**
+
+**Definition of done:**
+
+- [x] One coherent RoboFont architecture; public API frozen
+- [x] Ownership, threading, memory, error, security documented and tested
+- [x] End-to-end acceptance through frozen APIs
+- [x] Conformance + sanitizer + Chromium-independence gates
+- [x] Stop after 5.22 (do not begin Phase 6 / Goal 6.1)
+
 ## Next
 
-- Goal 5.22 — RoboFont final integration / API freeze (do not start until requested)
+- Phase 6 — Goal 6.1 (do not start until requested)
 

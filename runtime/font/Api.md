@@ -1,6 +1,9 @@
-# RoboFont Public API (Goals 5.1–5.21)
+# RoboFont Public API (Goals 5.1–5.22 — API v1 frozen)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
+
+**Freeze:** `ROBO_FONT_API_FROZEN == 1` at **0.22.0**. See [`ApiFreeze.md`](ApiFreeze.md)
+and [`ApiInventory.md`](ApiInventory.md).
 
 | Header | Contents |
 |---|---|
@@ -32,7 +35,7 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, foreach, fuzz entry |
-| `RoboFontVersion.h` | `0.21.0` |
+| `RoboFontVersion.h` | `0.22.0` + `ROBO_FONT_API_FROZEN` |
 
 ## Font conformance (5.21)
 

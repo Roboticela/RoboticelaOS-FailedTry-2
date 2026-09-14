@@ -1,6 +1,9 @@
 # RoboFont
 
-Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.21**).
+Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.22**).
+
+**RoboFont API v1** is frozen at **0.22.0** (`ROBO_FONT_API_FROZEN == 1`).
+See [`ApiFreeze.md`](ApiFreeze.md) and [`Phase5.md`](Phase5.md).
 
 RoboFont is an independent RoboticelaOS runtime subsystem.
 
@@ -14,56 +17,35 @@ Skia, or operating-system font managers.
 
 | Path | Role |
 |---|---|
-| `runtime/Include/RoboFont/` | Public API |
+| `runtime/Include/RoboFont/` | Public API (frozen) |
 | `runtime/Source/RoboFont/` | Implementation |
 | `runtime/Tests/Suites/SuiteRoboFont.c` | Goal 5.1 tests |
-| `runtime/font/tests/SuiteRoboFontSfnt.c` | Goal 5.2 SFNT tests |
-| `runtime/font/tests/SuiteRoboFontTrueType.c` | Goal 5.3 TrueType tests |
-| `runtime/font/tests/SuiteRoboFontOpenType.c` | Goal 5.4 OpenType tests |
-| `runtime/font/tests/SuiteRoboFontCff.c` | Goal 5.5 CFF/CFF2 tests |
-| `runtime/font/tests/SuiteRoboFontCmap.c` | Goal 5.6 cmap mapping tests |
-| `runtime/font/tests/SuiteRoboFontMetrics.c` | Goal 5.7 metrics tests |
-| `runtime/font/tests/SuiteRoboFontOutline.c` | Goal 5.8 outline tests |
-| `runtime/font/tests/SuiteRoboFontName.c` | Goal 5.9 naming/metadata tests |
-| `runtime/font/tests/SuiteRoboFontClassification.c` | Goal 5.10 classification tests |
-| `runtime/font/tests/SuiteRoboFontSelection.c` | Goal 5.11 selection tests |
-| `runtime/font/tests/SuiteRoboFontDiscovery.c` | Goal 5.12 discovery tests |
-| `runtime/font/tests/SuiteRoboFontLoader.c` | Goal 5.13 loader/cache tests |
-| `runtime/font/tests/SuiteRoboFontCoverage.c` | Goal 5.14 coverage tests |
-| `runtime/font/tests/SuiteRoboFontFallback.c` | Goal 5.15 fallback tests |
-| `runtime/font/tests/SuiteRoboFontGenericFamily.c` | Goal 5.16 generic-family tests |
-| `runtime/font/tests/SuiteRoboFontEmoji.c` | Goal 5.17 emoji font tests |
-| `runtime/font/tests/SuiteRoboFontVariation.c` | Goal 5.18 variable font tests |
-| `runtime/font/tests/SuiteRoboFontColor.c` | Goal 5.19 color font tests |
-| `runtime/font/tests/SuiteRoboFontValidate.c` | Goal 5.20 validation/security tests |
-| `runtime/font/tests/SuiteRoboFontConformance.c` | Goal 5.21 conformance/regression |
+| `runtime/font/tests/SuiteRoboFont*.c` | Goals 5.2–5.22 suites |
+| `runtime/font/tests/SuiteRoboFontPhase5.c` | Goal 5.22 freeze / E2E |
 | `runtime/font/tests/fonts/` | Documented fixture corpus |
 | `runtime/font/` | Documentation |
 
 ## Architecture
 
 ```text
-Discovery (5.12) → Registry → Loader/Cache (5.13) → Selection (5.11)
-         ↕
-Font Source → SFNT (5.2) → TrueType (5.3) / OpenType (5.4) / CFF·CFF2 (5.5)
-         → cmap (5.6) → Coverage (5.14) → Fallback (5.15)
-         → Generic Families (5.16) → Emoji Fonts (5.17) → Variation (5.18)
-         → Color Fonts (5.19) → Validate (5.20) → Conformance (5.21)
-         → metrics (5.7) → outlines (5.8) → naming (5.9) → classification (5.10)
-         → Face → Instance
+Font Source → Validation → SFNT → Face → Metadata / Coverage / Variation
+         → Instance → Metrics / Glyphs / Color
+         → Discovery → Registry → Loader/Cache
+         → Selection → Fallback → (RoboText later)
 ```
 
-See **Architecture.md**, feature docs under **docs/**, and **docs/Conformance.md**.
+See **Architecture.md**, **ApiFreeze.md**, feature docs under **docs/**,
+and **docs/Integration.md** for consumer contracts.
 
 ## Goal status
 
 | Goal | Scope |
 |---|---|
-| **5.1–5.20** | See prior releases (model through validation/security) |
-| **5.21** | Font conformance tests, corpus, goldens, fuzz integration |
+| **5.1–5.21** | Model through conformance |
+| **5.22** | Final integration, API freeze, E2E acceptance |
 
-**Not** in scope yet: shaping (Phase 6), rasterization, Goal 5.22 API freeze.
+**Not** in scope: shaping (Phase 6), rasterization, CSS/web-font policy.
 
 ## Version
 
-RoboFont **0.21.0**
+RoboFont **0.22.0** — **API v1 frozen**

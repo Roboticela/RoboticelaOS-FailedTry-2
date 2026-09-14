@@ -1,5 +1,9 @@
 /*
- * RoboFont — font subsystem (Goals 5.1–5.21).
+ * RoboFont — font subsystem (Goals 5.1–5.22).
+ *
+ * Phase 5 public API is FROZEN (ROBO_FONT_API_FROZEN == 1, RoboFont API v1).
+ * Applications include this umbrella or the individual RoboFont*.h headers.
+ * Internal headers under Source/RoboFont/ are NOT part of the frozen API.
  *
  * Independent RoboticelaOS runtime subsystem. Chromium is only a temporary
  * technical reference. RoboFont must never depend on Chromium headers,
@@ -8,7 +12,9 @@
  * Architecture:
  *   Discovery → Registry → Loader/Cache → Selection → Coverage → Fallback
  *     → Generic Families → Emoji → Variation → Color → Validate
- *     → Conformance → Face
+ *     → Conformance → Face → Instance
+ *
+ * See font/ApiFreeze.md, font/Architecture.md, font/Api.md.
  */
 
 #ifndef ROBO_FONT_H

@@ -205,6 +205,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontColor.c"),
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontValidate.c"),
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontConformance.c"),
+    (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontPhase5.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -286,6 +287,28 @@ function Assert-NoChromiumPath([string[]]$Paths) {
             throw "Chromium path leaked into runtime build: $p"
         }
     }
+}
+
+function Assert-RoboFontChromiumIndependence {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboFont"),
+        (Join-Path $RuntimeRoot "Source\RoboFont"),
+        (Join-Path $RuntimeRoot "font")
+    )
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia)|third_party[/\\](chromium|skia)|\bnamespace\s+(blink|skia)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboFont Chromium/Skia dependency leaked into sources:`n$sample"
+        }
+    }
+    Write-Host "RoboFont Chromium-independence source scan: OK"
 }
 
 function Test-ElfFile([string]$Path) {
@@ -491,6 +514,7 @@ Assert-NoChromiumPath @($RuntimeElf)
 Write-Host "OK   no Chromium paths"
 
 if ($Verify) {
+    Assert-RoboFontChromiumIndependence
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 

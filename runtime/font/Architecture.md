@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.21)
+# RoboFont Architecture (Goals 5.1–5.22 — API v1 frozen)
 
 ## Layering
 
@@ -54,6 +54,9 @@ Font Face       TT/cmap/coverage/emoji/variation/color/metrics/outlines/…
     ↓
 Font Instance   face + pixel size + style + optional variation coords
 ```
+
+**API freeze (Goal 5.22):** Public surface is **RoboFont API v1** at **0.22.0**
+(`ROBO_FONT_API_FROZEN`). See `ApiFreeze.md` / `ApiInventory.md`.
 
 ## Distinctions
 

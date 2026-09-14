@@ -3662,7 +3662,7 @@ alwaysApply: true
 * **Phase 2 — Memory:** complete ✅
 * **Phase 3 — Containers & Data Foundations:** complete ✅
 * **Phase 4 — Unicode & I18N:** complete through **4.27** (API frozen) ✅
-* **Phase 5 — RoboFont:** Goals **5.1–5.21** complete; **Next:** Goal **5.22**
+* **Phase 5 — RoboFont:** Goals **5.1–5.22** complete (API v1 frozen); **Next:** Phase **6** Goal **6.1**
 
 The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
 
@@ -3670,28 +3670,28 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 
 # Phase 5 — RoboFont
 
-5.1 RoboFont architecture & font model
-5.2 SFNT container parser
-5.3 TrueType table parsing
-5.4 OpenType table parsing
-5.5 CFF/CFF2 support
-5.6 `cmap` character-to-glyph mapping
-5.7 Font metrics
-5.8 Glyph outlines
-5.9 Font naming & metadata
-5.10 Font style/weight/stretch model
-5.11 Font selection
-5.12 Font discovery
-5.13 Font loading & caching
-5.14 Font coverage analysis
-5.15 Font fallback
-5.16 Generic font families
-5.17 Emoji fonts
-5.18 Variable fonts
-5.19 Color fonts
-5.20 Font validation/security
-5.21 Font conformance tests
-5.22 RoboFont final integration/API freeze
+5.1 RoboFont architecture & font model ✅
+5.2 SFNT container parser ✅
+5.3 TrueType table parsing ✅
+5.4 OpenType table parsing ✅
+5.5 CFF/CFF2 support ✅
+5.6 `cmap` character-to-glyph mapping ✅
+5.7 Font metrics ✅
+5.8 Glyph outlines ✅
+5.9 Font naming & metadata ✅
+5.10 Font style/weight/stretch model ✅
+5.11 Font selection ✅
+5.12 Font discovery ✅
+5.13 Font loading & caching ✅
+5.14 Font coverage analysis ✅
+5.15 Font fallback ✅
+5.16 Generic font families ✅
+5.17 Emoji fonts ✅
+5.18 Variable fonts ✅
+5.19 Color fonts ✅
+5.20 Font validation/security ✅
+5.21 Font conformance tests ✅
+5.22 RoboFont final integration/API freeze ✅
 
 # Phase 6 — RoboText & Text Shaping
 

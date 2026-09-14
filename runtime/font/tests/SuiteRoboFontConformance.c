@@ -513,7 +513,7 @@ static void test_conform_architecture(void)
     ROBO_CHECK_STR_EQ(robo_font_conform_category_string(ROBO_FONT_CONFORM_SFNT), "sfnt");
     ROBO_CHECK_STR_EQ(robo_font_conform_kind_string(ROBO_FONT_CONFORM_KIND_GOLDEN),
                       "golden");
-    ROBO_CHECK_STR_EQ(robo_font_version_string(), "0.21.0");
+    ROBO_CHECK_STR_EQ(robo_font_version_string(), "0.22.0");
 
     c.id = "font.conform.architecture";
     c.category = ROBO_FONT_CONFORM_GOLDEN;
