@@ -1,4 +1,4 @@
-# RoboFont Public API (Goals 5.1–5.10)
+# RoboFont Public API (Goals 5.1–5.11)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
@@ -7,6 +7,7 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontTypes.h` | face/instance/glyph IDs, font units, sizes, bbox |
 | `RoboFontStyle.h` | weight, stretch, style, categories, style_desc |
 | `RoboFontClassification.h` | raw + normalized style/weight/stretch classification |
+| `RoboFontSelection.h` | select request, match score, face selection |
 | `RoboFontMetrics.h` | layout metrics, metrics info, scaling, vertical foundation |
 | `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
 | `RoboFontName.h` | name table decode, locale lookup, metadata snapshot |
@@ -20,7 +21,17 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, fuzz entry |
-| `RoboFontVersion.h` | `0.10.0` |
+| `RoboFontVersion.h` | `0.11.0` |
+
+## Selection (5.11)
+
+| API | Role |
+|---|---|
+| `robo_font_select` | Best face among loaded candidates |
+| `robo_font_select_score_face` | Score one face |
+| `robo_font_match_score_compare` | Deterministic score compare |
+| `robo_font_select_*_dist` | Stretch / style / weight distance keys |
+| `robo_font_selection_fuzz_parse` | Malformed-input entry |
 
 ## Classification (5.10)
 
@@ -65,6 +76,6 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `robo_font_instance_sync_metrics` / `scale_advance` | Sized instance |
 | `robo_font_metrics_fuzz_parse` | Malformed-input entry |
 
-Details: `docs/Classification.md`, `docs/Naming.md`, `docs/Outlines.md`,
-`docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`, `docs/OpenType.md`,
-`docs/TrueType.md`, `docs/Sfnt.md`.
+Details: `docs/Selection.md`, `docs/Classification.md`, `docs/Naming.md`,
+`docs/Outlines.md`, `docs/Metrics.md`, `docs/Cmap.md`, `docs/Cff.md`,
+`docs/OpenType.md`, `docs/TrueType.md`, `docs/Sfnt.md`.

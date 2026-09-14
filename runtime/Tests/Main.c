@@ -72,6 +72,7 @@ void robo_test_register_font_metrics(void);
 void robo_test_register_font_outline(void);
 void robo_test_register_font_name(void);
 void robo_test_register_font_classification(void);
+void robo_test_register_font_selection(void);
 
 int main(int argc, char **argv)
 {
@@ -181,5 +182,6 @@ int main(int argc, char **argv)
     robo_test_register_font_outline();
     robo_test_register_font_name();
     robo_test_register_font_classification();
+    robo_test_register_font_selection();
     return robo_test_main(argc, argv);
 }

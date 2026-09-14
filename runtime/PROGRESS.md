@@ -1134,14 +1134,36 @@
 - Face `parse_classification`; `tt_style_desc` uses classification
 - Fuzz entry; docs `docs/Classification.md`; version **0.10.0**
 - Tests: `font/tests/SuiteRoboFontClassification.c`
-- Debug / Release / ASan+UBSan (`-Filter font.`): all pass; VERIFY: no Chromium paths
+- Debug / Release / ASan+UBSan (`-Filter font.`): **80/80**; VERIFY: no Chromium paths
 
 **Definition of done:**
 
 - [x] Style/weight/stretch normalized without losing raw metadata
 - [x] Stop after 5.10 (no selection / Goal 5.11; no variable fonts / 5.18)
 
+## Goal 5.11 — Font Selection
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontSelection`: request, match score, selection result
+- Family gate (typo / WWS / legacy / optional full & PostScript) via casefold
+- Stretch / style / weight distance keys (CSS Fonts–inspired)
+- Combined order: family rank → stretch → style → weight → exactness → WWS → face_id
+- Deterministic tie-break independent of candidate array order
+- Selection result cookie so `robo_font_select` never frees an uninitialized `face`
+- No discovery/fallback; malformed candidates skipped; fuzz entry
+- Docs: `docs/Selection.md`; version **0.11.0**
+- Tests: `font/tests/SuiteRoboFontSelection.c`
+- Debug / Release / ASan+UBSan (`-Filter font.`): **88/88**; VERIFY: no Chromium paths
+
+**Definition of done:**
+
+- [x] Caller-supplied faces matched deterministically with inspectable scores
+- [x] Stop after 5.11 (no discovery / Goal 5.12; no fallback / 5.15)
+
 ## Next
 
-- Goal 5.11 — Font selection (do not start until requested)
+- Goal 5.12 — Font discovery (do not start until requested)
 

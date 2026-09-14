@@ -1,6 +1,6 @@
 # RoboFont
 
-Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.10**).
+Independent font subsystem for Roboticela Runtime (**Goals 5.1–5.11**).
 
 RoboFont is an independent RoboticelaOS runtime subsystem.
 
@@ -26,6 +26,7 @@ Skia, or operating-system font managers.
 | `runtime/font/tests/SuiteRoboFontOutline.c` | Goal 5.8 outline tests |
 | `runtime/font/tests/SuiteRoboFontName.c` | Goal 5.9 naming/metadata tests |
 | `runtime/font/tests/SuiteRoboFontClassification.c` | Goal 5.10 classification tests |
+| `runtime/font/tests/SuiteRoboFontSelection.c` | Goal 5.11 selection tests |
 | `runtime/font/` | Documentation |
 
 ## Architecture
@@ -33,12 +34,12 @@ Skia, or operating-system font managers.
 ```text
 Font Source → SFNT (5.2) → TrueType (5.3) / OpenType (5.4) / CFF·CFF2 (5.5)
          → cmap (5.6) → metrics (5.7) → outlines (5.8) → naming (5.9)
-         → classification (5.10) → Face → Instance
+         → classification (5.10) → selection (5.11) → Face → Instance
 ```
 
 See **Architecture.md**, **docs/Sfnt.md**, **docs/TrueType.md**, **docs/OpenType.md**,
 **docs/Cff.md**, **docs/Cmap.md**, **docs/Metrics.md**, **docs/Outlines.md**,
-**docs/Naming.md**, **docs/Classification.md**.
+**docs/Naming.md**, **docs/Classification.md**, **docs/Selection.md**.
 
 ## Goal status
 
@@ -54,10 +55,11 @@ See **Architecture.md**, **docs/Sfnt.md**, **docs/TrueType.md**, **docs/OpenType
 | **5.8** | Unified glyph outlines (TT quads, CFF/CFF2 cubics, composites) |
 | **5.9** | `name` table decode, locale lookup, RoboFontMetadata |
 | **5.10** | Style / weight / stretch classification (raw + normalized) |
+| **5.11** | Font selection among loaded faces (family/style/weight/stretch) |
 
-**Not** in scope yet: font selection (5.11), discovery, shaping (Phase 6),
-rasterization, hinting execution, variable-font tables (5.18).
+**Not** in scope yet: font discovery (5.12), fallback (5.15), CSS matching,
+variable-font tables (5.18), shaping (Phase 6), rasterization.
 
 ## Version
 
-RoboFont **0.10.0**
+RoboFont **0.11.0**

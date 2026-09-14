@@ -15,7 +15,7 @@ static const uint8_t k_sfnt_magic[12] = {
 
 static void test_font_version(void)
 {
-    ROBO_CHECK_STR_EQ(robo_font_version_string(), "0.10.0");
+    ROBO_CHECK_STR_EQ(robo_font_version_string(), "0.11.0");
     ROBO_CHECK_EQ_INT(robo_font_init(), ROBO_OK);
     robo_font_shutdown();
 }

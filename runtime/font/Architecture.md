@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.10)
+# RoboFont Architecture (Goals 5.1–5.11)
 
 ## Layering
 
@@ -25,6 +25,8 @@ Glyph outlines  unified MOVE/LINE/QUAD/CUBIC/CLOSE paths (Goal 5.8)
 Naming/metadata name decode, locale lookup, RoboFontMetadata (Goal 5.9)
     ↓
 Classification  style/weight/stretch raw + normalized (Goal 5.10)
+    ↓
+Selection       request ↔ loaded faces (Goal 5.11 — no discovery)
     ↓
 Font Face       TT/cmap/metrics/outlines/name_info/classification
     ↓
@@ -64,6 +66,7 @@ Do not fabricate a `glyf` view for CFF fonts. Metrics stay in shared SFNT tables
 | Normalized metadata | Snapshot fields with avail / source name ID |
 | Preferred family | Policy 16 → 21 → 1 (not weight inference) |
 | Normalized weight/stretch/style | Classification for later matching (not selection yet) |
+| Font selection | Match request to loaded faces only (no discovery) |
 | Raw OS/2 class fields | Font-authored; preserved beside normalized values |
 | Grapheme cluster | Segmentation — later text layer |
 | Glyph position | Shaping — Phase 6 |
