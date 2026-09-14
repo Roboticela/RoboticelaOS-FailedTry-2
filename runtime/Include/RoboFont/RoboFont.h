@@ -1,5 +1,5 @@
 /*
- * RoboFont — font subsystem (Goals 5.1–5.20).
+ * RoboFont — font subsystem (Goals 5.1–5.21).
  *
  * Independent RoboticelaOS runtime subsystem. Chromium is only a temporary
  * technical reference. RoboFont must never depend on Chromium headers,
@@ -7,7 +7,8 @@
  *
  * Architecture:
  *   Discovery → Registry → Loader/Cache → Selection → Coverage → Fallback
- *     → Generic Families → Emoji → Variation → Color → Validate → Face
+ *     → Generic Families → Emoji → Variation → Color → Validate
+ *     → Conformance → Face
  */
 
 #ifndef ROBO_FONT_H
@@ -18,6 +19,7 @@
 #include "RoboFont/RoboFontClassification.h"
 #include "RoboFont/RoboFontCmap.h"
 #include "RoboFont/RoboFontColor.h"
+#include "RoboFont/RoboFontConformance.h"
 #include "RoboFont/RoboFontCoverage.h"
 #include "RoboFont/RoboFontDiscovery.h"
 #include "RoboFont/RoboFontEmoji.h"

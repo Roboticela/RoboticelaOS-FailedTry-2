@@ -1376,7 +1376,27 @@
 - [x] Fuzz + sanitizer coverage; no Chromium dependency
 - [x] Stop after 5.20 (no Goal 5.21)
 
+## Goal 5.21 — Font Conformance Tests
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontConformance` — categories, goldens, diagnostics, fuzz smoke
+- `SuiteRoboFontConformance.c` — cross-cutting coverage for Goals 5.1–5.20
+- Corpus under `font/tests/fonts/` with provenance READMEs
+- Docs `docs/Conformance.md`, `tests/README.md`
+- Version **0.21.0**
+
+**Definition of done:**
+
+- [x] Conformance coverage across implemented RoboFont subsystems
+- [x] Valid + malformed/security + variation/color/emoji cases
+- [x] Deterministic goldens; fuzz + sanitizer compatible
+- [x] No Chromium dependency
+- [x] Stop after 5.21 (no Goal 5.22)
+
 ## Next
 
-- Goal 5.21 — Font conformance tests (do not start until requested)
+- Goal 5.22 — RoboFont final integration / API freeze (do not start until requested)
 

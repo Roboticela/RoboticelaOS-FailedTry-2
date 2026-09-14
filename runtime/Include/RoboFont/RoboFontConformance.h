@@ -12,6 +12,7 @@
 #define ROBO_FONT_CONFORMANCE_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboFont/RoboFontSfnt.h"
 #include "RoboFont/RoboFontTypes.h"
 
 #include <stddef.h>

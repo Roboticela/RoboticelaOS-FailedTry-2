@@ -1,4 +1,4 @@
-# RoboFont Public API (Goals 5.1–5.20)
+# RoboFont Public API (Goals 5.1–5.21)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
@@ -18,6 +18,7 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontVariation.h` | fvar/avar model, coords, named instances, opsz |
 | `RoboFontColor.h` | COLR/CPAL, CBDT/CBLC, sbix, SVG, palettes, paints |
 | `RoboFontValidate.h` | staged validation, limits, diagnostics, fuzz |
+| `RoboFontConformance.h` | conformance categories, goldens, diagnostics, fuzz smoke |
 | `RoboFontMetrics.h` | layout metrics, metrics info, scaling |
 | `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
 | `RoboFontName.h` | name table decode, locale lookup, metadata snapshot |
@@ -31,7 +32,18 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, foreach, fuzz entry |
-| `RoboFontVersion.h` | `0.20.0` |
+| `RoboFontVersion.h` | `0.21.0` |
+
+## Font conformance (5.21)
+
+| API | Role |
+|---|---|
+| `robo_font_conform_category_*` | Category / kind strings for filters |
+| `robo_font_golden_*` | Deterministic golden serialization |
+| `robo_font_conform_result_*` | Structured mismatch diagnostics |
+| `robo_font_conform_fuzz_smoke` | Bounded fuzz over validate + cmap |
+
+See `docs/Conformance.md` and `tests/README.md`.
 
 ## Font validation (5.20)
 

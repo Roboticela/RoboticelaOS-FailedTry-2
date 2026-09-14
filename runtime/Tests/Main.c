@@ -82,6 +82,7 @@ void robo_test_register_font_emoji(void);
 void robo_test_register_font_variation(void);
 void robo_test_register_font_color(void);
 void robo_test_register_font_validate(void);
+void robo_test_register_font_conformance(void);
 
 int main(int argc, char **argv)
 {
@@ -201,5 +202,6 @@ int main(int argc, char **argv)
     robo_test_register_font_variation();
     robo_test_register_font_color();
     robo_test_register_font_validate();
+    robo_test_register_font_conformance();
     return robo_test_main(argc, argv);
 }

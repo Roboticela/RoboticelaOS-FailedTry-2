@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.20)
+# RoboFont Architecture (Goals 5.1–5.21)
 
 ## Layering
 
@@ -37,6 +37,8 @@ Variation       fvar/avar model, normalize, named instances (Goal 5.18)
 Color fonts     COLR/CPAL, CBDT/CBLC, sbix, SVG representation (Goal 5.19)
     ↓
 Validate        staged security validation, limits, diagnostics (Goal 5.20)
+    ↓
+Conformance     regression boundary, goldens, corpus, fuzz smoke (Goal 5.21)
     ↓
 Metrics info    global + glyph advances/LSB/bbox; vertical foundation (5.7)
     ↓
