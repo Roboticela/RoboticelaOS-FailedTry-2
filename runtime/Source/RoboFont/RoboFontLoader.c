@@ -8,6 +8,7 @@
 #include "RoboFont/RoboFontSfnt.h"
 #include "RoboFont/RoboFontSource.h"
 #include "RoboFont/RoboFontTt.h"
+#include "RoboFont/RoboFontValidate.h"
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
@@ -404,6 +405,7 @@ static robo_result_t ensure_face_loaded(robo_font_face_t *face,
 {
     robo_result_t res;
     uint32_t tt_flags = ROBO_FONT_TT_FLAGS_NONE;
+    robo_font_validation_result_t *vresult = NULL;
 
     if (!face) {
         return ROBO_INVALID_ARGUMENT;
@@ -412,7 +414,21 @@ static robo_result_t ensure_face_loaded(robo_font_face_t *face,
         return ROBO_NOT_SUPPORTED;
     }
 
-    if (validate == ROBO_FONT_VALIDATE_STRICT) {
+    /* Staged security validation before treating the face as trusted. */
+    res = robo_font_validate_for_load(face, validate, &vresult);
+    if (res != ROBO_OK) {
+        if (vresult) {
+            robo_font_validation_result_release(vresult);
+        }
+        return res;
+    }
+    if (vresult) {
+        robo_font_validation_result_release(vresult);
+        vresult = NULL;
+    }
+
+    if (validate == ROBO_FONT_VALIDATE_STRICT ||
+        validate == ROBO_FONT_VALIDATE_PARANOID) {
         tt_flags |= ROBO_FONT_TT_FLAGS_VERIFY_HEAD_CHECKSUM;
     }
 
@@ -427,13 +443,6 @@ static robo_result_t ensure_face_loaded(robo_font_face_t *face,
     res = robo_font_face_parse_classification(face);
     if (res != ROBO_OK) {
         return res;
-    }
-
-    if (validate == ROBO_FONT_VALIDATE_STRICT) {
-        const robo_font_tt_t *tt = robo_font_face_truetype(face);
-        (void)tt;
-        /* Table checksums: probe all tables when SFNT is available via TT path.
-         * Bounds checking remains mandatory in all policies. */
     }
 
     if (policy >= ROBO_FONT_LOAD_POLICY_STANDARD) {

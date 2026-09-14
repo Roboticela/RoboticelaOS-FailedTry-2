@@ -53,11 +53,13 @@ Consumers never observe a partially initialized face.
 
 | Policy | Behavior |
 |---|---|
-| `NORMAL` | Full bounds checking |
-| `STRICT` | + optional TT head checksum verify |
-| `TRUSTED` | Same bounds; skips optional checksum probes |
+| `NORMAL` | BASIC staged validation; checksum warnings |
+| `STRICT` | + TT head checksum verify; table checksum warnings |
+| `TRUSTED` | Skip optional probes (parser bounds still on) |
+| `PARANOID` | STRICT depth + color/variation/CFF probes; checksum reject |
 
-Bounds checking is never disabled.
+Bounds checking is never disabled. See `docs/Validate.md` (Goal 5.20).
+
 
 **Cache**
 

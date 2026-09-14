@@ -1,4 +1,4 @@
-# RoboFont Architecture (Goals 5.1–5.19)
+# RoboFont Architecture (Goals 5.1–5.20)
 
 ## Layering
 
@@ -35,6 +35,8 @@ Emoji fonts     classification, color/mono capabilities, select (Goal 5.17)
 Variation       fvar/avar model, normalize, named instances (Goal 5.18)
     ↓
 Color fonts     COLR/CPAL, CBDT/CBLC, sbix, SVG representation (Goal 5.19)
+    ↓
+Validate        staged security validation, limits, diagnostics (Goal 5.20)
     ↓
 Metrics info    global + glyph advances/LSB/bbox; vertical foundation (5.7)
     ↓

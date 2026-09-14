@@ -50,10 +50,12 @@ typedef enum robo_font_load_policy {
 
 typedef enum robo_font_validate_policy {
     ROBO_FONT_VALIDATE_NORMAL = 0,
-    /** Extra TT head checksum / table checksum probes. Bounds always on. */
+    /** Extra checksums / consistency probes. Bounds always on. */
     ROBO_FONT_VALIDATE_STRICT = 1,
     /** Same bounds as NORMAL; skips optional checksum probes. */
-    ROBO_FONT_VALIDATE_TRUSTED = 2
+    ROBO_FONT_VALIDATE_TRUSTED = 2,
+    /** STRICT + color/variation/OT structural probes (Goal 5.20). */
+    ROBO_FONT_VALIDATE_PARANOID = 3
 } robo_font_validate_policy_t;
 
 typedef enum robo_font_cache_policy {

@@ -1,4 +1,4 @@
-# RoboFont Public API (Goals 5.1–5.19)
+# RoboFont Public API (Goals 5.1–5.20)
 
 Umbrella: `#include "RoboFont/RoboFont.h"`
 
@@ -17,6 +17,7 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontEmoji.h` | emoji kind/capabilities, sequence foundation, select |
 | `RoboFontVariation.h` | fvar/avar model, coords, named instances, opsz |
 | `RoboFontColor.h` | COLR/CPAL, CBDT/CBLC, sbix, SVG, palettes, paints |
+| `RoboFontValidate.h` | staged validation, limits, diagnostics, fuzz |
 | `RoboFontMetrics.h` | layout metrics, metrics info, scaling |
 | `RoboFontOutline.h` | unified glyph outlines, affine, cache, dump, fuzz |
 | `RoboFontName.h` | name table decode, locale lookup, metadata snapshot |
@@ -30,7 +31,16 @@ Umbrella: `#include "RoboFont/RoboFont.h"`
 | `RoboFontOt.h` | Outline tech, table families, cmap/GDEF/GSUB/GPOS/BASE/… |
 | `RoboFontCff.h` | CFF/CFF2 INDEX, DICT, CharStrings, CID, VStore |
 | `RoboFontCmap.h` | Unicode cmap map, lookup, UVS, foreach, fuzz entry |
-| `RoboFontVersion.h` | `0.19.0` |
+| `RoboFontVersion.h` | `0.20.0` |
+
+## Font validation (5.20)
+
+| API | Role |
+|---|---|
+| `robo_font_validation_policy_*` | Levels, checksum policy, limits |
+| `robo_font_validate_source/sfnt/face` | Staged validation entry points |
+| `robo_font_validate_for_load` | Loader integration |
+| `robo_font_validate_fuzz_parse` | Malformed-input robustness |
 
 ## Color fonts (5.19)
 

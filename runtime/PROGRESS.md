@@ -1354,7 +1354,29 @@
 - [x] Malformed color data cannot crash the runtime; Chromium-independent
 - [x] Stop after 5.19 (no Goal 5.20)
 
+## Goal 5.20 — Font Security & Validation
+
+**Status:** complete
+
+**Done:**
+
+- `RoboFontValidate` — staged validation, policy levels, centralized limits
+- SFNT/collection/checksum diagnostics; glyph/color/variation/name probes
+- Loader `validate_for_load` gate; `PARANOID` loader policy
+- Structured diagnostics; fuzz entry; regression corpus in suite
+- Docs `docs/Validate.md`; sanitizer-compatible host tests
+- Version **0.20.0**
+- Tests: `font/tests/SuiteRoboFontValidate.c`
+
+**Definition of done:**
+
+- [x] All font input treated as untrusted; parsers remain defensive
+- [x] Centralized limits + staged validation integrated with loading
+- [x] Malformed/pathological fonts fail safely with diagnostics
+- [x] Fuzz + sanitizer coverage; no Chromium dependency
+- [x] Stop after 5.20 (no Goal 5.21)
+
 ## Next
 
-- Goal 5.20 — Font validation/security (do not start until requested)
+- Goal 5.21 — Font conformance tests (do not start until requested)
 
