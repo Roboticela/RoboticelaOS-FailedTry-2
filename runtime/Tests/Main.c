@@ -90,6 +90,13 @@ void robo_test_register_graphics_framebuffer(void);
 void robo_test_register_graphics_surface(void);
 void robo_test_register_graphics_bitmap(void);
 void robo_test_register_graphics_geometry(void);
+void robo_test_register_graphics_line(void);
+void robo_test_register_graphics_path(void);
+void robo_test_register_graphics_transform(void);
+void robo_test_register_graphics_composite(void);
+void robo_test_register_graphics_raster(void);
+void robo_test_register_graphics_text(void);
+void robo_test_register_graphics_encode(void);
 
 int main(int argc, char **argv)
 {
@@ -217,5 +224,12 @@ int main(int argc, char **argv)
     robo_test_register_graphics_surface();
     robo_test_register_graphics_bitmap();
     robo_test_register_graphics_geometry();
+    robo_test_register_graphics_line();
+    robo_test_register_graphics_path();
+    robo_test_register_graphics_transform();
+    robo_test_register_graphics_composite();
+    robo_test_register_graphics_raster();
+    robo_test_register_graphics_text();
+    robo_test_register_graphics_encode();
     return robo_test_main(argc, argv);
 }

@@ -87,4 +87,5 @@ not applied — call `robo_gfx_rect_clip` first when geometry may leave the surf
 
 ## Deferred
 
-Lines, paths, floating transforms beyond the existing affine helpers, regions.
+Curves (construction), floating transforms beyond the affine API in
+`Transforms.md`, regions.

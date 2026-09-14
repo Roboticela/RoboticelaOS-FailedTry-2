@@ -19,7 +19,7 @@
  * INT32_MIN/MAX (never signed wrap). Prefer the _checked variants.
  *
  * Floating-point geometry uses the same axes; conversion helpers document
- * rounding. Lines / paths / full transforms are later goals.
+ * rounding. Path command model is Goal 6.8; full transforms / curves later.
  *
  * Chromium reference only (not a dependency): ui/gfx half-open Rect.
  */
@@ -95,6 +95,9 @@ typedef struct robo_gfx_rect_f {
  *   | m10 m11 m12 | × | y |
  *   |  0   0   1  |   | 1 |
  * Identity: m00=m11=1, others 0.
+ *
+ * multiply(A,B,out) → out = A*B; maps p as A*(B*p) (B first, then A).
+ * Full transform API (rotate/shear/inverse/map_rect/path): RoboGraphicsTransform.h
  */
 typedef struct robo_gfx_affine {
     float m00, m01, m02;

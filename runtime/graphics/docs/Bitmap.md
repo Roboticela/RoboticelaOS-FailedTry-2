@@ -44,7 +44,7 @@ Same format → bulk row copy. Different implemented formats → per-pixel
 
 ## Deferred (later goals)
 
-Lines, paths, transforms, compositing, views/sub-bitmaps, SIMD, GPU.
+Views/sub-bitmaps, SIMD, GPU. Paths/transforms/compositing: Goals 6.8–6.10.
 
 ## Thread safety
 

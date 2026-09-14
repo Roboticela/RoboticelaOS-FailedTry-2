@@ -1,7 +1,8 @@
 /*
  * RoboGraphics image abstraction (Goal 6.1).
  *
- * Images are format-agnostic containers. Decoding (PNG/JPEG/…) is later.
+ * Images are format-agnostic containers. Encoding of raster pixels is Goal
+ * 6.13 (RoboGraphicsEncode.h). Decoding (PNG/JPEG/…) remains later.
  * Goal 6.1: raster images backed by a surface, or metadata-only placeholders.
  */
 

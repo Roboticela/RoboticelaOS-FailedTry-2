@@ -1549,6 +1549,7 @@
 - Docs: `graphics/docs/Geometry.md` (+ coordinates / Bitmap / README)
 - Suite: `graphics/tests/SuiteRoboGraphicsGeometry.c` (`graphics.geom.*`)
 - Version **0.6.0**
+- Debug / Release / Sanitize `graphics.*`: **55/55**
 
 **Definition of done:**
 
@@ -1558,7 +1559,156 @@
 - [x] Tests + docs; no Chromium dependency
 - [x] Ready for Goal 6.7; stop after 6.6
 
+## Goal 6.7 — Lines
+
+**Status:** complete
+
+**Done:**
+
+- `robo_gfx_line_t` + `draw_line` / `draw_line_seg` on CPU surfaces
+- Inclusive one-pixel Bresenham (horizontal / vertical / diagonal / slopes)
+- Cohen–Sutherland clip to surface pixel bounds; fully outside → OK no-op
+- Color via Goal 6.2 pack (direct replace; no AA / blend / width)
+- Docs: `graphics/docs/Lines.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsLine.c` (`graphics.line.*`)
+- Version **0.7.0**
+- Debug / Release / Sanitize `graphics.*`: **64/64**
+
+**Definition of done:**
+
+- [x] Deterministic one-pixel lines; inclusive endpoints; single-point
+- [x] Clip / outside / formats / overflow-safe arithmetic
+- [x] Exact pixel tests; no Chromium dependency
+- [x] Ready for Goal 6.8; stop after 6.7
+
+## Goal 6.8 — Paths foundation
+
+**Status:** complete
+
+**Done:**
+
+- Owned `robo_gfx_path_t` with MoveTo / LineTo / Close command verbs
+- Extensible verb enum (Quad/Cubic reserved); subpath + Close semantics
+- Deterministic iteration (`command_at` / iter); exact AA bounds from points
+- Docs: `graphics/docs/Paths.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsPath.c` (`graphics.path.*`)
+- Version **0.8.0**
+- Debug / Release / Sanitize `graphics.*`: **75/75**
+
+**Definition of done:**
+
+- [x] Canonical path model; ownership via RoboMem; no rasterization
+- [x] Invalid LineTo rejected; Close no-op when no open contour
+- [x] Tests for construction, subpaths, iteration, bounds, lifecycle
+- [x] No Chromium dependency
+- [x] Ready for Goal 6.9; stop after 6.8
+
+## Goal 6.9 — Transforms
+
+**Status:** complete
+
+**Done:**
+
+- Canonical `robo_gfx_affine_t` 2D affine API: rotate / shear / compose / invert
+- Documented composition: `A*B` applies B then A; PreConcat / PostConcat
+- Map point (float + integer round), enclosing map_rect, path transform
+- Singular-matrix detection; exact 90° rotation matrices
+- Docs: `graphics/docs/Transforms.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsTransform.c` (`graphics.xform.*`)
+- Version **0.9.0**
+- Debug / Release / Sanitize `graphics.*`: **86/86**
+- RoboTest registry capacity raised to 1536 (suite exceeded 768)
+
+**Definition of done:**
+
+- [x] Identity / translate / scale / rotate / shear / compose / inverse
+- [x] Rect AABB + non-mutating path transform; no Chromium dependency
+- [x] Ready for Goal 6.10; stop after 6.9
+
+## Goal 6.10 — Alpha compositing
+
+**Status:** complete
+
+**Done:**
+
+- Straight-alpha source-over with premul blend intermediate
+- Global opacity; `mul_div255` rounding; premul/unpremul helpers
+- `composite_pixel` / `composite_rect` / `composite` with bounds clipping
+- Same-storage snapshot for safe self-compositing
+- Docs: `graphics/docs/Compositing.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsComposite.c` (`graphics.comp.*`)
+- Version **0.10.0**
+- Debug / Release / Sanitize `graphics.*`: **98/98** each (includes 12 `graphics.comp.*`)
+
+**Definition of done:**
+
+- [x] Deterministic src-over; format integration; clip safety
+- [x] Self-composite safe; no Chromium dependency
+- [x] Ready for Goal 6.11; stop after 6.10
+
+## Goal 6.11 — CPU raster backend
+
+**Status:** complete
+
+**Done:**
+
+- `robo_gfx_raster_t` immediate draw context (surface target, clip, opacity)
+- Pixel / fill_rect / clear / line via existing bitmap + Bresenham + src-over
+- `draw_line_clipped` extension for clip ∩ surface + optional blend
+- Path fill/stroke API boundary → `ROBO_NOT_SUPPORTED`
+- Docs: `graphics/docs/Raster.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsRaster.c` (`graphics.raster.*`)
+- Version **0.11.0**
+- Debug / Release / Sanitize `graphics.*`: **110/110** each (includes 12 `graphics.raster.*`)
+
+**Definition of done:**
+
+- [x] Deterministic CPU raster; clip safety; compositing integration
+- [x] Line algorithm preserved; no Chromium dependency
+- [x] Ready for Goal 6.12; stop after 6.11
+
+## Goal 6.12 — Text rendering bridge
+
+**Status:** complete
+
+**Done:**
+
+- Glyph-centric bridge: face + glyph id + size + baseline origin
+- Font↔device coordinate conversion (Y flip); scaled metrics from RoboFont
+- Outline → RoboGraphics path (MOVE/LINE/CLOSE; QUAD/CUBIC flattened)
+- `raster_draw_glyph` outline stroke (clip/opacity); MASK/ALPHA/COLOR reserved
+- Docs: `graphics/docs/TextBridge.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsText.c` (`graphics.text.*`)
+- Version **0.12.0**
+- Debug / Release / Sanitize `graphics.*`: **115/115** each (includes 5 `graphics.text.*`)
+- Font regression (`font.`): **183/183** (Debug)
+
+**Definition of done:**
+
+- [x] No shaping/bidi/fallback in graphics; RoboFont remains authoritative
+- [x] No Chromium dependency; RoboFont does not depend on RoboGraphics
+- [x] Ready for Goal 6.13; stop after 6.12
+
+## Goal 6.13 — Image output
+
+**Status:** complete
+
+**Done:**
+
+- Encode pipeline: surface → format convert → PNG/BMP → memory / sink
+- RGBA8 / RGB8 layouts; opaque RGB requires explicit background when source stores alpha
+- Self-contained deterministic PNG (filter 0 + zlib store); BMP24 / BMP32 BI_BITFIELDS
+- Full surface + region encode; image wrapper; sink boundary (no OS file API)
+- Docs: `graphics/docs/ImageOutput.md`
+- Suite: `graphics/tests/SuiteRoboGraphicsEncode.c` (`graphics.encode.*`)
+- Version **0.13.0**
+
+**Definition of done:**
+
+- [x] No decoding / JPEG / scaling / Chromium dependency
+- [x] Ready for Goal 6.14; stop after 6.13
+
 ## Next
 
-- Goal 6.7 — Lines (do not start until requested)
+- Goal 6.14 — Screenshot / framebuffer export (do not start until requested)
 

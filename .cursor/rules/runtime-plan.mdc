@@ -10,7 +10,7 @@ alwaysApply: true
 * **Phase 3 — Containers & Data Foundations:** complete ✅
 * **Phase 4 — Unicode & I18N:** complete through **4.27** (API frozen) ✅
 * **Phase 5 — RoboFont:** Goals **5.1–5.22** complete (API v1 frozen) ✅
-* **Phase 6 — RoboGraphics:** Goals **6.1–6.6** complete; **Next:** Goal **6.7**
+* **Phase 6 — RoboGraphics:** Goals **6.1–6.13** complete; **Next:** Goal **6.14**
 
 The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
 
@@ -49,13 +49,13 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 6.4 Surface/buffer abstraction ✅
 6.5 Basic bitmap operations ✅
 6.6 Pixels and rectangles ✅
-6.7 Lines
-6.8 Paths foundation
-6.9 Transforms
-6.10 Alpha compositing
-6.11 CPU raster backend
-6.12 Text rendering bridge
-6.13 Image output
+6.7 Lines ✅
+6.8 Paths foundation ✅
+6.9 Transforms ✅
+6.10 Alpha compositing ✅
+6.11 CPU raster backend ✅
+6.12 Text rendering bridge ✅
+6.13 Image output ✅
 6.14 Screenshot/framebuffer export
 6.15 Graphics tests
 

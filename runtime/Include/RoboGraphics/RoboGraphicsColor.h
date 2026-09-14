@@ -2,6 +2,8 @@
  * RoboGraphics color foundation (Goal 6.1).
  *
  * Goal 6.1 stores unassociated (straight) alpha unless noted.
+ * Goal 6.10 compositing uses the same straight storage; premul only as a
+ * blend intermediate (see RoboGraphicsComposite.h / Compositing.md).
  * Full color management (sRGB ↔ linear, HDR, ICC) is later.
  *
  * Integer channels: 0 = black/transparent, 255 = full for 8-bit.

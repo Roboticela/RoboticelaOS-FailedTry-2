@@ -1,11 +1,11 @@
-/* RoboGraphics version pin — Goals 6.1–6.6. */
+/* RoboGraphics version pin — Goals 6.1–6.13. */
 #ifndef ROBO_GRAPHICS_VERSION_H
 #define ROBO_GRAPHICS_VERSION_H
 
 #define ROBO_GRAPHICS_VERSION_MAJOR 0
-#define ROBO_GRAPHICS_VERSION_MINOR 6
+#define ROBO_GRAPHICS_VERSION_MINOR 13
 #define ROBO_GRAPHICS_VERSION_PATCH 0
-#define ROBO_GRAPHICS_VERSION_STRING "0.6.0"
+#define ROBO_GRAPHICS_VERSION_STRING "0.13.0"
 
 /** Public API is not frozen yet (Phase 6 in progress). */
 #define ROBO_GRAPHICS_API_FROZEN 0
