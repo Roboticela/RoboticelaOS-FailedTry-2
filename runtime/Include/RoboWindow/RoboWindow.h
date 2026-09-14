@@ -1,12 +1,13 @@
 /*
- * RoboWindow — platform-independent windowing (Goals 7.1–7.4).
+ * RoboWindow — platform-independent windowing (Goals 7.1–7.5).
  *
  * Dependency:
  *   RoboBase → RoboMem / RoboError → RoboGraphics → RoboDisplay → RoboWindow
- *     → Native Window Interface → presentation backend → future host/QEMU
+ *     → Native Window Interface → host/mock/null backend
  *
- * Goal 7.4 makes framebuffer/surface presentation functional through a
- * mock backend. Still no real OS windows or QEMU display output.
+ * Goal 7.5 adds real host native window creation (Win32 on Windows hosts)
+ * behind RoboWindowBackendHost. Guest ELF keeps the stub. Mock remains for
+ * headless tests. QEMU display and DPI scaling are later goals.
  *
  * Chromium Ozone / PlatformWindow are temporary technical reference only.
  *
@@ -77,6 +78,12 @@ robo_result_t robo_window_get_native_handle(robo_window_id_t id,
 
 int robo_window_id_is_live(robo_window_id_t id);
 size_t robo_window_live_count(void);
+
+/**
+ * Drain backend-native messages (minimal). Not a full event loop (Goal 7.9).
+ * Host Win32 peeks/dispatches so created windows stay responsive.
+ */
+robo_result_t robo_window_process_events(void);
 
 #ifdef __cplusplus
 }

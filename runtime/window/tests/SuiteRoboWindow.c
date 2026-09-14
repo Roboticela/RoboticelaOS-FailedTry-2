@@ -208,7 +208,7 @@ static void fixture_end(void)
 
 static void test_window_version_init(void)
 {
-    ROBO_CHECK_STR_EQ(robo_window_version_string(), "0.4.0");
+    ROBO_CHECK_STR_EQ(robo_window_version_string(), "0.5.0");
     ROBO_CHECK_EQ_INT(ROBO_WINDOW_API_FROZEN, 0);
     robo_window_shutdown();
     ROBO_CHECK(!robo_window_is_initialized());

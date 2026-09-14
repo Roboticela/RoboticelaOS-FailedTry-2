@@ -102,6 +102,7 @@ void robo_test_register_graphics_phase6(void);
 void robo_test_register_window(void);
 void robo_test_register_window_native(void);
 void robo_test_register_window_present(void);
+void robo_test_register_window_host(void);
 void robo_test_register_display(void);
 
 int main(int argc, char **argv)
@@ -242,6 +243,7 @@ int main(int argc, char **argv)
     robo_test_register_window();
     robo_test_register_window_native();
     robo_test_register_window_present();
+    robo_test_register_window_host();
     robo_test_register_display();
     return robo_test_main(argc, argv);
 }

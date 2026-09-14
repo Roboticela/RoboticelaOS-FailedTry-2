@@ -1,20 +1,22 @@
 # RoboWindow
 
-Platform-independent windowing for Roboticela Runtime (**Goals 7.1–7.4**).
+Platform-independent windowing for Roboticela Runtime (**Goals 7.1–7.5**).
 
-**Version:** 0.4.0 — framebuffer presentation (`ROBO_WINDOW_API_FROZEN=0`)
+**Version:** 0.5.0 — native host window creation (`ROBO_WINDOW_API_FROZEN=0`)
 
-RoboWindow must never depend on Chromium, Skia, Win32, X11, Wayland, Cocoa,
-SDL, GLFW, or Qt. Chromium Ozone / `PlatformWindow` may be consulted as a
-temporary technical reference only.
+Public RoboWindow must never depend on Chromium, Skia, SDL, GLFW, or Qt.
+OS headers (`windows.h`, etc.) are confined to `Source/RoboWindow/platform/*`.
+Chromium Ozone / `PlatformWindow` may be consulted as a temporary technical
+reference only.
 
 ## Layout
 
 | Path | Role |
 |---|---|
-| `runtime/Include/RoboWindow/` | Public API |
-| `runtime/Source/RoboWindow/` | Implementation |
-| `runtime/window/tests/` | Architecture + native + present tests |
+| `runtime/Include/RoboWindow/` | Public API (no OS headers) |
+| `runtime/Source/RoboWindow/` | Platform-independent implementation |
+| `runtime/Source/RoboWindow/platform/win32/` | Host Win32 backend (host tests only) |
+| `runtime/window/tests/` | Architecture / native / present / host tests |
 | `runtime/window/docs/` | Docs |
 
 ## Dependency
@@ -25,19 +27,21 @@ RoboBase → RoboMem / RoboError / RoboDebug
         → RoboDisplay
         → RoboWindow
              → Native Window Interface
-             → presentation backend (mock / future host / QEMU)
+             → null | mock | host (win32) backend
 ```
 
-## Goal 7.4 scope
+## Goal 7.5 scope
 
-Synchronous surface/framebuffer presentation through the backend vtable, with
-validation and a test mock. Still **no** real OS windows or QEMU display.
+Real native OS window creation on the Windows development host via
+`robo_window_backend_use_host()`. Guest ELF keeps a stub. Mock remains for
+headless CI. See [Host.md](docs/Host.md).
 
 ## Tests
 
 ```powershell
 .\runtime\Tools\Build.ps1 -Configuration Debug -Verify -Test -Filter "window."
+.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "window.host."
 .\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "window.present."
 ```
 
-See `docs/Present.md` and `docs/`.
+See `docs/Host.md`, `docs/Present.md`, and `docs/`.

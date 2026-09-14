@@ -12,7 +12,9 @@ Opaque native handle (token + generation)
 Future OS / QEMU backend
 ```
 
-Goal 7.2 does **not** create real Win32/X11/Wayland/Cocoa/SDL/GLFW windows.
+Goal 7.2 defines the abstract native interface. Goal 7.5 adds the first real
+host backend (`win32`) behind `RoboWindowBackendHost.h` — still without exposing
+HWND or `windows.h` through the public API. See [Host.md](Host.md).
 
 ## Opaque handle
 

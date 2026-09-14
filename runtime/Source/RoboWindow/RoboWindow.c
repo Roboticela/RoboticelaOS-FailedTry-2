@@ -276,6 +276,14 @@ robo_result_t robo_window_create(const robo_window_config_t *cfg,
     slot->state.fullscreen = cfg->fullscreen ? 1 : 0;
     slot->state.scale =
         (cfg->scale_preference > 0.0f) ? cfg->scale_preference : 1.0f;
+    if (cfg->x != ROBO_WINDOW_COORD_UNKNOWN) {
+        slot->state.x = cfg->x;
+        slot->state.requested_x = cfg->x;
+    }
+    if (cfg->y != ROBO_WINDOW_COORD_UNKNOWN) {
+        slot->state.y = cfg->y;
+        slot->state.requested_y = cfg->y;
+    }
     if (cfg->display_id != ROBO_DISPLAY_ID_NONE) {
         slot->state.display_id = cfg->display_id;
     } else if (robo_display_primary(&disp) == ROBO_OK) {
@@ -744,6 +752,26 @@ size_t robo_window_live_count(void)
         }
     }
     return n;
+}
+
+robo_result_t robo_window_process_events(void)
+{
+    robo_result_t r;
+    const robo_window_backend_vtbl_t *vtbl;
+    robo_window_backend_caps_t caps;
+
+    r = require_ready();
+    if (r != ROBO_OK) {
+        return r;
+    }
+    if (robo_window_backend_capabilities(&caps) != ROBO_OK || !caps.process_events) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    vtbl = robo_window_backend_vtbl();
+    if (!vtbl || !vtbl->process_events) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    return vtbl->process_events(robo_window_backend_userdata());
 }
 
 robo_result_t robo_window_set_present_surface(robo_window_id_t id,

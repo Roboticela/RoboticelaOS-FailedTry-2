@@ -19,7 +19,8 @@ RoboWindow API
       ├── Events               typed queue (push / poll)
       ├── Native handle        opaque uintptr_t token
       ├── Backend vtable       create/show/hide/present/process_events
-      └── Present              validate + sync present (Goal 7.4; mock only)
+      ├── Present              validate + sync present (Goal 7.4; mock / host stub)
+      └── Host backend         Win32 native create (Goal 7.5; platform/win32)
 ```
 
 ## Dependency direction
@@ -34,7 +35,7 @@ RoboGraphics (surfaces / geometry)
 RoboDisplay
    ↓
 RoboWindow
-   └── Backend interfaces → presentation (mock) / future native / QEMU
+   └── Backend interfaces → null / mock / host (win32) / future QEMU
 ```
 
 RoboWindow may include RoboGraphics headers. RoboGraphics must not depend on

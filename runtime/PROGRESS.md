@@ -1850,7 +1850,8 @@
 - Mock present backend with pixel-copy integrity checks (test-only)
 - Suite: `SuiteRoboWindowPresent.c` (`window.present.*`); version **0.4.0**
 - Docs: `Present.md`, Graphics/Capabilities/Native updates
-- Validation: present + window + display + graphics; Verify OK
+- Validation: `window.present.*` **9/9**; `window.*` **31/31**; `display.*` **12/12**;
+  `graphics.*` **143/143**; Verify Chromium/toolkit OK
 
 **Definition of done:**
 
@@ -1858,7 +1859,30 @@
 - [x] Phase 7.1–7.4 + graphics regression
 - [x] Ready for Goal 7.5; stop after 7.4
 
+## Goal 7.5 — Native window creation
+
+**Status:** complete
+
+**Done:**
+
+- Host selector API `RoboWindowBackendHost.h` (`use_host` / `host_available` / vtbl)
+- Win32 backend under `Source/RoboWindow/platform/win32/` (host-only; no OS headers in public API)
+- Real create/destroy/show/hide/title/size/position/query_state/focus; UTF-8→UTF-16 titles
+- Opaque native handle lifetime; create-thread affinity; min message pump via `robo_window_process_events`
+- Config `x`/`y` with `ROBO_WINDOW_COORD_UNKNOWN`; fullscreen/scale deferred with logs
+- Present remains `ROBO_NOT_SUPPORTED` on Win32 (Goal 7.4 mock path unchanged)
+- Suite `window.host.*` with headless skip + optional `ROBO_WINDOW_SMOKE=1`
+- Docs: `window/docs/Host.md`; version **0.5.0**
+
+**Definition of done:**
+
+- [x] Real native OS window on Windows host (not mock-only production path)
+- [x] Mock/null backends remain for tests
+- [x] No Chromium / SDL / GLFW / Qt
+- [x] Guest ELF builds without Win32
+- [x] Ready for Goal 7.6; stop after 7.5
+
 ## Next
 
-- Goal 7.5 — Window creation (do not start until requested)
+- Goal 7.6 — Window sizing (do not start until requested)
 

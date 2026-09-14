@@ -11,6 +11,8 @@ void robo_window_config_init(robo_window_config_t *cfg)
     memset(cfg, 0, sizeof(*cfg));
     cfg->width = 800;
     cfg->height = 600;
+    cfg->x = ROBO_WINDOW_COORD_UNKNOWN;
+    cfg->y = ROBO_WINDOW_COORD_UNKNOWN;
     cfg->visible = 1;
     cfg->resizable = 1;
     cfg->fullscreen = 0;

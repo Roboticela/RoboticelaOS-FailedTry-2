@@ -36,7 +36,8 @@ typedef struct robo_window_backend_vtbl {
 
     /**
      * Create native resources for @p id.
-     * May leave handle empty (null backend). Must not invent real OS windows.
+     * Null/mock backends may leave the handle empty. Host backends create a
+     * real OS window and assign a valid opaque handle.
      */
     robo_result_t (*create_window)(void *userdata,
                                    robo_window_id_t id,

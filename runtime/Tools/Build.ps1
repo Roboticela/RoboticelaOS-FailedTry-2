@@ -171,7 +171,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboWindow\RoboWindowBackend.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowNative.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowThread.c"),
-    (Join-Path $SourceDir "RoboWindow\RoboWindowPresent.c")
+    (Join-Path $SourceDir "RoboWindow\RoboWindowPresent.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowBackendHost.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -257,6 +258,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindow.c"),
     (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowNative.c"),
     (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowPresent.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowHost.c"),
     (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplay.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -397,7 +399,8 @@ function Assert-RoboWindowChromiumIndependence {
         $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
             Select-String -Pattern $pat -SimpleMatch:$false |
             Where-Object {
-                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency'
+                $_.Path -notmatch '(?i)[/\\]platform[/\\]win32[/\\]' -and
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency|platform/win32'
             }
         if ($hits) {
             $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
@@ -496,7 +499,8 @@ $hostFlags = @(
     "-Wall", "-Wextra", "-Werror",
     "-I", $IncludeDir,
     "-I", $FrameworkDir,
-    "-D_CRT_SECURE_NO_WARNINGS"
+    "-D_CRT_SECURE_NO_WARNINGS",
+    "-DROBO_WINDOW_HAS_WIN32=1"
 )
 
 $BidiConfPath = (Join-Path $TestsDir "Data\robo_bidi_character_conformance.bin") -replace "\\", "/"
@@ -641,8 +645,9 @@ if ($Verify) {
 
 # --- Host test executable (framework + suites; does not ship in production) ---
 Write-Host "HOST   building $HostTest"
-$hostSrcs = $ProdSrcs + @($TestFrameworkSrc, $TestMainSrc) + $SuiteSrcs
-& $clang @hostFlags -o $HostTest @hostSrcs
+$Win32BackendSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowBackendWin32.c"
+$hostSrcs = $ProdSrcs + @($Win32BackendSrc, $TestFrameworkSrc, $TestMainSrc) + $SuiteSrcs
+& $clang @hostFlags -o $HostTest @hostSrcs "-luser32" "-lgdi32"
 if ($LASTEXITCODE -ne 0) { throw "Host RoboTest compile failed" }
 Write-Host "Build OK: $HostTest (tests only)"
 
