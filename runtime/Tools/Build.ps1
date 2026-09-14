@@ -138,7 +138,17 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboFont\RoboFontVariation.c"),
     (Join-Path $SourceDir "RoboFont\RoboFontColor.c"),
     (Join-Path $SourceDir "RoboFont\RoboFontValidate.c"),
-    (Join-Path $SourceDir "RoboFont\RoboFontConformance.c")
+    (Join-Path $SourceDir "RoboFont\RoboFontConformance.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsGeometry.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsColor.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsPixelFormat.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsFramebuffer.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsSurface.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsImage.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsFrame.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsBackend.c"),
+    (Join-Path $SourceDir "RoboGraphics\RoboGraphicsCapabilities.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -206,6 +216,9 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontValidate.c"),
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontConformance.c"),
     (Join-Path $RuntimeRoot "font\tests\SuiteRoboFontPhase5.c"),
+    (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphics.c"),
+    (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsPixelFormat.c"),
+    (Join-Path $RuntimeRoot "graphics\tests\SuiteRoboGraphicsFramebuffer.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -309,6 +322,28 @@ function Assert-RoboFontChromiumIndependence {
         }
     }
     Write-Host "RoboFont Chromium-independence source scan: OK"
+}
+
+function Assert-RoboGraphicsChromiumIndependence {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboGraphics"),
+        (Join-Path $RuntimeRoot "Source\RoboGraphics"),
+        (Join-Path $RuntimeRoot "graphics")
+    )
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|vulkan|GL/gl|d3d1[12]|Metal/Metal)|third_party[/\\](chromium|skia)|\bnamespace\s+(blink|skia)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboGraphics Chromium/Skia/GPU API dependency leaked into sources:`n$sample"
+        }
+    }
+    Write-Host "RoboGraphics Chromium-independence source scan: OK"
 }
 
 function Test-ElfFile([string]$Path) {
@@ -515,6 +550,7 @@ Write-Host "OK   no Chromium paths"
 
 if ($Verify) {
     Assert-RoboFontChromiumIndependence
+    Assert-RoboGraphicsChromiumIndependence
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 

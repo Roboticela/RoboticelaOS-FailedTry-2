@@ -84,6 +84,9 @@ void robo_test_register_font_color(void);
 void robo_test_register_font_validate(void);
 void robo_test_register_font_conformance(void);
 void robo_test_register_font_phase5(void);
+void robo_test_register_graphics(void);
+void robo_test_register_graphics_pixel_format(void);
+void robo_test_register_graphics_framebuffer(void);
 
 int main(int argc, char **argv)
 {
@@ -205,5 +208,8 @@ int main(int argc, char **argv)
     robo_test_register_font_validate();
     robo_test_register_font_conformance();
     robo_test_register_font_phase5();
+    robo_test_register_graphics();
+    robo_test_register_graphics_pixel_format();
+    robo_test_register_graphics_framebuffer();
     return robo_test_main(argc, argv);
 }

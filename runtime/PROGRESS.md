@@ -1418,7 +1418,78 @@
 - [x] Conformance + sanitizer + Chromium-independence gates
 - [x] Stop after 5.22 (do not begin Phase 6 / Goal 6.1)
 
+## Goal 6.1 — RoboGraphics Architecture
+
+**Status:** complete
+
+**Done:**
+
+- Public headers under `Include/RoboGraphics/` (geometry, color, pixel format, surface, image, frame, backend, capabilities)
+- CPU-owned / borrowed surfaces via RoboMem; image + frame metadata
+- Backend / presentation boundary stubs; capability query
+- Docs: `graphics/README.md`, `docs/architecture|ownership|threading|coordinates|backend.md`
+- Suite: `graphics/tests/SuiteRoboGraphics.c` (`graphics.*`)
+- Version **0.1.0**; Chromium-independence Verify scan for RoboGraphics
+- Designed for short path to pixels → framebuffer → RoboWindow / QEMU
+- Debug / Release / Sanitize `graphics.*`: **11/11**
+
+**Definition of done:**
+
+- [x] Coherent independent graphics architecture
+- [x] Core types compile and test headlessly
+- [x] Ownership / threading / coordinates / backends documented
+- [x] No Chromium / Skia / GPU API dependency
+- [x] Ready for Goal 6.2; stop after 6.1
+
+## Goal 6.2 — Pixel Formats
+
+**Status:** complete
+
+**Done:**
+
+- Implemented formats: RGBA8, BGRA8, RGB8, GRAY8, ALPHA8 (explicit byte layouts)
+- Metadata: channels, bpp, alpha, grayscale, normalized-int, byte-addressable, implemented flag
+- Safe row/buffer/offset helpers with overflow detection
+- Pack / unpack / convert via straight `robo_gfx_color_rgba8_t`
+- Documented conversion + luminance rules (`docs/PixelFormats.md`)
+- Suite: `graphics/tests/SuiteRoboGraphicsPixelFormat.c` (`graphics.pf.*`)
+- Version **0.2.0**
+- Debug / Release / Sanitize `graphics.*`: **20/20**
+
+**Definition of done:**
+
+- [x] Clean pixel-format abstraction with explicit channel order
+- [x] Bytes-per-pixel, stride, offsets, overflow handling
+- [x] Deterministic conversions; RoboError integration
+- [x] Tests + docs; no Chromium dependency
+- [x] Stop after 6.2 (do not begin 6.3)
+
+## Goal 6.3 — Framebuffer Abstraction
+
+**Status:** complete
+
+**Done:**
+
+- `robo_gfx_framebuffer_t`: owned (RoboMem, zero-filled) + borrowed external storage
+- Explicit stride; default = Goal 6.2 minimum row bytes
+- Overflow-safe `stride × height` sizing via pixel-format helpers
+- Bounds-checked `row` / `pixel` / `pixel_offset` addressing
+- Ownership retain/release; no double-free; OOM cleans up partial create
+- Docs: `graphics/docs/Framebuffer.md` (+ README / architecture / ownership / threading)
+- Suite: `graphics/tests/SuiteRoboGraphicsFramebuffer.c` (`graphics.fb.*`)
+- Version **0.3.0**
+- Debug / Release / Sanitize `graphics.*`: **31/31**
+
+**Definition of done:**
+
+- [x] Working framebuffer abstraction with owned CPU storage
+- [x] Width/height validation; pixel-format integration; explicit stride
+- [x] Overflow-safe size; row/pixel addressing; bounds checks; zero init
+- [x] RoboMem / RoboError / lifetime correct; thread-safety documented
+- [x] Tests + docs; no Chromium dependency
+- [x] Ready for Goal 6.4; stop after 6.3
+
 ## Next
 
-- Phase 6 — Goal 6.1 (do not start until requested)
+- Goal 6.4 — Surface/Buffer abstraction (do not start until requested)
 
