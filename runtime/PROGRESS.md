@@ -2111,7 +2111,38 @@
 - [x] No Chromium deps; Phase 8 not started
 - [x] Stop after 7.15
 
+## Goal 8.1 — RoboHTML architecture
+
+**Status:** complete
+
+**Done:**
+
+- RoboHTML module boundary: `Include/RoboHTML/` (14 public headers) + `Source/RoboHTML/` (13 translation units); independently buildable, listed in `Build.ps1` with its own Chromium/higher-layer independence scan
+- Document architecture: create / empty state / attach-detach / mark-ready / mark-failed / destroy; fixed slot table (`ROBO_HTML_MAX_DOCUMENTS`); monotonic ids, never reused
+- Document lifecycle state machine: uninitialized → created → loading → ready → failed → destroying → destroyed; deterministic invalid-transition errors
+- Node identity & lifetime: generation-guarded handles `(document, node, generation)`; document-owned registry; stale-handle detection; root document node registered at creation
+- Parser boundary: exclusive document lease, COMPLETE/INCREMENTAL input modes, idle/feeding/complete/failed/detached states; no tokenizer logic
+- Source/input abstraction: empty / memory / string / stream kinds, borrowing-only view, declared-encoding + name metadata
+- Encoding boundary: label table (UTF-8, UTF-16LE/BE, UTF-16, windows-1252, Shift_JIS), declared/actual/status state; no decoding yet
+- Resource/loading boundary: delegated acquisition slot (`begin`/`end`/`cancel`); zero network code in RoboHTML
+- Client/render integration hooks (lifecycle + invalidation) and mutation hook foundation; DOM capability stubs (all off in 8.1)
+- Diagnostics: `robo_html_diag_t` with 10 HTML diagnostic domains on top of shared `robo_result_t`
+- Suites `html.*` + acceptance `html.p8.*` (25 tests); docs `html/README.md`, `html/docs/Architecture.md`
+- RoboHTML **0.1.0** (`ROBO_HTML_API_FROZEN=0`)
+
+**Definition of done:**
+
+- [x] Public/private boundary established; module builds and tests independently
+- [x] A future tokenizer can feed a future tree builder through the defined parser boundary
+- [x] A future tree builder can construct the tree without redesigning document ownership
+- [x] Future DOM has a clear home (`RoboHTMLDom.h` boundary; DOM phase module)
+- [x] Future CSS/layout/paint integration has a clean one-way boundary (`RoboHTMLClient.h`)
+- [x] Future RoboNetwork integration needs no RoboHTML↔network coupling (`RoboHTMLResource.h`)
+- [x] Lifecycle and ownership explicit and testable
+- [x] No Chromium dependency; full regression suite green
+- [x] Stop after 8.1
+
 ## Next
 
-- Phase 8 — Minimal RoboHTML & DOM (do not start until requested)
+- Goal 8.2 — HTML tokenizer (do not start until requested)
 

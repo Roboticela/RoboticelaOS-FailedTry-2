@@ -81,8 +81,8 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 
 # Phase 8 — Minimal RoboHTML & DOM
 
-8.1 HTML architecture
-8.2 HTML tokenizer
+8.1 HTML architecture ✅
+8.2 HTML tokenizer ✅
 8.3 HTML tree builder
 8.4 Document model
 8.5 Element model

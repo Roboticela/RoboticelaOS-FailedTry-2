@@ -114,6 +114,14 @@ void robo_test_register_window_phase7(void);
 void robo_test_register_display(void);
 void robo_test_register_display_scale(void);
 void robo_test_register_display_host(void);
+void robo_test_register_html(void);
+void robo_test_register_html_document(void);
+void robo_test_register_html_parser(void);
+void robo_test_register_html_hooks(void);
+void robo_test_register_html_phase8(void);
+void robo_test_register_html_token(void);
+void robo_test_register_html_charref(void);
+void robo_test_register_html_tokenizer_states(void);
 
 int main(int argc, char **argv)
 {
@@ -265,5 +273,13 @@ int main(int argc, char **argv)
     robo_test_register_display();
     robo_test_register_display_scale();
     robo_test_register_display_host();
+    robo_test_register_html();
+    robo_test_register_html_document();
+    robo_test_register_html_parser();
+    robo_test_register_html_hooks();
+    robo_test_register_html_phase8();
+    robo_test_register_html_token();
+    robo_test_register_html_charref();
+    robo_test_register_html_tokenizer_states();
     return robo_test_main(argc, argv);
 }

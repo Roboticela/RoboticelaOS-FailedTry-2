@@ -183,7 +183,24 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboWindow\RoboWindowGraphics.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowSize.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowBackendHost.c"),
-    (Join-Path $SourceDir "RoboWindow\platform\qemu\RoboWindowBackendQemu.c")
+    (Join-Path $SourceDir "RoboWindow\platform\qemu\RoboWindowBackendQemu.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTML.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLTypes.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLDiagnostics.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLLifecycle.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLSource.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLEncoding.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLNode.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLDom.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLElement.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLClient.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLResource.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLParser.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLDocument.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLToken.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLCharRefData.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLCharRef.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLTokenizer.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -281,6 +298,14 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplay.c"),
     (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplayScale.c"),
     (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplayHost.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTML.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLDocument.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLParser.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLHooks.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLPhase8.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLToken.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLCharRef.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTokenizerStates.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -431,6 +456,30 @@ function Assert-RoboWindowChromiumIndependence {
         }
     }
     Write-Host "RoboWindow Chromium-independence source scan: OK"
+}
+
+function Assert-RoboHTMLChromiumIndependence {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboHTML"),
+        (Join-Path $SourceDir "RoboHTML"),
+        (Join-Path $RuntimeRoot "html")
+    )
+    # RoboHTML must stay independent of Chromium AND of higher runtime
+    # layers (CSS/layout/paint/render/window/graphics) per DEPENDENCIES.md.
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCSS|RoboLayout|RoboPaint|RoboRender|RoboCompositor|RoboWindow|RoboGraphics|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|not a dependency|RoboCSS/|RoboWindow/|RoboGraphics/|RoboDisplay/'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboHTML Chromium/higher-layer dependency leaked into sources:`n$sample"
+        }
+    }
+    Write-Host "RoboHTML Chromium-independence source scan: OK"
 }
 
 function Assert-RoboDisplayChromiumIndependence {
@@ -667,6 +716,7 @@ if ($Verify) {
     Assert-RoboGraphicsChromiumIndependence
     Assert-RoboWindowChromiumIndependence
     Assert-RoboDisplayChromiumIndependence
+    Assert-RoboHTMLChromiumIndependence
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 
