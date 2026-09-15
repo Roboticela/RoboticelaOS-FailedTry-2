@@ -6,13 +6,20 @@
  * WHATWG entities.json dump — the full table can be generated later from
  * the same structure without changing the lookup code).
  *
- * Entries are ASCII-lowercase, UNIQUE PREFIX-FREE sorted by name so a
- * single linear scan can find both exact matches and the longest prefix
- * match in one pass. `codepoints[0] == 0` marks a two-code-point entry
- * (legacy windowed semicolonless forms such as &notin → ¬+U+203E are NOT
- * included; Roboticela emits the base character plus a diagnostic).
+ * Entry names are the ASCII spelling *without* the leading '&' and
+ * including the trailing ';' when the reference requires one, so both
+ * legacy semicolonless forms ("amp") and terminated forms ("amp;") are
+ * separate entries. Matching is byte-wise, therefore mixed-case names
+ * ("Dagger", "OElig") are case-sensitive exactly as the catalogue spells
+ * them.
  *
- * Keep sorted: RoboHTMLCharRef.c relies on it (asserted by a test).
+ * Name order carries NO meaning: the catalogue is grouped by category and
+ * the engine (RoboHTMLCharRef.c) selects the longest matching name itself.
+ * A non-zero `cp2` marks a two-code-point expansion (e.g. "NotEqualTilde;"
+ * → U+2242 U+0338).
+ *
+ * The catalogue is a curated subset of the WHATWG named references; it can
+ * grow to the full set without changing the lookup contract.
  */
 #ifndef ROBO_HTML_CHAR_REF_DATA_H
 #define ROBO_HTML_CHAR_REF_DATA_H

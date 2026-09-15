@@ -26,6 +26,13 @@
  * decoded-text input). Ill-formed UTF-8 sequences are emitted as U+FFFD
  * replacement characters via RoboUnicode REPLACE mode and recorded as a
  * diagnostic — never read out of bounds, never fatal.
+ *
+ * Input completeness: Phase 8.2 takes the whole source at create time
+ * (COMPLETE input). The machine itself is re-entrant — every next() call
+ * resumes from the stored state and cursor, and `reset()` returns to the
+ * start — so a future incremental/chunked provider (Goal 8.2+ / parser
+ * MODE_INCREMENTAL) can grow the source between calls without redesigning
+ * the states or the token contract. No streaming/network input exists yet.
  */
 
 #ifndef ROBO_HTML_TOKENIZER_H
@@ -74,7 +81,10 @@ robo_result_t robo_html_tokenizer_next(robo_html_tokenizer_t *tok,
 
 /**
  * Copy the current token's tag name into @p out (ASCII-lowercased,
- * NUL-terminated). Capacity must be > 0. Value of a non-tag token is "".
+ * NUL-terminated). Capacity must be > 0. A non-tag token copies "".
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p tok / @p out or zero
+ *         capacity; ROBO_NOT_SUPPORTED when the name does not fit (never
+ *         truncated).
  */
 robo_result_t robo_html_token_copy_tag_name(const robo_html_token_t *tok,
                                             char *out,

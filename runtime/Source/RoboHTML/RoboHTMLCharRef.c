@@ -1,8 +1,9 @@
 /*
  * Character-reference engine (Phase 8.2).
  *
- * Named references: longest-prefix match over the static sorted table
- * (one linear pass finds both the exact and the longest prefix match).
+ * Named references: longest-match scan over the static catalogue
+ * (RoboHTMLCharRefData.c; the table is a curated, category-grouped set, so
+ * the match is chosen by name length rather than table position).
  * Semicolonless named forms are accepted when they are table entries
  * (the standard's legacy list); inside attribute values a semicolonless
  * match is rejected when the next character is '=' or alphanumeric — the
@@ -44,6 +45,16 @@ uint32_t robo_html_charref_map_value(uint32_t value,
             *err = ROBO_HTML_CHARREF_OUT_OF_RANGE; /* legacy remap, still odd */
         }
         return g_c1_remap[value - 0x80u];
+    }
+    /* Control-character reference: a parse error, but the standard keeps
+     * the referenced code point (ASCII whitespace and 0x0D included). */
+    if ((value < 0x20u && value != 0x09u && value != 0x0Au && value != 0x0Cu &&
+         value != 0x0Du) ||
+        value == 0x7Fu) {
+        if (err && *err == ROBO_HTML_CHARREF_OK) {
+            *err = ROBO_HTML_CHARREF_OUT_OF_RANGE;
+        }
+        return value;
     }
     return value;
 }
@@ -197,15 +208,33 @@ int robo_html_charref_expand(const char *bytes,
     if (name_char(bytes[pos])) {
         /* --- named -------------------------------------------------------- */
         const robo_html_charref_entry_t *best = NULL;
+        size_t best_len = 0u;
         size_t i;
 
+        /*
+         * Longest-match rule over the whole catalogue. The table is a
+         * curated set grouped by category, so its order carries no meaning
+         * and the winner is selected by name length: "&amp;" must beat
+         * "&amp" wherever either sits. The first-byte comparison is a
+         * cheap necessary condition for a prefix match.
+         */
         for (i = 0u; i < robo_html_charref_table_size; i++) {
             const robo_html_charref_entry_t *e = &robo_html_charref_table[i];
-            if (e->name[0] > bytes[pos]) {
-                break; /* sorted table: nothing later can prefix-match */
+            size_t nlen;
+
+            if (e->name[0] != bytes[pos]) {
+                continue;
             }
-            if (table_name_matches(e, bytes, length, pos)) {
-                best = e; /* keep the longest (later entries extend prefixes) */
+            if (!table_name_matches(e, bytes, length, pos)) {
+                continue;
+            }
+            nlen = 0u;
+            while (e->name[nlen] != '\0') {
+                nlen++;
+            }
+            if (nlen > best_len) {
+                best = e;
+                best_len = nlen;
             }
         }
         if (!best) {

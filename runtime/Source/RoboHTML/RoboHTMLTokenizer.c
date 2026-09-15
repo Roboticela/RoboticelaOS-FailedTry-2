@@ -111,13 +111,20 @@ static void diag(robo_html_tokenizer_t *t,
                                t->line, t->column);
 }
 
+static void snapshot_pos(robo_html_tokenizer_t *t)
+{
+    t->tok_start_offset = t->pos;
+    t->tok_start_line = t->line;
+    t->tok_start_col = t->column;
+}
+
 static void token_begin(robo_html_tokenizer_t *t, robo_html_token_kind_t kind)
 {
     robo_html_token_init(&t->token);
     t->token.kind = kind;
     t->token.pos.offset = t->tok_start_offset;
-    t->token.pos.line = t->line;
-    t->token.pos.column = t->column;
+    t->token.pos.line = t->tok_start_line;
+    t->token.pos.column = t->tok_start_col;
 }
 
 /* Mark a finished token's end position as its start (kept lightweight). */
@@ -147,33 +154,14 @@ static void set_current_attr_value_cp(robo_html_tokenizer_t *t, uint32_t cp)
     }
 }
 
-/* Duplicate-attribute rule: first wins; later duplicates are dropped and
- * reported (HTML duplicate-attribute parse error). Compares current_attr's
- * name against entries[0..upto). */
-static int attr_name_is_duplicate(robo_html_tokenizer_t *t, size_t upto)
+static int is_ascii_letter(char c)
 {
-    size_t i;
-    size_t j;
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
 
-    if (!t->current_attr) {
-        return 0;
-    }
-    for (i = 0u; i < upto; i++) {
-        const robo_html_token_buffer_t *a = &t->attrs.entries[i].name;
-        const robo_html_token_buffer_t *b = &t->current_attr->name;
-        if (a->length != b->length) {
-            continue;
-        }
-        for (j = 0u; j < a->length; j++) {
-            if (a->data[j] != b->data[j]) {
-                break;
-            }
-        }
-        if (j == a->length) {
-            return 1;
-        }
-    }
-    return 0;
+static int is_ascii_name_char(char c)
+{
+    return is_ascii_letter(c) || (c >= '0' && c <= '9');
 }
 
 /* ------------------------------------------------------------------ */
@@ -214,7 +202,7 @@ static void consume_charref(robo_html_tokenizer_t *t,
                  "character reference value out of range (mapped)");
         }
     } else {
-        /* Literal '&'. */
+        /* Literal '&' (the following bytes re-enter the normal scan). */
         if (buf) {
             (void)robo_html_token_buffer_append_byte(buf, '&');
         } else {
@@ -223,6 +211,8 @@ static void consume_charref(robo_html_tokenizer_t *t,
         robo_html_tok_advance(t);
         if (robo_html_tok_peek(t) == '#') {
             diag(t, ROBO_PARSE_ERROR, "invalid numeric character reference");
+        } else if (is_ascii_name_char(robo_html_tok_peek(t))) {
+            diag(t, ROBO_PARSE_ERROR, "unknown character reference");
         }
     }
 }
@@ -253,16 +243,40 @@ static tok_result_t st_markup_declaration_open(robo_html_tokenizer_t *t);
 static tok_result_t st_comment_body(robo_html_tokenizer_t *t);
 static tok_result_t st_doctype_name(robo_html_tokenizer_t *t);
 static tok_result_t st_doctype_after_name(robo_html_tokenizer_t *t);
+static tok_result_t st_before_doctype_public_id(robo_html_tokenizer_t *t);
+static tok_result_t st_before_doctype_system_id(robo_html_tokenizer_t *t);
 static tok_result_t st_bogus_doctype(robo_html_tokenizer_t *t);
 static tok_result_t st_bogus_comment(robo_html_tokenizer_t *t);
 static tok_result_t st_rawtext_like(robo_html_tokenizer_t *t);
 
+/**
+ * Emit a stable EOF token. Used both for clean end-of-input and as the
+ * recovery when EOF is reached inside a markup state (the partially
+ * accumulated tag/comment content is dropped with a diagnostic).
+ */
+static tok_result_t emit_eof_token(robo_html_tokenizer_t *t)
+{
+    token_begin(t, ROBO_HTML_TOKEN_EOF);
+    token_finish(t);
+    t->at_eof = 1;
+    t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+    return TOK_EMIT;
+}
+
 static tok_result_t emit_char_token(robo_html_tokenizer_t *t,
-                                    robo_html_token_buffer_t *buf)
+                                    robo_html_token_buffer_t *run)
 {
     token_begin(t, ROBO_HTML_TOKEN_CHARACTER);
-    t->token.u.characters.data = buf->data ? buf->data : "";
-    t->token.u.characters.length = buf->length;
+    /* The token borrows the character bytes: move the run into the
+     * tokenizer-owned chars buffer so the data stays valid until the next
+     * character emission / reset / destroy (borrowed-token contract). */
+    robo_html_token_buffer_free(&t->chars);
+    t->chars = *run;
+    run->data = NULL;
+    run->length = 0u;
+    run->capacity = 0u;
+    t->token.u.characters.data = t->chars.data ? t->chars.data : "";
+    t->token.u.characters.length = t->chars.length;
     token_finish(t);
     return TOK_EMIT;
 }
@@ -277,28 +291,48 @@ static tok_result_t st_data(robo_html_tokenizer_t *t)
     char c;
 
     robo_html_token_buffer_init(&run);
-    t->tok_start_offset = t->pos;
+    snapshot_pos(t);
 
-    while ((c = robo_html_tok_peek(t)) != '\0' || t->pos < t->length) {
-        if (t->pos >= t->length) {
-            break;
-        }
+    while (t->pos < t->length) {
+        c = robo_html_tok_peek(t);
         if (c == '&') {
             consume_charref(t, &run, 0);
             continue;
         }
         if (c == '<') {
-            if (run.length > 0u) {
-                tok_result_t r = emit_char_token(t, &run);
-                robo_html_token_buffer_free(&run);
-                /* Keep cursor on '<'; next next() re-enters data. */
-                t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            /* Markup only when the next byte opens a construct: '!', '/',
+             * '?', or a tag-name letter. Otherwise '<' is literal text
+             * ("a < b" stays one character run). */
+            char n = robo_html_tok_peek_ahead(t, 1);
+            if (n == '!' || n == '/' || n == '?' || is_ascii_letter(n)) {
+                robo_html_tokenizer_state_t next_state =
+                    (n == '/') ? ROBO_HTML_TOKENIZER_STATE_END_TAG_OPEN
+                    : (n == '!')
+                          ? ROBO_HTML_TOKENIZER_STATE_MARKUP_DECLARATION_OPEN
+                          : ROBO_HTML_TOKENIZER_STATE_TAG_OPEN;
+                tok_result_t r = TOK_CONTINUE;
+                if (run.length > 0u) {
+                    r = emit_char_token(t, &run); /* steals run */
+                } else {
+                    robo_html_token_buffer_free(&run);
+                }
+                snapshot_pos(t); /* the '<' begins the markup token */
+                /* Consume '<' and, for the two states that are defined
+                 * *after* their introducer, that introducer too: the
+                 * classic tag-open hand-off. END_TAG_OPEN expects the
+                 * cursor at the tag name (past "</") and
+                 * MARKUP_DECLARATION_OPEN past "<!" (it matches
+                 * "doctype" / "--" / "[CDATA[" at the cursor). */
+                robo_html_tok_advance(t); /* consume '<' */
+                if (n == '/' || n == '!') {
+                    robo_html_tok_advance(t); /* consume '/' or '!' */
+                }
+                t->state = next_state;
                 return r;
             }
-            robo_html_tok_advance(t); /* consume '<' */
-            t->state = ROBO_HTML_TOKENIZER_STATE_TAG_OPEN;
-            robo_html_token_buffer_free(&run);
-            return TOK_CONTINUE;
+            (void)robo_html_token_buffer_append_byte(&run, '<');
+            robo_html_tok_advance(t);
+            continue;
         }
         if (c == '\r') {
             /* CR normalization: emit LF; swallow a following LF. */
@@ -340,19 +374,13 @@ static tok_result_t st_data(robo_html_tokenizer_t *t)
         robo_html_tok_advance(t);
     }
 
+    /* EOF: flush the run if non-empty, else end the stream. */
     if (run.length > 0u) {
-        tok_result_t r = emit_char_token(t, &run);
-        robo_html_token_buffer_free(&run);
-        t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
-        return r;
+        /* emit_char_token steals the run storage. */
+        return emit_char_token(t, &run);
     }
     robo_html_token_buffer_free(&run);
-    /* EOF. */
-    t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
-    token_begin(t, ROBO_HTML_TOKEN_EOF);
-    token_finish(t);
-    t->at_eof = 1;
-    return TOK_EMIT;
+    return emit_eof_token(t);
 }
 
 /* ------------------------------------------------------------------ */
@@ -363,7 +391,6 @@ static tok_result_t st_tag_open(robo_html_tokenizer_t *t)
 {
     char c = robo_html_tok_peek(t);
 
-    t->tok_start_offset = (t->pos > 0u) ? t->pos - 1u : 0u;
     if (c == '!') {
         robo_html_tok_advance(t);
         t->state = ROBO_HTML_TOKENIZER_STATE_MARKUP_DECLARATION_OPEN;
@@ -375,6 +402,7 @@ static tok_result_t st_tag_open(robo_html_tokenizer_t *t)
         return TOK_CONTINUE;
     }
     if (c >= 'A' && c <= 'Z') {
+        t->tag_is_end = 0;
         robo_html_token_buffer_clear(&t->text);
         (void)robo_html_token_buffer_append_byte(&t->text,
                                                  robo_html_tok_ascii_lower(c));
@@ -383,6 +411,7 @@ static tok_result_t st_tag_open(robo_html_tokenizer_t *t)
         return TOK_CONTINUE;
     }
     if (c >= 'a' && c <= 'z') {
+        t->tag_is_end = 0;
         robo_html_token_buffer_clear(&t->text);
         (void)robo_html_token_buffer_append_byte(&t->text, c);
         robo_html_tok_advance(t);
@@ -427,24 +456,20 @@ static tok_result_t st_end_tag_open(robo_html_tokenizer_t *t)
     char c = robo_html_tok_peek(t);
 
     if (c >= 'A' && c <= 'Z') {
-        robo_html_token_pool_clear(&t->attrs);
-        t->current_attr = NULL;
+        t->tag_is_end = 1;
         robo_html_token_buffer_clear(&t->text);
         (void)robo_html_token_buffer_append_byte(&t->text,
                                                  robo_html_tok_ascii_lower(c));
         robo_html_tok_advance(t);
         t->state = ROBO_HTML_TOKENIZER_STATE_TAG_NAME;
-        t->token.kind = ROBO_HTML_TOKEN_END_TAG; /* pending flavor */
         return TOK_CONTINUE;
     }
     if (c >= 'a' && c <= 'z') {
-        robo_html_token_pool_clear(&t->attrs);
-        t->current_attr = NULL;
+        t->tag_is_end = 1;
         robo_html_token_buffer_clear(&t->text);
         (void)robo_html_token_buffer_append_byte(&t->text, c);
         robo_html_tok_advance(t);
         t->state = ROBO_HTML_TOKENIZER_STATE_TAG_NAME;
-        t->token.kind = ROBO_HTML_TOKEN_END_TAG;
         return TOK_CONTINUE;
     }
     if (c == '>') {
@@ -462,35 +487,13 @@ static tok_result_t st_end_tag_open(robo_html_tokenizer_t *t)
 
 static tok_result_t emit_tag_token(robo_html_tokenizer_t *t)
 {
-    token_begin(t, t->token.kind == ROBO_HTML_TOKEN_END_TAG
-                       ? ROBO_HTML_TOKEN_END_TAG
-                       : ROBO_HTML_TOKEN_START_TAG);
+    token_begin(t, t->tag_is_end ? ROBO_HTML_TOKEN_END_TAG
+                                 : ROBO_HTML_TOKEN_START_TAG);
     t->token.u.tag.name = t->text.data ? t->text.data : "";
     t->token.u.tag.attr_count = t->attrs.count;
-    t->token.u.tag.self_closing = 0;
-    if (t->attrs.count > 0u) {
-        size_t i;
-        size_t kept = 0u;
-        /* Duplicate-attribute rule (HTML): first wins. Compact the pool so
-         * the emitted token carries only the first occurrence of each name. */
-        for (i = 0u; i < t->attrs.count; i++) {
-            t->current_attr = &t->attrs.entries[i];
-            if (attr_name_is_duplicate(t, kept)) {
-                diag(t, ROBO_PARSE_ERROR,
-                     "duplicate attribute; first occurrence wins");
-                robo_html_token_buffer_free(&t->attrs.entries[i].name);
-                robo_html_token_buffer_free(&t->attrs.entries[i].value);
-                continue;
-            }
-            if (i != kept) {
-                t->attrs.entries[kept] = t->attrs.entries[i];
-            }
-            kept++;
-        }
-        t->current_attr = NULL;
-        t->attrs.count = kept;
-        t->token.u.tag.attr_count = kept;
-    }
+    t->token.u.tag.self_closing = t->tag_self_closing;
+    /* Attributes stay in token order; duplicates remain in the token
+     * (first-occurrence-wins is a tree-builder rule, Phase 8.3). */
     if (t->attrs.count > 0u) {
         size_t i;
         /* Build the borrowed view array in the pool's own storage order. */
@@ -512,7 +515,18 @@ static tok_result_t emit_tag_token(robo_html_tokenizer_t *t)
     } else {
         t->token.u.tag.attrs = NULL;
     }
+    if (!t->tag_is_end) {
+        /* Remember the start-tag name; the controlled raw-content switch
+         * hook seeds the expected end tag from it. */
+        size_t i;
+        robo_html_token_buffer_clear(&t->last_start_tag);
+        for (i = 0u; i < t->text.length; i++) {
+            (void)robo_html_token_buffer_append_byte(&t->last_start_tag,
+                                                     t->text.data[i]);
+        }
+    }
     token_finish(t);
+    t->tag_self_closing = 0;
     return TOK_EMIT;
 }
 
@@ -522,7 +536,7 @@ static tok_result_t st_tag_name(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     if (is_ws(c)) {
         robo_html_tok_advance(t);
@@ -560,7 +574,7 @@ static tok_result_t st_before_attr_name(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -632,7 +646,7 @@ static tok_result_t st_attr_name(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c) || c == '/' || c == '>') {
@@ -665,7 +679,7 @@ static tok_result_t st_after_attr_name(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -712,7 +726,7 @@ static tok_result_t st_before_attr_value(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -748,7 +762,7 @@ static tok_result_t st_attr_value_quoted(robo_html_tokenizer_t *t, char quote)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in quoted attribute value");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (c == quote) {
@@ -785,7 +799,7 @@ static tok_result_t st_attr_value_unquoted(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -800,6 +814,11 @@ static tok_result_t st_attr_value_unquoted(robo_html_tokenizer_t *t)
             t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
             return r;
         }
+    }
+    if (c == '/' && robo_html_tok_peek_ahead(t, 1) == '>') {
+        /* "/>" after the value: self-closing syntax, not value content. */
+        t->state = ROBO_HTML_TOKENIZER_STATE_SELF_CLOSING_START_TAG;
+        return TOK_CONTINUE; /* self-closing handler consumes */
     }
     if (c == '&') {
         consume_charref(t, NULL, 1);
@@ -825,7 +844,7 @@ static tok_result_t st_after_attr_value_quoted(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -857,12 +876,12 @@ static tok_result_t st_self_closing_start_tag(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in tag");
-        return emit_tag_token(t);
+        return emit_eof_token(t);
     }
     c = robo_html_tok_peek(t);
     if (c == '>') {
         robo_html_tok_advance(t);
-        t->token.u.tag.self_closing = 1;
+        t->tag_self_closing = 1;
         {
             tok_result_t r = emit_tag_token(t);
             t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
@@ -887,6 +906,7 @@ static tok_result_t st_markup_declaration_open(robo_html_tokenizer_t *t)
         }
         robo_html_token_buffer_clear(&t->text);
         robo_html_token_buffer_clear(&t->text2);
+        robo_html_token_buffer_clear(&t->text3);
         t->doctype_force_quirks = 0;
         t->doctype_has_public = 0;
         t->doctype_has_system = 0;
@@ -901,7 +921,7 @@ static tok_result_t st_markup_declaration_open(robo_html_tokenizer_t *t)
         t->state = ROBO_HTML_TOKENIZER_STATE_COMMENT_START;
         return TOK_CONTINUE;
     }
-    if (t->pos + 6u <= t->length &&
+    if (t->pos + 7u <= t->length &&
         memcmp(t->bytes + t->pos, "[CDATA[", 7u) == 0) {
         size_t i;
         /* In HTML content CDATA is a bogus comment with the payload text. */
@@ -935,7 +955,11 @@ static tok_result_t st_comment_start(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in comment");
-        return emit_comment_token(t);
+        {
+            tok_result_t r = emit_comment_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '-') {
@@ -962,7 +986,11 @@ static tok_result_t st_comment_start_dash(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in comment");
-        return emit_comment_token(t);
+        {
+            tok_result_t r = emit_comment_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '-') {
@@ -990,7 +1018,11 @@ static tok_result_t st_comment_body(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in comment");
-        return emit_comment_token(t);
+        {
+            tok_result_t r = emit_comment_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '<') {
@@ -1061,7 +1093,11 @@ static tok_result_t st_comment_end_dash(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in comment");
-        return emit_comment_token(t);
+        {
+            tok_result_t r = emit_comment_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '-') {
@@ -1080,7 +1116,11 @@ static tok_result_t st_comment_end(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in comment");
-        return emit_comment_token(t);
+        {
+            tok_result_t r = emit_comment_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '>') {
@@ -1113,7 +1153,11 @@ static tok_result_t st_comment_end_bang(robo_html_tokenizer_t *t)
 
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in comment");
-        return emit_comment_token(t);
+        {
+            tok_result_t r = emit_comment_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '-') {
@@ -1145,7 +1189,11 @@ static tok_result_t st_bogus_comment(robo_html_tokenizer_t *t)
     char c;
 
     if (t->pos >= t->length) {
-        return emit_comment_token(t);
+        {
+            tok_result_t r = emit_comment_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '>') {
@@ -1176,7 +1224,8 @@ static tok_result_t emit_doctype_token(robo_html_tokenizer_t *t)
     t->token.u.doctype.name = t->text.data ? t->text.data : "";
     t->token.u.doctype.public_id =
         t->doctype_has_public ? (t->text2.data ? t->text2.data : "") : NULL;
-    t->token.u.doctype.system_id = NULL; /* simplified field mapping below */
+    t->token.u.doctype.system_id =
+        t->doctype_has_system ? (t->text3.data ? t->text3.data : "") : NULL;
     t->token.u.doctype.force_quirks = t->doctype_force_quirks;
     token_finish(t);
     return TOK_EMIT;
@@ -1189,7 +1238,11 @@ static tok_result_t st_before_doctype_name(robo_html_tokenizer_t *t)
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -1217,7 +1270,11 @@ static tok_result_t st_doctype_name(robo_html_tokenizer_t *t)
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -1252,7 +1309,11 @@ static tok_result_t st_doctype_after_name(robo_html_tokenizer_t *t)
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -1296,7 +1357,11 @@ static tok_result_t st_doctype_public_keyword(robo_html_tokenizer_t *t)
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -1326,6 +1391,101 @@ static tok_result_t st_doctype_public_keyword(robo_html_tokenizer_t *t)
     return TOK_CONTINUE;
 }
 
+/**
+ * Before-DOCTYPE-public-identifier / before-DOCTYPE-system-identifier.
+ *
+ * These states exist to consume the opening quote; the quoted states that
+ * follow copy only the identifier payload. Keeping them distinct is what
+ * makes `doctype_has_public` / `doctype_has_system` true (and the buffers
+ * empty at the quote) instead of swallowing the quote into the value.
+ */
+static tok_result_t st_before_doctype_public_id(robo_html_tokenizer_t *t)
+{
+    char c;
+
+    if (t->pos >= t->length) {
+        diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
+        t->doctype_force_quirks = 1;
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
+    }
+    c = robo_html_tok_peek(t);
+    if (is_ws(c)) {
+        robo_html_tok_advance(t);
+        return TOK_CONTINUE;
+    }
+    if (c == '"' || c == '\'') {
+        robo_html_tok_advance(t);
+        t->doctype_has_public = 1;
+        t->doctype_force_quirks = 0;
+        robo_html_token_buffer_clear(&t->text2);
+        t->state = (c == '"')
+                       ? ROBO_HTML_TOKENIZER_STATE_DOCTYPE_PUBLIC_IDENTIFIER_DOUBLE_QUOTED
+                       : ROBO_HTML_TOKENIZER_STATE_DOCTYPE_PUBLIC_IDENTIFIER_SINGLE_QUOTED;
+        return TOK_CONTINUE;
+    }
+    if (c == '>') {
+        diag(t, ROBO_PARSE_ERROR, "'>' before DOCTYPE public identifier");
+        t->doctype_force_quirks = 1;
+        robo_html_tok_advance(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
+    }
+    diag(t, ROBO_PARSE_ERROR, "invalid DOCTYPE public identifier; bogus doctype");
+    t->doctype_force_quirks = 1;
+    t->state = ROBO_HTML_TOKENIZER_STATE_BOGUS_DOCTYPE;
+    return TOK_CONTINUE;
+}
+
+static tok_result_t st_before_doctype_system_id(robo_html_tokenizer_t *t)
+{
+    char c;
+
+    if (t->pos >= t->length) {
+        diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
+        t->doctype_force_quirks = 1;
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
+    }
+    c = robo_html_tok_peek(t);
+    if (is_ws(c)) {
+        robo_html_tok_advance(t);
+        return TOK_CONTINUE;
+    }
+    if (c == '"' || c == '\'') {
+        robo_html_tok_advance(t);
+        t->doctype_has_system = 1;
+        t->doctype_force_quirks = 0;
+        robo_html_token_buffer_clear(&t->text3);
+        t->state = (c == '"')
+                       ? ROBO_HTML_TOKENIZER_STATE_DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED
+                       : ROBO_HTML_TOKENIZER_STATE_DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED;
+        return TOK_CONTINUE;
+    }
+    if (c == '>') {
+        diag(t, ROBO_PARSE_ERROR, "'>' before DOCTYPE system identifier");
+        t->doctype_force_quirks = 1;
+        robo_html_tok_advance(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
+    }
+    diag(t, ROBO_PARSE_ERROR, "invalid DOCTYPE system identifier; bogus doctype");
+    t->state = ROBO_HTML_TOKENIZER_STATE_BOGUS_DOCTYPE;
+    return TOK_CONTINUE;
+}
+
 static tok_result_t st_doctype_public_id_quoted(robo_html_tokenizer_t *t,
                                                 char quote)
 {
@@ -1334,7 +1494,11 @@ static tok_result_t st_doctype_public_id_quoted(robo_html_tokenizer_t *t,
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE public identifier");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == quote) {
@@ -1371,7 +1535,11 @@ static tok_result_t st_between_public_system(robo_html_tokenizer_t *t)
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -1412,7 +1580,11 @@ static tok_result_t st_doctype_system_keyword(robo_html_tokenizer_t *t)
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -1446,7 +1618,11 @@ static tok_result_t st_doctype_system_id_quoted(robo_html_tokenizer_t *t,
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE system identifier");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == quote) {
@@ -1455,7 +1631,7 @@ static tok_result_t st_doctype_system_id_quoted(robo_html_tokenizer_t *t,
         return TOK_CONTINUE;
     }
     if (c == '\0') {
-        (void)robo_html_token_buffer_append_utf8(&t->text2, 0xFFFDu);
+        (void)robo_html_token_buffer_append_utf8(&t->text3, 0xFFFDu);
         diag(t, ROBO_PARSE_ERROR, "NUL in DOCTYPE system identifier");
         robo_html_tok_advance(t);
         return TOK_CONTINUE;
@@ -1470,7 +1646,7 @@ static tok_result_t st_doctype_system_id_quoted(robo_html_tokenizer_t *t,
             return r;
         }
     }
-    (void)robo_html_token_buffer_append_byte(&t->text2, c);
+    (void)robo_html_token_buffer_append_byte(&t->text3, c);
     robo_html_tok_advance(t);
     return TOK_CONTINUE;
 }
@@ -1482,7 +1658,11 @@ static tok_result_t st_after_doctype_system_id(robo_html_tokenizer_t *t)
     if (t->pos >= t->length) {
         diag(t, ROBO_PARSE_ERROR, "EOF in DOCTYPE");
         t->doctype_force_quirks = 1;
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (is_ws(c)) {
@@ -1507,7 +1687,11 @@ static tok_result_t st_bogus_doctype(robo_html_tokenizer_t *t)
     char c;
 
     if (t->pos >= t->length) {
-        return emit_doctype_token(t);
+        {
+            tok_result_t r = emit_doctype_token(t);
+            t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+            return r;
+        }
     }
     c = robo_html_tok_peek(t);
     if (c == '>') {
@@ -1530,76 +1714,104 @@ static tok_result_t st_bogus_doctype(robo_html_tokenizer_t *t)
 /* ------------------------------------------------------------------ */
 
 /**
- * Shared raw-content engine: accumulate text until a matching end tag
- * `</name` (case-insensitive) appears; otherwise text runs are emitted.
- * RCDATA additionally expands character references.
+ * Shared raw-content engine (RAWTEXT / RCDATA / script data / plaintext).
+ *
+ * Accumulates text until the matching end tag appears, then hands the
+ * `</...` construct back to the normal tag machinery by switching to the
+ * DATA state (end-tag attributes keep parsing uniformly).
+ *
+ * The expected end-tag name comes from raw_end_name (seeded by
+ * switch_state from the last emitted start tag). When no name is known:
+ *   - a leading `<name>` start tag is consumed to learn the name;
+ *   - otherwise the region closes at the LAST `</name`-shaped construct
+ *     terminated by ws, '/', or '>' — earlier look-alikes stay literal
+ *     text (context-less switch contract; `</x` at EOF never closes).
+ * PLAINTEXT never matches end tags. RCDATA decodes character references;
+ * the other raw families keep bytes literal.
  */
 static tok_result_t st_rawtext_like(robo_html_tokenizer_t *t)
 {
     robo_html_tokenizer_state_t base = t->state;
-    int is_rcdata = (base == ROBO_HTML_TOKENIZER_STATE_RCDATA ||
-                     base == ROBO_HTML_TOKENIZER_STATE_RCDATA_LESS_THAN_SIGN ||
-                     base == ROBO_HTML_TOKENIZER_STATE_RCDATA_END_TAG_OPEN ||
-                     base == ROBO_HTML_TOKENIZER_STATE_RCDATA_END_TAG_NAME);
+    int is_rcdata = (base == ROBO_HTML_TOKENIZER_STATE_RCDATA);
+    int is_plaintext = (base == ROBO_HTML_TOKENIZER_STATE_PLAINTEXT);
     const char *end_name = t->raw_end_name.data ? t->raw_end_name.data : "";
     size_t name_len = t->raw_end_name.length;
     robo_html_token_buffer_t run;
+    size_t cand_src = 0u;
+    size_t cand_run_mark = 0u;
+    int have_candidate = 0;
 
     robo_html_token_buffer_init(&run);
-    t->tok_start_offset = t->pos;
+    snapshot_pos(t);
+
+    /* Context-less raw region: learn the end name from a leading tag. */
+    if (!is_plaintext && name_len == 0u && t->pos + 1u < t->length &&
+        t->bytes[t->pos] == '<' && is_ascii_letter(t->bytes[t->pos + 1u])) {
+        size_t p = t->pos + 2u;
+
+        while (p < t->length && t->bytes[p] != '>') {
+            p++;
+        }
+        if (p < t->length) { /* '>' found: consume the leading start tag */
+            size_t i;
+
+            /* The name starts at pos + 1 (the first byte after '<');
+             * pos + 2 would drop it and leave the region context-less. */
+            for (i = t->pos + 1u; i < p; i++) {
+                char ch = t->bytes[i];
+
+                if (is_ws(ch)) {
+                    break; /* the name ends at the first separator */
+                }
+                (void)robo_html_token_buffer_append_byte(
+                    &t->raw_end_name, robo_html_tok_ascii_lower(ch));
+            }
+            while (t->pos <= p) {
+                robo_html_tok_advance(t);
+            }
+            end_name = t->raw_end_name.data ? t->raw_end_name.data : "";
+            name_len = t->raw_end_name.length;
+        }
+    }
 
     while (t->pos < t->length) {
         char c = robo_html_tok_peek(t);
 
-        if (c == '<') {
-            /* Look for "</name" followed by ws, '/', or '>'. */
-            if (robo_html_tok_peek_ahead(t, 1) == '/' &&
-                t->pos + 2u + name_len <= t->length &&
-                robo_ascii_casecmp_bytes(t->bytes + t->pos + 2u, end_name,
-                                         name_len)) {
-                char after = (t->pos + 2u + name_len < t->length)
-                                 ? t->bytes[t->pos + 2u + name_len]
-                                 : '\0';
-                if (after == '>' || after == '/' || is_ws(after) ||
-                    t->pos + 2u + name_len == t->length) {
-                    if (run.length > 0u) {
-                        tok_result_t r = emit_char_token(t, &run);
-                        robo_html_token_buffer_free(&run);
-                        t->state = base; /* stay raw; end tag next */
-                        t->pending_end_tag = 1;
-                        return r;
-                    }
-                    /* Emit the end tag directly. */
-                    t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
-                    robo_html_tok_advance(t); /* '<' */
-                    robo_html_tok_advance(t); /* '/' */
-                    robo_html_token_buffer_clear(&t->text);
-                    {
-                        size_t i;
-                        for (i = 0u; i < name_len; i++) {
-                            (void)robo_html_token_buffer_append_byte(
-                                &t->text, end_name[i]);
+        if (c == '<' && !is_plaintext) {
+            /* Candidate end tag: "</" + letters + (ws, '/', or '>'). */
+            size_t after_lt = t->pos + 1u;
+
+            if (after_lt < t->length && t->bytes[after_lt] == '/') {
+                size_t p = after_lt + 1u;
+                size_t nlen = 0u;
+
+                while (p + nlen < t->length &&
+                       is_ascii_letter(t->bytes[p + nlen])) {
+                    nlen++;
+                }
+                if (nlen > 0u && p + nlen < t->length) {
+                    char term = t->bytes[p + nlen];
+
+                    if (term == '>' || term == '/' || is_ws(term)) {
+                        if (name_len > 0u) {
+                            /* Known context: exact (case-insensitive) name. */
+                            if (nlen == name_len &&
+                                robo_ascii_casecmp_bytes(t->bytes + p,
+                                                         end_name,
+                                                         name_len)) {
+                                break; /* close here; tag machinery follows */
+                            }
+                        } else {
+                            /* No known context: close at the LAST
+                             * candidate; remember this one and keep the
+                             * bytes as literal text for now. */
+                            have_candidate = 1;
+                            cand_src = t->pos;
+                            cand_run_mark = run.length;
                         }
-                    }
-                    t->token.kind = ROBO_HTML_TOKEN_END_TAG;
-                    /* Consume up to '>' if present. */
-                    while (t->pos < t->length &&
-                           robo_html_tok_peek(t) != '>') {
-                        robo_html_tok_advance(t);
-                    }
-                    if (robo_html_tok_peek(t) == '>') {
-                        robo_html_tok_advance(t);
-                    }
-                    {
-                        tok_result_t r = emit_tag_token(t);
-                        robo_html_token_buffer_free(&run);
-                        return r;
                     }
                 }
             }
-            (void)robo_html_token_buffer_append_byte(&run, '<');
-            robo_html_tok_advance(t);
-            continue;
         }
         if (c == '&') {
             if (is_rcdata) {
@@ -1642,18 +1854,30 @@ static tok_result_t st_rawtext_like(robo_html_tokenizer_t *t)
         robo_html_tok_advance(t);
     }
 
-    /* EOF inside raw content. */
+    /* End of region without a known-context match. */
+    if (have_candidate) {
+        /* No known context: close at the last candidate seen. */
+        t->pos = cand_src;
+        snapshot_pos(t);
+        run.length = cand_run_mark;
+        if (run.data) {
+            run.data[run.length] = '\0';
+        }
+    }
     if (run.length > 0u) {
-        tok_result_t r = emit_char_token(t, &run);
-        robo_html_token_buffer_free(&run);
+        tok_result_t r = emit_char_token(t, &run); /* steals the run */
+
         t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
         return r;
     }
     robo_html_token_buffer_free(&run);
-    t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
-    token_begin(t, ROBO_HTML_TOKEN_EOF);
-    t->at_eof = 1;
-    return TOK_EMIT;
+    if (t->pos < t->length) {
+        /* Positioned on the matching end tag: let the normal tag
+         * machinery parse and emit it. */
+        t->state = ROBO_HTML_TOKENIZER_STATE_DATA;
+        return TOK_CONTINUE;
+    }
+    return emit_eof_token(t);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1740,6 +1964,7 @@ static tok_result_t step(robo_html_tokenizer_t *t)
     case ROBO_HTML_TOKENIZER_STATE_AFTER_DOCTYPE_PUBLIC_KEYWORD:
         return st_doctype_public_keyword(t);
     case ROBO_HTML_TOKENIZER_STATE_BEFORE_DOCTYPE_PUBLIC_IDENTIFIER:
+        return st_before_doctype_public_id(t);
     case ROBO_HTML_TOKENIZER_STATE_DOCTYPE_PUBLIC_IDENTIFIER_DOUBLE_QUOTED:
         return st_doctype_public_id_quoted(t, '"');
     case ROBO_HTML_TOKENIZER_STATE_DOCTYPE_PUBLIC_IDENTIFIER_SINGLE_QUOTED:
@@ -1750,6 +1975,7 @@ static tok_result_t step(robo_html_tokenizer_t *t)
     case ROBO_HTML_TOKENIZER_STATE_AFTER_DOCTYPE_SYSTEM_KEYWORD:
         return st_doctype_system_keyword(t);
     case ROBO_HTML_TOKENIZER_STATE_BEFORE_DOCTYPE_SYSTEM_IDENTIFIER:
+        return st_before_doctype_system_id(t);
     case ROBO_HTML_TOKENIZER_STATE_DOCTYPE_SYSTEM_IDENTIFIER_DOUBLE_QUOTED:
         return st_doctype_system_id_quoted(t, '"');
     case ROBO_HTML_TOKENIZER_STATE_DOCTYPE_SYSTEM_IDENTIFIER_SINGLE_QUOTED:
@@ -1771,14 +1997,9 @@ static tok_result_t step(robo_html_tokenizer_t *t)
     case ROBO_HTML_TOKENIZER_STATE_RAWTEXT:
     case ROBO_HTML_TOKENIZER_STATE_RCDATA:
     case ROBO_HTML_TOKENIZER_STATE_SCRIPT_DATA:
-        if (t->pending_end_tag) {
-            /* The end tag name match was already consumed in the previous
-             * call; emit it now (text run was flushed first). */
-            t->pending_end_tag = 0;
-        }
         return st_rawtext_like(t);
     default:
-        /* Remaining raw sub-states map onto the shared engine. */
+        /* PLAINTEXT and raw sub-states map onto the shared engine. */
         return st_rawtext_like(t);
     }
 }
@@ -1817,6 +2038,9 @@ robo_result_t robo_html_tokenizer_create(const robo_html_source_t *src,
     t->column = 1u;
     robo_html_token_buffer_init(&t->text);
     robo_html_token_buffer_init(&t->text2);
+    robo_html_token_buffer_init(&t->text3);
+    robo_html_token_buffer_init(&t->chars);
+    robo_html_token_buffer_init(&t->last_start_tag);
     robo_html_token_buffer_init(&t->raw_end_name);
     robo_html_token_pool_init(&t->attrs);
     robo_html_diagnostics_init(&t->diags);
@@ -1852,7 +2076,15 @@ robo_result_t robo_html_tokenizer_next(robo_html_tokenizer_t *tok,
     tok->current_attr = NULL;
     robo_html_token_buffer_clear(&tok->text);
     robo_html_token_buffer_clear(&tok->text2);
-    tok->tok_start_offset = tok->pos;
+    robo_html_token_buffer_clear(&tok->text3);
+    tok->tag_is_end = 0;
+    tok->tag_self_closing = 0;
+    /* Token start positions are recorded by the state handler that begins
+     * the token, not here: st_data/st_rawtext_like snapshot the byte that
+     * opens the construct (the '<'), and markup states resume a token whose
+     * '<' was already recorded. Snapshotting again at the top of next()
+     * would move the position past the introducer (e.g. "</b>" reporting
+     * the offset of 'b'). */
 
     /* Hard bound per token: each state step consumes >= 1 byte or emits;
      * guard against internal loops (invalid state invariant). */
@@ -1885,15 +2117,15 @@ robo_result_t robo_html_token_copy_tag_name(const robo_html_token_t *tok,
                                             size_t out_cap)
 {
     const char *name;
-    size_t i;
+    size_t len;
 
-    if (!out || out_cap == 0u) {
+    if (!tok || !out || out_cap == 0u) {
         return ROBO_INVALID_ARGUMENT;
     }
     out[0] = '\0';
-    if (!tok || (tok->kind != ROBO_HTML_TOKEN_START_TAG &&
-                 tok->kind != ROBO_HTML_TOKEN_END_TAG &&
-                 tok->kind != ROBO_HTML_TOKEN_DOCTYPE)) {
+    if (tok->kind != ROBO_HTML_TOKEN_START_TAG &&
+        tok->kind != ROBO_HTML_TOKEN_END_TAG &&
+        tok->kind != ROBO_HTML_TOKEN_DOCTYPE) {
         return ROBO_OK;
     }
     name = (tok->kind == ROBO_HTML_TOKEN_DOCTYPE) ? tok->u.doctype.name
@@ -1901,10 +2133,14 @@ robo_result_t robo_html_token_copy_tag_name(const robo_html_token_t *tok,
     if (!name) {
         return ROBO_OK;
     }
-    for (i = 0u; i + 1u < out_cap && name[i] != '\0'; i++) {
-        out[i] = name[i];
+    len = 0u;
+    while (name[len] != '\0') {
+        len++;
     }
-    out[i] = '\0';
+    if (len + 1u > out_cap) {
+        return ROBO_NOT_SUPPORTED; /* refuse, never truncate */
+    }
+    memcpy(out, name, len + 1u);
     return ROBO_OK;
 }
 
@@ -1924,13 +2160,33 @@ robo_result_t robo_html_token_copy_attr(const robo_html_token_t *tok,
         return ROBO_NOT_FOUND;
     }
     for (i = 0u; i < tok->u.tag.attr_count; i++) {
-        if (strcmp(tok->u.tag.attrs[i].name, name) == 0) {
-            size_t j;
-            const char *value = tok->u.tag.attrs[i].value;
-            for (j = 0u; j + 1u < out_cap && value[j] != '\0'; j++) {
-                out[j] = value[j];
+        const char *candidate = tok->u.tag.attrs[i].name;
+        size_t j = 0u;
+        int equal = 1;
+
+        /* ASCII case-insensitive match (names are stored lowercased). */
+        while (candidate[j] != '\0' || name[j] != '\0') {
+            if (robo_html_tok_ascii_lower(candidate[j]) !=
+                robo_html_tok_ascii_lower(name[j])) {
+                equal = 0;
+                break;
             }
-            out[j] = '\0';
+            j++;
+        }
+        if (!equal) {
+            continue;
+        }
+        {
+            const char *value = tok->u.tag.attrs[i].value;
+            size_t len = 0u;
+
+            while (value[len] != '\0') {
+                len++;
+            }
+            if (len + 1u > out_cap) {
+                return ROBO_NOT_SUPPORTED; /* refuse, never truncate */
+            }
+            memcpy(out, value, len + 1u);
             return ROBO_OK;
         }
     }
@@ -1951,11 +2207,17 @@ robo_result_t robo_html_tokenizer_reset(robo_html_tokenizer_t *tok,
     tok->line = 1u;
     tok->column = 1u;
     tok->tok_start_offset = 0u;
-    tok->pending_end_tag = 0;
+    tok->tok_start_line = 1u;
+    tok->tok_start_col = 1u;
+    tok->tag_is_end = 0;
+    tok->tag_self_closing = 0;
     tok->script_double_escape = 0;
     robo_html_token_buffer_clear(&tok->text);
     robo_html_token_buffer_clear(&tok->text2);
+    robo_html_token_buffer_clear(&tok->text3);
+    robo_html_token_buffer_free(&tok->chars);
     robo_html_token_buffer_clear(&tok->raw_end_name);
+    robo_html_token_buffer_clear(&tok->last_start_tag);
     robo_html_token_pool_clear(&tok->attrs);
     tok->current_attr = NULL;
     robo_html_diagnostics_clear(&tok->diags);
@@ -2003,7 +2265,7 @@ robo_result_t robo_html_tokenizer_switch_state(
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER,
                               ROBO_INVALID_ARGUMENT, "tokenizer is NULL");
     }
-    if (!robo_html_tokenizer_state_switch_validate(state)) {
+    if (robo_html_tokenizer_state_switch_validate(state) != ROBO_OK) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER,
                               ROBO_INVALID_ARGUMENT, "invalid state");
     }
@@ -2011,9 +2273,22 @@ robo_result_t robo_html_tokenizer_switch_state(
     case ROBO_HTML_TOKENIZER_STATE_RCDATA:
     case ROBO_HTML_TOKENIZER_STATE_RAWTEXT:
     case ROBO_HTML_TOKENIZER_STATE_SCRIPT_DATA:
+        tok->state = state;
+        /* Seed the expected end tag from the last emitted start tag
+         * (8.3 integration shape: <textarea> ... switch ... </textarea>). */
+        robo_html_token_buffer_clear(&tok->raw_end_name);
+        if (tok->last_start_tag.length > 0u) {
+            size_t i;
+            for (i = 0u; i < tok->last_start_tag.length; i++) {
+                (void)robo_html_token_buffer_append_byte(
+                    &tok->raw_end_name, tok->last_start_tag.data[i]);
+            }
+        }
+        return ROBO_OK;
     case ROBO_HTML_TOKENIZER_STATE_PLAINTEXT:
     case ROBO_HTML_TOKENIZER_STATE_DATA:
         tok->state = state;
+        robo_html_token_buffer_clear(&tok->raw_end_name);
         return ROBO_OK;
     default:
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER,
@@ -2032,6 +2307,9 @@ void robo_html_tokenizer_destroy(robo_html_tokenizer_t *tok)
     }
     robo_html_token_buffer_free(&tok->text);
     robo_html_token_buffer_free(&tok->text2);
+    robo_html_token_buffer_free(&tok->text3);
+    robo_html_token_buffer_free(&tok->chars);
+    robo_html_token_buffer_free(&tok->last_start_tag);
     robo_html_token_buffer_free(&tok->raw_end_name);
     robo_html_token_pool_free(&tok->attrs);
     robo_free(tok);
@@ -2243,6 +2521,16 @@ int robo_html_tokenizer_state_is_raw_content(robo_html_tokenizer_state_t state)
 robo_result_t robo_html_tokenizer_state_switch_validate(
     robo_html_tokenizer_state_t state)
 {
-    return robo_html_tokenizer_state_is_known(state) ? ROBO_OK
-                                                     : ROBO_INVALID_ARGUMENT;
+    /* Only the five content-family entry points may be switched into from
+     * outside; every sub-state is reached by the machine itself. */
+    switch (state) {
+    case ROBO_HTML_TOKENIZER_STATE_DATA:
+    case ROBO_HTML_TOKENIZER_STATE_PLAINTEXT:
+    case ROBO_HTML_TOKENIZER_STATE_RAWTEXT:
+    case ROBO_HTML_TOKENIZER_STATE_RCDATA:
+    case ROBO_HTML_TOKENIZER_STATE_SCRIPT_DATA:
+        return ROBO_OK;
+    default:
+        return ROBO_INVALID_ARGUMENT;
+    }
 }

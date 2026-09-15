@@ -25,15 +25,23 @@ struct robo_html_tokenizer {
 
     /* Position tracking (token starts and diagnostics). */
     size_t tok_start_offset;
+    uint32_t tok_start_line;
+    uint32_t tok_start_col;
     uint32_t line;
     uint32_t column;
 
     /* Pending token construction. */
     robo_html_token_t token;
     robo_html_token_buffer_t text;  /* name / data / comment / doctype */
-    robo_html_token_buffer_t text2; /* doctype public/system id */
+    robo_html_token_buffer_t text2; /* doctype public id */
+    robo_html_token_buffer_t text3; /* doctype system id */
     robo_html_token_pool_t attrs;
     robo_html_token_attr_entry_t *current_attr;
+
+    /* Pending tag flavor/flags (read at emit; the token union is reset by
+     * token_begin, so these live on the tokenizer). */
+    int tag_is_end;       /* pending tag came from "</" */
+    int tag_self_closing; /* pending tag had "/>" */
 
     /* Doctype scratch. */
     int doctype_force_quirks;
@@ -49,6 +57,16 @@ struct robo_html_tokenizer {
     /* Raw-content (RAWTEXT/RCDATA/script) end-tag lookahead name. */
     robo_html_token_buffer_t raw_end_name;
     int pending_end_tag;
+
+    /* Storage for the currently emitted CHARACTER token: the token borrows
+     * these bytes, so they must outlive the state-handler call (data is
+     * stolen from the handler's local run buffer at emit time and released
+     * by the next character emission / reset / destroy). */
+    robo_html_token_buffer_t chars;
+
+    /* Name of the last emitted start tag; the controlled raw-content
+     * switch hook (8.3 flow) derives the expected end tag from it. */
+    robo_html_token_buffer_t last_start_tag;
 
     /* Per-emitted-tag attribute view (owned; freed at next token or
      * destroy — keeps the borrowed token contract without handing out

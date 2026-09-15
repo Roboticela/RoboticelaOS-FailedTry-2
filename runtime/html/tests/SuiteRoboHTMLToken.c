@@ -9,8 +9,10 @@
 #include "RoboHTML/RoboHTMLSource.h"
 #include "RoboHTML/RoboHTMLToken.h"
 #include "RoboHTML/RoboHTMLTokenizer.h"
+#include "RoboMem/RoboMem.h"
 #include "RoboTest.h"
 
+#include <stdint.h>
 #include <string.h>
 
 static void tok_fixture_begin(void)
@@ -514,7 +516,7 @@ static void test_tok_special_chars(void)
     {
         robo_html_source_t s2;
         robo_html_source_init(&s2);
-        ROBO_CHECK_EQ_INT(robo_html_source_memory(&s2, "a\0b", 3u, NULL),
+        ROBO_CHECK_EQ_INT(robo_html_source_memory(&s2, (const uint8_t *)"a\0b", 3u, NULL),
                           ROBO_OK);
         ROBO_CHECK_EQ_INT(robo_html_tokenizer_create(&s2, &t, NULL), ROBO_OK);
         tok_next_ok(t, &tok);
@@ -538,7 +540,7 @@ static void test_tok_special_chars(void)
     {
         robo_html_source_t s3;
         robo_html_source_init(&s3);
-        ROBO_CHECK_EQ_INT(robo_html_source_memory(&s3, "\xFF\xFE", 2u, NULL),
+        ROBO_CHECK_EQ_INT(robo_html_source_memory(&s3, (const uint8_t *)"\xFF\xFE", 2u, NULL),
                           ROBO_OK);
         ROBO_CHECK_EQ_INT(robo_html_tokenizer_create(&s3, &t, NULL), ROBO_OK);
         tok_next_ok(t, &tok);
@@ -617,9 +619,10 @@ static void test_tok_mixed_input(void)
     }
     ROBO_CHECK_EQ_INT(counts[ROBO_HTML_TOKEN_DOCTYPE], 1);
     ROBO_CHECK_EQ_INT(counts[ROBO_HTML_TOKEN_COMMENT], 1);
-    /* 7 start tags: html body p br span + closing body/html do not add. */
+    /* 5 start tags (html body p br span) and 4 end tags (p span body html),
+     * plus the doctype, the comment, and at least two text runs. */
     ROBO_CHECK_EQ_INT(counts[ROBO_HTML_TOKEN_START_TAG], 5);
-    ROBO_CHECK_EQ_INT(counts[ROBO_HTML_TOKEN_END_TAG], 5);
+    ROBO_CHECK_EQ_INT(counts[ROBO_HTML_TOKEN_END_TAG], 4);
     ROBO_CHECK(counts[ROBO_HTML_TOKEN_CHARACTER] >= 2);
     robo_html_tokenizer_destroy(t);
     tok_fixture_end();
@@ -777,6 +780,195 @@ static void test_tok_diagnostics_api(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* '>' in text / token ownership                                       */
+/* ------------------------------------------------------------------ */
+
+static void test_tok_token_lifetime(void)
+{
+    robo_html_tokenizer_t *t = NULL;
+    robo_html_token_t tok;
+    char name[16];
+    char value[64];
+
+    tok_fixture_begin();
+
+    /* A '>' that does not close a tag is ordinary text. */
+    ROBO_CHECK_EQ_INT(tok_from_string("a > b < c", &t), ROBO_OK);
+    tok_next_ok(t, &tok);
+    ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_CHARACTER);
+    ROBO_CHECK_STR_EQ(tok.u.characters.data, "a > b < c");
+    tok_next_ok(t, &tok);
+    ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_EOF);
+    robo_html_tokenizer_destroy(t);
+
+    /*
+     * Ownership: tokens borrow tokenizer-owned storage, so callers that
+     * must keep data use the copy helpers. A copy taken with the helpers
+     * stays valid after the tokenizer has moved on and after destroy.
+     */
+    ROBO_CHECK_EQ_INT(tok_from_string("<Article data-Kind=\"prose\" hidden>",
+                                      &t),
+                      ROBO_OK);
+    tok_next_ok(t, &tok);
+    ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_START_TAG);
+    ROBO_CHECK_EQ_INT(robo_html_token_copy_tag_name(&tok, name, sizeof(name)),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_token_copy_attr(&tok, "data-kind", value,
+                                                sizeof(value)),
+                      ROBO_OK);
+    ROBO_CHECK_STR_EQ(name, "article");
+    ROBO_CHECK_STR_EQ(value, "prose");
+
+    /* Advance the tokenizer (and tokenize more tags) ... */
+    tok_next_ok(t, &tok);
+    ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_EOF);
+    robo_html_tokenizer_destroy(t);
+
+    /* ... the caller-owned copies are unaffected. */
+    ROBO_CHECK_STR_EQ(name, "article");
+    ROBO_CHECK_STR_EQ(value, "prose");
+
+    /* Reset reused a tokenizer: the borrowed view follows the new token. */
+    ROBO_CHECK_EQ_INT(tok_from_string("<p>", &t), ROBO_OK);
+    tok_next_ok(t, &tok);
+    ROBO_CHECK_STR_EQ(tok.u.tag.name, "p");
+    ROBO_CHECK_EQ_INT(robo_html_tokenizer_reset(t, NULL), ROBO_OK);
+    tok_next_ok(t, &tok);
+    ROBO_CHECK_STR_EQ(tok.u.tag.name, "p");
+    robo_html_tokenizer_destroy(t);
+
+    /* robo_html_token_init clears a caller-owned record. */
+    {
+        robo_html_token_t fresh;
+        robo_html_token_init(&fresh);
+        ROBO_CHECK_EQ_INT(fresh.kind, ROBO_HTML_TOKEN_NONE);
+        ROBO_CHECK_EQ_INT(fresh.u.characters.data == NULL, 1);
+        robo_html_token_init(NULL); /* safe */
+    }
+
+    tok_fixture_end();
+}
+
+/* ------------------------------------------------------------------ */
+/* Robustness: malformed / random byte streams                         */
+/* ------------------------------------------------------------------ */
+
+/* Bounded token walk: returns the token count, or 0 when the stream never
+ * reached EOF within the step budget (the failure the test guards against). */
+static size_t tok_drain(robo_html_tokenizer_t *t, size_t budget)
+{
+    robo_html_token_t tok;
+    size_t steps = 0u;
+    size_t tokens = 0u;
+
+    while (steps < budget) {
+        ROBO_CHECK_EQ_INT(robo_html_tokenizer_next(t, &tok, NULL), ROBO_OK);
+        ROBO_CHECK(tok.kind >= ROBO_HTML_TOKEN_NONE);
+        ROBO_CHECK(tok.kind <= ROBO_HTML_TOKEN_EOF);
+        tokens++;
+        steps++;
+        if (tok.kind == ROBO_HTML_TOKEN_EOF) {
+            return tokens;
+        }
+        /* Borrowed strings for tag/character tokens must be NUL-terminated
+         * and stay inside the source-sized bound (no runaway growth). */
+        if (tok.kind == ROBO_HTML_TOKEN_CHARACTER) {
+            ROBO_CHECK(tok.u.characters.data != NULL);
+            ROBO_CHECK(tok.u.characters.length < 100000u);
+        } else if (tok.kind == ROBO_HTML_TOKEN_START_TAG ||
+                   tok.kind == ROBO_HTML_TOKEN_END_TAG) {
+            ROBO_CHECK(tok.u.tag.name != NULL);
+        }
+    }
+    return 0u;
+}
+
+static void test_tok_robustness_malformed(void)
+{
+    robo_html_tokenizer_t *t = NULL;
+    robo_html_source_t src;
+    /* Deterministic corpus built from one document's prefixes. */
+    static const char doc[] =
+        "<!DOCTYPE html><html lang=en><head><title>t &amp; u</title></head>"
+        "<body class='x'><p a=1 b=\"2\">hi<!-- c --><br/><input disabled>"
+        "<![CDATA[x]]><?pi?><!bogus></body></html>";
+    size_t i;
+
+    tok_fixture_begin();
+
+    /*
+     * Every prefix of a realistic document, including prefixes that cut a
+     * tag, comment, doctype, reference or UTF-8 sequence in half. The
+     * tokenizer must always terminate at EOF without error.
+     */
+    for (i = 0u; i <= sizeof(doc) - 1u; i++) {
+        robo_html_source_init(&src);
+        ROBO_CHECK_EQ_INT(
+            robo_html_source_memory(&src, (const uint8_t *)doc, i, NULL),
+            ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_html_tokenizer_create(&src, &t, NULL), ROBO_OK);
+        ROBO_CHECK(tok_drain(t, i * 4u + 64u) != 0u);
+        robo_html_tokenizer_destroy(t);
+    }
+
+    /* Every single byte value, alone and surrounded by markup. */
+    for (i = 0u; i < 256u; i++) {
+        uint8_t buf[8];
+        uint8_t lone = (uint8_t)i;
+
+        robo_html_source_init(&src);
+        ROBO_CHECK_EQ_INT(robo_html_source_memory(&src, &lone, 1u, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_html_tokenizer_create(&src, &t, NULL), ROBO_OK);
+        ROBO_CHECK(tok_drain(t, 64u) != 0u);
+        robo_html_tokenizer_destroy(t);
+
+        buf[0] = '<';
+        buf[1] = (uint8_t)i;
+        buf[2] = '>';
+        robo_html_source_init(&src);
+        ROBO_CHECK_EQ_INT(robo_html_source_memory(&src, buf, 3u, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_html_tokenizer_create(&src, &t, NULL), ROBO_OK);
+        ROBO_CHECK(tok_drain(t, 64u) != 0u);
+        robo_html_tokenizer_destroy(t);
+    }
+
+    /* Deterministic pseudo-random soup over a markup-heavy alphabet. */
+    {
+        /* Bytes, not a C string: NUL and ill-formed UTF-8 are part of the
+         * corpus on purpose. */
+        static const char alphabet[] = {
+            '<', '>', '/', '&', ';', '"', '\'', '=', ' ', '#', '-', '!',
+            'A', 'a', '1', (char)0x00, (char)0xFF, (char)0xC3, (char)0xA9
+        };
+        const size_t alphabet_len = sizeof(alphabet) / sizeof(alphabet[0]);
+        uint32_t seed;
+        uint8_t soup[96];
+
+        for (seed = 1u; seed <= 64u; seed++) {
+            uint32_t state = seed * 2654435761u;
+            size_t j;
+
+            for (j = 0u; j < sizeof(soup); j++) {
+                state = state * 1664525u + 1013904223u;
+                soup[j] = (uint8_t)alphabet[(state >> 16) % alphabet_len];
+            }
+            robo_html_source_init(&src);
+            ROBO_CHECK_EQ_INT(
+                robo_html_source_memory(&src, soup, sizeof(soup), NULL),
+                ROBO_OK);
+            ROBO_CHECK_EQ_INT(robo_html_tokenizer_create(&src, &t, NULL),
+                              ROBO_OK);
+            ROBO_CHECK(tok_drain(t, sizeof(soup) * 8u + 64u) != 0u);
+            robo_html_tokenizer_destroy(t);
+        }
+    }
+
+    tok_fixture_end();
+}
+
+/* ------------------------------------------------------------------ */
 /* Suite registration                                                  */
 /* ------------------------------------------------------------------ */
 
@@ -802,4 +994,7 @@ void robo_test_register_html_token(void)
     robo_test_register("html.token.copy_tag_name", test_tok_token_copy_tag_name);
     robo_test_register("html.token.state_query", test_tok_state_query);
     robo_test_register("html.token.diagnostics_api", test_tok_diagnostics_api);
+    robo_test_register("html.token.lifetime", test_tok_token_lifetime);
+    robo_test_register("html.token.robustness_malformed",
+                       test_tok_robustness_malformed);
 }

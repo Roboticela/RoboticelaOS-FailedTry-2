@@ -2142,7 +2142,62 @@
 - [x] No Chromium dependency; full regression suite green
 - [x] Stop after 8.1
 
+## Goal 8.2 — HTML tokenizer
+
+**Status:** complete
+
+**Done:**
+
+- Public API: `RoboHTMLToken.h` (six token kinds, borrowed-view contract,
+  positions), `RoboHTMLTokenizer.h` (create / next / reset / at_eof /
+  get_state / diagnostics / switch_state / destroy),
+  `RoboHTMLTokenizerStates.h` (74-state enumerator, names, raw-content
+  classification, switch-entry validation)
+- Independent implementation: no Chromium code, data structures or identifiers;
+  behavior follows the public WHATWG tokenizer model
+- Token kinds: character / start tag / end tag / comment / doctype / EOF, with
+  byte offset + 1-based line/column (code-point columns) taken at the token's
+  opening byte
+- Tags: lowercased ASCII names, attributes (double/single/unquoted, empty,
+  boolean, whitespace-tolerant, duplicates preserved in order), self-closing,
+  malformed recovery; attribute names lowercased, values reference-decoded
+- Comments: normal / empty / abrupt (`<!-->`) / EOF-in-comment recovery /
+  bogus comments (`<?`, `<![CDATA[` in HTML content)
+- DOCTYPE: case-insensitive keyword, name, public + system identifiers
+  (double/single quoted), force-quirks flag, bogus-doctype recovery
+- Character references: named (curated catalogue, longest-match by name
+  length — order-independent), decimal, hex, legacy semicolonless rules for
+  text and attributes, C1 remap, C0 control parse errors that keep the code
+  point, out-of-range/surrogate → U+FFFD
+- Raw content: `RAWTEXT` / `RCDATA` / script data / `PLAINTEXT` reachable only
+  through the controlled switch (tree-builder entry); end-tag name seeded from
+  the last start tag or a leading start tag; RCDATA decodes references, only
+  the matching end tag closes the region
+- Error tolerance: malformed input recovers and continues; bounded
+  diagnostics (`ROBO_HTML_TOKENIZER_MAX_DIAGNOSTICS`); unterminated markup at
+  EOF emits the EOF token with a diagnostic
+- Ownership: tokens borrow tokenizer storage until the next next()/reset()/
+  destroy; `robo_html_token_copy_tag_name` / `robo_html_token_copy_attr`
+  return caller-owned copies; corrupt/stale usage returns INVALID_ARGUMENT
+- Suites: `html.token.*` (22), `html.charref.*` (9), `html.tokstate.*` (9);
+  `html.*` total **65** — including prefix sweeps, all-256-byte and
+  pseudo-random malformed corpora
+- Docs: `html/README.md`, `html/docs/Architecture.md` §9–§10
+- RoboHTML **0.2.0** (`ROBO_HTML_API_FROZEN=0`)
+
+**Definition of done:**
+
+- [x] HTML source → deterministic token stream; all six kinds represented
+- [x] Attributes, comments, doctypes, character references, EOF and state
+      transitions covered by targeted tests
+- [x] Malformed HTML never crashes or aborts tokenization
+- [x] Token/source ownership explicit, documented and tested
+- [x] Tokenizer independent of the tree builder; 8.3 can consume it as-is
+- [x] No tree-building behavior; no CSS/layout/paint/JS/network code
+- [x] No Chromium dependency; full regression suite green
+- [x] Stop after 8.2
+
 ## Next
 
-- Goal 8.2 — HTML tokenizer (do not start until requested)
+- Goal 8.3 — HTML tree builder (do not start until requested)
 

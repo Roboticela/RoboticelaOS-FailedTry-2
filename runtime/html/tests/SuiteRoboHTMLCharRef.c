@@ -53,7 +53,6 @@ static void cr_first_text(const char *html, char *out, size_t cap,
 static void test_cr_named_common(void)
 {
     char out[64];
-    size_t diags = 0;
 
     cr_fixture_begin();
 
@@ -123,6 +122,7 @@ static void test_cr_numeric_hex(void)
 static void test_cr_numeric_mapping(void)
 {
     char out[64];
+    size_t diags = 0;
 
     cr_fixture_begin();
 
@@ -137,10 +137,17 @@ static void test_cr_numeric_mapping(void)
     /* Out of range maps to U+FFFD. */
     cr_first_text("&#x110000;", out, sizeof(out), NULL);
     ROBO_CHECK_EQ_INT((unsigned char)out[0], 0xEF);
-    /* Control characters in the C0 mapping table (0x0D → CR is kept,
-     * 0x80..0x9F remapped; a plain unmapped control like 0x01 → FFFD). */
-    cr_first_text("&#1;", out, sizeof(out), NULL);
-    ROBO_CHECK_EQ_INT((unsigned char)out[0], 0xEF);
+    /* C0 control reference: a control-character-reference parse error, but
+     * the standard keeps the referenced code point (0x01 stays U+0001),
+     * exactly as 0x0D stays CR. Only 0x00, surrogates, out-of-range values
+     * and the 0x80..0x9F remap change the character. */
+    cr_first_text("&#1;", out, sizeof(out), &diags);
+    ROBO_CHECK_EQ_INT((unsigned char)out[0], 0x01);
+    ROBO_CHECK_EQ_INT((unsigned char)out[1], 0x00);
+    ROBO_CHECK(diags > 0u);
+    /* 0x0D is ASCII whitespace-class: kept with no control diagnostic. */
+    cr_first_text("&#xD;", out, sizeof(out), NULL);
+    ROBO_CHECK_EQ_INT((unsigned char)out[0], 0x0D);
 
     cr_fixture_end();
 }
@@ -241,6 +248,51 @@ static void test_cr_utf8_multibyte_names(void)
     cr_fixture_end();
 }
 
+/*
+ * Catalogue regression: names whose position in the category-grouped table
+ * previously shadowed them, the longest-match rule (terminated form beats
+ * the legacy semicolonless form), mixed-case names, and two-code-point
+ * expansions. These are the cases that must never depend on table order.
+ */
+static void test_cr_catalogue_longest_match(void)
+{
+    char out[64];
+
+    cr_fixture_begin();
+
+    /* Names sitting after a lexicographically larger neighbour. */
+    cr_first_text("&nbsp;x", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "\xC2\xA0x");
+    cr_first_text("&copy;", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "\xC2\xA9");
+    cr_first_text("&Dagger;", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "\xE2\x80\xA1");
+
+    /* Terminated form wins over the legacy form for the same prefix. */
+    cr_first_text("&amp;", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "&");
+    cr_first_text("&amp", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "&");
+    cr_first_text("&lt;", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "<");
+
+    /* Mixed case is byte-wise: only the catalogue spelling matches. */
+    cr_first_text("&dagger;", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "\xE2\x80\xA0");
+    cr_first_text("&DAGGER;", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "&DAGGER;");
+
+    /* Two-code-point expansion. */
+    cr_first_text("&NotEqualTilde;", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "\xE2\x89\x82\xCC\xB8");
+
+    /* Byte-wise match stops at the first name byte difference. */
+    cr_first_text("&nbsp", out, sizeof(out), NULL);
+    ROBO_CHECK_STR_EQ(out, "\xC2\xA0");
+
+    cr_fixture_end();
+}
+
 void robo_test_register_html_charref(void)
 {
     robo_test_register("html.charref.named_common", test_cr_named_common);
@@ -255,4 +307,6 @@ void robo_test_register_html_charref(void)
     robo_test_register("html.charref.in_attributes", test_cr_in_attributes);
     robo_test_register("html.charref.utf8_multibyte_names",
                        test_cr_utf8_multibyte_names);
+    robo_test_register("html.charref.catalogue_longest_match",
+                       test_cr_catalogue_longest_match);
 }

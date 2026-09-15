@@ -1,6 +1,13 @@
 /*
- * Named character-reference table data (Phase 8.2).
- * Sorted lexicographically (ASCII). See RoboHTMLCharRefData.h.
+ * Named character-reference catalogue (Phase 8.2).
+ *
+ * Entries are grouped by category (core, punctuation, currency, Latin-1
+ * letters, symbols, math) and the order carries no meaning: the engine
+ * (RoboHTMLCharRef.c) scans the whole table and applies the HTML
+ * longest-match rule by name length, so "&amp;" beats "&amp" regardless
+ * of position. Names are matched byte-wise against the source, so an
+ * uppercase name such as "Dagger" is case-sensitive by construction.
+ * See RoboHTMLCharRefData.h.
  */
 #include "RoboHTMLCharRefData.h"
 
@@ -25,6 +32,7 @@ const robo_html_charref_entry_t robo_html_charref_table[] = {
     { "trade;", 8482u, 0u },
     { "hellip", 8230u, 0u },   /* …     */
     { "hellip;", 8230u, 0u },
+    { "NotEqualTilde;", 8770u, 824u }, /* ≂̸ (U+2242 U+0338: two code points) */
     { "mdash", 8212u, 0u },    /* —     */
     { "mdash;", 8212u, 0u },
     { "ndash", 8211u, 0u },    /* –     */
@@ -61,9 +69,8 @@ const robo_html_charref_entry_t robo_html_charref_table[] = {
     { "sect;", 167u, 0u },
     { "dagger", 8224u, 0u },   /* †     */
     { "dagger;", 8224u, 0u },
-    { "Dagger", 8225u, 0u },   /* ‡  (kept exact-case; lowercase scan
-                                   treats names byte-wise, so 'D' sorts
-                                   before lowercase letters) */
+    { "Dagger", 8225u, 0u },   /* ‡ (exact-case: names match byte-wise) */
+    { "Dagger;", 8225u, 0u },
     { "euro", 8364u, 0u },     /* €      */
     { "euro;", 8364u, 0u },
     { "pound", 163u, 0u },     /* £      */

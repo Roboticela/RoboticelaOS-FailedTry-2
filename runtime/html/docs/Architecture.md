@@ -1,8 +1,8 @@
-# RoboHTML Architecture (Phase 8.1)
+# RoboHTML Architecture (Phases 8.1–8.2)
 
-This document is the normative design record for Goal 8.1. Later phases
-(8.2 tokenizer, 8.3 tree builder, DOM, CSS, layout, paint) must extend it,
-not contradict it.
+This document is the normative design record for Goals 8.1 and 8.2. Later
+phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
+contradict it. Section 9 covers the tokenizer.
 
 ## 1. Module boundary and allowed dependencies
 
@@ -102,3 +102,72 @@ No tokenizer states, no character references, no parsing algorithms, no
 tree construction, no element/attribute storage, no CSS, no layout, no
 paint, no JavaScript, no networking, no storage, no cookies/CORS, no
 IndexedDB/localStorage, no browser-origin security machinery.
+
+## 9. Tokenizer (Phase 8.2)
+
+```text
+robo_html_source_t (borrowed bytes)
+        │
+        ▼
+robo_html_tokenizer_next()          state machine (RoboHTMLTokenizerStates.h)
+        │  ── DATA / tag / attribute / comment / doctype / reference states
+        │  ── raw content families via switch_state (8.3 drives this)
+        ▼
+robo_html_token_t   CHARACTER | START_TAG | END_TAG | COMMENT | DOCTYPE | EOF
+        │
+        ▼
+future tree builder (8.3) → document node registry
+```
+
+### Token model and ownership
+
+- Six token kinds; each carries `robo_html_token_pos_t` (byte offset, 1-based
+  line, 1-based column in code points) for the token's first source byte.
+- A token **borrows** tokenizer-owned storage (tag name, attribute array,
+  decoded characters, comment payload, doctype fields) and is valid only
+  until the next `next()` / `reset()` / tokenizer destroy. The attribute
+  array and the character buffer are tokenizer-owned so no pool internals
+  ever escape.
+- Callers that must keep data use `robo_html_token_copy_tag_name` or
+  `robo_html_token_copy_attr`; those copies are caller-owned and outlive the
+  tokenizer.
+- All token text is UTF-8. Ill-formed UTF-8 is emitted as U+FFFD (RoboUnicode
+  REPLACE mode) with a diagnostic — never read out of bounds, never fatal.
+
+### Error tolerance
+
+Only NULL arguments, invalid state, and allocation failure return errors.
+Malformed HTML recovers and continues: unterminated tags at EOF emit the EOF
+token (with the partial construct dropped and a diagnostic), unclosed
+comments emit the partial comment, `<?` and `<![CDATA[` become bogus comments,
+and diagnostics are bounded per tokenizer
+(`ROBO_HTML_TOKENIZER_MAX_DIAGNOSTICS`).
+
+### Character references
+
+Named references are matched with the HTML longest-match rule against the
+catalogue in `RoboHTMLCharRefData.c`; the catalogue is a curated,
+category-grouped set whose order is **not** significant, so the engine picks
+the winner by name length (`&amp;` beats `&amp` regardless of table position).
+Numeric references follow the standard value mapping: 0x00 / out-of-range /
+surrogates → U+FFFD, 0x80–0x9F → the legacy remap table, and C0 controls are
+parse errors that keep their code point. Inside attribute values the legacy
+semicolonless rule applies (`&ampx=1` stays literal).
+
+### Raw content families
+
+The tokenizer is data-driven for `DATA`, but `RAWTEXT`, `RCDATA`, script data
+and `PLAINTEXT` are entered only through
+`robo_html_tokenizer_switch_state()`, validated to those five entry points.
+The expected end-tag name is seeded from the last emitted start tag (the
+`<textarea> … </textarea>` shape 8.3 will use) or learned from a leading
+start tag; `RCDATA` decodes references, the others stay byte-literal, and
+only the matching end tag closes the region.
+
+## 10. What Phase 8.2 deliberately does not do
+
+No tree building, no DOM nodes/elements/attributes, no document tree
+mutation, no element semantics (an end tag does not close anything), no
+incremental/chunked input (the machine is written so a future source feeding
+in chunks plugs in without redesign), no CSS, layout, paint, JavaScript,
+networking, filesystem, storage, navigation, cookies or CORS.

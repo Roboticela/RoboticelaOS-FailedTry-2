@@ -140,8 +140,10 @@ int robo_html_tokenizer_state_is_raw_content(
  * Minimal controlled state switch for the future tree builder (8.3):
  * after emitting a start tag for e.g. <textarea>, the builder asks the
  * tokenizer to continue in RCDATA; <style> → RAWTEXT; <script> → script
- * data; <plaintext> → PLAINTEXT; any other state resets to DATA.
- * Returns ROBO_INVALID_ARGUMENT for undefined states.
+ * data; <plaintext> → PLAINTEXT; DATA resets to ordinary content.
+ * @return ROBO_OK for those five entry points; ROBO_INVALID_ARGUMENT for
+ *         tokenizer sub-states (unreachable from outside) and for
+ *         undefined enumerators.
  * (Phase 8.2 exposes the mechanism; no element semantics are applied.)
  */
 robo_result_t robo_html_tokenizer_state_switch_validate(

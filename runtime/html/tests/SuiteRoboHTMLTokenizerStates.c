@@ -45,8 +45,6 @@ static robo_result_t st_from_string(const char *text,
 
 static void test_st_model_helpers(void)
 {
-    cr_begin:
-
     st_fixture_begin();
 
     /* Boundary values. */
@@ -115,10 +113,7 @@ static void test_st_model_helpers(void)
                           (robo_html_tokenizer_state_t)99),
                       ROBO_INVALID_ARGUMENT);
 
-    goto cr_begin;
-
     st_fixture_end();
-    (void)0;
 }
 
 static void test_st_switch_misuse(void)
@@ -207,26 +202,28 @@ static void test_st_rawtext(void)
     robo_html_token_t tok;
 
     st_fixture_begin();
-    ROBO_CHECK_EQ_INT(st_from_string("<s>x &amp; <i>y</i> tail", &t), ROBO_OK);
+    /*
+     * The leading <s> teaches the region its end-tag name; only </s>
+     * closes it. Nested-looking markup (</i>) stays literal text, exactly
+     * as a real <style>/<xmp> body would.
+     */
+    ROBO_CHECK_EQ_INT(st_from_string("<s>x &amp; <i>y</i> tail</s>", &t),
+                      ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_tokenizer_switch_state(
                           t, ROBO_HTML_TOKENIZER_STATE_RAWTEXT, NULL),
                       ROBO_OK);
 
-    /* Text run up to the matching end tag. */
+    /* One text run up to the matching end tag. */
     ROBO_CHECK_EQ_INT(robo_html_tokenizer_next(t, &tok, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_CHARACTER);
-    /* '&' stays literal in RAWTEXT. */
-    ROBO_CHECK_STR_EQ(tok.u.characters.data, "x &amp; <i>y");
+    /* '&' and nested markup stay literal in RAWTEXT. */
+    ROBO_CHECK_STR_EQ(tok.u.characters.data, "x &amp; <i>y</i> tail");
 
     /* Matching end tag recognized despite nested markup. */
     ROBO_CHECK_EQ_INT(robo_html_tokenizer_next(t, &tok, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_END_TAG);
     ROBO_CHECK_STR_EQ(tok.u.tag.name, "s");
 
-    /* Tail text, then EOF. */
-    ROBO_CHECK_EQ_INT(robo_html_tokenizer_next(t, &tok, NULL), ROBO_OK);
-    ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_CHARACTER);
-    ROBO_CHECK_STR_EQ(tok.u.characters.data, " tail");
     ROBO_CHECK_EQ_INT(robo_html_tokenizer_next(t, &tok, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(tok.kind, ROBO_HTML_TOKEN_EOF);
 
