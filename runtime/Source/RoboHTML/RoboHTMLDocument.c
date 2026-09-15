@@ -15,6 +15,177 @@
 
 static robo_html_document_id_t g_next_document_id = 1u;
 
+/* ------------------------------------------------------------------ */
+/* Node payload arena (Phase 8.3)                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ensure @p extra more bytes fit at the arena tail.
+ * Growth is geometric (256 B, then doubling) so building a document costs
+ * O(nodes) allocations rather than one per node.
+ */
+static robo_result_t arena_reserve(robo_html_document_slot_t *slot,
+                                   size_t extra,
+                                   robo_html_diag_t *diag)
+{
+    size_t need;
+    size_t next;
+    char *grown;
+
+    if (!slot) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
+                              ROBO_INVALID_ARGUMENT, "slot is NULL");
+    }
+    if (extra > SIZE_MAX - slot->payload_used) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_OUT_OF_MEMORY,
+                              "payload arena size overflow");
+    }
+    need = slot->payload_used + extra;
+    if (need <= slot->payload_capacity) {
+        return ROBO_OK;
+    }
+    next = (slot->payload_capacity == 0u) ? 256u : slot->payload_capacity;
+    while (next < need) {
+        if (next > (SIZE_MAX / 2u)) {
+            next = need;
+            break;
+        }
+        next *= 2u;
+    }
+    grown = (char *)robo_realloc(slot->payload, next);
+    if (!grown) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_OUT_OF_MEMORY,
+                              "payload arena allocation failed");
+    }
+    slot->payload = grown;
+    slot->payload_capacity = next;
+    return ROBO_OK;
+}
+
+robo_result_t robo_html_document_arena_alloc(robo_html_document_slot_t *slot,
+                                             size_t size,
+                                             uint32_t *out_offset,
+                                             void **out_ptr,
+                                             robo_html_diag_t *diag)
+{
+    if (!slot || !out_offset) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
+                              ROBO_INVALID_ARGUMENT, "arena args are NULL");
+    }
+    if (size == 0u) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
+                              ROBO_INVALID_ARGUMENT, "zero-size payload");
+    }
+    if (size > 0xFFFFFFFFu) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_SUPPORTED,
+                              "payload exceeds one addressable range");
+    }
+    if (arena_reserve(slot, size, diag) != ROBO_OK) {
+        return diag ? diag->code : ROBO_OUT_OF_MEMORY;
+    }
+    *out_offset = (uint32_t)slot->payload_used;
+    if (out_ptr) {
+        *out_ptr = slot->payload + slot->payload_used;
+    }
+    slot->payload_used += size;
+    return ROBO_OK;
+}
+
+robo_result_t robo_html_document_arena_extend_tail(
+    robo_html_document_slot_t *slot,
+    uint32_t offset,
+    size_t old_size,
+    size_t extra,
+    void **out_ptr,
+    robo_html_diag_t *diag)
+{
+    if (!slot) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
+                              ROBO_INVALID_ARGUMENT, "slot is NULL");
+    }
+    if ((size_t)offset + old_size != slot->payload_used) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_SUPPORTED,
+                              "only the arena tail can grow");
+    }
+    if (arena_reserve(slot, extra, diag) != ROBO_OK) {
+        return diag ? diag->code : ROBO_OUT_OF_MEMORY;
+    }
+    if (out_ptr) {
+        *out_ptr = slot->payload + offset;
+    }
+    slot->payload_used += extra;
+    return ROBO_OK;
+}
+
+const void *robo_html_document_arena_at(const robo_html_document_slot_t *slot,
+                                        uint32_t offset,
+                                        uint32_t length)
+{
+    if (!slot || !slot->payload) {
+        return NULL;
+    }
+    if ((size_t)offset + length > slot->payload_used) {
+        return NULL;
+    }
+    return slot->payload + offset;
+}
+
+void robo_html_document_arena_free(robo_html_document_slot_t *slot)
+{
+    if (!slot) {
+        return;
+    }
+    if (slot->payload) {
+        robo_free(slot->payload);
+    }
+    slot->payload = NULL;
+    slot->payload_used = 0u;
+    slot->payload_capacity = 0u;
+}
+
+robo_result_t robo_html_document_clear_tree(robo_html_document_slot_t *slot,
+                                            robo_html_diag_t *diag)
+{
+    robo_html_node_handle_t root;
+    robo_result_t r;
+
+    if (!slot) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT,
+                              ROBO_INVALID_ARGUMENT, "slot is NULL");
+    }
+    if (!robo_html_document_lifecycle_allows_content(slot->lifecycle)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_ERROR,
+                              "lifecycle does not allow clearing the tree");
+    }
+    robo_html_document_arena_free(slot);
+    {
+        /*
+         * Reset the registry but keep the id/generation cursors moving
+         * forward. Node ids and generations must never be reused within a
+         * document, or a stale handle from the discarded tree would resolve
+         * against a brand-new node and alias it.
+         */
+        robo_html_node_id_t next_id = slot->nodes.next_id;
+        uint32_t next_generation = slot->nodes.next_generation;
+
+        robo_html_node_registry_init(&slot->nodes);
+        slot->nodes.next_id = next_id;
+        slot->nodes.next_generation = next_generation + 1u;
+    }
+    robo_html_node_handle_clear(&slot->root);
+    r = robo_html_document_register_node(slot->id,
+                                         ROBO_HTML_NODE_KIND_DOCUMENT,
+                                         ROBO_HTML_NODE_ORIGIN_DOCUMENT_ROOT,
+                                         &root, diag);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    slot->root = root;
+    robo_log_debug("robo_html: doc=%llu tree cleared",
+                   (unsigned long long)slot->id);
+    return ROBO_OK;
+}
+
 robo_result_t robo_html_document_apply_transition(
     robo_html_document_slot_t *slot,
     robo_html_document_lifecycle_t to)
@@ -294,11 +465,8 @@ int robo_html_document_is_empty(robo_html_document_id_t document_id)
     if (!slot) {
         return 0;
     }
-    /*
-     * Phase 8.1: documents carry only the root node; the document is empty
-     * until the tree builder (8.3) adds children.
-     */
-    return 1;
+    /* A document is empty while it holds nothing but its own root node. */
+    return slot->nodes.used <= 1u;
 }
 
 const char *robo_html_document_source_name(robo_html_document_id_t document_id)
@@ -422,6 +590,8 @@ robo_result_t robo_html_document_destroy(robo_html_document_id_t document_id,
     slot->mutation_userdata = NULL;
     slot->load_phase = ROBO_HTML_LOAD_PHASE_NONE;
     slot->loader = NULL;
+    /* Payloads belong to the document, so the tree dies with it. */
+    robo_html_document_arena_free(slot);
     robo_html_node_registry_init(&slot->nodes);
     robo_html_node_handle_clear(&slot->root);
     slot->lifecycle = ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED;

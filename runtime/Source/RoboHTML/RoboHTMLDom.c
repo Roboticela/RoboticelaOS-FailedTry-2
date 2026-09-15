@@ -56,7 +56,12 @@ robo_result_t robo_html_dom_query_capabilities(
         return ROBO_INVALID_ARGUMENT;
     }
     robo_html_dom_capabilities_init(out);
-    /* Phase 8.1: no DOM capability is available yet. */
+    /*
+     * Phase 8.3: the tree builder constructs real document trees, so tree
+     * construction is available. Node/element/attribute DOM APIs, mutation
+     * and events are still later-phase work.
+     */
+    out->tree_building = 1;
     return ROBO_OK;
 }
 

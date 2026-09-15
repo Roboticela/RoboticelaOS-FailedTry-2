@@ -10,6 +10,7 @@
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLDom.h"
 #include "RoboHTML/RoboHTMLEncoding.h"
+#include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLLifecycle.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLParser.h"
@@ -41,6 +42,17 @@ typedef struct robo_html_document_slot {
 
     robo_html_node_registry_t nodes;
     robo_html_node_handle_t root;
+
+    /**
+     * Node payload arena (Phase 8.3). Every element name, attribute pair,
+     * text run, comment and doctype string lives here; a node entry stores
+     * only a byte range. Bump-allocated, append-only, freed as a unit at
+     * document teardown — which is why a half-built tree cannot leak and
+     * why lookups never chase a freed per-node allocation.
+     */
+    char *payload;
+    size_t payload_used;
+    size_t payload_capacity;
 
     /** Parser lease (exclusive; NULL when unleased). */
     struct robo_html_parser *leased_parser;
@@ -133,6 +145,191 @@ void robo_html_diagnostics_clear(robo_html_diag_list_t *list);
 robo_html_document_slot_t *robo_html_document_slot_find(
     robo_html_document_id_t id);
 robo_html_document_slot_t *robo_html_document_slot_alloc(void);
+
+/* ------------------------------------------------------------------ *
+ * Node payload arena (Phase 8.3, RoboHTMLDocument.c)                   *
+ * ------------------------------------------------------------------ */
+
+/**
+ * Node payload header. Every payload starts with this header followed by
+ * kind-specific bytes:
+ *
+ *   ELEMENT       name '\0'  then per attribute
+ *                 [u32 name_len][u32 value_len] name '\0' value '\0'
+ *   TEXT/COMMENT  bytes '\0'
+ *   DOCUMENT_TYPE name '\0' public_id '\0' system_id '\0'
+ *   DOCUMENT      no payload
+ */
+typedef struct robo_html_payload_header {
+    uint32_t length;     /* payload bytes after this header */
+    uint32_t attr_count; /* ELEMENT only */
+    uint32_t flags;      /* ELEMENT only; see ROBO_HTML_PAYLOAD_FLAG_* */
+    uint32_t reserved;
+} robo_html_payload_header_t;
+
+/** Element payload flag: the source had "/>". */
+#define ROBO_HTML_PAYLOAD_FLAG_SELF_CLOSING 1u
+
+/**
+ * Reserve @p size bytes at the arena tail.
+ * @p out_ptr is borrowed until the next arena call (growth may move it).
+ */
+robo_result_t robo_html_document_arena_alloc(robo_html_document_slot_t *slot,
+                                             size_t size,
+                                             uint32_t *out_offset,
+                                             void **out_ptr,
+                                             robo_html_diag_t *diag);
+
+/**
+ * Grow the allocation that currently ends the arena by @p extra bytes.
+ * Used to append adjacent text into one node instead of allocating another.
+ * Fails with ROBO_NOT_SUPPORTED when @p offset is not the arena tail.
+ */
+robo_result_t robo_html_document_arena_extend_tail(
+    robo_html_document_slot_t *slot,
+    uint32_t offset,
+    size_t old_size,
+    size_t extra,
+    void **out_ptr,
+    robo_html_diag_t *diag);
+
+/** Borrowed pointer to an existing payload range; NULL when out of bounds. */
+const void *robo_html_document_arena_at(const robo_html_document_slot_t *slot,
+                                        uint32_t offset,
+                                        uint32_t length);
+
+/** Free the arena and reset the cursor (document teardown). */
+void robo_html_document_arena_free(robo_html_document_slot_t *slot);
+
+/** Drop every registered node and the arena, keeping the document node. */
+robo_result_t robo_html_document_clear_tree(robo_html_document_slot_t *slot,
+                                            robo_html_diag_t *diag);
+
+/* ------------------------------------------------------------------ *
+ * Internal tree mutation (Phase 8.3)                                  *
+ * ------------------------------------------------------------------ */
+
+/** Mutable registry entry for @p node_id; NULL when absent. */
+robo_html_node_entry_t *robo_html_node_entry_mut(
+    robo_html_document_id_t document_id,
+    robo_html_node_id_t node_id);
+
+/** Read-only registry entry for @p node_id; NULL when absent. */
+const robo_html_node_entry_t *robo_html_node_entry_get(
+    robo_html_document_id_t document_id,
+    robo_html_node_id_t node_id);
+
+/** Build an inert handle from a registry entry. */
+robo_html_node_handle_t robo_html_node_handle_make(
+    robo_html_document_id_t document_id,
+    const robo_html_node_entry_t *entry);
+
+/**
+ * Append @p child_id as the last child of @p parent_id.
+ * Rejects self-parenting, non-live ids, and a child that already has a
+ * parent. Never touches payload or ordering beyond the sibling links.
+ */
+robo_result_t robo_html_node_link_child(robo_html_document_id_t document_id,
+                                        robo_html_node_id_t parent_id,
+                                        robo_html_node_id_t child_id,
+                                        robo_html_diag_t *diag);
+
+/** Detach @p node_id from its parent and siblings. */
+robo_result_t robo_html_node_unlink(robo_html_document_id_t document_id,
+                                    robo_html_node_id_t node_id,
+                                    robo_html_diag_t *diag);
+
+/** Record @p entry's payload range (kind-specific bytes already written). */
+void robo_html_node_set_payload(robo_html_node_entry_t *entry,
+                                uint32_t offset,
+                                uint32_t length);
+
+/* ------------------------------------------------------------------ *
+ * Node payload layout (Phase 8.3, RoboHTMLPayload.c)                   *
+ * ------------------------------------------------------------------ *
+ * Encode/decode live in one translation unit so the byte layout has a
+ * single definition: writers never hand-roll offsets and readers never
+ * guess at them.
+ */
+
+/** Refuse to store more attributes than this on one element (bounded memory). */
+#define ROBO_HTML_MAX_ATTRS_PER_ELEMENT 64u
+
+/** Bytes an element payload needs for @p name and @p attrs. */
+size_t robo_html_payload_element_size(const char *name,
+                                      size_t name_length,
+                                      const robo_html_attr_view_t *attrs,
+                                      size_t attr_count);
+
+/** Write an element payload; on success records the range on @p entry. */
+robo_result_t robo_html_payload_write_element(
+    robo_html_document_slot_t *slot,
+    robo_html_node_entry_t *entry,
+    const char *name,
+    size_t name_length,
+    const robo_html_attr_view_t *attrs,
+    size_t attr_count,
+    int self_closing,
+    robo_html_diag_t *diag);
+
+/** Write a text/comment payload; on success records the range on @p entry. */
+robo_result_t robo_html_payload_write_text(robo_html_document_slot_t *slot,
+                                           robo_html_node_entry_t *entry,
+                                           const char *bytes,
+                                           size_t length,
+                                           robo_html_diag_t *diag);
+
+/**
+ * Append @p length bytes to a text payload that currently ends the arena.
+ * Returns ROBO_NOT_SUPPORTED when the payload is not the arena tail (the
+ * caller then creates a sibling text node instead of merging).
+ */
+robo_result_t robo_html_payload_append_text(robo_html_document_slot_t *slot,
+                                            robo_html_node_entry_t *entry,
+                                            const char *bytes,
+                                            size_t length,
+                                            robo_html_diag_t *diag);
+
+/** Write a DOCTYPE payload (absent identifiers become empty strings). */
+robo_result_t robo_html_payload_write_doctype(robo_html_document_slot_t *slot,
+                                              robo_html_node_entry_t *entry,
+                                              const char *name,
+                                              const char *public_id,
+                                              const char *system_id,
+                                              robo_html_diag_t *diag);
+
+/** Borrowed element name ("" when the node is not an element). */
+const char *robo_html_payload_element_name(
+    const robo_html_document_slot_t *slot,
+    const robo_html_node_entry_t *entry,
+    size_t *out_length);
+
+/** Stored attribute count (0 when the node is not an element). */
+size_t robo_html_payload_attr_count(const robo_html_document_slot_t *slot,
+                                    const robo_html_node_entry_t *entry);
+
+/** Borrowed attribute @p index; ROBO_NOT_FOUND when out of range. */
+robo_result_t robo_html_payload_attr_at(const robo_html_document_slot_t *slot,
+                                        const robo_html_node_entry_t *entry,
+                                        size_t index,
+                                        const char **out_name,
+                                        const char **out_value);
+
+/** Borrowed text/comment bytes ("" when not applicable); 0 when absent. */
+const char *robo_html_payload_text(const robo_html_document_slot_t *slot,
+                                   const robo_html_node_entry_t *entry,
+                                   size_t *out_length);
+
+/** Non-zero when the element payload recorded "/>" in the source. */
+int robo_html_payload_self_closing(const robo_html_document_slot_t *slot,
+                                   const robo_html_node_entry_t *entry);
+
+/** Borrowed DOCTYPE parts (absent parts are ""). */
+void robo_html_payload_doctype(const robo_html_document_slot_t *slot,
+                               const robo_html_node_entry_t *entry,
+                               const char **out_name,
+                               const char **out_public_id,
+                               const char **out_system_id);
 
 /** Mutation hook emission (RoboHTMLDom.c). */
 void robo_html_emit_mutation(const robo_html_mutation_event_t *event,

@@ -1,8 +1,5 @@
 /*
- * RoboHTML node identity and lifetime model (Phase 8.1).
- *
- * Architecture only — the full DOM node system arrives in the DOM phase.
- * What 8.1 fixes permanently:
+ * RoboHTML node identity, tree shape, and payload access (Phase 8.1 + 8.3).
  *
  * Identity
  *   - Node identity is (owning document id, node id, generation).
@@ -12,17 +9,28 @@
  *
  * Ownership
  *   - The owning document exclusively owns every registered node.
- *   - Nodes have NO reference counting and NO external owner in 8.1.
+ *   - Nodes have NO reference counting and NO external owner.
  *   - Application code only ever holds robo_html_node_handle_t values,
  *     which are inert tokens (safe to copy, compare, store). A handle is
  *     meaningful only while its node is live in its owning document.
+ *   - Node payloads (element names, attributes, text) live in the owning
+ *     document's payload arena, never in a separately owned allocation.
  *
  * Lifetime
- *   - Registration goes through the document (see RoboHTMLDocument.h);
- *     there is no public "create node" in 8.1 — the tree builder (8.3)
- *     will use the document-scoped registration entry points.
- *   - Destruction of the document retires all node handles at once.
- *     Per-node release arrives with the DOM phase, behind the document.
+ *   - The tree builder (8.3) creates nodes through document-scoped
+ *     registration and links them; there is still no application-facing
+ *     "create node" or "append child" here (DOM mutation belongs to the
+ *     DOM phase). This header exposes the read side.
+ *   - Destroying the document retires all node handles and frees the
+ *     payload arena at once.
+ *
+ * Borrowed-data contract (important)
+ *   - The accessors below return pointers INTO the document's payload
+ *     arena. They are valid until the arena grows — i.e. until further tree
+ *     building on that document — or until the document is destroyed.
+ *   - After tree construction finishes the arena stops growing, so views
+ *     taken then are stable for the document's lifetime.
+ *   - Callers that must keep data copy it out.
  *
  * Stale handling
  *   - robo_html_node_handle_resolve returns ROBO_NOT_FOUND for unknown ids
@@ -67,8 +75,9 @@ int robo_html_node_handle_equal(const robo_html_node_handle_t *a,
 
 /**
  * Resolve @p h against the live registry.
- * @return ROBO_OK and *out_kind when the node is live;
- *         ROBO_INVALID_ARGUMENT for NULL/ill-formed inputs;
+ * @p out_kind is optional: passing NULL performs a pure validation.
+ * @return ROBO_OK (and *out_kind when requested) for a live node;
+ *         ROBO_INVALID_ARGUMENT for a NULL or ill-formed handle;
  *         ROBO_NOT_FOUND for unknown document, unknown node id,
  *         or a stale generation (check robo_html_node_handle_is_stale
  *         to distinguish stale from unknown).
@@ -86,12 +95,30 @@ int robo_html_node_handle_is_stale(const robo_html_node_handle_t *h);
 /**
  * Registry entry (private layout, public for embedding in the document
  * struct). Treat fields as opaque outside RoboHTML sources.
+ *
+ * Tree links are stored as node ids rather than pointers so that registry
+ * storage may move and stale links are impossible to dereference.
  */
 typedef struct robo_html_node_entry {
     int in_use;
     robo_html_node_id_t id;
     uint32_t generation;
     robo_html_node_kind_t kind;
+
+    /* Tree links (ROBO_HTML_NODE_ID_NONE = absent). */
+    robo_html_node_id_t parent;
+    robo_html_node_id_t first_child;
+    robo_html_node_id_t last_child;
+    robo_html_node_id_t prev_sibling;
+    robo_html_node_id_t next_sibling;
+
+    /** Byte range of this node's payload in the document payload arena. */
+    uint32_t payload_offset;
+    uint32_t payload_length;
+    /** Number of direct children (kept in step with the links). */
+    uint32_t child_count;
+    /** Element-only flags (see RoboHTMLInternal.h payload header). */
+    uint32_t flags;
 } robo_html_node_entry_t;
 
 /**
@@ -110,6 +137,91 @@ void robo_html_node_registry_init(robo_html_node_registry_t *reg);
 
 /** Number of live nodes; 0 on NULL. */
 size_t robo_html_node_registry_count(const robo_html_node_registry_t *reg);
+
+/* ------------------------------------------------------------------ */
+/* Read-side tree access (Phase 8.3)                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Snapshot of one node's shape and borrowed payload.
+ *
+ * @c name is the element/doctype name ("") for other kinds.
+ * @c text is the text/comment data ("") for other kinds.
+ * Attribute storage is element-specific — use RoboHTMLElement.h.
+ */
+typedef struct robo_html_node_view {
+    robo_html_node_handle_t handle;
+    robo_html_node_kind_t kind;
+
+    robo_html_node_handle_t parent;       /* invalid when detached */
+    robo_html_node_handle_t first_child;  /* invalid when childless */
+    robo_html_node_handle_t last_child;
+    robo_html_node_handle_t prev_sibling;
+    robo_html_node_handle_t next_sibling;
+    size_t child_count;
+
+    const char *name;      /* borrowed; "" when not applicable */
+    const char *text;      /* borrowed; "" when not applicable */
+    size_t text_length;    /* bytes, excluding the NUL */
+
+    /** Element-only: non-zero when the source had "/>". */
+    int self_closing;
+} robo_html_node_view_t;
+
+/**
+ * Fill @p out with the node's shape and borrowed payload pointers.
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT (NULL args / ill-formed handle);
+ *         ROBO_NOT_FOUND (unknown document, unknown id, stale generation).
+ */
+robo_result_t robo_html_node_get_view(const robo_html_node_handle_t *h,
+                                      robo_html_node_view_t *out,
+                                      robo_html_diag_t *diag);
+
+/** Number of direct children; unknown node → ROBO_NOT_FOUND. */
+robo_result_t robo_html_node_child_count(const robo_html_node_handle_t *h,
+                                         size_t *out_count,
+                                         robo_html_diag_t *diag);
+
+/**
+ * Handle of child @p index (0-based, document order).
+ * Out of range → ROBO_NOT_FOUND (never a zeroed-but-successful handle).
+ */
+robo_result_t robo_html_node_child_at(const robo_html_node_handle_t *h,
+                                      size_t index,
+                                      robo_html_node_handle_t *out,
+                                      robo_html_diag_t *diag);
+
+/** Handle of the first child whose name matches @p name (lowercase ASCII). */
+robo_result_t robo_html_node_find_child_by_name(
+    const robo_html_node_handle_t *h,
+    const char *name,
+    robo_html_node_handle_t *out,
+    robo_html_diag_t *diag);
+
+/**
+ * Depth-first search over @p h's subtree (excluding @p h itself) for the
+ * first element whose name matches @p name. Bounded by the document's node
+ * count, so a malformed tree cannot loop forever.
+ */
+robo_result_t robo_html_node_find_element(const robo_html_node_handle_t *h,
+                                          const char *name,
+                                          robo_html_node_handle_t *out,
+                                          robo_html_diag_t *diag);
+
+/**
+ * Concatenated text of a subtree in document order (text nodes only).
+ *
+ * @p out is NUL-terminated and truncated to @p out_cap - 1 bytes;
+ * @p out_length receives the *untruncated* byte length so callers can
+ * detect truncation (out_length >= out_cap means content was dropped).
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL args / zero capacity;
+ *         ROBO_NOT_FOUND for an unknown node.
+ */
+robo_result_t robo_html_node_subtree_text(const robo_html_node_handle_t *h,
+                                          char *out,
+                                          size_t out_cap,
+                                          size_t *out_length,
+                                          robo_html_diag_t *diag);
 
 #ifdef __cplusplus
 }

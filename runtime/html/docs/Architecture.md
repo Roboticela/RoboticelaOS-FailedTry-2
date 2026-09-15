@@ -116,7 +116,7 @@ robo_html_tokenizer_next()          state machine (RoboHTMLTokenizerStates.h)
 robo_html_token_t   CHARACTER | START_TAG | END_TAG | COMMENT | DOCTYPE | EOF
         │
         ▼
-future tree builder (8.3) → document node registry
+tree builder (8.3) → document node registry (see §11)
 ```
 
 ### Token model and ownership
@@ -164,10 +164,51 @@ The expected end-tag name is seeded from the last emitted start tag (the
 start tag; `RCDATA` decodes references, the others stay byte-literal, and
 only the matching end tag closes the region.
 
-## 10. What Phase 8.2 deliberately does not do
+## 10. What the tokenizer deliberately does not do
 
-No tree building, no DOM nodes/elements/attributes, no document tree
-mutation, no element semantics (an end tag does not close anything), no
-incremental/chunked input (the machine is written so a future source feeding
-in chunks plugs in without redesign), no CSS, layout, paint, JavaScript,
-networking, filesystem, storage, navigation, cookies or CORS.
+The tokenizer constructs nothing: no tree, no nodes, no element semantics (an
+end tag does not close anything), no CSS, layout, paint, JavaScript,
+networking, filesystem, storage, navigation, cookies or CORS. It also does not
+accept incremental/chunked input yet — the machine is written so a source
+feeding in chunks plugs in without redesign. Turning tokens into structure is
+the tree builder's job, and it consumes this stream without the tokenizer
+knowing anything about documents.
+
+## 11. Phase 8.3 — tree builder
+
+The tree builder consumes the token stream and constructs the document tree
+that 8.1 reserved room for:
+
+```
+source (8.1) → tokenizer (8.2) → tree builder (8.3) → document tree
+                                                       ├── nodes: Document,
+                                                       │   DocumentType,
+                                                       │   Element, Text,
+                                                       │   Comment
+                                                       ├── parent/child/sibling
+                                                       │   links as node ids
+                                                       └── payload arena:
+                                                           names, attributes,
+                                                           text, identifiers
+```
+
+- **Ownership is unchanged from 8.1:** the document owns every node and every
+  byte of payload. The builder holds ids, never registry pointers, and only
+  ever creates nodes through `robo_html_document_register_node` — there is no
+  second ownership model.
+- **Modes and the open-element stack** implement the foundational insertion
+  modes (`initial` … `in-body`, `after-body`, `after-after-body`, plus a text
+  mode for RCDATA/RAWTEXT/script/plaintext), so later goals extend the machine
+  instead of replacing it.
+- **Implied structure:** a missing `<html>`, `<head>` or `<body>` is created,
+  which is why an empty document is not an empty tree.
+- **Recovery is bounded and non-fatal:** diagnostics for everything
+  recoverable, a hard stop only at the node ceiling (which truncates and still
+  reports success), and a `ROBO_OK`-with-`truncated` contract callers can
+  detect.
+- **Mutation retires identities safely:** re-building a document clears the
+  tree but keeps node ids and generations moving forward, so a stale handle
+  from the previous tree can never alias a new node.
+
+Full design, limits and the assembled/deliberately-absent rule list:
+[`TreeBuilder.md`](TreeBuilder.md).

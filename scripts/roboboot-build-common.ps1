@@ -684,7 +684,32 @@ function Invoke-RoboBuildUserland {
             "Source\RoboWindow\RoboWindowSize.c",
             "Source\RoboWindow\RoboWindowBackendHost.c",
             "Source\RoboDisplay\RoboDisplayBackendHost.c",
-            "Source\RoboWindow\platform\qemu\RoboWindowBackendQemu.c"
+            "Source\RoboWindow\platform\qemu\RoboWindowBackendQemu.c",
+            # RoboHTML 8.1/8.2/8.3: the guest renders the demo through the
+            # real tokenizer and tree builder, so the HTML module ships in
+            # the guest image too.
+            "Source\RoboHTML\RoboHTML.c",
+            "Source\RoboHTML\RoboHTMLTypes.c",
+            "Source\RoboHTML\RoboHTMLDiagnostics.c",
+            "Source\RoboHTML\RoboHTMLLifecycle.c",
+            "Source\RoboHTML\RoboHTMLSource.c",
+            "Source\RoboHTML\RoboHTMLEncoding.c",
+            "Source\RoboHTML\RoboHTMLNode.c",
+            "Source\RoboHTML\RoboHTMLDom.c",
+            "Source\RoboHTML\RoboHTMLElement.c",
+            "Source\RoboHTML\RoboHTMLClient.c",
+            "Source\RoboHTML\RoboHTMLResource.c",
+            "Source\RoboHTML\RoboHTMLParser.c",
+            "Source\RoboHTML\RoboHTMLDocument.c",
+            "Source\RoboHTML\RoboHTMLToken.c",
+            "Source\RoboHTML\RoboHTMLCharRefData.c",
+            "Source\RoboHTML\RoboHTMLCharRef.c",
+            "Source\RoboHTML\RoboHTMLTokenizer.c",
+            "Source\RoboHTML\RoboHTMLPayload.c",
+            "Source\RoboHTML\RoboHTMLTreeBuilder.c",
+            # RoboDemo: the throwaway tree to picture adapter.
+            "Source\RoboDemo\RoboDemoFont.c",
+            "Source\RoboDemo\RoboDemoHtml.c"
         ) },
         # Legacy Chromium-engine demos — optional; skipped when sources absent.
         @{ Name = "robospark"; Root = $runtime; Optional = $true; Srcs = @(

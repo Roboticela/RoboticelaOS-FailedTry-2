@@ -1,22 +1,36 @@
 /*
- * Roboticela Runtime — QEMU display smoke (Goals 7.12 / 7.14).
+ * Roboticela Runtime — QEMU display + HTML visual checkpoint
+ * (Goals 7.12 / 7.14, Phase 8.2 demo).
  *
  * Path:
- *   begin_frame → RoboGraphics draw → end_frame → present_frame
- *        → QEMU SYS_DISPLAY → GOP FB
- * Input: SYS_DISPLAY INPUT → RoboKeyboard / RoboMouse
+ *   embedded demo HTML
+ *     → RoboHTML tokenizer (8.2)
+ *     → RoboDemo page model
+ *     → RoboGraphics paint → RoboWindow begin/end/present_frame
+ *     → QEMU SYS_DISPLAY → GOP framebuffer
+ *
+ * Input: SYS_DISPLAY INPUT → RoboKeyboard / RoboMouse.
+ *
+ * The host checkpoint (RoboTest.host.exe --demo-html) paints the *same* page
+ * through the same RoboDemo adapter into a Win32 window, so the two backends
+ * share one renderer; only window creation and presentation differ.
  *
  * Serial markers for automated validation:
  *   ROBO_QEMU_DISPLAY_OK
+ *   ROBO_QEMU_HTML_OK
  *   ROBO_QEMU_PRESENT_OK
  *   ROBO_QEMU_INPUT_OK
  *   ROBO_QEMU_DISPLAY_SHUTDOWN_OK
  */
 
+#include "RoboBase/RoboBase.h"
+#include "RoboDemo/RoboDemoFont.h"
+#include "RoboDemo/RoboDemoHtml.h"
 #include "RoboDisplay/RoboDisplay.h"
 #include "RoboDisplay/RoboDisplayBackendQemu.h"
 #include "RoboDisplay/RoboQemuFramebuffer.h"
 #include "RoboGraphics/RoboGraphics.h"
+#include "RoboHTML/RoboHTML.h"
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowBackendQemu.h"
 #include "RoboWindow/RoboWindowGraphics.h"
@@ -29,120 +43,12 @@
 #include <stdint.h>
 #include <string.h>
 
-#define FONT_W 8
-#define FONT_H 8
-
-static const robo_gfx_color_rgba8_t C_BG = {0, 0, 0, 255};
-static const robo_gfx_color_rgba8_t C_CARD = {28, 28, 30, 255};
-static const robo_gfx_color_rgba8_t C_FG = {255, 255, 255, 255};
-static const robo_gfx_color_rgba8_t C_MUTED = {161, 161, 166, 255};
-static const robo_gfx_color_rgba8_t C_BRAND = {14, 122, 255, 255};
-static const robo_gfx_color_rgba8_t C_TEAL = {20, 184, 166, 255};
-static const robo_gfx_color_rgba8_t C_OK = {48, 209, 88, 255};
-static const robo_gfx_color_rgba8_t C_WARN = {255, 159, 10, 255};
-static const robo_gfx_color_rgba8_t C_DANGER = {255, 59, 48, 255};
+static const robo_gfx_color_rgba8_t C_MUTED = {110, 110, 115, 255};
 static const robo_gfx_color_rgba8_t C_WHITE = {255, 255, 255, 255};
 static const robo_gfx_color_rgba8_t C_RED = {255, 0, 0, 255};
 static const robo_gfx_color_rgba8_t C_GREEN = {0, 255, 0, 255};
 static const robo_gfx_color_rgba8_t C_BLUE = {0, 0, 255, 255};
-
-static const uint8_t g_font[95][8] = {
-    {0,0,0,0,0,0,0,0},
-    {0x10,0x10,0x10,0x10,0x10,0,0x10,0},
-    {0x28,0x28,0x28,0,0,0,0,0},
-    {0x28,0x28,0x7C,0x28,0x7C,0x28,0x28,0},
-    {0x10,0x3C,0x50,0x38,0x14,0x78,0x10,0},
-    {0x60,0x64,0x08,0x10,0x20,0x4C,0x0C,0},
-    {0x20,0x50,0x50,0x20,0x54,0x48,0x34,0},
-    {0x10,0x10,0x20,0,0,0,0,0},
-    {0x08,0x10,0x20,0x20,0x20,0x10,0x08,0},
-    {0x20,0x10,0x08,0x08,0x08,0x10,0x20,0},
-    {0,0x10,0x54,0x38,0x54,0x10,0,0},
-    {0,0x10,0x10,0x7C,0x10,0x10,0,0},
-    {0,0,0,0,0,0x10,0x10,0x20},
-    {0,0,0,0x7C,0,0,0,0},
-    {0,0,0,0,0,0,0x10,0},
-    {0x04,0x08,0x10,0x20,0x40,0,0,0},
-    {0x38,0x44,0x4C,0x54,0x64,0x44,0x38,0},
-    {0x10,0x30,0x10,0x10,0x10,0x10,0x38,0},
-    {0x38,0x44,0x04,0x18,0x20,0x40,0x7C,0},
-    {0x38,0x44,0x04,0x18,0x04,0x44,0x38,0},
-    {0x08,0x18,0x28,0x48,0x7C,0x08,0x08,0},
-    {0x7C,0x40,0x78,0x04,0x04,0x44,0x38,0},
-    {0x18,0x20,0x40,0x78,0x44,0x44,0x38,0},
-    {0x7C,0x04,0x08,0x10,0x20,0x20,0x20,0},
-    {0x38,0x44,0x44,0x38,0x44,0x44,0x38,0},
-    {0x38,0x44,0x44,0x3C,0x04,0x08,0x30,0},
-    {0,0x10,0,0,0x10,0,0,0},
-    {0,0x10,0,0,0x10,0x10,0x20,0},
-    {0x08,0x10,0x20,0x40,0x20,0x10,0x08,0},
-    {0,0,0x7C,0,0x7C,0,0,0},
-    {0x40,0x20,0x10,0x08,0x10,0x20,0x40,0},
-    {0x38,0x44,0x04,0x08,0x10,0,0x10,0},
-    {0x38,0x44,0x5C,0x54,0x5C,0x40,0x38,0},
-    {0x38,0x44,0x44,0x7C,0x44,0x44,0x44,0},
-    {0x78,0x44,0x44,0x78,0x44,0x44,0x78,0},
-    {0x38,0x44,0x40,0x40,0x40,0x44,0x38,0},
-    {0x78,0x44,0x44,0x44,0x44,0x44,0x78,0},
-    {0x7C,0x40,0x40,0x78,0x40,0x40,0x7C,0},
-    {0x7C,0x40,0x40,0x78,0x40,0x40,0x40,0},
-    {0x38,0x44,0x40,0x4C,0x44,0x44,0x38,0},
-    {0x44,0x44,0x44,0x7C,0x44,0x44,0x44,0},
-    {0x38,0x10,0x10,0x10,0x10,0x10,0x38,0},
-    {0x04,0x04,0x04,0x04,0x04,0x44,0x38,0},
-    {0x44,0x48,0x50,0x60,0x50,0x48,0x44,0},
-    {0x40,0x40,0x40,0x40,0x40,0x40,0x7C,0},
-    {0x44,0x6C,0x54,0x54,0x44,0x44,0x44,0},
-    {0x44,0x64,0x54,0x4C,0x44,0x44,0x44,0},
-    {0x38,0x44,0x44,0x44,0x44,0x44,0x38,0},
-    {0x78,0x44,0x44,0x78,0x40,0x40,0x40,0},
-    {0x38,0x44,0x44,0x44,0x54,0x48,0x34,0},
-    {0x78,0x44,0x44,0x78,0x50,0x48,0x44,0},
-    {0x38,0x44,0x40,0x38,0x04,0x44,0x38,0},
-    {0x7C,0x10,0x10,0x10,0x10,0x10,0x10,0},
-    {0x44,0x44,0x44,0x44,0x44,0x44,0x38,0},
-    {0x44,0x44,0x44,0x44,0x44,0x28,0x10,0},
-    {0x44,0x44,0x44,0x54,0x54,0x6C,0x44,0},
-    {0x44,0x44,0x28,0x10,0x28,0x44,0x44,0},
-    {0x44,0x44,0x28,0x10,0x10,0x10,0x10,0},
-    {0x7C,0x04,0x08,0x10,0x20,0x40,0x7C,0},
-    {0x38,0x20,0x20,0x20,0x20,0x20,0x38,0},
-    {0x40,0x20,0x10,0x08,0x04,0,0,0},
-    {0x38,0x08,0x08,0x08,0x08,0x08,0x38,0},
-    {0x10,0x28,0x44,0,0,0,0,0},
-    {0,0,0,0,0,0,0,0x7C},
-    {0x20,0x10,0x08,0,0,0,0,0},
-    {0,0,0x38,0x04,0x3C,0x44,0x3C,0},
-    {0x40,0x40,0x78,0x44,0x44,0x44,0x78,0},
-    {0,0,0x38,0x44,0x40,0x44,0x38,0},
-    {0x04,0x04,0x3C,0x44,0x44,0x44,0x3C,0},
-    {0,0,0x38,0x44,0x7C,0x40,0x38,0},
-    {0x18,0x20,0x20,0x78,0x20,0x20,0x20,0},
-    {0,0,0x3C,0x44,0x3C,0x04,0x38,0},
-    {0x40,0x40,0x78,0x44,0x44,0x44,0x44,0},
-    {0x10,0,0x30,0x10,0x10,0x10,0x38,0},
-    {0x08,0,0x18,0x08,0x08,0x48,0x30,0},
-    {0x40,0x40,0x48,0x50,0x60,0x50,0x48,0},
-    {0x30,0x10,0x10,0x10,0x10,0x10,0x38,0},
-    {0,0,0x68,0x54,0x54,0x54,0x54,0},
-    {0,0,0x78,0x44,0x44,0x44,0x44,0},
-    {0,0,0x38,0x44,0x44,0x44,0x38,0},
-    {0,0,0x78,0x44,0x78,0x40,0x40,0},
-    {0,0,0x3C,0x44,0x3C,0x04,0x04,0},
-    {0,0,0x58,0x64,0x40,0x40,0x40,0},
-    {0,0,0x3C,0x40,0x38,0x04,0x78,0},
-    {0x20,0x20,0x78,0x20,0x20,0x20,0x18,0},
-    {0,0,0x44,0x44,0x44,0x44,0x3C,0},
-    {0,0,0x44,0x44,0x44,0x28,0x10,0},
-    {0,0,0x44,0x54,0x54,0x54,0x28,0},
-    {0,0,0x44,0x28,0x10,0x28,0x44,0},
-    {0,0,0x44,0x44,0x3C,0x04,0x38,0},
-    {0,0,0x7C,0x08,0x10,0x20,0x7C,0},
-    {0x08,0x10,0x10,0x20,0x10,0x10,0x08,0},
-    {0x10,0x10,0x10,0x10,0x10,0x10,0x10,0},
-    {0x20,0x10,0x10,0x08,0x10,0x10,0x20,0},
-    {0,0x20,0x54,0x08,0,0,0,0},
-};
+static const robo_gfx_color_rgba8_t C_BRAND = {14, 122, 255, 255};
 
 static unsigned slen(const char *s)
 {
@@ -159,67 +65,11 @@ static void serial(const char *s)
         robo_write(1, s, n);
 }
 
-static void caption(robo_gfx_surface_t *s, int px, int py, const char *text,
-                    robo_gfx_color_rgba8_t fg)
+static void caption(robo_gfx_surface_t *s, int32_t px, int32_t py,
+                    const char *text, robo_gfx_color_rgba8_t fg)
 {
-    int x = px;
-    unsigned i = 0;
-    while (text && text[i]) {
-        char ch = text[i];
-        const uint8_t *g;
-        int gy, gx;
-        unsigned idx;
-        if (ch < 32 || ch > 126)
-            ch = '?';
-        idx = (unsigned)(ch - 32);
-        g = g_font[idx];
-        for (gy = 0; gy < FONT_H; gy++) {
-            uint8_t bits = g[gy];
-            for (gx = 0; gx < FONT_W; gx++) {
-                if (bits & (0x80u >> gx)) {
-                    (void)robo_gfx_surface_set_pixel(
-                        s, (uint32_t)(x + gx), (uint32_t)(py + gy), fg);
-                }
-            }
-        }
-        x += FONT_W + 1;
-        i++;
-    }
-}
-
-static void draw_test_pattern(robo_gfx_surface_t *s, uint32_t w, uint32_t h)
-{
-    int m = 24;
-    (void)robo_gfx_surface_clear(s, C_BG);
-    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(0, 0, (int32_t)w, 6),
-                                     C_BRAND);
-    (void)robo_gfx_surface_fill_rect(
-        s, robo_gfx_rect(m, m, (int32_t)w - m * 2, (int32_t)h - m * 2), C_CARD);
-
-    /* Corner markers for coordinate checks. */
-    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(0, 0, 8, 8), C_WHITE);
-    (void)robo_gfx_surface_fill_rect(
-        s, robo_gfx_rect((int32_t)w - 8, 0, 8, 8), C_RED);
-    (void)robo_gfx_surface_fill_rect(
-        s, robo_gfx_rect(0, (int32_t)h - 8, 8, 8), C_GREEN);
-    (void)robo_gfx_surface_fill_rect(
-        s, robo_gfx_rect((int32_t)w - 8, (int32_t)h - 8, 8, 8), C_BLUE);
-
-    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 24, m + 64, 64, 40),
-                                     C_BRAND);
-    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 100, m + 64, 64, 40),
-                                     C_TEAL);
-    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 176, m + 64, 64, 40),
-                                     C_OK);
-    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 252, m + 64, 64, 40),
-                                     C_WARN);
-    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 328, m + 64, 64, 40),
-                                     C_DANGER);
-
-    caption(s, m + 24, m + 20, "RoboWindow + QEMU Display (Goal 7.12)", C_FG);
-    caption(s, m + 24, m + 36, "UEFI GOP via SYS_DISPLAY present path", C_MUTED);
-    caption(s, m + 24, m + 120, "corners: TL white TR red BL green BR blue",
-            C_MUTED);
+    /* Demo-scope text: the shared RoboDemo atlas, scale 1, clipped safely. */
+    (void)robo_demo_font_draw(s, px, py, text, slen(text), 1, fg);
 }
 
 static void u32_hex(char *out, uint32_t v)
@@ -247,16 +97,31 @@ int main(void)
     robo_window_id_t wid = ROBO_WINDOW_ID_NONE;
     robo_window_config_t cfg;
     robo_gfx_surface_t *surf = NULL;
+    robo_demo_page_t *page = NULL;
     const robo_qemu_fb_info_t *fb;
     robo_window_event_t ev;
+    robo_result_t r;
     int saw_key = 0;
     int saw_mouse = 0;
     int i;
 
-    serial("robo-runtime: Goal 7.14 window+graphics (QEMU present)\n");
+    serial("robo-runtime: HTML visual checkpoint (QEMU present)\n");
+    serial_u32("ROBO_QEMU_HTML_SOURCE_BYTES=",
+               (uint32_t)robo_demo_default_html_length());
 
+    r = robo_base_init();
+    if (r != ROBO_OK && r != ROBO_ALREADY_EXISTS) {
+        serial("ROBO_QEMU_DISPLAY_FAIL base_init\n");
+        for (;;)
+            robo_sleep(1000);
+    }
     if (robo_graphics_init() != ROBO_OK) {
         serial("ROBO_QEMU_DISPLAY_FAIL graphics_init\n");
+        for (;;)
+            robo_sleep(1000);
+    }
+    if (robo_html_init() != ROBO_OK) {
+        serial("ROBO_QEMU_DISPLAY_FAIL html_init\n");
         for (;;)
             robo_sleep(1000);
     }
@@ -297,10 +162,30 @@ int main(void)
     serial_u32("ROBO_QEMU_FB_PITCH=", fb->ready ? fb->pitch_bytes : 0u);
     serial_u32("ROBO_QEMU_FB_PIXFMT=", fb->ready ? fb->pixfmt : 0u);
 
+    /* The real tokenizer runs in the guest: one page model, painted below. */
+    if (robo_demo_page_create(robo_demo_default_html(),
+                              robo_demo_default_html_length(), &page,
+                              NULL) != ROBO_OK ||
+        !page) {
+        serial("ROBO_QEMU_DISPLAY_FAIL html_page\n");
+        for (;;)
+            robo_sleep(1000);
+    }
+    serial("ROBO_QEMU_HTML_OK\n");
+    serial("ROBO_QEMU_HTML_TITLE=");
+    serial(robo_demo_page_title(page));
+    serial("\n");
+    serial_u32("ROBO_QEMU_HTML_BLOCKS=",
+               (uint32_t)robo_demo_page_block_count(page));
+    serial_u32("ROBO_QEMU_HTML_SUPPORTED=",
+               (uint32_t)robo_demo_page_supported_element_count(page));
+    serial_u32("ROBO_QEMU_HTML_IGNORED=",
+               (uint32_t)robo_demo_page_ignored_tag_count(page));
+
     robo_window_config_init(&cfg);
     cfg.width = fb->ready ? (int32_t)fb->width : 800;
     cfg.height = fb->ready ? (int32_t)fb->height : 600;
-    cfg.title = "Roboticela QEMU Display";
+    cfg.title = robo_demo_page_title(page);
     cfg.visible = 1;
     if (robo_window_create(&cfg, &wid) != ROBO_OK) {
         serial("ROBO_QEMU_DISPLAY_FAIL create\n");
@@ -321,8 +206,32 @@ int main(void)
             for (;;)
                 robo_sleep(1000);
         }
-        draw_test_pattern(surf, robo_gfx_surface_width(surf),
-                          robo_gfx_surface_height(surf));
+
+        /* The HTML-derived picture is the content. */
+        if (robo_demo_page_paint(page, surf, NULL, NULL) != ROBO_OK) {
+            serial("ROBO_QEMU_DISPLAY_FAIL html_paint\n");
+        }
+
+        /* Coordinate markers stay on top so frame-buffer probes can verify
+         * the present path independently of the page content. */
+        {
+            int32_t w = robo_gfx_surface_width(surf);
+            int32_t h = robo_gfx_surface_height(surf);
+            (void)robo_gfx_surface_fill_rect(surf, robo_gfx_rect(0, 0, 8, 8),
+                                             C_WHITE);
+            (void)robo_gfx_surface_fill_rect(
+                surf, robo_gfx_rect(w - 8, 0, 8, 8), C_RED);
+            (void)robo_gfx_surface_fill_rect(
+                surf, robo_gfx_rect(0, h - 8, 8, 8), C_GREEN);
+            (void)robo_gfx_surface_fill_rect(
+                surf, robo_gfx_rect(w - 8, h - 8, 8, 8), C_BLUE);
+            (void)robo_gfx_surface_fill_rect(
+                surf, robo_gfx_rect(0, h - 22, w, 1), C_BRAND);
+            caption(surf, 8, h - 16,
+                    "RoboHTML 8.2 to RoboGraphics to RoboWindow (QEMU)",
+                    C_MUTED);
+        }
+
         if (robo_window_end_frame(wid) != ROBO_OK) {
             serial("ROBO_QEMU_DISPLAY_FAIL end_frame\n");
         }
@@ -387,13 +296,13 @@ int main(void)
         serial("ROBO_QEMU_INPUT_OK\n");
     }
 
-    if (surf) {
-        /* Owned by RoboWindow; destroy releases it. */
-        surf = NULL;
-    }
+    /* Owned by RoboWindow; destroy releases it. */
+    surf = NULL;
     (void)robo_window_destroy(wid);
+    robo_demo_page_destroy(page);
     robo_window_shutdown();
     robo_display_shutdown();
+    robo_html_shutdown();
     robo_graphics_shutdown();
     serial("ROBO_QEMU_DISPLAY_SHUTDOWN_OK\n");
 

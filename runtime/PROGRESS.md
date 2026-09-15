@@ -2197,7 +2197,75 @@
 - [x] No Chromium dependency; full regression suite green
 - [x] Stop after 8.2
 
+## Goal 8.3 — HTML tree builder
+
+**Status:** complete
+
+**Done:**
+
+- `RoboHTMLTreeBuilder.h` — builder create / begin / next / consume / finish /
+  build, one-shot `robo_html_build_tree`, introspection (state, insertion
+  mode, text mode, current node, open-element stack, result, diagnostics),
+  `set_text_mode` hook, and the tree dump (`robo_html_tree_dump` +
+  `_to_buffer`)
+- Real nodes from the 8.2 stream: `Document`, `DocumentType`, `Element`,
+  `Text`, `Comment` — created only through document-scoped registration, so
+  there is still exactly one ownership model
+- Node payload arena (`RoboHTMLPayload.c`): one definition of the byte layout
+  for element name + attribute pairs (u32 lengths, NUL-terminated strings,
+  duplicates preserved in source order), text/comment bytes, and doctype
+  identifiers; adjacent character tokens merge in place when the previous
+  text payload still ends the arena
+- Open-element stack (heap, geometric growth) with `push` / `pop` / `current` /
+  lookup / scope-based closing; tree links stored as node ids, never registry
+  pointers
+- Insertion modes: `initial`, `before-html`, `before-head`, `in-head`,
+  `after-head`, `in-body`, `after-body`, `after-after-body`, plus `text` for
+  RCDATA / RAWTEXT / script data / plaintext; implied `html`/`head`/`body`;
+  guarded re-dispatch so no token can loop
+- In-body rules: headings close headings and open `p`; block start tags close
+  open `p`; nested `<button>` closes the outer one; `pre`/`listing`/`textarea`
+  swallow one leading LF; `</br>` re-runs as `<br>`; end tags pop to their
+  matching element; void elements never swallow following content
+- Recovery: everything malformed is a bounded diagnostic, never fatal; the
+  only hard stop is the node ceiling, which truncates, still reports
+  `ROBO_OK`, and reports `result.truncated`
+- Identity safety: re-building a document clears the tree but keeps node ids
+  and generations moving forward, so stale handles can never alias new nodes
+- Tree dump: indented, quoted/escaped, attribute-aware, elides deep subtrees
+  and truncates long text; bounded iteration so a corrupted link terminates
+  instead of hanging
+- Phase 8.3 capability flip: `robo_html_dom_query_capabilities().tree_building = 1`
+- Suites: `html.tree.*` (34) — structure, implied elements, nesting, siblings,
+  text merging, comments, doctype, attributes, void/self-closing, tag
+  matching, unexpected end tags, unclosed-at-EOF, duplicate structural tags,
+  RCDATA, div/span/button, a/img/form/input, open-element stack, insertion
+  modes, ownership/stale handles, teardown, malformed recovery, 200-deep tree,
+  node-ceiling truncation, Unicode, dump, tokenizer integration, diagnostics,
+  demo document, whitespace preservation
+- Demo rewired: `RoboDemo` now walks the real document tree (no token
+  flattening); the visual result is unchanged in the host window and in QEMU
+  (`ROBO_QEMU_HTML_OK`, `PRESENT_OK`, `INPUT_OK`, `SHUTDOWN_OK`, blocks=4,
+  supported=8, ignored=0)
+- Docs: `html/docs/TreeBuilder.md`, `html/README.md`,
+  `html/docs/Architecture.md` §11, `demo/README.md`,
+  `demo/docs/VisualCheckpoint.md`
+- RoboHTML **0.3.0** (`ROBO_HTML_API_FROZEN=0`)
+
+**Definition of done:**
+
+- [x] Tokenizer produces tokens; the tree builder consumes them
+- [x] A real document tree is constructed with correct parent/child links
+- [x] Open-element state is maintained safely and unwinds at EOF
+- [x] Basic malformed HTML recovers safely and is reported
+- [x] Node ownership, teardown and stale-identity behaviour are tested
+- [x] The visual demo traverses the real tree and still renders on the host
+      and in QEMU
+- [x] Existing Phase 6/7/8.1/8.2 tests still pass (1094/1094, Debug+Release)
+- [x] No Chromium dependency; independence scans green
+- [x] Stop after 8.3
+
 ## Next
 
-- Goal 8.3 — HTML tree builder (do not start until requested)
+- Goal 8.4 — HTML document/DOM boundary work (do not start until requested)
 

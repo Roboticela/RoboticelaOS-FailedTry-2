@@ -29,6 +29,44 @@ void robo_html_token_init(robo_html_token_t *tok)
     tok->kind = ROBO_HTML_TOKEN_NONE;
 }
 
+int robo_html_token_kind_is_known(robo_html_token_kind_t kind)
+{
+    switch (kind) {
+    case ROBO_HTML_TOKEN_NONE:
+    case ROBO_HTML_TOKEN_CHARACTER:
+    case ROBO_HTML_TOKEN_START_TAG:
+    case ROBO_HTML_TOKEN_END_TAG:
+    case ROBO_HTML_TOKEN_COMMENT:
+    case ROBO_HTML_TOKEN_DOCTYPE:
+    case ROBO_HTML_TOKEN_EOF:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+const char *robo_html_token_kind_name(robo_html_token_kind_t kind)
+{
+    switch (kind) {
+    case ROBO_HTML_TOKEN_NONE:
+        return "none";
+    case ROBO_HTML_TOKEN_CHARACTER:
+        return "character";
+    case ROBO_HTML_TOKEN_START_TAG:
+        return "start-tag";
+    case ROBO_HTML_TOKEN_END_TAG:
+        return "end-tag";
+    case ROBO_HTML_TOKEN_COMMENT:
+        return "comment";
+    case ROBO_HTML_TOKEN_DOCTYPE:
+        return "doctype";
+    case ROBO_HTML_TOKEN_EOF:
+        return "eof";
+    default:
+        return "unknown";
+    }
+}
+
 void robo_html_token_buffer_init(robo_html_token_buffer_t *buf)
 {
     if (!buf) {

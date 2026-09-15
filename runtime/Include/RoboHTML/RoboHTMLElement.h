@@ -16,6 +16,7 @@
 
 #include "RoboBase/RoboError.h"
 #include "RoboHTML/RoboHTMLDiagnostics.h"
+#include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLTypes.h"
 
 #include <stddef.h>
@@ -63,6 +64,64 @@ robo_result_t robo_html_element_name_validate(const char *name,
 robo_result_t robo_html_element_name_normalize(const char *name,
                                                char *out,
                                                robo_html_diag_t *diag);
+
+/* ------------------------------------------------------------------ */
+/* Element/attribute storage read side (Phase 8.3)                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Borrowed attribute view (see the node payload contract in
+ * RoboHTMLNode.h: valid until the arena grows or the document dies).
+ */
+typedef struct robo_html_attr_view {
+    const char *name;  /* borrowed, lowercase ASCII, NUL-terminated */
+    const char *value; /* borrowed, character references already decoded */
+} robo_html_attr_view_t;
+
+/**
+ * Element name and size summary.
+ * @c name is borrowed and lowercase (the boundary normalization is applied
+ * once, when the tree builder stores the name).
+ */
+typedef struct robo_html_element_view {
+    const char *name;
+    size_t name_length;
+    size_t attribute_count;
+    /** Non-zero when the source wrote "/>" for this element. */
+    int self_closing;
+} robo_html_element_view_t;
+
+/**
+ * Read an element's name/attribute summary.
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT (NULL args / ill-formed handle);
+ *         ROBO_NOT_FOUND (unknown id); ROBO_NOT_SUPPORTED when the node is
+ *         not an element or has no stored payload.
+ */
+robo_result_t robo_html_element_view_get(
+    const robo_html_node_handle_t *element,
+    robo_html_element_view_t *out,
+    robo_html_diag_t *diag);
+
+/**
+ * Read attribute @p index in source order (duplicates preserved exactly as
+ * the tokenizer emitted them — no last-wins folding in this phase).
+ * Out of range → ROBO_NOT_FOUND.
+ */
+robo_result_t robo_html_element_attribute_at(
+    const robo_html_node_handle_t *element,
+    size_t index,
+    robo_html_attr_view_t *out,
+    robo_html_diag_t *diag);
+
+/**
+ * First attribute named @p name (ASCII case-insensitive, since stored names
+ * are lowercase); ROBO_NOT_FOUND when absent.
+ */
+robo_result_t robo_html_element_find_attribute(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    robo_html_attr_view_t *out,
+    robo_html_diag_t *diag);
 
 #ifdef __cplusplus
 }

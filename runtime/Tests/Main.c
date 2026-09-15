@@ -3,6 +3,7 @@
  */
 
 #include "RoboBase/RoboDebug.h"
+#include "RoboDemo/RoboDemoHost.h"
 #include "RoboTest.h"
 
 #include <stdio.h>
@@ -122,6 +123,8 @@ void robo_test_register_html_phase8(void);
 void robo_test_register_html_token(void);
 void robo_test_register_html_charref(void);
 void robo_test_register_html_tokenizer_states(void);
+void robo_test_register_html_tree_builder(void);
+void robo_test_register_demo_html(void);
 
 int main(int argc, char **argv)
 {
@@ -168,6 +171,11 @@ int main(int argc, char **argv)
         robo_mem_debug_corrupt_guard_for_test(p, 1);
         robo_free(p);
         return 0;
+    }
+    /* Visual checkpoint launcher (Phase 8.2 demo): renders the demo document
+     * through RoboHTML + RoboGraphics into a real host window. */
+    if (argc >= 2 && strcmp(argv[1], "--demo-html") == 0) {
+        return robo_demo_html_host_main(argc - 1, argv + 1);
     }
 
     robo_test_register_base();
@@ -281,5 +289,9 @@ int main(int argc, char **argv)
     robo_test_register_html_token();
     robo_test_register_html_charref();
     robo_test_register_html_tokenizer_states();
+    robo_test_register_html_tree_builder();
+    /* Registered last: demo.lifetime.uninitialized intentionally shuts the
+     * RoboHTML module down and brings it back, so nothing may follow it. */
+    robo_test_register_demo_html();
     return robo_test_main(argc, argv);
 }

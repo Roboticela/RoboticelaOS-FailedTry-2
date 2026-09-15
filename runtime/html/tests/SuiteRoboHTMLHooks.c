@@ -300,9 +300,12 @@ static void test_html_dom_capabilities(void)
     ROBO_CHECK_EQ_INT(robo_html_dom_query_capabilities(NULL),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_html_dom_query_capabilities(&caps), ROBO_OK);
-    /* Phase 8.1: nothing available yet. */
+    /* Phase 8.3: tree construction is available; the DOM is not. */
     ROBO_CHECK_EQ_INT(caps.dom_nodes, 0);
-    ROBO_CHECK_EQ_INT(caps.tree_building, 0);
+    ROBO_CHECK_EQ_INT(caps.attributes, 0);
+    ROBO_CHECK_EQ_INT(caps.mutation, 0);
+    ROBO_CHECK_EQ_INT(caps.events, 0);
+    ROBO_CHECK_EQ_INT(caps.tree_building, 1);
 
     ROBO_CHECK(robo_html_node_origin_is_known(ROBO_HTML_NODE_ORIGIN_PARSER));
     ROBO_CHECK(!robo_html_node_origin_is_known((robo_html_node_origin_t)19));
