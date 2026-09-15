@@ -92,8 +92,13 @@ robo_result_t robo_html_parser_create(robo_html_document_id_t document_id,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER, ROBO_NOT_FOUND,
                               "unknown document id");
     }
-    if (slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED &&
-        slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_READY) {
+    /*
+     * Any lifecycle that accepts content accepts a parser, LOADING included:
+     * LOADING is the state that means "a source is attached and waiting to be
+     * parsed", so refusing a lease there would make the state unusable.
+     * A FAILED/DESTROYING/DESTROYED document still refuses.
+     */
+    if (!robo_html_document_lifecycle_allows_content(slot->lifecycle)) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER, ROBO_ERROR,
                               "document lifecycle does not accept a parser");
     }

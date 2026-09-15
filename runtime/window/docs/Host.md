@@ -118,9 +118,9 @@ robo_window_present(id, surface)
 .\runtime\Tools\Build.ps1 -Configuration Debug -Verify -Test -Filter "window.host."
 .\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "display.host."
 
-# Or one-shot smoke script (build + host filters + optional visible window)
-.\scripts\test-host-display.ps1
-.\scripts\test-host-display.ps1 -Visible   # ROBO_WINDOW_SMOKE=1
+# Or the pipeline's display command (build + host filters + optional visible window)
+scripts\robo test-display
+scripts\robo test-display --visible        # plus ROBO_WINDOW_SMOKE=1
 
 # Skip real HWND on CI machines without a desktop
 $env:ROBO_WINDOW_SKIP_HOST="1"

@@ -68,7 +68,7 @@ hover and press through the existing RoboWindow mouse events.
 QEMU runs the same page through the guest program:
 
 ```powershell
-.\scripts\test-qemu-display.ps1
+scripts\robo test-qemu-display
 ```
 
 Both paths print the same page summary

@@ -37,57 +37,23 @@ function New-OvmfVars {
     }
 }
 
+# NOTE: Get-QemuBaseArgs used to build its own argument list. That duplicated
+# the pipeline's configuration, so it now delegates to the single authoritative
+# builder in scripts/robo/engine.ps1 (Get-RoboQemuArgs), which reads
+# scripts/robo/config.ps1. Kept as a name because the bootloader/kernel QEMU
+# helpers still call it.
 function Get-QemuBaseArgs {
     param(
         [switch]$Headless,
-        [string]$Disk = "ide",
+        [string]$Disk = "",
         [switch]$ResetNvram,
         [switch]$FirmwareMenu
     )
-    $code = Get-OvmfCode
-    New-OvmfVars -Reset:($ResetNvram -or $Headless)
-    $boot = if ($FirmwareMenu) { "order=c,menu=on,splash-time=8000" } else { "order=c,menu=off,splash-time=0" }
-    $args = @(
-        "-machine", "q35,usb=off",
-        "-cpu", "qemu64,-svm",
-        "-m", "512",
-        "-vga", "std",
-        "-netdev", "user,id=n0,net=10.0.2.0/24,dhcpstart=10.0.2.15,guestfwd=tcp:10.0.2.4:18019-tcp:127.0.0.1:18019,guestfwd=tcp:10.0.2.4:18080-tcp:127.0.0.1:18080",
-        "-device", "virtio-net-pci,netdev=n0,disable-legacy=on",
-        "-boot", $boot,
-        "-drive", "if=pflash,format=raw,unit=0,readonly=on,file=$code",
-        "-drive", "if=pflash,format=raw,unit=1,file=$script:VarsFd",
-        "-fw_cfg", "name=opt/org.tianocore/EFIShellSupport,string=no",
-        "-serial", "file:$script:SerialLog"
-    )
-    if (-not $FirmwareMenu) {
-        $args += @("-fw_cfg", "name=opt/org.tianocore/FirmwareSetupSupport,string=no")
+    if ($Disk -and $Disk -ne "") {
+        # Legacy call sites could request a disk attachment; the config now owns it.
+        $script:RoboQemu.DiskMode = $Disk
     }
-    if ($Disk -eq "virtio") {
-        $args += @(
-            "-drive", "file=$script:EspImg,format=raw,if=none,id=esp,cache=writethrough",
-            "-device", "virtio-blk-pci,drive=esp,bootindex=1"
-        )
-    } else {
-        $args += @("-drive", "file=$script:EspImg,format=raw,if=ide,index=0,media=disk,cache=writethrough")
-    }
-    $vblk = Join-Path $script:Build "virtio-test.img"
-    if (-not (Test-Path $vblk)) {
-        $fs = [System.IO.File]::Open($vblk, 'Create', 'Write')
-        $fs.SetLength(8MB)
-        $fs.Close()
-    }
-    $args += @(
-        "-drive", "file=$vblk,format=raw,if=none,id=vblk,cache=writethrough",
-        "-device", "virtio-blk-pci,disable-legacy=on,drive=vblk"
-    )
-    if ($Headless) {
-        $args += @("-display", "none", "-no-reboot")
-    } else {
-        # Hide the GTK menu so Alt+M reaches the firmware instead of QEMU's Machine menu.
-        $args += @("-display", "gtk,show-menubar=off,grab-on-hover=on")
-    }
-    return $args
+    return (Get-RoboQemuArgs -Headless:$Headless -ResetNvram:$ResetNvram -FirmwareMenu:$FirmwareMenu)
 }
 
 function Test-RoboLocalPort([int]$Port) {

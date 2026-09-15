@@ -28,7 +28,7 @@ static void test_html_version(void)
 
     ROBO_CHECK_STR_EQ(robo_html_version_string(), ROBO_HTML_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_MINOR, 3);
+    ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_MINOR, 4);
     ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_PATCH, 0);
     /* Tree-builder milestone: API not frozen until later Phase 8 goals. */
     ROBO_CHECK_EQ_INT(ROBO_HTML_API_FROZEN, 0);
@@ -41,7 +41,7 @@ static void test_html_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_html_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 3);
+    ROBO_CHECK_EQ_INT(minor, 4);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 

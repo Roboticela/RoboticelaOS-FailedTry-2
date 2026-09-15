@@ -3,9 +3,14 @@
  *
  * Identity
  *   - Node identity is (owning document id, node id, generation).
- *   - Node ids are never reused within a document; generations guard the
- *     registry slot table so a stale handle copied by an application is
- *     detectable instead of aliasing a newer node.
+ *   - The generation is the guard, not the id: node ids are dense and
+ *     restart when a document's tree is cleared (see
+ *     robo_html_document_clear_tree / reset), so a handle copied by an
+ *     application from a discarded tree resolves as stale instead of
+ *     aliasing whatever node now occupies that id.
+ *   - Ids restart dense so that id == registry slot + 1 keeps holding; that
+ *     correspondence is what makes registration and lookup linear however
+ *     many times a document is re-parsed.
  *
  * Ownership
  *   - The owning document exclusively owns every registered node.
@@ -34,8 +39,9 @@
  *
  * Stale handling
  *   - robo_html_node_handle_resolve returns ROBO_NOT_FOUND for unknown ids
- *     and ROBO_NOT_FOUND + NODE domain diagnostics for stale generations —
- *     callers that care distinguish via robo_html_node_handle_is_stale.
+ *     and for handles whose generation no longer matches; callers that care
+ *     distinguish the two via robo_html_node_handle_is_stale, which is true
+ *     for both (and for a handle whose owning document is gone).
  */
 
 #ifndef ROBO_HTML_NODE_H
@@ -65,6 +71,21 @@ typedef struct robo_html_node_handle {
 
 /** Clear @p h to the invalid handle. Safe on NULL. */
 void robo_html_node_handle_clear(robo_html_node_handle_t *h);
+
+/**
+ * Owning document of @p h (ROBO_HTML_DOCUMENT_ID_NONE for NULL / an
+ * ill-formed handle). This is the identity companion of the handle: it
+ * lets a caller ask "whose node is this?" without resolving it, and it is
+ * what makes a cross-document mistake detectable up front — a handle from
+ * document A can never be valid in document B, because the check compares
+ * this field against B's id before anything else.
+ *
+ * Note: the field is what the *handle claims*, not proof of ownership. Use
+ * robo_html_document_owns_node (RoboHTMLDocument.h) to check both the
+ * claim and the live registry in one call.
+ */
+robo_html_document_id_t robo_html_node_handle_document(
+    const robo_html_node_handle_t *h);
 
 /** Non-zero when all three identity fields are non-zero. */
 int robo_html_node_handle_is_wellformed(const robo_html_node_handle_t *h);

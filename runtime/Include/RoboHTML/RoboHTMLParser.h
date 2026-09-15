@@ -80,7 +80,9 @@ typedef struct robo_html_parser robo_html_parser_t;
 
 /**
  * Create a parser leased to @p document.
- * The document must be in CREATED or READY lifecycle. The parser starts
+ * The document must be in CREATED, LOADING or READY lifecycle - i.e. any
+ * state that accepts content. LOADING qualifies because it is the state
+ * that means "a source is attached and awaiting parsing". The parser starts
  * in STATE_IDLE with MODE_NONE; attach_source picks the mode.
  * Ownership: caller owns the parser object and must eventually call
  * robo_html_parser_destroy. Destroying the document while a parser is

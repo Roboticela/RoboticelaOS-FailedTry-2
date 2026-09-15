@@ -108,8 +108,8 @@ RESULT: PASS
 ## 5. QEMU
 
 ```powershell
-.\scripts\test-qemu-display.ps1          # rebuild the image and run
-.\scripts\test-qemu-display.ps1 -SkipBuild
+scripts\robo test-qemu-display            # rebuild the image and run
+scripts\robo test-qemu-display --skip-build
 ```
 
 The guest program (`user/robo-runtime/main.c`) embeds the same demo document,

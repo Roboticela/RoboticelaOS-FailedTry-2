@@ -49,6 +49,7 @@ int robo_html_diagnostic_domain_is_known(robo_html_diagnostic_domain_t domain)
     case ROBO_HTML_DOMAIN_CLIENT:
     case ROBO_HTML_DOMAIN_MUTATION:
     case ROBO_HTML_DOMAIN_RENDER:
+    case ROBO_HTML_DOMAIN_TREE:
         return 1;
     default:
         return 0;
@@ -80,6 +81,8 @@ const char *robo_html_diagnostic_domain_name(robo_html_diagnostic_domain_t domai
         return "mutation";
     case ROBO_HTML_DOMAIN_RENDER:
         return "render";
+    case ROBO_HTML_DOMAIN_TREE:
+        return "tree";
     default:
         return "unknown";
     }

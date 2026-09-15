@@ -1698,8 +1698,14 @@ robo_result_t robo_html_tree_builder_create(robo_html_document_id_t document_id,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER, ROBO_NOT_FOUND,
                               "unknown document id");
     }
-    if (slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED &&
-        slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_READY) {
+    /*
+     * Any lifecycle that accepts content can host a build, including LOADING:
+     * a document whose source was attached with attach_source (so it sits in
+     * LOADING, waiting to be parsed) is exactly the case a builder exists
+     * for. Exclusivity is the parser lease below, not the lifecycle — begin()
+     * settles a LOADING document before it attaches its own source.
+     */
+    if (!robo_html_document_lifecycle_allows_content(slot->lifecycle)) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER, ROBO_BUSY,
                               "document is not idle");
     }
@@ -1771,8 +1777,13 @@ robo_result_t robo_html_tree_builder_begin(robo_html_tree_builder_t *builder,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_PARSER, ROBO_ERROR,
                               "lifecycle does not allow building");
     }
-    /* Re-parsing clears the previous tree; old node handles go stale. */
-    if (slot->nodes.used > 1u) {
+    /*
+     * Re-parsing clears the previous tree; old node handles go stale while
+     * the document's own root survives. A finalized document is cleared too,
+     * because clearing is what reopens construction after a completed
+     * build closed it.
+     */
+    if (slot->nodes.used > 1u || slot->finalized) {
         r = robo_html_document_clear_tree(slot, diag);
         if (r != ROBO_OK) {
             return r;
@@ -1930,6 +1941,19 @@ robo_result_t robo_html_tree_builder_finish(robo_html_tree_builder_t *builder,
             ROBO_OK) {
             record_recovery(builder, ROBO_ERROR,
                             "document could not transition to ready", 0u, 0u);
+        }
+    }
+    /*
+     * A finished build closes tree construction: the document model owns the
+     * tree from here, and further register/link calls would be a caller
+     * mistake rather than part of a parse. Re-parsing goes through begin()
+     * (which clears the tree and reopens construction) or reset().
+     */
+    if (slot) {
+        if (robo_html_document_finalize(builder->document_id, NULL) !=
+            ROBO_OK) {
+            record_recovery(builder, ROBO_ERROR,
+                            "document could not be finalized", 0u, 0u);
         }
     }
     robo_log_debug(

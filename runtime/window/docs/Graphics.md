@@ -61,8 +61,8 @@ the public graphics integration API.
 
 ```powershell
 .\runtime\Tools\Build.ps1 -Configuration Debug -Verify -Test -Filter "window.graphics."
-.\scripts\test-host-display.ps1
-.\scripts\test-qemu-display.ps1
+scripts\robo test-display
+scripts\robo test-qemu-display
 $env:ROBO_WINDOW_SMOKE="1"
 .\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "window.host.smoke"
 ```

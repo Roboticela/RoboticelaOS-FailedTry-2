@@ -2265,7 +2265,77 @@
 - [x] No Chromium dependency; independence scans green
 - [x] Stop after 8.3
 
+## Goal 8.4 — HTML document model
+
+**Goal:** make the document the authoritative model of the HTML tree — identity
+and metadata, explicit root ownership, node ownership/cross-document checks,
+construction closure and reuse, and on-demand tree invariant auditing. No new
+tree-building behaviour.
+
+**Added**
+
+- `Source/RoboHTML/RoboHTMLDocumentModel.c` — metadata snapshot, node
+owning/identity queries (`owns_node`, `node_by_id`), construction closure
+(`finalize`, `is_finalized`, `allows_construction`), reuse (`reset`) and the
+whole-tree audit (`validate_tree` -> `robo_html_tree_report_t`).
+- `Include/RoboHTML/RoboHTMLDocument.h` — the model's public surface, the
+`robo_html_document_metadata_t` / `robo_html_tree_report_t` types, and the
+six ownership/state rules documented in one place.
+- `Include/RoboHTML/RoboHTMLNode.h` — `robo_html_node_handle_document()`
+(identity companion of a handle).
+- `html/tests/SuiteRoboHTMLDocumentModel.c` — 23 `html.docmodel.*` suites
+covering metadata (fresh/built/misuse), root ownership and stability,
+node identity/lookup, staleness, cross-document separation, tree invariants
+(clean / orphan / 300-deep), source and encoding association, source-byte
+ownership, finalization, reset (including a busy lease), failure state,
+teardown, large-tree cleanup, pipeline integration, the demo document and
+Unicode/malformed/empty input.
+- `html/docs/DocumentModel.md` — the design and the contracts.
+
+**Changed**
+
+- **Identity discipline:** node ids now restart dense when a tree is cleared,
+so `id == slot + 1` holds across re-parses and lookup stays linear; the
+*generation* cursor is what retires handles. The document's **root survives a
+rebuild** (same id and generation); every other node from the old tree goes
+stale.
+- `RoboHTMLDocument.c` — `clear_tree` preserves the root and reopens
+construction; the metadata/finalization plumbing; `register_node` refuses
+construction once finalized.
+- `RoboHTMLNode.c` — `link_child` refuses construction on a finalized
+ document; `is_stale` now compares the generation (it previously reported a
+ handle with a live id but a stale generation as *live*, disagreeing with
+ `resolve`).
+- `RoboHTMLParser.c` / `RoboHTMLTreeBuilder.c` — a LOADING document may be
+leased by a parser/builder: LOADING means "source attached, awaiting parse",
+so refusing it made the state unusable. Exclusivity remains the parser lease.
+- `RoboHTMLTypes.h` — `ROBO_HTML_DOMAIN_TREE` diagnostic domain,
+`ROBO_HTML_NODE_KIND_COUNT`, and identity rules restated around generations.
+- `Tools/Build.ps1` and `scripts/roboboot-build-common.ps1` — new source and
+suite registered for both the host and the QEMU guest.
+- Demo unchanged in behaviour: it still renders the real tree (host window and
+QEMU both re-verified).
+- Docs: `html/README.md`, `html/docs/Architecture.md` §12
+- RoboHTML **0.4.0** (`ROBO_HTML_API_FROZEN=0`), runtime **0.9.0**
+
+**Definition of done:**
+
+- [x] The document owns the tree, is the context for node identity, and
+      answers ownership and staleness queries
+- [x] The root is explicit, owned, and survives re-parsing
+- [x] Cross-document mistakes are detected, not aliased
+- [x] Construction closes on finalize and reopens on reset / new source
+- [x] Source and encoding boundaries are integrated with explicit lifetimes
+- [x] Tree invariants are auditable on demand (orphans, cycles, bad links,
+      bad counts, bad parent/sibling links)
+- [x] The visual demo still renders from the real document tree on the host
+      (15/15 probes) and in QEMU (`HTML_OK` / `PRESENT_OK` / `INPUT_OK`)
+- [x] Full suite green (1117/1117, Debug and Release) plus the
+      panic/assert/mem-debug child probes
+- [x] No Chromium dependency; all independence scans green
+- [x] Stop after 8.4
+
 ## Next
 
-- Goal 8.4 — HTML document/DOM boundary work (do not start until requested)
+- Goal 8.5 — HTML element model (do not start until requested)
 

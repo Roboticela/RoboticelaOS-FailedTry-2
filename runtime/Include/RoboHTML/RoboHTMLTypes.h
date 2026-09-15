@@ -6,10 +6,15 @@
  *
  * Identity rules (mirrors RoboWindow/RoboDisplay token discipline):
  *   - 0 is always "none" and never a live identity.
- *   - Identity is generation-guarded: a stale handle for a recycled slot
- *     is detectable via the document's node registry.
- *   - IDs are stable while the owned object exists; they are never reused
- *     within one module lifetime.
+ *   - Identity is generation-guarded: a handle for a recycled node slot is
+ *     detectable through the document's registry, because the node's
+ *     generation no longer matches.
+ *   - Document ids are stable while the document exists and are never
+ *     reused, so a destroyed document id stays dead.
+ *   - Node ids are stable while the node exists. They are drawn densely
+ *     from a per-document cursor that restarts when the tree is cleared,
+ *     which is why the generation — not the id — is what makes a stale
+ *     node handle detectable.
  *
  * RoboHTML may depend only on RoboBase, RoboMem, RoboContainers, and the
  * future RoboDOM boundary stubbed here (see DEPENDENCIES.md). It must never
@@ -71,6 +76,9 @@ typedef enum robo_html_node_kind {
     ROBO_HTML_NODE_KIND_FRAGMENT = 5
 } robo_html_node_kind_t;
 
+/** Number of defined node kinds; the length of a per-kind count array. */
+#define ROBO_HTML_NODE_KIND_COUNT 6u
+
 /** Non-zero if @p kind is a defined node kind enumerator. */
 int robo_html_node_kind_is_known(robo_html_node_kind_t kind);
 
@@ -94,7 +102,14 @@ typedef enum robo_html_diagnostic_domain {
     ROBO_HTML_DOMAIN_RESOURCE = 7,
     ROBO_HTML_DOMAIN_CLIENT = 8,
     ROBO_HTML_DOMAIN_MUTATION = 9,
-    ROBO_HTML_DOMAIN_RENDER = 10
+    ROBO_HTML_DOMAIN_RENDER = 10,
+    /**
+     * Document-model/tree-invariant domain (Phase 8.4): invalid node
+     * ownership, invalid root, illegal construction after finalization,
+     * and broken parent/child/sibling links reported by
+     * robo_html_document_validate_tree.
+     */
+    ROBO_HTML_DOMAIN_TREE = 11
 } robo_html_diagnostic_domain_t;
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */

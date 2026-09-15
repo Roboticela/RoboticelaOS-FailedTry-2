@@ -44,6 +44,15 @@ typedef struct robo_html_document_slot {
     robo_html_node_handle_t root;
 
     /**
+     * Document finalization (Phase 8.4). While 0 the tree-construction
+     * APIs (robo_html_document_register_node / robo_html_node_link_child)
+     * may still change the tree; once 1 the tree is closed for
+     * construction and only read/traversal stays available. Cleared by
+     * robo_html_document_clear_tree, so re-parsing a document is explicit.
+     */
+    int finalized;
+
+    /**
      * Node payload arena (Phase 8.3). Every element name, attribute pair,
      * text run, comment and doctype string lives here; a node entry stores
      * only a byte range. Bump-allocated, append-only, freed as a unit at
@@ -201,7 +210,12 @@ const void *robo_html_document_arena_at(const robo_html_document_slot_t *slot,
 /** Free the arena and reset the cursor (document teardown). */
 void robo_html_document_arena_free(robo_html_document_slot_t *slot);
 
-/** Drop every registered node and the arena, keeping the document node. */
+/**
+ * Drop the whole tree: the payload arena and every node except the
+ * document node, whose identity is preserved (fresh generation, so handles
+ * to the discarded tree are stale). Node ids restart dense and
+ * construction reopens.
+ */
 robo_result_t robo_html_document_clear_tree(robo_html_document_slot_t *slot,
                                             robo_html_diag_t *diag);
 

@@ -33,6 +33,15 @@ void robo_html_node_handle_clear(robo_html_node_handle_t *h)
     h->generation = 0u;
 }
 
+robo_html_document_id_t robo_html_node_handle_document(
+    const robo_html_node_handle_t *h)
+{
+    if (!h) {
+        return ROBO_HTML_DOCUMENT_ID_NONE;
+    }
+    return h->document_id;
+}
+
 int robo_html_node_handle_is_wellformed(const robo_html_node_handle_t *h)
 {
     if (!h) {
@@ -157,6 +166,7 @@ robo_result_t robo_html_node_handle_resolve(
 int robo_html_node_handle_is_stale(const robo_html_node_handle_t *h)
 {
     const robo_html_document_slot_t *slot;
+    const robo_html_node_entry_t *e;
 
     if (!robo_html_node_handle_is_wellformed(h)) {
         return 0;
@@ -166,7 +176,18 @@ int robo_html_node_handle_is_stale(const robo_html_node_handle_t *h)
         /* Well-formed handle pointing at a destroyed/unknown document. */
         return 1;
     }
-    return node_lookup(h->document_id, h->node_id) == NULL;
+    e = node_lookup(h->document_id, h->node_id);
+    if (!e) {
+        return 1;
+    }
+    /*
+     * The generation must be compared, not just the id: node ids restart
+     * when a document's tree is cleared, so an id that resolves today can
+     * be a *different* node than the one this handle was made for. Without
+     * this check a stale handle would report itself as live and disagree
+     * with robo_html_node_handle_resolve.
+     */
+    return e->generation != h->generation;
 }
 
 void robo_html_node_registry_init(robo_html_node_registry_t *reg)
@@ -224,6 +245,10 @@ robo_result_t robo_html_node_link_child(robo_html_document_id_t document_id,
     robo_html_node_entry_t *child;
     robo_html_node_entry_t *last;
 
+    if (!robo_html_document_allows_construction(document_id)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_TREE, ROBO_ERROR,
+                              "document tree is finalized");
+    }
     if (parent_id == child_id) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
                               ROBO_INVALID_ARGUMENT,

@@ -1,49 +1,52 @@
-# RoboBoot — original RoboticelaOS bootloader (delegates to scripts/build-bootloader.ps1).
+# RoboBoot (RoboticelaOS bootloader) — convenience targets.
+#
+# The build lives in the one project pipeline: scripts/robo. Run these from
+# anywhere; they resolve paths from the repository root.
+#
+#   make            scripts/robo build-bootloader
+#   make kernel     scripts/robo build-kernel
+#   make image      scripts/robo build-image
+#   make test       scripts/robo test-bootloader
+#   make qemu       scripts/robo run-qemu
+#   make clean      scripts/robo clean
 
 ifeq ($(OS),Windows_NT)
-  PS := powershell.exe -NoProfile -ExecutionPolicy Bypass -File
+  ROBO := powershell.exe -NoProfile -ExecutionPolicy Bypass -File ../scripts/pipeline/robo.ps1
 else
-  PS := pwsh -NoProfile -File
+  ROBO := pwsh -NoProfile -File ../scripts/pipeline/robo.ps1
 endif
 
-ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-REPO := $(abspath $(ROOT)/..)
-BUILD := $(REPO)/scripts/build-bootloader.ps1
+.PHONY: all assets host efi esp bootloader kernel image combine test clean distclean info version qemu qemu-test help
 
-.PHONY: all assets host test efi esp qemu qemu-test clean distclean info combine
-
-all:
-	$(PS) "$(BUILD)" all
+all host efi bootloader:
+	@$(ROBO) build-bootloader
 
 assets:
-	$(PS) "$(BUILD)" assets
+	@$(ROBO) build-assets
 
-host:
-	$(PS) "$(BUILD)" host
+kernel:
+	@$(ROBO) build-kernel
+
+esp image combine:
+	@$(ROBO) build-image
 
 test:
-	$(PS) "$(BUILD)" test
-
-efi:
-	$(PS) "$(BUILD)" efi
-
-esp:
-	$(PS) "$(BUILD)" image
-
-combine:
-	$(PS) "$(BUILD)" combine
+	@$(ROBO) test-bootloader
 
 qemu:
-	$(PS) "$(BUILD)" qemu
+	@$(ROBO) run-qemu
 
 qemu-test:
-	$(PS) "$(BUILD)" qemu-test
+	@$(ROBO) test-qemu-kernel
 
 clean:
-	$(PS) "$(BUILD)" clean
+	@$(ROBO) clean
 
 distclean:
-	$(PS) "$(BUILD)" distclean
+	@$(ROBO) clean --baked
 
-info:
-	$(PS) "$(BUILD)" info
+info version:
+	@$(ROBO) version
+
+help:
+	@$(ROBO) help

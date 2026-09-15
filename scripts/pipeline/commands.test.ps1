@@ -1,0 +1,430 @@
+# RoboticelaOS pipeline — test commands.
+#
+# Three test surfaces exist and each is exercised for real:
+#
+#   1. bare-metal host tests  - bootloader session tests + kernel unit tests +
+#                               libc tests, compiled and executed on the host
+#   2. runtime host tests     - RoboTest.host.exe, grouped by subsystem
+#   3. QEMU acceptance        - the real OS booting under UEFI, checked against
+#                               markers the OS itself prints
+#
+# `test-all` runs all three (QEMU skipped automatically when unavailable) and
+# reports a non-zero exit if anything failed.
+
+# --------------------------------------------------------------------------
+# Runtime component groups
+#
+# Names here are user-facing: they are what the developer sees and what the
+# `test-<component>` commands accept. The filter lists are matched against the
+# suite names the test binary actually reports.
+# --------------------------------------------------------------------------
+
+$script:RoboRuntimeComponents = [ordered]@{
+    "base"        = @("base.", "error.", "log.", "debug.")
+    "memory"      = @("mem.", "memdbg.", "memsys.", "arena.", "pool.")
+    "containers"  = @("array.", "string.")
+    "unicode"     = @("unicode.", "ucd.", "norm.", "case.", "grapheme.", "word.",
+                      "sentence.", "line.", "bidi.", "emoji.")
+    "i18n"        = @("i18n.")
+    "font"        = @("font.")
+    "script"      = @("script.")
+    "graphics"    = @("graphics.")
+    "window"      = @("window.")
+    "display"     = @("display.")
+    "html"        = @("html.")
+    "demo"        = @("demo.")
+    "infra"       = @("infra.")
+}
+
+function Get-RoboRuntimeComponentNames {
+    return @($script:RoboRuntimeComponents.Keys)
+}
+
+# --------------------------------------------------------------------------
+# Runtime host tests
+# --------------------------------------------------------------------------
+
+function Build-RoboRuntimeForTests {
+    <#
+      Builds the runtime and its host test binary. The runtime build script
+      runs its own suite as part of -Test, so this single invocation is both the
+      build and the whole-suite gate; the per-component runs afterwards only
+      exist to report which subsystem failed.
+    #>
+    param([switch]$Continue)
+    if ($script:RoboFlag.SkipBuild -and (Test-Path -LiteralPath (Get-RoboRuntimeTestBinary))) { return }
+    Invoke-RoboEngineRuntime -Configuration $script:RoboConfig.RuntimeConfig -Verify -Test `
+        -Continue:$Continue -LogName "build-runtime" | Out-Null
+}
+
+function Invoke-RoboRuntimeTestFilter {
+    <#
+      Runs the real test binary with one filter and turns its exit code plus
+      its own summary lines into a recorded result.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$Filter,
+        [switch]$Continue
+    )
+    Invoke-RoboStep -Name $Name -Layer "TEST" -Continue:$Continue -Action {
+        $exe = Get-RoboRuntimeTestBinary
+        Assert-RoboFile $exe "runtime test binary" | Out-Null
+        $log = "runtime-" + ($Filter.TrimEnd(".") -replace "[^a-zA-Z0-9_]", "_")
+        $r = Invoke-RoboProcess -FilePath $exe -Arguments @("--filter=$Filter") `
+            -WorkingDirectory $script:RoboOut.Runtime `
+            -TimeoutSeconds $script:RoboTimeout.Tests -LogName $log
+        if ($r.TimedOut) { throw ("runtime tests timed out after $($script:RoboTimeout.Tests)s") }
+        if ($r.ExitCode -ne 0) {
+            throw ("filter '$Filter' failed (exit $($r.ExitCode)), log: $(Get-RoboLogPath $log)`n" +
+                   (Get-RoboTail $r.Output 50))
+        }
+        $summary = ($r.Output -split "`r?`n" | Where-Object { $_ -match "passed|failed|ALL TESTS" } |
+            Select-Object -Last 1)
+        if ($summary) { Write-RoboInfo $summary.Trim() }
+    } | Out-Null
+}
+
+function Invoke-RoboRuntimeComponentTest {
+    param(
+        [Parameter(Mandatory)][string]$Component,
+        [switch]$Continue
+    )
+    if (-not $script:RoboRuntimeComponents.Contains($Component)) {
+        throw ("unknown runtime component '$Component'. Known: " +
+               ((Get-RoboRuntimeComponentNames) -join ", "))
+    }
+    $filters = @($script:RoboRuntimeComponents[$Component])
+    # The window/display suites include an interactive host smoke that is only
+    # meaningful when a desktop session exists; --visible turns it on.
+    if ($script:RoboFlag.Visible) { $env:ROBO_WINDOW_SMOKE = "1" }
+    try {
+        Invoke-RoboStep -Name ("runtime: " + $Component) -Layer "TEST" -Continue:$Continue -Action {
+            $exe = Get-RoboRuntimeTestBinary
+            Assert-RoboFile $exe "runtime test binary" | Out-Null
+            foreach ($f in $filters) {
+                $r = Invoke-RoboProcess -FilePath $exe -Arguments @("--filter=$f") `
+                    -WorkingDirectory $script:RoboOut.Runtime -TimeoutSeconds $script:RoboTimeout.Tests
+                if ($r.TimedOut) { throw ("filter '$f' timed out") }
+                if ($r.ExitCode -ne 0) {
+                    throw ("filter '$f' failed (exit $($r.ExitCode))`n" + (Get-RoboTail $r.Output 50))
+                }
+            }
+            Write-RoboInfo ("filters: " + ($filters -join " "))
+        } | Out-Null
+    } finally {
+        if ($script:RoboFlag.Visible) { Remove-Item Env:ROBO_WINDOW_SMOKE -ErrorAction SilentlyContinue }
+    }
+}
+
+function Invoke-RoboRuntimeDiscoverCoverage {
+    <#
+      Derives the component groups from the test binary itself so a new
+      subsystem is tested by `test-all` without editing this file, and records
+      any group that no component filter claims (so nothing is silently
+      untested).
+    #>
+    $all = @(Get-RoboRuntimeTestList)
+    if ($all.Count -eq 0) { return @{ Groups = @(); Total = 0; Unclaimed = @() } }
+    $claimed = @()
+    foreach ($v in $script:RoboRuntimeComponents.Values) { $claimed += $v }
+
+    $prefixes = @{}
+    foreach ($t in $all) {
+        $p = ($t -split "\.")[0] + "."
+        if ($prefixes.ContainsKey($p)) { $prefixes[$p]++ } else { $prefixes[$p] = 1 }
+    }
+    $unclaimed = @()
+    foreach ($p in ($prefixes.Keys | Sort-Object)) {
+        if ($claimed -notcontains $p) { $unclaimed += @{ Prefix = $p; Count = $prefixes[$p] } }
+    }
+    return @{ Groups = $prefixes; Total = $all.Count; Unclaimed = $unclaimed }
+}
+
+# --------------------------------------------------------------------------
+# Bare-metal host tests
+# --------------------------------------------------------------------------
+
+function Invoke-RoboBareHostTests {
+    param([switch]$Continue)
+
+    # Building the whole host test set is one step; it is the engine's own
+    # aggregate (bootloader tests + every kernel unit test + libc).
+    Invoke-RoboStep -Name "build bare-metal host tests" -Layer "TEST" -Continue:$Continue -Action {
+        Push-Location $script:Boot
+        try { Invoke-RoboTestHost }
+        finally { Pop-Location }
+    } | Out-Null
+
+    # Then report each kernel unit test individually so a failure names itself,
+    # and so the granular results are visible in the JSON/JUnit output.
+    $bins = @(Get-RoboKernelTestBinaries)
+    if ($bins.Count -eq 0) {
+        Add-RoboResult -Name "kernel unit tests" -Status skip -Layer "TEST" `
+            -Detail "no test_*.exe produced (build step did not complete)"
+        Write-RoboSkipped "kernel unit tests (no binaries)"
+        return
+    }
+    foreach ($bin in $bins) {
+        $leaf = Split-Path $bin -Leaf
+        Invoke-RoboRecordedCommand -Name ("kernel: " + ($leaf -replace "^test_", "" -replace "\.exe$", "")) `
+            -Layer "TEST" -FilePath $bin -WorkingDirectory $script:Boot `
+            -TimeoutSeconds $script:RoboTimeout.Tests -Continue:$Continue | Out-Null
+    }
+}
+
+# --------------------------------------------------------------------------
+# QEMU acceptance
+# --------------------------------------------------------------------------
+
+$script:RoboKernelBootMarkers = @(
+    "Roboticela Kernel",
+    "Boot protocol: Roboticela",
+    "CPU_TEST_OK", "PMM_TEST_OK", "VMM_TEST_OK", "HEAP_TEST_OK", "PF_TEST_OK",
+    "TIMER_TEST_OK", "CTX_TEST_OK", "SCHED_TEST_OK", "THREAD_TEST_OK", "PROC_TEST_OK",
+    "KERNEL PANIC", "Page Fault", "Present : NO", "Access  : READ", "Mode    : KERNEL",
+    "Hello from user space\.",
+    "\[PASS\] ROBOTICELA OS PHASE 10",
+    "\[PASS\] ROBOTICELA OS PHASE 11",
+    "\[PASS\] ROBOTICELA OS FILE DESCRIPTORS",
+    "\[PASS\] ROBOTICELA OS VFS",
+    "\[PASS\] ROBOFS v1",
+    "Hello from RoboFS\.",
+    "USER_ROBOFS_OK",
+    "\[PASS\] DRIVER SYSTEM",
+    "\[PASS\] STORAGE DRIVER",
+    "\[PASS\] Window Server",
+    "\[PASS\] RoboCompositor",
+    "\[PASS\] INIT PROCESS",
+    "\[PASS\] NETWORK",
+    "\[PASS\] LIBC"
+)
+
+$script:RoboDisplayMarkers = @(
+    "ROBO_QEMU_DISPLAY_OK",
+    "ROBO_QEMU_PRESENT_OK",
+    "ROBO_QEMU_INPUT_OK",
+    "ROBO_QEMU_DISPLAY_SHUTDOWN_OK"
+)
+
+function Assert-RoboQemuAvailable {
+    if (-not (Get-RoboTool "qemu")) {
+        throw "qemu-system-x86_64 is not installed; run 'scripts/robo check'"
+    }
+    if (-not (Test-Path -LiteralPath $script:RoboQemu.FirmwareCode)) {
+        throw "UEFI firmware missing: $($script:RoboQemu.FirmwareCode)"
+    }
+}
+
+function Invoke-RoboQemuSerialRun {
+    <#
+      Boots the ESP image headlessly over a chosen disk attachment and waits for
+      markers. IDE is tried first and virtio-blk is tried second because some
+      firmware/host combinations only expose one of them as bootable - the same
+      fallback the original smoke scripts used.
+    #>
+    param(
+        [Parameter(Mandatory)][string[]]$Markers,
+        [string[]]$FailPatterns = @(),
+        [int]$TimeoutSeconds = 180,
+        [string]$Label = "QEMU"
+    )
+    Assert-RoboQemuAvailable
+
+    $attempts = @($script:RoboQemu.DiskMode)
+    if ($script:RoboQemu.DiskMode -ne "virtio") { $attempts += "virtio" }
+    if ($script:RoboQemu.DiskMode -ne "ide") { $attempts += "ide" }
+
+    $last = $null
+    foreach ($disk in $attempts) {
+        $script:RoboQemu.DiskMode = $disk
+        Write-RoboInfo "boot attempt: disk=$disk accel=$($script:RoboQemu.Accel)"
+        Reset-RoboSerialLog
+        $cmdArgs = Get-RoboQemuArgs -Headless
+        $proc = Start-RoboQemu -Arguments $cmdArgs -Headless
+        try {
+            $last = Wait-RoboSerialMarkers -Markers $Markers -FailPatterns $FailPatterns `
+                -TimeoutSeconds $TimeoutSeconds -Process $proc
+        } finally {
+            Stop-RoboQemu $proc
+        }
+        if ($last.Complete -or $last.Failed) { break }
+    }
+    return $last
+}
+
+function Assert-RoboQemuResult {
+    param(
+        [Parameter(Mandatory)][hashtable]$Result,
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][string[]]$Markers
+    )
+    $log = Join-Path $script:RoboOut.Logs ("qemu-serial-" + ($Label -replace "[^a-zA-Z0-9_]", "_") + ".log")
+    if ($Result.Serial) { Set-Content -LiteralPath $log -Value $Result.Serial -Encoding utf8 }
+
+    if ($Result.Complete) {
+        Write-RoboInfo ("serial: $log")
+        return
+    }
+    if ($Result.Failed) {
+        throw "$Label reported failure (matched '$($Result.FailedBy)'); serial: $log"
+    }
+    if ($Result.Missing.Count -gt 0) {
+        throw ("$Label did not reach all markers after $($Result.Seconds)s. Missing:" + "`n  " +
+               ($Result.Missing -join "`n  ") + "`nserial: $log")
+    }
+    throw "$Label produced no usable serial output"
+}
+
+function Invoke-RoboQemuBootTest {
+    param([switch]$Continue)
+    Invoke-RoboStep -Name "QEMU: bootloader selftest" -Layer "TEST" -Continue:$Continue -Action {
+        Invoke-RoboBuildImageCommand -Flags "selftest`nmenu`nsplash_ms 0"
+        $echo = Start-RoboNetEcho
+        try {
+            $res = Invoke-RoboQemuSerialRun -Markers @("ROBOBOOT_QEMU_OK") `
+                -FailPatterns @("ROBOBOOT_QEMU_FAIL") -TimeoutSeconds $script:RoboTimeout.Bootloader `
+                -Label "bootloader-selftest"
+            Assert-RoboQemuResult -Result $res -Label "bootloader selftest" -Markers @("ROBOBOOT_QEMU_OK")
+        } finally { Stop-RoboNetEcho $echo }
+    } | Out-Null
+}
+
+function Invoke-RoboQemuKernelTest {
+    param([switch]$Continue)
+    Invoke-RoboStep -Name "QEMU: kernel + OS selftest" -Layer "TEST" -Continue:$Continue -Action {
+        Invoke-RoboBuildImageCommand -Flags "ktest`nsplash_ms 0"
+        $echo = Start-RoboNetEcho
+        try {
+            $res = Invoke-RoboQemuSerialRun -Markers $script:RoboKernelBootMarkers `
+                -TimeoutSeconds $script:RoboTimeout.Kernel -Label "kernel-selftest"
+            Assert-RoboQemuResult -Result $res -Label "kernel selftest" -Markers $script:RoboKernelBootMarkers
+        } finally { Stop-RoboNetEcho $echo }
+    } | Out-Null
+}
+
+function Invoke-RoboQemuDisplayTest {
+    param([switch]$Continue)
+    Invoke-RoboStep -Name "QEMU: visual runtime display" -Layer "TEST" -Continue:$Continue -Action {
+        Invoke-RoboBuildImageCommand -Flags "splash_ms 0"
+        $echo = Start-RoboNetEcho
+        try {
+            $res = Invoke-RoboQemuSerialRun -Markers $script:RoboDisplayMarkers `
+                -FailPatterns @("ROBO_QEMU_DISPLAY_FAIL") -TimeoutSeconds $script:RoboTimeout.Runtime `
+                -Label "qemu-display"
+            Assert-RoboQemuResult -Result $res -Label "QEMU display smoke" -Markers $script:RoboDisplayMarkers
+        } finally { Stop-RoboNetEcho $echo }
+    } | Out-Null
+}
+
+# --------------------------------------------------------------------------
+# test-all
+# --------------------------------------------------------------------------
+
+function Invoke-RoboTestAll {
+    <#
+      Runs every real test surface. QEMU acceptance is skipped (and reported as
+      skipped, never passed) when QEMU or the firmware is unavailable.
+    #>
+    Write-RoboSection "RoboticelaOS tests"
+    $qemuAvailable = (Test-Path -LiteralPath $script:RoboQemu.FirmwareCode) -and (Get-RoboTool "qemu")
+    if (-not $qemuAvailable -and -not $script:RoboFlag.SkipQemu) {
+        $script:RoboFlag.SkipQemu = $true
+        Write-RoboWarn "QEMU or UEFI firmware unavailable - QEMU acceptance will be skipped"
+    }
+
+    # --- 1. runtime host tests -------------------------------------------
+    Build-RoboRuntimeForTests -Continue
+    $coverage = Invoke-RoboRuntimeDiscoverCoverage
+    if ($coverage.Total -eq 0) {
+        Add-RoboResult -Name "runtime test discovery" -Status fail -Layer "TEST" `
+            -Detail "the runtime test binary reported no suites"
+        Write-RoboFail "runtime test binary reported no suites"
+    } else {
+        Write-RoboInfo ("runtime: " + $coverage.Total + " cases in " + $coverage.Groups.Count + " namespaces")
+        foreach ($component in (Get-RoboRuntimeComponentNames)) {
+            Invoke-RoboRuntimeComponentTest -Component $component -Continue
+        }
+        if ($coverage.Unclaimed.Count -gt 0) {
+            foreach ($u in $coverage.Unclaimed) {
+                Invoke-RoboRuntimeTestFilter -Name ("runtime: " + $u.Prefix.TrimEnd(".")) -Filter $u.Prefix -Continue
+            }
+        }
+    }
+
+    # --- 2. bare-metal host tests ----------------------------------------
+    Invoke-RoboBareHostTests -Continue
+
+    # --- 3. QEMU acceptance ----------------------------------------------
+    if ($script:RoboFlag.SkipQemu) {
+        foreach ($n in @("QEMU: bootloader selftest", "QEMU: kernel + OS selftest", "QEMU: visual runtime display")) {
+            Add-RoboResult -Name $n -Status skip -Layer "TEST" -Detail "QEMU unavailable or --skip-qemu"
+            Write-RoboSkipped $n
+        }
+    } else {
+        Invoke-RoboQemuBootTest -Continue
+        Invoke-RoboQemuKernelTest -Continue
+        Invoke-RoboQemuDisplayTest -Continue
+    }
+
+    return (-not $script:RoboFailed)
+}
+
+# --------------------------------------------------------------------------
+# Component test commands
+# --------------------------------------------------------------------------
+
+function Invoke-RoboTestComponent {
+    param(
+        [Parameter(Mandatory)][string]$Component,
+        [switch]$Continue
+    )
+    if ($Component -eq "bootloader" -or $Component -eq "kernel" -or $Component -eq "libc") {
+        Build-RoboRuntimeForTests -Continue:$Continue
+        Invoke-RoboBareHostTests -Continue:$Continue
+        return
+    }
+    if ($Component -in @("qemu-boot", "qemu-kernel", "qemu-display")) {
+        if ($script:RoboFlag.SkipQemu) {
+            Write-RoboSkipped ("$Component (QEMU unavailable or --skip-qemu)")
+            Add-RoboResult -Name $Component -Status skip -Layer "TEST" -Detail "QEMU unavailable"
+            return
+        }
+        switch ($Component) {
+            "qemu-boot" { Invoke-RoboQemuBootTest -Continue:$Continue }
+            "qemu-kernel" { Invoke-RoboQemuKernelTest -Continue:$Continue }
+            "qemu-display" { Invoke-RoboQemuDisplayTest -Continue:$Continue }
+        }
+        return
+    }
+    Build-RoboRuntimeForTests -Continue:$Continue
+    Invoke-RoboRuntimeComponentTest -Component $Component -Continue:$Continue
+}
+
+function Invoke-RoboTestE2E {
+    <#
+      The real flow: build -> boot -> OS selftests -> visual runtime ->
+      deployment validation. This is deliberately the strictest command: it
+      performs a full build, so it cannot pass on stale artifacts.
+    #>
+    Write-RoboSection "End-to-end: source -> build -> boot -> runtime -> shutdown"
+
+    Invoke-RoboStep -Name "environment" -Layer "E2E" -Action {
+        if (-not (Invoke-RoboCheck)) { throw "environment check failed" }
+    } | Out-Null
+
+    $script:RoboFlag.Rebuild = $true
+    Invoke-RoboBuildAll
+
+    $script:RoboFlag.SkipQemu = $false
+    Invoke-RoboQemuKernelTest
+    Invoke-RoboQemuDisplayTest
+
+    Invoke-RoboStep -Name "deployment artifact" -Layer "E2E" -Action {
+        if (-not (Invoke-RoboValidateDeployment)) {
+            throw "deployment validation failed; see the report above"
+        }
+    } | Out-Null
+
+    return (-not $script:RoboFailed)
+}

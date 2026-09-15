@@ -1,4 +1,4 @@
-# RoboHTML Architecture (Phases 8.1–8.2)
+# RoboHTML Architecture (Phases 8.1–8.4)
 
 This document is the normative design record for Goals 8.1 and 8.2. Later
 phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
@@ -207,8 +207,45 @@ source (8.1) → tokenizer (8.2) → tree builder (8.3) → document tree
   reports success), and a `ROBO_OK`-with-`truncated` contract callers can
   detect.
 - **Mutation retires identities safely:** re-building a document clears the
-  tree but keeps node ids and generations moving forward, so a stale handle
-  from the previous tree can never alias a new node.
+  tree but moves the generation cursor forward, so a stale handle from the
+  previous tree can never alias a new node (see §12 for how ids and
+  generations divide that job).
 
 Full design, limits and the assembled/deliberately-absent rule list:
 [`TreeBuilder.md`](TreeBuilder.md).
+
+## 12. Phase 8.4 — document model
+
+8.3 produced a tree; 8.4 makes the document the authoritative model *of* that
+tree. No building behaviour changes — what changes is what the document
+promises about what it owns, and what a caller can verify.
+
+```
+Document (8.4)
+├── identity + state        metadata snapshot (lifecycle, previous, counts…)
+├── root                    explicit, owned, survives re-parsing
+├── node registry           dense ids + generations; ownership queries
+├── construction closure    finalize() closes register/link; reset/attach reopen
+├── source / encoding       association lifetime made explicit
+└── invariant auditing      validate_tree() reports, never trusts
+```
+
+- **The generation, not the id, is the guard.** Node ids restart dense when a
+  tree is cleared, which is what keeps `id == slot + 1` true and node lookup
+  linear across re-parses; a moving generation cursor is what keeps stale
+  handles detectable. Consequently the **root survives a rebuild** — same id,
+  same generation — while every other node from the old tree goes stale.
+- **Ownership is asked for, never assumed.** `robo_html_document_owns_node`
+  covers "whose node is this?" and "is it still live?" in one call, so a
+  cross-document handle is a plain "no" rather than an aliased lookup.
+- **Construction is explicitly opened and closed.** A completed build closes
+  it (`finalize`); `reset`, a tree clear and a new source reopen it. Closing
+  construction is deliberately not a lock against the future DOM, which
+  mutates a tree rather than constructing one.
+- **Invariants are auditable on demand** — `robo_html_document_validate_tree`
+  walks the tree iteratively and reports orphans, cycles, bad links, bad
+  parent/sibling links and count mismatches as independent observations. An
+  inconsistent tree is a reported verdict, not an error return.
+
+Full design, the three defects this phase fixed, and the exact contracts:
+[`DocumentModel.md`](DocumentModel.md).

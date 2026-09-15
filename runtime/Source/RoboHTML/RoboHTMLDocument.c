@@ -146,8 +146,8 @@ void robo_html_document_arena_free(robo_html_document_slot_t *slot)
 robo_result_t robo_html_document_clear_tree(robo_html_document_slot_t *slot,
                                             robo_html_diag_t *diag)
 {
-    robo_html_node_handle_t root;
-    robo_result_t r;
+    int have_root = 0;
+    uint32_t next_generation;
 
     if (!slot) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT,
@@ -157,32 +157,95 @@ robo_result_t robo_html_document_clear_tree(robo_html_document_slot_t *slot,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_ERROR,
                               "lifecycle does not allow clearing the tree");
     }
-    robo_html_document_arena_free(slot);
-    {
-        /*
-         * Reset the registry but keep the id/generation cursors moving
-         * forward. Node ids and generations must never be reused within a
-         * document, or a stale handle from the discarded tree would resolve
-         * against a brand-new node and alias it.
-         */
-        robo_html_node_id_t next_id = slot->nodes.next_id;
-        uint32_t next_generation = slot->nodes.next_generation;
 
-        robo_html_node_registry_init(&slot->nodes);
-        slot->nodes.next_id = next_id;
-        slot->nodes.next_generation = next_generation + 1u;
+    /*
+     * Everything the tree owns is the arena: element names, attributes,
+     * text, comments and DOCTYPE strings all live in one bump-allocated
+     * block, so releasing it releases the whole tree's content at once and
+     * a half-built tree cannot leak.
+     */
+    robo_html_document_arena_free(slot);
+
+    /* Is the document's own root node still usable? */
+    if (robo_html_node_handle_is_wellformed(&slot->root)) {
+        const robo_html_node_entry_t *e =
+            robo_html_node_entry_get(slot->id, slot->root.node_id);
+
+        if (e && e->generation == slot->root.generation &&
+            e->kind == ROBO_HTML_NODE_KIND_DOCUMENT) {
+            have_root = 1;
+        }
     }
-    robo_html_node_handle_clear(&slot->root);
-    r = robo_html_document_register_node(slot->id,
-                                         ROBO_HTML_NODE_KIND_DOCUMENT,
-                                         ROBO_HTML_NODE_ORIGIN_DOCUMENT_ROOT,
-                                         &root, diag);
-    if (r != ROBO_OK) {
-        return r;
+
+    /*
+     * Reset the registry while keeping the *generation* cursor moving:
+     * generations are what make a handle from the discarded tree detectable,
+     * so they must never repeat for a reused slot.
+     *
+     * Node ids, by contrast, restart dense. Identity for a node is
+     * (document, id, generation) and the generation is the guard, so
+     * restarting ids costs nothing in safety while keeping id == slot + 1.
+     * That correspondence is what keeps registration and lookup linear
+     * however many times a document is re-parsed: with ids that only ever
+     * grow, slot lookup would degrade to a full scan on every access after
+     * the first rebuild.
+     */
+    next_generation = slot->nodes.next_generation;
+    robo_html_node_registry_init(&slot->nodes);
+    slot->nodes.next_generation = next_generation;
+
+    if (!have_root) {
+        /* No usable root (never created, or already torn down): build one. */
+        robo_html_node_handle_t root;
+        robo_result_t r;
+
+        robo_html_node_handle_clear(&slot->root);
+        slot->finalized = 0;
+        r = robo_html_document_register_node(
+            slot->id, ROBO_HTML_NODE_KIND_DOCUMENT,
+            ROBO_HTML_NODE_ORIGIN_DOCUMENT_ROOT, &root, diag);
+        if (r != ROBO_OK) {
+            return r;
+        }
+        slot->root = root;
+    } else {
+        /*
+         * Keep the root's document node, at slot 0 so ids stay dense, with a
+         * fresh generation so handles to the *old* root are stale rather
+         * than silently naming the new tree's root.
+         */
+        robo_html_node_entry_t *re = &slot->nodes.slots[0];
+
+        re->in_use = 1;
+        re->id = 1u;
+        /*
+         * The root keeps its own generation: it is the same logical node
+         * across the clear (the document node), so a holder's root handle
+         * must survive. The cursor has already moved past it, and it only
+         * ever moves forward, so no later node can collide with it.
+         */
+        re->generation = slot->root.generation;
+        re->kind = ROBO_HTML_NODE_KIND_DOCUMENT;
+        re->parent = ROBO_HTML_NODE_ID_NONE;
+        re->first_child = ROBO_HTML_NODE_ID_NONE;
+        re->last_child = ROBO_HTML_NODE_ID_NONE;
+        re->prev_sibling = ROBO_HTML_NODE_ID_NONE;
+        re->next_sibling = ROBO_HTML_NODE_ID_NONE;
+        re->payload_offset = 0u;
+        re->payload_length = 0u;
+        re->child_count = 0u;
+        re->flags = 0u;
+        slot->nodes.used = 1u;
+        slot->nodes.next_id = 2u;
+        slot->root.document_id = slot->id;
+        slot->root.node_id = 1u;
+        slot->root.generation = re->generation;
     }
-    slot->root = root;
-    robo_log_debug("robo_html: doc=%llu tree cleared",
-                   (unsigned long long)slot->id);
+
+    /* A new tree is about to exist, so construction is open again. */
+    slot->finalized = 0;
+    robo_log_debug("robo_html: doc=%llu tree cleared (root preserved=%d)",
+                   (unsigned long long)slot->id, have_root);
     return ROBO_OK;
 }
 
@@ -259,6 +322,7 @@ robo_result_t robo_html_document_create(robo_html_document_id_t *out_id,
     slot->mutation_userdata = NULL;
     slot->load_phase = ROBO_HTML_LOAD_PHASE_NONE;
     slot->loader = NULL;
+    slot->finalized = 0;
 
     /* Enter CREATED and register the document node (future tree root). */
     slot->lifecycle = ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED;
@@ -305,6 +369,13 @@ robo_result_t robo_html_document_attach_source(
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_LIFECYCLE, ROBO_ERROR,
                               "lifecycle does not allow source attach");
     }
+    /*
+     * A newly attached source is about to be parsed into this document, so
+     * construction reopens. Without this a doc that had been finalized and
+     * then given a replacement source would sit in LOADING with its
+     * construction API closed — a state no caller could interpret.
+     */
+    slot->finalized = 0;
     if (slot->load_phase == ROBO_HTML_LOAD_PHASE_ACQUIRING) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_RESOURCE, ROBO_BUSY,
                               "resource acquisition outstanding");
@@ -530,6 +601,10 @@ robo_result_t robo_html_document_register_node(
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_ERROR,
                               "lifecycle does not allow node registration");
     }
+    if (slot->finalized) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_TREE, ROBO_ERROR,
+                              "document tree is finalized");
+    }
     if (slot->nodes.used >= ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
                               ROBO_OUT_OF_MEMORY,
@@ -590,6 +665,7 @@ robo_result_t robo_html_document_destroy(robo_html_document_id_t document_id,
     slot->mutation_userdata = NULL;
     slot->load_phase = ROBO_HTML_LOAD_PHASE_NONE;
     slot->loader = NULL;
+    slot->finalized = 0;
     /* Payloads belong to the document, so the tree dies with it. */
     robo_html_document_arena_free(slot);
     robo_html_node_registry_init(&slot->nodes);

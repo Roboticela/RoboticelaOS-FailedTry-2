@@ -685,9 +685,9 @@ function Invoke-RoboBuildUserland {
             "Source\RoboWindow\RoboWindowBackendHost.c",
             "Source\RoboDisplay\RoboDisplayBackendHost.c",
             "Source\RoboWindow\platform\qemu\RoboWindowBackendQemu.c",
-            # RoboHTML 8.1/8.2/8.3: the guest renders the demo through the
-            # real tokenizer and tree builder, so the HTML module ships in
-            # the guest image too.
+            # RoboHTML 8.1/8.2/8.3/8.4: the guest renders the demo through
+            # the real tokenizer, tree builder and document model, so the
+            # whole HTML module ships in the guest image too.
             "Source\RoboHTML\RoboHTML.c",
             "Source\RoboHTML\RoboHTMLTypes.c",
             "Source\RoboHTML\RoboHTMLDiagnostics.c",
@@ -707,6 +707,7 @@ function Invoke-RoboBuildUserland {
             "Source\RoboHTML\RoboHTMLTokenizer.c",
             "Source\RoboHTML\RoboHTMLPayload.c",
             "Source\RoboHTML\RoboHTMLTreeBuilder.c",
+            "Source\RoboHTML\RoboHTMLDocumentModel.c",
             # RoboDemo: the throwaway tree to picture adapter.
             "Source\RoboDemo\RoboDemoFont.c",
             "Source\RoboDemo\RoboDemoHtml.c"

@@ -13,9 +13,9 @@ and input. Tests reuse the existing **RoboTest** host runner — no second frame
 | **Phase 7 acceptance** | `window.p7.` | `SuiteRoboWindowPhase7.c` |
 | Host Win32 | `window.host.` / `display.host.` / `host.` | Host suites |
 | QEMU sim (host unit) | `window.qemu.` / `window.p7.qemu_sim` | Sim FB + input |
-| Real QEMU smoke | (script) | `scripts/test-qemu-display.ps1` |
-| Host smoke | (script) | `scripts/test-host-display.ps1` |
-| Full Phase 7 gate | (script) | `scripts/test-phase7.ps1` |
+| Real QEMU smoke | `robo test-qemu-display` | `scripts/pipeline/commands.test.ps1` |
+| Host smoke | `robo test-display` | `scripts/pipeline/commands.test.ps1` |
+| Full Phase 7 gate | `robo test-all` | `scripts/pipeline/commands.test.ps1` |
 
 ## How to run
 
@@ -28,15 +28,15 @@ and input. Tests reuse the existing **RoboTest** host runner — no second frame
 .\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "display."
 
 # Host + optional visible smoke
-.\scripts\test-host-display.ps1
-.\scripts\test-host-display.ps1 -Visible
+scripts\robo test-display
+scripts\robo test-display --visible
 
 # Real QEMU (skipped automatically if tooling missing — run when available)
-.\scripts\test-qemu-display.ps1
+scripts\robo test-qemu-display
 
-# One-shot Phase 7 gate (unit + host; QEMU optional)
-.\scripts\test-phase7.ps1
-.\scripts\test-phase7.ps1 -SkipQemu
+# One-shot gate (unit + host; QEMU optional)
+scripts\robo test-all
+scripts\robo test-all --skip-qemu
 ```
 
 Normal development builds do **not** require QEMU.

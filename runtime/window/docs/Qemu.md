@@ -71,7 +71,7 @@ framebuffer for unit tests without QEMU or syscalls. Host production builds do
 ## Smoke test
 
 ```powershell
-.\scripts\test-qemu-display.ps1
+scripts\robo test-qemu-display
 ```
 
 Waits for serial markers from `/System/runtime/robo-runtime`:
@@ -81,7 +81,8 @@ Waits for serial markers from `/System/runtime/robo-runtime`:
 - `ROBO_QEMU_INPUT_OK`
 - `ROBO_QEMU_DISPLAY_SHUTDOWN_OK`
 
-Interactive visual check: `.\scripts\run-bootloader-qemu.ps1` (GTK display).
+Interactive visual check: `scripts\robo run-runtime-qemu` (GTK display), or
+`scripts\robo run-qemu` to build everything first.
 
 ## Limitations
 

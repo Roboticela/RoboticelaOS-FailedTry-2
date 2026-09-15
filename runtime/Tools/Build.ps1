@@ -202,7 +202,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboHTML\RoboHTMLCharRef.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLTokenizer.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLPayload.c"),
-    (Join-Path $SourceDir "RoboHTML\RoboHTMLTreeBuilder.c")
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLTreeBuilder.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLDocumentModel.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -317,6 +318,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLCharRef.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTokenizerStates.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTreeBuilder.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLDocumentModel.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -770,6 +772,17 @@ if ($Verify) {
 }
 
 # --- Host test executable (framework + suites; does not ship in production) ---
+#
+# The suite is the *test* half of this script: it needs a desktop session for
+# the interactive window checks and it is not part of producing the runtime.
+# Gating it on -Test (which this script's own usage header has always
+# documented, and which every test caller already passes) lets the pipeline's
+# build step build without running tests, while test steps run everything here.
+if (-not $Test) {
+    Write-Host "BUILD OK: production runtime ($Configuration) - host suite skipped (pass -Test to build and run it)"
+    exit 0
+}
+
 Write-Host "HOST   building $HostTest"
 $Win32BackendSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowBackendWin32.c"
 $Win32KeyboardSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowKeyboardWin32.c"

@@ -157,7 +157,9 @@ typedef struct robo_html_tree_builder robo_html_tree_builder_t;
  *
  * The builder takes the document's exclusive parser lease, so a second
  * builder — or a live robo_html_parser_t — on the same document is rejected
- * with ROBO_BUSY. The document must be in CREATED or READY lifecycle.
+ * with ROBO_BUSY. The document must accept content (CREATED, LOADING or
+ * READY); exclusivity comes from the lease, not from the lifecycle, and
+ * begin() settles a LOADING document before attaching its own source.
  *
  * @return ROBO_OK; ROBO_INVALID_ARGUMENT; ROBO_INIT_ERROR (module down);
  *         ROBO_NOT_FOUND (unknown document); ROBO_BUSY (already leased);

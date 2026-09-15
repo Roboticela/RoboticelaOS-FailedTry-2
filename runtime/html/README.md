@@ -1,9 +1,9 @@
 # RoboHTML
 
 HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
-Phase 8.2 tokenizer + Phase 8.3 tree builder**).
+Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model**).
 
-**Version:** 0.3.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.4.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -36,7 +36,18 @@ with the seam kept open: active-formatting elements / adoption agency, tables
 and foster parenting, foreign content (SVG/MathML), fragment parsing, and
 DOCTYPE document-mode behaviour. See `docs/TreeBuilder.md`.
 
+**8.4 (document model):** the document becomes the authoritative model of the
+tree it owns — an identity-and-state metadata snapshot, explicit root
+ownership that survives re-parsing, node ownership and cross-document checks,
+generation-guarded staleness, explicit construction closure (`finalize`) and
+reuse (`reset`), and on-demand whole-tree invariant auditing
+(`validate_tree`). Ids restart dense on a tree clear so id lookups stay linear
+however often a document is re-parsed, while generations — not ids — are what
+make a stale handle detectable. See `docs/DocumentModel.md`.
+
 **No DOM behaviour** — mutation APIs, events and the DOM phase come later.
+Finalization closes *tree construction*, not the document: it is deliberately
+not a lock against the future DOM.
 The tokenizer stays independent of the tree builder: it never constructs a
 tree, never knows an element's meaning, and never touches
 CSS/layout/paint/JS/network. The tree builder is the only consumer that turns
@@ -60,7 +71,7 @@ registration.
 | `RoboHTMLTypes.h` | Document/node identity tokens, node kinds, diagnostic domains |
 | `RoboHTMLDiagnostics.h` | `robo_html_diag_t` record (optional, caller-owned) |
 | `RoboHTMLLifecycle.h` | Document lifecycle state machine |
-| `RoboHTMLDocument.h` | Document create / attach / register / destroy |
+| `RoboHTMLDocument.h` | Document create / attach / register / metadata / finalize / reset / ownership / validate / destroy |
 | `RoboHTMLNode.h` | Node handles, generation-guarded registry |
 | `RoboHTMLDom.h` | Future-DOM boundary, origins, mutation hooks, capabilities |
 | `RoboHTMLElement.h` | Element/attribute name policy stubs |
@@ -88,6 +99,7 @@ registration.
 | `html.charref.*` | Named / numeric / hex references, legacy rules, error mapping |
 | `html.tokstate.*` | State model and the raw-content switch entry points |
 | `html.tree.*` | Tree structure, implied elements, nesting, text merging, attributes, void elements, lifetimes, recovery, node ceiling, Unicode, dump, demo document |
+| `html.docmodel.*` | Metadata, root ownership and stability across rebuilds, node identity/lookup, staleness, cross-document separation, tree invariants (clean, orphan, deep), source/encoding association, finalization, reset, failure, teardown, pipeline and demo integration |
 
 Two ownership rules in one line each:
 
@@ -99,3 +111,7 @@ Two ownership rules in one line each:
   inert; `robo_html_node_*` / `robo_html_element_*` / `robo_html_payload_*`
   return pointers **into** the document's payload arena, valid until the next
   build on that document (the arena grows) or until it is destroyed.
+- The document's **root** survives a rebuild; every other node handle from a
+  previous tree becomes stale. Ownership is asked for, never assumed:
+  `robo_html_document_owns_node` is the single check that covers "whose node
+  is this?" and "is it still live?".
