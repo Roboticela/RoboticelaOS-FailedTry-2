@@ -1,14 +1,13 @@
 /*
- * Win32 RoboWindow backend (Goal 7.5) — host builds only.
+ * Win32 RoboWindow backend (Goals 7.5–7.13) — host builds only.
  *
  * Isolated under platform/win32 so OS headers never enter the public API.
  * Guest freestanding ELF does not compile this file.
  *
- * APIs: RegisterClassExW, CreateWindowExW, DestroyWindow, ShowWindow,
- * SetWindowTextW, SetWindowPos, SetFocus, GetWindowRect/GetClientRect,
- * PeekMessageW/DispatchMessageW, MonitorFromWindow (display association hint).
- *
- * present_surface → ROBO_NOT_SUPPORTED (Goal 7.4 mock path; real present later).
+ * Presentation (Goal 7.13): RoboGraphics surface → staging CreateDIBSection
+ * (top-down BGRA/BGRX) → InvalidateRect → WM_PAINT BitBlt into HWND.
+ * Inspired by Chromium SoftwareOutputDeviceWinDirect GDI BitBlt path as
+ * technical reference only — no Chromium dependency.
  */
 
 #if defined(ROBO_WINDOW_HAS_WIN32) && ROBO_WINDOW_HAS_WIN32
@@ -20,9 +19,18 @@
 #define NOMINMAX
 #endif
 
+#include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowBackendHost.h"
-#include "RoboWindow/RoboWindowEvent.h"
+#include "RoboDisplay/RoboDisplay.h"
+#include "RoboDisplay/RoboDisplayBackendHost.h"
+#include "RoboDisplay/RoboDisplayScale.h"
+#include "RoboGraphics/RoboGraphicsPixelFormat.h"
+#include "RoboGraphics/RoboGraphicsSurface.h"
+#include "RoboWindow/RoboWindowPresent.h"
 #include "RoboWindow/RoboWindowTypes.h"
+#include "RoboWindowKeyboardWin32.h"
+#include "RoboWindowMouseWin32.h"
+#include "RoboDisplayWin32.h"
 
 #include "RoboBase/RoboLog.h"
 #include "RoboUnicode/RoboUnicode.h"
@@ -34,6 +42,7 @@
 #define ROBO_WIN32_MAX_WINDOWS 32
 #define ROBO_WIN32_CLASS_NAME L"Roboticela.RoboWindow"
 #define ROBO_WIN32_TITLE_WCHARS 512
+#define ROBO_WIN32_PRESENT_MAX 8192u
 
 typedef struct robo_win32_slot {
     int in_use;
@@ -46,6 +55,13 @@ typedef struct robo_win32_slot {
     int32_t max_w;
     int32_t max_h;
     int resizable;
+    /* Goal 7.13 staging framebuffer (owned by backend; not the caller surface). */
+    HDC present_dc;
+    HBITMAP present_dib;
+    HGDIOBJ present_old;
+    uint8_t *present_bits;
+    int32_t present_w;
+    int32_t present_h;
 } robo_win32_slot_t;
 
 static int g_live;
@@ -136,6 +152,220 @@ static void client_to_outer(DWORD style, DWORD ex, int32_t cw, int32_t ch,
     *oh = (int32_t)(r.bottom - r.top);
 }
 
+static void win32_present_release(robo_win32_slot_t *slot)
+{
+    if (!slot) {
+        return;
+    }
+    if (slot->present_dc) {
+        if (slot->present_old) {
+            (void)SelectObject(slot->present_dc, slot->present_old);
+            slot->present_old = NULL;
+        }
+        DeleteDC(slot->present_dc);
+        slot->present_dc = NULL;
+    }
+    if (slot->present_dib) {
+        DeleteObject(slot->present_dib);
+        slot->present_dib = NULL;
+    }
+    slot->present_bits = NULL;
+    slot->present_w = 0;
+    slot->present_h = 0;
+}
+
+static robo_result_t win32_present_ensure(robo_win32_slot_t *slot, int32_t w,
+                                          int32_t h)
+{
+    BITMAPINFO bmi;
+    HDC screen;
+    void *bits = NULL;
+    HBITMAP dib;
+    HDC mem;
+
+    if (!slot || w <= 0 || h <= 0) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if ((uint32_t)w > ROBO_WIN32_PRESENT_MAX ||
+        (uint32_t)h > ROBO_WIN32_PRESENT_MAX) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (slot->present_dib && slot->present_dc && slot->present_bits &&
+        slot->present_w == w && slot->present_h == h) {
+        return ROBO_OK;
+    }
+
+    win32_present_release(slot);
+
+    memset(&bmi, 0, sizeof(bmi));
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = (LONG)w;
+    bmi.bmiHeader.biHeight = -(LONG)h; /* top-down DIB */
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    screen = GetDC(NULL);
+    if (!screen) {
+        return ROBO_IO_ERROR;
+    }
+    dib = CreateDIBSection(screen, &bmi, DIB_RGB_COLORS, &bits, NULL, 0);
+    ReleaseDC(NULL, screen);
+    if (!dib || !bits) {
+        if (dib) {
+            DeleteObject(dib);
+        }
+        robo_log_error("robo_window.win32: CreateDIBSection %dx%d failed",
+                       (int)w, (int)h);
+        return ROBO_OUT_OF_MEMORY;
+    }
+
+    mem = CreateCompatibleDC(NULL);
+    if (!mem) {
+        DeleteObject(dib);
+        return ROBO_IO_ERROR;
+    }
+    slot->present_old = SelectObject(mem, dib);
+    slot->present_dc = mem;
+    slot->present_dib = dib;
+    slot->present_bits = (uint8_t *)bits;
+    slot->present_w = w;
+    slot->present_h = h;
+    memset(slot->present_bits, 0, (size_t)w * (size_t)h * 4u);
+    return ROBO_OK;
+}
+
+static uint32_t pack_bgrx_le(uint8_t r, uint8_t g, uint8_t b)
+{
+    /* Win32 BI_RGB 32bpp memory order B,G,R,X → LE 0xXXRRGGBB */
+    return ((uint32_t)b) | ((uint32_t)g << 8) | ((uint32_t)r << 16) |
+           (0xFFu << 24);
+}
+
+static uint32_t convert_to_bgrx(robo_gfx_pixel_format_t fmt, const uint8_t *p)
+{
+    uint8_t r = 0;
+    uint8_t g = 0;
+    uint8_t b = 0;
+    if (fmt == ROBO_GFX_FORMAT_BGRA8) {
+        b = p[0];
+        g = p[1];
+        r = p[2];
+    } else if (fmt == ROBO_GFX_FORMAT_RGBA8) {
+        r = p[0];
+        g = p[1];
+        b = p[2];
+    } else if (fmt == ROBO_GFX_FORMAT_RGB8) {
+        r = p[0];
+        g = p[1];
+        b = p[2];
+    } else {
+        return 0u;
+    }
+    return pack_bgrx_le(r, g, b);
+}
+
+static robo_result_t win32_blit_surface(robo_win32_slot_t *slot,
+                                        const robo_gfx_surface_t *surface)
+{
+    const uint8_t *src;
+    uint32_t sw;
+    uint32_t sh;
+    size_t src_stride;
+    robo_gfx_pixel_format_t sfmt;
+    uint8_t sbpp = 0u;
+    uint32_t copy_w;
+    uint32_t copy_h;
+    uint32_t y;
+    uint32_t *dst;
+    size_t dst_stride_bytes;
+
+    if (!slot || !slot->present_bits || !surface) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    sw = robo_gfx_surface_width(surface);
+    sh = robo_gfx_surface_height(surface);
+    sfmt = robo_gfx_surface_format(surface);
+    src_stride = robo_gfx_surface_stride(surface);
+    src = robo_gfx_surface_pixels_const(surface);
+    if (!src || sw == 0u || sh == 0u) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (sfmt != ROBO_GFX_FORMAT_BGRA8 && sfmt != ROBO_GFX_FORMAT_RGBA8 &&
+        sfmt != ROBO_GFX_FORMAT_RGB8) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    if (robo_gfx_pixel_format_bytes_per_pixel(sfmt, &sbpp) != ROBO_OK ||
+        sbpp == 0u) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    if (src_stride < (size_t)sw * (size_t)sbpp) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+
+    copy_w = sw;
+    copy_h = sh;
+    if (copy_w > (uint32_t)slot->present_w) {
+        copy_w = (uint32_t)slot->present_w;
+    }
+    if (copy_h > (uint32_t)slot->present_h) {
+        copy_h = (uint32_t)slot->present_h;
+    }
+    dst_stride_bytes = (size_t)slot->present_w * 4u;
+    /* Clear staging so uncovered regions are black after shrink. */
+    memset(slot->present_bits, 0,
+           (size_t)slot->present_w * (size_t)slot->present_h * 4u);
+
+    for (y = 0u; y < copy_h; y++) {
+        const uint8_t *row = src + (size_t)y * src_stride;
+        uint32_t x;
+        dst = (uint32_t *)(slot->present_bits + (size_t)y * dst_stride_bytes);
+        for (x = 0u; x < copy_w; x++) {
+            dst[x] = convert_to_bgrx(sfmt, row + (size_t)x * sbpp);
+        }
+    }
+    return ROBO_OK;
+}
+
+static void win32_paint_slot(robo_win32_slot_t *slot, HWND hwnd)
+{
+    PAINTSTRUCT ps;
+    HDC hdc;
+    RECT cr;
+    int cw;
+    int ch;
+
+    hdc = BeginPaint(hwnd, &ps);
+    if (!hdc) {
+        return;
+    }
+    if (!GetClientRect(hwnd, &cr)) {
+        EndPaint(hwnd, &ps);
+        return;
+    }
+    cw = (int)(cr.right - cr.left);
+    ch = (int)(cr.bottom - cr.top);
+    if (cw <= 0 || ch <= 0) {
+        EndPaint(hwnd, &ps);
+        return;
+    }
+    if (slot && slot->present_dc && slot->present_dib && slot->present_w > 0 &&
+        slot->present_h > 0) {
+        /* Stretch if client size differs from last present buffer. */
+        if (cw == slot->present_w && ch == slot->present_h) {
+            (void)BitBlt(hdc, 0, 0, cw, ch, slot->present_dc, 0, 0, SRCCOPY);
+        } else {
+            (void)SetStretchBltMode(hdc, COLORONCOLOR);
+            (void)StretchBlt(hdc, 0, 0, cw, ch, slot->present_dc, 0, 0,
+                             slot->present_w, slot->present_h, SRCCOPY);
+        }
+    } else {
+        HBRUSH br = (HBRUSH)GetStockObject(BLACK_BRUSH);
+        FillRect(hdc, &cr, br);
+    }
+    EndPaint(hwnd, &ps);
+}
+
 static DWORD window_style(const robo_window_config_t *cfg)
 {
     DWORD style = WS_OVERLAPPEDWINDOW;
@@ -171,15 +401,93 @@ static LRESULT CALLBACK robo_win32_wndproc(HWND hwnd, UINT msg, WPARAM wparam,
         }
         break;
     case WM_CLOSE:
-        /* Phase 7.9 will route events fully; keep HWND until destroy API. */
+        /*
+         * Goal 7.7/7.9: native close → observe_close_request (CREATED→CLOSING).
+         * Do not DestroyWindow here — destroy API owns native teardown.
+         */
         if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
-            robo_window_event_t ev;
-            robo_window_event_init(&ev);
-            ev.type = ROBO_WINDOW_EVENT_CLOSE_REQUESTED;
-            ev.window_id = slot->window_id;
-            (void)robo_window_event_push(&ev);
+            (void)robo_window_observe_close_request(slot->window_id);
         }
         return 0;
+    case WM_ERASEBKGND:
+        /* Avoid flicker; WM_PAINT paints the full client. */
+        return 1;
+    case WM_PAINT:
+        win32_paint_slot(slot, hwnd);
+        return 0;
+    case WM_DPICHANGED:
+        /* Scale is read in query_state; invalidate so content redraws. */
+        InvalidateRect(hwnd, NULL, FALSE);
+        break;
+    case WM_SIZE:
+        if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
+            if (wparam != SIZE_MINIMIZED) {
+                int32_t cw = (int32_t)LOWORD(lparam);
+                int32_t ch = (int32_t)HIWORD(lparam);
+                if (cw > 0 && ch > 0) {
+                    (void)robo_window_observe_size(slot->window_id, cw, ch);
+                    InvalidateRect(hwnd, NULL, FALSE);
+                }
+            }
+        }
+        break;
+    case WM_MOVE:
+        if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
+            int32_t x = (int32_t)(short)LOWORD(lparam);
+            int32_t y = (int32_t)(short)HIWORD(lparam);
+            (void)robo_window_observe_position(slot->window_id, x, y);
+        }
+        break;
+    case WM_SHOWWINDOW:
+        if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
+            (void)robo_window_observe_visibility(slot->window_id,
+                                                 wparam ? 1 : 0);
+        }
+        break;
+    case WM_SETFOCUS:
+        if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
+            (void)robo_window_observe_focus(slot->window_id, 1);
+        }
+        break;
+    case WM_KILLFOCUS:
+        if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
+            (void)robo_window_observe_focus(slot->window_id, 0);
+        }
+        break;
+    case WM_KEYDOWN:
+    case WM_KEYUP:
+    case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
+        if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
+            (void)robo_keyboard_win32_handle_message(
+                slot->window_id, msg, (uintptr_t)wparam, (intptr_t)lparam);
+        }
+        break;
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
+    case WM_XBUTTONDOWN:
+    case WM_XBUTTONUP:
+    case WM_XBUTTONDBLCLK:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
+        if (slot && slot->window_id != ROBO_WINDOW_ID_NONE) {
+            (void)robo_mouse_win32_handle_message(
+                slot->window_id, (void *)hwnd, msg, (uintptr_t)wparam,
+                (intptr_t)lparam);
+            if (msg == WM_XBUTTONDOWN || msg == WM_XBUTTONUP ||
+                msg == WM_XBUTTONDBLCLK) {
+                return TRUE;
+            }
+        }
+        break;
     case WM_DESTROY:
         return 0;
     default:
@@ -219,6 +527,7 @@ static void destroy_hwnd(robo_win32_slot_t *slot)
     if (!slot || !slot->hwnd) {
         return;
     }
+    win32_present_release(slot);
     DestroyWindow(slot->hwnd);
     slot->hwnd = NULL;
 }
@@ -228,6 +537,7 @@ static void clear_slot(robo_win32_slot_t *slot)
     if (!slot) {
         return;
     }
+    win32_present_release(slot);
     memset(slot, 0, sizeof(*slot));
 }
 
@@ -297,8 +607,12 @@ static robo_result_t win32_create_window(void *userdata,
     if (cfg->fullscreen) {
         robo_log_warn("robo_window.win32: fullscreen deferred (not applied)");
     }
-    if (cfg->scale_preference > 0.0f && cfg->scale_preference != 1.0f) {
-        robo_log_debug("robo_window.win32: scale_preference ignored in 7.5");
+    if (cfg->scale_preference > 0.0f &&
+        robo_display_scale_validate(cfg->scale_preference) == ROBO_OK &&
+        cfg->scale_preference != 1.0f) {
+        robo_log_debug(
+            "robo_window.win32: scale_preference=%g noted (HWND size is logical)",
+            (double)cfg->scale_preference);
     }
 
     for (i = 0u; i < ROBO_WIN32_MAX_WINDOWS; i++) {
@@ -516,6 +830,55 @@ static robo_result_t win32_set_size(void *userdata,
     return ROBO_OK;
 }
 
+static robo_result_t win32_set_size_constraints(void *userdata,
+                                                robo_window_id_t id,
+                                                robo_window_native_handle_t *native,
+                                                int32_t min_width,
+                                                int32_t min_height,
+                                                int32_t max_width,
+                                                int32_t max_height)
+{
+    robo_win32_slot_t *slot;
+    robo_result_t r;
+    (void)userdata;
+    (void)id;
+    slot = slot_from_handle(native);
+    if (!slot) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    r = require_create_thread(slot);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    if (min_width < 0 || min_height < 0 || max_width < 0 || max_height < 0) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (min_width > 0 && max_width > 0 && min_width > max_width) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (min_height > 0 && max_height > 0 && min_height > max_height) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    slot->min_w = min_width;
+    slot->min_h = min_height;
+    slot->max_w = max_width;
+    slot->max_h = max_height;
+    /* WM_GETMINMAXINFO picks these up; nudge so Windows refreshes track sizes. */
+    {
+        RECT wr;
+        if (GetWindowRect(slot->hwnd, &wr)) {
+            SetWindowPos(slot->hwnd, NULL, 0, 0, wr.right - wr.left,
+                         wr.bottom - wr.top,
+                         SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE |
+                             SWP_FRAMECHANGED);
+        }
+    }
+    robo_log_debug("robo_window.win32: constraints min=%dx%d max=%dx%d",
+                   (int)min_width, (int)min_height, (int)max_width,
+                   (int)max_height);
+    return ROBO_OK;
+}
+
 static robo_result_t win32_set_position(void *userdata,
                                         robo_window_id_t id,
                                         robo_window_native_handle_t *native,
@@ -599,10 +962,40 @@ static robo_result_t win32_query_state(void *userdata,
     inout_state->focused = (GetForegroundWindow() == slot->hwnd) ? 1 : 0;
     inout_state->minimized = IsIconic(slot->hwnd) ? 1 : 0;
     inout_state->maximized = IsZoomed(slot->hwnd) ? 1 : 0;
-    /* Display association: keep existing id; host enum is later. */
-    if (inout_state->display_id == ROBO_DISPLAY_ID_NONE) {
-        /* MonitorFromWindow available for future mapping. */
-        (void)MonitorFromWindow(slot->hwnd, MONITOR_DEFAULTTONEAREST);
+    /*
+     * Goal 7.8: expose effective DPI/scale when the OS provides it.
+     * GetDpiForWindow (Win10 1607+) — unavailable → leave scale unchanged.
+     * Do not fabricate DPI. Full display enumeration remains later.
+     */
+    {
+        typedef UINT(WINAPI *robo_get_dpi_for_window_fn)(HWND);
+        static robo_get_dpi_for_window_fn s_get_dpi;
+        static int s_dpi_resolved;
+        if (!s_dpi_resolved) {
+            HMODULE user32 = GetModuleHandleW(L"user32.dll");
+            if (user32) {
+                s_get_dpi = (robo_get_dpi_for_window_fn)GetProcAddress(
+                    user32, "GetDpiForWindow");
+            }
+            s_dpi_resolved = 1;
+        }
+        if (s_get_dpi) {
+            UINT dpi = s_get_dpi(slot->hwnd);
+            if (dpi > 0u) {
+                float scale = (float)dpi / ROBO_DISPLAY_DPI_REFERENCE;
+                if (robo_display_scale_validate(scale) == ROBO_OK) {
+                    inout_state->scale = scale;
+                }
+            }
+        }
+    }
+    /* Display association via nearest monitor when host display backend is live. */
+    {
+        HMONITOR mon = MonitorFromWindow(slot->hwnd, MONITOR_DEFAULTTONEAREST);
+        robo_display_id_t did = robo_display_win32_id_from_hmonitor(mon);
+        if (did != ROBO_DISPLAY_ID_NONE) {
+            inout_state->display_id = did;
+        }
     }
     return ROBO_OK;
 }
@@ -612,11 +1005,78 @@ static robo_result_t win32_present_surface(void *userdata,
                                            robo_window_native_handle_t *native,
                                            robo_gfx_surface_t *surface)
 {
+    robo_win32_slot_t *slot;
+    robo_result_t r;
+    uint32_t sw;
+    uint32_t sh;
+    RECT cr;
+    int32_t client_w;
+    int32_t client_h;
+    int32_t buf_w;
+    int32_t buf_h;
+
     (void)userdata;
     (void)id;
-    (void)native;
-    (void)surface;
-    return ROBO_NOT_SUPPORTED;
+    if (!g_live) {
+        return ROBO_INIT_ERROR;
+    }
+    if (!surface) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    slot = slot_from_handle(native);
+    if (!slot || !slot->hwnd) {
+        return ROBO_NOT_FOUND;
+    }
+    r = require_create_thread(slot);
+    if (r != ROBO_OK) {
+        return r;
+    }
+
+    sw = robo_gfx_surface_width(surface);
+    sh = robo_gfx_surface_height(surface);
+    if (sw == 0u || sh == 0u) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+
+    client_w = (int32_t)sw;
+    client_h = (int32_t)sh;
+    if (GetClientRect(slot->hwnd, &cr)) {
+        int32_t cw = (int32_t)(cr.right - cr.left);
+        int32_t ch = (int32_t)(cr.bottom - cr.top);
+        if (cw > 0 && ch > 0) {
+            client_w = cw;
+            client_h = ch;
+        }
+    }
+    /* Prefer client size for staging so WM_PAINT 1:1 BitBlt is common. */
+    buf_w = client_w;
+    buf_h = client_h;
+    if ((uint32_t)buf_w < sw) {
+        buf_w = (int32_t)sw;
+    }
+    if ((uint32_t)buf_h < sh) {
+        buf_h = (int32_t)sh;
+    }
+
+    r = win32_present_ensure(slot, buf_w, buf_h);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    r = win32_blit_surface(slot, surface);
+    if (r != ROBO_OK) {
+        return r;
+    }
+
+    InvalidateRect(slot->hwnd, NULL, FALSE);
+    /* Synchronous paint so tests can sample pixels immediately. */
+    if (!UpdateWindow(slot->hwnd)) {
+        robo_log_warn("robo_window.win32: UpdateWindow failed err=%lu",
+                      (unsigned long)GetLastError());
+    }
+    robo_log_debug("robo_window.win32: present id=%llu surface=%ux%u dib=%dx%d",
+                   (unsigned long long)slot->window_id, (unsigned)sw,
+                   (unsigned)sh, (int)slot->present_w, (int)slot->present_h);
+    return ROBO_OK;
 }
 
 static robo_result_t win32_process_events(void *userdata)
@@ -637,6 +1097,79 @@ static robo_result_t win32_process_events(void *userdata)
     return ROBO_OK;
 }
 
+static robo_result_t win32_wait_events(void *userdata, uint32_t timeout_ms)
+{
+    DWORD wait_ms;
+    (void)userdata;
+    if (!g_live) {
+        return ROBO_INIT_ERROR;
+    }
+    if (timeout_ms == ROBO_WINDOW_EVENT_WAIT_FOREVER) {
+        wait_ms = INFINITE;
+    } else {
+        wait_ms = (DWORD)timeout_ms;
+    }
+    /*
+     * Block until input arrives, PostThreadMessage wakeup, or timeout.
+     * Does not drain the queue — caller runs process_events next.
+     */
+    (void)MsgWaitForMultipleObjects(0, NULL, FALSE, wait_ms, QS_ALLINPUT);
+    return ROBO_OK;
+}
+
+static robo_result_t win32_wakeup(void *userdata)
+{
+    (void)userdata;
+    if (!g_live) {
+        return ROBO_INIT_ERROR;
+    }
+    if (g_init_tid == 0u) {
+        return ROBO_INIT_ERROR;
+    }
+    if (!PostThreadMessageW(g_init_tid, WM_NULL, 0, 0)) {
+        DWORD err = GetLastError();
+        /* No message queue yet is benign for early wake. */
+        if (err != ERROR_INVALID_THREAD_ID) {
+            robo_log_debug("robo_window.win32: wakeup PostThreadMessage err=%lu",
+                           (unsigned long)err);
+        }
+    }
+    return ROBO_OK;
+}
+
+static robo_result_t win32_capture_mouse(void *userdata, robo_window_id_t id,
+                                         robo_window_native_handle_t *native)
+{
+    robo_win32_slot_t *slot;
+    (void)userdata;
+    (void)id;
+    if (!g_live) {
+        return ROBO_INIT_ERROR;
+    }
+    slot = slot_from_handle(native);
+    if (!slot || !slot->hwnd) {
+        return ROBO_NOT_FOUND;
+    }
+    if (SetCapture(slot->hwnd) == NULL && GetLastError() != 0) {
+        /* SetCapture returns previous capture HWND; NULL is often OK. */
+    }
+    if (GetCapture() != slot->hwnd) {
+        robo_log_warn("robo_window.win32: SetCapture failed for id=%llu",
+                      (unsigned long long)id);
+        return ROBO_IO_ERROR;
+    }
+    return ROBO_OK;
+}
+
+static robo_result_t win32_release_mouse_capture(void *userdata)
+{
+    (void)userdata;
+    if (GetCapture() != NULL) {
+        (void)ReleaseCapture();
+    }
+    return ROBO_OK;
+}
+
 static const robo_window_backend_vtbl_t g_win32_vtbl = {
     "win32",
     &g_caps,
@@ -648,11 +1181,16 @@ static const robo_window_backend_vtbl_t g_win32_vtbl = {
     win32_hide,
     win32_set_title,
     win32_set_size,
+    win32_set_size_constraints,
     win32_set_position,
     win32_focus,
     win32_query_state,
     win32_present_surface,
-    win32_process_events
+    win32_process_events,
+    win32_wait_events,
+    win32_wakeup,
+    win32_capture_mouse,
+    win32_release_mouse_capture
 };
 
 static void caps_init(void)
@@ -666,12 +1204,16 @@ static void caps_init(void)
     g_caps.set_title = 1;
     g_caps.focus = 1;
     g_caps.query_state = 1;
-    g_caps.present = 0;
+    g_caps.present = 1;
     g_caps.process_events = 1;
     g_caps.reports_actual_state = 1;
-    g_caps.present_format_mask = 0u;
-    g_caps.present_max_width = 0u;
-    g_caps.present_max_height = 0u;
+    g_caps.size_constraints = 1;
+    g_caps.present_format_mask = ROBO_WINDOW_PRESENT_FMT_CPU_DEFAULT;
+    g_caps.present_max_width = ROBO_WIN32_PRESENT_MAX;
+    g_caps.present_max_height = ROBO_WIN32_PRESENT_MAX;
+    g_caps.wait_events = 1;
+    g_caps.wakeup = 1;
+    g_caps.mouse_capture = 1;
 }
 
 int robo_window_backend_host_available(void)
@@ -694,11 +1236,22 @@ const robo_window_backend_vtbl_t *robo_window_backend_host_vtbl(void)
 
 robo_result_t robo_window_backend_use_host(void)
 {
+    robo_result_t r;
     if (!robo_window_backend_host_available()) {
         return ROBO_NOT_SUPPORTED;
     }
     caps_init();
-    return robo_window_backend_register(&g_win32_vtbl, NULL);
+    r = robo_window_backend_register(&g_win32_vtbl, NULL);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    /* Prefer real monitor enum when display manager is already live. */
+    if (robo_display_is_initialized() && robo_display_backend_host_available()) {
+        if (robo_display_backend_use_host() == ROBO_OK) {
+            (void)robo_display_refresh();
+        }
+    }
+    return ROBO_OK;
 }
 
 #endif /* ROBO_WINDOW_HAS_WIN32 */

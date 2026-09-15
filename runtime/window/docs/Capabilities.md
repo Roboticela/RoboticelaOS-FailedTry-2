@@ -9,6 +9,7 @@ robo_window_backend_caps_t
 | `create_window` / `destroy_window` | Native create/destroy |
 | `show_hide` | Show / hide |
 | `resize` / `move` | Size / position requests |
+| `size_constraints` | Runtime min/max via `set_size_constraints` |
 | `set_title` | UTF-8 title |
 | `focus` | Focus request |
 | `query_state` | Backend may fill actual state |

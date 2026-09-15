@@ -191,3 +191,33 @@ robo_result_t robo_display_get_modes(robo_display_id_t id,
     return vtbl->get_modes(robo_display_backend_userdata(), id, out, capacity,
                            out_count);
 }
+
+robo_result_t robo_display_get_scale(robo_display_id_t id, float *out_scale)
+{
+    robo_display_info_t info;
+    robo_result_t r;
+
+    if (!out_scale) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    r = robo_display_get(id, &info);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    return robo_display_info_effective_scale(&info, out_scale);
+}
+
+robo_result_t robo_display_get_dpi(robo_display_id_t id, robo_display_dpi_t *out)
+{
+    robo_display_info_t info;
+    robo_result_t r;
+
+    if (!out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    r = robo_display_get(id, &info);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    return robo_display_info_get_dpi(&info, out);
+}

@@ -32,7 +32,7 @@ typedef struct robo_window_config {
     int resizable;      /* non-zero → resizable preference */
     int fullscreen;     /* non-zero → fullscreen preference (may be deferred) */
     robo_display_id_t display_id; /* NONE → default/primary */
-    float scale_preference;       /* 0 → unspecified; else desired scale */
+    float scale_preference; /* 0 → unspecified; else validated scale (Goal 7.8) */
 } robo_window_config_t;
 
 /** Fill defaults: 800×600, visible, resizable, empty title, no min/max. */

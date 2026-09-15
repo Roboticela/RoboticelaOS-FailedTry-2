@@ -76,4 +76,4 @@ When `present != 0`:
 No Win32/X11/Wayland/Cocoa, no QEMU output, no VSync, no GPU, no frame queues,
 no compositor scheduling.
 
-Next: later Phase 7 goals for real window creation and host/QEMU presenters.
+Next: Goal 7.14 Window + RoboGraphics integration (when requested).

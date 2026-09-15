@@ -23,9 +23,13 @@ static const robo_window_backend_caps_t g_null_caps = {
     0, /* present */
     1, /* process_events (no-op OK) */
     0, /* reports_actual_state */
+    1, /* size_constraints */
     0u, /* present_format_mask */
     0u, /* present_max_width */
-    0u  /* present_max_height */
+    0u, /* present_max_height */
+    0, /* wait_events */
+    0, /* wakeup */
+    0  /* mouse_capture */
 };
 
 void robo_window_backend_caps_clear(robo_window_backend_caps_t *caps)
@@ -145,6 +149,24 @@ static robo_result_t null_set_size(void *userdata,
     return ROBO_OK;
 }
 
+static robo_result_t null_set_size_constraints(void *userdata,
+                                               robo_window_id_t id,
+                                               robo_window_native_handle_t *native,
+                                               int32_t min_width,
+                                               int32_t min_height,
+                                               int32_t max_width,
+                                               int32_t max_height)
+{
+    (void)userdata;
+    (void)id;
+    (void)native;
+    (void)min_width;
+    (void)min_height;
+    (void)max_width;
+    (void)max_height;
+    return ROBO_OK;
+}
+
 static robo_result_t null_set_position(void *userdata,
                                        robo_window_id_t id,
                                        robo_window_native_handle_t *native,
@@ -198,11 +220,17 @@ static const robo_window_backend_vtbl_t g_null_vtbl = {
     null_hide,
     null_set_title,
     null_set_size,
+    null_set_size_constraints,
     null_set_position,
     null_focus,
     NULL,
     null_present_surface,
-    null_process_events};
+    null_process_events,
+    NULL, /* wait_events */
+    NULL, /* wakeup */
+    NULL, /* capture_mouse */
+    NULL  /* release_mouse_capture */
+};
 
 const robo_window_backend_vtbl_t *robo_window_backend_null_vtbl(void)
 {

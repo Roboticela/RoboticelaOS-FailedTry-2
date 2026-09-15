@@ -1,4 +1,6 @@
+#include "RoboDisplay/RoboDisplayScale.h"
 #include "RoboWindow/RoboWindowConfig.h"
+#include "RoboWindow/RoboWindowSize.h"
 #include "RoboWindow/RoboWindowTypes.h"
 
 #include <string.h>
@@ -21,53 +23,27 @@ void robo_window_config_init(robo_window_config_t *cfg)
     cfg->scale_preference = 0.0f;
 }
 
-static int dim_ok(int32_t v)
-{
-    return v > 0 && v <= ROBO_WINDOW_MAX_DIM;
-}
-
 robo_result_t robo_window_config_validate(const robo_window_config_t *cfg)
 {
+    robo_window_size_constraints_t c;
+    robo_result_t r;
+
     if (!cfg) {
         return ROBO_INVALID_ARGUMENT;
     }
-    if (!dim_ok(cfg->width) || !dim_ok(cfg->height)) {
+    /* 0 = unspecified; otherwise must be a known valid scale. */
+    if (cfg->scale_preference != 0.0f &&
+        robo_display_scale_validate(cfg->scale_preference) != ROBO_OK) {
         return ROBO_INVALID_ARGUMENT;
     }
-    if (cfg->min_width < 0 || cfg->min_height < 0 || cfg->max_width < 0 ||
-        cfg->max_height < 0) {
-        return ROBO_INVALID_ARGUMENT;
+    c.min_width = cfg->min_width;
+    c.min_height = cfg->min_height;
+    c.max_width = cfg->max_width;
+    c.max_height = cfg->max_height;
+    r = robo_window_size_constraints_validate(&c);
+    if (r != ROBO_OK) {
+        return r;
     }
-    if (cfg->min_width > 0 && cfg->min_width > cfg->width) {
-        return ROBO_INVALID_ARGUMENT;
-    }
-    if (cfg->min_height > 0 && cfg->min_height > cfg->height) {
-        return ROBO_INVALID_ARGUMENT;
-    }
-    if (cfg->max_width > 0) {
-        if (cfg->max_width > ROBO_WINDOW_MAX_DIM) {
-            return ROBO_INVALID_ARGUMENT;
-        }
-        if (cfg->width > cfg->max_width) {
-            return ROBO_INVALID_ARGUMENT;
-        }
-        if (cfg->min_width > 0 && cfg->min_width > cfg->max_width) {
-            return ROBO_INVALID_ARGUMENT;
-        }
-    }
-    if (cfg->max_height > 0) {
-        if (cfg->max_height > ROBO_WINDOW_MAX_DIM) {
-            return ROBO_INVALID_ARGUMENT;
-        }
-        if (cfg->height > cfg->max_height) {
-            return ROBO_INVALID_ARGUMENT;
-        }
-        if (cfg->min_height > 0 && cfg->min_height > cfg->max_height) {
-            return ROBO_INVALID_ARGUMENT;
-        }
-    }
-    if (cfg->scale_preference < 0.0f) {
-        return ROBO_INVALID_ARGUMENT;
-    }
-    return ROBO_OK;
+    return robo_window_size_validate_against_constraints(cfg->width, cfg->height,
+                                                         &c);
 }

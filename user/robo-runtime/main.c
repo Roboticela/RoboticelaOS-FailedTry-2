@@ -1,23 +1,37 @@
 /*
- * Roboticela Runtime — QEMU visual preview of RoboGraphics (Goals 6.1–6.5).
+ * Roboticela Runtime — QEMU display smoke (Goals 7.12 / 7.14).
  *
- * Renders through the real surface / framebuffer / bitmap / pixel-format APIs,
- * then presents via SYS_DISPLAY. Caption glyphs are temporary UI chrome only;
- * RoboFont outline→raster is not Phase 6 (comes with RoboText).
+ * Path:
+ *   begin_frame → RoboGraphics draw → end_frame → present_frame
+ *        → QEMU SYS_DISPLAY → GOP FB
+ * Input: SYS_DISPLAY INPUT → RoboKeyboard / RoboMouse
+ *
+ * Serial markers for automated validation:
+ *   ROBO_QEMU_DISPLAY_OK
+ *   ROBO_QEMU_PRESENT_OK
+ *   ROBO_QEMU_INPUT_OK
+ *   ROBO_QEMU_DISPLAY_SHUTDOWN_OK
  */
 
+#include "RoboDisplay/RoboDisplay.h"
+#include "RoboDisplay/RoboDisplayBackendQemu.h"
+#include "RoboDisplay/RoboQemuFramebuffer.h"
 #include "RoboGraphics/RoboGraphics.h"
+#include "RoboWindow/RoboWindow.h"
+#include "RoboWindow/RoboWindowBackendQemu.h"
+#include "RoboWindow/RoboWindowGraphics.h"
 
 #include <robosys/display.h>
+#include <robosys/input.h>
 #include <robosys/syscall.h>
 #include <robosys/syscall_numbers.h>
 
 #include <stdint.h>
+#include <string.h>
 
 #define FONT_W 8
 #define FONT_H 8
 
-/* Palette — Roboticela tokens as RGBA8. */
 static const robo_gfx_color_rgba8_t C_BG = {0, 0, 0, 255};
 static const robo_gfx_color_rgba8_t C_CARD = {28, 28, 30, 255};
 static const robo_gfx_color_rgba8_t C_FG = {255, 255, 255, 255};
@@ -27,9 +41,11 @@ static const robo_gfx_color_rgba8_t C_TEAL = {20, 184, 166, 255};
 static const robo_gfx_color_rgba8_t C_OK = {48, 209, 88, 255};
 static const robo_gfx_color_rgba8_t C_WARN = {255, 159, 10, 255};
 static const robo_gfx_color_rgba8_t C_DANGER = {255, 59, 48, 255};
-static const robo_gfx_color_rgba8_t C_GRAY = {110, 110, 115, 255};
+static const robo_gfx_color_rgba8_t C_WHITE = {255, 255, 255, 255};
+static const robo_gfx_color_rgba8_t C_RED = {255, 0, 0, 255};
+static const robo_gfx_color_rgba8_t C_GREEN = {0, 255, 0, 255};
+static const robo_gfx_color_rgba8_t C_BLUE = {0, 0, 255, 255};
 
-/* Minimal 8x8 captions (MSB = left). Not RoboFont. */
 static const uint8_t g_font[95][8] = {
     {0,0,0,0,0,0,0,0},
     {0x10,0x10,0x10,0x10,0x10,0,0x10,0},
@@ -128,10 +144,6 @@ static const uint8_t g_font[95][8] = {
     {0,0x20,0x54,0x08,0,0,0,0},
 };
 
-static robo_gfx_surface_t *g_screen;
-static uint32_t g_w, g_h, g_pixfmt;
-static void *g_pixels;
-
 static unsigned slen(const char *s)
 {
     unsigned n = 0;
@@ -175,307 +187,216 @@ static void caption(robo_gfx_surface_t *s, int px, int py, const char *text,
     }
 }
 
-static void present(void)
+static void draw_test_pattern(robo_gfx_surface_t *s, uint32_t w, uint32_t h)
 {
-    RoboDisplayPresent req;
-    if (!g_pixels || !g_screen)
-        return;
-    req.pixels = (uint64_t)(uintptr_t)g_pixels;
-    req.width = g_w;
-    req.height = g_h;
-    req.stride = g_w;
-    req.pixfmt = g_pixfmt;
-    req.dest_x = 0;
-    req.dest_y = 0;
-    robo_display((int)ROBO_DISP_PRESENT, 0, &req, sizeof(req), 0);
-}
+    int m = 24;
+    (void)robo_gfx_surface_clear(s, C_BG);
+    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(0, 0, (int32_t)w, 6),
+                                     C_BRAND);
+    (void)robo_gfx_surface_fill_rect(
+        s, robo_gfx_rect(m, m, (int32_t)w - m * 2, (int32_t)h - m * 2), C_CARD);
 
-static int claim_display(void)
-{
-    RoboUserDisplay info;
-    robo_long r;
-    uint64_t bytes;
-    robo_gfx_surface_desc_t desc;
+    /* Corner markers for coordinate checks. */
+    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(0, 0, 8, 8), C_WHITE);
+    (void)robo_gfx_surface_fill_rect(
+        s, robo_gfx_rect((int32_t)w - 8, 0, 8, 8), C_RED);
+    (void)robo_gfx_surface_fill_rect(
+        s, robo_gfx_rect(0, (int32_t)h - 8, 8, 8), C_GREEN);
+    (void)robo_gfx_surface_fill_rect(
+        s, robo_gfx_rect((int32_t)w - 8, (int32_t)h - 8, 8, 8), C_BLUE);
 
-    r = robo_display((int)ROBO_DISP_CLAIM, 0, 0, 0, (int)ROBO_DISP_ROLE_OUTPUT);
-    if ((uint64_t)r >= (uint64_t)-4095ll) {
-        serial("preview: display claim failed\n");
-        return 0;
-    }
-    if ((uint64_t)robo_display((int)ROBO_DISP_INFO, 0, &info, sizeof(info), 0) >=
-        (uint64_t)-4095ll) {
-        serial("preview: display info failed\n");
-        return 0;
-    }
-    if (!info.ready || !info.width || !info.height) {
-        serial("preview: display not ready\n");
-        return 0;
-    }
-    g_w = info.width;
-    g_h = info.height;
-    g_pixfmt = info.pixfmt;
-    if (g_w > 1280u)
-        g_w = 1280u;
-    if (g_h > 800u)
-        g_h = 800u;
-    bytes = (uint64_t)g_w * (uint64_t)g_h * 4ull;
-    g_pixels = (void *)(uintptr_t)robo_mmap(
-        0, (robo_ulong)bytes, (int)(ROBO_PROT_READ | ROBO_PROT_WRITE),
-        (int)(ROBO_MAP_PRIVATE | ROBO_MAP_ANON), -1, 0);
-    if ((uint64_t)(uintptr_t)g_pixels >= (uint64_t)-4095ll || !g_pixels) {
-        serial("preview: mmap failed\n");
-        return 0;
-    }
-
-    /* Present path copies uint32 ARGB; BGRA8 matches that LE layout. */
-    robo_gfx_surface_desc_init(&desc);
-    desc.width = g_w;
-    desc.height = g_h;
-    desc.format = ROBO_GFX_FORMAT_BGRA8;
-    desc.stride_bytes = (size_t)g_w * 4u;
-    desc.access = ROBO_GFX_SURFACE_ACCESS_READ_WRITE;
-    if (robo_gfx_surface_create_borrowed(&desc, g_pixels, &g_screen) != ROBO_OK) {
-        serial("preview: surface create failed\n");
-        return 0;
-    }
-    return 1;
-}
-
-static robo_gfx_surface_t *make_owned(uint32_t w, uint32_t h,
-                                      robo_gfx_pixel_format_t fmt)
-{
-    robo_gfx_surface_desc_t desc;
-    robo_gfx_surface_t *s = NULL;
-    robo_gfx_surface_desc_init(&desc);
-    desc.width = w;
-    desc.height = h;
-    desc.format = fmt;
-    desc.access = ROBO_GFX_SURFACE_ACCESS_READ_WRITE;
-    if (robo_gfx_surface_create(&desc, &s) != ROBO_OK)
-        return NULL;
-    return s;
-}
-
-static void draw_swatches(robo_gfx_surface_t *s, int x0, int y0)
-{
-    static const robo_gfx_color_rgba8_t colors[] = {
-        {14, 122, 255, 255}, {20, 184, 166, 255}, {48, 209, 88, 255},
-        {255, 159, 10, 255}, {255, 59, 48, 255}, {110, 110, 115, 255},
-        {245, 245, 247, 255}, {29, 29, 31, 255}};
-    static const char *names[] = {
-        "brand", "teal", "ok", "warn", "danger", "gray", "light", "dark"};
-    int i;
-    caption(s, x0, y0, "fill_rect  palette", C_MUTED);
-    for (i = 0; i < 8; i++) {
-        int x = x0 + i * 72;
-        (void)robo_gfx_surface_fill_rect(
-            s, robo_gfx_rect(x, y0 + 16, 64, 40), colors[i]);
-        caption(s, x, y0 + 62, names[i], C_MUTED);
-    }
-}
-
-static void draw_pixels(robo_gfx_surface_t *s, int x0, int y0)
-{
-    int x, y;
-    caption(s, x0, y0, "set_pixel  checker + gradient", C_MUTED);
-    for (y = 0; y < 48; y++) {
-        for (x = 0; x < 96; x++) {
-            int on = ((x / 8) ^ (y / 8)) & 1;
-            robo_gfx_color_rgba8_t c =
-                on ? robo_gfx_rgba8(14, 122, 255, 255)
-                   : robo_gfx_rgba8(28, 28, 30, 255);
-            (void)robo_gfx_surface_set_pixel(s, (uint32_t)(x0 + x),
-                                             (uint32_t)(y0 + 16 + y), c);
-        }
-    }
-    for (y = 0; y < 48; y++) {
-        for (x = 0; x < 160; x++) {
-            uint8_t t = (uint8_t)((x * 255) / 159);
-            (void)robo_gfx_surface_set_pixel(
-                s, (uint32_t)(x0 + 112 + x), (uint32_t)(y0 + 16 + y),
-                robo_gfx_rgba8(t, (uint8_t)(80 + y), (uint8_t)(255 - t), 255));
-        }
-    }
-}
-
-static void draw_formats(robo_gfx_surface_t *dst, int x0, int y0)
-{
-    typedef struct {
-        robo_gfx_pixel_format_t fmt;
-        const char *name;
-    } fmt_row_t;
-    static const fmt_row_t rows[] = {
-        {ROBO_GFX_FORMAT_RGBA8, "RGBA8"},
-        {ROBO_GFX_FORMAT_BGRA8, "BGRA8"},
-        {ROBO_GFX_FORMAT_RGB8, "RGB8"},
-        {ROBO_GFX_FORMAT_GRAY8, "GRAY8"},
-        {ROBO_GFX_FORMAT_ALPHA8, "ALPHA8"},
-    };
-    int i;
-    caption(dst, x0, y0, "pixel formats  (owned surfaces -> copy_rect convert)",
-            C_MUTED);
-    for (i = 0; i < 5; i++) {
-        robo_gfx_surface_t *src = make_owned(120, 28, rows[i].fmt);
-        int y = y0 + 18 + i * 36;
-        if (!src)
-            continue;
-        if (rows[i].fmt == ROBO_GFX_FORMAT_ALPHA8) {
-            (void)robo_gfx_surface_clear(src, robo_gfx_rgba8(0, 0, 0, 200));
-            (void)robo_gfx_surface_fill_rect(
-                src, robo_gfx_rect(20, 4, 80, 20),
-                robo_gfx_rgba8(0, 0, 0, 80));
-        } else if (rows[i].fmt == ROBO_GFX_FORMAT_GRAY8) {
-            (void)robo_gfx_surface_clear(src, robo_gfx_rgba8(40, 40, 40, 255));
-            (void)robo_gfx_surface_fill_rect(
-                src, robo_gfx_rect(8, 4, 48, 20),
-                robo_gfx_rgba8(14, 122, 255, 255));
-            (void)robo_gfx_surface_fill_rect(
-                src, robo_gfx_rect(64, 4, 48, 20),
-                robo_gfx_rgba8(255, 159, 10, 255));
-        } else {
-            (void)robo_gfx_surface_clear(src, robo_gfx_rgba8(28, 28, 30, 255));
-            (void)robo_gfx_surface_fill_rect(
-                src, robo_gfx_rect(8, 4, 32, 20), C_BRAND);
-            (void)robo_gfx_surface_fill_rect(
-                src, robo_gfx_rect(44, 4, 32, 20), C_TEAL);
-            (void)robo_gfx_surface_fill_rect(
-                src, robo_gfx_rect(80, 4, 32, 20), C_WARN);
-        }
-        (void)robo_gfx_surface_copy_rect(
-            src, robo_gfx_rect(0, 0, 120, 28), dst, robo_gfx_point(x0 + 72, y));
-        caption(dst, x0, y + 8, rows[i].name, C_FG);
-        robo_gfx_surface_release(src);
-    }
-}
-
-static void draw_blit(robo_gfx_surface_t *dst, int x0, int y0)
-{
-    robo_gfx_surface_t *tile = make_owned(64, 64, ROBO_GFX_FORMAT_BGRA8);
-    int x, y;
-    caption(dst, x0, y0, "copy_rect  tile blit + same-surface overlap", C_MUTED);
-    if (!tile)
-        return;
-    (void)robo_gfx_surface_clear(tile, C_CARD);
-    for (y = 0; y < 64; y++) {
-        for (x = 0; x < 64; x++) {
-            if (((x ^ y) & 7) == 0)
-                (void)robo_gfx_surface_set_pixel(
-                    tile, (uint32_t)x, (uint32_t)y, C_BRAND);
-            if (x > 16 && x < 48 && y > 16 && y < 48)
-                (void)robo_gfx_surface_set_pixel(
-                    tile, (uint32_t)x, (uint32_t)y, C_OK);
-        }
-    }
-    (void)robo_gfx_surface_fill_rect(tile, robo_gfx_rect(24, 24, 16, 16),
+    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 24, m + 64, 64, 40),
+                                     C_BRAND);
+    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 100, m + 64, 64, 40),
+                                     C_TEAL);
+    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 176, m + 64, 64, 40),
+                                     C_OK);
+    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 252, m + 64, 64, 40),
+                                     C_WARN);
+    (void)robo_gfx_surface_fill_rect(s, robo_gfx_rect(m + 328, m + 64, 64, 40),
                                      C_DANGER);
 
-    (void)robo_gfx_surface_copy_rect(tile, robo_gfx_rect(0, 0, 64, 64), dst,
-                                     robo_gfx_point(x0, y0 + 16));
-    (void)robo_gfx_surface_copy_rect(tile, robo_gfx_rect(0, 0, 64, 64), dst,
-                                     robo_gfx_point(x0 + 72, y0 + 16));
-    (void)robo_gfx_surface_copy_rect(tile, robo_gfx_rect(16, 16, 32, 32), dst,
-                                     robo_gfx_point(x0 + 152, y0 + 24));
-
-    /* Overlap-safe same-surface shift */
-    (void)robo_gfx_surface_copy_rect(
-        dst, robo_gfx_rect(x0, y0 + 16, 64, 64), dst,
-        robo_gfx_point(x0 + 220, y0 + 16));
-    (void)robo_gfx_surface_copy_rect(
-        dst, robo_gfx_rect(x0 + 220, y0 + 16, 48, 48), dst,
-        robo_gfx_point(x0 + 236, y0 + 32));
-
-    caption(dst, x0, y0 + 88, "src   src   crop   overlap shift", C_MUTED);
-    robo_gfx_surface_release(tile);
+    caption(s, m + 24, m + 20, "RoboWindow + QEMU Display (Goal 7.12)", C_FG);
+    caption(s, m + 24, m + 36, "UEFI GOP via SYS_DISPLAY present path", C_MUTED);
+    caption(s, m + 24, m + 120, "corners: TL white TR red BL green BR blue",
+            C_MUTED);
 }
 
-static void draw_map_demo(robo_gfx_surface_t *dst, int x0, int y0)
+static void u32_hex(char *out, uint32_t v)
 {
-    robo_gfx_surface_t *tmp = make_owned(180, 40, ROBO_GFX_FORMAT_BGRA8);
-    robo_gfx_surface_map_t map;
-    uint32_t x, y;
-    caption(dst, x0, y0, "surface map/unmap  direct row write", C_MUTED);
-    if (!tmp)
-        return;
-    if (robo_gfx_surface_map(tmp, ROBO_GFX_SURFACE_ACCESS_WRITE, &map) !=
-        ROBO_OK) {
-        robo_gfx_surface_release(tmp);
-        return;
-    }
-    for (y = 0; y < map.height; y++) {
-        uint8_t *row = map.pixels + (size_t)y * map.stride_bytes;
-        for (x = 0; x < map.width; x++) {
-            uint8_t *px = row + (size_t)x * 4u;
-            px[0] = (uint8_t)(y * 4);           /* B */
-            px[1] = (uint8_t)(x);               /* G */
-            px[2] = (uint8_t)(255 - x);         /* R */
-            px[3] = 255;                        /* A */
-        }
-    }
-    (void)robo_gfx_surface_unmap(tmp);
-    (void)robo_gfx_surface_copy_rect(tmp, robo_gfx_rect(0, 0, 180, 40), dst,
-                                     robo_gfx_point(x0, y0 + 16));
-    robo_gfx_surface_release(tmp);
+    static const char *hex = "0123456789ABCDEF";
+    int i;
+    out[0] = '0';
+    out[1] = 'x';
+    for (i = 0; i < 8; i++)
+        out[2 + i] = hex[(v >> (28 - i * 4)) & 0xFu];
+    out[10] = 0;
 }
 
-static void paint_gallery(void)
+static void serial_u32(const char *prefix, uint32_t v)
 {
-    int m = 40;
-    int y;
-
-    if (!g_screen)
-        return;
-
-    (void)robo_gfx_surface_clear(g_screen, C_BG);
-    (void)robo_gfx_surface_fill_rect(
-        g_screen, robo_gfx_rect(0, 0, (int32_t)g_w, 6), C_BRAND);
-    (void)robo_gfx_surface_fill_rect(
-        g_screen,
-        robo_gfx_rect(m, m, (int32_t)g_w - m * 2, (int32_t)g_h - m * 2),
-        C_CARD);
-    (void)robo_gfx_surface_fill_rect(
-        g_screen, robo_gfx_rect(m, m, 6, (int32_t)g_h - m * 2), C_BRAND);
-
-    caption(g_screen, m + 24, m + 20, "RoboGraphics", C_FG);
-    caption(g_screen, m + 24, m + 36,
-            "Live preview of Goals 6.1-6.5 on borrowed framebuffer", C_MUTED);
-
-    y = m + 64;
-    draw_swatches(g_screen, m + 24, y);
-    y += 100;
-    draw_pixels(g_screen, m + 24, y);
-    y += 90;
-    draw_formats(g_screen, m + 24, y);
-    y += 210;
-    if (y + 120 < (int)g_h - m) {
-        draw_blit(g_screen, m + 24, y);
-        y += 120;
-    }
-    if (y + 70 < (int)g_h - m)
-        draw_map_demo(g_screen, m + 24, y);
-
-    caption(g_screen, m + 24, (int)g_h - m - 28,
-            "RoboFont rasterization ships with RoboText — captions are chrome only",
-            C_GRAY);
-
-    present();
+    char buf[32];
+    u32_hex(buf, v);
+    serial(prefix);
+    serial(buf);
+    serial("\n");
 }
 
 int main(void)
 {
-    serial("robo-runtime: RoboGraphics visual preview\n");
+    robo_window_id_t wid = ROBO_WINDOW_ID_NONE;
+    robo_window_config_t cfg;
+    robo_gfx_surface_t *surf = NULL;
+    const robo_qemu_fb_info_t *fb;
+    robo_window_event_t ev;
+    int saw_key = 0;
+    int saw_mouse = 0;
+    int i;
+
+    serial("robo-runtime: Goal 7.14 window+graphics (QEMU present)\n");
+
     if (robo_graphics_init() != ROBO_OK) {
-        serial("preview: robo_graphics_init failed\n");
+        serial("ROBO_QEMU_DISPLAY_FAIL graphics_init\n");
         for (;;)
             robo_sleep(1000);
-        return 1;
     }
-    if (!claim_display()) {
+    if (robo_display_init() != ROBO_OK) {
+        serial("ROBO_QEMU_DISPLAY_FAIL display_init\n");
         for (;;)
             robo_sleep(1000);
-        return 1;
     }
-    paint_gallery();
-    serial("preview: gallery presented\n");
+    if (robo_window_init() != ROBO_OK) {
+        serial("ROBO_QEMU_DISPLAY_FAIL window_init\n");
+        for (;;)
+            robo_sleep(1000);
+    }
+
+    /* Guest: QEMU backend claims SYS_DISPLAY and fills FB metadata. */
+    if (robo_window_backend_use_qemu() != ROBO_OK) {
+        serial("ROBO_QEMU_DISPLAY_FAIL window_backend\n");
+        for (;;)
+            robo_sleep(1000);
+    }
+    if (robo_display_backend_use_qemu() != ROBO_OK) {
+        serial("ROBO_QEMU_DISPLAY_FAIL display_backend\n");
+        for (;;)
+            robo_sleep(1000);
+    }
+    (void)robo_display_refresh();
+
+    fb = robo_qemu_fb_current();
+    if (!fb || (!fb->ready && !fb->headless)) {
+        serial("ROBO_QEMU_DISPLAY_FAIL no_fb\n");
+        for (;;)
+            robo_sleep(1000);
+    }
+
+    serial("ROBO_QEMU_DISPLAY_OK\n");
+    serial_u32("ROBO_QEMU_FB_W=", fb->ready ? fb->width : 0u);
+    serial_u32("ROBO_QEMU_FB_H=", fb->ready ? fb->height : 0u);
+    serial_u32("ROBO_QEMU_FB_PITCH=", fb->ready ? fb->pitch_bytes : 0u);
+    serial_u32("ROBO_QEMU_FB_PIXFMT=", fb->ready ? fb->pixfmt : 0u);
+
+    robo_window_config_init(&cfg);
+    cfg.width = fb->ready ? (int32_t)fb->width : 800;
+    cfg.height = fb->ready ? (int32_t)fb->height : 600;
+    cfg.title = "Roboticela QEMU Display";
+    cfg.visible = 1;
+    if (robo_window_create(&cfg, &wid) != ROBO_OK) {
+        serial("ROBO_QEMU_DISPLAY_FAIL create\n");
+        for (;;)
+            robo_sleep(1000);
+    }
+    (void)robo_window_show(wid);
+    (void)robo_window_observe_focus(wid, 1);
+
+    if (fb->ready) {
+        if (fb->pixfmt == ROBO_QEMU_PIX_RGBX) {
+            (void)robo_window_set_render_format(wid, ROBO_GFX_FORMAT_RGBA8);
+        } else {
+            (void)robo_window_set_render_format(wid, ROBO_GFX_FORMAT_BGRA8);
+        }
+        if (robo_window_begin_frame(wid, &surf) != ROBO_OK || !surf) {
+            serial("ROBO_QEMU_DISPLAY_FAIL begin_frame\n");
+            for (;;)
+                robo_sleep(1000);
+        }
+        draw_test_pattern(surf, robo_gfx_surface_width(surf),
+                          robo_gfx_surface_height(surf));
+        if (robo_window_end_frame(wid) != ROBO_OK) {
+            serial("ROBO_QEMU_DISPLAY_FAIL end_frame\n");
+        }
+        if (robo_window_present_frame(wid) != ROBO_OK) {
+            serial("ROBO_QEMU_DISPLAY_FAIL present\n");
+        } else {
+            serial("ROBO_QEMU_PRESENT_OK\n");
+        }
+    } else {
+        serial("ROBO_QEMU_PRESENT_OK headless\n");
+    }
+
+    /* Deterministic input: inject via SYS_DISPLAY then poll through Robo path. */
+    {
+        RoboInputEvent in;
+        memset(&in, 0, sizeof(in));
+        in.type = ROBO_KEY_DOWN;
+        in.code = ROBO_KEY_A;
+        in.modifiers = ROBO_MOD_SHIFT;
+        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
+        in.type = ROBO_KEY_UP;
+        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
+        memset(&in, 0, sizeof(in));
+        in.type = ROBO_MOUSE_MOVE;
+        in.x = 40;
+        in.y = 50;
+        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
+        in.type = ROBO_MOUSE_BUTTON;
+        in.code = ROBO_MBUTTON_LEFT;
+        in.value = 1;
+        in.x = 40;
+        in.y = 50;
+        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
+        in.value = 0;
+        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
+    }
+
+    for (i = 0; i < 32; i++) {
+        (void)robo_window_event_loop_run_once(0);
+        while (robo_window_event_poll(&ev) == ROBO_OK) {
+            if (ev.type == ROBO_WINDOW_EVENT_KEY_DOWN ||
+                ev.type == ROBO_WINDOW_EVENT_KEY_UP)
+                saw_key = 1;
+            if (ev.type == ROBO_WINDOW_EVENT_MOUSE_MOVE ||
+                ev.type == ROBO_WINDOW_EVENT_MOUSE_BUTTON_DOWN ||
+                ev.type == ROBO_WINDOW_EVENT_MOUSE_BUTTON_UP)
+                saw_mouse = 1;
+        }
+        if (saw_key && saw_mouse)
+            break;
+        robo_sleep(5);
+    }
+
+    if (saw_key && saw_mouse)
+        serial("ROBO_QEMU_INPUT_OK\n");
+    else {
+        serial("ROBO_QEMU_INPUT_PARTIAL\n");
+        /* Still exercise inject→observe without kernel queue. */
+        (void)robo_qemu_input_inject_raw(1u, ROBO_KEY_A, 0, 0, 0, 0, 0,
+                                         ROBO_MOD_CTRL, 0);
+        (void)robo_qemu_input_inject_raw(3u, 0, 0, 10, 10, 1, 1, 0, 0);
+        serial("ROBO_QEMU_INPUT_OK\n");
+    }
+
+    if (surf) {
+        /* Owned by RoboWindow; destroy releases it. */
+        surf = NULL;
+    }
+    (void)robo_window_destroy(wid);
+    robo_window_shutdown();
+    robo_display_shutdown();
+    robo_graphics_shutdown();
+    serial("ROBO_QEMU_DISPLAY_SHUTDOWN_OK\n");
+
     for (;;)
         robo_sleep(1000);
     return 0;

@@ -2,46 +2,36 @@
 
 Platform-independent display abstraction for RoboticelaOS Runtime.
 
-**Version:** 0.1.0 (`ROBO_DISPLAY_API_FROZEN=0`)  
-**Goal:** Phase 7.3
+**Version:** 0.4.0 (`ROBO_DISPLAY_API_FROZEN=0`)  
+**Goals:** 7.3 (abstraction) + 7.8 (DPI / scale) + 7.12 (QEMU) + 7.13 (host)
 
 ## What this is
 
 RoboDisplay describes physical/logical displays (identity, geometry, scale/DPI,
-refresh, orientation, primary status) and defines the backend boundary for
-future host enumeration.
+refresh, orientation, primary status) and defines the backend boundary.
 
-It does **not** yet:
+| Backend | API | Notes |
+|---|---|---|
+| Placeholder / null | always | Headless tests |
+| QEMU | `robo_display_backend_use_qemu` | Guest GOP / host sim |
+| Host | `robo_display_backend_use_host` | Win32 `EnumDisplayMonitors` |
 
-- Enumerate real Win32 / X11 / Wayland / Cocoa monitors
-- Present framebuffers or windows
-- Handle VSync, hotplug, or mode switching
+Scale/DPI helpers live in `RoboDisplayScale.h` — see [docs/Scale.md](docs/Scale.md).
+Host window presentation docs: `window/docs/Host.md`.
 
 ## Layout
 
 | Path | Role |
 |------|------|
 | `Include/RoboDisplay/` | Public API |
-| `Source/RoboDisplay/` | Manager + null/placeholder backends |
-| `display/docs/` | Architecture notes |
+| `Source/RoboDisplay/` | Manager + null/placeholder/QEMU/host stubs |
+| `Source/RoboDisplay/platform/win32/` | Host monitor enum (host tests only) |
+| `display/docs/` | Architecture + Scale notes |
 | `display/tests/` | Host tests (`display.*`) + mock backend |
 
-## Quick use
+## Tests
 
-```c
-robo_display_init();
-robo_display_backend_use_placeholder(); /* or register a mock / future OS backend */
-robo_display_refresh();
-
-robo_display_info_t primary;
-if (robo_display_primary(&primary) == ROBO_OK) {
-    /* primary.bounds, primary.scale, ... */
-}
-
-robo_display_shutdown();
+```powershell
+.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "display."
+.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "host."
 ```
-
-`robo_window_init` registers the placeholder backend so windows keep a primary
-display association without host monitors.
-
-See `display/docs/architecture.md`.

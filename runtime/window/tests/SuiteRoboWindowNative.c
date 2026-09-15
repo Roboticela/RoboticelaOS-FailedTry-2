@@ -28,6 +28,10 @@ typedef struct rich_mock {
     int32_t actual_h;
     int32_t actual_x;
     int32_t actual_y;
+    int32_t min_w;
+    int32_t min_h;
+    int32_t max_w;
+    int32_t max_h;
     int visible;
     int focused;
 } rich_mock_t;
@@ -181,6 +185,27 @@ static robo_result_t rm_size(void *userdata,
     return ROBO_OK;
 }
 
+static robo_result_t rm_size_constraints(void *userdata,
+                                         robo_window_id_t id,
+                                         robo_window_native_handle_t *native,
+                                         int32_t min_width,
+                                         int32_t min_height,
+                                         int32_t max_width,
+                                         int32_t max_height)
+{
+    rich_mock_t *m = (rich_mock_t *)userdata;
+    (void)id;
+    (void)native;
+    if (!m) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    m->min_w = min_width;
+    m->min_h = min_height;
+    m->max_w = max_width;
+    m->max_h = max_height;
+    return ROBO_OK;
+}
+
 static robo_result_t rm_pos(void *userdata,
                             robo_window_id_t id,
                             robo_window_native_handle_t *native,
@@ -263,11 +288,16 @@ static const robo_window_backend_vtbl_t g_rich_vtbl = {
     rm_hide,
     rm_title,
     rm_size,
+    rm_size_constraints,
     rm_pos,
     rm_focus,
     rm_query,
     rm_present,
-    rm_events};
+    rm_events,
+    NULL,
+    NULL,
+    NULL,
+    NULL};
 
 static void rich_caps_full(void)
 {
@@ -283,6 +313,7 @@ static void rich_caps_full(void)
     g_rich_caps.present = 0;
     g_rich_caps.process_events = 1;
     g_rich_caps.reports_actual_state = 1;
+    g_rich_caps.size_constraints = 1;
 }
 
 static void drain(void)

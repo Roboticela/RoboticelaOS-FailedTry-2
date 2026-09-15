@@ -25,48 +25,72 @@ void robo_display_mode_init(robo_display_mode_t *mode)
 
 robo_result_t robo_display_refresh_hz_validate(float hz)
 {
-    if (hz != hz || hz < 0.0f) { /* NaN or negative */
+    if (!robo_display_float_is_finite(hz) || hz < 0.0f) {
         return ROBO_INVALID_ARGUMENT;
     }
     return ROBO_OK;
 }
 
-robo_result_t robo_display_logical_to_physical(int32_t logical,
-                                               float scale,
-                                               int32_t *out_physical)
+robo_result_t robo_display_info_effective_scale(const robo_display_info_t *info,
+                                                float *out_scale)
 {
-    double v;
-
-    if (!out_physical || !(scale > 0.0f) || scale != scale) {
+    if (!info || !out_scale) {
         return ROBO_INVALID_ARGUMENT;
     }
-    v = (double)logical * (double)scale;
-    if (v > 2147483647.0) {
-        *out_physical = 2147483647;
-    } else if (v < -2147483648.0) {
-        *out_physical = (int32_t)(-2147483647 - 1);
-    } else {
-        *out_physical = (int32_t)(v + (v >= 0.0 ? 0.5 : -0.5));
+    if (robo_display_scale_is_known(info->scale)) {
+        *out_scale = info->scale;
+        return ROBO_OK;
     }
+    if (robo_display_scale_from_dpi(info->dpi_x, out_scale) == ROBO_OK) {
+        return ROBO_OK;
+    }
+    return ROBO_NOT_FOUND;
+}
+
+robo_result_t robo_display_info_get_dpi(const robo_display_info_t *info,
+                                        robo_display_dpi_t *out)
+{
+    if (!info || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (robo_display_dpi_validate(info->dpi_x) != ROBO_OK ||
+        robo_display_dpi_validate(info->dpi_y) != ROBO_OK) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    out->dpi_x = info->dpi_x;
+    out->dpi_y = info->dpi_y;
     return ROBO_OK;
 }
 
-robo_result_t robo_display_physical_to_logical(int32_t physical,
-                                               float scale,
-                                               int32_t *out_logical)
+robo_result_t robo_display_info_physical_bounds(const robo_display_info_t *info,
+                                                robo_gfx_rect_t *out)
 {
-    double v;
+    float scale;
+    robo_result_t r;
 
-    if (!out_logical || !(scale > 0.0f) || scale != scale) {
+    if (!info || !out) {
         return ROBO_INVALID_ARGUMENT;
     }
-    v = (double)physical / (double)scale;
-    if (v > 2147483647.0) {
-        *out_logical = 2147483647;
-    } else if (v < -2147483648.0) {
-        *out_logical = (int32_t)(-2147483647 - 1);
-    } else {
-        *out_logical = (int32_t)(v + (v >= 0.0 ? 0.5 : -0.5));
+    r = robo_display_info_effective_scale(info, &scale);
+    if (r != ROBO_OK) {
+        return r;
     }
-    return ROBO_OK;
+    return robo_display_rect_logical_to_physical(&info->bounds, scale, out);
+}
+
+robo_result_t robo_display_info_physical_work_area(
+    const robo_display_info_t *info,
+    robo_gfx_rect_t *out)
+{
+    float scale;
+    robo_result_t r;
+
+    if (!info || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    r = robo_display_info_effective_scale(info, &scale);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    return robo_display_rect_logical_to_physical(&info->work_area, scale, out);
 }

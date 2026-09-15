@@ -59,3 +59,8 @@ const char *robo_window_lifecycle_name(robo_window_lifecycle_t life)
         return "unknown";
     }
 }
+
+int robo_window_lifecycle_allows_mutation(robo_window_lifecycle_t life)
+{
+    return life == ROBO_WINDOW_LIFECYCLE_CREATED;
+}

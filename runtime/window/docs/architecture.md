@@ -16,11 +16,13 @@ RoboWindow API
       ├── Config               requested create-time properties
       ├── State                actual + requested runtime fields
       ├── Display              placeholder primary display
-      ├── Events               typed queue (push / poll)
+      ├── Events               typed queue (push / poll / peek)
+      ├── Event loop           poll / wait / wakeup (Goal 7.9)
       ├── Native handle        opaque uintptr_t token
-      ├── Backend vtable       create/show/hide/present/process_events
+      ├── Backend vtable       create/show/hide/present/process_events/wait/wakeup
       ├── Present              validate + sync present (Goal 7.4; mock / host stub)
-      └── Host backend         Win32 native create (Goal 7.5; platform/win32)
+      ├── Host backend         Win32 native create + message pump (Goals 7.5 / 7.9)
+      └── Sizing               requested/actual + min/max (Goal 7.6)
 ```
 
 ## Dependency direction
@@ -60,6 +62,8 @@ not lifecycle phases.
 
 Valid transitions: `UNINITIALIZED→CREATED`, `CREATED→CLOSING|CLOSED`,
 `CLOSING→CLOSED`, `CLOSED→CLOSED` (idempotent check helper only).
+Close requests are irreversible at this layer (no cancel). See
+[Lifecycle.md](Lifecycle.md).
 
 ## Configuration vs state
 

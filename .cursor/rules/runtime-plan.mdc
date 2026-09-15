@@ -11,7 +11,8 @@ alwaysApply: true
 * **Phase 4 — Unicode & I18N:** complete through **4.27** (API frozen) ✅
 * **Phase 5 — RoboFont:** Goals **5.1–5.22** complete (API v1 frozen) ✅
 * **Phase 6 — RoboGraphics:** Goals **6.1–6.15** complete (API v1 frozen) ✅
-* **Phase 7 — RoboWindow & QEMU Display:** Goals **7.1–7.5** complete; **Next:** Goal **7.6**
+* **Phase 7 — RoboWindow & QEMU Display:** Goals **7.1–7.15** complete; **Next:** Phase **8** (RoboHTML)
+
 
 The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
 
@@ -67,16 +68,16 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 7.3 Display abstraction ✅
 7.4 Framebuffer presentation ✅
 7.5 Window creation ✅
-7.6 Window sizing
-7.7 Window close/lifecycle
-7.8 DPI/scale foundation
-7.9 Native event loop
-7.10 Keyboard foundation
-7.11 Mouse foundation
-7.12 QEMU display backend
-7.13 Host/native display backend
-7.14 Window + RoboGraphics integration
-7.15 Window/display tests
+7.6 Window sizing ✅
+7.7 Window close/lifecycle ✅
+7.8 DPI/scale foundation ✅
+7.9 Native event loop ✅
+7.10 Keyboard foundation ✅
+7.11 Mouse foundation ✅
+7.12 QEMU display backend ✅
+7.13 Host/native display backend ✅
+7.14 Window + RoboGraphics integration ✅
+7.15 Window/display tests ✅
 
 # Phase 8 — Minimal RoboHTML & DOM
 

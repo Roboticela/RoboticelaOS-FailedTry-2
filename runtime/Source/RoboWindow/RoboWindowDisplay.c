@@ -2,6 +2,7 @@
 #include "RoboWindowInternal.h"
 
 #include "RoboBase/RoboLog.h"
+#include "RoboDisplay/RoboDisplay.h"
 
 void robo_window_display_reset_placeholders(void)
 {

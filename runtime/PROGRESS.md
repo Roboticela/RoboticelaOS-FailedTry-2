@@ -1873,6 +1873,9 @@
 - Present remains `ROBO_NOT_SUPPORTED` on Win32 (Goal 7.4 mock path unchanged)
 - Suite `window.host.*` with headless skip + optional `ROBO_WINDOW_SMOKE=1`
 - Docs: `window/docs/Host.md`; version **0.5.0**
+- Validation: `window.*` (incl. host/present/native) all pass; `display.*` /
+  `graphics.*` regression; Verify Chromium/toolkit OK (win32 under
+  `platform/win32/` whitelisted for `windows.h`)
 
 **Definition of done:**
 
@@ -1882,7 +1885,233 @@
 - [x] Guest ELF builds without Win32
 - [x] Ready for Goal 7.6; stop after 7.5
 
+## Goal 7.6 — RoboWindow sizing
+
+**Status:** complete
+
+**Done:**
+
+- Size helpers (`RoboWindowSize.h`): validate size + constraints; uses `robo_gfx_size_t`
+- APIs: `set_size` / `get_size` / `get_requested_size` / get|set_size_constraints / `observe_size`
+- Rejection semantics (no silent clamp on resize); corrective clamp only when applying new constraints
+- State tracks min/max; sync preserves constraints across `query_state`
+- Backend `set_size_constraints` + caps `size_constraints`; Win32 + null + mocks
+- Failed resize restores previous requested size
+- Suite `window.size.*`; host `window.host.sizing` + smoke sizing steps
+- Docs: `window/docs/Size.md`; version **0.6.0**
+
+**Definition of done:**
+
+- [x] Initial + runtime sizing with min/max
+- [x] Requested vs actual tracked
+- [x] No Chromium / toolkit deps
+- [x] Ready for Goal 7.7; stop after 7.6
+
+## Goal 7.7 — RoboWindow close & lifecycle
+
+**Status:** complete
+
+**Done:**
+
+- Lifecycle: UNINITIALIZED → CREATED → CLOSING → CLOSED (visible/hidden orthogonal)
+- `request_close` vs `destroy` separated; close irreversible (no cancel)
+- `observe_close_request` for future native close (WM_CLOSE → observe)
+- Mutations blocked while CLOSING (`ROBO_INVALID_ARGUMENT`); destroy twice → `NOT_FOUND`
+- Double close → `ROBO_ALREADY_EXISTS`; native destroy failure leaves lifecycle unchanged
+- Shutdown destroys live windows and invalidates handles
+- Suite `window.life.*`; host `window.host.close_lifecycle` + smoke close path
+- Docs: `window/docs/Lifecycle.md`; version **0.7.0**
+
+**Definition of done:**
+
+- [x] Close request distinct from destruction
+- [x] Deterministic transitions + idempotency
+- [x] Native close integration boundary (no full event loop)
+- [x] No Chromium / toolkit deps
+- [x] Ready for Goal 7.8; stop after 7.7
+
+## Goal 7.8 — DPI / scale foundation
+
+**Status:** complete
+
+**Done:**
+
+- `RoboDisplayScale.h`: scale/DPI validation, reference DPI (96), conversions
+- Rounding: nearest, ties away from zero; overflow → `ROBO_INVALID_ARGUMENT`
+- Size/point/rect logical↔physical helpers; multi-display different scales
+- Display APIs: `get_scale` / `get_dpi` / `info_effective_scale` / physical bounds
+- Window APIs: `get_scale` / `get_dpi` / `get_size_physical`; preference lock
+- Win32: optional `GetDpiForWindow` → state.scale (no fabrication)
+- Suite `display.scale.*`; host `window.host.scale_dpi`
+- Docs: `display/docs/Scale.md`; RoboDisplay **0.2.0**, RoboWindow **0.8.0**
+
+**Definition of done:**
+
+- [x] Logical vs physical + fractional scales
+- [x] Unavailable DPI distinct from invalid
+- [x] No hidden RoboGraphics scaling
+- [x] No Chromium / toolkit deps
+- [x] Ready for Goal 7.9; stop after 7.8
+
+## Goal 7.9 — Native event loop
+
+**Status:** complete
+
+**Done:**
+
+- `RoboWindowEventLoop`: start / stop / poll / run_once / run / wakeup
+- Backend optional `wait_events` / `wakeup`; caps flags
+- Queue: peek / is_empty; FIFO ordering preserved
+- `observe_position` / `observe_visibility` / `observe_focus` (+ existing size/close)
+- Geometry-apply suppress to avoid resize/move loops
+- Win32: WM_SIZE / WM_MOVE / WM_SHOWWINDOW / focus + MsgWait / PostThreadMessage
+- Mock injection suite `window.loop.*`; host `window.host.event_loop`
+- Docs: `window/docs/EventLoop.md`; RoboWindow **0.9.0**
+
+**Definition of done:**
+
+- [x] One authoritative native event path
+- [x] Close request remains distinct from destroy
+- [x] Reentrancy / thread affinity / destroyed-target safety
+- [x] No keyboard/mouse/pointer; no Chromium deps
+- [x] Ready for Goal 7.10; stop after 7.9
+
+## Goal 7.10 — Keyboard foundation
+
+**Status:** complete
+
+**Done:**
+
+- `RoboWindowKey.h`: physical / logical key enums + modifiers + actions
+- `RoboWindowKeyboard.h`: observe_key, state queries, reset
+- Event types `KEY_DOWN` / `KEY_UP` with `robo_keyboard_event_t` payload
+- Win32 VK/scan translation + modifier query + repeat bit
+- Focus targeting via focused window / HWND slot; stale IDs rejected
+- Stuck-key reset on focus loss, destroy, shutdown
+- Suite `window.key.*`; host `window.host.keyboard`
+- Docs: `window/docs/Keyboard.md`; RoboWindow **0.10.0**
+
+**Definition of done:**
+
+- [x] Physical vs logical keys; no Unicode/IME
+- [x] Press/release/repeat + modifiers
+- [x] Focused-window targeting + stuck-key reset
+- [x] Mock inject + real native smoke path
+- [x] No mouse/pointer; no Chromium deps
+- [x] Ready for Goal 7.11; stop after 7.10
+
+## Goal 7.11 — Mouse foundation
+
+**Status:** complete
+
+**Done:**
+
+- `RoboWindowMouse.h`: buttons, event model, observe_mouse, state, capture foundation
+- Event types `MOUSE_MOVE` / `BUTTON_DOWN` / `BUTTON_UP` / `WHEEL` with `robo_mouse_event_t`
+- Reuses Goal 7.10 `robo_key_modifier_flags_t`
+- Client/screen coords + delta; wheel LINE units (|120| = notch)
+- Soft capture + optional Win32 `SetCapture` via backend caps/vtable
+- Stuck-button reset on focus loss, destroy, shutdown
+- Suite `window.mouse.*`; host `window.host.mouse`
+- Docs: `window/docs/Mouse.md`; RoboWindow **0.11.0**
+
+**Definition of done:**
+
+- [x] Distinct mouse events (no touch/pointer/IME)
+- [x] Move / buttons / wheel / modifiers / targeting
+- [x] Click-count foundation + stuck-button reset
+- [x] Mock inject + real native smoke path
+- [x] No Chromium deps; stop after 7.11
+
+## Goal 7.12 — QEMU display backend
+
+**Status:** complete
+
+**Done:**
+
+- `RoboQemuFramebuffer` validate/present/get_pixel (BGRX/RGBX ↔ RoboGraphics)
+- RoboDisplay QEMU backend + host `robo_qemu_sim_*`
+- RoboWindow `platform/qemu`: guest `SYS_DISPLAY` claim/info/present/input;
+  host sim blit; HID → `observe_key` / `observe_mouse`
+- Guest `user/robo-runtime` deterministic pattern + serial markers
+- Suite `window.qemu.*`; `scripts/test-qemu-display.ps1`
+- Docs: `window/docs/Qemu.md`; RoboWindow **0.12.0**, RoboDisplay **0.3.0**
+
+**Definition of done:**
+
+- [x] Real path uses repo QEMU `-vga std` / GOP / `SYS_DISPLAY`
+- [x] Presentation through RoboWindow/RoboDisplay (no second stack)
+- [x] Keyboard/mouse through existing 7.10/7.11 APIs
+- [x] Host builds + sim tests; no Chromium deps
+- [x] Stop after 7.12
+
+## Goal 7.13 — Host/native display backend
+
+**Status:** complete
+
+**Done:**
+
+- Win32 present: RoboGraphics surface → staging `CreateDIBSection` (BGRX) →
+  `InvalidateRect` / `WM_PAINT` `BitBlt`/`StretchBlt` into real HWND
+- Host RoboDisplay backend: `EnumDisplayMonitors`, work area, DPI/scale
+  (`GetDpiForMonitor` / `LOGPIXELS`); refresh Hz left unknown (0)
+- `robo_window_backend_use_host` switches display to host monitors when live
+- Suites: `window.host.present_*`, `display.host.*`; smoke
+  `scripts/test-host-display.ps1`
+- Docs: `window/docs/Host.md`; RoboWindow **0.13.0**, RoboDisplay **0.4.0**
+- QEMU backend (7.12) unchanged in contract; guest stub host backend
+
+**Definition of done:**
+
+- [x] Real host OS window presents RoboGraphics
+- [x] Display discovery + DPI/scale through RoboDisplay
+- [x] Resize / close / keyboard / mouse via existing paths
+- [x] Host smoke + unit tests; no Chromium deps
+- [x] Stop after 7.13
+
+## Goal 7.14 — Window + RoboGraphics integration
+
+**Status:** complete
+
+**Done:**
+
+- Owned render surface (physical size × format) with retain/release lifecycle
+- Frame API: `begin_frame` / `end_frame` / `present_frame` / invalidate / dirty
+- Resize/scale/format → stale → recreate before next draw
+- `present(NULL)` falls back to owned surface; backends unchanged
+- Suites `window.graphics.*`; host smoke + QEMU guest use frame path
+- Docs: `window/docs/Graphics.md`; RoboWindow **0.14.0** (bumped to 0.15.0 in 7.15)
+
+**Definition of done:**
+
+- [x] Clean window ↔ graphics surface ownership
+- [x] Frame lifecycle + dirty/present
+- [x] Host + QEMU present integrated surface
+- [x] Keyboard/mouse unchanged; no Chromium deps
+- [x] Stop after 7.14
+
+## Goal 7.15 — Window / display tests
+
+**Status:** complete
+
+**Done:**
+
+- Acceptance suite `window.p7.*` (`SuiteRoboWindowPhase7.c`)
+- Lifecycle / graphics / scale / resize / multi-window / input / failures / shutdown
+- Stale-event purge on destroy (`robo_window_event_purge_window`)
+- Pixel fixture + screenshot checks; qemu_sim + host acceptance
+- Docs: `window/docs/TestStrategy.md`; gate script `scripts/test-phase7.ps1`
+- RoboWindow **0.15.0**
+
+**Definition of done:**
+
+- [x] Comprehensive Phase 7 regression / acceptance suite
+- [x] Host + QEMU smoke paths documented and gated
+- [x] Stale-window / failure / shutdown coverage
+- [x] No Chromium deps; Phase 8 not started
+- [x] Stop after 7.15
+
 ## Next
 
-- Goal 7.6 — Window sizing (do not start until requested)
+- Phase 8 — Minimal RoboHTML & DOM (do not start until requested)
 

@@ -19,6 +19,35 @@ void robo_window_event_queue_reset(void)
     memset(g_queue, 0, sizeof(g_queue));
 }
 
+void robo_window_event_purge_window(robo_window_id_t id)
+{
+    robo_window_event_t kept[ROBO_WINDOW_EVENT_QUEUE_CAPACITY];
+    size_t n = 0u;
+    size_t i;
+
+    if (id == ROBO_WINDOW_ID_NONE || g_count == 0u) {
+        return;
+    }
+    for (i = 0u; i < g_count; i++) {
+        size_t idx = (g_head + i) % ROBO_WINDOW_EVENT_QUEUE_CAPACITY;
+        if (g_queue[idx].window_id != id) {
+            kept[n++] = g_queue[idx];
+        }
+    }
+    if (n == g_count) {
+        return;
+    }
+    g_head = 0u;
+    g_tail = n;
+    g_count = n;
+    memset(g_queue, 0, sizeof(g_queue));
+    if (n > 0u) {
+        memcpy(g_queue, kept, n * sizeof(kept[0]));
+    }
+    robo_log_debug("robo_window: purged stale events for id=%llu (kept=%llu)",
+                   (unsigned long long)id, (unsigned long long)n);
+}
+
 void robo_window_event_init(robo_window_event_t *ev)
 {
     if (!ev) {
@@ -28,12 +57,14 @@ void robo_window_event_init(robo_window_event_t *ev)
     ev->type = ROBO_WINDOW_EVENT_NONE;
     ev->window_id = ROBO_WINDOW_ID_NONE;
     ev->display_id = ROBO_DISPLAY_ID_NONE;
+    robo_keyboard_event_init(&ev->key);
+    robo_mouse_event_init(&ev->mouse);
 }
 
 int robo_window_event_type_is_known(robo_window_event_type_t type)
 {
     return type >= ROBO_WINDOW_EVENT_CREATED &&
-           type <= ROBO_WINDOW_EVENT_SCALE_CHANGED;
+           type <= ROBO_WINDOW_EVENT_MOUSE_WHEEL;
 }
 
 const char *robo_window_event_type_name(robo_window_event_type_t type)
@@ -69,6 +100,18 @@ const char *robo_window_event_type_name(robo_window_event_type_t type)
         return "display_changed";
     case ROBO_WINDOW_EVENT_SCALE_CHANGED:
         return "scale_changed";
+    case ROBO_WINDOW_EVENT_KEY_DOWN:
+        return "key_down";
+    case ROBO_WINDOW_EVENT_KEY_UP:
+        return "key_up";
+    case ROBO_WINDOW_EVENT_MOUSE_MOVE:
+        return "mouse_move";
+    case ROBO_WINDOW_EVENT_MOUSE_BUTTON_DOWN:
+        return "mouse_button_down";
+    case ROBO_WINDOW_EVENT_MOUSE_BUTTON_UP:
+        return "mouse_button_up";
+    case ROBO_WINDOW_EVENT_MOUSE_WHEEL:
+        return "mouse_wheel";
     default:
         return "unknown";
     }
@@ -108,6 +151,26 @@ robo_result_t robo_window_event_poll(robo_window_event_t *out)
     g_head = (g_head + 1u) % ROBO_WINDOW_EVENT_QUEUE_CAPACITY;
     g_count--;
     return ROBO_OK;
+}
+
+robo_result_t robo_window_event_peek(robo_window_event_t *out)
+{
+    if (!out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!robo_window_is_initialized()) {
+        return ROBO_INIT_ERROR;
+    }
+    if (g_count == 0u) {
+        return ROBO_NOT_FOUND;
+    }
+    *out = g_queue[g_head];
+    return ROBO_OK;
+}
+
+int robo_window_event_queue_is_empty(void)
+{
+    return g_count == 0u;
 }
 
 void robo_window_event_queue_clear(void)

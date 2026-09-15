@@ -535,7 +535,7 @@ static void test_display_window_integration(void)
 
 static void test_display_version(void)
 {
-    ROBO_CHECK(strcmp(robo_display_version_string(), "0.1.0") == 0);
+    ROBO_CHECK(strcmp(robo_display_version_string(), "0.4.0") == 0);
     ROBO_CHECK_EQ_INT(ROBO_DISPLAY_API_FROZEN, 0);
 }
 

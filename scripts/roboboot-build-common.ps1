@@ -639,8 +639,15 @@ function Invoke-RoboBuildUserland {
         @{ Name = "thread-test"; Srcs = @("thread-test\main.c"); Libc = $true },
         @{ Name = "file-test"; Srcs = @("file-test\main.c"); Libc = $true },
         @{ Name = "network-test"; Srcs = @("network-test\main.c"); Libc = $true },
-        @{ Name = "robo-runtime"; Srcs = @("robo-runtime\main.c"); Libc = $true; RuntimeSrcs = @(
+        @{ Name = "robo-runtime"; Srcs = @("robo-runtime\main.c"); Libc = $true;
+          ExtraCFlags = @("-DROBO_WINDOW_HAS_QEMU=1");
+          RuntimeSrcs = @(
+            "Source\RoboBase\RoboBase.c",
+            "Source\RoboBase\RoboError.c",
+            "Source\RoboBase\RoboLog.c",
+            "Source\RoboBase\RoboDebug.c",
             "Source\RoboMem\RoboMem.c",
+            "Source\RoboUnicode\RoboUnicode.c",
             "Source\RoboGraphics\RoboGraphics.c",
             "Source\RoboGraphics\RoboGraphicsBackend.c",
             "Source\RoboGraphics\RoboGraphicsBitmap.c",
@@ -651,7 +658,33 @@ function Invoke-RoboBuildUserland {
             "Source\RoboGraphics\RoboGraphicsGeometry.c",
             "Source\RoboGraphics\RoboGraphicsImage.c",
             "Source\RoboGraphics\RoboGraphicsPixelFormat.c",
-            "Source\RoboGraphics\RoboGraphicsSurface.c"
+            "Source\RoboGraphics\RoboGraphicsSurface.c",
+            "Source\RoboDisplay\RoboDisplay.c",
+            "Source\RoboDisplay\RoboDisplayTypes.c",
+            "Source\RoboDisplay\RoboDisplayInfo.c",
+            "Source\RoboDisplay\RoboDisplayScale.c",
+            "Source\RoboDisplay\RoboDisplayBackend.c",
+            "Source\RoboDisplay\RoboQemuFramebuffer.c",
+            "Source\RoboDisplay\RoboDisplayBackendQemu.c",
+            "Source\RoboWindow\RoboWindow.c",
+            "Source\RoboWindow\RoboWindowLifecycle.c",
+            "Source\RoboWindow\RoboWindowConfig.c",
+            "Source\RoboWindow\RoboWindowState.c",
+            "Source\RoboWindow\RoboWindowDisplay.c",
+            "Source\RoboWindow\RoboWindowEvent.c",
+            "Source\RoboWindow\RoboWindowEventLoop.c",
+            "Source\RoboWindow\RoboWindowKey.c",
+            "Source\RoboWindow\RoboWindowKeyboard.c",
+            "Source\RoboWindow\RoboWindowMouse.c",
+            "Source\RoboWindow\RoboWindowBackend.c",
+            "Source\RoboWindow\RoboWindowNative.c",
+            "Source\RoboWindow\RoboWindowThread.c",
+            "Source\RoboWindow\RoboWindowPresent.c",
+            "Source\RoboWindow\RoboWindowGraphics.c",
+            "Source\RoboWindow\RoboWindowSize.c",
+            "Source\RoboWindow\RoboWindowBackendHost.c",
+            "Source\RoboDisplay\RoboDisplayBackendHost.c",
+            "Source\RoboWindow\platform\qemu\RoboWindowBackendQemu.c"
         ) },
         # Legacy Chromium-engine demos — optional; skipped when sources absent.
         @{ Name = "robospark"; Root = $runtime; Optional = $true; Srcs = @(
@@ -691,18 +724,22 @@ function Invoke-RoboBuildUserland {
         }
         $objs = @()
         $i = 0
+        $progFlags = $cflags
+        if ($p.ContainsKey("ExtraCFlags") -and $p.ExtraCFlags) {
+            $progFlags = $cflags + $p.ExtraCFlags
+        }
         foreach ($rel in $p.Srcs) {
             $src = Join-Path $srcRoot $rel
             $obj = Join-Path $ubuild ($p.Name + "_" + $i + ".o")
-            if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+            if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
             $objs += $obj
             $i++
         }
         if ($p.ContainsKey("ExtraUserSrcs") -and $p.ExtraUserSrcs) {
             foreach ($rel in $p.ExtraUserSrcs) {
                 $src = Join-Path $user $rel
-                $obj = Join-Path $ubuild ($p.Name + "_" + $i + ".o")
-                if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+                $obj = Join-Path $ubuild ($p.Name + "_ux_" + $i + ".o")
+                if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
                 $objs += $obj
                 $i++
             }
@@ -713,10 +750,11 @@ function Invoke-RoboBuildUserland {
                 if (-not (Test-Path -LiteralPath $src)) {
                     throw ("missing runtime source for guest " + $p.Name + ": " + $src)
                 }
-                $obj = Join-Path $ubuild ($p.Name + "_rt_" + $i + ".o")
-                if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+                # Path-derived object names — index-based names collide when RuntimeSrcs grows.
+                $stem = (($rel -replace '[\\/]', '_') -replace '\.c$', '')
+                $obj = Join-Path $ubuild ($p.Name + "_rt_" + $stem + ".o")
+                if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
                 $objs += $obj
-                $i++
             }
         }
         $elf = Join-Path $ubuild ($p.Name + ".elf")

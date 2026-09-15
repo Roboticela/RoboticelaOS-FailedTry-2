@@ -102,8 +102,18 @@ void robo_test_register_graphics_phase6(void);
 void robo_test_register_window(void);
 void robo_test_register_window_native(void);
 void robo_test_register_window_present(void);
+void robo_test_register_window_graphics(void);
 void robo_test_register_window_host(void);
+void robo_test_register_window_size(void);
+void robo_test_register_window_lifecycle(void);
+void robo_test_register_window_event_loop(void);
+void robo_test_register_window_keyboard(void);
+void robo_test_register_window_mouse(void);
+void robo_test_register_window_qemu_display(void);
+void robo_test_register_window_phase7(void);
 void robo_test_register_display(void);
+void robo_test_register_display_scale(void);
+void robo_test_register_display_host(void);
 
 int main(int argc, char **argv)
 {
@@ -243,7 +253,17 @@ int main(int argc, char **argv)
     robo_test_register_window();
     robo_test_register_window_native();
     robo_test_register_window_present();
+    robo_test_register_window_graphics();
     robo_test_register_window_host();
+    robo_test_register_window_size();
+    robo_test_register_window_lifecycle();
+    robo_test_register_window_event_loop();
+    robo_test_register_window_keyboard();
+    robo_test_register_window_mouse();
+    robo_test_register_window_qemu_display();
+    robo_test_register_window_phase7();
     robo_test_register_display();
+    robo_test_register_display_scale();
+    robo_test_register_display_host();
     return robo_test_main(argc, argv);
 }

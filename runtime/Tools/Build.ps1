@@ -161,18 +161,29 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboDisplay\RoboDisplay.c"),
     (Join-Path $SourceDir "RoboDisplay\RoboDisplayTypes.c"),
     (Join-Path $SourceDir "RoboDisplay\RoboDisplayInfo.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboDisplayScale.c"),
     (Join-Path $SourceDir "RoboDisplay\RoboDisplayBackend.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboDisplayBackendHost.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboQemuFramebuffer.c"),
+    (Join-Path $SourceDir "RoboDisplay\RoboDisplayBackendQemu.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindow.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowLifecycle.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowConfig.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowState.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowDisplay.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowEvent.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowEventLoop.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowKey.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowKeyboard.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowMouse.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowBackend.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowNative.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowThread.c"),
     (Join-Path $SourceDir "RoboWindow\RoboWindowPresent.c"),
-    (Join-Path $SourceDir "RoboWindow\RoboWindowBackendHost.c")
+    (Join-Path $SourceDir "RoboWindow\RoboWindowGraphics.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowSize.c"),
+    (Join-Path $SourceDir "RoboWindow\RoboWindowBackendHost.c"),
+    (Join-Path $SourceDir "RoboWindow\platform\qemu\RoboWindowBackendQemu.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -258,8 +269,18 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindow.c"),
     (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowNative.c"),
     (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowPresent.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowGraphics.c"),
     (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowHost.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowSize.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowLifecycle.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowEventLoop.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowKeyboard.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowMouse.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboQemuDisplay.c"),
+    (Join-Path $RuntimeRoot "window\tests\SuiteRoboWindowPhase7.c"),
     (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplay.c"),
+    (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplayScale.c"),
+    (Join-Path $RuntimeRoot "display\tests\SuiteRoboDisplayHost.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -400,7 +421,9 @@ function Assert-RoboWindowChromiumIndependence {
             Select-String -Pattern $pat -SimpleMatch:$false |
             Where-Object {
                 $_.Path -notmatch '(?i)[/\\]platform[/\\]win32[/\\]' -and
-                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency|platform/win32'
+                $_.Path -notmatch '(?i)[/\\]platform[/\\]qemu[/\\]' -and
+                $_.Path -notmatch '(?i)[/\\]window[/\\]tests[/\\]' -and
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency|platform/win32|platform/qemu|SYS_DISPLAY|robosys'
             }
         if ($hits) {
             $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
@@ -422,7 +445,9 @@ function Assert-RoboDisplayChromiumIndependence {
         $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
             Select-String -Pattern $pat -SimpleMatch:$false |
             Where-Object {
-                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency|ui/display'
+                $_.Path -notmatch '(?i)[/\\]platform[/\\]win32[/\\]' -and
+                $_.Path -notmatch '(?i)[/\\]display[/\\]tests[/\\]' -and
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|do not include|must not include|Win32/X11|not a dependency|ui/display|QEMU|SYS_DISPLAY|GOP|robosys|platform/win32'
             }
         if ($hits) {
             $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
@@ -499,6 +524,8 @@ $hostFlags = @(
     "-Wall", "-Wextra", "-Werror",
     "-I", $IncludeDir,
     "-I", $FrameworkDir,
+    "-I", (Join-Path $SourceDir "RoboWindow\platform\win32"),
+    "-I", (Join-Path $SourceDir "RoboDisplay\platform\win32"),
     "-D_CRT_SECURE_NO_WARNINGS",
     "-DROBO_WINDOW_HAS_WIN32=1"
 )
@@ -646,7 +673,13 @@ if ($Verify) {
 # --- Host test executable (framework + suites; does not ship in production) ---
 Write-Host "HOST   building $HostTest"
 $Win32BackendSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowBackendWin32.c"
-$hostSrcs = $ProdSrcs + @($Win32BackendSrc, $TestFrameworkSrc, $TestMainSrc) + $SuiteSrcs
+$Win32KeyboardSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowKeyboardWin32.c"
+$Win32MouseSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowMouseWin32.c"
+$Win32DisplaySrc = Join-Path $SourceDir "RoboDisplay\platform\win32\RoboDisplayBackendWin32.c"
+$hostSrcs = $ProdSrcs + @(
+    $Win32BackendSrc, $Win32KeyboardSrc, $Win32MouseSrc, $Win32DisplaySrc,
+    $TestFrameworkSrc, $TestMainSrc
+) + $SuiteSrcs
 & $clang @hostFlags -o $HostTest @hostSrcs "-luser32" "-lgdi32"
 if ($LASTEXITCODE -ne 0) { throw "Host RoboTest compile failed" }
 Write-Host "Build OK: $HostTest (tests only)"

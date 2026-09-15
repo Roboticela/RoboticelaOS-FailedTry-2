@@ -33,6 +33,8 @@ typedef struct robo_window_backend_caps {
      * query_state; core must not assume request == actual.
      */
     int reports_actual_state;
+    /** Non-zero: backend honors runtime set_size_constraints. */
+    int size_constraints;
 
     /**
      * Goal 7.4: bitmask of presentable RoboGraphics formats
@@ -47,6 +49,14 @@ typedef struct robo_window_backend_caps {
      */
     uint32_t present_max_width;
     uint32_t present_max_height;
+
+    /** Goal 7.9: backend implements wait_events (timeout / forever). */
+    int wait_events;
+    /** Goal 7.9: backend implements wakeup for a blocked wait. */
+    int wakeup;
+
+    /** Goal 7.11: backend implements native mouse capture/release. */
+    int mouse_capture;
 } robo_window_backend_caps_t;
 
 void robo_window_backend_caps_clear(robo_window_backend_caps_t *caps);

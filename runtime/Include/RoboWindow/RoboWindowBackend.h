@@ -67,6 +67,20 @@ typedef struct robo_window_backend_vtbl {
                               robo_window_native_handle_t *native,
                               int32_t width,
                               int32_t height);
+
+    /**
+     * Apply min/max constraints (0 = none on that axis). Optional: NULL →
+     * core keeps local constraints only; runtime set returns NOT_SUPPORTED
+     * when caps.size_constraints is set without this entry.
+     */
+    robo_result_t (*set_size_constraints)(void *userdata,
+                                          robo_window_id_t id,
+                                          robo_window_native_handle_t *native,
+                                          int32_t min_width,
+                                          int32_t min_height,
+                                          int32_t max_width,
+                                          int32_t max_height);
+
     robo_result_t (*set_position)(void *userdata,
                                   robo_window_id_t id,
                                   robo_window_native_handle_t *native,
@@ -94,13 +108,40 @@ typedef struct robo_window_backend_vtbl {
                                      robo_window_native_handle_t *native,
                                      robo_gfx_surface_t *surface);
 
+    /**
+     * Non-blocking drain of the native message source (single batch).
+     * Translate supported OS messages via observe_* — never expose OS types.
+     */
     robo_result_t (*process_events)(void *userdata);
+
+    /**
+     * Optional (NULL allowed): block until native work, wakeup, or timeout.
+     * @p timeout_ms == ROBO_WINDOW_EVENT_WAIT_FOREVER → wait indefinitely.
+     * After return, caller typically calls process_events.
+     */
+    robo_result_t (*wait_events)(void *userdata, uint32_t timeout_ms);
+
+    /**
+     * Optional (NULL allowed): interrupt a blocked wait_events.
+     * May be invoked to unblock shutdown / cross-thread wake (minimal).
+     */
+    robo_result_t (*wakeup)(void *userdata);
+
+    /**
+     * Optional (NULL allowed, Goal 7.11): capture native mouse input to @p
+     * native. Soft capture still works without these entries.
+     */
+    robo_result_t (*capture_mouse)(void *userdata,
+                                   robo_window_id_t id,
+                                   robo_window_native_handle_t *native);
+    robo_result_t (*release_mouse_capture)(void *userdata);
 } robo_window_backend_vtbl_t;
 
 /**
  * Register the single active backend. Replaces prior backend after shutdown.
  * Requires capabilities + core ops (including set_title, focus, present,
- * process_events). initialize() runs immediately.
+ * process_events). wait_events / wakeup are optional. initialize() runs
+ * immediately.
  */
 robo_result_t robo_window_backend_register(const robo_window_backend_vtbl_t *vtbl,
                                            void *userdata);

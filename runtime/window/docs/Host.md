@@ -1,114 +1,145 @@
-# Host Native Window Backend (Goal 7.5)
+# Host Native Window & Display Backend (Goals 7.5 / 7.13)
 
 ## Selected backend
 
-| Host | Backend name | Status |
-|---|---|---|
-| Windows (development host) | `win32` | Implemented |
-| Guest freestanding ELF | stub | `ROBO_NOT_SUPPORTED` |
-| Other hosts | stub | Extensible via new `platform/*` |
+| Host | Window backend | Display backend | Status |
+|---|---|---|---|
+| Windows (development host) | `win32` | `win32` | Implemented (7.13 present) |
+| Guest freestanding ELF | stub | stub | `ROBO_NOT_SUPPORTED` |
+| Other hosts | stub | stub | Extensible via new `platform/*` |
 
-No SDL, GLFW, Qt, GTK, Chromium, or other third-party window frameworks.
+No SDL, GLFW, Qt, GTK, Chromium, Electron, or other third-party window frameworks.
+
+## Architecture (Goal 7.13)
+
+```text
+Roboticela runtime
+        ↓
+RoboWindow (platform-independent)
+        ↓
+Win32 window backend (platform/win32)
+        ↓
+RoboGraphics surface (BGRA8 / RGBA8 / RGB8)
+        ↓
+staging CreateDIBSection (top-down 32bpp BGRX)
+        ↓
+InvalidateRect → WM_PAINT → BitBlt / StretchBlt
+        ↓
+real HWND client area
+```
+
+Display discovery:
+
+```text
+robo_display_backend_use_host()
+        ↓
+EnumDisplayMonitors / GetMonitorInfoW
+        ↓
+optional GetDpiForMonitor (Shcore) or LOGPIXELS
+        ↓
+RoboDisplay cache (bounds, work area, scale, DPI)
+```
+
+`robo_window_backend_use_host()` switches an already-initialized RoboDisplay
+manager from the placeholder backend to the host monitor backend when available.
 
 ## Native APIs (Win32)
 
-Isolated under `Source/RoboWindow/platform/win32/RoboWindowBackendWin32.c`:
+Isolated under:
+
+* `Source/RoboWindow/platform/win32/RoboWindowBackendWin32.c`
+* `Source/RoboWindow/platform/win32/RoboWindowKeyboardWin32.c`
+* `Source/RoboWindow/platform/win32/RoboWindowMouseWin32.c`
+* `Source/RoboDisplay/platform/win32/RoboDisplayBackendWin32.c`
+
+Window / present:
 
 * `RegisterClassExW` / `CreateWindowExW` / `DestroyWindow`
-* `ShowWindow` / `UpdateWindow`
-* `SetWindowTextW` (UTF-16 via `robo_unicode_utf8_to_utf16`)
-* `SetWindowPos` (size / position)
-* `SetForegroundWindow` / `SetFocus` (focus; may return unsupported)
-* `GetWindowRect` / `GetClientRect` / `IsWindowVisible` (query_state)
-* `PeekMessageW` / `DispatchMessageW` (minimal `process_events`)
-* `MonitorFromWindow` reserved for later display mapping
+* `ShowWindow` / `UpdateWindow` / `InvalidateRect`
+* `CreateDIBSection` / `BitBlt` / `StretchBlt` (CPU presentation)
+* `PeekMessageW` / `DispatchMessageW` / `MsgWaitForMultipleObjects`
+* `MonitorFromWindow` → host display id mapping
+
+Display:
+
+* `EnumDisplayMonitors` / `GetMonitorInfoW`
+* `GetDpiForMonitor` (dynamic load from `Shcore.dll`) or `GetDeviceCaps(LOGPIXELS*)`
+* Refresh rate is **not** reported (left 0; not fabricated)
 
 Public headers never include `windows.h`.
+
+## Pixel format
+
+| RoboGraphics | Staging / GDI | Notes |
+|---|---|---|
+| BGRA8 | BI_RGB 32bpp top-down DIB (B,G,R,X) | Preferred |
+| RGBA8 | Converted at present boundary | Host-only conversion |
+| RGB8 | Converted at present boundary | Host-only conversion |
+
+Conversion stays inside the Win32 present path — RoboGraphics APIs are unchanged.
+
+## DPI / scale
+
+Uses Phase 7.8 helpers. Effective scale = `dpi / 96` when DPI is known.
+Logical window size is **client area** DIP; physical size is derived via
+`robo_window_get_size_physical`. `WM_DPICHANGED` invalidates the client for
+repaint; runtime DPI change reporting depends on the OS (Per-Monitor V2 when
+available). Unsupported scales are not fabricated.
+
+## Resize / close / input
+
+* `WM_SIZE` → `robo_window_observe_size` + invalidate
+* `WM_CLOSE` → `robo_window_observe_close_request` (no DestroyWindow in WndProc)
+* Keyboard / mouse continue through existing Win32 → RoboKeyboard / RoboMouse
+  observe path (Goals 7.10 / 7.11)
+* Presentation ownership: staging DIB is owned by the backend; caller surfaces
+  are not retained after `robo_window_present`
 
 ## Registration
 
 ```text
-robo_window_init()
-        ↓
-robo_window_backend_use_host()   // or use_null / mock register
-        ↓
+robo_window_init()          // placeholder display
+robo_window_backend_use_host()
+        ↓ also: robo_display_backend_use_host() when display is live
 robo_window_create(config)
-        ↓
-Win32 CreateWindowExW
-        ↓
-opaque { token, generation }
+robo_window_show(...)
+robo_window_present(id, surface)
 ```
 
-* `robo_window_backend_host_available()` — 0 when `ROBO_WINDOW_SKIP_HOST` is set
-  or when no interactive screen metrics exist.
-* Guest builds compile `RoboWindowBackendHost.c` stub only.
+* `robo_window_backend_host_available()` / `robo_display_backend_host_available()`
+  return 0 when `ROBO_WINDOW_SKIP_HOST` is set or screen metrics are unavailable.
+* Guest builds compile stubs only (`RoboWindowBackendHost.c`,
+  `RoboDisplayBackendHost.c`).
 
-## Handle ownership
-
-* Backend owns `HWND` for the lifetime of a valid native handle.
-* `token` is a 1-based slot index; `generation` increments per create.
-* Destroy / shutdown invalidate the handle; copies must not be reused.
-* Failed create does not leave a live slot.
-
-## State synchronization
-
-Win32 sets `reports_actual_state`. After size/move/show/hide, core calls
-`query_state` for client size, outer position, visibility, and focus.
-
-Logical size is **client area** (chrome adjusted via `AdjustWindowRectEx`).
-Physical display DPI scaling is **not** applied in Goal 7.5.
-
-## Thread affinity
-
-Native create and subsequent HWND ops must run on the thread that initialized
-the backend (`GetCurrentThreadId` check → `ROBO_PERMISSION_DENIED`).
-
-Also respects RoboWindow owner-thread tokens when bound.
-
-## Title / size / position
-
-| Field | Behavior |
-|---|---|
-| Title | UTF-8 → UTF-16; empty OK; invalid UTF-8 → `ROBO_PARSE_ERROR` |
-| Size | Client dimensions; min/max from config; invalid → `ROBO_INVALID_ARGUMENT` |
-| Position | Screen coordinates; negative allowed; `ROBO_WINDOW_COORD_UNKNOWN` → OS default at create |
-| Fullscreen | Deferred — logged, not applied |
-| Scale preference | Ignored in 7.5 (documented) |
-
-## Display association
-
-Window keeps `display_id` from config or RoboDisplay primary (placeholder
-backend). Host monitor enumeration mapping is deferred.
-
-## Presentation
-
-`present_surface` returns `ROBO_NOT_SUPPORTED` on Win32 in 7.5. Goal 7.4 mock
-presentation remains for tests. Real blit is later display-backend work.
-
-## Event boundary
-
-`GWLP_USERDATA` points at the backend slot. `WM_CLOSE` pushes
-`ROBO_WINDOW_EVENT_CLOSE_REQUESTED`. Full keyboard/mouse routing is Goal 7.9.
-`robo_window_process_events()` drains the Win32 message queue briefly.
-
-## Headless / CI
-
-* Automated tests skip real windows when host is unavailable or
-  `ROBO_WINDOW_SKIP_HOST` is set (prints `SKIP …`).
-* Mock/null backends remain the default headless path.
-* Manual smoke: `ROBO_WINDOW_SMOKE=1` with filter `window.host.smoke`.
+## Headless / CI / smoke
 
 ```powershell
+# Automated host window + present + display discovery
 .\runtime\Tools\Build.ps1 -Configuration Debug -Verify -Test -Filter "window.host."
-$env:ROBO_WINDOW_SMOKE="1"
-.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "window.host.smoke"
+.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter "display.host."
+
+# Or one-shot smoke script (build + host filters + optional visible window)
+.\scripts\test-host-display.ps1
+.\scripts\test-host-display.ps1 -Visible   # ROBO_WINDOW_SMOKE=1
+
+# Skip real HWND on CI machines without a desktop
+$env:ROBO_WINDOW_SKIP_HOST="1"
 ```
+
+## Limitations
+
+* Windows host only for real presentation today
+* No GPU / DXGI / Vulkan swap chain in 7.13 (CPU GDI path)
+* Path fill/stroke still `ROBO_NOT_SUPPORTED` in RoboGraphics raster — smoke
+  patterns use clear / rect / line
+* Refresh Hz not exposed
+* Physical monitor size (mm) not exposed
+* QEMU backend (7.12) is separate and unchanged in contract
 
 ## Platform vs independent
 
 | Independent | Platform-specific |
 |---|---|
-| RoboWindow API, config, lifecycle, opaque handle | `platform/win32/*` |
-| Backend vtable contract | Win32 HWND ops |
-| Mock / null backends | Host availability heuristics |
-| RoboDisplay association fields | MonitorFromWindow (future map) |
+| RoboWindow / RoboDisplay / RoboGraphics APIs | `platform/win32/*` |
+| Backend vtable contracts | HWND, HMONITOR, GDI |
+| Mock / null / QEMU backends | Host availability heuristics |

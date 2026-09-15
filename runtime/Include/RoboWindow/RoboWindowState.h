@@ -26,18 +26,22 @@ typedef struct robo_window_state {
     robo_window_lifecycle_t lifecycle;
     int32_t x; /* ROBO_WINDOW_COORD_UNKNOWN if unknown */
     int32_t y;
-    int32_t width;  /* actual (provisional if backend does not report) */
+    int32_t width;  /* actual logical client size */
     int32_t height;
     int32_t requested_width;
     int32_t requested_height;
     int32_t requested_x; /* ROBO_WINDOW_COORD_UNKNOWN if never requested */
     int32_t requested_y;
+    int32_t min_width;  /* 0 = none; mirrored from constraints */
+    int32_t min_height;
+    int32_t max_width;
+    int32_t max_height;
     int visible;
     int focused;
     int minimized;
     int maximized;
     int fullscreen;
-    float scale; /* 0 → unknown; typically 1.0 when known */
+    float scale; /* 0 → unknown; effective display/window scale (Goal 7.8) */
     robo_display_id_t display_id;
 } robo_window_state_t;
 

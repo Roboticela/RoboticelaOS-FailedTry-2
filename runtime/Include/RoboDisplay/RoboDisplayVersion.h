@@ -1,11 +1,11 @@
-/* RoboDisplay version pin — Goal 7.3 display abstraction. */
+/* RoboDisplay version pin — Goal 7.13 host/native display backend. */
 #ifndef ROBO_DISPLAY_VERSION_H
 #define ROBO_DISPLAY_VERSION_H
 
 #define ROBO_DISPLAY_VERSION_MAJOR 0
-#define ROBO_DISPLAY_VERSION_MINOR 1
+#define ROBO_DISPLAY_VERSION_MINOR 4
 #define ROBO_DISPLAY_VERSION_PATCH 0
-#define ROBO_DISPLAY_VERSION_STRING "0.1.0"
+#define ROBO_DISPLAY_VERSION_STRING "0.4.0"
 
 #define ROBO_DISPLAY_API_FROZEN 0
 

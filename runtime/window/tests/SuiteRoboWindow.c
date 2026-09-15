@@ -165,7 +165,25 @@ static robo_result_t mock_process_events(void *userdata)
 }
 
 static const robo_window_backend_caps_t g_mock_caps = {
-    1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0u, 0u, 0u};
+    1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 0u, 0u, 0u, 0, 0, 0};
+
+static robo_result_t mock_set_size_constraints(void *userdata,
+                                               robo_window_id_t id,
+                                               robo_window_native_handle_t *native,
+                                               int32_t min_width,
+                                               int32_t min_height,
+                                               int32_t max_width,
+                                               int32_t max_height)
+{
+    (void)userdata;
+    (void)id;
+    (void)native;
+    (void)min_width;
+    (void)min_height;
+    (void)max_width;
+    (void)max_height;
+    return ROBO_OK;
+}
 
 static const robo_window_backend_vtbl_t g_mock_vtbl = {
     "mock",
@@ -178,11 +196,16 @@ static const robo_window_backend_vtbl_t g_mock_vtbl = {
     mock_hide,
     mock_set_title,
     mock_set_size,
+    mock_set_size_constraints,
     mock_set_position,
     mock_focus,
     NULL,
     mock_present,
-    mock_process_events};
+    mock_process_events,
+    NULL,
+    NULL,
+    NULL,
+    NULL};
 
 static void drain_events(void)
 {
@@ -208,7 +231,7 @@ static void fixture_end(void)
 
 static void test_window_version_init(void)
 {
-    ROBO_CHECK_STR_EQ(robo_window_version_string(), "0.5.0");
+    ROBO_CHECK_STR_EQ(robo_window_version_string(), "0.15.0");
     ROBO_CHECK_EQ_INT(ROBO_WINDOW_API_FROZEN, 0);
     robo_window_shutdown();
     ROBO_CHECK(!robo_window_is_initialized());
@@ -328,7 +351,7 @@ static void test_window_lifecycle(void)
     ROBO_CHECK_EQ_INT((int)ev.type, (int)ROBO_WINDOW_EVENT_CLOSE_REQUESTED);
     ROBO_CHECK_EQ_INT(robo_window_get_state(id, &st), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)st.lifecycle, (int)ROBO_WINDOW_LIFECYCLE_CLOSING);
-    ROBO_CHECK_EQ_INT(robo_window_request_close(id), ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_window_request_close(id), ROBO_ALREADY_EXISTS);
 
     ROBO_CHECK_EQ_INT(robo_window_destroy(id), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_window_event_poll(&ev), ROBO_OK);

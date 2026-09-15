@@ -45,9 +45,12 @@ Physical mode size is separate: `resolution_width_px` / `resolution_height_px`.
 | `resolution_*_px` | Physical pixels of current mode |
 | `scale` | Approximate `physical ≈ logical * scale` |
 
-Helpers: `robo_display_logical_to_physical`, `robo_display_physical_to_logical`.
+Helpers: see [Scale.md](Scale.md) (`RoboDisplayScale.h`). Goal 7.8 completes
+validation, multi-display scale, and window queries. Dynamic DPI-change events
+remain later.
 
-Goal 7.3 does **not** query host DPI; backends supply values when known.
+Goal 7.3 did **not** query host DPI; Goal 7.8 may expose OS DPI when available
+(e.g. Win32 `GetDpiForWindow`) but never fabricates measurements.
 Zero means unknown — do not treat a hard-coded DPI as “real” host data.
 
 ## Refresh rate
