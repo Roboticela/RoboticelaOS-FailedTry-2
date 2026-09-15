@@ -85,6 +85,45 @@ int robo_html_node_kind_is_known(robo_html_node_kind_t kind);
 /** Human-readable node kind name; never NULL; "unknown" when undefined. */
 const char *robo_html_node_kind_name(robo_html_node_kind_t kind);
 
+/* ------------------------------------------------------------------ */
+/* Element namespaces (Phase 8.5)                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Element platform namespace.
+ *
+ * HTML is not the only namespace the HTML parser has to reach: <svg> and
+ * <math> are switches into foreign content, so the enumerator exists now and
+ * the element model stores one — a later foreign-content phase then adds
+ * behaviour rather than a type. Only @c HTML is produced in this phase; the
+ * tree builder never switches namespace yet.
+ */
+typedef enum robo_html_namespace {
+    ROBO_HTML_NAMESPACE_NONE = 0,
+    ROBO_HTML_NAMESPACE_HTML = 1,
+    ROBO_HTML_NAMESPACE_SVG = 2,
+    ROBO_HTML_NAMESPACE_MATHML = 3
+} robo_html_namespace_t;
+
+/** Number of defined namespaces. */
+#define ROBO_HTML_NAMESPACE_COUNT 4u
+
+/** Non-zero if @p ns is a defined namespace enumerator. */
+int robo_html_namespace_is_known(robo_html_namespace_t ns);
+
+/** Human-readable namespace name ("html", "svg", "mathml"); never NULL. */
+const char *robo_html_namespace_name(robo_html_namespace_t ns);
+
+/**
+ * Namespace URI of @p ns; "" for NONE and for unknown values.
+ *
+ * The URI is the identity the future DOM/CSS/selector layers compare
+ * against. It is deliberately a constant per namespace rather than stored
+ * bytes on every element: constants here, comparisons later, no per-node
+ * copy of a 28-byte string.
+ */
+const char *robo_html_namespace_url(robo_html_namespace_t ns);
+
 /**
  * HTML-specific diagnostic domains. These refine the shared robo_result_t
  * codes for RoboHTML callers without creating a parallel error framework:
@@ -109,7 +148,14 @@ typedef enum robo_html_diagnostic_domain {
      * and broken parent/child/sibling links reported by
      * robo_html_document_validate_tree.
      */
-    ROBO_HTML_DOMAIN_TREE = 11
+    ROBO_HTML_DOMAIN_TREE = 11,
+    /**
+     * Element-model domain (Phase 8.5): element creation rejection (empty
+     * or unusable local name, unknown namespace), a handle that is not an
+     * element, an invalid parent for creation, and element access on a node
+     * whose kind is wrong.
+     */
+    ROBO_HTML_DOMAIN_ELEMENT = 12
 } robo_html_diagnostic_domain_t;
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */

@@ -19,6 +19,7 @@
 #include "RoboGraphics/RoboGraphicsBitmap.h"
 #include "RoboHTML/RoboHTML.h"
 #include "RoboHTML/RoboHTMLDocument.h"
+#include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
@@ -228,15 +229,17 @@ static robo_result_t page_add_block(robo_demo_page_t *page,
  *      → RoboHTML source boundary (8.1)
  *      → RoboHTML tokenizer (8.2)
  *      → RoboHTML tree builder (8.3)      ← real nodes, real ownership
- *      → document tree
+ *      → document tree of elements (8.5)  ← namespace, classification
  *      → this walk (supported subset → block list)
  *      → layout → RoboGraphics → RoboWindow
  *
- * The painted subset is unchanged (h1, p, button plus the <title> window
- * caption), so the picture is identical while the structure beneath it
- * became real. Nesting, sibling order, and text now come from the tree, so
- * markup the old flattening had to approximate (overlapping or nested
- * elements) is simply correct. Phases 9/10/11 replace the walk itself.
+ * Phase 8.5 changed *how* the walk identifies an element, not what it paints:
+ * names go through robo_html_element_is_named and roles come from
+ * robo_html_element_classification, so the demo carries no string comparison
+ * of its own and the decision the real layout engine makes later is already
+ * expressed in element-model terms. The painted subset is otherwise
+ * unchanged (headings, paragraphs, button, and the <title> window caption),
+ * so the picture stays stable. Phases 9/10/11 replace the walk itself.
  */
 
 /** Text copied out of one block (demo-scope, not a real limit). */
@@ -245,19 +248,34 @@ static robo_result_t page_add_block(robo_demo_page_t *page,
 /** Recursion bound for the tree walk. */
 #define DEMO_WALK_DEPTH_MAX 48u
 
-/** Painted style for an element name; 0 when the subset does not paint it. */
-static robo_demo_block_style_t style_for_element(const char *name)
+/**
+ * Painted style for one element; 0 when the demo's subset does not paint it.
+ *
+ * Classification answers the role question (a heading is a heading, whether
+ * it is <h1> or <h6>), and the handle-based name test picks out the two
+ * elements whose role alone is not enough — <title> (metadata the demo shows
+ * as the window caption) and <button> (a control painted as a rectangle).
+ * Everything else is deliberately unpainted.
+ */
+static robo_demo_block_style_t demo_style_for_element(
+    const robo_html_node_handle_t *element,
+    const robo_html_element_view_t *view)
 {
-    if (strcmp(name, "h1") == 0) {
+    if (view->namespace_id != ROBO_HTML_NAMESPACE_HTML) {
+        return (robo_demo_block_style_t)0;
+    }
+    switch (view->classification) {
+    case ROBO_HTML_ELEMENT_CLASS_HEADING:
         return ROBO_DEMO_BLOCK_HEADING;
-    }
-    if (strcmp(name, "p") == 0) {
+    case ROBO_HTML_ELEMENT_CLASS_PARAGRAPH:
         return ROBO_DEMO_BLOCK_PARAGRAPH;
+    default:
+        break;
     }
-    if (strcmp(name, "button") == 0) {
+    if (robo_html_element_is_named(element, "button")) {
         return ROBO_DEMO_BLOCK_BUTTON;
     }
-    if (strcmp(name, "title") == 0) {
+    if (robo_html_element_is_named(element, "title")) {
         return ROBO_DEMO_BLOCK_DOCUMENT_TITLE;
     }
     return (robo_demo_block_style_t)0;
@@ -314,25 +332,28 @@ static robo_result_t walk_subtree(robo_demo_page_t *page,
     }
     for (i = 0u; i < children; i++) {
         robo_html_node_handle_t child;
-        robo_html_node_view_t view;
+        robo_html_element_view_t view;
         robo_demo_block_style_t style;
 
         if (robo_html_node_child_at(node, i, &child, NULL) != ROBO_OK) {
             break;
         }
-        if (robo_html_node_get_view(&child, &view, NULL) != ROBO_OK) {
+        /*
+         * The element model is the filter as well as the classifier: the
+         * call fails for text, comment, doctype and any stale handle, which
+         * is exactly what this loop wants to skip (text is painted through
+         * the element that contains it).
+         */
+        if (robo_html_element_view_get(&child, &view, NULL) != ROBO_OK) {
             continue;
         }
-        if (view.kind != ROBO_HTML_NODE_KIND_ELEMENT) {
-            continue; /* text/comments/doctypes are painted via their element */
-        }
-        style = style_for_element(view.name);
+        style = demo_style_for_element(&child, &view);
         if (style == (robo_demo_block_style_t)0) {
             /* html/head/body are recognised structure; the rest is not in
              * the subset and is counted so tests can assert it. */
-            if (strcmp(view.name, "html") == 0 ||
-                strcmp(view.name, "head") == 0 ||
-                strcmp(view.name, "body") == 0) {
+            if (robo_html_element_is_named(&child, "html") ||
+                robo_html_element_is_named(&child, "head") ||
+                robo_html_element_is_named(&child, "body")) {
                 page->supported_elements++;
             } else {
                 page->ignored_tags++;

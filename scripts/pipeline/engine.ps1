@@ -149,6 +149,7 @@ function Invoke-RoboEngineRuntime {
         [ValidateSet("Debug", "Release")][string]$Configuration = "",
         [switch]$Verify,
         [switch]$Test,
+        [switch]$BuildTests,
         [switch]$Sanitize,
         [string]$Filter = "",
         [switch]$Clean,
@@ -164,6 +165,7 @@ function Invoke-RoboEngineRuntime {
     if ($Clean) { $cmdArgs += "-Clean" }
     if ($Verify) { $cmdArgs += "-Verify" }
     if ($Test) { $cmdArgs += "-Test" }
+    if ($BuildTests) { $cmdArgs += "-BuildTests" }
     if ($Sanitize) { $cmdArgs += "-Sanitize" }
     if ($VerboseTests) { $cmdArgs += "-VerboseTests" }
     if ($Filter) { $cmdArgs += @("-Filter", $Filter) }
@@ -172,7 +174,9 @@ function Invoke-RoboEngineRuntime {
     $detail = @()
     $detail += $Configuration
     if ($Verify) { $detail += "verify" }
-    $detail += $(if ($Test) { if ($Filter) { "test:$Filter" } else { "test" } } else { "no tests" })
+    $detail += $(if ($Test) { if ($Filter) { "test:$Filter" } else { "test" } }
+                 elseif ($BuildTests) { "tests built, not run" }
+                 else { "no tests" })
     if ($Sanitize) { $detail += "sanitize" }
     $name += " (" + ($detail -join ", ") + ")"
 

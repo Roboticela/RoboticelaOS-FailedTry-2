@@ -46,15 +46,37 @@ function Get-RoboRuntimeComponentNames {
 
 function Build-RoboRuntimeForTests {
     <#
-      Builds the runtime and its host test binary. The runtime build script
-      runs its own suite as part of -Test, so this single invocation is both the
-      build and the whole-suite gate; the per-component runs afterwards only
-      exist to report which subsystem failed.
+      Builds the runtime and its host test binary. With the whole suite enabled
+      (the default, and what `test-runtime` and `test-all` want) the runtime
+      build script runs every case as part of -Test, so one invocation is both
+      the build and the whole-suite gate; the per-component runs afterwards only
+      exist to say which subsystem failed.
+
+      A focused command such as `test-html` passes -BuildOnly: it must build the
+      binary without gating on suites it does not own, otherwise an unrelated
+      failure (a host window suite with no foreground session) would be reported
+      against the component the developer actually asked about.
     #>
-    param([switch]$Continue)
+    param([switch]$Continue, [switch]$BuildOnly)
     if ($script:RoboFlag.SkipBuild -and (Test-Path -LiteralPath (Get-RoboRuntimeTestBinary))) { return }
-    Invoke-RoboEngineRuntime -Configuration $script:RoboConfig.RuntimeConfig -Verify -Test `
-        -Continue:$Continue -LogName "build-runtime" | Out-Null
+
+    # The runtime build treats libc.a and crt0/crti/crtn as required inputs, so a
+    # tree that has just been cleaned needs the bare-metal userland step first.
+    # Only pay for it when the archive is genuinely absent: the step is
+    # incremental, but there is no reason to run it on every test command.
+    $libcArchive = Join-Path $script:RoboOut.Libc "libc.a"
+    if (-not (Test-Path -LiteralPath $libcArchive)) {
+        Write-RoboInfo ("libc.a missing - building the bare-metal prerequisites first")
+        Invoke-RoboBuildUserlandCommand
+    }
+
+    if ($BuildOnly) {
+        Invoke-RoboEngineRuntime -Configuration $script:RoboConfig.RuntimeConfig -Verify -BuildTests `
+            -Continue:$Continue -LogName "build-runtime" | Out-Null
+    } else {
+        Invoke-RoboEngineRuntime -Configuration $script:RoboConfig.RuntimeConfig -Verify -Test `
+            -Continue:$Continue -LogName "build-runtime" | Out-Null
+    }
 }
 
 function Invoke-RoboRuntimeTestFilter {
@@ -199,7 +221,10 @@ $script:RoboKernelBootMarkers = @(
     "USER_ROBOFS_OK",
     "\[PASS\] DRIVER SYSTEM",
     "\[PASS\] STORAGE DRIVER",
-    "\[PASS\] NETWORK"
+    # The kernel's network marker is "NETWORK STACK". Bare "NETWORK" belongs to
+    # the guest's nettest program - matching it here would both credit the kernel
+    # with a user-space verdict and match it by accident, as a substring.
+    "\[PASS\] NETWORK STACK"
 )
 
 # The kernel prints its own verdict for every suite it runs; any of these means a
@@ -212,7 +237,8 @@ $script:RoboKernelFailPatterns = @(
     "\[FAIL\] ROBOFS v1",
     "\[FAIL\] DRIVER SYSTEM",
     "\[FAIL\] STORAGE DRIVER",
-    "\[FAIL\] NETWORK",
+    # kernel/net/core/network.c prints this when there is no interface at all.
+    "\[FAIL\] NETWORK  no interface",
     "KERNEL PANIC\s*$\r?\n\s*Kernel halted",
     "USER_ROBOFS_FAIL"
 )
@@ -231,7 +257,8 @@ $script:RoboUserSpaceMarkers = @(
     "\[PASS\] Window Server",
     "\[PASS\] RoboCompositor",
     "\[PASS\] INIT PROCESS",
-    "\[PASS\] LIBC"
+    "\[PASS\] LIBC",
+    "\[PASS\] NETWORK"
 )
 
 # The guest reports its own failures by name; surface them as the gate failure.
@@ -239,7 +266,9 @@ $script:RoboUserSpaceFailPatterns = @(
     "\[FAIL\] LIBC",
     "\[FAIL\] Window Server",
     "\[FAIL\] RoboCompositor",
-    "\[FAIL\] INIT PROCESS"
+    "\[FAIL\] INIT PROCESS",
+    # user/nettest/main.c - the guest's own network client test
+    "\[FAIL\] NETWORK\r?$"
 )
 
 $script:RoboDisplayMarkers = @(
@@ -501,7 +530,7 @@ function Invoke-RoboTestComponent {
         }
         return
     }
-    Build-RoboRuntimeForTests -Continue:$Continue
+    Build-RoboRuntimeForTests -Continue:$Continue -BuildOnly
     Invoke-RoboRuntimeComponentTest -Component $Component -Continue:$Continue
 }
 
@@ -520,16 +549,27 @@ function Invoke-RoboTestE2E {
     $script:RoboFlag.Rebuild = $true
     Invoke-RoboBuildAll
 
+    # Every stage runs even when an earlier one failed, so one invocation
+    # reports the whole chain instead of stopping at the first fault. The
+    # command still exits non-zero - a continued failure is recorded, not
+    # excused.
     $script:RoboFlag.SkipQemu = $false
-    Invoke-RoboQemuKernelTest
-    Invoke-RoboQemuUserSpaceTest
-    Invoke-RoboQemuDisplayTest
+    Invoke-RoboQemuKernelTest -Continue
+    Invoke-RoboQemuUserSpaceTest -Continue
+    Invoke-RoboQemuDisplayTest -Continue
 
-    Invoke-RoboStep -Name "deployment artifact" -Layer "E2E" -Action {
+    Invoke-RoboStep -Name "deployment artifact" -Layer "E2E" -Continue -Action {
         if (-not (Invoke-RoboValidateDeployment)) {
             throw "deployment validation failed; see the report above"
         }
     } | Out-Null
 
-    return (-not $script:RoboFailed)
+    if ($script:RoboFailed) {
+        $failed = @($script:RoboResults.Suites |
+            Where-Object { $_.status -eq "fail" } | ForEach-Object { $_.name })
+        Write-RoboFail ("end-to-end chain failed at: " + ($failed -join ", "))
+        return $false
+    }
+    Write-RoboPass "end-to-end chain complete"
+    return $true
 }

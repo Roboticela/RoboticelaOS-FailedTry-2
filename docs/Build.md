@@ -69,13 +69,17 @@ Run `scripts/robo help` for the live list.
 | `build-image` | UEFI app, ESP, and the bootable GPT disk image |
 
 `build-all` runs in dependency order and refuses to report success unless each
-artifact exists and is non-empty:
+artifact exists and is non-empty. The order is a real dependency, not a
+preference: the runtime's own build treats `libc.a`, `crt0/crti/crtn` and the
+linker script as required *inputs*, so libc/userland must be built first.
 
 ```
-assets ─┐
-        ├─> bootloader EFI ─┐
-runtime ┘                   ├─> kernel.elf ─> ESP/GPT image ─> deploy tree ─> manifest
-libc ───> userland ─────────┘
+assets ─────────────────────┐
+libc ──> userland ─┬─> runtime ┴─> bootloader EFI ─┐
+                   │                               ├─> kernel.elf ─> ESP/GPT image
+                   └───────────────────────────────┘                     │
+                                                                         v
+deploy tree (build/dist) ─> artifacts + deployment manifest (build/deploy/deployment.json)
 ```
 
 ### Test
@@ -238,17 +242,27 @@ used before you run anything.
   affected — the mock and null backends cover the same API headlessly.
 - **The guest's user-space selftests are not all green yet.**
   `test-qemu-userspace` boots with the `ktest` flag and gates on the verdicts
-  the guest itself prints. It currently fails, with the reason quoted verbatim
-  from the serial log:
-  `[FAIL] Connected` / `[FAIL] Window Server` (there is no window-server
-  service in `user/init/config.c` yet — the file's own comment says compositor
-  and window server "return when that stack is ready") and `[FAIL] sockets` /
-  `[FAIL] LIBC` (the libc socket test needs a server on the forwarded port).
-  `[PASS] RoboCompositor` and `[PASS] INIT PROCESS` are listed as markers but
-  cannot be reached in this boot: no compositor service is configured, and init
-  prints its summary only after every service has exited while `robo-runtime`
-  runs for the whole boot. The gate is deliberately red until those components
-  land; it is never downgraded to a skip or a pass.
+  the guest's own programs print. It currently fails, with the reason quoted
+  verbatim from the serial log — `[FAIL] Connected` / `[FAIL] Window Server`
+  (there is no window-server service in `user/init/config.c` yet; the file's own
+  comment says compositor and window server "return when that stack is ready"),
+  `[FAIL] sockets` / `[FAIL] LIBC` (the libc socket test needs a server on the
+  forwarded port), and `[FAIL] NETWORK` from `user/nettest`, which is timing
+  sensitive against the host echo server. `[PASS] RoboCompositor` and
+  `[PASS] INIT PROCESS` are listed as markers but cannot be reached in this
+  boot: no compositor service is configured, and init prints its summary only
+  after every service has exited while `robo-runtime` runs for the whole boot.
+  The gate is deliberately red until those components land; it is never
+  downgraded to a skip or a pass.
+- **Kernel and user-space QEMU gates are deliberately separate.**
+  `test-qemu-kernel` requires only markers the kernel prints (including
+  `[PASS] NETWORK STACK` and `[FAIL] NETWORK  no interface`) and fails if any
+  kernel suite reports `[FAIL]`, so a kernel regression is named as a kernel
+  regression. `[PASS] NETWORK`, `[PASS] LIBC`, `[PASS] Window Server` and the
+  rest are verdicts of guest programs and belong to `test-qemu-userspace`. The
+  two were conflated at first, which let bare `[PASS] NETWORK` match
+  `[PASS] NETWORK STACK` as a substring — worth knowing if you extend the
+  marker lists: anchor a marker that is a prefix of another.
 - **The QEMU disk attachment falls back automatically.** `test-qemu-*` and
   `run-kernel` try the configured disk mode (default `ide`) and, if the firmware
   finds nothing bootable, retry as `virtio-blk`. A failure lists exactly which

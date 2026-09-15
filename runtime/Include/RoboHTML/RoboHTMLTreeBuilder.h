@@ -329,6 +329,9 @@ typedef robo_result_t (*robo_html_tree_sink_fn)(const char *text,
  * are quoted and truncated with `...` past a fixed budget so a single huge
  * text node cannot flood the sink. Bounded iterations: a corrupted link
  * cycle terminates instead of hanging.
+ *
+ * Element names are printed bare in the HTML namespace and prefixed
+ * (`svg:`, `mathml:`) otherwise — same local name, different element.
  */
 robo_result_t robo_html_tree_dump(robo_html_document_id_t document_id,
                                   robo_html_tree_sink_fn sink,

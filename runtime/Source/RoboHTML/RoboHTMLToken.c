@@ -229,7 +229,24 @@ robo_result_t robo_html_token_pool_next(robo_html_token_pool_t *pool,
         pool->entries = grown;
         pool->capacity = cap;
     }
-    *out = &pool->entries[pool->count++];
+    {
+        robo_html_token_attr_entry_t *entry = &pool->entries[pool->count++];
+
+        /*
+         * An entry is only ever handed out to start a *new* attribute, so it
+         * must arrive empty. The pool is reused across tokens and across
+         * attributes within one token: rewinding the cursor
+         * (robo_html_token_pool_clear) is the cheap half of that reuse, and
+         * this is the half that makes it correct. Without it the tokenizer
+         * *appends* to whatever the previous token left in the slot —
+         * `<div class=... id=...>` followed by `<input disabled value=...>`
+         * produced "idvalue" as an attribute name — silently corrupting
+         * every attribute that reuses a pool slot.
+         */
+        robo_html_token_buffer_clear(&entry->name);
+        robo_html_token_buffer_clear(&entry->value);
+        *out = entry;
+    }
     return ROBO_OK;
 }
 

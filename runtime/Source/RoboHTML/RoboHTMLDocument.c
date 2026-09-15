@@ -588,10 +588,13 @@ robo_result_t robo_html_document_register_node(
     robo_html_node_handle_t h;
     size_t i;
 
-    (void)origin; /* Diagnostic metadata only in 8.1. */
     if (!slot) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "unknown document id");
+    }
+    if (!robo_html_node_origin_is_known(origin)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
+                              ROBO_INVALID_ARGUMENT, "unknown node origin");
     }
     if (!robo_html_node_kind_is_known(kind)) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
@@ -627,6 +630,7 @@ robo_result_t robo_html_document_register_node(
     e->id = h.node_id;
     e->generation = h.generation;
     e->kind = kind;
+    e->origin = (uint32_t)origin;
     slot->nodes.used++;
     slot->nodes.next_generation++;
     if (out_handle) {

@@ -122,7 +122,11 @@ typedef struct robo_html_token_attr_entry {
     robo_html_token_buffer_t value;
 } robo_html_token_attr_entry_t;
 
-/** Attribute pool reused across tokens (entries reset per token). */
+/**
+ * Attribute pool reused across tokens. robo_html_token_pool_next hands out
+ * an entry that has already been reset, so a reused slot can never carry a
+ * previous token's name or value into the next one.
+ */
 typedef struct robo_html_token_pool {
     robo_html_token_attr_entry_t *entries;
     size_t count;
@@ -173,7 +177,12 @@ typedef struct robo_html_payload_header {
     uint32_t length;     /* payload bytes after this header */
     uint32_t attr_count; /* ELEMENT only */
     uint32_t flags;      /* ELEMENT only; see ROBO_HTML_PAYLOAD_FLAG_* */
-    uint32_t reserved;
+    /**
+     * ELEMENT only: the element's namespace (a robo_html_namespace_t).
+     * Namespaces belong to the element, not to the name string, so they are
+     * stored once per element rather than being folded into the tag name.
+     */
+    uint32_t ns;
 } robo_html_payload_header_t;
 
 /** Element payload flag: the source had "/>". */
@@ -284,6 +293,7 @@ robo_result_t robo_html_payload_write_element(
     const robo_html_attr_view_t *attrs,
     size_t attr_count,
     int self_closing,
+    robo_html_namespace_t ns,
     robo_html_diag_t *diag);
 
 /** Write a text/comment payload; on success records the range on @p entry. */
@@ -337,6 +347,11 @@ const char *robo_html_payload_text(const robo_html_document_slot_t *slot,
 /** Non-zero when the element payload recorded "/>" in the source. */
 int robo_html_payload_self_closing(const robo_html_document_slot_t *slot,
                                    const robo_html_node_entry_t *entry);
+
+/** Stored element namespace; NONE when the node is not an element. */
+robo_html_namespace_t robo_html_payload_namespace(
+    const robo_html_document_slot_t *slot,
+    const robo_html_node_entry_t *entry);
 
 /** Borrowed DOCTYPE parts (absent parts are ""). */
 void robo_html_payload_doctype(const robo_html_document_slot_t *slot,

@@ -4,7 +4,13 @@
 #   .\runtime\Tools\Build.ps1 -Configuration Release -Verify -Test
 #   .\runtime\Tools\Build.ps1 -Configuration Debug -Test -Filter base
 #   .\runtime\Tools\Build.ps1 -Configuration Debug -Test -Sanitize
+#   .\runtime\Tools\Build.ps1 -Configuration Debug -BuildTests
 #   .\runtime\Tools\Build.ps1 -Clean
+#
+# -Test builds the host suite and runs it; -BuildTests only builds it. The
+# distinction matters to the pipeline: a focused command such as `test-html`
+# needs the binary to exist but must not run (and therefore must not fail on)
+# suites it does not own.
 
 [CmdletBinding()]
 param(
@@ -13,6 +19,7 @@ param(
     [switch]$Clean,
     [switch]$Verify,
     [switch]$Test,
+    [switch]$BuildTests,
     [switch]$Sanitize,
     [string]$Filter = "",
     [switch]$VerboseTests
@@ -319,6 +326,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTokenizerStates.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTreeBuilder.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLDocumentModel.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLElement.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -778,7 +786,7 @@ if ($Verify) {
 # Gating it on -Test (which this script's own usage header has always
 # documented, and which every test caller already passes) lets the pipeline's
 # build step build without running tests, while test steps run everything here.
-if (-not $Test) {
+if (-not $Test -and -not $BuildTests) {
     Write-Host "BUILD OK: production runtime ($Configuration) - host suite skipped (pass -Test to build and run it)"
     exit 0
 }
@@ -795,6 +803,14 @@ $hostSrcs = $ProdSrcs + $DemoSrcs + @(
 & $clang @hostFlags -o $HostTest @hostSrcs "-luser32" "-lgdi32"
 if ($LASTEXITCODE -ne 0) { throw "Host RoboTest compile failed" }
 Write-Host "Build OK: $HostTest (tests only)"
+
+# -BuildTests stops here: the artifact exists and can be run by a filtered test
+# command, but this invocation does not run - and so cannot fail on - suites it
+# was not asked about.
+if (-not $Test) {
+    Write-Host "BUILD OK: $HostTest built (suite not run; pass -Test to run it)"
+    exit 0
+}
 
 $testArgs = @()
 if ($Filter) { $testArgs += "--filter=$Filter" }

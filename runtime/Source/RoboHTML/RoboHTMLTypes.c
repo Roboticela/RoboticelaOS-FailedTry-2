@@ -35,6 +35,50 @@ const char *robo_html_node_kind_name(robo_html_node_kind_t kind)
     }
 }
 
+int robo_html_namespace_is_known(robo_html_namespace_t ns)
+{
+    switch (ns) {
+    case ROBO_HTML_NAMESPACE_NONE:
+    case ROBO_HTML_NAMESPACE_HTML:
+    case ROBO_HTML_NAMESPACE_SVG:
+    case ROBO_HTML_NAMESPACE_MATHML:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+const char *robo_html_namespace_name(robo_html_namespace_t ns)
+{
+    switch (ns) {
+    case ROBO_HTML_NAMESPACE_NONE:
+        return "none";
+    case ROBO_HTML_NAMESPACE_HTML:
+        return "html";
+    case ROBO_HTML_NAMESPACE_SVG:
+        return "svg";
+    case ROBO_HTML_NAMESPACE_MATHML:
+        return "mathml";
+    default:
+        return "unknown";
+    }
+}
+
+const char *robo_html_namespace_url(robo_html_namespace_t ns)
+{
+    switch (ns) {
+    case ROBO_HTML_NAMESPACE_HTML:
+        return "http://www.w3.org/1999/xhtml";
+    case ROBO_HTML_NAMESPACE_SVG:
+        return "http://www.w3.org/2000/svg";
+    case ROBO_HTML_NAMESPACE_MATHML:
+        return "http://www.w3.org/1998/Math/MathML";
+    case ROBO_HTML_NAMESPACE_NONE:
+    default:
+        return "";
+    }
+}
+
 int robo_html_diagnostic_domain_is_known(robo_html_diagnostic_domain_t domain)
 {
     switch (domain) {
@@ -50,6 +94,7 @@ int robo_html_diagnostic_domain_is_known(robo_html_diagnostic_domain_t domain)
     case ROBO_HTML_DOMAIN_MUTATION:
     case ROBO_HTML_DOMAIN_RENDER:
     case ROBO_HTML_DOMAIN_TREE:
+    case ROBO_HTML_DOMAIN_ELEMENT:
         return 1;
     default:
         return 0;
@@ -83,6 +128,8 @@ const char *robo_html_diagnostic_domain_name(robo_html_diagnostic_domain_t domai
         return "render";
     case ROBO_HTML_DOMAIN_TREE:
         return "tree";
+    case ROBO_HTML_DOMAIN_ELEMENT:
+        return "element";
     default:
         return "unknown";
     }

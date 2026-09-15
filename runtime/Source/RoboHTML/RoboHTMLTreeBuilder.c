@@ -425,48 +425,48 @@ static robo_result_t register_node(robo_html_tree_builder_t *builder,
 }
 
 /**
- * Create an element, record its payload, and link it under @p parent_id.
- * Pushing onto the open-element stack is the caller's decision (void and
- * self-closing elements are never pushed).
+ * Create an element as the last child of @p parent_id.
+ *
+ * Phase 8.5 moved element creation behind robo_html_element_create, so the
+ * builder no longer registers, encodes and links by hand: it describes the
+ * element and the element model enforces ownership, lifecycle, namespace
+ * and the lowercase-name invariant in one place. Pushing onto the
+ * open-element stack is still the caller's decision (void and self-closing
+ * elements are never pushed).
  */
 static robo_result_t create_element(robo_html_tree_builder_t *builder,
                                     robo_html_node_id_t parent_id,
                                     const char *name,
-                                    size_t name_length,
                                     const robo_html_attr_view_t *attrs,
                                     size_t attr_count,
                                     int self_closing,
                                     robo_html_node_handle_t *out_handle,
                                     robo_html_diag_t *diag)
 {
-    robo_html_document_slot_t *slot = builder_slot(builder);
-    robo_html_node_handle_t h;
-    robo_html_node_entry_t *entry;
+    const robo_html_node_entry_t *parent_entry;
+    robo_html_element_create_info_t info;
     robo_result_t r;
 
-    if (!slot) {
+    parent_entry = robo_html_node_entry_get(builder->document_id, parent_id);
+    if (!parent_entry) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
-                              "document was destroyed during the build");
+                              "parent node does not resolve");
     }
-    r = register_node(builder, ROBO_HTML_NODE_KIND_ELEMENT, &h, diag);
-    if (r != ROBO_OK) {
-        return r;
+    robo_html_element_create_info_init(&info);
+    info.parent = robo_html_node_handle_make(builder->document_id,
+                                             parent_entry);
+    info.origin = ROBO_HTML_NODE_ORIGIN_PARSER;
+    info.namespace_id = ROBO_HTML_NAMESPACE_HTML;
+    info.local_name = name;
+    info.attributes = attrs;
+    info.attribute_count = attr_count;
+    info.self_closing = self_closing;
+
+    r = robo_html_element_create(builder->document_id, &info, out_handle, diag);
+    if (r == ROBO_OUT_OF_MEMORY) {
+        mark_truncated(builder);
     }
-    entry = robo_html_node_entry_mut(builder->document_id, h.node_id);
-    r = robo_html_payload_write_element(slot, entry, name, name_length, attrs,
-                                        attr_count, self_closing, diag);
-    if (r != ROBO_OK) {
-        return r;
-    }
-    r = robo_html_node_link_child(builder->document_id, parent_id, h.node_id,
-                                  diag);
-    if (r != ROBO_OK) {
-        return r;
-    }
-    if (out_handle) {
-        *out_handle = h;
-    }
-    return ROBO_OK;
+    return r;
 }
 
 /** Create a text or comment node carrying @p bytes. */
@@ -609,8 +609,8 @@ static robo_result_t insert_element(robo_html_tree_builder_t *builder,
     if (parent == ROBO_HTML_NODE_ID_NONE) {
         parent = builder->root.node_id;
     }
-    r = create_element(builder, parent, name, strlen(name), attrs, attr_count,
-                       self_closing, &h, diag);
+    r = create_element(builder, parent, name, attrs, attr_count, self_closing,
+                       &h, diag);
     if (r != ROBO_OK) {
         return r;
     }
@@ -638,7 +638,7 @@ static robo_result_t ensure_html(robo_html_tree_builder_t *builder,
     if (handle_is_live(&builder->html)) {
         return ROBO_OK;
     }
-    r = create_element(builder, builder->root.node_id, "html", 4u, attrs,
+    r = create_element(builder, builder->root.node_id, "html", attrs,
                        attr_count, 0, &h, diag);
     if (r != ROBO_OK) {
         return r;
@@ -662,7 +662,7 @@ static robo_result_t ensure_head(robo_html_tree_builder_t *builder,
         return r;
     }
     parent = builder->html.node_id;
-    r = create_element(builder, parent, "head", 4u, NULL, 0u, 0, &h, diag);
+    r = create_element(builder, parent, "head", NULL, 0u, 0, &h, diag);
     if (r != ROBO_OK) {
         return r;
     }
@@ -683,8 +683,8 @@ static robo_result_t ensure_body(robo_html_tree_builder_t *builder,
     if (r != ROBO_OK) {
         return r;
     }
-    r = create_element(builder, builder->html.node_id, "body", 4u, NULL, 0u, 0,
-                       &h, diag);
+    r = create_element(builder, builder->html.node_id, "body", NULL, 0u, 0, &h,
+                       diag);
     if (r != ROBO_OK) {
         return r;
     }
@@ -1014,7 +1014,7 @@ static robo_result_t mode_before_head(robo_html_tree_builder_t *builder,
             robo_html_node_handle_t h;
 
             stage_attrs(tok, attrs, &attr_count, builder);
-            r = create_element(builder, builder->html.node_id, "head", 4u, attrs,
+            r = create_element(builder, builder->html.node_id, "head", attrs,
                                attr_count, 0, &h, diag);
             if (r != ROBO_OK) {
                 return r;
@@ -1178,7 +1178,7 @@ static robo_result_t mode_after_head(robo_html_tree_builder_t *builder,
             robo_html_node_handle_t h;
 
             stage_attrs(tok, attrs, &attr_count, builder);
-            r = create_element(builder, builder->html.node_id, "body", 4u, attrs,
+            r = create_element(builder, builder->html.node_id, "body", attrs,
                                attr_count, 0, &h, diag);
             if (r != ROBO_OK) {
                 return r;
@@ -2367,13 +2367,29 @@ static robo_result_t dump_one(robo_html_document_slot_t *slot,
         break;
     }
     case ROBO_HTML_NODE_KIND_ELEMENT: {
+        robo_html_namespace_t ns = robo_html_payload_namespace(slot, e);
         size_t name_length = 0u;
         const char *name = robo_html_payload_element_name(slot, e,
                                                           &name_length);
         size_t attrs = robo_html_payload_attr_count(slot, e);
         size_t i;
 
-        r = dump_write(w, name, name_length);
+        /*
+         * An element from another namespace prints its namespace, because
+         * the same local name in another namespace is a different element.
+         * HTML names stay unprefixed, so the common dump is unchanged.
+         */
+        if (ns != ROBO_HTML_NAMESPACE_HTML && ns != ROBO_HTML_NAMESPACE_NONE) {
+            r = dump_str(w, robo_html_namespace_name(ns));
+            if (r == ROBO_OK) {
+                r = dump_str(w, ":");
+            }
+        } else {
+            r = ROBO_OK;
+        }
+        if (r == ROBO_OK) {
+            r = dump_write(w, name, name_length);
+        }
         for (i = 0u; r == ROBO_OK && i < attrs; i++) {
             const char *an = "";
             const char *av = "";

@@ -182,7 +182,12 @@ function Invoke-RoboBuildAll {
 
     Invoke-RoboBuildCheck
 
+    # Order is the real dependency order, not the declaration order of the
+    # commands. The runtime's own build treats libc.a, crt0/crti/crtn and the
+    # linker script as required *inputs*, so the bare-metal userland step (which
+    # produces them) has to run before the runtime build, not after it.
     Invoke-RoboBuildAssets
+    Invoke-RoboBuildUserlandCommand
     Invoke-RoboBuildRuntimeCommand
     Invoke-RoboBuildBootloader
     Invoke-RoboBuildBootloaderTests

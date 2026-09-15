@@ -125,6 +125,12 @@ typedef struct robo_html_node_entry {
     robo_html_node_id_t id;
     uint32_t generation;
     robo_html_node_kind_t kind;
+    /**
+     * Creation site of the node, stored as a robo_html_node_origin_t value
+     * (RoboHTMLDom.h). Recorded so element state can distinguish a node the
+     * parser built from one the future DOM created — the kind alone cannot.
+     */
+    uint32_t origin;
 
     /* Tree links (ROBO_HTML_NODE_ID_NONE = absent). */
     robo_html_node_id_t parent;

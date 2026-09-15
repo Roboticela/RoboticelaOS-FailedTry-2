@@ -8,6 +8,7 @@
  *   header.length           payload bytes following the header
  *   header.attr_count       attribute entries following the name
  *   header.flags            ROBO_HTML_PAYLOAD_FLAG_*
+ *   header.ns               element namespace (robo_html_namespace_t)
  *
  *   ELEMENT        name '\0'
  *                  then attr_count × ([u32 name_len][u32 value_len] name '\0' value '\0')
@@ -130,6 +131,7 @@ robo_result_t robo_html_payload_write_element(
     const robo_html_attr_view_t *attrs,
     size_t attr_count,
     int self_closing,
+    robo_html_namespace_t ns,
     robo_html_diag_t *diag)
 {
     const char *safe_name = name ? name : "";
@@ -182,7 +184,7 @@ robo_result_t robo_html_payload_write_element(
     hdr->length = (uint32_t)body;
     hdr->attr_count = (uint32_t)attr_count;
     hdr->flags = self_closing ? ROBO_HTML_PAYLOAD_FLAG_SELF_CLOSING : 0u;
-    hdr->reserved = 0u;
+    hdr->ns = (uint32_t)ns;
     robo_html_node_set_payload(entry, offset, (uint32_t)total);
     return ROBO_OK;
 }
@@ -220,7 +222,7 @@ robo_result_t robo_html_payload_write_text(robo_html_document_slot_t *slot,
     hdr->length = (uint32_t)body;
     hdr->attr_count = 0u;
     hdr->flags = 0u;
-    hdr->reserved = 0u;
+    hdr->ns = (uint32_t)ROBO_HTML_NAMESPACE_NONE;
     robo_html_node_set_payload(entry, offset, (uint32_t)total);
     return ROBO_OK;
 }
@@ -316,7 +318,7 @@ robo_result_t robo_html_payload_write_doctype(robo_html_document_slot_t *slot,
     hdr->length = (uint32_t)body;
     hdr->attr_count = 0u;
     hdr->flags = 0u;
-    hdr->reserved = 0u;
+    hdr->ns = (uint32_t)ROBO_HTML_NAMESPACE_NONE;
     robo_html_node_set_payload(entry, offset, (uint32_t)total);
     return ROBO_OK;
 }
@@ -460,6 +462,21 @@ int robo_html_payload_self_closing(const robo_html_document_slot_t *slot,
         return 0;
     }
     return (hdr->flags & ROBO_HTML_PAYLOAD_FLAG_SELF_CLOSING) ? 1 : 0;
+}
+
+robo_html_namespace_t robo_html_payload_namespace(
+    const robo_html_document_slot_t *slot,
+    const robo_html_node_entry_t *entry)
+{
+    const robo_html_payload_header_t *hdr = payload_get(slot, entry);
+
+    if (!hdr || entry->kind != ROBO_HTML_NODE_KIND_ELEMENT) {
+        return ROBO_HTML_NAMESPACE_NONE;
+    }
+    if (!robo_html_namespace_is_known((robo_html_namespace_t)hdr->ns)) {
+        return ROBO_HTML_NAMESPACE_NONE;
+    }
+    return (robo_html_namespace_t)hdr->ns;
 }
 
 void robo_html_payload_doctype(const robo_html_document_slot_t *slot,
