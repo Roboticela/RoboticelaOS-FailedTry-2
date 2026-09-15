@@ -262,6 +262,14 @@ used before you run anything.
 - **`chromium/` is reference material.** It is never compiled, never linked and
   never added to an include path. `robo check` verifies this on every run, and
   `-Verify` repeats the deeper per-subsystem scan during the runtime build.
+- **Machine-readable results are validated, not just written.**
+  `validate-deployment` re-reads every `build/test-results/*.json`, every
+  `.junit.xml` and the deploy manifest and fails if any of them does not parse.
+  The pipeline writes them BOM-free on purpose: `Set-Content -Encoding utf8`
+  adds a byte-order mark on Windows PowerShell 5.1 (but not on pwsh 7) and
+  `json.load` rejects a BOM outright. Captured sub-process output is stripped of
+  terminal escape sequences before it is recorded, because those bytes are
+  illegal in XML 1.0 and would otherwise make the JUnit file unparseable.
 - **The project is Windows-host only.** The toolchain, the UEFI image and the
   host preview all target `x86_64-pc-windows-msvc` host tooling.
 
@@ -302,6 +310,9 @@ scripts/
     commands.run.ps1       run commands
     commands.deploy.ps1    deployment, validation, flashing
     validate_image.py      read-only GPT + FAT16 image validator
+    dev/
+      check-artifacts.py   parses every results JSON/JUnit/manifest; no BOM
+      update-doc-commands.py  one-off helper used when the commands were renamed
   roboboot-build-common.ps1  the bare-metal build engine (bootloader/kernel/ESP)
   roboboot-qemu-common.ps1   QEMU process management
   net-echo-server.py         loopback server the OS's network tests use

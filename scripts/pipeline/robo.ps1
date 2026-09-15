@@ -271,7 +271,7 @@ function Get-RoboCommands {
         -Handler { Invoke-RoboTestComponent -Component "qemu-boot"; return $true }
 
     $cmds += New-RoboCommand -Name "test-qemu-kernel" -Group test `
-        -Summary "QEMU: kernel and OS selftests under UEFI" `
+        -Summary "QEMU: kernel and OS core selftests under UEFI" `
         -Handler { Invoke-RoboTestComponent -Component "qemu-kernel"; return $true }
 
     $cmds += New-RoboCommand -Name "test-qemu-userspace" -Group test `
