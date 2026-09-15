@@ -359,9 +359,23 @@ static robo_result_t walk_subtree(robo_demo_page_t *page,
                 page->ignored_tags++;
             }
         } else {
+            page->supported_elements++;
+        }
+        /*
+         * The demo's one piece of attribute-driven behaviour, and the reason
+         * it consults the attribute model at all: `hidden` means "do not
+         * render", so the element is recognised and counted but paints
+         * nothing and its subtree is not entered. Nothing in the shipped
+         * demo document carries the attribute, so the picture is unchanged —
+         * this is the seam a real style engine replaces, not a second style
+         * rule.
+         */
+        if (robo_html_element_has_attribute(&child, "hidden")) {
+            continue;
+        }
+        if (style != (robo_demo_block_style_t)0) {
             char text[DEMO_BLOCK_TEXT_MAX];
 
-            page->supported_elements++;
             block_text_of(&child, text, sizeof(text));
             if (text[0] != '\0') {
                 if (style == ROBO_DEMO_BLOCK_DOCUMENT_TITLE) {

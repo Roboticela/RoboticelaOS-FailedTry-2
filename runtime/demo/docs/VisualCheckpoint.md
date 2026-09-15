@@ -10,6 +10,9 @@ path from HTML source to pixels on a real screen, on both the host OS and QEMU.
 | RoboHTML source/document boundary (8.1) | yes |
 | RoboHTML tokenizer (8.2) | yes |
 | RoboHTML tree builder (8.3) | yes — the walk reads a real document tree |
+| RoboHTML document model (8.4) | yes — the walk reads the document the builder populated |
+| RoboHTML element model (8.5) | yes — elements are identified through it, not by raw names |
+| RoboHTML attribute model (8.6) | yes — the walk reads `hidden` from the real attribute set |
 | RoboGraphics primitives, surface, PNG export (6.x) | yes |
 | RoboWindow + RoboDisplay + host/QEMU backends (7.x) | yes |
 | RoboWindow keyboard/mouse events (7.10/7.11) | yes — drives the button states |
@@ -47,13 +50,28 @@ has no filesystem in this path.
    the 8.1 source boundary.
 2. A temporary RoboHTML **document** is created and the **tree builder**
    (`robo_html_build_tree`) turns the source into a real document tree.
-3. The page **walks that tree** in document order. For each element:
-   - `h1` / `p` / `button` → a block whose text is the element's subtree text,
-     whitespace-collapsed;
+3. The page **walks that tree** in document order. An element is identified
+   through the 8.5 **element model** — `robo_html_element_view_get` is the kind
+   filter (it fails for text, comment, doctype and stale handles),
+   `robo_html_element_is_named` does the comparison, and the role comes from
+   `robo_html_element_classification`. For each element:
+   - any `HEADING` (`h1` … `h6`) → heading block, text = the element's subtree
+     text, whitespace-collapsed;
+   - `PARAGRAPH` (`p`) → paragraph block, same text rule;
+   - `button` → the button block;
    - `title` → the window caption;
    - `html` / `head` / `body` → recognised structure, counted;
    - anything else → counted as unsupported, and its subtree is still walked so
-     supported markup nested inside it is painted.
+     supported markup nested inside it is painted. Non-HTML-namespace elements
+     are not painted.
+
+   One rule is attribute-driven: an element carrying `hidden` (checked through
+   the 8.6 attribute model) is recognised and counted but paints nothing, and
+   its subtree is not entered. It is the walk's only use of the attribute set,
+   and it is deliberately a rule with *visible* consequences — `id`/`class` on
+   the demo document cannot change the picture, so they could not show that the
+   seam works. Nothing in the shipped demo document carries `hidden`, so the
+   checkpoint's output is unchanged; `demo.tree.attribute_hidden` covers it.
 4. The temporary document is destroyed — the page owns copies of the text it
    keeps, so nothing borrows the document afterwards.
 5. `robo_demo_page_layout()` flows the blocks vertically for the target size.

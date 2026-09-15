@@ -616,7 +616,7 @@ static void test_tb_attributes(void)
     robo_html_tree_result_t r;
     robo_html_node_handle_t a;
     robo_html_element_view_t view;
-    robo_html_attr_view_t attr;
+    robo_html_attribute_t attr;
 
     tb_fixture_begin();
     id = tb_doc();

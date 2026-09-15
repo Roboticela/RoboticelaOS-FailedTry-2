@@ -1,9 +1,10 @@
 # RoboHTML
 
 HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
-Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model**).
+Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model +
+Phase 8.5 element model + Phase 8.6 attribute model**).
 
-**Version:** 0.4.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.6.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -45,9 +46,33 @@ reuse (`reset`), and on-demand whole-tree invariant auditing
 however often a document is re-parsed, while generations — not ids — are what
 make a stale handle detectable. See `docs/DocumentModel.md`.
 
-**No DOM behaviour** — mutation APIs, events and the DOM phase come later.
+**8.5 (element model):** the element becomes a first-class part of the model
+without becoming a second ownership system — an element *is* a node. Adds a
+per-element namespace (`HTML`/`SVG`/`MathML`, with URIs as constants) and a
+derived classification (`root`/`metadata`/`section`/`heading`/`paragraph`/
+`text`/`replaced`/`control`, `generic` for anything unrecognised), an element
+state mask (parser-created / connected / self-closing), the attribute read
+boundary that Phase 8.6 will replace, and `robo_html_element_create` as the
+single construction seam the tree builder already goes through and the future
+DOM will. Stored names are lowercase ASCII for the DOM seam as well as for
+parser input, and a name too long to normalize is stored verbatim rather than
+truncated. See `docs/ElementModel.md`.
+
+**8.6 (attribute model):** attributes stop being a payload detail and become
+the runtime's single attribute representation — one `robo_html_attribute_t`
+staged by the tokenizer, stored by the tree builder, owned by the element and
+returned by the readers. Deterministic stored order, `set`/`add`/`remove` with
+defined duplicate and case semantics, presence that is a *record* rather than
+a non-empty value (`<input disabled>` and `<input disabled="">` are both
+present-and-empty, and both distinct from absent), a bounded table that
+refuses rather than truncates, and a mutation implemented as a measured
+payload rewrite so borrowed bytes never dangle. See `docs/AttributeModel.md`.
+
+**No DOM behaviour** — `NamedNodeMap`, `getElementById`, `querySelector`,
+`classList`, `dataset`, events and the rest of the DOM surface come later.
 Finalization closes *tree construction*, not the document: it is deliberately
-not a lock against the future DOM.
+not a lock against the future DOM, and attribute mutation stays available
+after it.
 The tokenizer stays independent of the tree builder: it never constructs a
 tree, never knows an element's meaning, and never touches
 CSS/layout/paint/JS/network. The tree builder is the only consumer that turns
@@ -63,6 +88,9 @@ registration.
 | `runtime/html/tests/` | Suites (`html.*`, acceptance `html.p8.*`) |
 | `runtime/html/docs/` | Design docs |
 
+Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
+`ElementModel.md`, `AttributeModel.md`.
+
 ## Public headers
 
 | Header | Boundary |
@@ -74,7 +102,7 @@ registration.
 | `RoboHTMLDocument.h` | Document create / attach / register / metadata / finalize / reset / ownership / validate / destroy |
 | `RoboHTMLNode.h` | Node handles, generation-guarded registry |
 | `RoboHTMLDom.h` | Future-DOM boundary, origins, mutation hooks, capabilities |
-| `RoboHTMLElement.h` | Element/attribute name policy stubs |
+| `RoboHTMLElement.h` | Element model: creation seam, view/state, namespace, classification, name policy, and the attribute model (lookup, presence, iteration, add/set/remove) |
 | `RoboHTMLSource.h` | Source/input abstraction (borrowing view) |
 | `RoboHTMLEncoding.h` | Encoding boundary (labels + state; no decoding yet) |
 | `RoboHTMLParser.h` | Parser lease between source and future tokenizer |
@@ -100,6 +128,8 @@ registration.
 | `html.tokstate.*` | State model and the raw-content switch entry points |
 | `html.tree.*` | Tree structure, implied elements, nesting, text merging, attributes, void elements, lifetimes, recovery, node ceiling, Unicode, dump, demo document |
 | `html.docmodel.*` | Metadata, root ownership and stability across rebuilds, node identity/lookup, staleness, cross-document separation, tree invariants (clean, orphan, deep), source/encoding association, finalization, reset, failure, teardown, pipeline and demo integration |
+| `html.element.*` | Namespaces, classification, creation (valid, refused, cross-document), identity/validity, tag names, state bits, relationships, nesting/siblings, ownership, attributes, start/end tags, malformed recovery, Unicode text, teardown, tree dump, demo document |
+| `html.attr.*` | Attribute type and lengths, parser integration and stored order, presence vs empty, duplicates, lookup/case/Unicode, the mutation verbs and their validation, the attribute limit, Unicode names and values, malformed input, the dump, ownership/lifetime, rebuild semantics |
 
 Two ownership rules in one line each:
 
@@ -111,6 +141,10 @@ Two ownership rules in one line each:
   inert; `robo_html_node_*` / `robo_html_element_*` / `robo_html_payload_*`
   return pointers **into** the document's payload arena, valid until the next
   build on that document (the arena grows) or until it is destroyed.
+- An element is an element-kind node, and `robo_html_element_create` is the
+  only way one is made — it always attaches the new element under a parent in
+  the same call, so there is no detached state. A handle is identity, not a
+  capability: it names a node, it does not grant access to one.
 - The document's **root** survives a rebuild; every other node handle from a
   previous tree becomes stale. Ownership is asked for, never assumed:
   `robo_html_document_owns_node` is the single check that covers "whose node

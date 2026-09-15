@@ -278,10 +278,21 @@ void robo_html_node_set_payload(robo_html_node_entry_t *entry,
 /** Refuse to store more attributes than this on one element (bounded memory). */
 #define ROBO_HTML_MAX_ATTRS_PER_ELEMENT 64u
 
+/**
+ * ASCII case-insensitive name equality — the runtime's one name
+ * comparison, in the one translation unit that also defines the byte
+ * layout, so element-name and attribute-name lookups cannot disagree.
+ * NULL operands are never equal; both must be NUL-terminated.
+ */
+int robo_html_name_equal(const char *a, const char *b);
+
+/** Same, with @p a given by length (a payload name is length-prefixed). */
+int robo_html_name_equal_span(const char *a, size_t a_length, const char *b);
+
 /** Bytes an element payload needs for @p name and @p attrs. */
 size_t robo_html_payload_element_size(const char *name,
                                       size_t name_length,
-                                      const robo_html_attr_view_t *attrs,
+                                      const robo_html_attribute_t *attrs,
                                       size_t attr_count);
 
 /** Write an element payload; on success records the range on @p entry. */
@@ -290,10 +301,51 @@ robo_result_t robo_html_payload_write_element(
     robo_html_node_entry_t *entry,
     const char *name,
     size_t name_length,
-    const robo_html_attr_view_t *attrs,
+    const robo_html_attribute_t *attrs,
     size_t attr_count,
     int self_closing,
     robo_html_namespace_t ns,
+    robo_html_diag_t *diag);
+
+/** How one attribute mutation changes the stored table (Phase 8.6). */
+typedef enum robo_html_attr_mutation {
+    /** Append @p name unconditionally; the only way to duplicate a name. */
+    ROBO_HTML_ATTR_MUTATION_ADD = 0,
+    /** Collapse every @p name to one record at the first match's position;
+     *  appends when no match, matching DOM setAttribute. */
+    ROBO_HTML_ATTR_MUTATION_SET = 1,
+    /** Drop every @p name; absent is a no-op. */
+    ROBO_HTML_ATTR_MUTATION_REMOVE = 2
+} robo_html_attr_mutation_t;
+
+/**
+ * Apply one attribute mutation to a live element payload.
+ *
+ * Implemented as a payload *rewrite*, because an element payload is written
+ * once and never edited in place: the new table is built in a scratch block
+ * measured from the old one plus the change, then appended to the arena and
+ * adopted by the entry. The superseded bytes stay in the arena as dead
+ * space until document teardown — the arena is append-only and freed as a
+ * unit, which is what keeps an element's payload range describable by two
+ * integers however many times it is rewritten.
+ *
+ * @p name must be non-empty. @p name and @p value are borrowed for the
+ * duration of the call only; aliasing the arena (a value read from another
+ * attribute, say) is safe, because every byte is copied into the scratch
+ * block before the arena is touched.
+ *
+ * @return ROBO_OK (including REMOVE of an absent name, which changes
+ *         nothing); ROBO_INVALID_ARGUMENT (NULL/empty name); ROBO_NOT_FOUND
+ *         (entry is not a live element payload); ROBO_NOT_SUPPORTED (the
+ *         result would exceed ROBO_HTML_MAX_ATTRS_PER_ELEMENT);
+ *         ROBO_OUT_OF_MEMORY.
+ */
+robo_result_t robo_html_payload_mutate_attributes(
+    robo_html_document_slot_t *slot,
+    robo_html_node_entry_t *entry,
+    robo_html_attr_mutation_t mutation,
+    const char *name,
+    const char *value,
     robo_html_diag_t *diag);
 
 /** Write a text/comment payload; on success records the range on @p entry. */
@@ -332,12 +384,22 @@ const char *robo_html_payload_element_name(
 size_t robo_html_payload_attr_count(const robo_html_document_slot_t *slot,
                                     const robo_html_node_entry_t *entry);
 
-/** Borrowed attribute @p index; ROBO_NOT_FOUND when out of range. */
+/** Borrowed attribute @p index in stored order; ROBO_NOT_FOUND when out of
+ *  range. The out-struct's strings point into the payload arena. */
 robo_result_t robo_html_payload_attr_at(const robo_html_document_slot_t *slot,
                                         const robo_html_node_entry_t *entry,
                                         size_t index,
-                                        const char **out_name,
-                                        const char **out_value);
+                                        robo_html_attribute_t *out);
+
+/**
+ * First attribute named @p name (ASCII case-insensitive), ROBO_NOT_FOUND
+ * when absent. First-match is the model's lookup rule: parsed duplicates are
+ * preserved, so a later duplicate is still reachable by index.
+ */
+robo_result_t robo_html_payload_attr_find(const robo_html_document_slot_t *slot,
+                                          const robo_html_node_entry_t *entry,
+                                          const char *name,
+                                          robo_html_attribute_t *out);
 
 /** Borrowed text/comment bytes ("" when not applicable); 0 when absent. */
 const char *robo_html_payload_text(const robo_html_document_slot_t *slot,

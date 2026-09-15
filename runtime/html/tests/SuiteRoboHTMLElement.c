@@ -977,7 +977,7 @@ static void test_el_attributes(void)
     robo_html_node_handle_t p;
     robo_html_node_handle_t text;
     robo_html_element_view_t view;
-    robo_html_attr_view_t attr;
+    robo_html_attribute_t attr;
     size_t count = 0u;
 
     el_fixture_begin();

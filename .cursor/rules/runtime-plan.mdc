@@ -85,8 +85,8 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 8.2 HTML tokenizer ✅
 8.3 HTML tree builder ✅
 8.4 Document model ✅
-8.5 Element model
-8.6 Attribute model
+8.5 Element model ✅
+8.6 Attribute model ✅
 8.7 Text nodes
 8.8 DOM traversal
 8.9 DOM mutation

@@ -56,7 +56,11 @@ const char *robo_html_node_origin_name(robo_html_node_origin_t origin);
 typedef struct robo_html_dom_capabilities {
     /** Full node/element/attribute DOM available (DOM phase). */
     int dom_nodes;
-    /** Attribute storage available (DOM phase). */
+    /**
+     * The element attribute model is available (Phase 8.6): lookup,
+     * presence, deterministic order, and add/set/remove on an element.
+     * This is not a claim of a NamedNodeMap-compatible DOM surface.
+     */
     int attributes;
     /** Traversal/mutation APIs available (DOM phase). */
     int mutation;

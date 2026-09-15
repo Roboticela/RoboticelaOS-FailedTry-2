@@ -30,16 +30,42 @@
  *   path deliberately does not validate, because tolerating a malformed tag
  *   name is required behaviour, not an error.
  *
- * Attributes
- *   Attribute storage is the tokenizer/tree-builder layout (Phase 8.3) and
- *   is REPLACED by the real attribute model in Phase 8.6. What is exposed
- *   here is the minimum read side a renderer or the future model needs:
- *   iteration in source order, lookup by name, presence, and count. No
- *   mutation, no NamedNodeMap, no CSS matching, no dataset.
+ * Attributes (Phase 8.6)
+ *   The element's attributes are the real attribute model, not a temporary
+ *   table: one `robo_html_attribute_t` per attribute, in a deterministic
+ *   order, with add / set / remove / lookup / presence / iteration. The
+ *   tokenizer's staged values are a short-lived parser view of the same type,
+ *   so there is exactly one attribute representation in the runtime.
+ *
+ *   ORDER      attributes keep the order they were given in. Parsing
+ *              preserves source order; `set` keeps the first match's
+ *              position; `add` appends; `remove` preserves the relative
+ *              order of everything left.
+ *
+ *   DUPLICATES Parsed duplicates are preserved exactly as the tokenizer
+ *              emitted them (an HTML parser does not fold them and this
+ *              model does not invent a different answer). Lookup returns the
+ *              first match. `set` collapses matches to one, at the first
+ *              match's position; `remove` drops every match; `add` is the
+ *              only operation that can introduce a duplicate.
+ *
+ *   CASE       Names are stored lowercase ASCII, and lookup is ASCII
+ *              case-insensitive. Storage and lookup semantics are therefore
+ *              separate concerns: the stored form is cheap to compare, and
+ *              callers may pass any case. Preserving original case for
+ *              foreign content is a later concern — the parser never
+ *              switches namespace yet, so the tokenizer's lowercasing is
+ *              lossless here.
+ *
+ *   PRESENCE   An attribute is present because a record exists for it, which
+ *              is what makes `<input disabled>` and `<input disabled="">`
+ *              both "present with an empty value" and distinguishable from
+ *              "absent". Presence is never inferred from the value.
  *
  * What this phase is NOT: CSS/selectors/cascade, layout, paint, JavaScript,
- * events, attribute mutation, custom elements, foreign-content parsing, and
- * the Element DOM surface (getElementById / querySelector / classList).
+ * events, custom elements, foreign-content parsing, `NamedNodeMap`, the
+ * `dataset` API, and the rest of the Element DOM surface
+ * (getElementById / querySelector / classList).
  */
 
 #ifndef ROBO_HTML_ELEMENT_H
@@ -168,14 +194,51 @@ robo_html_element_class_t robo_html_element_classify(
 /* Element view                                                        */
 /* ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ */
+/* Attribute model (Phase 8.6)                                         */
+/* ------------------------------------------------------------------ */
+
 /**
- * Borrowed attribute view (see the node payload contract in
- * RoboHTMLNode.h: valid until the arena grows or the document dies).
+ * One attribute: name plus value, borrowed.
+ *
+ * This is the single attribute representation in the runtime. The tokenizer
+ * stages the same type when it hands a start tag to the tree builder, and an
+ * element stores it; only the lifetime differs, and the lifetime is stated
+ * by whoever hands the value out.
+ *
+ * Borrowed-string contract: @c name and @c value point into the owning
+ * document's payload arena and are valid until the next mutation or build on
+ * that document, or until the document is destroyed. There are no attribute
+ * handles and no attribute references to go stale — an attribute is a
+ * value-in/out-out snapshot, so a captured one simply stops being meaningful
+ * when the arena moves, exactly as a node view does. Callers that must keep
+ * an attribute copy the bytes.
  */
-typedef struct robo_html_attr_view {
-    const char *name;  /* borrowed, lowercase ASCII, NUL-terminated */
-    const char *value; /* borrowed, character references already decoded */
-} robo_html_attr_view_t;
+typedef struct robo_html_attribute {
+    /** Borrowed name; lowercase ASCII, NUL-terminated. */
+    const char *name;
+    /** Bytes in @c name, excluding the terminator. */
+    size_t name_length;
+    /**
+     * Borrowed value; "" (with length 0) for a boolean-style attribute such
+     * as `<input disabled>`. Character references are already decoded, and no
+     * interpretation is applied — not CSS, not URL resolution, not script.
+     */
+    const char *value;
+    /** Bytes in @c value, excluding the terminator. */
+    size_t value_length;
+    /**
+     * Namespace of the attribute *name*. Always NONE in this phase: HTML
+     * attributes have no namespace, and the field exists because an
+     * attribute's identity is (namespace, local name) the same way an
+     * element's is — so the foreign-content phase fills this in rather than
+     * changing the type.
+     */
+    robo_html_namespace_t namespace_id;
+} robo_html_attribute_t;
+
+/** Set @p attribute to the absent/empty state ("" name and value, NONE). */
+void robo_html_attribute_init(robo_html_attribute_t *attribute);
 
 /**
  * One element's identity, shape and state.
@@ -222,7 +285,7 @@ typedef struct robo_html_element_create_info {
     /** Tag name; must be non-NULL and non-empty. */
     const char *local_name;
     /** Attributes in source order; NULL is allowed when count is 0. */
-    const robo_html_attr_view_t *attributes;
+    const robo_html_attribute_t *attributes;
     size_t attribute_count;
     /** Non-zero to record "/>" as the element's self-closing flag. */
     int self_closing;
@@ -315,24 +378,29 @@ robo_result_t robo_html_element_parent(const robo_html_node_handle_t *element,
                                        robo_html_diag_t *diag);
 
 /**
- * Read attribute @p index in source order (duplicates preserved exactly as
- * the tokenizer emitted them — no last-wins folding in this phase).
- * Out of range → ROBO_NOT_FOUND.
+ * Read attribute @p index in stored order (parsed duplicates preserved
+ * exactly as the tokenizer emitted them — no last-wins folding in this
+ * phase). Out of range → ROBO_NOT_FOUND, @p out is zeroed.
+ *
+ * @p out borrows the payload arena; copy the bytes to keep them past a
+ * mutation or a rebuild on that document.
  */
 robo_result_t robo_html_element_attribute_at(
     const robo_html_node_handle_t *element,
     size_t index,
-    robo_html_attr_view_t *out,
+    robo_html_attribute_t *out,
     robo_html_diag_t *diag);
 
 /**
  * First attribute named @p name (ASCII case-insensitive, since stored names
- * are lowercase); ROBO_NOT_FOUND when absent.
+ * are lowercase); ROBO_NOT_FOUND when absent. When a parsed document carries
+ * duplicate names this is the first one — the later ones stay reachable by
+ * index, because folding them here would hide what the source said.
  */
 robo_result_t robo_html_element_find_attribute(
     const robo_html_node_handle_t *element,
     const char *name,
-    robo_html_attr_view_t *out,
+    robo_html_attribute_t *out,
     robo_html_diag_t *diag);
 
 /**
@@ -353,6 +421,74 @@ robo_result_t robo_html_element_attribute_count(
  */
 int robo_html_element_has_attribute(const robo_html_node_handle_t *element,
                                     const char *name);
+
+/**
+ * Value of attribute @p name: borrowed bytes, or NULL when the attribute is
+ * absent. @p out_length (optional) receives the byte count.
+ *
+ * NULL-versus-"" is the whole point of this shape: NULL means "no such
+ * attribute", "" with a length of 0 means "present with an empty value" —
+ * the distinction `<input>` / `<input disabled>` / `<input disabled="">`
+ * depends on. A convenience over robo_html_element_find_attribute for the
+ * common "give me the string" case.
+ */
+const char *robo_html_element_attribute_value(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    size_t *out_length);
+
+/* ------------------------------------------------------------------ */
+/* Attribute mutation (DOM seam)                                       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * These are the model's write operations, and they are deliberately the
+ * four DOM-shaped verbs rather than anything parser-shaped. Names are
+ * validated and ASCII-lowercased on the way in (the same policy the element
+ * name uses), so storage and lookup agree; the parser path does not go
+ * through here and keeps its "tolerate what the source said" behaviour.
+ *
+ * Mutating rewrites the element's payload, which invalidates any borrowed
+ * attribute bytes taken before the call — the arena moved. Node handles,
+ * children and identity are untouched.
+ */
+
+/**
+ * Set @p name to @p value: every existing record with that name collapses to
+ * one, at the first match's position; appended when absent. This is DOM
+ * setAttribute.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT (NULL args, empty or unusable
+ *         name); ROBO_NOT_FOUND (not a live element); ROBO_NOT_SUPPORTED
+ *         (attribute limit); ROBO_OUT_OF_MEMORY.
+ */
+robo_result_t robo_html_element_set_attribute(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    const char *value,
+    robo_html_diag_t *diag);
+
+/**
+ * Append @p name = @p value unconditionally, without collapsing a record
+ * that is already there. The parser's behaviour, exposed so the parser and
+ * the model share one encoder; an application adding attributes should use
+ * robo_html_element_set_attribute.
+ */
+robo_result_t robo_html_element_add_attribute(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    const char *value,
+    robo_html_diag_t *diag);
+
+/**
+ * Remove every record named @p name. Absent is a successful no-op (DOM
+ * removeAttribute does not fail), so this cannot be used as a presence
+ * test — robo_html_element_has_attribute is that.
+ */
+robo_result_t robo_html_element_remove_attribute(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    robo_html_diag_t *diag);
 
 #ifdef __cplusplus
 }

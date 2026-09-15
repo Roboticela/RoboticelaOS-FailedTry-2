@@ -992,6 +992,49 @@ static void test_demo_font_helpers(void)
                       ROBO_INVALID_ARGUMENT);
 }
 
+/**
+ * The demo walk's one attribute-driven rule: `hidden` means "do not render".
+ *
+ * It is also the proof that the renderer reaches attributes through the real
+ * model — `id`/`class` on the demo document are irrelevant to the picture, so
+ * a rule with visible consequences is the only way to show the seam works.
+ */
+static void test_demo_hidden_attribute(void)
+{
+    static const char *html =
+        "<h1>Visible</h1>"
+        "<h1 hidden>Hidden Heading</h1>"
+        "<p hidden><button>Sneaky</button></p>"
+        "<p>Shown Paragraph</p>"
+        "<button hidden>Hidden Button</button>";
+    robo_demo_page_t *page = NULL;
+
+    demo_fixture();
+    ROBO_CHECK_EQ_INT(robo_demo_page_create(html, strlen(html), &page, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_MSG(page != NULL, "hidden-attribute page did not build");
+    if (!page) {
+        return;
+    }
+
+    /* Two visible blocks only: the hidden heading and paragraph contribute
+     * nothing, and neither does the button nested inside the hidden one. */
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_block_count(page), 2);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 0u), "Visible");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 1u), "Shown Paragraph");
+
+    /* A hidden button is still a recognised control — it just is not there. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_supported_element_count(page) > 0u, 1);
+    ROBO_CHECK_EQ_INT(robo_demo_page_has_button(page), 0);
+
+    /* Layout and paint must cope with the missing button. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_layout(page, 640, 480), ROBO_OK);
+    ROBO_CHECK_EQ_INT(
+        robo_demo_page_hit_button(page, robo_gfx_point(0, 0)), 0);
+
+    robo_demo_page_destroy(page);
+}
+
 void robo_test_register_demo_html(void)
 {
     robo_test_register("demo.version", test_demo_version);
@@ -1006,6 +1049,8 @@ void robo_test_register_demo_html(void)
     robo_test_register("demo.tree.unsupported_tags",
                        test_demo_unsupported_tags);
     robo_test_register("demo.tree.malformed", test_demo_malformed_input);
+    robo_test_register("demo.tree.attribute_hidden",
+                       test_demo_hidden_attribute);
     robo_test_register("demo.ownership.text", test_demo_text_ownership);
     robo_test_register("demo.layout.flow", test_demo_layout_flow);
     robo_test_register("demo.layout.resize", test_demo_layout_resize);

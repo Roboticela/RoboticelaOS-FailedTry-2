@@ -58,10 +58,14 @@ robo_result_t robo_html_dom_query_capabilities(
     robo_html_dom_capabilities_init(out);
     /*
      * Phase 8.3: the tree builder constructs real document trees, so tree
-     * construction is available. Node/element/attribute DOM APIs, mutation
-     * and events are still later-phase work.
+     * construction is available. Phase 8.6: elements own a real attribute
+     * model (lookup, presence, order, add/set/remove), so attribute storage
+     * is available. The node DOM, generic mutation hooks and events remain
+     * later-phase work — `attributes` here means the attribute model, not a
+     * complete NamedNodeMap-compatible DOM surface.
      */
     out->tree_building = 1;
+    out->attributes = 1;
     return ROBO_OK;
 }
 

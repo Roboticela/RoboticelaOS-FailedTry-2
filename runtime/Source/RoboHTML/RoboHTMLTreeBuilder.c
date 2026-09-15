@@ -437,7 +437,7 @@ static robo_result_t register_node(robo_html_tree_builder_t *builder,
 static robo_result_t create_element(robo_html_tree_builder_t *builder,
                                     robo_html_node_id_t parent_id,
                                     const char *name,
-                                    const robo_html_attr_view_t *attrs,
+                                    const robo_html_attribute_t *attrs,
                                     size_t attr_count,
                                     int self_closing,
                                     robo_html_node_handle_t *out_handle,
@@ -568,8 +568,20 @@ static robo_result_t insert_text_current(robo_html_tree_builder_t *builder,
 
 /* --- structural elements ------------------------------------------- */
 
+/**
+ * Stage a token's attributes as the model's type (Phase 8.6).
+ *
+ * The staged values are the same `robo_html_attribute_t` an element stores,
+ * differing only in lifetime: the tokenizer's buffers live until the next
+ * token, the stored copy lives in the payload arena. One representation, so
+ * nothing has to be translated between the parser and the tree.
+ *
+ * Source order and duplicates are passed through untouched: an HTML parser
+ * does not fold repeated names, and the model does not invent a different
+ * answer than the tokenizer gave.
+ */
 static robo_result_t stage_attrs(const robo_html_token_t *tok,
-                                 robo_html_attr_view_t *out,
+                                 robo_html_attribute_t *out,
                                  size_t *out_count,
                                  robo_html_tree_builder_t *builder)
 {
@@ -582,9 +594,14 @@ static robo_result_t stage_attrs(const robo_html_token_t *tok,
         count = MAX_STAGED_ATTRS;
     }
     for (i = 0u; i < count; i++) {
-        out[i].name = tok->u.tag.attrs[i].name ? tok->u.tag.attrs[i].name : "";
-        out[i].value =
-            tok->u.tag.attrs[i].value ? tok->u.tag.attrs[i].value : "";
+        const char *name = tok->u.tag.attrs[i].name;
+        const char *value = tok->u.tag.attrs[i].value;
+
+        out[i].name = name ? name : "";
+        out[i].name_length = strlen(out[i].name);
+        out[i].value = value ? value : "";
+        out[i].value_length = strlen(out[i].value);
+        out[i].namespace_id = ROBO_HTML_NAMESPACE_NONE;
     }
     *out_count = count;
     return ROBO_OK;
@@ -596,7 +613,7 @@ static robo_result_t stage_attrs(const robo_html_token_t *tok,
  */
 static robo_result_t insert_element(robo_html_tree_builder_t *builder,
                                     const char *name,
-                                    const robo_html_attr_view_t *attrs,
+                                    const robo_html_attribute_t *attrs,
                                     size_t attr_count,
                                     int self_closing,
                                     robo_html_node_id_t *out_id,
@@ -628,7 +645,7 @@ static robo_result_t insert_element(robo_html_tree_builder_t *builder,
 
 /** Create <html> as the document's root element (implied or explicit). */
 static robo_result_t ensure_html(robo_html_tree_builder_t *builder,
-                                 const robo_html_attr_view_t *attrs,
+                                 const robo_html_attribute_t *attrs,
                                  size_t attr_count,
                                  robo_html_diag_t *diag)
 {
@@ -952,7 +969,7 @@ static robo_result_t mode_before_html(robo_html_tree_builder_t *builder,
         break;
     case ROBO_HTML_TOKEN_START_TAG:
         if (strcmp(tok->u.tag.name, "html") == 0) {
-            robo_html_attr_view_t attrs[MAX_STAGED_ATTRS];
+            robo_html_attribute_t attrs[MAX_STAGED_ATTRS];
             size_t attr_count = 0u;
 
             stage_attrs(tok, attrs, &attr_count, builder);
@@ -1009,7 +1026,7 @@ static robo_result_t mode_before_head(robo_html_tree_builder_t *builder,
         break;
     case ROBO_HTML_TOKEN_START_TAG:
         if (strcmp(tok->u.tag.name, "head") == 0) {
-            robo_html_attr_view_t attrs[MAX_STAGED_ATTRS];
+            robo_html_attribute_t attrs[MAX_STAGED_ATTRS];
             size_t attr_count = 0u;
             robo_html_node_handle_t h;
 
@@ -1098,7 +1115,7 @@ static robo_result_t mode_in_head(robo_html_tree_builder_t *builder,
                 text_mode_for_element(tok->u.tag.name);
 
             if (family != ROBO_HTML_TEXT_MODE_NONE) {
-                robo_html_attr_view_t attrs[MAX_STAGED_ATTRS];
+                robo_html_attribute_t attrs[MAX_STAGED_ATTRS];
                 size_t attr_count = 0u;
                 robo_html_node_id_t id = ROBO_HTML_NODE_ID_NONE;
 
@@ -1111,7 +1128,7 @@ static robo_result_t mode_in_head(robo_html_tree_builder_t *builder,
                 return enter_text_mode(builder, family, diag);
             }
             if (is_head_content_element(tok->u.tag.name)) {
-                robo_html_attr_view_t attrs[MAX_STAGED_ATTRS];
+                robo_html_attribute_t attrs[MAX_STAGED_ATTRS];
                 size_t attr_count = 0u;
                 robo_html_node_id_t id = ROBO_HTML_NODE_ID_NONE;
 
@@ -1173,7 +1190,7 @@ static robo_result_t mode_after_head(robo_html_tree_builder_t *builder,
         break;
     case ROBO_HTML_TOKEN_START_TAG:
         if (strcmp(tok->u.tag.name, "body") == 0) {
-            robo_html_attr_view_t attrs[MAX_STAGED_ATTRS];
+            robo_html_attribute_t attrs[MAX_STAGED_ATTRS];
             size_t attr_count = 0u;
             robo_html_node_handle_t h;
 
@@ -1220,7 +1237,7 @@ static robo_result_t body_start_tag(robo_html_tree_builder_t *builder,
                                     robo_html_diag_t *diag)
 {
     robo_html_document_slot_t *slot = builder_slot(builder);
-    robo_html_attr_view_t attrs[MAX_STAGED_ATTRS];
+    robo_html_attribute_t attrs[MAX_STAGED_ATTRS];
     size_t attr_count = 0u;
     robo_html_node_id_t id = ROBO_HTML_NODE_ID_NONE;
 
@@ -2390,22 +2407,29 @@ static robo_result_t dump_one(robo_html_document_slot_t *slot,
         if (r == ROBO_OK) {
             r = dump_write(w, name, name_length);
         }
+        /*
+         * Attributes are read through the model, not the raw payload, so
+         * the dump shows exactly what an attribute lookup would return —
+         * including `<input disabled>` and `<input disabled="">`, which
+         * both print as `disabled=""` because presence is the record, not
+         * the value. Order is stored order, which for parsed input is source
+         * order.
+         */
         for (i = 0u; r == ROBO_OK && i < attrs; i++) {
-            const char *an = "";
-            const char *av = "";
+            robo_html_attribute_t attr;
 
-            if (robo_html_payload_attr_at(slot, e, i, &an, &av) != ROBO_OK) {
+            if (robo_html_payload_attr_at(slot, e, i, &attr) != ROBO_OK) {
                 break;
             }
             r = dump_str(w, " ");
             if (r == ROBO_OK) {
-                r = dump_str(w, an);
+                r = dump_str(w, attr.name);
             }
             if (r == ROBO_OK) {
                 r = dump_str(w, "=");
             }
             if (r == ROBO_OK) {
-                r = dump_quoted(w, av, strlen(av));
+                r = dump_quoted(w, attr.value, attr.value_length);
             }
         }
         if (r == ROBO_OK && robo_html_payload_self_closing(slot, e)) {

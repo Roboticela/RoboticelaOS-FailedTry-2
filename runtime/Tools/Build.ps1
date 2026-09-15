@@ -327,6 +327,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTreeBuilder.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLDocumentModel.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLElement.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLAttribute.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

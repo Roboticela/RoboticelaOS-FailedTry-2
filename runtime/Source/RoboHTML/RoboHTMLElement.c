@@ -194,106 +194,90 @@ robo_result_t robo_html_element_view_get(
     return ROBO_OK;
 }
 
+void robo_html_attribute_init(robo_html_attribute_t *attribute)
+{
+    if (!attribute) {
+        return;
+    }
+    attribute->name = "";
+    attribute->name_length = 0u;
+    attribute->value = "";
+    attribute->value_length = 0u;
+    attribute->namespace_id = ROBO_HTML_NAMESPACE_NONE;
+}
+
 robo_result_t robo_html_element_attribute_at(
     const robo_html_node_handle_t *element,
     size_t index,
-    robo_html_attr_view_t *out,
+    robo_html_attribute_t *out,
     robo_html_diag_t *diag)
 {
     const robo_html_document_slot_t *slot;
     const robo_html_node_entry_t *e;
-    const char *name = NULL;
-    const char *value = NULL;
 
     if (!element || !out) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
                               ROBO_INVALID_ARGUMENT, "element or out is NULL");
     }
-    out->name = "";
-    out->value = "";
+    robo_html_attribute_init(out);
     slot = robo_html_document_slot_find(element->document_id);
     e = element_entry(element);
     if (!slot || !e) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "handle does not resolve to a live element");
     }
-    if (robo_html_payload_attr_at(slot, e, index, &name, &value) != ROBO_OK) {
+    if (robo_html_payload_attr_at(slot, e, index, out) != ROBO_OK) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "attribute index out of range");
     }
-    out->name = name;
-    out->value = value;
     return ROBO_OK;
-}
-
-/**
- * ASCII case-insensitive equality, the element model's one name comparison.
- * Stored names are lowercase, so a caller may pass any case (see the
- * case-insensitivity promised by RoboHTMLElement.h) and element/attribute
- * lookups agree with each other by construction.
- */
-static int ascii_name_equal(const char *stored, const char *wanted)
-{
-    size_t i;
-
-    if (!stored || !wanted) {
-        return 0;
-    }
-    for (i = 0u; stored[i] != '\0' && wanted[i] != '\0'; i++) {
-        unsigned char a = (unsigned char)stored[i];
-        unsigned char b = (unsigned char)wanted[i];
-
-        if (a >= 'A' && a <= 'Z') {
-            a = (unsigned char)(a - 'A' + 'a');
-        }
-        if (b >= 'A' && b <= 'Z') {
-            b = (unsigned char)(b - 'A' + 'a');
-        }
-        if (a != b) {
-            return 0;
-        }
-    }
-    return stored[i] == wanted[i];
 }
 
 robo_result_t robo_html_element_find_attribute(
     const robo_html_node_handle_t *element,
     const char *name,
-    robo_html_attr_view_t *out,
+    robo_html_attribute_t *out,
     robo_html_diag_t *diag)
 {
     const robo_html_document_slot_t *slot;
     const robo_html_node_entry_t *e;
-    size_t count;
-    size_t i;
 
     if (!element || !name || !out) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
                               ROBO_INVALID_ARGUMENT, "NULL argument");
     }
-    out->name = "";
-    out->value = "";
+    robo_html_attribute_init(out);
     slot = robo_html_document_slot_find(element->document_id);
     e = element_entry(element);
     if (!slot || !e) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "handle does not resolve to a live element");
     }
-    count = robo_html_payload_attr_count(slot, e);
-    for (i = 0u; i < count; i++) {
-        const char *aname = NULL;
-        const char *avalue = NULL;
-        if (robo_html_payload_attr_at(slot, e, i, &aname, &avalue) != ROBO_OK) {
-            break;
-        }
-        if (ascii_name_equal(aname, name)) {
-            out->name = aname;
-            out->value = avalue;
-            return ROBO_OK;
-        }
+    if (robo_html_payload_attr_find(slot, e, name, out) != ROBO_OK) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
+                              "no such attribute");
     }
-    return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
-                          "no such attribute");
+    return ROBO_OK;
+}
+
+const char *robo_html_element_attribute_value(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    size_t *out_length)
+{
+    robo_html_attribute_t found;
+
+    if (out_length) {
+        *out_length = 0u;
+    }
+    if (robo_html_element_find_attribute(element, name, &found, NULL) !=
+        ROBO_OK) {
+        return NULL;
+    }
+    if (out_length) {
+        *out_length = found.value_length;
+    }
+    return found.value;
 }
 
 robo_result_t robo_html_element_attribute_count(
@@ -322,7 +306,7 @@ robo_result_t robo_html_element_attribute_count(
 int robo_html_element_has_attribute(const robo_html_node_handle_t *element,
                                     const char *name)
 {
-    robo_html_attr_view_t ignored;
+    robo_html_attribute_t ignored;
 
     if (!element || !name || name[0] == '\0') {
         return 0;
@@ -333,6 +317,87 @@ int robo_html_element_has_attribute(const robo_html_node_handle_t *element,
                    ROBO_OK
                ? 1
                : 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Attribute mutation (Phase 8.6)                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Shared body of the three write verbs: validate the name the way an
+ * application-supplied name must be validated, lowercase it so storage and
+ * lookup agree, then hand the payload its rewrite.
+ *
+ * @p value may be NULL (the empty string), which is what makes a
+ * boolean-style attribute writable: presence is the record, not the value.
+ */
+static robo_result_t mutate_attribute(const robo_html_node_handle_t *element,
+                                      const char *name,
+                                      const char *value,
+                                      robo_html_attr_mutation_t mutation,
+                                      robo_html_diag_t *diag)
+{
+    robo_html_document_slot_t *slot;
+    robo_html_node_entry_t *e;
+    char normalized[ROBO_HTML_NAME_MAX];
+    robo_html_diag_t local;
+    /* The strict normalizer reports why a name was refused through the diag
+     * only, so give it one to write into even when the caller passed none —
+     * otherwise every refusal collapses to INVALID_ARGUMENT and a caller
+     * cannot tell a bad character from a name that is too long. */
+    robo_html_diag_t *where = diag ? diag : &local;
+
+    if (!element || !name) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_ELEMENT,
+                              ROBO_INVALID_ARGUMENT, "element or name is NULL");
+    }
+    if (robo_html_element_name_normalize(name, normalized, where) != ROBO_OK) {
+        return where->code;
+    }
+    slot = robo_html_document_slot_find(element->document_id);
+    if (!slot) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_ELEMENT, ROBO_NOT_FOUND,
+                              "unknown document id");
+    }
+    /* The mutable resolver applies the same generation and kind tests as
+     * element_entry, so a stale or non-element handle stops here too. */
+    e = robo_html_node_entry_mut(element->document_id, element->node_id);
+    if (!e || e->generation != element->generation ||
+        e->kind != ROBO_HTML_NODE_KIND_ELEMENT) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_ELEMENT, ROBO_NOT_FOUND,
+                              "handle does not resolve to a live element");
+    }
+    return robo_html_payload_mutate_attributes(slot, e, mutation, normalized,
+                                               value ? value : "", diag);
+}
+
+robo_result_t robo_html_element_set_attribute(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    const char *value,
+    robo_html_diag_t *diag)
+{
+    return mutate_attribute(element, name, value, ROBO_HTML_ATTR_MUTATION_SET,
+                            diag);
+}
+
+robo_result_t robo_html_element_add_attribute(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    const char *value,
+    robo_html_diag_t *diag)
+{
+    return mutate_attribute(element, name, value, ROBO_HTML_ATTR_MUTATION_ADD,
+                            diag);
+}
+
+robo_result_t robo_html_element_remove_attribute(
+    const robo_html_node_handle_t *element,
+    const char *name,
+    robo_html_diag_t *diag)
+{
+    return mutate_attribute(element, name, NULL, ROBO_HTML_ATTR_MUTATION_REMOVE,
+                            diag);
 }
 
 /* ------------------------------------------------------------------ */
@@ -512,7 +577,7 @@ robo_html_element_class_t robo_html_element_classify(
     }
     for (i = 0u; i < sizeof(k_element_classes) / sizeof(k_element_classes[0]);
          i++) {
-        if (ascii_name_equal(k_element_classes[i].name, local_name)) {
+        if (robo_html_name_equal(k_element_classes[i].name, local_name)) {
             return k_element_classes[i].cls;
         }
     }
@@ -738,7 +803,7 @@ int robo_html_element_is_named(const robo_html_node_handle_t *element,
     if (!slot || !e) {
         return 0;
     }
-    return ascii_name_equal(robo_html_payload_element_name(slot, e, NULL),
+    return robo_html_name_equal(robo_html_payload_element_name(slot, e, NULL),
                             name);
 }
 

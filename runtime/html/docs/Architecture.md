@@ -1,4 +1,4 @@
-# RoboHTML Architecture (Phases 8.1–8.4)
+# RoboHTML Architecture (Phases 8.1–8.5)
 
 This document is the normative design record for Goals 8.1 and 8.2. Later
 phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
@@ -249,3 +249,89 @@ Document (8.4)
 
 Full design, the three defects this phase fixed, and the exact contracts:
 [`DocumentModel.md`](DocumentModel.md).
+
+## 13. Phase 8.5 — element model
+
+8.5 makes the element a first-class part of the model **without** making it a
+second ownership system: an element *is* a node, so it inherits identity,
+ownership, staleness detection and teardown rather than reimplementing them.
+
+The only structural addition is one namespace word in the element payload
+header; everything else is derived at read time.
+
+```
+Element (8.5)
+├── identity          the node handle (document id, node id, generation)
+├── namespace         HTML / SVG / MathML + URI (stored: one word per element)
+├── classification    derived from (namespace, name); stored nowhere
+├── state             parser-created / connected / self-closing; derived
+├── attributes        the 8.6 boundary: count, index, lookup, presence
+└── creation          robo_html_element_create — the one seam
+```
+
+- **One seam.** `robo_html_element_create` is where an element comes into
+  existence, so lifecycle, cross-document rejection and the name rule live in
+  one function instead of being a convention every caller has to honour. It
+  always attaches the new element under a parent, so "an element with no
+  document" cannot be expressed.
+- **Derived, not cached.** Classification, `CONNECTED` and `SELF_CLOSING` are
+  computed from identity, tree links and payload flags. Nothing has to be kept
+  in step by a future mutation path, and a parent-chain walk that would go
+  stale cannot exist.
+- **Namespace is per element, the URI is per namespace.** Storage stays one
+  word per element; the future DOM/CSS layers compare against constants.
+- **The attribute boundary was a read boundary.** Count, index, lookup and
+  presence only — 8.6 replaced it with the real model.
+
+Full design and the defect this phase fixed:
+[`ElementModel.md`](ElementModel.md).
+
+## 14. Phase 8.6 — attribute model
+
+8.6 replaces the temporary attribute table with the authoritative model, and
+the organising idea is that there is exactly **one** attribute type:
+
+```
+tokenizer staging            robo_html_attribute_t   (borrows tokenizer buffers)
+tree builder / element       robo_html_attribute_t   (borrows the payload arena)
+payload bytes                the same fields, encoded
+element API                  the same fields, borrowed back to the caller
+```
+
+Only the lifetime differs from stage to stage, and each stage states it. No
+separate parser-only record survives, so nothing has to be translated between
+the parser and the tree, and the tokenizer's duplicates and source order reach
+storage unchanged.
+
+```
+Element (8.5/8.6)
+├── identity          the node handle (unchanged)
+├── namespace         HTML / SVG / MathML (unchanged)
+├── classification    derived from (namespace, name) (unchanged)
+├── state             parser-created / connected / self-closing (unchanged)
+├── attributes        the model: order, duplicates, case, presence,
+│                     iteration, and add / set / remove
+└── creation          robo_html_element_create — the one seam
+```
+
+- **Presence is a record, not a value.** `<input>`, `<input disabled>` and
+  `<input disabled="">` are three distinguishable answers, which is the whole
+  reason the lookup returns `NULL` (absent) separately from `""` (present and
+  empty).
+- **Order and duplicates are passed through.** The tokenizer does not fold and
+  the model does not invent: lookup answers the first match, the rest stay
+  reachable by index, and only `add` can introduce a duplicate.
+- **Case is a storage decision, not a lookup rule.** Names are stored
+  lowercase; lookup is ASCII case-insensitive; bytes outside `A-Z` are never
+  folded.
+- **The parser tolerates, the DOM seam validates.** A malformed name must not
+  abort a parse, so the parser stores what it was given; an application-supplied
+  name is validated and normalised.
+- **A mutation is a payload rewrite**, staged in zeroed scratch memory and
+  measured from the old table so it is exact, bounded, and cannot dangle
+  borrowed bytes. Node identity, children and the element's place in the tree
+  are untouched — so attribute mutation survives finalization, which closes
+  tree construction rather than the document.
+
+Full design, contracts and the defect this phase fixed:
+[`AttributeModel.md`](AttributeModel.md).
