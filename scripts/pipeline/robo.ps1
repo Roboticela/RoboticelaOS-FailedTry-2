@@ -274,6 +274,10 @@ function Get-RoboCommands {
         -Summary "QEMU: kernel and OS selftests under UEFI" `
         -Handler { Invoke-RoboTestComponent -Component "qemu-kernel"; return $true }
 
+    $cmds += New-RoboCommand -Name "test-qemu-userspace" -Group test `
+        -Summary "QEMU: the guest user-space selftests (window server, compositor, libc)" `
+        -Handler { Invoke-RoboTestComponent -Component "qemu-userspace"; return $true }
+
     $cmds += New-RoboCommand -Name "test-qemu-display" -Group test `
         -Summary "QEMU: the visual runtime rendering through the QEMU display backend" `
         -Handler { Invoke-RoboTestComponent -Component "qemu-display"; return $true }

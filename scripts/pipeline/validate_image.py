@@ -41,6 +41,9 @@ def load_make_esp(bootloader_dir: Path):
     tools = bootloader_dir / "tools"
     if not (tools / "make_esp.py").is_file():
         return None
+    # This validator is read-only: importing the writer must not leave a
+    # __pycache__ entry behind in the source tree.
+    sys.dont_write_bytecode = True
     sys.path.insert(0, str(tools))
     try:
         import make_esp  # type: ignore
@@ -48,6 +51,8 @@ def load_make_esp(bootloader_dir: Path):
         return make_esp
     except Exception:
         return None
+    finally:
+        sys.path.remove(str(tools))
 
 
 class Report:

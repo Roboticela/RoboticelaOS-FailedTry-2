@@ -88,7 +88,8 @@ libc ───> userland ─────────┘
 | `test-kernel` | every kernel host unit test binary + libc host tests |
 | `test-base` `test-memory` `test-containers` `test-unicode` `test-i18n` `test-font` `test-script` `test-graphics` `test-window` `test-display` `test-html` `test-demo` `test-infra` | one runtime subsystem each |
 | `test-qemu-boot` | bootloader selftest under real UEFI in QEMU |
-| `test-qemu-kernel` | kernel + OS selftests under real UEFI in QEMU |
+| `test-qemu-kernel` | kernel + OS core selftests under real UEFI in QEMU |
+| `test-qemu-userspace` | the guest user-space selftests (window server, compositor, libc) |
 | `test-qemu-display` | the visual runtime rendering through the QEMU display backend |
 | `test-e2e` | clean build → boot → selftests → visual runtime → deployment validation |
 
@@ -223,11 +224,31 @@ used before you run anything.
 
 ## 6. Known behaviour and limitations
 
-- **`window.host.keyboard` needs a foreground desktop session.**
-  `robo_window_request_focus` returns `ROBO_NOT_SUPPORTED` in a background or
-  service session, so that one suite fails when run from a detached shell. It
-  passes from a normal desktop session. It is a property of the Win32 backend,
-  not of the pipeline.
+- **`window.host.keyboard` and `window.host.mouse` need a foreground desktop
+  session.** Both start by asking the window for foreground activation. Windows
+  only grants `SetForegroundWindow` to a process that is already entitled to the
+  foreground, so from a detached shell the call returns FALSE with
+  `GetLastError() == 0` and `win32_focus` deliberately reports
+  `ROBO_NOT_SUPPORTED` instead of faking success — the debug log line is
+  `robo_window.win32: SetForegroundWindow declined err=0`. The two suites assert
+  `ROBO_OK`, so they fail; `window.host.focus_display` exercises the same path
+  and tolerates the refusal, so it passes either way. This is a property of the
+  host desktop session, not of the pipeline: run `scripts/robo test-window` from
+  a normal interactive desktop terminal for a green run. No other suite is
+  affected — the mock and null backends cover the same API headlessly.
+- **The guest's user-space selftests are not all green yet.**
+  `test-qemu-userspace` boots with the `ktest` flag and gates on the verdicts
+  the guest itself prints. It currently fails, with the reason quoted verbatim
+  from the serial log:
+  `[FAIL] Connected` / `[FAIL] Window Server` (there is no window-server
+  service in `user/init/config.c` yet — the file's own comment says compositor
+  and window server "return when that stack is ready") and `[FAIL] sockets` /
+  `[FAIL] LIBC` (the libc socket test needs a server on the forwarded port).
+  `[PASS] RoboCompositor` and `[PASS] INIT PROCESS` are listed as markers but
+  cannot be reached in this boot: no compositor service is configured, and init
+  prints its summary only after every service has exited while `robo-runtime`
+  runs for the whole boot. The gate is deliberately red until those components
+  land; it is never downgraded to a skip or a pass.
 - **The QEMU disk attachment falls back automatically.** `test-qemu-*` and
   `run-kernel` try the configured disk mode (default `ide`) and, if the firmware
   finds nothing bootable, retry as `virtio-blk`. A failure lists exactly which
@@ -258,6 +279,8 @@ used before you run anything.
 | A build fails | read the named `build/logs/*.log`; the console only shows the tail |
 | `the image is stale` from validation | re-run `scripts/robo build-image` |
 | QEMU boots nothing | try `--esp-flags "splash_ms 0"`, or set `ROBO_QEMU_DISK=virtio` |
+| `test-window` fails only in `window.host.keyboard` / `window.host.mouse` | the shell has no foreground desktop session; run from an interactive terminal (see §6) |
+| `test-qemu-userspace` fails | expected today: the window-server and compositor services do not exist yet. Read the `[FAIL]` lines it quotes |
 
 ---
 

@@ -138,6 +138,22 @@ function Invoke-RoboValidateDeployment {
         $missing += "image"
     }
 
+    # --- 4. every machine-readable artifact must actually parse -----------
+    # A results file a CI job cannot read is a broken deliverable, and the two
+    # ways it quietly breaks - a UTF-8 BOM and control bytes that XML forbids -
+    # both survive a plain "the file exists" check.
+    $artifacts = Join-Path $PSScriptRoot "dev\check-artifacts.py"
+    $py = Get-RoboTool "python"
+    if ($py -and (Test-Path -LiteralPath $artifacts)) {
+        $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $r = Invoke-RoboProcess -FilePath $py -Arguments @($artifacts, $root) `
+            -TimeoutSeconds 60 -LogName "validate-artifacts"
+        Write-Host $r.Output
+        if ($r.ExitCode -ne 0) { $missing += "machine-readable artifacts" }
+    } else {
+        Write-Host ("  " + "SKIP".PadRight(8) + "machine-readable artifacts (python unavailable)") -ForegroundColor DarkYellow
+    }
+
     Write-RoboSection "Verdict"
     if ($missing.Count -gt 0) {
         Write-RoboFail ("deployment is not valid: " + ($missing -join ", "))

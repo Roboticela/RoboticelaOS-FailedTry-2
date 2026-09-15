@@ -23,7 +23,7 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 .PHONY: all check configure build-all build-assets build-bootloader build-kernel build-userland \
         build-runtime build-image test test-all test-bootloader test-kernel test-runtime \
-        test-qemu-kernel test-qemu-display test-e2e qemu run run-kernel run-runtime \
+        test-qemu-kernel test-qemu-userspace test-qemu-display test-e2e qemu run run-kernel run-runtime \
         deploy validate-deployment clean distclean rebuild info version help
 
 all build-all:
@@ -67,6 +67,9 @@ test-runtime:
 
 test-qemu-kernel qemu-test:
 	@cd "$(ROOT)" && $(ROBO) test-qemu-kernel
+
+test-qemu-userspace:
+	@cd "$(ROOT)" && $(ROBO) test-qemu-userspace
 
 test-qemu-display:
 	@cd "$(ROOT)" && $(ROBO) test-qemu-display

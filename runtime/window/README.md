@@ -26,7 +26,7 @@ Owned render surface + frame lifecycle (`begin_frame` / `end_frame` /
 ## Tests
 
 ```powershell
-.\runtime\Tools\Build.ps1 -Configuration Debug -Verify -Test -Filter "window."
-.\scripts\test-host-display.ps1
-.\scripts\test-qemu-display.ps1
+scripts\robo test-window          # window.* host suites
+scripts\robo test-display         # display.* + host display suites
+scripts\robo test-qemu-display    # real QEMU display smoke
 ```

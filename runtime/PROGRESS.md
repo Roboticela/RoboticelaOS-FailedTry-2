@@ -1,5 +1,25 @@
 # Roboticela Runtime Progress
 
+## Note on commands in this log
+
+Entries below were written as the work landed, and some of them name test and
+run scripts that have since been consolidated. History is left as written; the
+current commands are:
+
+```
+scripts\robo check                 environment validation
+scripts\robo build-all             the whole system
+scripts\robo test-all              every test surface
+scripts\robo test-<component>      base, memory, containers, unicode, i18n,
+                                   font, script, graphics, window, display,
+                                   html, demo, infra
+scripts\robo test-qemu-<stage>     boot, kernel, display
+scripts\robo validate-deployment   structural validation of the artifact
+scripts\robo run-qemu              full build, then boot the OS
+```
+
+See `docs/Build.md` at the repository root for the authoritative guide.
+
 ## Goals 0.1–1.5 — RoboBase foundation
 
 **Status:** complete

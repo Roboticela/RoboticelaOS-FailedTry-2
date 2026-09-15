@@ -86,7 +86,7 @@ function New-RoboDeploymentManifest {
     if ($branch.ExitCode -eq 0 -and $branch.Output.Trim()) { $manifest["branch"] = $branch.Output.Trim() }
 
     New-Item -ItemType Directory -Force -Path $script:RoboOut.Deploy | Out-Null
-    $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $script:RoboArtifact.DeployManifest -Encoding utf8
+    Write-RoboUtf8File -Path $script:RoboArtifact.DeployManifest -Text ($manifest | ConvertTo-Json -Depth 6)
     return $script:RoboArtifact.DeployManifest
 }
 

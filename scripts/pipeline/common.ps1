@@ -118,14 +118,41 @@ function Add-RoboLog {
     )
     if (-not $script:RoboLogs.ContainsKey($Name)) { return }
     $path = $script:RoboLogs[$Name]
-    $dir = Split-Path -Parent $path
-    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    Add-Content -LiteralPath $path -Value $Text -Encoding utf8
+    Write-RoboUtf8File -Path $path -Text $Text -Append
 }
 
 function Get-RoboLogPath {
     param([Parameter(Mandatory)][string]$Name)
     return (Join-Path $script:RoboOut.Logs ($Name + ".log"))
+}
+
+function Write-RoboUtf8File {
+    <#
+      Writes text as UTF-8 *without* a byte-order mark.
+
+      `Set-Content -Encoding utf8` emits a BOM on Windows PowerShell 5.1 (pwsh 7
+      does not), and a BOM makes the machine-readable artifacts unusable to
+      strict parsers - Python's json.load rejects one outright. The encoding is
+      therefore set explicitly instead of relying on the host's choice, so the
+      results JSON, the JUnit XML, the deploy manifest and the serial logs are
+      byte-identical whichever PowerShell runs the pipeline.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [switch]$Append
+    )
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    }
+    $full = [IO.Path]::GetFullPath($Path)
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    if ($Append -and (Test-Path -LiteralPath $full)) {
+        [IO.File]::AppendAllText($full, $Text, $utf8)
+    } else {
+        [IO.File]::WriteAllText($full, $Text, $utf8)
+    }
 }
 
 # --------------------------------------------------------------------------
@@ -443,11 +470,51 @@ function Reset-RoboResults {
     $script:RoboFailed = $false
 }
 
+function Remove-RoboAnsi {
+    <#
+      Strips terminal escape sequences from captured child output. A failing
+      sub-build formats its exception with colour codes when it believes the
+      host is a terminal, and those bytes are neither readable in a log nor
+      legal in XML.
+    #>
+    param([AllowEmptyString()][string]$Text)
+    if (-not $Text) { return "" }
+    $esc = [char]27
+    # CSI ... final byte, then OSC ... BEL/ST. Anything left is not an escape.
+    $t = [regex]::Replace($Text, [regex]::Escape($esc) + '\[[0-9;?]*[ -/]*[@-~]', '')
+    $t = [regex]::Replace($t, [regex]::Escape($esc) + '\][^\u0007]*(' + [char]7 + '|' + [regex]::Escape($esc) + '\\)', '')
+    return $t
+}
+
+function ConvertTo-RoboXmlText {
+    <#
+      Makes text legal in XML 1.0. Both the JSON and the JUnit file must stay
+      parseable by CI, so every recorded detail passes through here: escape
+      sequences go first, then any control character XML forbids outright
+      (tab, newline and carriage return excepted).
+    #>
+    param([AllowEmptyString()][string]$Text)
+    $t = Remove-RoboAnsi $Text
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($ch in $t.ToCharArray()) {
+        $c = [int]$ch
+        if ($c -eq 9 -or $c -eq 10 -or $c -eq 13 -or
+            ($c -ge 32 -and $c -le 0xD7FF) -or ($c -ge 0xE000 -and $c -le 0xFFFD)) {
+            [void]$sb.Append($ch)
+        }
+    }
+    return $sb.ToString()
+}
+
 function Add-RoboResult {
     <#
       Records one observable outcome. Status is exactly one of:
         pass | fail | skip
       Anything that did not actually run must be recorded as skip, never pass.
+
+      Detail text is sanitised here, once, because this is the single place a
+      result enters the report - and therefore the single place that can keep
+      escape sequences out of the JSON and the JUnit XML.
     #>
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -459,11 +526,11 @@ function Add-RoboResult {
     )
     if ($null -eq $script:RoboResults.Suites) { Reset-RoboResults }
     $null = $script:RoboResults.Suites.Add([ordered]@{
-        name    = $Name
+        name    = (ConvertTo-RoboXmlText $Name)
         status  = $Status
-        layer   = $Layer
+        layer   = (ConvertTo-RoboXmlText $Layer)
         seconds = [Math]::Round($Seconds, 2)
-        detail  = $Detail
+        detail  = (ConvertTo-RoboXmlText $Detail)
         log     = $Log
     })
     if ($Status -eq "fail") { $script:RoboFailed = $true }
@@ -497,7 +564,7 @@ function Save-RoboResults {
     }
 
     $jsonPath = Join-Path $script:RoboOut.Results ($Name + ".json")
-    $summary | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath -Encoding utf8
+    Write-RoboUtf8File -Path $jsonPath -Text ($summary | ConvertTo-Json -Depth 6)
 
     $xml = New-Object System.Text.StringBuilder
     [void]$xml.AppendLine('<?xml version="1.0" encoding="UTF-8"?>')
@@ -525,7 +592,7 @@ function Save-RoboResults {
     }
     [void]$xml.AppendLine('</testsuites>')
     $xmlPath = Join-Path $script:RoboOut.Results ($Name + ".junit.xml")
-    $xml.ToString() | Set-Content -LiteralPath $xmlPath -Encoding utf8
+    Write-RoboUtf8File -Path $xmlPath -Text $xml.ToString()
 
     return @{ Path = $jsonPath; Junit = $xmlPath; Passed = $pass; Failed = $fail; Skipped = $skip }
 }

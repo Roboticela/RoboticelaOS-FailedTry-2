@@ -177,6 +177,12 @@ function Invoke-RoboBareHostTests {
 # QEMU acceptance
 # --------------------------------------------------------------------------
 
+# The `ktest` boot flag makes the bootloader pass `selftest` to the kernel, which
+# turns on the kernel's own suites AND the user-space selftest services. Both are
+# real gates, but they are separate gates: a broken kernel must not be reported as
+# a broken window server and vice versa. Hence two marker sets.
+
+# Kernel + OS core. Every marker here is produced by kernel code.
 $script:RoboKernelBootMarkers = @(
     "Roboticela Kernel",
     "Boot protocol: Roboticela",
@@ -193,11 +199,47 @@ $script:RoboKernelBootMarkers = @(
     "USER_ROBOFS_OK",
     "\[PASS\] DRIVER SYSTEM",
     "\[PASS\] STORAGE DRIVER",
+    "\[PASS\] NETWORK"
+)
+
+# The kernel prints its own verdict for every suite it runs; any of these means a
+# kernel regression and must fail the boot even though the run reached the end.
+$script:RoboKernelFailPatterns = @(
+    "\[FAIL\] ROBOTICELA OS PHASE 10",
+    "\[FAIL\] ROBOTICELA OS PHASE 11",
+    "\[FAIL\] ROBOTICELA OS FILE DESCRIPTORS",
+    "\[FAIL\] ROBOTICELA OS VFS",
+    "\[FAIL\] ROBOFS v1",
+    "\[FAIL\] DRIVER SYSTEM",
+    "\[FAIL\] STORAGE DRIVER",
+    "\[FAIL\] NETWORK",
+    "KERNEL PANIC\s*$\r?\n\s*Kernel halted",
+    "USER_ROBOFS_FAIL"
+)
+
+# User-space selftest services (window-test, compositor-test, nettest, libc-test,
+# init). These are separate programs, so they are a separate gate.
+#
+# Two of these markers are currently unreachable and must stay in this gate rather
+# than the kernel one, because the components they test do not exist yet:
+#   [PASS] RoboCompositor - user/init/config.c starts no compositor service
+#   [PASS] INIT PROCESS  - init only prints its summary once every service has
+#                          exited, but robo-runtime runs for the whole boot and
+#                          ends the boot by shutting the display down
+# The gate failing is the honest report: these components are not implemented.
+$script:RoboUserSpaceMarkers = @(
     "\[PASS\] Window Server",
     "\[PASS\] RoboCompositor",
     "\[PASS\] INIT PROCESS",
-    "\[PASS\] NETWORK",
     "\[PASS\] LIBC"
+)
+
+# The guest reports its own failures by name; surface them as the gate failure.
+$script:RoboUserSpaceFailPatterns = @(
+    "\[FAIL\] LIBC",
+    "\[FAIL\] Window Server",
+    "\[FAIL\] RoboCompositor",
+    "\[FAIL\] INIT PROCESS"
 )
 
 $script:RoboDisplayMarkers = @(
@@ -218,10 +260,16 @@ function Assert-RoboQemuAvailable {
 
 function Invoke-RoboQemuSerialRun {
     <#
-      Boots the ESP image headlessly over a chosen disk attachment and waits for
-      markers. IDE is tried first and virtio-blk is tried second because some
-      firmware/host combinations only expose one of them as bootable - the same
-      fallback the original smoke scripts used.
+      Boots the ESP image headlessly and waits for markers.
+
+      Firmware/host combinations differ in which disk attachment they will boot
+      from, so a second attachment is tried - but only when the first attempt
+      produced no OS output at all. A run that booted and then failed its own
+      selftests is a real failure and is never retried: retrying it would hide
+      the failure and make the result depend on which attempt happened to pass.
+
+      Each attempt gets its own serial log so a later attempt cannot overwrite
+      the evidence from an earlier one.
     #>
     param(
         [Parameter(Mandatory)][string[]]$Markers,
@@ -235,6 +283,7 @@ function Invoke-RoboQemuSerialRun {
     if ($script:RoboQemu.DiskMode -ne "virtio") { $attempts += "virtio" }
     if ($script:RoboQemu.DiskMode -ne "ide") { $attempts += "ide" }
 
+    $safeLabel = ($Label -replace "[^a-zA-Z0-9_]", "_")
     $last = $null
     foreach ($disk in $attempts) {
         $script:RoboQemu.DiskMode = $disk
@@ -248,32 +297,64 @@ function Invoke-RoboQemuSerialRun {
         } finally {
             Stop-RoboQemu $proc
         }
+
+        # Keep this attempt's evidence under its own name.
+        $attemptLog = Join-Path $script:RoboOut.Logs ("qemu-$safeLabel-$disk.log")
+        if ($last.Serial) { Write-RoboUtf8File -Path $attemptLog -Text $last.Serial }
+        $last["Log"] = $attemptLog
+
         if ($last.Complete -or $last.Failed) { break }
+
+        # Did the OS start at all? If yes, this is a genuine failure, not a
+        # "firmware could not boot this disk" problem.
+        $booted = @($Markers | Where-Object { $last.Serial -match $_ }).Count -gt 0
+        if ($booted) {
+            Write-RoboInfo "attempt produced OS output; not retrying"
+            break
+        }
+        Write-RoboInfo "attempt produced no OS output; trying the next disk attachment"
     }
     return $last
 }
 
 function Assert-RoboQemuResult {
+    <#
+      Turns a marker wait into a verdict. On failure it quotes what the OS
+      itself reported - any `[FAIL] ...` lines - so the message says which
+      selftest failed rather than only that a marker never arrived.
+
+      A marker that never arrived is reported together with every `[FAIL]` the
+      OS printed, so "missing marker" always comes with the reason.
+    #>
     param(
         [Parameter(Mandatory)][hashtable]$Result,
         [Parameter(Mandatory)][string]$Label,
         [Parameter(Mandatory)][string[]]$Markers
     )
-    $log = Join-Path $script:RoboOut.Logs ("qemu-serial-" + ($Label -replace "[^a-zA-Z0-9_]", "_") + ".log")
-    if ($Result.Serial) { Set-Content -LiteralPath $log -Value $Result.Serial -Encoding utf8 }
+    $log = $(if ($Result.Log) { $Result.Log } else { Join-Path $script:RoboOut.Logs "qemu-serial.log" })
+
+    # The OS reports its own failures; surface them verbatim.
+    $reported = @()
+    foreach ($line in ($Result.Serial -split "`r?`n")) {
+        if ($line -match '^\s*\[(FAIL|[A-Z_]*FAIL)\]') { $reported += $line.Trim() }
+    }
+    $reportedText = ""
+    if ($reported.Count -gt 0) {
+        $reportedText = "`nthe OS reported failures:" + "`n  " + (($reported | Select-Object -Unique) -join "`n  ")
+    }
 
     if ($Result.Complete) {
         Write-RoboInfo ("serial: $log")
         return
     }
     if ($Result.Failed) {
-        throw "$Label reported failure (matched '$($Result.FailedBy)'); serial: $log"
+        throw "$Label reported failure (matched '$($Result.FailedBy)')$reportedText`nserial: $log"
     }
     if ($Result.Missing.Count -gt 0) {
-        throw ("$Label did not reach all markers after $($Result.Seconds)s. Missing:" + "`n  " +
+        throw ("$Label did not reach all markers after $($Result.Seconds)s.$reportedText`nmissing:" + "`n  " +
                ($Result.Missing -join "`n  ") + "`nserial: $log")
     }
-    throw "$Label produced no usable serial output"
+    throw "$Label produced no usable serial output (serial: $log)"
 }
 
 function Invoke-RoboQemuBootTest {
@@ -297,8 +378,28 @@ function Invoke-RoboQemuKernelTest {
         $echo = Start-RoboNetEcho
         try {
             $res = Invoke-RoboQemuSerialRun -Markers $script:RoboKernelBootMarkers `
+                -FailPatterns $script:RoboKernelFailPatterns `
                 -TimeoutSeconds $script:RoboTimeout.Kernel -Label "kernel-selftest"
             Assert-RoboQemuResult -Result $res -Label "kernel selftest" -Markers $script:RoboKernelBootMarkers
+        } finally { Stop-RoboNetEcho $echo }
+    } | Out-Null
+}
+
+function Invoke-RoboQemuUserSpaceTest {
+    <#
+      The guest's own user-space selftest services. Kept separate from the kernel
+      gate so a failure here is attributed to the user-space component that
+      failed, not to the kernel.
+    #>
+    param([switch]$Continue)
+    Invoke-RoboStep -Name "QEMU: user-space selftests" -Layer "TEST" -Continue:$Continue -Action {
+        Invoke-RoboBuildImageCommand -Flags "ktest`nsplash_ms 0"
+        $echo = Start-RoboNetEcho
+        try {
+            $res = Invoke-RoboQemuSerialRun -Markers $script:RoboUserSpaceMarkers `
+                -FailPatterns $script:RoboUserSpaceFailPatterns `
+                -TimeoutSeconds $script:RoboTimeout.Kernel -Label "userspace-selftest"
+            Assert-RoboQemuResult -Result $res -Label "user-space selftest" -Markers $script:RoboUserSpaceMarkers
         } finally { Stop-RoboNetEcho $echo }
     } | Out-Null
 }
@@ -357,13 +458,15 @@ function Invoke-RoboTestAll {
 
     # --- 3. QEMU acceptance ----------------------------------------------
     if ($script:RoboFlag.SkipQemu) {
-        foreach ($n in @("QEMU: bootloader selftest", "QEMU: kernel + OS selftest", "QEMU: visual runtime display")) {
+        foreach ($n in @("QEMU: bootloader selftest", "QEMU: kernel + OS selftest",
+                        "QEMU: user-space selftests", "QEMU: visual runtime display")) {
             Add-RoboResult -Name $n -Status skip -Layer "TEST" -Detail "QEMU unavailable or --skip-qemu"
             Write-RoboSkipped $n
         }
     } else {
         Invoke-RoboQemuBootTest -Continue
         Invoke-RoboQemuKernelTest -Continue
+        Invoke-RoboQemuUserSpaceTest -Continue
         Invoke-RoboQemuDisplayTest -Continue
     }
 
@@ -384,16 +487,17 @@ function Invoke-RoboTestComponent {
         Invoke-RoboBareHostTests -Continue:$Continue
         return
     }
-    if ($Component -in @("qemu-boot", "qemu-kernel", "qemu-display")) {
+    if ($Component -in @("qemu-boot", "qemu-kernel", "qemu-userspace", "qemu-display")) {
         if ($script:RoboFlag.SkipQemu) {
             Write-RoboSkipped ("$Component (QEMU unavailable or --skip-qemu)")
             Add-RoboResult -Name $Component -Status skip -Layer "TEST" -Detail "QEMU unavailable"
             return
         }
         switch ($Component) {
-            "qemu-boot" { Invoke-RoboQemuBootTest -Continue:$Continue }
-            "qemu-kernel" { Invoke-RoboQemuKernelTest -Continue:$Continue }
-            "qemu-display" { Invoke-RoboQemuDisplayTest -Continue:$Continue }
+            "qemu-boot"       { Invoke-RoboQemuBootTest -Continue:$Continue }
+            "qemu-kernel"     { Invoke-RoboQemuKernelTest -Continue:$Continue }
+            "qemu-userspace"  { Invoke-RoboQemuUserSpaceTest -Continue:$Continue }
+            "qemu-display"    { Invoke-RoboQemuDisplayTest -Continue:$Continue }
         }
         return
     }
@@ -418,6 +522,7 @@ function Invoke-RoboTestE2E {
 
     $script:RoboFlag.SkipQemu = $false
     Invoke-RoboQemuKernelTest
+    Invoke-RoboQemuUserSpaceTest
     Invoke-RoboQemuDisplayTest
 
     Invoke-RoboStep -Name "deployment artifact" -Layer "E2E" -Action {

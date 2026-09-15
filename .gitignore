@@ -1,6 +1,7 @@
 .freebuff/
 Bootloader-RefCode/
 /build/
+libc/build/*
 /runtime/Out/
 /runtime/Vendor/
 /runtime/Tools/ucd/source/

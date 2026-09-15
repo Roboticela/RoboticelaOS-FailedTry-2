@@ -69,7 +69,7 @@ function Invoke-RoboQemuVisible {
             -TimeoutSeconds $(if ($TimeoutSeconds -gt 0) { $TimeoutSeconds } else { $script:RoboTimeout.Kernel }) `
             -Process $proc
         $log = Join-Path $script:RoboOut.Logs "qemu-run-serial.log"
-        if ($res.Serial) { Set-Content -LiteralPath $log -Value $res.Serial -Encoding utf8 }
+        if ($res.Serial) { Write-RoboUtf8File -Path $log -Text $res.Serial }
         if (-not $res.Complete) {
             throw ("the OS did not reach kernel startup in ${TimeoutSeconds}s; serial: $log")
         }
