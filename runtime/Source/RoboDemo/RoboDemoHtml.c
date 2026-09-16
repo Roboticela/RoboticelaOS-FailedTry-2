@@ -137,15 +137,24 @@ static const robo_gfx_color_rgba8_t C_SURFACE = {255, 255, 255, 255};
 #define DEMO_PARAGRAPH_GAP 14
 #define DEMO_BUTTON_GAP 16
 
-/* Form-control metrics (Phase 8.14). A field row is one control: either a
- * drawn box with its text inside, or a run of caption text. */
-#define DEMO_FIELD_HEIGHT 34
-#define DEMO_FIELD_TEXTAREA_HEIGHT 68
+/*
+ * Form-control metrics (Phase 8.14). A field row is one control: either a
+ * drawn box with its text inside, or a run of caption text.
+ *
+ * The sizes are chosen so the checkpoint document FITS: the guest's
+ * framebuffer is 800 device pixels tall, and a demonstration that ran off
+ * the bottom of the real display would be a checkpoint in name only. The
+ * budget is roughly 200px of heading, prose and links above the form and
+ * seven caption/control pairs plus two buttons below it; these three numbers
+ * are what keeps the sum under 800, and demo.layout.flow pins the result.
+ */
+#define DEMO_FIELD_HEIGHT 28
+#define DEMO_FIELD_TEXTAREA_HEIGHT 56
 #define DEMO_FIELD_MIN_WIDTH 260
 #define DEMO_FIELD_PAD_X 10
-#define DEMO_FIELD_BOX_SIZE 18
+#define DEMO_FIELD_BOX_SIZE 16
 #define DEMO_FIELD_BOX_GAP 10
-#define DEMO_FIELD_GAP 10
+#define DEMO_FIELD_GAP 6
 
 /** Text copied out of one block (demo-scope, not a real limit). */
 #define DEMO_BLOCK_TEXT_MAX 1024u
@@ -1854,8 +1863,8 @@ robo_result_t robo_demo_page_paint(robo_demo_page_t *page,
                 if (b->control_checked) {
                     r = robo_demo_fill_clipped(
                         surface,
-                        robo_gfx_rect(box.x + 4, box.y + 4, box.width - 8,
-                                      box.height - 8),
+                        robo_gfx_rect(box.x + 3, box.y + 3, box.width - 6,
+                                      box.height - 6),
                         C_BRAND);
                     if (r != ROBO_OK) {
                         return r;

@@ -19,6 +19,8 @@
  *   ROBO_QEMU_DISPLAY_OK
  *   ROBO_QEMU_HTML_OK
  *   ROBO_QEMU_HTML_LINKS / _LINK_FRAGMENT / _LINK_UNSUPPORTED
+ *   ROBO_QEMU_HTML_FIELDS / _FIELDS_STATE / _FIELDS_CHECKED /
+ *                     _FIELDS_DECLARED / _FIELDS_PLACEHOLDER / _FIELD_OPTIONS
  *   ROBO_QEMU_PRESENT_OK
  *   ROBO_QEMU_INPUT_OK
  *   ROBO_QEMU_DISPLAY_SHUTDOWN_OK
@@ -28,6 +30,14 @@
  * must refuse and the fragment link must resolve to the element it names. A
  * marker that claimed otherwise would be the guest reporting navigation that
  * did not happen.
+ *
+ * The field markers (Phase 8.14) are the same idea one level down: the guest
+ * reports what the form model says the checkpoint's controls hold — how many
+ * there are, how many are checked, how many carry a declared value, how many
+ * carry only a placeholder, and the select's option count — so a value that
+ * came from nowhere, a box that defaulted itself checked, or a placeholder
+ * mistaken for a value would show up in the serial log rather than passing as
+ * a picture.
  */
 
 #include "RoboBase/RoboBase.h"
@@ -242,6 +252,62 @@ int main(void)
         serial_u32("ROBO_QEMU_HTML_LINKS_HIT=", links);
         serial_u32("ROBO_QEMU_HTML_LINK_FRAGMENT=", fragment_hits);
         serial_u32("ROBO_QEMU_HTML_LINK_UNSUPPORTED=", unsupported);
+    }
+
+    /*
+     * Phase 8.14 in the guest: report the state the form model holds for the
+     * checkpoint's controls. Every number below is a fact the model derived —
+     * the counts are not computed from the markup here, and a control that
+     * invented a value would change one of them.
+     *
+     *   declared       a value-holding control whose current value is non-empty
+     *   placeholder    a value-holding control with no value whose text is its
+     *                  placeholder (the picture draws that text muted, so the
+     *                  two must not be conflated). A `<label>` is a field block
+     *                  too and is excluded here: a caption carries no state, so
+     *                  counting its text as a placeholder would be the guest
+     *                  reporting a control the model does not have.
+     */
+    {
+        uint32_t fields = 0u;
+        uint32_t controls = 0u;
+        uint32_t checked = 0u;
+        uint32_t declared = 0u;
+        uint32_t placeholder = 0u;
+        uint32_t options = 0u;
+        size_t bi;
+
+        for (bi = 0u; bi < robo_demo_page_block_count(page); bi++) {
+            robo_demo_field_info_t info;
+            const char *text;
+            int holds_value;
+
+            if (!robo_demo_page_block_field(page, bi, &info))
+                continue;
+            fields++;
+            if (info.checked)
+                checked++;
+            if (info.option_count > (size_t)options)
+                options = (uint32_t)info.option_count;
+
+            holds_value = (info.tag == ROBO_HTML_TAG_INPUT ||
+                           info.tag == ROBO_HTML_TAG_TEXTAREA ||
+                           info.tag == ROBO_HTML_TAG_SELECT);
+            if (!holds_value)
+                continue;
+            controls++;
+            if (info.value_length > 0u)
+                declared++;
+            text = robo_demo_page_block_text(page, bi);
+            if (info.value_length == 0u && text && text[0])
+                placeholder++;
+        }
+        serial_u32("ROBO_QEMU_HTML_FIELDS=", fields);
+        serial_u32("ROBO_QEMU_HTML_FIELDS_STATE=", controls);
+        serial_u32("ROBO_QEMU_HTML_FIELDS_CHECKED=", checked);
+        serial_u32("ROBO_QEMU_HTML_FIELDS_DECLARED=", declared);
+        serial_u32("ROBO_QEMU_HTML_FIELDS_PLACEHOLDER=", placeholder);
+        serial_u32("ROBO_QEMU_HTML_FIELD_OPTIONS=", options);
     }
 
     robo_window_config_init(&cfg);

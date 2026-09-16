@@ -60,17 +60,31 @@
  * `file:` never reach a handler), resolves a fragment locally because that
  * is the one navigation needing no I/O, and reports every activation through
  * an outcome vocabulary with no "navigated" kind — so nothing can claim
- * navigation this runtime did not perform. The surface still grows in 8.14+,
- * so API freeze is NOT claimed here (ROBO_HTML_API_FROZEN=0).
+ * navigation this runtime did not perform. 0.14.0 gives the form controls a
+ * state: RoboHTMLForm.h reads `action`/`method`/`enctype`/`name`/`target`
+ * off a `<form>`, `for` off a `<label>` and resolves it to the control it
+ * names, the typed attribute set of an `<input>`/`<button>`/`<textarea>`/
+ * `<select>`/`<option>` (with `min`/`max`/`step` parsed as numbers rather
+ * than compared), the input type vocabulary and its `unknown`→`text`
+ * degradation, the select/option ordering and selection rules, and — the
+ * point of the phase — the split between a control's *declared* value (the
+ * attribute, or a textarea's children) and its *current* value (an explicit
+ * override kept in a per-document table beside the element that owns it),
+ * the same for checkedness, and a form owner resolved on demand from the
+ * live tree. Nothing is cached, so no mutation can leave a stale
+ * association. Submission, HTTP, encodings, validation, file and date/range/
+ * color inputs, user interaction, events and CSS are explicitly not part of
+ * this. The surface still grows in 8.15+, so API freeze is NOT claimed here
+ * (ROBO_HTML_API_FROZEN=0).
  */
 
 #ifndef ROBO_HTML_VERSION_H
 #define ROBO_HTML_VERSION_H
 
 #define ROBO_HTML_VERSION_MAJOR 0
-#define ROBO_HTML_VERSION_MINOR 13
+#define ROBO_HTML_VERSION_MINOR 14
 #define ROBO_HTML_VERSION_PATCH 0
-#define ROBO_HTML_VERSION_STRING "0.13.0"
+#define ROBO_HTML_VERSION_STRING "0.14.0"
 
 /** 1 once the Phase 8 surface is frozen (not yet — see header comment). */
 #define ROBO_HTML_API_FROZEN 0

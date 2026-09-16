@@ -35,22 +35,35 @@ document model underneath stays.
 | `runtime/Include/RoboDemo/` | Public demo API (`RoboDemoHtml.h`, `RoboDemoFont.h`, `RoboDemoVersion.h`, `RoboDemoHost.h`) |
 | `runtime/Source/RoboDemo/` | Implementation (`RoboDemoHtml.c`, `RoboDemoFont.c`) |
 | `runtime/Source/RoboDemo/platform/host/` | Real Win32 window runner (`--demo-html`) |
-| `runtime/demo/assets/Demo.html` | The demo document (byte-identical to the compiled-in copy) |
+| `runtime/demo/assets/Demo.html` | The demo document (byte-identical to the compiled-in copy; 1397 bytes) |
 | `runtime/demo/tests/SuiteRoboDemoHtml.c` | `demo.*` suites |
 | `runtime/demo/docs/VisualCheckpoint.md` | How to build, run and inspect it |
 
 ## Supported subset
 
-Recognised: `html`, `head`, `title`, `body`, `h1`, `p`, `button`.
-Everything else is counted and skipped — and because the walk descends through
-unsupported elements, supported markup nested inside them is still painted.
-Text comes from the tree's text nodes, so character references (`&amp;`,
-`&#65;`) arrive already decoded.
+**Painted blocks.** Any heading (`h1` … `h6`) and any `p`; a `div` that holds
+text and nothing else; `button`; `a` with an `href`; `img` with a decoded
+resource; and the form controls — a `label` that wraps nothing (a caption),
+plus `input`, `textarea` and `select`.
 
-`<title>` becomes the window caption. `h1`, `p` and `button` become blocks:
-one deterministic vertical flow with per-style type scale and spacing, and no
+**Structure** (recognised, counted, descended into, not blocks of their own):
+`html`, `head`, `body`, `title` (it becomes the window caption), `form`,
+`fieldset`, `legend`, `option`, `optgroup`, and a `label` that wraps a control.
+
+Everything else is counted as unsupported markup and skipped — and because the
+walk descends through unsupported elements, supported markup nested inside them
+is still painted. An element carrying `hidden` is recognised and counted but
+paints nothing, subtree included. Elements outside the HTML namespace are not
+painted. Text comes from the tree's text nodes, so character references
+(`&amp;`, `&#65;`) arrive already decoded.
+
+Blocks flow vertically with per-style type scale and spacing, and there is no
 text wrapping (wrapping is real layout work, Phase 10). The button reacts to
-hover and press through the existing RoboWindow mouse events.
+hover and press through the existing RoboWindow mouse events; a link can be
+hit-tested and activated; and a form control reports the state the RoboHTML form
+model holds rather than a value re-derived from the markup — a declared value in
+the text colour, a placeholder (or a disabled control) muted, a checked box
+marked, and a select showing the option it is on.
 
 ## Run it
 

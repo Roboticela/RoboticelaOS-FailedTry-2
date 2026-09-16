@@ -48,6 +48,10 @@ static const robo_gfx_color_rgba8_t T_BG = {245, 245, 247, 255};
 static const robo_gfx_color_rgba8_t T_BRAND = {14, 122, 255, 255};
 static const robo_gfx_color_rgba8_t T_BRAND_HOVER = {10, 106, 232, 255};
 static const robo_gfx_color_rgba8_t T_BRAND_ACTIVE = {7, 87, 199, 255};
+static const robo_gfx_color_rgba8_t T_TEXT = {29, 29, 31, 255};
+static const robo_gfx_color_rgba8_t T_MUTED = {110, 110, 115, 255};
+static const robo_gfx_color_rgba8_t T_SURFACE = {255, 255, 255, 255};
+static const robo_gfx_color_rgba8_t T_BORDER = {210, 210, 215, 255};
 
 /* ------------------------------------------------------------------ */
 /* Fixtures                                                           */
@@ -206,7 +210,7 @@ static void test_demo_default_source(void)
      */
     ROBO_CHECK_EQ_INT(robo_demo_page_block_count(page), 22);
     ROBO_CHECK_EQ_INT(robo_demo_page_field_count(page), 14);
-    ROBO_CHECK_EQ_INT(robo_demo_page_supported_element_count(page), 30);
+    ROBO_CHECK_EQ_INT(robo_demo_page_supported_element_count(page), 29);
     ROBO_CHECK_EQ_INT(robo_demo_page_ignored_tag_count(page), 0);
     ROBO_CHECK_EQ_INT(robo_demo_page_diagnostic_count(page), 0);
     ROBO_CHECK_EQ_INT(robo_demo_page_has_button(page), 1);
@@ -753,6 +757,7 @@ static void test_demo_paint_probes(void)
                       ROBO_OK);
 
     ROBO_CHECK_EQ_INT(stats.blocks_painted, 22);
+    ROBO_CHECK_EQ_INT((int)stats.rects_painted, 50);
     /*
      * Six runs above the form, seven captions, three controls carrying text
      * (the text and number inputs and the textarea, whose placeholders and
@@ -2043,6 +2048,397 @@ static void test_demo_link_mutation(void)
     ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
 }
 
+/* ------------------------------------------------------------------ */
+/* 8. Form controls (Phase 8.14)                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The checkpoint's controls report the state the form model holds.
+ *
+ * This is the assertion that keeps the picture honest: every value below is
+ * a fact the Phase 8.14 model derived from the document, so a block that
+ * invented a value, defaulted a checked box, or mistook a placeholder for a
+ * value would be caught here rather than in a screenshot nobody diffs.
+ *
+ * The document is the shipped checkpoint, so the indices are the ones the
+ * picture has — see test_demo_default_source, which pins the block order.
+ */
+static void test_demo_field_checkpoint(void)
+{
+    robo_demo_page_t *page;
+    robo_demo_field_info_t info;
+    size_t i;
+    static const size_t k_caption_at[7] = {6u, 8u, 10u, 12u, 14u, 16u, 18u};
+    static const char *const k_caption[7] = {
+        "Display name", "Passphrase",   "Build revision", "Platform notes",
+        "Release ring", "Notes",        "Country"};
+    static const robo_html_input_type_t k_caption_type[7] = {
+        ROBO_HTML_INPUT_TYPE_TEXT,     ROBO_HTML_INPUT_TYPE_TEXT,
+        ROBO_HTML_INPUT_TYPE_TEXT,     ROBO_HTML_INPUT_TYPE_TEXT,
+        ROBO_HTML_INPUT_TYPE_TEXT,     ROBO_HTML_INPUT_TYPE_TEXT,
+        ROBO_HTML_INPUT_TYPE_TEXT};
+
+    demo_fixture();
+    page = page_from(robo_demo_default_html(), NULL);
+    ROBO_CHECK(page != NULL);
+    if (!page) {
+        return;
+    }
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_field_count(page), 14);
+
+    /* A caption is a control block too, and it carries no state at all: a
+     * `<label>` has no value and no checkedness to report. */
+    for (i = 0u; i < 7u; i++) {
+        ROBO_CHECK_EQ_INT(
+            robo_demo_page_block_field(page, k_caption_at[i], &info), 1);
+        ROBO_CHECK_EQ_INT((int)info.tag, (int)ROBO_HTML_TAG_LABEL);
+        ROBO_CHECK_EQ_INT((int)info.type, (int)k_caption_type[i]);
+        ROBO_CHECK_STR_EQ(info.value, "");
+        ROBO_CHECK_EQ_INT(info.checked, 0);
+        ROBO_CHECK_EQ_INT(info.option_count, 0u);
+        ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, k_caption_at[i]),
+                          k_caption[i]);
+    }
+
+    /* `<input type="text">` with no `value`: nothing is declared, so nothing
+     * is reported, and the placeholder is what the picture shows. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 7, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.tag, (int)ROBO_HTML_TAG_INPUT);
+    ROBO_CHECK_EQ_INT((int)info.type, (int)ROBO_HTML_INPUT_TYPE_TEXT);
+    ROBO_CHECK_STR_EQ(info.value, "");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 7), "Your name");
+
+    /* A password field carries no placeholder and no value, so it has no
+     * text at all — a box and nothing else, which is the honest picture. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 9, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.type, (int)ROBO_HTML_INPUT_TYPE_PASSWORD);
+    ROBO_CHECK_STR_EQ(info.value, "");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 9), "");
+
+    /* A number input's declared value is its current value, because nothing
+     * has overridden it. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 11, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.type, (int)ROBO_HTML_INPUT_TYPE_NUMBER);
+    ROBO_CHECK_STR_EQ(info.value, "8");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 11), "8");
+
+    /* The checkbox is checked; a checkbox has no text of its own. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 13, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.type, (int)ROBO_HTML_INPUT_TYPE_CHECKBOX);
+    ROBO_CHECK_EQ_INT(info.checked, 1);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 13), "");
+
+    /* The radio is checked, and its value is its `value` attribute. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 15, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.type, (int)ROBO_HTML_INPUT_TYPE_RADIO);
+    ROBO_CHECK_EQ_INT(info.checked, 1);
+    ROBO_CHECK_STR_EQ(info.value, "Stable");
+
+    /* The textarea has no children, so its only text is its placeholder. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 17, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.tag, (int)ROBO_HTML_TAG_TEXTAREA);
+    ROBO_CHECK_STR_EQ(info.value, "");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 17), "Anything else");
+
+    /* The select reports the option it is on — `selected`, not the first —
+     * with both the option's value and its text, and its option count. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 19, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.tag, (int)ROBO_HTML_TAG_SELECT);
+    ROBO_CHECK_EQ_INT((int)info.option_count, 2);
+    ROBO_CHECK_STR_EQ(info.value, "us");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 19), "United States");
+
+    /* Refusals: a heading is not a control, a button is not a control block
+     * (it keeps its own style), an out-of-range index is not one, and NULL
+     * out is an argument error rather than a write. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 0, &info), 0);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 20, &info), 0);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 21, &info), 0);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 22, &info), 0);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 7, NULL), 0);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(NULL, 7, &info), 0);
+
+    robo_demo_page_destroy(page);
+}
+
+/**
+ * A control reaches the picture as a shape, and the shape differs by state.
+ *
+ * Asserted on pixels, because "a control was drawn" is not a claim anyone can
+ * check later: a caption draws no box, a field draws a white bordered one, a
+ * checked checkbox draws a filled mark, and a textarea is taller than a
+ * single-line control. Each of those is a distinct pixel fact here.
+ */
+static void test_demo_field_visual(void)
+{
+    robo_demo_page_t *page;
+    robo_gfx_surface_t *surface;
+    robo_gfx_rect_t caption;
+    robo_gfx_rect_t input;
+    robo_gfx_rect_t password;
+    robo_gfx_rect_t checkbox;
+    robo_gfx_rect_t textarea;
+    robo_gfx_rect_t select_box;
+
+    demo_fixture();
+    page = page_from(robo_demo_default_html(), NULL);
+    surface = make_surface(900, 800);
+    ROBO_CHECK(page != NULL && surface != NULL);
+    if (!page || !surface) {
+        robo_demo_page_destroy(page);
+        robo_gfx_surface_release(surface);
+        return;
+    }
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_paint(page, surface, NULL, NULL), ROBO_OK);
+    ROBO_CHECK(robo_demo_page_block_rect(page, 6, &caption));
+    ROBO_CHECK(robo_demo_page_block_rect(page, 7, &input));
+
+    /* A caption draws text and no box; the field below it draws both. */
+    ROBO_CHECK(rect_has_ink(surface, caption, T_BG));
+    ROBO_CHECK(pixel_is(surface, (uint32_t)caption.x, (uint32_t)caption.y,
+                        T_BG));
+    ROBO_CHECK(pixel_is(surface, (uint32_t)input.x, (uint32_t)input.y,
+                        T_BORDER));
+    ROBO_CHECK(pixel_is(surface, (uint32_t)(input.x + input.width / 2),
+                        (uint32_t)(input.y + input.height / 2), T_SURFACE));
+
+    /* The placeholder is drawn in the muted colour, so a reader of the
+     * picture can tell "no value" from "this is the value". */
+    ROBO_CHECK(rect_has_color(surface, input, T_MUTED));
+
+    /* The password field has neither a placeholder nor a value: it contains
+     * no ink of any text colour inside its box. */
+    ROBO_CHECK(robo_demo_page_block_rect(page, 9, &password));
+    ROBO_CHECK(!rect_has_color(surface, password, T_MUTED));
+    ROBO_CHECK(!rect_has_color(surface, password, T_TEXT));
+    ROBO_CHECK(!rect_has_color(surface, password, T_BRAND));
+
+    /* The number field holds a value and draws it in the primary text
+     * colour — the opposite of the placeholder case above. */
+    ROBO_CHECK(robo_demo_page_block_rect(page, 11, &input));
+    ROBO_CHECK(rect_has_color(surface, input, T_TEXT));
+
+    /* A checked checkbox draws the brand-coloured mark inside its box. */
+    ROBO_CHECK(robo_demo_page_block_rect(page, 13, &checkbox));
+    ROBO_CHECK(rect_has_color(surface, checkbox, T_BRAND));
+
+    /* A textarea is a field, but a taller one. */
+    ROBO_CHECK(robo_demo_page_block_rect(page, 17, &textarea));
+    ROBO_CHECK(robo_demo_page_block_rect(page, 9, &password));
+    ROBO_CHECK(textarea.height > password.height);
+
+    /* The select draws a chevron at its right edge that a text field does
+     * not, so the two controls are distinguishable in the picture. */
+    ROBO_CHECK(robo_demo_page_block_rect(page, 19, &select_box));
+    ROBO_CHECK(pixel_is(surface,
+                        (uint32_t)(select_box.x + select_box.width - 15),
+                        (uint32_t)(select_box.y + select_box.height / 2 - 1),
+                        T_MUTED));
+    ROBO_CHECK(pixel_is(surface,
+                        (uint32_t)(input.x + input.width - 15),
+                        (uint32_t)(input.y + input.height / 2 - 1), T_SURFACE));
+
+    robo_gfx_surface_release(surface);
+    robo_demo_page_destroy(page);
+}
+
+/**
+ * A control's state is re-read from the DOM, not remembered from the build.
+ *
+ * The page is rebuilt from the same document after each mutation, which is
+ * exactly the flow a caller uses, and the reported value follows the model
+ * every time — including the two facts that look contradictory until you
+ * separate them: changing the `value` attribute changes a control's current
+ * value while nothing has overridden it, and does *not* once it has.
+ */
+static void test_demo_field_mutation(void)
+{
+    robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
+    robo_html_source_t src;
+    robo_html_node_handle_t root;
+    robo_html_node_handle_t text_input;
+    robo_html_node_handle_t check;
+    robo_html_node_handle_t area;
+    robo_demo_page_t *page = NULL;
+    robo_demo_field_info_t info;
+
+    demo_fixture();
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc, NULL), ROBO_OK);
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(
+        robo_html_source_string(
+            &src,
+            "<html><body><form action=\"/Save\">"
+            "<input id=\"Name\" type=\"text\" name=\"n\" value=\"Declared\">"
+            "<input id=\"News\" type=\"checkbox\" name=\"news\" checked>"
+            "<textarea id=\"Note\" name=\"note\">Hello</textarea>"
+            "</form></body></html>",
+            NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+    root = robo_html_document_root(doc);
+    ROBO_CHECK_EQ_INT(
+        robo_html_node_find_element(&root, "input", &text_input, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(
+        robo_html_node_find_element(&root, "textarea", &area, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(
+        robo_html_node_next_sibling(&text_input, &check, NULL), ROBO_OK);
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(page != NULL);
+    if (!page) {
+        ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+        return;
+    }
+    /* Three controls and no captions: the form and body are structure. */
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_field_count(page), 3);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 0, &info), 1);
+    ROBO_CHECK_STR_EQ(info.value, "Declared");
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 1, &info), 1);
+    ROBO_CHECK_EQ_INT(info.checked, 1);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 2, &info), 1);
+    /* A textarea's declared value is its child text, not an attribute. */
+    ROBO_CHECK_STR_EQ(info.value, "Hello");
+    robo_demo_page_destroy(page);
+    page = NULL;
+
+    /* An explicit current value: the page reports it, and the `value`
+     * attribute still says what the author wrote. */
+    ROBO_CHECK_EQ_INT(
+        robo_html_element_set_control_value(&text_input, "Edited", 6u, NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    if (page) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 0, &info), 1);
+        ROBO_CHECK_STR_EQ(info.value, "Edited");
+        ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 0), "Edited");
+        robo_demo_page_destroy(page);
+        page = NULL;
+    }
+
+    /* Dropping the override returns the control to its declared value. */
+    ROBO_CHECK_EQ_INT(robo_html_element_clear_control_value(&text_input, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    if (page) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 0, &info), 1);
+        ROBO_CHECK_STR_EQ(info.value, "Declared");
+        robo_demo_page_destroy(page);
+        page = NULL;
+    }
+
+    /* With no override in effect the current value tracks the attribute, so
+     * rewriting the attribute rewrites what the picture shows. */
+    ROBO_CHECK_EQ_INT(
+        robo_html_element_set_attribute(&text_input, "value", "Rewritten", NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    if (page) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 0, &info), 1);
+        ROBO_CHECK_STR_EQ(info.value, "Rewritten");
+        robo_demo_page_destroy(page);
+        page = NULL;
+    }
+
+    /* Checkedness is independent of the value, and moves on its own. */
+    ROBO_CHECK_EQ_INT(robo_html_element_set_control_checked(&check, 0, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    if (page) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 1, &info), 1);
+        ROBO_CHECK_EQ_INT(info.checked, 0);
+        /* Setting checkedness did not disturb the value beside it. */
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 0, &info), 1);
+        ROBO_CHECK_STR_EQ(info.value, "Rewritten");
+        robo_demo_page_destroy(page);
+        page = NULL;
+    }
+    ROBO_CHECK_EQ_INT(robo_html_element_clear_control_checked(&check, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    if (page) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 1, &info), 1);
+        ROBO_CHECK_EQ_INT(info.checked, 1);
+        robo_demo_page_destroy(page);
+        page = NULL;
+    }
+
+    /* A textarea's content is its default value, so editing the children —
+     * which here means an explicit override — and dropping it both show. */
+    ROBO_CHECK_EQ_INT(
+        robo_html_element_set_control_value(&area, "Edited note", 11u, NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    if (page) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 2, &info), 1);
+        ROBO_CHECK_STR_EQ(info.value, "Edited note");
+        ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 2), "Edited note");
+        robo_demo_page_destroy(page);
+        page = NULL;
+    }
+    ROBO_CHECK_EQ_INT(robo_html_element_clear_control_value(&area, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    if (page) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 2, &info), 1);
+        ROBO_CHECK_STR_EQ(info.value, "Hello");
+        robo_demo_page_destroy(page);
+        page = NULL;
+    }
+
+    ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+}
+
+/**
+ * An input type this runtime does not model degrades to `text`.
+ *
+ * The point is that the degradation is reported as the *effective* type, not
+ * the declared one: the block says `text`, because that is what the control
+ * behaves as and therefore what the picture draws. Reporting `unknown` here
+ * would put a fact in the picture that the runtime does not act on.
+ */
+static void test_demo_field_unknown_type(void)
+{
+    robo_demo_page_t *page;
+    robo_demo_field_info_t info;
+
+    demo_fixture();
+
+    page = page_from("<html><body><form action=\"/Save\">"
+                     "<label for=\"When\">When</label>"
+                     "<input id=\"When\" type=\"date\" placeholder=\"Pick\">"
+                     "</form></body></html>",
+                     NULL);
+    ROBO_CHECK(page != NULL);
+    if (!page) {
+        return;
+    }
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_field_count(page), 2);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 0, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.tag, (int)ROBO_HTML_TAG_LABEL);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 0), "When");
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_field(page, 1, &info), 1);
+    ROBO_CHECK_EQ_INT((int)info.tag, (int)ROBO_HTML_TAG_INPUT);
+    ROBO_CHECK_EQ_INT((int)info.type, (int)ROBO_HTML_INPUT_TYPE_TEXT);
+    /* The element kept its identity and its attributes; only the behaviour
+     * degraded, which is what "degrades safely" means. */
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 1), "Pick");
+    ROBO_CHECK_EQ_INT(info.checked, 0);
+    ROBO_CHECK_STR_EQ(info.value, "");
+
+    robo_demo_page_destroy(page);
+}
+
 void robo_test_register_demo_html(void)
 {
     robo_test_register("demo.version", test_demo_version);
@@ -2090,4 +2486,9 @@ void robo_test_register_demo_html(void)
     robo_test_register("demo.link.document_destroyed",
                        test_demo_link_after_document_destroyed);
     robo_test_register("demo.link.mutation", test_demo_link_mutation);
+    robo_test_register("demo.field.checkpoint", test_demo_field_checkpoint);
+    robo_test_register("demo.field.visual", test_demo_field_visual);
+    robo_test_register("demo.field.mutation", test_demo_field_mutation);
+    robo_test_register("demo.field.unknown_type",
+                       test_demo_field_unknown_type);
 }

@@ -4,9 +4,10 @@ HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
 Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model +
 Phase 8.5 element model + Phase 8.6 attribute model + Phase 8.7 text model +
 Phase 8.8 traversal + Phase 8.9 DOM mutation + Phase 8.10 document lifecycle +
-Phase 8.11 basic HTML elements + Phase 8.12 images + Phase 8.13 links**).
+Phase 8.11 basic HTML elements + Phase 8.12 images + Phase 8.13 links +
+Phase 8.14 forms**).
 
-**Version:** 0.13.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.14.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -181,6 +182,32 @@ is an application runtime, so this phase invents no origin, cookie jar or
 session and adds no security model of its own — it refuses, and says why. See
 `docs/Links.md`.
 
+**8.14 (forms):** the form controls gain a model. Adds `RoboHTMLForm.h`, which
+reads `action`/`method`/`enctype`/`name`/`target` off a `<form>`, `for` off a
+`<label>` and resolves it to the control it names, the typed attribute set of an
+`<input>`/`<button>`/`<textarea>`/`<select>`/`<option>` (with `min`/`max`/`step`
+parsed as numbers rather than compared), the input type vocabulary and its
+`unknown`→`text` degradation, the select/option ordering and selection rules, and
+— the point of the phase — the split between a control's *declared* value (the
+attribute, or a textarea's children) and its *current* value (an explicit
+override kept in a per-document table beside the element that owns it), the same
+for checkedness, with the two overrides independent because in HTML they are
+separate dirty flags. So `<input value="a">` then `.value = "b"` leaves the
+attribute saying `a` and the control saying `b`, and the answer reports which of
+the two it gave rather than making a caller compare strings. **Nothing is
+cached**: a form owner, a label's target and a select's selected option are
+derived on demand from the live tree, so no mutation can leave a stale
+association and there is no hook to forget. Two distinctions carry the model —
+`present` versus `usable` (`<form action>` is present and unusable) and `NONE`
+versus `UNKNOWN` ("no attribute" versus "an attribute naming something we do not
+recognise"), because both would submit as GET in a browser and that defaulting is
+a *submission* rule this phase deliberately does not apply. Reading the wrong
+element is a refusal rather than an empty view, and an unmodelled `type`
+degrades without destroying anything: the element keeps its attributes, its name
+and its place in the tree. No submission, HTTP, encodings, validation, file or
+date/range/color inputs, user interaction, events, CSS, layout or accessibility
+tree. See `docs/Forms.md`.
+
 **No DOM behaviour** — `NamedNodeMap`, `getElementById`, `querySelector`,
 `classList`, `dataset`, events and the rest of the DOM surface come later, and
 so does node *creation* on a closed document (`createElement` /
@@ -205,7 +232,8 @@ registration.
 
 Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 `ElementModel.md`, `AttributeModel.md`, `TextModel.md`, `Traversal.md`,
-`Mutation.md`, `Lifecycle.md`, `Elements.md`, `Images.md`, `Links.md`.
+`Mutation.md`, `Lifecycle.md`, `Elements.md`, `Images.md`, `Links.md`,
+`Forms.md`.
 
 ## Public headers
 
@@ -225,6 +253,7 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `RoboHTMLTag.h` | Element vocabulary: tag identity, name/class/flags lookup, intrinsic predicates |
 | `RoboHTMLImage.h` | Image resources: attribute view, dimension parsing, resource states, the fetch-resolver seam, the in-memory asset resolver, per-document attachment |
 | `RoboHTMLAnchor.h` | Anchors and navigation: attribute view, reference resolution, target kinds, scheme policy, fragment lookup, target context, `rel` tokens, the navigation request/handler/outcome, activation |
+| `RoboHTMLForm.h` | Forms: form/label/input/button/textarea/select/option attribute views, the input and button type vocabularies with their degradation, label→control and control→form resolution, select option ordering and selection, and control state (declared vs current value and checkedness) |
 | `RoboHTMLSource.h` | Source/input abstraction (borrowing view) |
 | `RoboHTMLEncoding.h` | Encoding boundary (labels + state; no decoding yet) |
 | `RoboHTMLParser.h` | Parser lease between source and future tokenizer |
@@ -260,6 +289,8 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `html.elements.*` | All 32 basic element types through the parser, the creation seam, void behaviour, attributes, text and whitespace, Unicode (Arabic/Persian/Urdu/Hindi/Bengali/CJK/emoji), traversal, mutation, lifecycle, 23 malformed inputs, the dump |
 | `html.image.*` | `<img>` through the parser (identity, four attributes, void, siblings), dimension parsing, alt verbatim including Unicode, decode through the asset resolver, failure and scheme refusal as distinct states, re-resolve on a mutated `src`, detach, teardown, mutation and traversal, debug describe |
 | `html.anchor.*` | `<a>` through the parser, the attribute view (present vs usable), the resolution matrix with and without a base, fragments, external URIs, scheme knowledge vs permission, target contexts, `rel` tokens, activation for every outcome kind including the refusals, request contents, no fake success, structure, mutation, lifecycle and destroyed-document safety, Unicode link text, debug describe, capability flag |
+| `html.form.*` | Forms: the elements through the parser, the form and control attribute views (present vs usable, `method`/`enctype` classification), the input type vocabulary and its degradation, value and checkedness state (declared vs current, overrides set/cleared, independence), numeric constraints parsed not compared, button, textarea, select/option ordering, the option value fallback, label→control, form ownership by attribute and by ancestry, refusals for non-form elements, malformed input, mutation including option restructuring, lifecycle including a control mutated after the document settled, a destroyed document's state, structure, Unicode |
+| `demo.field.*` | The form checkpoint: every control in the shipped document reporting the state the model holds, a caption drawing no box while a field draws a white bordered one, a placeholder drawn muted versus a value drawn in the text colour, a checked box drawing a brand mark, a textarea taller than a single-line control, a select's chevron, state re-read from the DOM after mutation (including the attribute-tracking override rule), and an unmodelled `type` degrading to `text` |
 | `demo.link.*` | The link checkpoint end to end: the built-in document's two anchors as real DOM elements, hit-testing through block rects, a route refusing to navigate with no handler, a fragment resolving to the `id` it names, link paint colour and underline versus body copy, activation after the document is destroyed, and `href` mutation reaching the picture |
 | `demo.mutation.*` | A DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |
 | `demo.paint.*` | The visual checkpoint: element kinds, the lifecycle not changing what is rendered, and a decoded PNG reaching the surface |

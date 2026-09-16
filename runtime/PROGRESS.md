@@ -1730,6 +1730,168 @@ because the HTML it was handed is gone and activation needs a tree.
       independence assertion)
 - [x] Stop after 8.13
 
+## Goal 8.14 — forms
+
+8.11 gave `form`, `label`, `input`, `button`, `textarea`, `select` and `option`
+tag identity, so the parser was already building them before this phase began —
+`input` was already void and `<textarea>` was already an RCDATA text element.
+What was missing is everything after the element, because a control is only
+interesting on account of the *state* its attributes declare. 8.14 adds that
+state: the attribute views, the type vocabularies, the relationships, and the
+declared/current split that a form reset exists to express.
+
+**A control does not have one value; it has two, and the split is the point.**
+`<input value="a">` then `.value = "b"` leaves the attribute saying `a` and the
+control saying `b`, because the first is the *default* value the author wrote and
+the second is the *current* value the control is holding. A model with a single
+field cannot express that, so this phase keeps the override in a per-document
+table beside the element that owns it and always reports *which* of the two
+answered: `robo_html_element_control_value` returns the bytes plus
+`out_is_declared`, `set_control_value` pins a current value, and
+`clear_control_value` drops the override so the value tracks the attribute again.
+The consequence is worth stating rather than tidying away — for a control that
+has not been overridden, rewriting the `value` attribute *does* change the
+current value, and for one that has, it does not. That is not an inconsistency;
+it is the entire content of the dirty-value flag, and the suites pin both halves.
+The same shape applies to checkedness, and the two overrides are independent
+because in HTML they are separate dirty flags. Checkedness is modelled for
+`<input>` only and only when the effective type is checkable, so
+`<input type="text" checked>` honestly has an attribute that is preserved and no
+checkedness to report, rather than one misleading fact.
+
+**Nothing is cached, so nothing can go stale.** 8.14.15 asks that a mutation
+never leave a stale association, and the answer is that there is nothing to keep
+in step: a form owner, a label's target, an option's position and a select's
+selected option are all derived on demand from the live tree. Move a control
+between forms and its owner changes; aim a `form` attribute at a missing form
+and the answer comes from ancestry; retarget a label's `for` and the next call
+describes the tree as it is. There is no mutation hook because there is no cache,
+and the only stored state is the two explicit overrides, which belong to one node
+by identity rather than to a relationship — which is exactly why they come along
+when the node moves and die with the tree when it is reset or destroyed.
+
+**`present` is not `usable`, and `NONE` is not `UNKNOWN`.** `<form action>` is
+present and unusable, `<form action="">` is present and unusable, and `<form>`
+is neither, so `action_usable` is reported rather than inferred from a length. A
+missing `method` is `NONE` and a `method="weird"` is `UNKNOWN`, because both
+would submit as GET in a browser and that defaulting is a *submission* rule this
+phase deliberately does not apply. Reading the wrong element is a refusal rather
+than an empty view — asking for a `<div>`'s form attributes is
+`ROBO_NOT_SUPPORTED`, not "a form with nothing to do".
+
+**An unmodelled vocabulary degrades without destroying anything.** An `<input
+ type>` this phase does not model classifies as `UNKNOWN` and behaves as `TEXT`;
+a `<button type>` does the same towards `SUBMIT`. The element keeps its
+attributes, its name and its place in the tree, and the view reports declared,
+effective and *recognised* separately, so a caller can tell "the author said
+`text`" from "the author said `date` and we treat it as text". `TEXT` and
+`SUBMIT` are the zero values of their enums on purpose, so the zero value and the
+HTML default agree instead of needing a special case.
+
+**Numbers are parsed, not compared.** `min`/`max`/`step` carry the same
+present/valid split the image module's dimensions do, which is what lets a caller
+tell `<input min>` from `<input min="abc">` from `<input>`; an invalid number is
+*reported* rather than dropped, because a document that says `min="ten"` has said
+something and hiding it would hide a real authoring error from the phase that
+finally implements validation. Nothing is validated here: `<input min="10"
+max="1">` is reported faithfully rather than flagged. `rows`/`cols` are
+non-negative integers bounded by a stated maximum, invalid rather than clamped, so
+a typo cannot silently resize a control. Boolean attributes are presence tests,
+so `<input checked>`, `checked="checked"` and `checked=""` all report 1.
+
+**Textarea, select and option follow the rules that make them mean something.** A
+textarea has no `value` attribute — its declared value is its child text — so the
+attributes view has no `value` field rather than inventing one. Options are
+counted and ordered by a document-order walk of the subtree, so an option nested
+in an `<optgroup>` counts and an index always agrees with the count. An option's
+value falls back to its own text when there is no `value` attribute, and the
+answer says which of the two it gave. The selected option is determined rather
+than guessed: the first with `selected`, else the first that is not `disabled`,
+else none — a select with no `selected` shows its first selectable option, and
+picking a disabled one would be a state a reader could never reach.
+
+**A label and a form owner resolve by a stated rule, not a maintained index.**
+A label resolves through a usable `for` (when the element it names is labelable)
+and then through the first labelable descendant, reporting which step answered;
+a `for` that names something unlabelable is *not* retried as a descendant search,
+because the author named something and the honest answer is that it does not
+resolve. A control resolves to the form its `form` attribute names, else to the
+nearest ancestor form, else to no owner at all — which is a valid state, not an
+error. The source is reported because the two rules differ for a later phase: an
+owner found by attribute is a deliberate author reference that survives a move,
+and one found by ancestry is a positional fact a move changes.
+
+**The checkpoint shows state, which is the one thing a picture cannot fake.** The
+demo adapter gained `ROBO_DEMO_BLOCK_FIELD`: `label`, `input`, `textarea` and
+`select` share one style because what a caller needs to tell apart is the state,
+not the element. Every reported fact is read through the model at build time —
+never re-derived from the markup — so the picture is a report of the DOM rather
+than a second opinion about it. A caption draws no box while a field draws a
+white bordered one; a control whose text is its placeholder, or which is
+disabled, is drawn muted while a value is drawn in the text colour; a checked
+box draws the brand mark; a select draws a chevron a text field does not. The
+document carries a declared value (`value="8"`), two placeholders, a checked
+checkbox, a checked radio, a password field with nothing to show and a select on
+its second option, and the field heights, box size and row gap are chosen so the
+whole checkpoint fits an 800-pixel display — `demo.layout.flow` pins the result,
+because a demonstration that ran off the bottom of a real framebuffer would be a
+checkpoint in name only.
+
+**Definition of done:**
+
+- [x] `RoboHTMLForm.h` / `.c`: the `<form>`, `<label>`, `<input>`, `<button>`,
+      `<textarea>`, `<select>` and `<option>` attribute views; the input and
+      button type vocabularies with declared/effective/recognised and their
+      degradation; control state (current value and checkedness, read, pinned
+      and cleared, with the declared/current split reported); option count,
+      index, value fallback and the deterministic selected option; label
+      target; form owner and owner source
+- [x] The seven elements through the parser: identity, attributes, voidness,
+      RCDATA textarea content, nesting, siblings, malformed markup
+- [x] `time`, `number`, `checkbox`, `radio`, `password`, `hidden` and the rest of
+      the modelled input types; `range`/`date`/`color`/`file` and unknown
+      spellings degrade to `text` while keeping identity and attributes
+- [x] Declared vs current: the attribute keeps what the author wrote, the
+      override is returned as the current value, `out_is_declared` says which
+      answered, a textarea's children are its declared value, and setting one
+      override never disturbs the other
+- [x] Checkedness only where it exists — checkbox and radio — and refused
+      everywhere else
+- [x] `min`/`max`/`step` and `rows`/`cols` parsed with the present/valid split,
+      invalid values reported rather than clamped or dropped
+- [x] `present` vs `usable` and `NONE` vs `UNKNOWN` for `action`, `method` and
+      `enctype`; a non-form element refused rather than described as empty
+- [x] Select/option ordering by document-order walk (including under
+      `<optgroup>`), the option value fallback with `out_is_explicit`, and the
+      `selected` → first-enabled → none rule
+- [x] Label resolution: `for` by id when labelable, else the first labelable
+      descendant, else nothing; a non-labelable target reported rather than
+      retried; `out_from_attribute` says which step answered
+- [x] Form ownership: attribute by id, else nearest ancestor, else none;
+      attribute source vs ancestor source reported; non-form-associated elements
+      refused
+- [x] Mutation: no stale association under any of append / remove / move between
+      forms / removed form / changed `for` / restructured options, with the state
+      following the node by identity
+- [x] Lifecycle: state readable and writable on a parsed (settled) document, no
+      override surviving a reset or a destroy, and a destroyed document
+      answering without inventing state
+- [x] `robo_html_dom_capabilities_t` reports the forms model
+- [x] Unicode values, option text and control text preserved verbatim (Arabic,
+      Persian, Urdu, CJK, emoji)
+- [x] Checkpoint: `ROBO_DEMO_BLOCK_FIELD` reports and paints the state; `html.form.*`
+      (25) and `demo.field.*` (4) cover the model, the pixels, the mutation rule
+      and the unknown-type degradation
+- [x] QEMU: the guest reports the checkpoint's form state
+      (`ROBO_QEMU_HTML_FIELDS`, `_FIELDS_STATE`, `_FIELDS_CHECKED`,
+      `_FIELDS_DECLARED`, `_FIELDS_PLACEHOLDER`, `_FIELD_OPTIONS`) and
+      `test-qemu-display` asserts the values, so the model is validated on the
+      real display path and not only on the host
+- [x] Full suite green (1394 tests, Debug, no documented exclusions)
+- [x] No Chromium dependency (verified by scan and by the build's own
+      independence assertion)
+- [x] Stop after 8.14
+
 ## Next
 
-- Goal 8.14 — forms (do not start until requested)
+- Goal 8.15 — DOM queries and events (do not start until requested)

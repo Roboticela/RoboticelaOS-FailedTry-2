@@ -271,11 +271,29 @@ $script:RoboUserSpaceFailPatterns = @(
     "\[FAIL\] NETWORK\r?$"
 )
 
+#
+# The display smoke test requires the guest's checkpoint counters, not just the
+# pipeline markers. The values are asserted, not merely looked for, because the
+# document is pinned (`demo.source.default` on the host) and these are the same
+# facts on the device path: a control whose state stopped reaching the picture
+# fails here instead of passing as a picture nobody diffs.
+#
 $script:RoboDisplayMarkers = @(
     "ROBO_QEMU_DISPLAY_OK",
     "ROBO_QEMU_PRESENT_OK",
     "ROBO_QEMU_INPUT_OK",
-    "ROBO_QEMU_DISPLAY_SHUTDOWN_OK"
+    "ROBO_QEMU_DISPLAY_SHUTDOWN_OK",
+    # 22 blocks, 29 supported elements, 0 ignored, from the shipped checkpoint.
+    "ROBO_QEMU_HTML_BLOCKS=0x00000016",
+    "ROBO_QEMU_HTML_SUPPORTED=0x0000001D",
+    # Phase 8.14: 14 field blocks, 7 of them controls carrying state, 2 checked,
+    # 3 with a declared value, 2 with a placeholder only, and a 2-option select.
+    "ROBO_QEMU_HTML_FIELDS=0x0000000E",
+    "ROBO_QEMU_HTML_FIELDS_STATE=0x00000007",
+    "ROBO_QEMU_HTML_FIELDS_CHECKED=0x00000002",
+    "ROBO_QEMU_HTML_FIELDS_DECLARED=0x00000003",
+    "ROBO_QEMU_HTML_FIELDS_PLACEHOLDER=0x00000002",
+    "ROBO_QEMU_HTML_FIELD_OPTIONS=0x00000002"
 )
 
 function Assert-RoboQemuAvailable {

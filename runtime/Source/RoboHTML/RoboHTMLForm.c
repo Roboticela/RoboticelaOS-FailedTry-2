@@ -22,6 +22,7 @@
 
 #include "RoboHTML/RoboHTMLForm.h"
 
+#include "RoboBase/RoboLog.h"
 #include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTML/RoboHTMLTraversal.h"
@@ -1210,6 +1211,21 @@ robo_result_t robo_html_element_control_value(
     return copy_span(out, out_cap, value, value ? length : 0u, out_length);
 }
 
+/**
+ * Tag name for a debug line, never NULL.
+ *
+ * A log line about a control names the control and how much it holds, and
+ * deliberately **not** what it holds: a password field's bytes are user data,
+ * and a serial log is the last place they belong. Length is the honest, safe
+ * fact.
+ */
+static const char *control_log_name(const robo_html_node_handle_t *element)
+{
+    const char *name = robo_html_element_name(element, NULL);
+
+    return (name && name[0]) ? name : "?";
+}
+
 robo_result_t robo_html_element_set_control_value(
     const robo_html_node_handle_t *element, const char *value, size_t length,
     robo_html_diag_t *diag)
@@ -1260,6 +1276,9 @@ robo_result_t robo_html_element_set_control_value(
     }
     entry->value = copy;
     entry->value_length = length;
+    robo_log_debug("robo_html: control value set doc=%llu tag=%s len=%llu",
+                   (unsigned long long)element->document_id,
+                   control_log_name(element), (unsigned long long)length);
     return ROBO_OK;
 }
 
@@ -1269,6 +1288,7 @@ robo_result_t robo_html_element_clear_control_value(
     robo_html_document_slot_t *slot;
     robo_html_control_state_t *entry;
     robo_result_t res = value_gate(element, diag);
+    int had_override = 0;
 
     if (res != ROBO_OK) {
         return res;
@@ -1279,12 +1299,17 @@ robo_result_t robo_html_element_clear_control_value(
                               "document does not resolve");
     }
     entry = control_find(slot, element);
-    if (entry && entry->value) {
+    had_override = (entry && entry->value) ? 1 : 0;
+    if (had_override) {
         robo_free(entry->value);
         entry->value = NULL;
         entry->value_length = 0u;
     }
     control_tidy(slot, control_find_index(slot, element));
+    robo_log_debug(
+        "robo_html: control value cleared doc=%llu tag=%s had_override=%d",
+        (unsigned long long)element->document_id, control_log_name(element),
+        had_override);
     /* Absent override is a successful no-op: a form reset must not fail
      * because one field was never edited. */
     return ROBO_OK;
@@ -1345,6 +1370,9 @@ robo_result_t robo_html_element_set_control_checked(
     }
     entry->checked_set = 1;
     entry->checked = checked ? 1 : 0;
+    robo_log_debug("robo_html: control checked set doc=%llu tag=%s checked=%d",
+                   (unsigned long long)element->document_id,
+                   control_log_name(element), entry->checked);
     return ROBO_OK;
 }
 
@@ -1354,6 +1382,7 @@ robo_result_t robo_html_element_clear_control_checked(
     robo_html_document_slot_t *slot;
     robo_html_control_state_t *entry;
     robo_result_t res = checked_gate(element, diag);
+    int had_override = 0;
 
     if (res != ROBO_OK) {
         return res;
@@ -1364,11 +1393,16 @@ robo_result_t robo_html_element_clear_control_checked(
                               "document does not resolve");
     }
     entry = control_find(slot, element);
+    had_override = (entry && entry->checked_set) ? 1 : 0;
     if (entry) {
         entry->checked_set = 0;
         entry->checked = 0;
     }
     control_tidy(slot, control_find_index(slot, element));
+    robo_log_debug(
+        "robo_html: control checked cleared doc=%llu tag=%s had_override=%d",
+        (unsigned long long)element->document_id, control_log_name(element),
+        had_override);
     return ROBO_OK;
 }
 

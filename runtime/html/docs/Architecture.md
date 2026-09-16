@@ -758,3 +758,83 @@ RoboHTMLAnchor.h (8.13)
   it without this API changing.
 
 Full design, contracts and the test coverage: [`Links.md`](Links.md).
+
+## 22. Phase 8.14 — forms
+
+8.14 makes a form control a **state** rather than a tag. 8.11 gave `form`,
+`label`, `input`, `button`, `textarea`, `select` and `option` identity, so the
+parser was already building them; what was missing is everything after the
+element, because a control is only interesting on account of what its attributes
+declare it holds.
+
+```
+RoboHTMLForm.h (8.14)
+├── attributes   <form>      action · method · enctype · name · target
+│                <label>     for
+│                <input>     type · name · value · placeholder · checked ·
+│                            disabled · readonly · required · min · max · step
+│                <button>    type · name · value · disabled
+│                <textarea>  name · rows · cols · placeholder · disabled ·
+│                            readonly · required     (no `value`: see below)
+│                <select>    name · multiple · disabled · required
+│                <option>    value · selected · disabled · label
+├── vocabularies  input type  → declared │ effective │ recognised
+│                 button type → declared │ effective │ recognised
+│                 method / enctype → NONE vs UNKNOWN
+├── state        robo_html_element_control_value / set_ / clear_control_value
+│                robo_html_element_control_checked / set_ / clear_control_checked
+│                  declared (the attribute, or a textarea's children)
+│                  current  (an explicit override in a per-document table)
+│                  out_is_declared says which of the two answered
+└── relationships  label → control    `for` by id, else first labelable descendant
+                   control → form     `form` by id, else nearest ancestor form
+                   select → option    count · index · value · selected
+```
+
+- **A control does not have one value; it has two.** The *declared* value is
+  what the author wrote — the attribute, or a textarea's children — and the
+  *current* value is what the control is holding. `<input value="a">` then
+  `.value = "b"` leaves the attribute saying `a` and the control saying `b`,
+  because that is what a form reset restores. A model with a single field cannot
+  express it, so the override lives in a per-document table beside the element
+  that owns it and the answer always says which of the two it gave.
+- **Checkedness is the same shape, and independent.** Setting a value never
+  disturbs checkedness and vice versa, because in HTML they are separate dirty
+  flags. Checkedness is modelled for `<input>` only, and only when the effective
+  type is checkable, so `<input type="text" checked>` has an attribute that is
+  preserved and no checkedness — the honest pair of facts.
+- **Nothing is cached, so nothing can go stale.** A form owner, a label's
+  target, an option's position and a select's selected option are derived from
+  the live tree on every call. Move a control between forms and its owner
+  changes; remove the form and it falls back to the next ancestor; the overrides
+  follow the node by identity. There is no mutation hook because there is no
+  cache.
+- **`present` is not `usable`, and `NONE` is not `UNKNOWN`.** `<form action>`
+  is present and unusable while `<form>` is neither, and a missing `method` is
+  `NONE` while `method="weird"` is `UNKNOWN` — because both would submit as GET
+  in a browser and that defaulting is a *submission* rule this phase does not
+  apply. Reading the wrong element is a refusal, not an empty view.
+- **An unmodelled vocabulary degrades safely.** An `<input type>` this phase
+  does not model behaves as `text` and a `<button type>` as `submit`, while the
+  element keeps its attributes, its name and its place in the tree, and the view
+  reports declared, effective and recognised so the degradation is visible
+  rather than silent. `TEXT` and `SUBMIT` are the zero values of their enums, so
+  the zero value and the HTML default agree.
+- **Numbers are parsed, not compared.** `min`/`max`/`step` and `rows`/`cols`
+  carry the present/valid split, so `<input min>`, `<input min="abc">` and
+  `<input>` are three distinguishable situations; an invalid value is reported
+  rather than clamped or dropped, because a document that says `min="ten"` has
+  said something and validation is a later phase's job.
+- **A textarea has no `value` attribute.** Its declared value is its child
+  text, so the attributes view has no `value` field rather than inventing one.
+  Options are counted and ordered by a document-order walk of the subtree (so an
+  option under an `<optgroup>` counts), an option's value falls back to its own
+  text with `out_is_explicit` saying which answered, and the selected option is
+  the first `selected`, else the first not `disabled`, else none — a
+  deterministic rule rather than a guess.
+- **The demo checkpoint shows state.** `ROBO_DEMO_BLOCK_FIELD` covers `label`,
+  `input`, `textarea` and `select` with one style because what a caller needs to
+  tell apart is the state, not the element; every reported fact comes from this
+  model, so the picture cannot show a control the DOM does not have.
+
+Full design, contracts and the test coverage: [`Forms.md`](Forms.md).
