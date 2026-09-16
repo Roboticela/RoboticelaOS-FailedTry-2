@@ -95,6 +95,7 @@ int robo_html_diagnostic_domain_is_known(robo_html_diagnostic_domain_t domain)
     case ROBO_HTML_DOMAIN_RENDER:
     case ROBO_HTML_DOMAIN_TREE:
     case ROBO_HTML_DOMAIN_ELEMENT:
+    case ROBO_HTML_DOMAIN_TEXT:
         return 1;
     default:
         return 0;
@@ -130,6 +131,8 @@ const char *robo_html_diagnostic_domain_name(robo_html_diagnostic_domain_t domai
         return "tree";
     case ROBO_HTML_DOMAIN_ELEMENT:
         return "element";
+    case ROBO_HTML_DOMAIN_TEXT:
+        return "text";
     default:
         return "unknown";
     }

@@ -977,7 +977,8 @@ translated between the parser and the tree.
   `demo/tests/SuiteRoboDemoHtml.c` — `demo.tree.attribute_hidden`.
 - Docs: `html/docs/AttributeModel.md`, `html/README.md`,
   `html/docs/Architecture.md` §14, `html/docs/ElementModel.md`.
-- RoboHTML **0.6.0** (`ROBO_HTML_API_FROZEN=0`), runtime **0.11.0**.
+- RoboHTML **0.6.0** (`ROBO_HTML_API_FROZEN=0`), runtime **0.11.0** (superseded
+  by 8.7's 0.7.0 / 0.12.0).
 
 **Defect fixed (found by the new suite):** the mutation scratch buffer was
 **never zeroed**, while every string in the payload layout ends at a
@@ -1020,6 +1021,92 @@ too-long name (`NOT_SUPPORTED`) stay distinguishable.
 - [x] No Chromium dependency; all independence scans green
 - [x] Stop after 8.6
 
+## Goal 8.7 — Text nodes
+
+**Status:** complete
+
+Character data was already a node kind before this phase (`ROBO_HTML_NODE_KIND_TEXT`,
+created by the 8.3 builder, already painted by the demo renderer). 8.7 adds the
+**model over that kind**, the way 8.5 added one over elements and 8.6 over
+attributes. The organising decision is the same: **a text node is a node**, so
+it inherits identity, ownership, staleness detection, sibling links and
+teardown rather than reimplementing them.
+
+**What changed**
+
+- `Include/RoboHTML/RoboHTMLText.h`, `Source/RoboHTML/RoboHTMLText.c` — the
+  text model: `robo_html_text_create` (the construction seam, text twin of
+  `robo_html_element_create`), a view (handle / parent / content / length /
+  state), the read side (`is_text`, `content`, `length`, `is_empty`,
+  `parent`), and the mutation verbs (`set`, `append`). Sibling navigation is
+  deliberately left to `RoboHTMLNode.h` rather than mirrored, so there is no
+  second traversal surface to keep in step.
+- `RoboHTMLTreeBuilder.c` — text creation goes through the seam (the builder
+  fills a descriptor instead of registering, encoding and linking by hand),
+  and the run merge goes through `robo_html_text_append`. `create_leaf`
+  becomes `create_comment_leaf`; comments are not text nodes.
+- `RoboHTMLTreeBuilder.c` (dump) — a text line is labelled `Text: "..."` and
+  read through `robo_html_text_content`, so the dump cannot drift from the
+  accessor and a whitespace-only run is legible.
+- `RoboHTMLTypes.h/.c` — `ROBO_HTML_DOMAIN_TEXT` for text-domain rejections.
+- `RoboHTMLDom.h/.c` — capability flip: `text_nodes = 1`, with its comment
+  making clear it is the text model and not a `CharacterData` surface.
+- `html/tests/SuiteRoboHTMLText.c` — 23 `html.text.*` cases.
+- Docs: `html/docs/TextModel.md`, `html/README.md`,
+  `html/docs/Architecture.md` §15.
+- RoboHTML **0.7.0** (`ROBO_HTML_API_FROZEN=0`), runtime **0.12.0**.
+
+**The three contracts worth stating once**
+
+- **`NULL` is not `""`.** `robo_html_text_content` returns `NULL` for "not a
+  text node" and a non-NULL empty string for "a text node whose run is
+  empty", the same shape `robo_html_element_attribute_value` uses. `is_empty`
+  is therefore a different question from `is_text`.
+- **A stale handle is a miss, not misuse.** A well-formed handle naming
+  nothing live resolves as `ROBO_NOT_FOUND`; only `NULL` arguments are
+  argument errors — so every accessor lets a caller test before trusting.
+- **Bytes are preserved exactly, and a run coalesces per run.** No
+  normalisation, trimming, collapsing, resampling or re-encoding; and the
+  tokenizer's segmentation is not observable in the tree, so
+  `<p>Hello <b>world</b>!</p>` is three children rather than one node per
+  token.
+
+**Consistency defect found by the new suite:** the first draft of `set` /
+`append` rejected an ill-formed handle with `ROBO_INVALID_ARGUMENT` while
+`view_get` / `parent` / `content` resolved the same handle as `ROBO_NOT_FOUND`.
+The suite pinned the inconsistent pair, and the model now answers one way: a
+cleared or stale handle is a lookup that missed. No defects were found in the
+payload layer this phase — the 8.6 scratch-zeroing fix already covers the
+`set`/`append` path, which the 32-iteration and long-run cases exercise.
+
+**Definition of done:**
+
+- [x] A real text node type, integrated with Node, Element and Document
+- [x] `robo_html_text_create` as the single construction seam; the tree
+      builder goes through it
+- [x] Content / length / parent / state access, with `NULL`-vs-`""`
+      distinguishing "not text" from "present and empty"
+- [x] `set` and `append`, including the append slow path when a payload sits
+      behind the run; identity, parent, siblings and order untouched, so
+      mutation survives finalization
+- [x] Parser integration: real text nodes, runs that coalesce per run,
+      elements/comments/mode changes closing a run
+- [x] Whitespace (spaces, tabs, newlines, leading/trailing) and Unicode
+      (Arabic/Persian/Urdu/Hindi/Bengali/CJK/emoji) preserved byte-exactly
+- [x] Character references arrive already decoded and join their run
+- [x] Empty-text policy stated and tested: the model permits an empty node,
+      the parser never produces one (`<p></p>` has no children)
+- [x] Traversal over a mixed child list; text is a leaf with no children
+- [x] Ownership/lifetime safe: no dangling content, stale handles harmless,
+      teardown releases registry and arena together
+- [x] Malformed input never crashes and always leaves a validate_tree-clean
+      tree
+- [x] Debug dump shows text nodes with escaped whitespace
+- [x] Visual vertical slice unchanged on the host and in QEMU
+- [x] Full suite green (1182/1182, Debug and Release)
+- [x] No Chromium dependency; all independence scans green
+- [x] Stop after 8.7
+
 ## Next
 
-- Goal 8.7 — Text nodes (do not start until requested)
+- Goal 8.8 — DOM traversal (do not start until requested)

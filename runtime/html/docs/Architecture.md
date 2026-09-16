@@ -335,3 +335,52 @@ Element (8.5/8.6)
 
 Full design, contracts and the defect this phase fixed:
 [`AttributeModel.md`](AttributeModel.md).
+
+## 15. Phase 8.7 — text model
+
+8.7 completes the node kinds the tree builder can produce by giving character
+data a real model. The organising idea is the one 8.5 established for
+elements: **a text node is a node**, so it inherits identity, ownership,
+staleness detection, sibling links and teardown instead of reimplementing
+them. Nothing new is stored per node.
+
+```
+Text (8.7)
+├── identity          the node handle (unchanged)
+├── content           the payload arena byte run (unchanged layout)
+├── state             parser-created / connected; derived
+├── parent            the tree link (siblings stay in RoboHTMLNode.h)
+└── creation          robo_html_text_create — the one seam
+```
+
+- **One seam.** `robo_html_text_create` is where a text node comes into
+  existence, so lifecycle, cross-document rejection and the origin rule live
+  in one function. The tree builder now fills a descriptor and calls it
+  rather than registering, encoding and linking by hand — the same shape
+  `robo_html_element_create` already had.
+- **`NULL` is not `""`.** `robo_html_text_content` returns `NULL` for "not a
+  text node" and a non-NULL empty string for "a text node whose run is
+  empty". `robo_html_text_is_empty` is a separate question from "is this
+  text at all".
+- **A stale handle is a miss, not misuse.** A well-formed handle naming
+  nothing live resolves as `ROBO_NOT_FOUND`; only `NULL` arguments are
+  argument errors. Every accessor lets a caller test before trusting.
+- **`set` writes a fresh payload, `append` has two implementations and one
+  result.** Neither touches node identity, parent, siblings or child order, so
+  character data stays mutable after finalization — 8.4 closed tree
+  *construction*, not the document.
+- **A run coalesces per run, not per token.** The tokenizer's segmentation is
+  not observable in the tree: inside an open run `robo_html_text_append`
+  always succeeds, so `<p>Hello <b>world</b>!</p>` is three children rather
+  than one node per token.
+- **Bytes are preserved exactly.** No normalisation, trimming, collapsing,
+  resampling or re-encoding — whitespace and Unicode survive byte-for-byte
+  because every later consumer (layout, shaping, bidi, JavaScript) reads
+these bytes, and a value destroyed here is unrecoverable.
+- **Empty text is permitted by the model and never produced by the parser.**
+  A zero-length run is legal (the future DOM's `createTextNode("")` must be
+  expressible); a zero-length character token carries nothing, so no node is
+  registered for it.
+
+Full design, contracts and the test coverage:
+[`TextModel.md`](TextModel.md).

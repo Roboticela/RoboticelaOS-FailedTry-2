@@ -1355,7 +1355,7 @@ static void test_el_tree_dump(void)
     ROBO_CHECK(strstr(dump, "body") != NULL);
     ROBO_CHECK(strstr(dump, "h1") != NULL);
     ROBO_CHECK(strstr(dump, "button") != NULL);
-    ROBO_CHECK(strstr(dump, "\"Hi\"") != NULL);
+    ROBO_CHECK(strstr(dump, "Text: \"Hi\"") != NULL);
     /* HTML names are printed unprefixed. */
     ROBO_CHECK(strstr(dump, "html:") == NULL);
 

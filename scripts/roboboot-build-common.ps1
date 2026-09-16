@@ -706,6 +706,7 @@ function Invoke-RoboBuildUserland {
             "Source\RoboHTML\RoboHTMLCharRef.c",
             "Source\RoboHTML\RoboHTMLTokenizer.c",
             "Source\RoboHTML\RoboHTMLPayload.c",
+            "Source\RoboHTML\RoboHTMLText.c",
             "Source\RoboHTML\RoboHTMLTreeBuilder.c",
             "Source\RoboHTML\RoboHTMLDocumentModel.c",
             # RoboDemo: the throwaway tree to picture adapter.

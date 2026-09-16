@@ -13,6 +13,7 @@ path from HTML source to pixels on a real screen, on both the host OS and QEMU.
 | RoboHTML document model (8.4) | yes — the walk reads the document the builder populated |
 | RoboHTML element model (8.5) | yes — elements are identified through it, not by raw names |
 | RoboHTML attribute model (8.6) | yes — the walk reads `hidden` from the real attribute set |
+| RoboHTML text model (8.7) | yes — every painted string is read out of real Text nodes |
 | RoboGraphics primitives, surface, PNG export (6.x) | yes |
 | RoboWindow + RoboDisplay + host/QEMU backends (7.x) | yes |
 | RoboWindow keyboard/mouse events (7.10/7.11) | yes — drives the button states |
@@ -64,6 +65,11 @@ has no filesystem in this path.
    - anything else → counted as unsupported, and its subtree is still walked so
      supported markup nested inside it is painted. Non-HTML-namespace elements
      are not painted.
+
+   The text comes from the 8.7 **text model**: `robo_html_node_subtree_text`
+   concatenates the subtree's Text-node content in document order, so no
+   painted string is hardcoded in the renderer — the window caption, the
+   heading, the paragraphs and the button label all originate in the HTML.
 
    One rule is attribute-driven: an element carrying `hidden` (checked through
    the 8.6 attribute model) is recognised and counted but paints nothing, and

@@ -60,12 +60,15 @@ robo_result_t robo_html_dom_query_capabilities(
      * Phase 8.3: the tree builder constructs real document trees, so tree
      * construction is available. Phase 8.6: elements own a real attribute
      * model (lookup, presence, order, add/set/remove), so attribute storage
-     * is available. The node DOM, generic mutation hooks and events remain
-     * later-phase work — `attributes` here means the attribute model, not a
-     * complete NamedNodeMap-compatible DOM surface.
+     * is available. Phase 8.7: character data is a real node kind with a
+     * model over it (content access, set/append), so text nodes are
+     * available. The node DOM, generic mutation hooks and events remain
+     * later-phase work — `attributes` here means the attribute model and
+     * `text_nodes` the text model, neither a complete DOM surface.
      */
     out->tree_building = 1;
     out->attributes = 1;
+    out->text_nodes = 1;
     return ROBO_OK;
 }
 

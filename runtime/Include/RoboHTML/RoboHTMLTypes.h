@@ -155,7 +155,13 @@ typedef enum robo_html_diagnostic_domain {
      * element, an invalid parent for creation, and element access on a node
      * whose kind is wrong.
      */
-    ROBO_HTML_DOMAIN_ELEMENT = 12
+    ROBO_HTML_DOMAIN_ELEMENT = 12,
+    /**
+     * Text-node domain (Phase 8.7): text creation rejection (invalid
+     * parent for creation, unknown origin), a handle that is not text, and
+     * text content/mutation requested on a non-text node.
+     */
+    ROBO_HTML_DOMAIN_TEXT = 13
 } robo_html_diagnostic_domain_t;
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */

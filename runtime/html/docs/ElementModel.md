@@ -236,11 +236,16 @@ they document real semantics:
 ## 10. What this phase deliberately does not do
 
 Not implemented, with the seam kept clean: the Element DOM surface
-(`getElementById`, `querySelector`, `classList`), text nodes (8.7), custom
-elements, foreign-content parsing, CSS/selectors/cascade, layout, paint,
-events, JavaScript, and any browser-origin machinery (no cookies, CORS,
-IndexedDB, `localStorage`, session or navigation security). Attribute
-mutation exists as the model's own verbs (8.6), not as a DOM API.
+(`getElementById`, `querySelector`, `classList`), custom elements,
+foreign-content parsing, CSS/selectors/cascade, layout, paint, events,
+JavaScript, and any browser-origin machinery (no cookies, CORS, IndexedDB,
+`localStorage`, session or navigation security). Attribute mutation exists as
+the model's own verbs (8.6), not as a DOM API.
+
+Text nodes left this list in **8.7**, which gave them their own model over the
+same node kind — see [`TextModel.md`](TextModel.md). An element's children are
+still a mixed list of element and text nodes; 8.7 changed how the text half is
+read and written, not how it is stored or owned.
 
 Roboticela's application identity and capability model is implemented
 elsewhere; nothing here invents a second one.

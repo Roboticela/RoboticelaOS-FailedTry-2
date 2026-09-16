@@ -2,9 +2,9 @@
 
 HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
 Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model +
-Phase 8.5 element model + Phase 8.6 attribute model**).
+Phase 8.5 element model + Phase 8.6 attribute model + Phase 8.7 text model**).
 
-**Version:** 0.6.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.7.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -68,6 +68,16 @@ present-and-empty, and both distinct from absent), a bounded table that
 refuses rather than truncates, and a mutation implemented as a measured
 payload rewrite so borrowed bytes never dangle. See `docs/AttributeModel.md`.
 
+**8.7 (text model):** character data becomes a modelled node rather than a
+payload detail. Adds `robo_html_text_create` as the construction seam (the
+text twin of `robo_html_element_create`), a view with content / length /
+parent / state, `set` and `append` mutation, and explicit answers for the
+not-a-text-node case (`content` returns `NULL`, not `""`). Whitespace and
+Unicode are preserved byte-for-byte — nothing collapses, trims, normalises or
+re-encodes — and a character run coalesces per *run*, so the tokenizer's
+segmentation is never visible in the tree. The tree dump labels text nodes so
+a whitespace run is legible. See `docs/TextModel.md`.
+
 **No DOM behaviour** — `NamedNodeMap`, `getElementById`, `querySelector`,
 `classList`, `dataset`, events and the rest of the DOM surface come later.
 Finalization closes *tree construction*, not the document: it is deliberately
@@ -89,7 +99,7 @@ registration.
 | `runtime/html/docs/` | Design docs |
 
 Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
-`ElementModel.md`, `AttributeModel.md`.
+`ElementModel.md`, `AttributeModel.md`, `TextModel.md`.
 
 ## Public headers
 
@@ -103,6 +113,7 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `RoboHTMLNode.h` | Node handles, generation-guarded registry |
 | `RoboHTMLDom.h` | Future-DOM boundary, origins, mutation hooks, capabilities |
 | `RoboHTMLElement.h` | Element model: creation seam, view/state, namespace, classification, name policy, and the attribute model (lookup, presence, iteration, add/set/remove) |
+| `RoboHTMLText.h` | Text model: creation seam, view/content/length/parent, empty-text policy, and set/append mutation |
 | `RoboHTMLSource.h` | Source/input abstraction (borrowing view) |
 | `RoboHTMLEncoding.h` | Encoding boundary (labels + state; no decoding yet) |
 | `RoboHTMLParser.h` | Parser lease between source and future tokenizer |
@@ -130,6 +141,7 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `html.docmodel.*` | Metadata, root ownership and stability across rebuilds, node identity/lookup, staleness, cross-document separation, tree invariants (clean, orphan, deep), source/encoding association, finalization, reset, failure, teardown, pipeline and demo integration |
 | `html.element.*` | Namespaces, classification, creation (valid, refused, cross-document), identity/validity, tag names, state bits, relationships, nesting/siblings, ownership, attributes, start/end tags, malformed recovery, Unicode text, teardown, tree dump, demo document |
 | `html.attr.*` | Attribute type and lengths, parser integration and stored order, presence vs empty, duplicates, lookup/case/Unicode, the mutation verbs and their validation, the attribute limit, Unicode names and values, malformed input, the dump, ownership/lifetime, rebuild semantics |
+| `html.text.*` | Text creation (basic/empty/validation), kind identification and the not-text answers, `set`/`append` including the slow path, mutation after finalization, parser integration, runs and merging, whitespace, character references, Unicode, long runs, traversal, ownership/stale handles, teardown, malformed input, the dump, capability flag, demo document |
 
 Two ownership rules in one line each:
 
@@ -145,6 +157,10 @@ Two ownership rules in one line each:
   only way one is made — it always attaches the new element under a parent in
   the same call, so there is no detached state. A handle is identity, not a
   capability: it names a node, it does not grant access to one.
+- A text node is likewise just a node, created only through
+  `robo_html_text_create`. An empty run is a legal value, but the parser never
+  produces one: a zero-length character token carries nothing, so `<p></p>`
+  has no children rather than an empty text child.
 - The document's **root** survives a rebuild; every other node handle from a
   previous tree becomes stale. Ownership is asked for, never assumed:
   `robo_html_document_owns_node` is the single check that covers "whose node

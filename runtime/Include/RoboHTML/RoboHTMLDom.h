@@ -62,6 +62,13 @@ typedef struct robo_html_dom_capabilities {
      * This is not a claim of a NamedNodeMap-compatible DOM surface.
      */
     int attributes;
+    /**
+     * The text-node model is available (Phase 8.7): real text nodes with
+     * content access and set/append, created through one seam. This is not a
+     * claim of a CharacterData-compatible DOM surface (no splitText, no
+     * Range/Selection, no mutation observers).
+     */
+    int text_nodes;
     /** Traversal/mutation APIs available (DOM phase). */
     int mutation;
     /** Event model available (DOM events phase). */

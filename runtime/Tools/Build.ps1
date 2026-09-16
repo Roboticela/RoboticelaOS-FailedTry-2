@@ -209,6 +209,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboHTML\RoboHTMLCharRef.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLTokenizer.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLPayload.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLText.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLTreeBuilder.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLDocumentModel.c")
 )
@@ -327,6 +328,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTreeBuilder.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLDocumentModel.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLElement.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLText.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLAttribute.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),

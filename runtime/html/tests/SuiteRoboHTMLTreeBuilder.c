@@ -1286,10 +1286,11 @@ static void test_tb_tree_dump(void)
     ROBO_CHECK(strstr(buffer, "doctype html") != NULL);
     ROBO_CHECK(strstr(buffer, "  html\n") != NULL);
     ROBO_CHECK(strstr(buffer, "    head\n") != NULL);
-    ROBO_CHECK(strstr(buffer, "        \"RoboticelaOS Runtime\"\n") != NULL);
+    ROBO_CHECK(strstr(buffer, "        Text: \"RoboticelaOS Runtime\"\n") !=
+               NULL);
     ROBO_CHECK(strstr(buffer, "    body\n") != NULL);
     ROBO_CHECK(strstr(buffer, "      h1\n") != NULL);
-    ROBO_CHECK(strstr(buffer, "        \"Heading\"") != NULL);
+    ROBO_CHECK(strstr(buffer, "        Text: \"Heading\"") != NULL);
     ROBO_CHECK(strstr(buffer, "\"Body & text\"") != NULL);
     ROBO_CHECK(strstr(buffer, "button\n") != NULL);
     ROBO_CHECK(strstr(buffer, "\"Demo Button\"") != NULL);

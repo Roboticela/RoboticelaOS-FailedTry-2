@@ -26,6 +26,7 @@
 #include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLToken.h"
 #include "RoboHTML/RoboHTMLTokenizer.h"
+#include "RoboHTML/RoboHTMLText.h"
 #include "RoboHTML/RoboHTMLTokenizerStates.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
 #include "RoboHTMLInternal.h"
@@ -469,14 +470,70 @@ static robo_result_t create_element(robo_html_tree_builder_t *builder,
     return r;
 }
 
-/** Create a text or comment node carrying @p bytes. */
-static robo_result_t create_leaf(robo_html_tree_builder_t *builder,
-                                 robo_html_node_kind_t kind,
+/** Handle of @p parent_id in the builder's document; 0 when it is not live. */
+static int builder_parent_handle(robo_html_tree_builder_t *builder,
                                  robo_html_node_id_t parent_id,
-                                 const char *bytes,
-                                 size_t length,
-                                 robo_html_node_id_t *out_id,
-                                 robo_html_diag_t *diag)
+                                 robo_html_node_handle_t *out)
+{
+    const robo_html_node_entry_t *parent_entry =
+        robo_html_node_entry_get(builder->document_id, parent_id);
+
+    if (!parent_entry) {
+        return 0;
+    }
+    *out = robo_html_node_handle_make(builder->document_id, parent_entry);
+    return 1;
+}
+
+/**
+ * Create a text node carrying @p bytes as the last child of @p parent_id.
+ *
+ * Phase 8.7 moved text creation behind robo_html_text_create, so the builder
+ * no longer registers, encodes and links a text node by hand: it describes
+ * the run and the text model enforces document ownership, the
+ * cross-document rule and the lifecycle gate in one place — the same shape
+ * create_element already has for elements. Character data is copied into the
+ * document's payload arena, so the tokenizer's buffer stays the tokenizer's.
+ */
+static robo_result_t create_text_node(robo_html_tree_builder_t *builder,
+                                      robo_html_node_id_t parent_id,
+                                      const char *bytes,
+                                      size_t length,
+                                      robo_html_node_handle_t *out_handle,
+                                      robo_html_diag_t *diag)
+{
+    robo_html_text_create_info_t info;
+    robo_html_node_handle_t h;
+    robo_result_t r;
+
+    robo_html_text_create_info_init(&info);
+    if (!builder_parent_handle(builder, parent_id, &info.parent)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
+                              "text parent node does not resolve");
+    }
+    info.origin = ROBO_HTML_NODE_ORIGIN_PARSER;
+    info.content = bytes;
+    info.length = length;
+
+    r = robo_html_text_create(builder->document_id, &info, &h, diag);
+    if (r == ROBO_OUT_OF_MEMORY) {
+        mark_truncated(builder);
+    }
+    if (r != ROBO_OK) {
+        return r;
+    }
+    if (out_handle) {
+        *out_handle = h;
+    }
+    return ROBO_OK;
+}
+
+/** Create a comment node carrying @p bytes (comments are not text nodes). */
+static robo_result_t create_comment_leaf(robo_html_tree_builder_t *builder,
+                                         robo_html_node_id_t parent_id,
+                                         const char *bytes,
+                                         size_t length,
+                                         robo_html_diag_t *diag)
 {
     robo_html_document_slot_t *slot = builder_slot(builder);
     robo_html_node_handle_t h;
@@ -487,7 +544,7 @@ static robo_result_t create_leaf(robo_html_tree_builder_t *builder,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "document was destroyed during the build");
     }
-    r = register_node(builder, kind, &h, diag);
+    r = register_node(builder, ROBO_HTML_NODE_KIND_COMMENT, &h, diag);
     if (r != ROBO_OK) {
         return r;
     }
@@ -496,21 +553,25 @@ static robo_result_t create_leaf(robo_html_tree_builder_t *builder,
     if (r != ROBO_OK) {
         return r;
     }
-    r = robo_html_node_link_child(builder->document_id, parent_id, h.node_id,
-                                  diag);
-    if (r != ROBO_OK) {
-        return r;
-    }
-    if (out_id) {
-        *out_id = h.node_id;
-    }
-    return ROBO_OK;
+    return robo_html_node_link_child(builder->document_id, parent_id, h.node_id,
+                                     diag);
 }
 
 /**
- * Insert characters under @p parent_id, merging into the previous text node
- * when that node's payload still ends the arena (the common case for
- * split-up character tokens).
+ * Insert characters under @p parent_id, merging into the open text run.
+ *
+ * The tokenizer is free to hand character data over in as many pieces as it
+ * likes (buffer boundaries, character references, split-up tokens), so the
+ * builder — not the tokenizer — owns the decision of how many Text nodes a
+ * run becomes. A run is open while text_node/text_parent still name it; an
+ * element, a comment, a mode change or a stack pop closes it, which is what
+ * makes `<p>Hello <b>world</b>!</p>` the three children it should be rather
+ * than one node per token.
+ *
+ * Adjacent characters within one run therefore always end up in the same
+ * node. robo_html_text_append guarantees that: it grows the run in place
+ * while it still ends the arena (the parser's normal case, no copy) and
+ * otherwise writes the extended run into a fresh payload.
  */
 static robo_result_t insert_text(robo_html_tree_builder_t *builder,
                                  robo_html_node_id_t parent_id,
@@ -518,36 +579,37 @@ static robo_result_t insert_text(robo_html_tree_builder_t *builder,
                                  size_t length,
                                  robo_html_diag_t *diag)
 {
-    robo_html_document_slot_t *slot = builder_slot(builder);
-    robo_html_node_id_t created = ROBO_HTML_NODE_ID_NONE;
+    robo_html_node_handle_t created;
     robo_result_t r;
 
     if (length == 0u || !bytes) {
+        /* A zero-length run carries nothing, so no node is warranted. */
         return ROBO_OK;
     }
-    if (!slot) {
+    if (!builder_slot(builder)) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "document was destroyed during the build");
     }
     if (builder->text_parent == parent_id &&
         builder->text_node != ROBO_HTML_NODE_ID_NONE) {
-        robo_html_node_entry_t *entry =
-            robo_html_node_entry_mut(builder->document_id, builder->text_node);
+        const robo_html_node_entry_t *entry =
+            robo_html_node_entry_get(builder->document_id, builder->text_node);
 
         if (entry && entry->kind == ROBO_HTML_NODE_KIND_TEXT) {
-            /* NULL diagnostics: "not the arena tail" is an expected miss. */
-            if (robo_html_payload_append_text(slot, entry, bytes, length, NULL) ==
-                ROBO_OK) {
+            robo_html_node_handle_t run =
+                robo_html_node_handle_make(builder->document_id, entry);
+
+            /* NULL diagnostics: a miss here is expected, not a failure. */
+            if (robo_html_text_append(&run, bytes, length, NULL) == ROBO_OK) {
                 return ROBO_OK;
             }
         }
     }
-    r = create_leaf(builder, ROBO_HTML_NODE_KIND_TEXT, parent_id, bytes, length,
-                    &created, diag);
+    r = create_text_node(builder, parent_id, bytes, length, &created, diag);
     if (r != ROBO_OK) {
         return r;
     }
-    builder->text_node = created;
+    builder->text_node = created.node_id;
     builder->text_parent = parent_id;
     return ROBO_OK;
 }
@@ -860,14 +922,13 @@ static robo_result_t append_comment(robo_html_tree_builder_t *builder,
                                     const robo_html_token_t *tok,
                                     robo_html_diag_t *diag)
 {
-    robo_html_node_id_t id = ROBO_HTML_NODE_ID_NONE;
     robo_result_t r;
 
     /* A comment breaks an adjacent-character merge run. */
     builder->text_node = ROBO_HTML_NODE_ID_NONE;
     builder->text_parent = ROBO_HTML_NODE_ID_NONE;
-    r = create_leaf(builder, ROBO_HTML_NODE_KIND_COMMENT, parent_id,
-                    tok->u.comment.data, tok->u.comment.length, &id, diag);
+    r = create_comment_leaf(builder, parent_id, tok->u.comment.data,
+                            tok->u.comment.length, diag);
     return r;
 }
 
@@ -2438,10 +2499,22 @@ static robo_result_t dump_one(robo_html_document_slot_t *slot,
         break;
     }
     case ROBO_HTML_NODE_KIND_TEXT: {
+        /*
+         * Read through the text model, so the dump shows exactly what the
+         * content accessor returns rather than a second decoding of the same
+         * payload that could drift from it. The label is what makes a
+         * whitespace-only run legible (Text: "\n  ") and separates a text
+         * node from the comment line right below it.
+         */
+        robo_html_node_handle_t h =
+            robo_html_node_handle_make(document_id, e);
         size_t length = 0u;
-        const char *text = robo_html_payload_text(slot, e, &length);
+        const char *text = robo_html_text_content(&h, &length);
 
-        r = dump_quoted(w, text, length);
+        r = dump_str(w, "Text: ");
+        if (r == ROBO_OK) {
+            r = dump_quoted(w, text ? text : "", text ? length : 0u);
+        }
         break;
     }
     case ROBO_HTML_NODE_KIND_COMMENT: {

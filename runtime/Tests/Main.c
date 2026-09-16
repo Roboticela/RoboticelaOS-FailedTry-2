@@ -127,6 +127,7 @@ void robo_test_register_html_tree_builder(void);
 void robo_test_register_html_document_model(void);
 void robo_test_register_html_element(void);
 void robo_test_register_html_attribute(void);
+void robo_test_register_html_text(void);
 void robo_test_register_demo_html(void);
 
 int main(int argc, char **argv)
@@ -296,6 +297,7 @@ int main(int argc, char **argv)
     robo_test_register_html_document_model();
     robo_test_register_html_element();
     robo_test_register_html_attribute();
+    robo_test_register_html_text();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */
     robo_test_register_demo_html();
