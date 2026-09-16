@@ -697,6 +697,7 @@ function Invoke-RoboBuildUserland {
             "Source\RoboHTML\RoboHTMLNode.c",
             "Source\RoboHTML\RoboHTMLDom.c",
             "Source\RoboHTML\RoboHTMLElement.c",
+            "Source\RoboHTML\RoboHTMLTag.c",
             "Source\RoboHTML\RoboHTMLClient.c",
             "Source\RoboHTML\RoboHTMLResource.c",
             "Source\RoboHTML\RoboHTMLParser.c",

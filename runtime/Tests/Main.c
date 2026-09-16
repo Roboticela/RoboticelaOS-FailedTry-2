@@ -98,6 +98,7 @@ void robo_test_register_graphics_composite(void);
 void robo_test_register_graphics_raster(void);
 void robo_test_register_graphics_text(void);
 void robo_test_register_graphics_encode(void);
+void robo_test_register_graphics_decode(void);
 void robo_test_register_graphics_screenshot(void);
 void robo_test_register_graphics_phase6(void);
 void robo_test_register_window(void);
@@ -131,6 +132,8 @@ void robo_test_register_html_text(void);
 void robo_test_register_html_traversal(void);
 void robo_test_register_html_mutation(void);
 void robo_test_register_html_lifecycle(void);
+void robo_test_register_html_tag(void);
+void robo_test_register_html_elements(void);
 void robo_test_register_demo_html(void);
 
 int main(int argc, char **argv)
@@ -271,6 +274,7 @@ int main(int argc, char **argv)
     robo_test_register_graphics_raster();
     robo_test_register_graphics_text();
     robo_test_register_graphics_encode();
+    robo_test_register_graphics_decode();
     robo_test_register_graphics_screenshot();
     robo_test_register_graphics_phase6();
     robo_test_register_window();
@@ -304,6 +308,8 @@ int main(int argc, char **argv)
     robo_test_register_html_traversal();
     robo_test_register_html_mutation();
     robo_test_register_html_lifecycle();
+    robo_test_register_html_tag();
+    robo_test_register_html_elements();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */
     robo_test_register_demo_html();

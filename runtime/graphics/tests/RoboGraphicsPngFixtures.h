@@ -1,0 +1,167 @@
+/*
+ * Real PNG fixtures for the RoboGraphics decoder suite (Phase 8.12).
+ *
+ * GENERATED, NOT HAND-WRITTEN. These byte strings are genuine PNG files
+ * produced by an independent encoder (zlib deflate level 6, standard PNG
+ * chunk framing) and embedded as hex so the suite decodes them without
+ * touching the filesystem. That independence is the point: the decoder is
+ * checked against bytes it did not produce, and every expected pixel below
+ * was computed from the *source* image handed to the encoder, not read back
+ * out of the decoder.
+ *
+ * The Huffman path is covered: zlib emits a dynamic-Huffman block
+ * (BFINAL/BTYPE = 2) for every accept fixture here. The stored-block path is
+ * covered separately by the round-trip test against the Goal 6.13 encoder,
+ * which writes zlib store blocks. Between them, all three DEFLATE block kinds
+ * run.
+ *
+ * The two rejection fixtures at the end (Adam7 interlacing, sub-byte bit
+ * depth) are deliberately outside the 8.12 decoder; they prove the refusal is
+ * deterministic rather than a silent misdecode.
+ */
+
+#ifndef ROBO_GRAPHICS_PNG_FIXTURES_H
+#define ROBO_GRAPHICS_PNG_FIXTURES_H
+
+#include <stddef.h>
+#include <stdint.h>
+
+/* Where these bytes came from, for failure messages. */
+#define ROBO_PNG_FIXTURE_ORIGIN "independent encoder (zlib deflate level 6)"
+
+/* RoboPngGradient — 8x8 RGBA8, dynamic-Huffman IDAT. */
+static const char RoboPngGradient_hex[] =
+    "89504e470d0a1a0a0000000d4948445200000008000000080806000000c40fbe8b0000005c49444154789c15ca310103"
+    "410800b093f252908214a42005293869c3902defbdfa7d0449d10ccb7b9f409014cdb0df85100892a219362ea4409014"
+    "cdb079a10482a46886ad0b2d102445336c5f188120299a61e7c20a0449d10ccb1ffa9197c102a2a4750000000049454e"
+    "44ae426082"
+    ;
+#define ROBO_PNG_GRADIENT_BYTES 149u
+#define ROBO_PNG_GRADIENT_WIDTH 8u
+#define ROBO_PNG_GRADIENT_HEIGHT 8u
+#define ROBO_PNG_GRADIENT_RGBA_BYTES 256u
+#define ROBO_PNG_GRADIENT_RGBA_FNV 0x0277B7C5u
+#define ROBO_PNG_GRADIENT_PIXEL_0_0 { 0, 0, 128, 255 }
+#define ROBO_PNG_GRADIENT_PIXEL_7_0 { 224, 0, 128, 255 }
+#define ROBO_PNG_GRADIENT_PIXEL_0_7 { 0, 224, 128, 255 }
+#define ROBO_PNG_GRADIENT_PIXEL_7_7 { 224, 224, 128, 255 }
+#define ROBO_PNG_GRADIENT_PIXEL_4_4 { 128, 128, 128, 255 }
+
+/* RoboPngChecker — 32x32 RGBA8, dynamic-Huffman IDAT. */
+static const char RoboPngChecker_hex[] =
+    "89504e470d0a1a0a0000000d4948445200000020000000200806000000737a7af40000037249444154789c6dd711d0a6"
+    "7a18c6e170f1c5e8cce262181c580cc3e6d06218866118866118866118866118667baec573be072ef9ddf3cd3cf0ef9d"
+    "f99224d97f7fe343ca5f7ffff31f3fb582922ad83bad67600cf64ddb3938833d49be39800fe9b7e000ada0a40af64eeb"
+    "1918837dd3760ece604f928f03f8907e8203b482922ad83bad67600cf64ddb3938833d495207f0214d8303b482922ad8"
+    "3bad67600cf64ddb3938833df97ff8fe7dfffd838cfcfbd73ff8a5d534b4c13e69330b6bb05fdacdc3cbd7037e38808c"
+    "fc47708056d3d006fba4cd2cacc17e69370fef8fe880cc0164e459708056d3d006fba4cd2cacc17e69370f6f161d903b"
+    "808c3c0f0ed06a1ada609fb4998535d82fede6e125497e7a847c487f068f502b28a982bdd37a06c660dfb49d8333d893"
+    "a470001fd22238402b28a982bdd37a06c660dfb49d8333d893a474001fd23238402b28a982bdd37a06c660dfb49d8333"
+    "d893a472001fd22a38402b28a982bdd37a06c660dfb49d8333d8bf3ec25f1e2119f9afe0116a350d6db04fdaccc21aec"
+    "9776f3f0fe8abe82da0164e475708056d3d006fba4cd2cacc17e69370f6f1d1dd038808cbc090ed06a1ada609fb49985"
+    "35d82fede6e16da2035a079091b7c1015a4d431bec9336b3b006fba5dd3cbced9fdf81ce23e443da058f502b28a982bd"
+    "d37a06c660dfb49d8333d893a477001fd23e38402b28a982bdd37a06c660dfb49d8333d8936470001fd22138402b28a9"
+    "82bdd37a06c660dfb49d8333d8936474001fd23138402b28a982bdd37a06c660dfb49d8333d8bf3ec2c92324239f8247"
+    "a8d534b4c13e69330b6bb05fdacdc33b455fc1ec0032f2393840ab6968837dd26616d660bfb49b87778e0e581c4046be"
+    "040768350d6db04fdaccc21aec9776f3f02ed101ab03c8c8d7e000ada6a10df6499b595883fdd26e1edef5cfefc0e611"
+    "f221dd8247a8159454c1de693d0363b06fdacec119ecfe2f71001fd23d38402b28a982bdd37a06c660dfb49d8333d893"
+    "e470001fd22338402b28a982bdd37a06c660dfb49d8333d893e474001fd23338402b28a982bdd37a06c660dfb49d8333"
+    "d8bf3ec2cb232423bf8247a8d534b4c13e69330b6bb05fdacdc37b455fc1ed0032f23b3840ab6968837dd26616d660bf"
+    "b49b87f78e0e781c4046fe040768350d6db04fdaccc21aec9776f3f03ed101af03c8c8dfe000ada6a10df6499b595883"
+    "fdd26e1e5efe05ddc9e479b528b1000000000049454e44ae426082"
+    ;
+#define ROBO_PNG_CHECKER_BYTES 939u
+#define ROBO_PNG_CHECKER_WIDTH 32u
+#define ROBO_PNG_CHECKER_HEIGHT 32u
+#define ROBO_PNG_CHECKER_RGBA_BYTES 4096u
+#define ROBO_PNG_CHECKER_RGBA_FNV 0x1D92A9C5u
+#define ROBO_PNG_CHECKER_PIXEL_0_0 { 0, 0, 200, 255 }
+#define ROBO_PNG_CHECKER_PIXEL_31_0 { 30, 60, 90, 255 }
+#define ROBO_PNG_CHECKER_PIXEL_0_31 { 30, 60, 90, 255 }
+#define ROBO_PNG_CHECKER_PIXEL_31_31 { 248, 248, 200, 255 }
+#define ROBO_PNG_CHECKER_PIXEL_16_16 { 128, 128, 200, 255 }
+
+/* RoboPngOpaque — 8x8 RGB8 (alpha forced opaque). */
+static const char RoboPngOpaque_hex[] =
+    "89504e470d0a1a0a0000000d49484452000000080000000808020000004b6d29dc0000006c49444154789c0dc9410100"
+    "3008033194a0a48fd381129454094aaa68cb375545172aa6d8c2c51529aa9a6ed44cb38d9b6bd23f440b89112b2c4e44"
+    "3f861e34ccb083871b323f965eb4ccb28b975bb23f4c1b99316b6ccec43f8e3e74ccb1878f3b723f420785091b1c2e24"
+    "3c7fd2448169690d200000000049454e44ae426082"
+    ;
+#define ROBO_PNG_OPAQUE_BYTES 165u
+#define ROBO_PNG_OPAQUE_WIDTH 8u
+#define ROBO_PNG_OPAQUE_HEIGHT 8u
+#define ROBO_PNG_OPAQUE_RGBA_BYTES 256u
+#define ROBO_PNG_OPAQUE_RGBA_FNV 0xE23BCFC5u
+#define ROBO_PNG_OPAQUE_PIXEL_0_0 { 0, 0, 64, 255 }
+#define ROBO_PNG_OPAQUE_PIXEL_7_0 { 210, 0, 64, 255 }
+#define ROBO_PNG_OPAQUE_PIXEL_0_7 { 0, 210, 64, 255 }
+#define ROBO_PNG_OPAQUE_PIXEL_7_7 { 210, 210, 64, 255 }
+#define ROBO_PNG_OPAQUE_PIXEL_4_4 { 120, 120, 64, 255 }
+
+/* RoboPngGrayscale — 8x8 grayscale 8-bit. */
+static const char RoboPngGrayscale_hex[] =
+    "89504e470d0a1a0a0000000d4948445200000008000000080800000000e164e1570000002a49444154789c6360105030"
+    "7008482880d10d0c507a0203945ec000a5373040e9030c50fa0203947e00001e751c01321300490000000049454e44ae"
+    "426082"
+    ;
+#define ROBO_PNG_GRAYSCALE_BYTES 99u
+#define ROBO_PNG_GRAYSCALE_WIDTH 8u
+#define ROBO_PNG_GRAYSCALE_HEIGHT 8u
+#define ROBO_PNG_GRAYSCALE_RGBA_BYTES 256u
+#define ROBO_PNG_GRAYSCALE_RGBA_FNV 0x3E10AEC5u
+#define ROBO_PNG_GRAYSCALE_PIXEL_0_0 { 0, 0, 0, 255 }
+#define ROBO_PNG_GRAYSCALE_PIXEL_7_0 { 112, 112, 112, 255 }
+#define ROBO_PNG_GRAYSCALE_PIXEL_0_7 { 112, 112, 112, 255 }
+#define ROBO_PNG_GRAYSCALE_PIXEL_7_7 { 224, 224, 224, 255 }
+#define ROBO_PNG_GRAYSCALE_PIXEL_4_4 { 128, 128, 128, 255 }
+
+/* RoboPngTranslucent — 6x6 grayscale+alpha 8-bit. */
+static const char RoboPngTranslucent_hex[] =
+    "89504e470d0a1a0a0000000d49484452000000060000000608040000004ac527c30000004349444154789c05c1810000"
+    "000803b0430411c42182c82a882082384410b50167e7c78bcb03d6d6971b9b0bc8e4a24229606c7c383139405b7bb3a3"
+    "b381b2f26245653dc67323dd3214af8f0000000049454e44ae426082"
+    ;
+#define ROBO_PNG_TRANSLUCENT_BYTES 124u
+#define ROBO_PNG_TRANSLUCENT_WIDTH 6u
+#define ROBO_PNG_TRANSLUCENT_HEIGHT 6u
+#define ROBO_PNG_TRANSLUCENT_RGBA_BYTES 144u
+#define ROBO_PNG_TRANSLUCENT_RGBA_FNV 0x9963E445u
+#define ROBO_PNG_TRANSLUCENT_PIXEL_0_0 { 0, 0, 0, 255 }
+#define ROBO_PNG_TRANSLUCENT_PIXEL_5_0 { 100, 100, 100, 255 }
+#define ROBO_PNG_TRANSLUCENT_PIXEL_0_5 { 0, 0, 0, 155 }
+#define ROBO_PNG_TRANSLUCENT_PIXEL_5_5 { 100, 100, 100, 155 }
+#define ROBO_PNG_TRANSLUCENT_PIXEL_3_3 { 60, 60, 60, 195 }
+
+/* RoboPngPaletted — 4x4 palette 8-bit with tRNS. */
+static const char RoboPngPaletted_hex[] =
+    "89504e470d0a1a0a0000000d49484452000000040000000408030000009e2f6e4c0000000c504c5445ff000000ff0000"
+    "00fffffffffb0060f60000000474524e53ff80ff001f8786990000001449444154789c636060646206630610cd006203"
+    "0001040019427b918c0000000049454e44ae426082"
+    ;
+#define ROBO_PNG_PALETTED_BYTES 117u
+#define ROBO_PNG_PALETTED_WIDTH 4u
+#define ROBO_PNG_PALETTED_HEIGHT 4u
+#define ROBO_PNG_PALETTED_RGBA_BYTES 64u
+#define ROBO_PNG_PALETTED_RGBA_FNV 0x7BDDD145u
+#define ROBO_PNG_PALETTED_PIXEL_0_0 { 255, 0, 0, 255 }
+#define ROBO_PNG_PALETTED_PIXEL_3_0 { 255, 255, 255, 0 }
+#define ROBO_PNG_PALETTED_PIXEL_0_3 { 255, 255, 255, 0 }
+#define ROBO_PNG_PALETTED_PIXEL_3_3 { 0, 0, 255, 255 }
+#define ROBO_PNG_PALETTED_PIXEL_2_2 { 255, 0, 0, 255 }
+
+/* REJECTION FIXTURE — 8x8 RGBA8 carried in Adam7 passes. */
+static const char RoboPngInterlaced_hex[] =
+    "89504e470d0a1a0a0000000d4948445200000008000000080806000001b3088e1d0000000d49444154789c6360180520"
+    "00000108000182e90b1d0000000049454e44ae426082"
+    ;
+#define ROBO_PNG_INTERLACED_BYTES 70u
+
+/* REJECTION FIXTURE — 8x8 grayscale at bit depth 1. */
+static const char RoboPngPackedNibble_hex[] =
+    "89504e470d0a1a0a0000000d4948445200000008000000080100000000ec7483260000000b49444154789c6360c00e00"
+    "00180001d57fc4ec0000000049454e44ae426082"
+    ;
+#define ROBO_PNG_PACKED_NIBBLE_BYTES 68u
+
+#endif /* ROBO_GRAPHICS_PNG_FIXTURES_H */

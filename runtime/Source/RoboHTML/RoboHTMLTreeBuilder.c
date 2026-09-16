@@ -2,7 +2,7 @@
  * RoboHTML tree builder (Phase 8.3) — see RoboHTMLTreeBuilder.h.
  *
  * File shape:
- *   1. element classification (void / text-family / structural names)
+ *   1. parser tables (text family, head content, <p>-closing start tags)
  *   2. builder state, open-element stack, node/tree primitives
  *   3. insertion-mode handlers (the actual tree-construction rules)
  *   4. node creation, text merging, structural recovery
@@ -16,9 +16,9 @@
  * parenting, foreign content, fragment parsing, and DOCTYPE quirks modes.
  *
  * The builder never mutates the document lifecycle behind the caller's
- * back beyond the ordinary LOADING → READY transition a parse implies, and
- * every node it creates is owned by the document (it holds ids, never
- * pointers into the registry).
+ * back beyond the ordinary LOADING → INTERACTIVE → COMPLETE settling a parse
+ * implies (Phase 8.10), and every node it creates is owned by the document
+ * (it holds ids, never pointers into the registry).
  */
 
 #include "RoboHTML/RoboHTML.h"
@@ -30,6 +30,8 @@
 #include "RoboHTML/RoboHTMLTokenizerStates.h"
 #include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
+
+#include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTMLInternal.h"
 
 #include "RoboBase/RoboLog.h"
@@ -50,15 +52,15 @@
 #define REPROCESS_LIMIT 24u
 
 /* ------------------------------------------------------------------ */
-/* 1. Element classification                                           */
+/* 1. Parser tables                                                    */
 /* ------------------------------------------------------------------ */
 
-/** Elements that never have children or content (inserted then popped). */
-static const char *const k_void_elements[] = {
-    "area",  "base",  "basefont", "bgsound", "br",     "col",   "embed",
-    "frame", "hr",    "img",      "input",   "keygen", "link",  "meta",
-    "param", "source", "track",   "wbr",
-};
+/*
+ * The void-element list and the heading test that used to live here are gone:
+ * both were element-type facts, and the type vocabulary in RoboHTMLTag.c now
+ * owns them (Phase 8.11). What remains are the tables that are genuinely
+ * parser policy rather than identity.
+ */
 
 /** Content family of a text element; NONE when the element is ordinary. */
 static robo_html_text_mode_t text_mode_for_element(const char *name)
@@ -120,30 +122,36 @@ static int is_head_content_element(const char *name)
         }
     }
     return 0;
-}
-
-/** Non-zero when @p name is one of the heading elements h1..h6. */
+}/**
+ * Non-zero when @p name is one of the heading elements h1..h6.
+ *
+ * "Heading" is a fact about the element type, so the tag vocabulary owns it
+ * (Phase 8.11) and this reads it rather than re-deriving h1..h6 from the
+ * spelling. The parser's own tables stay below: those are parse *policy* with
+ * contextual entries — which start tags close an open <p>, which elements may
+ * sit in <head> — and identity is not the right place for parser policy.
+ */
 static int is_heading_name(const char *name)
 {
-    return name && name[0] == 'h' && name[1] >= '1' && name[1] <= '6' &&
-           name[2] == '\0';
+    return robo_html_tag_is_heading(robo_html_tag_from_name(
+        ROBO_HTML_NAMESPACE_HTML, name));
 }
 
-/** Non-zero for elements that are inserted and popped without children. */
+/**
+ * Non-zero for elements that are inserted and popped without children.
+ *
+ * Void-ness is an intrinsic property of the element type, so it is defined in
+ * the tag vocabulary and read from there. This used to be a private list of
+ * eighteen names, which meant "is <br> void?" had two answers in the runtime
+ * — the parser's copy and any consumer's — that could drift apart. There is
+ * now one answer, and it is the same one the DOM and its tests use.
+ */
 static int is_void_element(const char *name)
 {
-    size_t i;
-
-    if (!name) {
-        return 0;
-    }
-    for (i = 0u; i < sizeof(k_void_elements) / sizeof(k_void_elements[0]); i++) {
-        if (strcmp(name, k_void_elements[i]) == 0) {
-            return 1;
-        }
-    }
-    return 0;
+    return robo_html_tag_is_void(
+        robo_html_tag_from_name(ROBO_HTML_NAMESPACE_HTML, name));
 }
+
 
 /** Non-zero when @p name is a start tag that closes an open <p> in scope. */
 static int is_p_closing_start_tag(const char *name)

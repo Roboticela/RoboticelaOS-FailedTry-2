@@ -103,6 +103,15 @@ has no filesystem in this path.
    a different tree and asserts the picture does change, which is what keeps the
    first half from being vacuous. A lifecycle that quietly touched the tree
    would still report the right state; only the pixels catch it.
+   Since Phase 8.11 the subset is *typed* rather than spelled: the style table
+   asks for `ROBO_HTML_TAG_BUTTON` / `ROBO_HTML_TAG_TITLE` by symbol, a
+   division holding text and nothing else paints as a text block, and
+   `demo.paint.element_kinds` renders a document built from the basic element
+   types (`title`, `h1`, `p`, `div`, `span`) — asserting the styles the tags
+   imply, the caption that came from the real `<title>`, pixel probes, and a
+   deterministic second paint. A bare `span` is deliberately unpainted (the
+   demo has no inline flow) and the test asserts that count, so the limit is
+   recorded rather than latent.
 5. `robo_demo_page_layout()` flows the blocks vertically for the target size.
 6. `robo_demo_page_paint()` clears the surface and draws background, accent
    bar, heading, paragraphs and the button (states: normal / hover / pressed)
@@ -184,7 +193,7 @@ The exit code is 0 only when every marker appeared.
 | `demo.tree.*` | Character references, unsupported markup, malformed corpus + every prefix of the demo document |
 | `demo.ownership.text` | The page owns its text; two pages are independent |
 | `demo.layout.*` | Flow, button rect, hit-test, resize re-flow |
-| `demo.paint.*` | Pixel probes, button states, determinism, clipping in a small target, invalid args |
+| `demo.paint.*` | Pixel probes, button states, determinism, clipping in a small target, invalid args, and the typed multi-element document |
 | `demo.export.png` | PNG export of the rendered frame |
 | `demo.mutation.changes_picture` | A real DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |
 | `demo.lifecycle.advance_keeps_picture` | A lifecycle transition leaves the picture pixel-identical; a reload changes it |
@@ -206,7 +215,10 @@ document's expected tree.
 
 ## 8. Known limitations
 
-- The demo paints a fixed subset; anything else is counted, not rendered.
+- The demo paints a fixed subset; anything else is counted, not rendered. A
+  bare inline element (a `span` whose parent is not itself a painted block) is
+  in that set: the demo has no inline flow, so text-level elements contribute
+  their text only when they sit inside a block's subtree.
 - The host runner opens a real window, so it needs a desktop session. Use
   `--no-window` for headless/CI-style runs (paint, probes and PNG still run).
 - QEMU runs need `qemu-system-x86_64` on `PATH` (or the default install path)

@@ -71,8 +71,19 @@ or a later phase needs for one decision:
   MathML and future elements are therefore safe to classify.
 - A non-HTML namespace always classifies as `GENERIC`, because an SVG `<a>`
   is not an HTML `<a>` and pretending otherwise would be a lie.
-- The whole vocabulary is one reviewable table; classification is not on a
-  painted-pixel path, so a linear scan costs nothing measurable.
+
+**Since Phase 8.11 the role is a column of the tag vocabulary, not a table of
+its own.** `robo_html_element_classify` is now a delegation to
+`robo_html_tag_class(robo_html_tag_from_name(ns, name))`: the same rows that
+define which elements exist also define what role each plays, so a role and a
+type cannot disagree. What this goal moved here is only *where the answer
+lives* — the behaviour is unchanged name for name, and
+`html.tag.classify_agrees_with_vocabulary` asserts that equality for every row
+in both cases rather than trusting it.
+
+Element **identity** — which tag, is it a heading, is it void — is
+`robo_html_tag_t`, documented in [`Elements.md`](Elements.md). The role answers
+"what kind of thing is this?"; the tag answers "which thing is it?".
 
 ---
 

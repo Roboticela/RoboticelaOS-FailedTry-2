@@ -1,4 +1,4 @@
-# RoboHTML Architecture (Phases 8.1–8.10)
+# RoboHTML Architecture (Phases 8.1–8.11)
 
 This document is the normative design record for Goals 8.1 and 8.2. Later
 phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
@@ -553,3 +553,76 @@ RoboHTMLLifecycle.h (8.10)
 
 Full design, contracts and the test coverage:
 [`Mutation.md`](Mutation.md).
+
+## 19. Phase 8.11 — basic HTML elements
+
+8.11 gives an element a **type**. An element has had a *name* since 8.5; a name
+is bytes and a type is a symbol, and before this phase every consumer that
+wanted "is this a heading?" either consulted the 8.5 role table or compared a
+string literal of its own — while the tree builder kept a *second* private list
+of void element names. Three answers to one question, and they drift.
+
+```
+RoboHTMLTag.h (8.11)
+├── identity    robo_html_tag_t — one enumerator per recognised element (105)
+├── lookup      from_name(ns, name) · name · class · flags · at(index)
+├── predicates  is_void · is_root · is_document_structure · is_metadata
+│               is_sectioning · is_region · is_heading · is_list
+│               is_list_item · is_text_level
+└── flags       ROBO_HTML_TAG_FLAG_* (the bitmask behind the predicates)
+
+RoboHTMLElement.h (extends 8.5)
+├── view.tag                the type, beside the role
+├── robo_html_element_tag(handle)
+└── robo_html_element_is_tag(handle, tag)
+```
+
+- **One table is the whole answer.** A row is a tag's canonical name, its role
+  and its intrinsic flags. The 8.5 role table *moved* into those rows rather
+  than sitting beside them, so `robo_html_element_classify` and
+  `robo_html_tag_class` are the same function and a role and a type can no
+  longer disagree about what an element is. The 102 names the role table
+  recognised are all known tags now, with their roles unchanged — asserted for
+  every row rather than assumed for the ones a test happened to name.
+- **Identity is derived, never stored.** `robo_html_element_tag` is a pure
+  function of `(namespace, name)`, exactly as the role already was: nothing was
+  added to a payload, no arena grew, there is no cached tag to invalidate when
+  a tree is re-parsed or mutated, and a name that arrived before this phase
+  resolves exactly as one that arrives after it. The cost is one bounded
+  case-insensitive scan per inspection — the same shape and cost the role
+  lookup already had.
+- **Symbols, not numbers.** The enumerators are dense and start at 1, and the
+  table is declared in enum order, so `name`/`class`/`flags` are constant-time
+  (`k_tags[tag - 1]`) and `is_known` is a range test. That is load-bearing, so
+  `html.tag.table_is_dense` pins row order, ids, name uniqueness, lowercase
+  spelling, per-row defined roles and the name round-trip. The numeric value is
+  an implementation detail: not persisted, not a file format, and stable bytes
+  live behind `robo_html_tag_name`.
+- **Which element facts the parser now reads from here.** Void-ness and
+  heading-ness, because both are properties of the element *type* — `<br>` has
+  no children because `br` is void and the parser obeys, and "which elements are
+  headings" has one answer regardless of who asks. Two private copies of that
+  knowledge were deleted rather than kept in step.
+- **Which parser tables deliberately stayed.** The `<p>`-closing start-tag
+  list, the head-content list and the text-family table. Those are parsing
+  *policy* with contextual entries — `noscript` is head content in one mode and
+  paragraph content in another, and which tags close a `<p>` is a rule of the
+  algorithm rather than a property of an element. Moving them into an
+  element-identity table would confuse exactly the two things this phase keeps
+  apart.
+- **Unknown is a state, not an error.** A custom element, a future element or
+  any non-HTML-namespace name is `UNKNOWN`: it keeps its name, attributes,
+  children, text, traversal and mutation behaviour and is never coerced into a
+  known type. `is_tag(element, UNKNOWN)` is answerable ("no recognised type")
+  and is *not* a shared identity; a non-element handle satisfies no tag at all,
+  including UNKNOWN; and an undefined enumerator is refused rather than made
+  equivalent to UNKNOWN, so a mistyped tag cannot match every custom element.
+- **Namespace is part of identity.** `robo_html_tag_from_name` answers UNKNOWN
+  outside the HTML namespace, because an SVG `<a>` is not an HTML `<a>`. The
+  field exists so a later foreign-content phase fills it in rather than
+  changing the type.
+- **Names stay names.** `robo_html_element_is_named` is unchanged and still
+  compares names, matching a custom element; `is_tag` is the typed question.
+  Two questions, two accessors, stated in the headers.
+
+Full design, contracts and the test coverage: [`Elements.md`](Elements.md).

@@ -3,9 +3,10 @@
 HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
 Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model +
 Phase 8.5 element model + Phase 8.6 attribute model + Phase 8.7 text model +
-Phase 8.8 traversal + Phase 8.9 DOM mutation + Phase 8.10 document lifecycle**).
+Phase 8.8 traversal + Phase 8.9 DOM mutation + Phase 8.10 document lifecycle +
+Phase 8.11 basic HTML elements**).
 
-**Version:** 0.10.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.11.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -116,6 +117,25 @@ The rules that decide which entry point settles where follow from the same idea,
 and a truncated build settles at INTERACTIVE rather than claiming completion for
 input it never read. Transitions are not structural changes: the tree version
 does not move, so an in-flight traversal survives one. See `docs/Lifecycle.md`.
+
+**8.11 (basic HTML elements):** an element gains a *type*, not just a name.
+The tag vocabulary in `RoboHTMLTag.h` names every element this runtime
+recognises — the 32 basic elements (document structure, structural content,
+headings, lists, inline semantics, generic regions) plus the whole vocabulary
+Phase 8.5 already classified by name — and gives each one its canonical
+spelling, its coarse role and its intrinsic flags (void, heading, list, list
+item, sectioning, region, metadata, text-level, document structure) in a
+single row. Identity is *derived* from `(namespace, name)` exactly as the role
+already was, so no payload grew and nothing can go stale, and it is read
+through a handle (`robo_html_element_tag` / `robo_html_element_is_tag`) so a
+consumer names a symbol instead of comparing a string. Two private copies of
+that knowledge were deleted rather than kept in step: the element model's
+name→role table (now a delegation) and the tree builder's void-element list
+(now a flag), so "what is `<div>`?" and "is `<br>` void?" each have one answer.
+An unrecognised element — a custom element, a future one, anything outside the
+HTML namespace — is `UNKNOWN`, which is a supported state: it keeps its name,
+attributes, children, traversal and mutation behaviour and is never coerced
+into a known type. See `docs/Elements.md`.
 
 **No DOM behaviour** — `NamedNodeMap`, `getElementById`, `querySelector`,
 `classList`, `dataset`, events and the rest of the DOM surface come later, and

@@ -83,6 +83,16 @@ typedef struct robo_html_dom_capabilities {
      * and the ChildNode/ParentNode conveniences are later-phase work.
      */
     int mutation;
+    /**
+     * Element *type* identity is available (Phase 8.11): the tag vocabulary
+     * in RoboHTMLTag.h, resolved from (namespace, name) and readable per
+     * element through robo_html_element_tag / robo_html_element_is_tag, with
+     * the role and the intrinsic flags (void, heading, list, sectioning,
+     * text-level, ...) defined by the same rows. This is not a claim of CSS,
+     * selectors, layout, or of an exhaustive element vocabulary — an element
+     * this runtime does not recognise is UNKNOWN and still fully functional.
+     */
+    int element_tags;
     /** Event model available (DOM events phase). */
     int events;
     /** Tree construction from parser callbacks (Phase 8.3). */

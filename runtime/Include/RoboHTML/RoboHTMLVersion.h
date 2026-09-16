@@ -1,5 +1,5 @@
 /*
- * RoboHTML version pin — Phase 8.10 document lifecycle milestone.
+ * RoboHTML version pin — Phase 8.11 basic HTML elements milestone.
  *
  * 0.1.0 was the architecture-only surface (8.1); 0.2.0 added the tokenizer
  * (tokens, state machine, character references, raw-content families);
@@ -36,17 +36,24 @@
  * complete, plus failed/destroying/destroyed), a transition graph with no
  * shortcut into completion, the rules that decide which entry point settles
  * where, and lifecycle predicates callers can ask without switching on the
- * enum. The surface still grows in 8.11+, so API freeze is NOT claimed here
- * (ROBO_HTML_API_FROZEN=0).
+ * enum. 0.11.0 gives an element a *type*: the tag vocabulary in
+ * RoboHTMLTag.h names every element this runtime recognises, defines its
+ * role and its intrinsic flags (void, heading, list, sectioning, text-level,
+ * metadata, document structure) in one table, and replaces the two private
+ * copies of that knowledge — the classification table in the element model
+ * and the void-element list in the tree builder — so "what is <div>?" and
+ * "is <br> void?" now have one answer each, readable by a caller as a
+ * symbol instead of a string comparison. The surface still grows in 8.12+,
+ * so API freeze is NOT claimed here (ROBO_HTML_API_FROZEN=0).
  */
 
 #ifndef ROBO_HTML_VERSION_H
 #define ROBO_HTML_VERSION_H
 
 #define ROBO_HTML_VERSION_MAJOR 0
-#define ROBO_HTML_VERSION_MINOR 10
+#define ROBO_HTML_VERSION_MINOR 11
 #define ROBO_HTML_VERSION_PATCH 0
-#define ROBO_HTML_VERSION_STRING "0.10.0"
+#define ROBO_HTML_VERSION_STRING "0.11.0"
 
 /** 1 once the Phase 8 surface is frozen (not yet — see header comment). */
 #define ROBO_HTML_API_FROZEN 0

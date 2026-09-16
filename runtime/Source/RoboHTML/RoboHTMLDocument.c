@@ -165,6 +165,9 @@ robo_result_t robo_html_document_clear_tree(robo_html_document_slot_t *slot,
      * a half-built tree cannot leak.
      */
     robo_html_document_arena_free(slot);
+    /* Image resources are keyed by node identity, and every node those keys
+     * could name is about to be retired. */
+    robo_html_document_images_free(slot);
 
     /* Is the document's own root node still usable? */
     if (robo_html_node_handle_is_wellformed(&slot->root)) {
@@ -765,6 +768,7 @@ robo_result_t robo_html_document_destroy(robo_html_document_id_t document_id,
     slot->tree_version = 1u;
     /* Payloads belong to the document, so the tree dies with it. */
     robo_html_document_arena_free(slot);
+    robo_html_document_images_free(slot);
     robo_html_node_registry_init(&slot->nodes);
     robo_html_node_handle_clear(&slot->root);
     slot->lifecycle = ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED;

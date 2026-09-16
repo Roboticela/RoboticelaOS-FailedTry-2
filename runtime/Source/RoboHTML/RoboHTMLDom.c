@@ -77,6 +77,7 @@ robo_result_t robo_html_dom_query_capabilities(
     out->text_nodes = 1;
     out->traversal = 1;
     out->mutation = 1;
+    out->element_tags = 1;
     return ROBO_OK;
 }
 

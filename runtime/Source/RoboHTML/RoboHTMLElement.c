@@ -3,9 +3,15 @@
  *
  * File shape:
  *   1. name policy (strict, application-facing: validate + normalize)
- *   2. element classification (namespace + tag name → one small vocabulary)
+ *   2. element classification (delegates to the Phase 8.11 tag vocabulary)
  *   3. element creation (the single construction seam)
- *   4. element read side (identity, view, state, attributes)
+ *   4. element read side (identity, view, state, attributes, tag)
+ *
+ * The element *type* vocabulary lives in RoboHTMLTag.c; this file owns the
+ * element *instance* — the payload read side over the tree. Tag accessors
+ * therefore read here (they need the node registry and the payload), while
+ * the vocabulary they resolve against is defined there. One table, read from
+ * two directions.
  *
  * Note on the name policy: the strict normalizer validates as it lowercases
  * and is for names an application supplies. The parser path deliberately
@@ -15,6 +21,7 @@
  */
 
 #include "RoboHTML/RoboHTMLElement.h"
+#include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTMLInternal.h"
 
 #include <stddef.h>
@@ -179,7 +186,8 @@ robo_result_t robo_html_element_view_get(
     out->attribute_count = robo_html_payload_attr_count(slot, e);
     out->self_closing = robo_html_payload_self_closing(slot, e);
     out->namespace_id = robo_html_payload_namespace(slot, e);
-    out->classification = robo_html_element_classify(out->namespace_id, out->name);
+    out->tag = robo_html_tag_from_name(out->namespace_id, out->name);
+    out->classification = robo_html_tag_class(out->tag);
 
     out->state = ROBO_HTML_ELEMENT_STATE_NONE;
     if (e->origin == (uint32_t)ROBO_HTML_NODE_ORIGIN_PARSER) {
@@ -404,130 +412,22 @@ robo_result_t robo_html_element_remove_attribute(
 /* Classification                                                      */
 /* ------------------------------------------------------------------ */
 
-typedef struct element_class_row {
-    const char *name;
-    robo_html_element_class_t cls;
-} element_class_row_t;
-
 /*
- * The whole HTML vocabulary this phase recognises, grouped by class. One
- * linear table rather than a generated hash: classification runs when an
- * element's view is read, not per painted pixel, so the scan is
- * unmeasurable while the vocabulary stays reviewable in one place. An
- * element that is not here is GENERIC — never an error — which is what
- * keeps custom elements, SVG and future elements safe.
+ * Classification is a property of the element *type*, so the tag vocabulary
+ * defines it and nothing else does — see RoboHTMLTag.c. Before Phase 8.11
+ * this file kept its own name-to-class table; that table and the tag table
+ * would have been two answers to "what kind of element is <div>?", so the
+ * table moved and this function became a delegation. An element whose name
+ * the tag table does not know — a custom element, an SVG element, an element
+ * from a future version of HTML — is GENERIC, which is a supported answer
+ * and not an error.
  */
-static const element_class_row_t k_element_classes[] = {
-    {"html", ROBO_HTML_ELEMENT_CLASS_ROOT},
-
-    {"base", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"basefont", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"bgsound", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"head", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"link", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"meta", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"noscript", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"script", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"style", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"template", ROBO_HTML_ELEMENT_CLASS_METADATA},
-    {"title", ROBO_HTML_ELEMENT_CLASS_METADATA},
-
-    {"address", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"article", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"aside", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"blockquote", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"body", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"dd", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"details", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"div", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"dl", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"dt", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"fieldset", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"figcaption", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"figure", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"footer", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"header", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"hgroup", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"hr", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"legend", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"li", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"main", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"menu", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"nav", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"ol", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"pre", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"section", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"summary", ROBO_HTML_ELEMENT_CLASS_SECTION},
-    {"ul", ROBO_HTML_ELEMENT_CLASS_SECTION},
-
-    {"h1", ROBO_HTML_ELEMENT_CLASS_HEADING},
-    {"h2", ROBO_HTML_ELEMENT_CLASS_HEADING},
-    {"h3", ROBO_HTML_ELEMENT_CLASS_HEADING},
-    {"h4", ROBO_HTML_ELEMENT_CLASS_HEADING},
-    {"h5", ROBO_HTML_ELEMENT_CLASS_HEADING},
-    {"h6", ROBO_HTML_ELEMENT_CLASS_HEADING},
-
-    {"p", ROBO_HTML_ELEMENT_CLASS_PARAGRAPH},
-
-    {"a", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"abbr", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"b", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"bdi", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"bdo", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"br", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"cite", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"code", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"data", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"del", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"dfn", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"em", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"i", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"ins", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"kbd", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"mark", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"q", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"rp", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"rt", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"ruby", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"s", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"samp", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"small", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"span", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"strong", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"sub", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"sup", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"time", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"u", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"var", ROBO_HTML_ELEMENT_CLASS_TEXT},
-    {"wbr", ROBO_HTML_ELEMENT_CLASS_TEXT},
-
-    {"area", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"audio", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"canvas", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"embed", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"iframe", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"img", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"map", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"object", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"param", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"picture", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"source", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"track", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-    {"video", ROBO_HTML_ELEMENT_CLASS_REPLACED},
-
-    {"button", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"datalist", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"form", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"input", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"label", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"meter", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"optgroup", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"option", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"output", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"progress", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"select", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-    {"textarea", ROBO_HTML_ELEMENT_CLASS_CONTROL},
-};
+robo_html_element_class_t robo_html_element_classify(
+    robo_html_namespace_t ns,
+    const char *local_name)
+{
+    return robo_html_tag_class(robo_html_tag_from_name(ns, local_name));
+}
 
 int robo_html_element_class_is_known(robo_html_element_class_t cls)
 {
@@ -559,29 +459,6 @@ const char *robo_html_element_class_name(robo_html_element_class_t cls)
     default:
         return "unknown";
     }
-}
-
-robo_html_element_class_t robo_html_element_classify(
-    robo_html_namespace_t ns,
-    const char *local_name)
-{
-    size_t i;
-
-    if (!local_name || local_name[0] == '\0') {
-        return ROBO_HTML_ELEMENT_CLASS_GENERIC;
-    }
-    /* Only the HTML vocabulary is recognised in this phase: an SVG <a> is
-     * not an HTML <a>, so classifying it would be a lie. */
-    if (ns != ROBO_HTML_NAMESPACE_HTML) {
-        return ROBO_HTML_ELEMENT_CLASS_GENERIC;
-    }
-    for (i = 0u; i < sizeof(k_element_classes) / sizeof(k_element_classes[0]);
-         i++) {
-        if (robo_html_name_equal(k_element_classes[i].name, local_name)) {
-            return k_element_classes[i].cls;
-        }
-    }
-    return ROBO_HTML_ELEMENT_CLASS_GENERIC;
 }
 
 /* ------------------------------------------------------------------ */
@@ -805,6 +682,57 @@ int robo_html_element_is_named(const robo_html_node_handle_t *element,
     }
     return robo_html_name_equal(robo_html_payload_element_name(slot, e, NULL),
                             name);
+}
+
+robo_html_tag_t robo_html_element_tag(const robo_html_node_handle_t *element)
+{
+    const robo_html_document_slot_t *slot;
+    const robo_html_node_entry_t *e;
+
+    if (!element) {
+        return ROBO_HTML_TAG_UNKNOWN;
+    }
+    slot = robo_html_document_slot_find(element->document_id);
+    e = element_entry(element);
+    if (!slot || !e) {
+        return ROBO_HTML_TAG_UNKNOWN;
+    }
+    return robo_html_tag_from_name(robo_html_payload_namespace(slot, e),
+                                   robo_html_payload_element_name(slot, e,
+                                                                  NULL));
+}
+
+int robo_html_element_is_tag(const robo_html_node_handle_t *element,
+                             robo_html_tag_t tag)
+{
+    const robo_html_document_slot_t *slot;
+    const robo_html_node_entry_t *e;
+
+    /*
+     * A non-element handle must satisfy no tag, including UNKNOWN: "no
+     * recognised identity" is a statement about an element, so it cannot be
+     * answered for a text node or a stale id. Resolving the element first is
+     * what makes `is_tag(x, UNKNOWN)` mean exactly "x is a live element with
+     * no recognised type" rather than "x is not a live element".
+     */
+    if (!element) {
+        return 0;
+    }
+    /* UNKNOWN is a real question and is answered below; any *other* undefined
+     * enumerator can only be a bug, so it is refused instead of quietly
+     * matching every unrecognised element. */
+    if (tag != ROBO_HTML_TAG_UNKNOWN && !robo_html_tag_is_known(tag)) {
+        return 0;
+    }
+    slot = robo_html_document_slot_find(element->document_id);
+    e = element_entry(element);
+    if (!slot || !e) {
+        return 0;
+    }
+    return robo_html_tag_from_name(robo_html_payload_namespace(slot, e),
+                                   robo_html_payload_element_name(slot, e,
+                                                                  NULL)) ==
+           tag;
 }
 
 robo_result_t robo_html_element_parent(const robo_html_node_handle_t *element,

@@ -22,6 +22,7 @@
 #include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
+#include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
 
@@ -253,11 +254,43 @@ static robo_result_t page_add_block(robo_demo_page_t *page,
  * Painted style for one element; 0 when the demo's subset does not paint it.
  *
  * Classification answers the role question (a heading is a heading, whether
- * it is <h1> or <h6>), and the handle-based name test picks out the two
- * elements whose role alone is not enough — <title> (metadata the demo shows
- * as the window caption) and <button> (a control painted as a rectangle).
- * Everything else is deliberately unpainted.
+ * it is <h1> or <h6>), and the tag test picks out the two elements whose
+ * role alone is not enough — <title> (metadata the demo shows as the window
+ * caption) and <button> (a control painted as a rectangle). Everything else
+ * is deliberately unpainted.
+ *
+ * The tag test is the Phase 8.11 symbolic form: this adapter names the
+ * element type it wants and the runtime owns the spelling, so the two of
+ * them cannot drift over a string literal.
  */
+/**
+ * Does @p element have at least one element child?
+ *
+ * Asked through the child cursor and the element view, so it does not care
+ * how children are stored and it treats a text-only element as childless in
+ * the sense this adapter means: "this element holds a run of text, not other
+ * elements".
+ */
+static int has_element_child(const robo_html_node_handle_t *element)
+{
+    robo_html_child_cursor_t cursor;
+
+    if (robo_html_child_cursor_open(&cursor, element, NULL) != ROBO_OK) {
+        return 0;
+    }
+    for (;;) {
+        robo_html_node_handle_t child;
+        robo_html_element_view_t view;
+
+        if (robo_html_child_cursor_next(&cursor, &child, NULL) != ROBO_OK) {
+            return 0;
+        }
+        if (robo_html_element_view_get(&child, &view, NULL) == ROBO_OK) {
+            return 1;
+        }
+    }
+}
+
 static robo_demo_block_style_t demo_style_for_element(
     const robo_html_node_handle_t *element,
     const robo_html_element_view_t *view)
@@ -273,11 +306,35 @@ static robo_demo_block_style_t demo_style_for_element(
     default:
         break;
     }
-    if (robo_html_element_is_named(element, "button")) {
+    if (robo_html_element_is_tag(element, ROBO_HTML_TAG_BUTTON)) {
         return ROBO_DEMO_BLOCK_BUTTON;
     }
-    if (robo_html_element_is_named(element, "title")) {
+    if (robo_html_element_is_tag(element, ROBO_HTML_TAG_TITLE)) {
         return ROBO_DEMO_BLOCK_DOCUMENT_TITLE;
+    }
+    /*
+     * A division that holds text *and nothing else* takes the paragraph
+     * representation: this adapter has one way to draw a block of text, and
+     * <div> is the element that means "a block of content". Without this row
+     * the phase's own checkpoint document would silently drop two of its four
+     * body elements.
+     *
+     * The condition matters and is not a heuristic: a block's text here is its
+     * whole subtree, so painting a div that contains other blocks would draw
+     * those blocks' text a second time, as one duplicated run. A div that
+     * contains elements is therefore transparent — the walk descends into it
+     * and paints what is inside — which is exactly how the adapter already
+     * treats <section>.
+     *
+     * <span> deliberately has no row. It is an inline element and this demo
+     * has no inline flow, so a span wrapped around text inside a block is
+     * painted as part of that block's run while a bare span at body level is
+     * counted as unsupported markup. That is the adapter's known limit, and
+     * the visual suite asserts it rather than leaving it to be discovered.
+     */
+    if (robo_html_element_is_tag(element, ROBO_HTML_TAG_DIV) &&
+        !has_element_child(element)) {
+        return ROBO_DEMO_BLOCK_PARAGRAPH;
     }
     return (robo_demo_block_style_t)0;
 }

@@ -90,7 +90,41 @@ typedef struct robo_html_document_slot {
     /** Resource boundary slot (acquisition delegated; see RoboHTMLResource.h). */
     robo_html_load_phase_t load_phase;
     robo_html_loader_t *loader;
+
+    /**
+     * Image resources (Phase 8.12), one per `<img>` that has been resolved.
+     *
+     * The table is keyed by *node identity* — document, node id and
+     * generation — not by element pointer, so a moved element keeps its
+     * picture while a recycled node id cannot inherit one: a fresh node gets
+     * a new generation, which is exactly what generations are for.
+     *
+     * It lives here rather than in the node payload because the payload
+     * arena is freed and re-bumped as a unit, while a decoded image is a
+     * separately owned RoboGraphics object with its own lifetime. Releasing
+     * the array at teardown releases the document's claims on them; the
+     * images themselves follow their own refcount, so a caller that retained
+     * one keeps working after the document is gone.
+     */
+    struct robo_html_image_attachment *images;
+    size_t image_count;
+    size_t image_capacity;
 } robo_html_document_slot_t;
+
+/** One image resource attached to one node of one document. */
+typedef struct robo_html_image_attachment {
+    robo_html_node_handle_t node;
+    struct robo_html_image *image;
+} robo_html_image_attachment_t;
+
+/**
+ * Release every attached image resource and the table itself (Phase 8.12).
+ * Safe on a NULL slot and on a slot that never held an image; clears the
+ * fields. Called from both teardown paths — robo_html_document_clear_tree and
+ * robo_html_document_destroy — because in both cases the nodes the table
+ * refers to are gone.
+ */
+void robo_html_document_images_free(robo_html_document_slot_t *slot);
 
 /** Parser object (heap-allocated; layout private to RoboHTML sources). */
 struct robo_html_parser {

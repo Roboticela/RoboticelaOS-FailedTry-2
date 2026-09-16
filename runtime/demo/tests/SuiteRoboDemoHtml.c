@@ -21,10 +21,12 @@
 #include "RoboGraphics/RoboGraphicsScreenshot.h"
 #include "RoboHTML/RoboHTML.h"
 #include "RoboHTML/RoboHTMLDocument.h"
+#include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLLifecycle.h"
 #include "RoboHTML/RoboHTMLMutation.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
+#include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
 #include "RoboTest.h"
 
@@ -1298,6 +1300,138 @@ static void test_demo_lifecycle_advance_keeps_picture(void)
     ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
 }
 
+/*
+ * The Phase 8.11 visual checkpoint: a document made of the basic element
+ * types, rendered through the real DOM.
+ *
+ * The picture is the assertion, but the *point* is that the picture comes
+ * from typed elements — an <h1> is painted as a heading because it IS a
+ * heading, a <title> becomes the caption because it IS the title element,
+ * and <div>/<span> contribute nothing because the adapter paints no role for
+ * them. If a tag resolved to the wrong type, the styles asserted here would
+ * come out wrong or the blocks would not appear at all.
+ */
+static void test_demo_paint_element_kinds(void)
+{
+    static const char *const k_html =
+        "<!DOCTYPE html><html><head><title>Roboticela</title></head><body>"
+        "<h1>RoboticelaOS Runtime</h1>"
+        "<p>Hello from RoboHTML.</p>"
+        "<div>Basic DOM elements work.</div>"
+        "<span>Inline content</span>"
+        "</body></html>";
+    robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
+    robo_html_source_t src;
+    robo_html_node_handle_t root;
+    robo_html_node_handle_t el;
+    robo_html_node_handle_t found;
+    robo_demo_page_t *page = NULL;
+    robo_gfx_surface_t *surface = NULL;
+    robo_demo_block_style_t style;
+    robo_gfx_rect_t heading_rect;
+
+    demo_fixture();
+
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc, NULL), ROBO_OK);
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(robo_html_source_string(&src, k_html, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+    root = robo_html_document_root(doc);
+
+    /*
+     * The DOM really holds these types before anything is drawn. No call
+     * here aliases its input with its output: a resolution clears its output
+     * first, so `find_element(&el, …, &el)` would always miss.
+     */
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&root, "html", &el, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(robo_html_element_is_tag(&el, ROBO_HTML_TAG_HTML));
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&el, "title", &found, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(robo_html_element_is_tag(&found, ROBO_HTML_TAG_TITLE));
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&root, "h1", &found, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(robo_html_element_is_tag(&found, ROBO_HTML_TAG_H1));
+    ROBO_CHECK(robo_html_tag_is_heading(robo_html_element_tag(&found)));
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&root, "p", &found, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(robo_html_element_is_tag(&found, ROBO_HTML_TAG_P));
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&root, "div", &found, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(robo_html_element_is_tag(&found, ROBO_HTML_TAG_DIV));
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&root, "span", &found, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(robo_html_element_is_tag(&found, ROBO_HTML_TAG_SPAN));
+    ROBO_CHECK(robo_html_tag_is_text_level(robo_html_element_tag(&found)));
+
+    /* The adapter reads that tree: title, heading, paragraph are painted. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(page != NULL);
+    if (!page) {
+        ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+        return;
+    }
+
+    /* The caption came from the real <title>, not from the h1. */
+    ROBO_CHECK_STR_EQ(robo_demo_page_title(page), "Roboticela");
+
+    /* Three painted blocks: the heading, the paragraph, and the division. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(page), 3);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 0, &style), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_HEADING);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 1, &style), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_PARAGRAPH);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 2, &style), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_PARAGRAPH);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 0),
+                      "RoboticelaOS Runtime");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 1),
+                      "Hello from RoboHTML.");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 2),
+                      "Basic DOM elements work.");
+
+    /*
+     * The bare <span> is real DOM that the adapter does not paint, because it
+     * is inline and this demo has no inline flow. Asserting the count keeps
+     * that a stated limit: if a later phase teaches the adapter to paint a
+     * bare inline element, this test says so instead of quietly passing.
+     */
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_ignored_tag_count(page), 1);
+
+    /* And the pixels follow: layout, then a deterministic paint. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_layout(page, 900, 600), ROBO_OK);
+    surface = make_surface(900, 600);
+    ROBO_CHECK(surface != NULL);
+    if (surface) {
+        robo_gfx_surface_t *again = make_surface(900, 600);
+
+        ROBO_CHECK_EQ_INT(robo_demo_page_paint(page, surface, NULL, NULL),
+                          ROBO_OK);
+        /* Accent strip at the top, page background at the right margin. */
+        ROBO_CHECK(pixel_is(surface, 450, 2, T_BRAND));
+        ROBO_CHECK(pixel_is(surface, 899, 599, T_BG));
+        /* The heading block is laid out below the caption. */
+        ROBO_CHECK(robo_demo_page_block_rect(page, 1, &heading_rect));
+        ROBO_CHECK(heading_rect.y > 0);
+
+        /* A second paint of the same page is pixel-identical. */
+        ROBO_CHECK(again != NULL);
+        if (again) {
+            ROBO_CHECK_EQ_INT(robo_demo_page_paint(page, again, NULL, NULL),
+                              ROBO_OK);
+            ROBO_CHECK_MSG(count_pixel_differences(surface, again, 900u, 600u) ==
+                               0,
+                           "painting an element document twice differed");
+            robo_gfx_surface_release(again);
+        }
+        robo_gfx_surface_release(surface);
+    }
+
+    robo_demo_page_destroy(page);
+    ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+}
+
 void robo_test_register_demo_html(void)
 {
     robo_test_register("demo.version", test_demo_version);
@@ -1331,6 +1465,8 @@ void robo_test_register_demo_html(void)
                        test_demo_repeated_lifecycle);
     robo_test_register("demo.mutation.changes_picture",
                        test_demo_mutation_changes_picture);
+    robo_test_register("demo.paint.element_kinds",
+                       test_demo_paint_element_kinds);
     robo_test_register("demo.lifecycle.advance_keeps_picture",
                        test_demo_lifecycle_advance_keeps_picture);
     robo_test_register("demo.lifetime.uninitialized",

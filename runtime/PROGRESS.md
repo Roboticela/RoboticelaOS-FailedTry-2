@@ -1379,6 +1379,118 @@ more than it used to.
 - [x] No Chromium dependency
 - [x] Stop after 8.10
 
+## Goal 8.11 — basic HTML elements
+
+An element has had a *name* since 8.5. A name is bytes and a type is a symbol,
+and the difference showed in how many places answered "what is this element?".
+The element model kept a 102-row table mapping a name to a coarse role. The
+tree builder kept its own 18-name list of void elements. A consumer wanting
+anything finer compared a string literal of its own. Three answers to one
+question, and they drift. 8.11 replaces all of them with one table.
+
+**A row is the whole answer: name, role, flags.** `RoboHTMLTag.h` names every
+element this runtime recognises — the 32 basic elements this goal introduces,
+plus the entire vocabulary the role table already knew — and gives each its
+canonical spelling, its role and its intrinsic flags (void, root, document
+structure, metadata, sectioning, region, heading, list, list item,
+text-level). The role table *moved* into those rows rather than sitting beside
+them, so `robo_html_element_classify` is now a delegation and a role and a type
+cannot disagree about what an element is.
+
+**Identity is derived, never stored.** `robo_html_element_tag` is a pure
+function of `(namespace, name)`, exactly as the role already was: no payload
+field, no arena growth, no cached tag to invalidate when a tree is re-parsed or
+mutated, and a name that arrived before this phase resolves exactly as one that
+arrives after it. The price is one bounded case-insensitive scan per
+inspection — the same shape and the same cost the role lookup already had, and
+it runs when an element is inspected rather than once per painted pixel.
+
+**The table is index-addressed, and that is load-bearing.** The enumerators are
+dense from 1 and the rows are declared in enum order, so `name`/`class`/`flags`
+are `k_tags[tag - 1]` and `is_known` is a range test. `html.tag.table_is_dense`
+asserts row order, ids, lowercase spellings, name uniqueness, a defined role
+per row and the name round-trip — because if the table and the enum ever drift,
+that test is the one that says so, and every other assertion in the phase is
+then meaningless rather than misleading.
+
+**The parser now reads two element facts from here, and only two.** Void-ness
+and heading-ness are properties of the element *type*: `<br>` has no children
+because `br` is void and the parser merely obeys, and "which elements are
+headings" has one answer regardless of who asks. Eighteen lines of duplicated
+truth were deleted rather than kept in step. Three parser tables deliberately
+stayed where they were — the `<p>`-closing start-tag list, the head-content
+list and the text-family table — because those are parsing *policy* with
+contextual entries (`noscript` is head content in one mode and paragraph
+content in another), and moving policy into an identity table would confuse
+exactly the two things this phase keeps apart.
+
+**Unknown is a state, not an error.** A custom element, a future element or
+any non-HTML-namespace name is `UNKNOWN`, and it is a *fully working* element:
+name, attributes, children, text, traversal and mutation all behave, asserted
+rather than assumed. Three edges are pinned because each is easy to get wrong:
+`is_tag(element, UNKNOWN)` is answerable and is not a shared identity; a
+non-element handle (text, document, NULL, stale) satisfies no tag at all,
+including UNKNOWN, because "no recognised type" is a statement about an
+element; and an undefined enumerator is refused rather than made equivalent to
+UNKNOWN, so a mistyped tag cannot silently match every custom element in a
+document.
+
+**The element-side question is asked with a symbol.** `is_tag(element,
+ROBO_HTML_TAG_DIV)` replaces `is_named(element, "div")` where the question is
+about *type*: the caller names a symbol, the runtime owns the spelling, and a
+misspelling is a compile error instead of a test that quietly returns false.
+`is_named` stays and still compares names, because that is a different question
+— it is true of a custom element — and silently routing it through the tag
+table would make it answer `false` for every name the vocabulary does not know.
+
+**Two design limits, stated rather than discovered.** Element *creation* stays
+gated on a finalized document (8.9's boundary), so the element suite exercises
+creation on an unfinalized document and mutation by rearranging parsed nodes —
+which is also what a consumer does to a loaded page. And the debug dump was not
+reformatted: it already names every element by its tag, which *is* its type, so
+the phase adds coverage that every supported type appears instead of a new line
+format that would invalidate six suites to say the same thing.
+
+The renderer is the one consumer touched. The demo adapter now asks for
+`ROBO_HTML_TAG_BUTTON` and `ROBO_HTML_TAG_TITLE` by symbol rather than by
+string, and a `<div>` that holds text and nothing else paints as a text block —
+without that row the goal's own checkpoint document would silently drop two of
+its four body elements. The condition is not a heuristic: a block's text in
+the adapter is its whole subtree, so painting a div that *contains* blocks
+would draw their text a second time; a div holding elements is therefore
+transparent and the walk descends into it.
+
+**Definition of done:**
+
+- [x] Tag identity for every recognised element, read through a handle
+- [x] One vocabulary table: canonical name, role and flags per row
+- [x] Role table deleted, classify delegated — one definition of an element's role
+- [x] Void and heading knowledge moved to the table; parser tables that are
+      policy left alone
+- [x] 10 predicates (void, root, document structure, metadata, sectioning,
+      region, heading, list, list item, text-level), each pinned to its flag
+      for every tag
+- [x] Identity derived from (namespace, name); nothing added to a payload
+- [x] Unknown/custom elements are supported, fully functional, never coerced
+- [x] Element-side typed accessors (`element_tag`, `element_is_tag`), with the
+      name-vs-type distinction documented and tested
+- [x] `robo_html_dom_capabilities_t.element_tags = 1`, reported by the existing
+      query and asserted, so a consumer discovers the model the way it
+      discovers every other one
+- [x] All 32 basic element types round-trip through the parser
+- [x] Every type creatable through the element seam (unfinalized document)
+- [x] Attributes, text nodes, whitespace (`<pre>`), and Unicode (Arabic,
+      Persian, Urdu, Hindi, Bengali, CJK, emoji) preserved on the new elements
+- [x] Traversal order, mutation and lifecycle integration on typed elements
+- [x] 23 malformed inputs parsed without a crash and with a sound tree
+- [x] Debug dump shows the real types, and reflects mutation
+- [x] Visual checkpoint renders a typed multi-element document
+      (`demo.paint.element_kinds`), pixel-probed and deterministic
+- [x] `html.tag.*` (18) + `html.elements.*` (22) + `demo.paint.element_kinds`
+- [x] Full suite green (1305 tests, Debug)
+- [x] No Chromium dependency
+- [x] Stop after 8.11
+
 ## Next
 
-- Goal 8.11 — basic HTML elements (do not start until requested)
+- Goal 8.12 — images (do not start until requested)

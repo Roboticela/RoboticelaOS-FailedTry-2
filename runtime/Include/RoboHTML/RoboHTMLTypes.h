@@ -124,6 +124,72 @@ const char *robo_html_namespace_name(robo_html_namespace_t ns);
  */
 const char *robo_html_namespace_url(robo_html_namespace_t ns);
 
+/* ------------------------------------------------------------------ */
+/* Element role vocabulary (Phase 8.5; moved here in Phase 8.11)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Coarse role an element plays.
+ *
+ * This is deliberately NOT the HTML content-category specification: it is
+ * the small vocabulary a renderer or a later phase needs to make one
+ * decision without a string table of its own. It is a pure function of the
+ * element's identity, so classifying costs no storage and no lookup, and an
+ * unrecognised element is @c GENERIC rather than an error — which is what
+ * makes custom elements, SVG and future elements safe to classify.
+ *
+ * Since Phase 8.11 the role is a *column of the tag vocabulary* rather than
+ * a table of its own: @c robo_html_element_classify and
+ * @c robo_html_tag_class are the same answer, so a role and a tag can no
+ * longer disagree about what an element is. Full element identity — which
+ * tag, is it a heading, is it void — is @c robo_html_tag_t in RoboHTMLTag.h.
+ *
+ * The vocabulary lives in this header, next to the node kinds and the
+ * namespaces, because an identity vocabulary is what this header is for: it
+ * is included wherever an element is named, and it must be visible to the
+ * tag layer (which carries a role per tag) without either header needing the
+ * other.
+ */
+typedef enum robo_html_element_class {
+    /** Not a known element name in this namespace. */
+    ROBO_HTML_ELEMENT_CLASS_GENERIC = 0,
+    /** The document element, <html>. */
+    ROBO_HTML_ELEMENT_CLASS_ROOT = 1,
+    /** Document metadata: <head>, <title>, <meta>, <link>, <script>, ... */
+    ROBO_HTML_ELEMENT_CLASS_METADATA = 2,
+    /** Block containers: <body>, <div>, <section>, <li>, ... */
+    ROBO_HTML_ELEMENT_CLASS_SECTION = 3,
+    /** <h1> … <h6>. */
+    ROBO_HTML_ELEMENT_CLASS_HEADING = 4,
+    /** <p>. */
+    ROBO_HTML_ELEMENT_CLASS_PARAGRAPH = 5,
+    /** Text-level elements: <span>, <a>, <em>, <code>, <br>, ... */
+    ROBO_HTML_ELEMENT_CLASS_TEXT = 6,
+    /** Replaced/embedded content: <img>, <video>, <canvas>, <iframe>, ... */
+    ROBO_HTML_ELEMENT_CLASS_REPLACED = 7,
+    /** Form controls: <button>, <input>, <select>, <form>, ... */
+    ROBO_HTML_ELEMENT_CLASS_CONTROL = 8,
+    /** Number of defined classes. */
+    ROBO_HTML_ELEMENT_CLASS_COUNT = 9
+} robo_html_element_class_t;
+
+/** Non-zero if @p cls is a defined element class enumerator. */
+int robo_html_element_class_is_known(robo_html_element_class_t cls);
+
+/** Human-readable class name; never NULL; "unknown" when undefined. */
+const char *robo_html_element_class_name(robo_html_element_class_t cls);
+
+/**
+ * Classify @p local_name in @p ns. @p local_name must already be lowercase
+ * (stored names are), but the comparison is ASCII case-insensitive so a
+ * caller holding a name from elsewhere still gets the right answer.
+ * Anything unrecognised — including every name in a non-HTML namespace —
+ * is @c GENERIC, never an error.
+ */
+robo_html_element_class_t robo_html_element_classify(
+    robo_html_namespace_t ns,
+    const char *local_name);
+
 /**
  * HTML-specific diagnostic domains. These refine the shared robo_result_t
  * codes for RoboHTML callers without creating a parallel error framework:
@@ -168,7 +234,15 @@ typedef enum robo_html_diagnostic_domain {
      * link graph that is not a tree (the node ceiling was reached during a
      * walk, which means a cycle or a corrupted link).
      */
-    ROBO_HTML_DOMAIN_TRAVERSAL = 14
+    ROBO_HTML_DOMAIN_TRAVERSAL = 14,
+    /**
+     * Image domain (Phase 8.12): reading an `<img>`'s attributes, refusing a
+     * reference this runtime will not fetch, and reporting bytes that are not
+     * a decodable image. A resource *outcome* — the image that failed to
+     * load — is not a diagnostic; this domain carries the reason attached to
+     * one.
+     */
+    ROBO_HTML_DOMAIN_IMAGE = 15
 } robo_html_diagnostic_domain_t;
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */

@@ -75,6 +75,7 @@
 #include "RoboHTML/RoboHTMLDiagnostics.h"
 #include "RoboHTML/RoboHTMLDom.h"
 #include "RoboHTML/RoboHTMLNode.h"
+#include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTML/RoboHTMLTypes.h"
 
 #include <stddef.h>
@@ -123,59 +124,12 @@ robo_result_t robo_html_element_name_normalize(const char *name,
                                                char *out,
                                                robo_html_diag_t *diag);
 
-/* ------------------------------------------------------------------ */
-/* Element classification                                              */
-/* ------------------------------------------------------------------ */
-
-/**
- * Coarse role an element plays, derived from (namespace, tag name).
- *
- * This is deliberately NOT the HTML content-category specification: it is
- * the small vocabulary a renderer or a later phase needs to make one
- * decision without a string table of its own. It is a pure function of the
- * element's identity, so classifying costs no storage and no lookup, and an
- * unrecognised element is @c GENERIC rather than an error — which is what
- * makes custom elements, SVG and future elements safe to classify.
+/*
+ * Element roles are declared in RoboHTMLTypes.h alongside the node kinds and
+ * the namespaces, and defined by the Phase 8.11 tag vocabulary. Read the role
+ * question there; read the identity question — which tag is this, is it a
+ * heading, is it void — in RoboHTMLTag.h.
  */
-typedef enum robo_html_element_class {
-    /** Not a known element name in this namespace. */
-    ROBO_HTML_ELEMENT_CLASS_GENERIC = 0,
-    /** The document element, <html>. */
-    ROBO_HTML_ELEMENT_CLASS_ROOT = 1,
-    /** Document metadata: <head>, <title>, <meta>, <link>, <script>, ... */
-    ROBO_HTML_ELEMENT_CLASS_METADATA = 2,
-    /** Block containers: <body>, <div>, <section>, <li>, ... */
-    ROBO_HTML_ELEMENT_CLASS_SECTION = 3,
-    /** <h1> … <h6>. */
-    ROBO_HTML_ELEMENT_CLASS_HEADING = 4,
-    /** <p>. */
-    ROBO_HTML_ELEMENT_CLASS_PARAGRAPH = 5,
-    /** Text-level elements: <span>, <a>, <em>, <code>, <br>, ... */
-    ROBO_HTML_ELEMENT_CLASS_TEXT = 6,
-    /** Replaced/embedded content: <img>, <video>, <canvas>, <iframe>, ... */
-    ROBO_HTML_ELEMENT_CLASS_REPLACED = 7,
-    /** Form controls: <button>, <input>, <select>, <form>, ... */
-    ROBO_HTML_ELEMENT_CLASS_CONTROL = 8,
-    /** Number of defined classes. */
-    ROBO_HTML_ELEMENT_CLASS_COUNT = 9
-} robo_html_element_class_t;
-
-/** Non-zero if @p cls is a defined element class enumerator. */
-int robo_html_element_class_is_known(robo_html_element_class_t cls);
-
-/** Human-readable class name; never NULL; "unknown" when undefined. */
-const char *robo_html_element_class_name(robo_html_element_class_t cls);
-
-/**
- * Classify @p local_name in @p ns. @p local_name must already be lowercase
- * (stored names are), but the comparison is ASCII case-insensitive so a
- * caller holding a name from elsewhere still gets the right answer.
- * Anything unrecognised — including every name in a non-HTML namespace —
- * is @c GENERIC, never an error.
- */
-robo_html_element_class_t robo_html_element_classify(
-    robo_html_namespace_t ns,
-    const char *local_name);
 
 /* ------------------------------------------------------------------ */
 /* Element state                                                       */
@@ -257,6 +211,12 @@ typedef struct robo_html_element_view {
     int self_closing;
     /** The element's namespace (always HTML in this phase). */
     robo_html_namespace_t namespace_id;
+    /**
+     * The element's type (Phase 8.11); UNKNOWN for a name this runtime does
+     * not recognise. Derived from (namespace, name) exactly as
+     * @c classification is, so reading a view costs no more than it did.
+     */
+    robo_html_tag_t tag;
     /** Derived role; GENERIC for anything unrecognised. */
     robo_html_element_class_t classification;
     /** Mask of ROBO_HTML_ELEMENT_STATE_*. */
@@ -364,9 +324,43 @@ robo_html_element_class_t robo_html_element_classification(
  * Non-zero when @p element is a live element whose tag name is @p name.
  * ASCII case-insensitive, so callers may pass "DIV" or "div" — the element
  * model owns the one comparison rule so every caller agrees.
+ *
+ * This compares *names*, not types: it answers "does this element's name
+ * read as `name`?" and so it matches a custom element too. Callers asking
+ * "is this a paragraph?" want the symbolic form
+ * @c robo_html_element_is_tag below, which cannot be satisfied by a name
+ * that this runtime does not recognise.
  */
 int robo_html_element_is_named(const robo_html_node_handle_t *element,
                                const char *name);
+
+/**
+ * Element type (Phase 8.11): which tag is @p element?
+ *
+ * @c ROBO_HTML_TAG_UNKNOWN when @p element is not a live element, and also
+ * for a live element whose name this runtime does not recognise — a custom
+ * element, an SVG element, or an element from a future version of HTML. In
+ * that case the element still works: it has a name, attributes, children and
+ * the full DOM surface, it simply has no recognised type.
+ */
+robo_html_tag_t robo_html_element_tag(const robo_html_node_handle_t *element);
+
+/**
+ * Non-zero when @p element is a live element whose tag is @p tag.
+ *
+ * This is the question "is this a div?" without a string compare, and it is
+ * the reason the vocabulary lives in one place: the caller names a symbol
+ * and the runtime owns the spelling.
+ *
+ * UNKNOWN is answerable and means "this element has no recognised identity" —
+ * so a custom element satisfies `is_tag(element, UNKNOWN)`, and no two custom
+ * elements are thereby claimed to be the same element. UNKNOWN is the absence
+ * of identity, never a shared identity. A non-element handle (a text node, a
+ * stale id, NULL) satisfies no tag at all, including UNKNOWN, because "no
+ * recognised identity" is a statement about an element.
+ */
+int robo_html_element_is_tag(const robo_html_node_handle_t *element,
+                             robo_html_tag_t tag);
 
 /**
  * Parent handle of @p element. The document element's parent is the document
