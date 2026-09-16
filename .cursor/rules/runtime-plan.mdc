@@ -90,7 +90,7 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 8.7 Text nodes ✅
 8.8 DOM traversal ✅
 8.9 DOM mutation ✅
-8.10 Document lifecycle
+8.10 Document lifecycle ✅
 8.11 Basic HTML elements
 8.12 Images
 8.13 Links

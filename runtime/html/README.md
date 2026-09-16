@@ -3,9 +3,9 @@
 HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
 Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model +
 Phase 8.5 element model + Phase 8.6 attribute model + Phase 8.7 text model +
-Phase 8.8 traversal + Phase 8.9 DOM mutation**).
+Phase 8.8 traversal + Phase 8.9 DOM mutation + Phase 8.10 document lifecycle**).
 
-**Version:** 0.9.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.10.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -102,6 +102,20 @@ structural change bumps a monotonic per-document tree version, which is what
 lets traversal report an iteration invalidated by a mutation instead of
 handing out a node that is no longer where it was read from. See
 `docs/Mutation.md`.
+
+**8.10 (document lifecycle):** the document gains an explicit lifecycle in the
+web platform's own `readyState` vocabulary — `created`, `loading`,
+`interactive`, `complete`, plus `failed`/`destroying`/`destroyed`. The two ideas
+it turns on are that INTERACTIVE is a statement about the *tree* (parsing is
+done, the DOM is live) and COMPLETE is a statement about the *input* (no further
+input can arrive). So completion never closes the DOM — reading, traversal,
+mutation, a replacement source and reset all keep working — and the graph has no
+shortcut into it: `LOADING → COMPLETE` and `CREATED → COMPLETE` are refused,
+because a document cannot be finished loading before it has finished parsing.
+The rules that decide which entry point settles where follow from the same idea,
+and a truncated build settles at INTERACTIVE rather than claiming completion for
+input it never read. Transitions are not structural changes: the tree version
+does not move, so an in-flight traversal survives one. See `docs/Lifecycle.md`.
 
 **No DOM behaviour** — `NamedNodeMap`, `getElementById`, `querySelector`,
 `classList`, `dataset`, events and the rest of the DOM surface come later, and

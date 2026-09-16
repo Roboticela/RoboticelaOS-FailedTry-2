@@ -270,17 +270,31 @@ robo_result_t robo_html_document_reset(robo_html_document_id_t document_id,
 
     /*
      * Back to the "no source attached" resting state. CREATED is unreachable
-     * from READY/LOADING by design (the 8.1 machine has no edge back to
-     * CREATED), so a document that has loaded something settles in READY
+     * from LOADING/INTERACTIVE/COMPLETE by design (the machine has no edge
+     * back to CREATED), so a document that has loaded something settles
      * with an empty tree — which is exactly the state an empty source
-     * produces. A document that never loaded stays CREATED. Both accept a
+     * produces, and that state is COMPLETE: nothing is attached and nothing
+     * can arrive. A document that never loaded stays CREATED. Both accept a
      * new source; neither is FAILED or DESTROYED.
+     *
+     * A reset abandons whatever was in flight, so it steps through
+     * INTERACTIVE rather than jumping: the document really does have a live
+     * (empty) DOM before it is complete.
      */
     life = slot->lifecycle;
-    if (life == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING) {
-        r = robo_html_document_apply_transition(
-            slot, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
-        if (r != ROBO_OK) {
+    if (life == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING ||
+        life == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) {
+        /*
+         * Abandoning input first makes the DOM live, then settles the
+         * document. Both steps are stated separately because the graph has
+         * no LOADING → COMPLETE edge: a reset document is genuinely
+         * interactive (its empty DOM is readable and mutable) before it is
+         * complete.
+         */
+        if (robo_html_document_apply_transition(
+                slot, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) != ROBO_OK ||
+            robo_html_document_apply_transition(
+                slot, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE) != ROBO_OK) {
             return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_LIFECYCLE, ROBO_ERROR,
                                   "reset could not settle the document");
         }

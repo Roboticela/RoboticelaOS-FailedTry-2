@@ -1,5 +1,5 @@
 /*
- * RoboHTML version pin — Phase 8.9 DOM mutation milestone.
+ * RoboHTML version pin — Phase 8.10 document lifecycle milestone.
  *
  * 0.1.0 was the architecture-only surface (8.1); 0.2.0 added the tokenizer
  * (tokens, state machine, character references, raw-content families);
@@ -31,17 +31,22 @@
  * whole-tree audit now reports separately from corruption, and a monotonic
  * tree version that lets traversal report an iteration invalidated by a
  * structural change instead of returning a node that is no longer where it
- * was read from. The surface still grows in 8.10+, so API freeze is NOT
- * claimed here (ROBO_HTML_API_FROZEN=0).
+ * was read from. 0.10.0 gives the document an explicit lifecycle: the
+ * web platform's own readyState vocabulary (created, loading, interactive,
+ * complete, plus failed/destroying/destroyed), a transition graph with no
+ * shortcut into completion, the rules that decide which entry point settles
+ * where, and lifecycle predicates callers can ask without switching on the
+ * enum. The surface still grows in 8.11+, so API freeze is NOT claimed here
+ * (ROBO_HTML_API_FROZEN=0).
  */
 
 #ifndef ROBO_HTML_VERSION_H
 #define ROBO_HTML_VERSION_H
 
 #define ROBO_HTML_VERSION_MAJOR 0
-#define ROBO_HTML_VERSION_MINOR 9
+#define ROBO_HTML_VERSION_MINOR 10
 #define ROBO_HTML_VERSION_PATCH 0
-#define ROBO_HTML_VERSION_STRING "0.9.0"
+#define ROBO_HTML_VERSION_STRING "0.10.0"
 
 /** 1 once the Phase 8 surface is frozen (not yet — see header comment). */
 #define ROBO_HTML_API_FROZEN 0

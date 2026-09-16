@@ -1990,6 +1990,29 @@ robo_result_t robo_html_tree_builder_next(robo_html_tree_builder_t *builder,
     return r;
 }
 
+/**
+ * Did this build consume its source to the end?
+ *
+ * COMPLETE means "no further input can arrive", so it is a fact about the
+ * input rather than about the tree: two things can still be outstanding
+ * after a finished build, and either one settles the document at
+ * INTERACTIVE instead —
+ *   - the source is a stream, so more bytes may still be delivered;
+ *   - the build was truncated at the node ceiling, so the source was
+ *     abandoned rather than consumed.
+ *
+ * Note that no public constructor produces a STREAM source yet, so today
+ * this reduces to the truncation test. The condition is stated in full
+ * anyway because it is the rule, and the parser already switches on the same
+ * enum to choose its mode.
+ */
+static int build_consumed_whole_source(
+    const robo_html_tree_builder_t *builder)
+{
+    return !builder->stop &&
+           builder->source.kind != ROBO_HTML_SOURCE_KIND_STREAM;
+}
+
 robo_result_t robo_html_tree_builder_finish(robo_html_tree_builder_t *builder,
                                             robo_html_diag_t *diag)
 {
@@ -2014,12 +2037,25 @@ robo_result_t robo_html_tree_builder_finish(robo_html_tree_builder_t *builder,
     if (builder->lease) {
         builder->lease->state = ROBO_HTML_PARSER_STATE_COMPLETE;
     }
-    /* The document reaches READY once its tree exists. */
+    /*
+     * The document reaches INTERACTIVE once its tree exists: parsing has
+     * finished and the DOM is live and complete enough to read, traverse and
+     * mutate. Whether it also reaches COMPLETE is a question about *input*,
+     * not about the tree — see build_consumed_whole_source.
+     */
     if (slot && slot->lifecycle == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING) {
-        if (robo_html_document_mark_ready(builder->document_id, NULL) !=
+        if (robo_html_document_mark_interactive(builder->document_id, NULL) !=
             ROBO_OK) {
             record_recovery(builder, ROBO_ERROR,
-                            "document could not transition to ready", 0u, 0u);
+                            "document could not transition to interactive",
+                            0u, 0u);
+        } else if (build_consumed_whole_source(builder)) {
+            if (robo_html_document_mark_complete(builder->document_id,
+                                                 NULL) != ROBO_OK) {
+                record_recovery(builder, ROBO_ERROR,
+                                "document could not transition to complete",
+                                0u, 0u);
+            }
         }
     }
     /*
@@ -2398,7 +2434,18 @@ static robo_result_t dump_visit(const robo_html_node_view_t *view,
     }
     switch (e->kind) {
     case ROBO_HTML_NODE_KIND_DOCUMENT:
-        r = dump_str(w, "Document");
+        /*
+         * The document node is the tree root, so its state belongs on its
+         * own line rather than as a child: a lifecycle line indented under
+         * it would claim a node that does not exist. The lifecycle is read
+         * from the document, never assumed, so a dump taken mid-load says
+         * so.
+         */
+        r = dump_str(w, "Document lifecycle=");
+        if (r == ROBO_OK) {
+            r = dump_str(w, robo_html_document_lifecycle_name(
+                                slot->lifecycle));
+        }
         break;
     case ROBO_HTML_NODE_KIND_DOCUMENT_TYPE: {
         const char *name = "";

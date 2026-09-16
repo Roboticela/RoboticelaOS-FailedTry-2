@@ -211,9 +211,14 @@ robo_result_t robo_html_parser_detach(robo_html_parser_t *parser,
         if (slot->leased_parser == parser) {
             slot->leased_parser = NULL;
         }
+        /*
+         * The source is abandoned, not finished, so the document settles
+         * at INTERACTIVE: whatever was parsed into it is live, and no more
+         * input is coming.
+         */
         if (slot->lifecycle == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING) {
             (void)robo_html_document_apply_transition(
-                slot, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+                slot, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
         }
     }
     parser->document_id = ROBO_HTML_DOCUMENT_ID_NONE;

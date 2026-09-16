@@ -264,7 +264,8 @@ static void test_html_resource_boundary(void)
     ROBO_CHECK_EQ_INT(robo_html_document_attach_source(id, &src, NULL),
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
-    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    /* An empty source settles immediately: nothing to parse, nothing out. */
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
 
     /* Failed end marks the document FAILED (sticky). */
     {

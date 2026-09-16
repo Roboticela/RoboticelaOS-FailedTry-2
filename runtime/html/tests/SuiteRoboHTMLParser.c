@@ -191,14 +191,18 @@ static void test_html_parser_lease(void)
     ROBO_CHECK_EQ_INT(robo_html_document_attach_source(id, &src, NULL),
                       ROBO_BUSY);
 
-    /* Detach returns the document to READY and clears the lease. */
+    /*
+     * Detach returns the document to INTERACTIVE and clears the lease.
+     * Detaching abandons the input rather than finishing it, so the
+     * document is interactive and not complete.
+     */
     ROBO_CHECK_EQ_INT(robo_html_parser_detach(p, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_parser_get_state(p, &st), ROBO_OK);
     ROBO_CHECK_EQ_INT(st, ROBO_HTML_PARSER_STATE_DETACHED);
     ROBO_CHECK_EQ_INT(robo_html_parser_document(p),
                       ROBO_HTML_DOCUMENT_ID_NONE);
     ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
-    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
     /* Detach is idempotent. */
     ROBO_CHECK_EQ_INT(robo_html_parser_detach(p, NULL), ROBO_OK);
 

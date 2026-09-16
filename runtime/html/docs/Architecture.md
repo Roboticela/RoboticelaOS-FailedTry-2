@@ -1,4 +1,4 @@
-# RoboHTML Architecture (Phases 8.1–8.9)
+# RoboHTML Architecture (Phases 8.1–8.10)
 
 This document is the normative design record for Goals 8.1 and 8.2. Later
 phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
@@ -41,21 +41,26 @@ RoboHTML
 ## 4. Lifecycle state machine
 
 ```text
-UNINITIALIZED → CREATED → LOADING → READY → DESTROYING → DESTROYED
-                    │          │    │
-                    │          │    └──→ LOADING (replacement source)
-                    │          └──→ FAILED (sticky)
-                    └──→ FAILED / DESTROYING
+UNINITIALIZED → CREATED → LOADING → INTERACTIVE → COMPLETE
+                    │         │            │           │
+                    └─────────┴────────────┴───────────┴──→ FAILED
+                                                                │
+                                  ┌─────────────────────────────┘
+                                  ▼
+                            DESTROYING → DESTROYED
 ```
 
-- `CREATED` = empty, valid document (root node registered).
-- Empty source attach completes immediately (`LOADING → READY`);
-  non-empty sources stay `LOADING` until parsing (8.2/8.3) marks ready.
+- `CREATED` = empty, valid document (root node registered), no source.
+- Empty source attach settles immediately; non-empty sources stay `LOADING`
+  until the tree builder finishes.
+- `INTERACTIVE` = parsing finished, the DOM is live (renamed from `READY` in
+  8.10 — see §18). `COMPLETE` = no further input can arrive. Completion never
+  closes the DOM, so content operations and source attach accept both.
 - `FAILED` is sticky until destroy; destroy is the only exit.
 - Invalid transitions return `ROBO_INVALID_ARGUMENT`; `DESTROYED → DESTROYED`
   is the only idempotent edge.
-- Content operations require `CREATED/LOADING/READY`; source attach requires
-  `CREATED/READY`.
+- Content operations require `CREATED/LOADING/INTERACTIVE/COMPLETE`; source
+  attach requires `CREATED/INTERACTIVE/COMPLETE`.
 
 ## 5. Source / encoding / parser pipeline
 
@@ -478,6 +483,62 @@ RoboHTMLMutation.h (8.9)
 - **Cross-document is refused, not guessed.** A foreign handle is
   `ROBO_NOT_SUPPORTED` (adoption/import is a separate operation); the same
   document with a stale handle is `ROBO_NOT_FOUND`.
+
+## 18. Phase 8.10 — document lifecycle
+
+8.10 gives the document an explicit lifecycle in the web platform's own
+`document.readyState` vocabulary. The 8.1 machine already had the shape; this
+phase names the point a parse finishes for what it is (`interactive`) and adds
+the state that says the input itself is finished (`complete`).
+
+```
+RoboHTMLLifecycle.h (8.10)
+├── states      uninitialized · created · loading · interactive · complete
+│               · failed · destroying · destroyed
+├── graph       can_transition · check_transition
+├── predicates  allows_content · allows_source_attach · is_settled
+│               · is_terminal · is_destroyed
+└── names       lifecycle_name (used by the tree dump)
+```
+
+- **INTERACTIVE is about the tree, COMPLETE is about the input.** Parsing being
+  finished and input being finished are different facts, and a document can be
+  one without the other. Keeping them apart is what lets the truncation rule
+  below exist at all.
+- **Completion describes input, not permission.** Reading, traversal, mutation,
+  a replacement source and reset all keep working after COMPLETE. A document
+  that stopped being editable at COMPLETE would be a worse state machine, not a
+  stricter one.
+- **No shortcut into completion.** `LOADING → COMPLETE` and `CREATED → COMPLETE`
+  are refused, and `COMPLETE → INTERACTIVE` does not exist: a document cannot be
+  finished loading before it has finished parsing, and completion is not a state
+  you step back from. The intermediate state is the only way through.
+- **Which entry point settles where follows from the same idea.** A one-shot
+  load consumes a complete source and settles at COMPLETE; a *truncated* build
+  settles at INTERACTIVE, because the source was abandoned rather than consumed
+  and claiming completion would be saying "no further input can arrive" about
+  input that was never read. Detaching abandons input, so it settles at
+  INTERACTIVE too. An empty source has nothing to parse and settles at COMPLETE.
+- **A document with no source stays CREATED.** A tree built through the element
+  API has no load to settle, and CREATED already permits content, mutation and
+  traversal — so there is no `CREATED → INTERACTIVE` edge to invent a second
+  route into a load state.
+- **A transition is not a rebuild.** The whole-tree audit stays clean and the
+  root is the same node across every transition, and the tree version does not
+  move — which is what lets the 8.8 cursor and walkers keep working through a
+  lifecycle change instead of reporting an invalidation for a tree that did not
+  change. A *reload* is a structural change, and the 8.9 rules apply to it
+  unchanged.
+- **Observability is id-based and closed by default.** `is_loading`,
+  `is_interactive`, `is_complete` and `is_settled` are each true for exactly
+  their state and false for an unknown or destroyed id, so a retired id answers
+  "no" rather than reporting a state it no longer has. Telling "not that state"
+  apart from "not a document" is `get_lifecycle`, which is `ROBO_NOT_FOUND` —
+  retired ids are not probeable, so the query cannot become an oracle for
+  recycled ids.
+- **The dump reports the state it is in.** The root line reads
+  `Document lifecycle=<name>` from the document, so a dump taken mid-load says
+  so. It is on the `Document` line because the document node *is* the root.
 - **A refusal is inert.** Every rejection is decided before the first write,
   so a failed mutation leaves the tree — including its version — byte-for-byte
   as it was.

@@ -83,16 +83,23 @@ static void test_html_doc_source_attach(void)
     ROBO_CHECK_EQ_INT(robo_html_document_attach_source(id, NULL, &g_diag),
                       ROBO_INVALID_ARGUMENT);
 
-    /* Empty source: LOADING → READY, document stays empty. */
+    /*
+     * Empty source: settles through INTERACTIVE to COMPLETE, because there
+     * is nothing to parse and so nothing can be outstanding. The document
+     * stays empty either way.
+     */
     ROBO_CHECK_EQ_INT(robo_html_source_empty(&src, &g_diag), ROBO_OK);
     ROBO_CHECK(robo_html_source_is_empty(&src));
     ROBO_CHECK_EQ_INT(robo_html_document_attach_source(id, &src, &g_diag),
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
-    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+    ROBO_CHECK(robo_html_document_is_complete(id));
+    ROBO_CHECK(!robo_html_document_is_interactive(id));
+    ROBO_CHECK(robo_html_document_is_settled(id));
     ROBO_CHECK(robo_html_document_is_empty(id));
 
-    /* READY accepts a replacement source (READY → LOADING). */
+    /* COMPLETE accepts a replacement source (COMPLETE → LOADING). */
     ROBO_CHECK_EQ_INT(robo_html_source_memory(&src, bytes, sizeof(bytes) - 1u,
                                               &g_diag),
                       ROBO_OK);
@@ -104,15 +111,25 @@ static void test_html_doc_source_attach(void)
     ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
     ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING);
     ROBO_CHECK_STR_EQ(robo_html_document_source_name(id), "app://main");
-    /* Non-empty source stays LOADING: parsing is later-phase work. */
-    ROBO_CHECK_EQ_INT(robo_html_document_mark_ready(id, &g_diag), ROBO_OK);
+    /* Non-empty source stays LOADING until a parse finishes. */
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_interactive(id, &g_diag),
+                      ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
-    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
-    /* READY → READY is refused. */
-    ROBO_CHECK_EQ_INT(robo_html_document_mark_ready(id, &g_diag),
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
+    ROBO_CHECK(robo_html_document_is_interactive(id));
+    ROBO_CHECK(!robo_html_document_is_complete(id));
+    /* INTERACTIVE → INTERACTIVE is refused (nothing changed). */
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_interactive(id, &g_diag),
+                      ROBO_INVALID_ARGUMENT);
+    /* The DOM is live at INTERACTIVE, so completion is allowed. */
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_complete(id, &g_diag), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+    /* Completion happens once. */
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_complete(id, &g_diag),
                       ROBO_INVALID_ARGUMENT);
 
-    /* Detach on a READY document is a no-op success. */
+    /* Detach on a settled document is a no-op success. */
     ROBO_CHECK_EQ_INT(robo_html_document_detach_source(id, &g_diag), ROBO_OK);
 
     ROBO_CHECK_EQ_INT(robo_html_document_destroy(id, NULL), ROBO_OK);

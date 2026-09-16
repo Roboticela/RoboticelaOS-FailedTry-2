@@ -139,16 +139,22 @@ static void test_html_p8_full_document_flow(void)
     /* Hook was installed after creation: only para + text fired. */
     ROBO_CHECK_EQ_INT(g_p8.mutations, 2);
 
-    /* 6. Parsing completes: READY. */
-    ROBO_CHECK_EQ_INT(robo_html_document_mark_ready(id, NULL), ROBO_OK);
+    /* 6. Parsing completes: the DOM is live at INTERACTIVE. */
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_interactive(id, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
-    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
 
-    /* 7. Client saw lifecycle + invalidation traffic. */
-    ROBO_CHECK(g_p8.lifecycle_events >= 2);
+    /* 7. Nothing further to load: COMPLETE, and the client sees both. */
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_complete(id, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+
+    /* 8. Client saw lifecycle + invalidation traffic: LOADING,
+     * INTERACTIVE and COMPLETE each produced one callback. */
+    ROBO_CHECK_EQ_INT(g_p8.lifecycle_events, 3);
     ROBO_CHECK(g_p8.invalidations >= 1);
 
-    /* 8. Release the lease, then destroy: everything released. */
+    /* 9. Release the lease, then destroy: everything released. */
     ROBO_CHECK_EQ_INT(robo_html_parser_detach(p, NULL), ROBO_OK);
     robo_html_parser_destroy(p);
     ROBO_CHECK_EQ_INT(robo_html_document_destroy(id, NULL), ROBO_OK);

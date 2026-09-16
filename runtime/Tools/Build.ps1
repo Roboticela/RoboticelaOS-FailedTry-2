@@ -334,6 +334,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLAttribute.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTraversal.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLMutation.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLLifecycle.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

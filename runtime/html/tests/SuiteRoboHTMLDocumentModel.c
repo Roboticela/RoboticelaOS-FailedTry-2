@@ -172,10 +172,16 @@ static void test_dm_metadata_built(void)
 
     ROBO_CHECK_EQ_INT(robo_html_document_metadata(id, &meta, kinds, NULL),
                       ROBO_OK);
-    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
-    /* The build drove CREATED → LOADING → READY, so the previous state is known. */
+    /* A one-shot build consumes a complete source, so the document is done. */
+    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+    /*
+     * The build drove CREATED → LOADING → INTERACTIVE → COMPLETE, so the
+     * step immediately before the current state is INTERACTIVE — which is
+     * what "previous" means here, and what makes the two-step settle
+     * observable rather than inferred.
+     */
     ROBO_CHECK_EQ_INT(meta.previous_lifecycle,
-                      ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING);
+                      ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
     ROBO_CHECK_EQ_INT(meta.finalized, 1);
     ROBO_CHECK_EQ_INT(meta.is_empty, 0);
     ROBO_CHECK_EQ_INT(meta.root_ok, 1);
@@ -663,7 +669,8 @@ static void test_dm_source_association(void)
     ROBO_CHECK_EQ_INT(meta.source_kind, ROBO_HTML_SOURCE_KIND_NONE);
     ROBO_CHECK_EQ_INT(meta.source_length, 0u);
     ROBO_CHECK_STR_EQ(meta.source_name, "");
-    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    /* Detaching abandons the input, so the document is interactive. */
+    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
 
     /* Detach with nothing attached is a no-op, not an error. */
     ROBO_CHECK_EQ_INT(robo_html_document_detach_source(id, NULL), ROBO_OK);
@@ -861,8 +868,13 @@ static void test_dm_reset(void)
     ROBO_CHECK_EQ_INT(robo_html_document_reset(id, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_document_metadata(id, &meta, NULL, NULL),
                       ROBO_OK);
-    /* A document that had loaded settles in READY with an empty tree. */
-    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    /*
+     * A document that had loaded settles in COMPLETE with an empty tree:
+     * that is exactly the state an empty source produces, and no input can
+     * arrive.
+     */
+    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+    ROBO_CHECK(robo_html_document_is_settled(id));
     ROBO_CHECK_EQ_INT(meta.is_empty, 1);
     ROBO_CHECK_EQ_INT(meta.node_count, 1u);
     ROBO_CHECK_EQ_INT(meta.source_length, 0u);
@@ -1208,7 +1220,8 @@ static void test_dm_unicode_and_malformed(void)
     dm_check_tree_clean(id);
     ROBO_CHECK_EQ_INT(robo_html_document_metadata(id, &meta, NULL, NULL),
                       ROBO_OK);
-    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    /* A one-shot build consumes a complete source, so the document is done. */
+    ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
     ROBO_CHECK(meta.node_count > 1u);
     ROBO_CHECK(dm_has(id, "div"));
     ROBO_CHECK_EQ_INT(robo_html_document_destroy(id, NULL), ROBO_OK);
@@ -1231,7 +1244,8 @@ static void test_dm_unicode_and_malformed(void)
         ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(
                               id, &meta.lifecycle),
                           ROBO_OK);
-        ROBO_CHECK_EQ_INT(meta.lifecycle, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+        ROBO_CHECK_EQ_INT(meta.lifecycle,
+                          ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
         ROBO_CHECK(robo_html_document_is_empty(id));
     }
 

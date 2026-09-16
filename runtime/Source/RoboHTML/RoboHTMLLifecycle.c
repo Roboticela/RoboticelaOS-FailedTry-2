@@ -6,7 +6,8 @@ int robo_html_document_lifecycle_is_known(robo_html_document_lifecycle_t life)
     case ROBO_HTML_DOCUMENT_LIFECYCLE_UNINITIALIZED:
     case ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED:
     case ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING:
-    case ROBO_HTML_DOCUMENT_LIFECYCLE_READY:
+    case ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE:
+    case ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE:
     case ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED:
     case ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING:
     case ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED:
@@ -24,9 +25,8 @@ int robo_html_document_lifecycle_can_transition(
         !robo_html_document_lifecycle_is_known(to)) {
         return 0;
     }
-    if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_UNINITIALIZED &&
-        to == ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED) {
-        return 1;
+    if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_UNINITIALIZED) {
+        return to == ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED;
     }
     if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED) {
         return to == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING ||
@@ -34,11 +34,17 @@ int robo_html_document_lifecycle_can_transition(
                to == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING;
     }
     if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING) {
-        return to == ROBO_HTML_DOCUMENT_LIFECYCLE_READY ||
+        return to == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE ||
                to == ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED ||
                to == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING;
     }
-    if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_READY) {
+    if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) {
+        return to == ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE ||
+               to == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING ||
+               to == ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED ||
+               to == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING;
+    }
+    if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE) {
         return to == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING ||
                to == ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED ||
                to == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING;
@@ -49,10 +55,8 @@ int robo_html_document_lifecycle_can_transition(
     if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING) {
         return to == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED;
     }
-    if (from == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED) {
-        return to == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED;
-    }
-    return 0;
+    /* DESTROYED → DESTROYED is the idempotent stay. */
+    return to == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED;
 }
 
 robo_result_t robo_html_document_lifecycle_check_transition(
@@ -74,8 +78,10 @@ const char *robo_html_document_lifecycle_name(
         return "created";
     case ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING:
         return "loading";
-    case ROBO_HTML_DOCUMENT_LIFECYCLE_READY:
-        return "ready";
+    case ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE:
+        return "interactive";
+    case ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE:
+        return "complete";
     case ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED:
         return "failed";
     case ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING:
@@ -92,12 +98,33 @@ int robo_html_document_lifecycle_allows_content(
 {
     return life == ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED ||
            life == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING ||
-           life == ROBO_HTML_DOCUMENT_LIFECYCLE_READY;
+           life == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE ||
+           life == ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE;
 }
 
 int robo_html_document_lifecycle_allows_source_attach(
     robo_html_document_lifecycle_t life)
 {
     return life == ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED ||
-           life == ROBO_HTML_DOCUMENT_LIFECYCLE_READY;
+           life == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE ||
+           life == ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE;
+}
+
+int robo_html_document_lifecycle_is_settled(robo_html_document_lifecycle_t life)
+{
+    return life == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE ||
+           life == ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE;
+}
+
+int robo_html_document_lifecycle_is_terminal(robo_html_document_lifecycle_t life)
+{
+    return life == ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED ||
+           life == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING ||
+           life == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED;
+}
+
+int robo_html_document_lifecycle_is_destroyed(
+    robo_html_document_lifecycle_t life)
+{
+    return life == ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED;
 }

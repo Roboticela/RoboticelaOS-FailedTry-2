@@ -1024,7 +1024,11 @@ static void test_tb_insertion_mode_transitions(void)
         robo_html_document_lifecycle_t life;
 
         ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
-        ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+        /*
+         * The build consumed a complete (non-stream) source, so parsing
+         * finished and no further input can arrive: the document is done.
+         */
+        ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
     }
 
     robo_html_tree_builder_destroy(builder);
@@ -1392,7 +1396,11 @@ static void test_tb_tokenizer_integration(void)
         robo_html_document_lifecycle_t life;
 
         ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(id, &life), ROBO_OK);
-        ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+        /*
+         * The build consumed a complete (non-stream) source, so parsing
+         * finished and no further input can arrive: the document is done.
+         */
+        ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
     }
     (void)robo_html_document_destroy(id, NULL);
     tb_fixture_end();

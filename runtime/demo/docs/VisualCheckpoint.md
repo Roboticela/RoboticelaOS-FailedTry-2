@@ -92,6 +92,17 @@ has no filesystem in this path.
    heading with `robo_html_node_remove_child` + `robo_html_node_insert_before`,
    render the *same* document again, and assert both the block order and that
    the painted pixels differ.
+   Since Phase 8.10 there is a third question the same seam can answer: does
+   moving a document through its *lifecycle* change what it renders? It must
+   not. `demo.lifecycle.advance_keeps_picture` parses a document, renders it,
+   then drives the same document through `COMPLETE → LOADING → INTERACTIVE →
+   COMPLETE` (a replacement source is attached and settled again, with no parse
+   in between), renders it once more, and asserts the picture is pixel-identical
+   — because the adapter is a copy of the tree, an identical picture means no
+   node moved. The test then *reloads* the document with a source that parses to
+   a different tree and asserts the picture does change, which is what keeps the
+   first half from being vacuous. A lifecycle that quietly touched the tree
+   would still report the right state; only the pixels catch it.
 5. `robo_demo_page_layout()` flows the blocks vertically for the target size.
 6. `robo_demo_page_paint()` clears the surface and draws background, accent
    bar, heading, paragraphs and the button (states: normal / hover / pressed)
@@ -176,6 +187,7 @@ The exit code is 0 only when every marker appeared.
 | `demo.paint.*` | Pixel probes, button states, determinism, clipping in a small target, invalid args |
 | `demo.export.png` | PNG export of the rendered frame |
 | `demo.mutation.changes_picture` | A real DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |
+| `demo.lifecycle.advance_keeps_picture` | A lifecycle transition leaves the picture pixel-identical; a reload changes it |
 | `demo.lifetime.*` | Repeated create/destroy; refusal when the module is down |
 | `demo.font.helpers` | Atlas metrics and helper names |
 

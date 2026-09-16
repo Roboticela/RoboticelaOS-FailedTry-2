@@ -28,9 +28,9 @@ static void test_html_version(void)
 
     ROBO_CHECK_STR_EQ(robo_html_version_string(), ROBO_HTML_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_MINOR, 9);
+    ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_MINOR, 10);
     ROBO_CHECK_EQ_INT(ROBO_HTML_VERSION_PATCH, 0);
-    /* Mutation milestone: API not frozen until later Phase 8 goals. */
+    /* Lifecycle milestone: API not frozen until later Phase 8 goals. */
     ROBO_CHECK_EQ_INT(ROBO_HTML_API_FROZEN, 0);
 
     ROBO_CHECK_EQ_INT(robo_html_get_version(NULL, &minor, &patch),
@@ -41,7 +41,7 @@ static void test_html_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_html_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 9);
+    ROBO_CHECK_EQ_INT(minor, 10);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -118,6 +118,10 @@ static void test_html_lifecycle_machine(void)
         ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED));
     ROBO_CHECK(robo_html_document_lifecycle_is_known(
         ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED));
+    ROBO_CHECK(robo_html_document_lifecycle_is_known(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE));
+    ROBO_CHECK(robo_html_document_lifecycle_is_known(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE));
     ROBO_CHECK(!robo_html_document_lifecycle_is_known(
         (robo_html_document_lifecycle_t)99));
 
@@ -135,11 +139,23 @@ static void test_html_lifecycle_machine(void)
     ROBO_CHECK_EQ_INT(
         robo_html_document_lifecycle_check_transition(
             ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING,
-            ROBO_HTML_DOCUMENT_LIFECYCLE_READY),
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE),
+        ROBO_OK);
+    /* The one-way step that makes COMPLETE mean "nothing more can arrive". */
+    ROBO_CHECK_EQ_INT(
+        robo_html_document_lifecycle_check_transition(
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE),
+        ROBO_OK);
+    /* A settled document can take a replacement source. */
+    ROBO_CHECK_EQ_INT(
+        robo_html_document_lifecycle_check_transition(
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING),
         ROBO_OK);
     ROBO_CHECK_EQ_INT(
         robo_html_document_lifecycle_check_transition(
-            ROBO_HTML_DOCUMENT_LIFECYCLE_READY,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE,
             ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING),
         ROBO_OK);
     ROBO_CHECK_EQ_INT(
@@ -168,17 +184,48 @@ static void test_html_lifecycle_machine(void)
     ROBO_CHECK_EQ_INT(
         robo_html_document_lifecycle_check_transition(
             ROBO_HTML_DOCUMENT_LIFECYCLE_UNINITIALIZED,
-            ROBO_HTML_DOCUMENT_LIFECYCLE_READY),
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE),
         ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(
         robo_html_document_lifecycle_check_transition(
-            ROBO_HTML_DOCUMENT_LIFECYCLE_READY,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE,
             ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED),
+        ROBO_INVALID_ARGUMENT);
+    /*
+     * The two rules that give the phase its meaning: a document cannot be
+     * finished loading before it has finished parsing, and a settled
+     * document cannot go back to being merely interactive.
+     */
+    ROBO_CHECK_EQ_INT(
+        robo_html_document_lifecycle_check_transition(
+            ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE),
+        ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(
+        robo_html_document_lifecycle_check_transition(
+            ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE),
+        ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(
+        robo_html_document_lifecycle_check_transition(
+            ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE),
+        ROBO_INVALID_ARGUMENT);
+    /* Stay-edges are refused everywhere but DESTROYED. */
+    ROBO_CHECK_EQ_INT(
+        robo_html_document_lifecycle_check_transition(
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE),
+        ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(
+        robo_html_document_lifecycle_check_transition(
+            ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE,
+            ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE),
         ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(
         robo_html_document_lifecycle_check_transition(
             ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED,
-            ROBO_HTML_DOCUMENT_LIFECYCLE_READY),
+            ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE),
         ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(
         robo_html_document_lifecycle_check_transition(
@@ -196,6 +243,12 @@ static void test_html_lifecycle_machine(void)
                           ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING),
                       "loading");
     ROBO_CHECK_STR_EQ(robo_html_document_lifecycle_name(
+                          ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE),
+                      "interactive");
+    ROBO_CHECK_STR_EQ(robo_html_document_lifecycle_name(
+                          ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE),
+                      "complete");
+    ROBO_CHECK_STR_EQ(robo_html_document_lifecycle_name(
                           (robo_html_document_lifecycle_t)55),
                       "unknown");
     ROBO_CHECK(robo_html_document_lifecycle_allows_content(
@@ -203,7 +256,10 @@ static void test_html_lifecycle_machine(void)
     ROBO_CHECK(robo_html_document_lifecycle_allows_content(
         ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING));
     ROBO_CHECK(robo_html_document_lifecycle_allows_content(
-        ROBO_HTML_DOCUMENT_LIFECYCLE_READY));
+        ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE));
+    /* Completion describes input, not permission: the DOM stays open. */
+    ROBO_CHECK(robo_html_document_lifecycle_allows_content(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE));
     ROBO_CHECK(!robo_html_document_lifecycle_allows_content(
         ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED));
     ROBO_CHECK(!robo_html_document_lifecycle_allows_content(
@@ -211,9 +267,31 @@ static void test_html_lifecycle_machine(void)
     ROBO_CHECK(robo_html_document_lifecycle_allows_source_attach(
         ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED));
     ROBO_CHECK(robo_html_document_lifecycle_allows_source_attach(
-        ROBO_HTML_DOCUMENT_LIFECYCLE_READY));
+        ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE));
+    ROBO_CHECK(robo_html_document_lifecycle_allows_source_attach(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE));
     ROBO_CHECK(!robo_html_document_lifecycle_allows_source_attach(
         ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING));
+    ROBO_CHECK(!robo_html_document_lifecycle_allows_source_attach(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED));
+
+    /* Settled / terminal / destroyed classifiers. */
+    ROBO_CHECK(robo_html_document_lifecycle_is_settled(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE));
+    ROBO_CHECK(robo_html_document_lifecycle_is_settled(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE));
+    ROBO_CHECK(!robo_html_document_lifecycle_is_settled(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING));
+    ROBO_CHECK(robo_html_document_lifecycle_is_terminal(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_FAILED));
+    ROBO_CHECK(robo_html_document_lifecycle_is_terminal(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED));
+    ROBO_CHECK(!robo_html_document_lifecycle_is_terminal(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE));
+    ROBO_CHECK(robo_html_document_lifecycle_is_destroyed(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYED));
+    ROBO_CHECK(!robo_html_document_lifecycle_is_destroyed(
+        ROBO_HTML_DOCUMENT_LIFECYCLE_DESTROYING));
 }
 
 static void test_html_type_helpers(void)

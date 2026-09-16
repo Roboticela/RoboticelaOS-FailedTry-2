@@ -408,10 +408,19 @@ robo_result_t robo_html_document_attach_source(
     }
     (void)robo_html_document_apply_transition(slot,
                                               ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING);
-    /* Empty source completes immediately (8.1: nothing to parse). */
+    /*
+     * An empty source settles immediately: there is nothing to parse, so
+     * nothing can be outstanding. It still passes through INTERACTIVE
+     * rather than jumping, because "the DOM is live" is exactly as true of
+     * an empty document and the graph has no LOADING → COMPLETE edge by
+     * design — a document cannot be finished loading before it has
+     * finished parsing.
+     */
     if (slot->source_length == 0u) {
         (void)robo_html_document_apply_transition(
-            slot, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+            slot, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
+        (void)robo_html_document_apply_transition(
+            slot, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
     }
     (void)robo_html_diag_set(diag, ROBO_OK, ROBO_HTML_DOMAIN_SOURCE,
                              "source attached", __FILE__, __LINE__);
@@ -435,14 +444,19 @@ robo_result_t robo_html_document_detach_source(
     slot->source_length = 0u;
     slot->source_name[0] = '\0';
     robo_html_encoding_state_init(&slot->encoding);
-    (void)robo_html_document_apply_transition(slot,
-                                              ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+    /*
+     * Detaching abandons input rather than finishing it, so the document
+     * settles at INTERACTIVE and not COMPLETE. The tree is whatever was
+     * parsed before the detach, and it is live from here.
+     */
+    (void)robo_html_document_apply_transition(
+        slot, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
     (void)robo_html_diag_set(diag, ROBO_OK, ROBO_HTML_DOMAIN_SOURCE,
                              "source detached", __FILE__, __LINE__);
     return ROBO_OK;
 }
 
-robo_result_t robo_html_document_mark_ready(
+robo_result_t robo_html_document_mark_interactive(
     robo_html_document_id_t document_id,
     robo_html_diag_t *diag)
 {
@@ -455,10 +469,29 @@ robo_result_t robo_html_document_mark_ready(
     if (slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_LIFECYCLE,
                               ROBO_INVALID_ARGUMENT,
-                              "only a loading document can become ready");
+                              "only a loading document can become interactive");
     }
     return robo_html_document_apply_transition(
-        slot, ROBO_HTML_DOCUMENT_LIFECYCLE_READY);
+        slot, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
+}
+
+robo_result_t robo_html_document_mark_complete(
+    robo_html_document_id_t document_id,
+    robo_html_diag_t *diag)
+{
+    robo_html_document_slot_t *slot = robo_html_document_slot_find(document_id);
+
+    if (!slot) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_NOT_FOUND,
+                              "unknown document id");
+    }
+    if (slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) {
+        return ROBO_HTML_DIAG(
+            diag, ROBO_HTML_DOMAIN_LIFECYCLE, ROBO_INVALID_ARGUMENT,
+            "only an interactive document can complete");
+    }
+    return robo_html_document_apply_transition(
+        slot, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
 }
 
 robo_result_t robo_html_document_mark_failed(
@@ -479,7 +512,8 @@ robo_result_t robo_html_document_mark_failed(
     }
     if (slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED &&
         slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING &&
-        slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_READY) {
+        slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE &&
+        slot->lifecycle != ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_LIFECYCLE,
                               ROBO_INVALID_ARGUMENT,
                               "lifecycle cannot fail");
@@ -509,6 +543,42 @@ robo_result_t robo_html_document_get_lifecycle(
     }
     *out_lifecycle = slot->lifecycle;
     return ROBO_OK;
+}
+
+int robo_html_document_is_loading(robo_html_document_id_t document_id)
+{
+    const robo_html_document_slot_t *slot =
+        robo_html_document_slot_find(document_id);
+
+    return slot != NULL &&
+           slot->lifecycle == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING;
+}
+
+int robo_html_document_is_interactive(robo_html_document_id_t document_id)
+{
+    const robo_html_document_slot_t *slot =
+        robo_html_document_slot_find(document_id);
+
+    return slot != NULL &&
+           slot->lifecycle == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE;
+}
+
+int robo_html_document_is_complete(robo_html_document_id_t document_id)
+{
+    const robo_html_document_slot_t *slot =
+        robo_html_document_slot_find(document_id);
+
+    return slot != NULL &&
+           slot->lifecycle == ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE;
+}
+
+int robo_html_document_is_settled(robo_html_document_id_t document_id)
+{
+    const robo_html_document_slot_t *slot =
+        robo_html_document_slot_find(document_id);
+
+    return slot != NULL &&
+           robo_html_document_lifecycle_is_settled(slot->lifecycle);
 }
 
 robo_result_t robo_html_document_get_encoding_state(

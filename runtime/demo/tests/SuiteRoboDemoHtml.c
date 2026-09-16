@@ -21,6 +21,7 @@
 #include "RoboGraphics/RoboGraphicsScreenshot.h"
 #include "RoboHTML/RoboHTML.h"
 #include "RoboHTML/RoboHTMLDocument.h"
+#include "RoboHTML/RoboHTMLLifecycle.h"
 #include "RoboHTML/RoboHTMLMutation.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
@@ -1170,6 +1171,133 @@ static void test_demo_mutation_changes_picture(void)
     ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
 }
 
+/**
+ * The lifecycle-to-picture seam: a document that moves through its whole
+ * lifecycle renders the same picture, and a document that is *reloaded* does
+ * not.
+ *
+ * Phase 8.10 is a state machine over the document, so the thing that could go
+ * wrong is subtle and invisible to a state assertion: a transition that
+ * touched the tree would still report the right new state while quietly
+ * changing (or retiring) nodes. Rendering through the real adapter before and
+ * after the transitions is what catches that — the adapter is a copy of the
+ * tree, so an identical picture means no node moved.
+ *
+ * The reload half is what makes the first half meaningful: it shows the test
+ * would notice a changed tree.
+ */
+static void test_demo_lifecycle_advance_keeps_picture(void)
+{
+    static const char *const DOC =
+        "<html><body><h1>Stable</h1><p>Across the lifecycle</p>"
+        "</body></html>";
+    robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
+    robo_html_document_lifecycle_t life = ROBO_HTML_DOCUMENT_LIFECYCLE_UNINITIALIZED;
+    robo_html_source_t src;
+    robo_demo_page_t *before = NULL;
+    robo_demo_page_t *after = NULL;
+    robo_demo_page_t *reloaded = NULL;
+    robo_gfx_surface_t *s_before = NULL;
+    robo_gfx_surface_t *s_after = NULL;
+    robo_gfx_surface_t *s_reloaded = NULL;
+    size_t nodes_before = 0u;
+
+    demo_fixture();
+
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc, NULL), ROBO_OK);
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(robo_html_source_string(&src, DOC, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+
+    /* A one-shot load consumes a complete source, so it is done. */
+    ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(doc, &life), ROBO_OK);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+    ROBO_CHECK(robo_html_document_is_settled(doc));
+    nodes_before = robo_html_document_node_count(doc);
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &before, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(before != NULL);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(before), 2);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(before, 0), "Stable");
+
+    /*
+     * Now walk the document through the rest of its lifecycle: a replacement
+     * source is attached (COMPLETE → LOADING), and the caller settles it again
+     * (LOADING → INTERACTIVE → COMPLETE). No parse happens in between, so the
+     * tree is untouched.
+     */
+    ROBO_CHECK_EQ_INT(robo_html_document_attach_source(doc, &src, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(doc, &life), ROBO_OK);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING);
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_interactive(doc, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_complete(doc, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(doc, &life), ROBO_OK);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+    ROBO_CHECK_EQ_INT(robo_html_document_node_count(doc), nodes_before);
+
+    /* The same document renders the same blocks and the same picture. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &after, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(after != NULL);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(after), 2);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(after, 0), "Stable");
+
+    s_before = make_surface(900, 600);
+    s_after = make_surface(900, 600);
+    ROBO_CHECK(s_before != NULL && s_after != NULL);
+    if (s_before && s_after && before && after) {
+        ROBO_CHECK_EQ_INT(robo_demo_page_paint(before, s_before, NULL, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_demo_page_paint(after, s_after, NULL, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_MSG(count_pixel_differences(s_before, s_after, 900u, 600u) ==
+                           0,
+                       "a lifecycle transition changed the rendered picture");
+    }
+
+    /*
+     * A reload does change it, so the check above is not vacuous: the same
+     * document, given a source that parses to a different tree, paints a
+     * different picture.
+     */
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(
+        robo_html_source_string(
+            &src, "<html><body><h1>Reloaded</h1><p>Different words here</p>"
+                  "</body></html>",
+            NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_document_get_lifecycle(doc, &life), ROBO_OK);
+    ROBO_CHECK_EQ_INT(life, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &reloaded, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(reloaded != NULL);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(reloaded), 2);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(reloaded, 0), "Reloaded");
+
+    s_reloaded = make_surface(900, 600);
+    ROBO_CHECK(s_reloaded != NULL);
+    if (s_reloaded && s_before && reloaded) {
+        ROBO_CHECK_EQ_INT(
+            robo_demo_page_paint(reloaded, s_reloaded, NULL, NULL), ROBO_OK);
+        ROBO_CHECK_MSG(
+            count_pixel_differences(s_before, s_reloaded, 900u, 600u) > 100,
+            "a reload did not change the rendered picture");
+    }
+
+    robo_demo_page_destroy(before);
+    robo_demo_page_destroy(after);
+    robo_demo_page_destroy(reloaded);
+    robo_gfx_surface_release(s_before);
+    robo_gfx_surface_release(s_after);
+    robo_gfx_surface_release(s_reloaded);
+    ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+}
+
 void robo_test_register_demo_html(void)
 {
     robo_test_register("demo.version", test_demo_version);
@@ -1203,6 +1331,8 @@ void robo_test_register_demo_html(void)
                        test_demo_repeated_lifecycle);
     robo_test_register("demo.mutation.changes_picture",
                        test_demo_mutation_changes_picture);
+    robo_test_register("demo.lifecycle.advance_keeps_picture",
+                       test_demo_lifecycle_advance_keeps_picture);
     robo_test_register("demo.lifetime.uninitialized",
                        test_demo_module_not_initialized);
     robo_test_register("demo.font.helpers", test_demo_font_helpers);

@@ -1284,6 +1284,101 @@ wrong parent, which the exact positional assertions caught immediately.
 - [x] No Chromium dependency
 - [x] Stop after 8.9
 
+## Goal 8.10 — document lifecycle
+
+The document had a lifecycle in name since 8.1, but one of its states was doing
+two jobs: `READY` meant both "parsing finished" and "there is nothing left to
+load". 8.10 splits that into the two facts it always was, and names the point a
+parse finishes after the web platform's own vocabulary.
+
+**INTERACTIVE is about the tree, COMPLETE is about the input.** Parsing being
+done and input being done are different questions. `LOADING → INTERACTIVE` says
+parsing finished and the DOM is live; `INTERACTIVE → COMPLETE` says no further
+input can arrive. Keeping them apart is what makes the rest of the phase
+possible — a rule about *input* can be wrong in ways a rule about the tree
+cannot.
+
+**A document cannot be finished loading before it has finished parsing.**
+`CREATED → COMPLETE` and `LOADING → COMPLETE` are refused, not merely unused,
+and `COMPLETE → INTERACTIVE` does not exist: the intermediate state is the only
+way through, and completion is not a state you step back from. That is the one
+edge difference that gives the new state its meaning, so it is tested as a
+rule rather than left as an implementation detail.
+
+**Completion describes input, not permission.** Reading, traversal, mutation, a
+replacement source and reset all keep working after COMPLETE. A document that
+stopped being editable at COMPLETE would be a worse state machine, not a
+stricter one — and it would have broken every 8.9 guarantee on the most common
+document in the runtime, the one that has finished loading.
+
+**Which entry point settles where now follows from that one idea.** A one-shot
+load consumes a complete source, so it settles at COMPLETE with no caller help.
+A build **truncated at the node ceiling** settles at INTERACTIVE instead,
+because the source was abandoned rather than consumed: claiming completion
+would be saying "no further input can arrive" about input that was never read.
+Detaching abandons input and settles at INTERACTIVE for the same reason. An
+empty source has nothing to parse and settles at COMPLETE — through
+INTERACTIVE, never by jumping.
+
+**A document with no source stays CREATED.** A tree built through the element
+API has no load to settle, and CREATED already permits content, mutation and
+traversal; there is deliberately no `CREATED → INTERACTIVE` edge, because every
+state above CREATED is a statement about a load. `hand_built_document_stays_created`
+states that as a rule with a test rather than leaving it to be discovered as a
+surprise.
+
+**A transition is not a rebuild.** After every transition the suite runs the
+whole-tree audit and asserts the root is the same node — a state machine that
+quietly retired nodes while reporting a new state would pass every state
+assertion and still be broken. And because not one node moves, a lifecycle
+change **does not move the tree version**, so the 8.8 cursor and walkers keep
+working through one instead of reporting an invalidation for a tree that did not
+change. A *reload* is a structural change, and 8.9's rules apply to it
+unchanged.
+
+**Observability is id-based and closed by default.** `is_loading`,
+`is_interactive`, `is_complete`, `is_settled` are each true for exactly their
+state and false for an unknown or destroyed id, so a retired id answers "no"
+rather than reporting a state it no longer has. Distinguishing "not that state"
+from "not a document" is `get_lifecycle`, which is `ROBO_NOT_FOUND` — retired
+ids are not probeable, so the query cannot become an oracle for recycled ids.
+That is why there is no `is_destroyed(id)`: the honest version of that question
+is asked of a lifecycle *value* you already hold (`is_destroyed(life)`), such as
+the one a client lifecycle callback receives.
+
+**One real regression, caught by an existing test.** `html.docmodel.metadata_built`
+asserted `previous_lifecycle == LOADING` after a build. A one-shot load now
+takes two steps, so `previous_lifecycle` is INTERACTIVE — and that is the better
+assertion: the recorded previous state is now evidence that both steps
+happened rather than one. Nothing was weakened, and the dump test that pinned
+`Document\n` was updated to pin `Document lifecycle=complete\n`, which checks
+more than it used to.
+
+**Definition of done:**
+
+- [x] Explicit lifecycle: `created`, `loading`, `interactive`, `complete`,
+      `failed`, `destroying`, `destroyed`
+- [x] Transition graph with no shortcut into completion (`LOADING → COMPLETE`
+      and `CREATED → COMPLETE` refused, `COMPLETE → INTERACTIVE` absent)
+- [x] Which entry point settles where: one-shot load, truncated build, detach,
+      parser detach, empty source, reset, explicit marks
+- [x] Completion never closes the DOM; content and source attach accept
+      INTERACTIVE and COMPLETE
+- [x] Id-based predicates (each exactly one state, closed by default) and
+      value-based classifiers
+- [x] A transition never changes the tree: audit clean, same root, same version
+- [x] Destroy retires the id; stale handles report `ROBO_NOT_FOUND`; repeated
+      destroy is `ROBO_NOT_FOUND`, never a double free
+- [x] Reset settles an abandoning document at COMPLETE, a fresh one at CREATED
+- [x] Tree dump reports the real state on the root line
+- [x] `html.lifecycle.*` (27 cases) + `demo.lifecycle.advance_keeps_picture`
+      (a transition renders an identical picture; a reload does not)
+- [x] Unicode, attributes and the visual vertical slice preserved
+- [x] Full suite green (1264 tests, Debug); the only failures are the two
+      documented foreground-desktop `window.host.*` cases
+- [x] No Chromium dependency
+- [x] Stop after 8.10
+
 ## Next
 
-- Goal 8.10 — document lifecycle (do not start until requested)
+- Goal 8.11 — basic HTML elements (do not start until requested)

@@ -34,8 +34,9 @@ RoboHTML tokenizer (8.2) ── tokens ──▶ tree builder (8.3)
 
 Destroying the builder after a build leaves the tree in the document intact
 and usable. Destroying the builder mid-build releases the parser lease, which
-returns the document to `READY` — a half-built tree cannot leave the document
-stuck in `LOADING`.
+returns the document to `INTERACTIVE` — a half-built tree cannot leave the
+document stuck in `LOADING`, and abandoning a build is not finishing it, so the
+document does not claim to be complete.
 
 ## 2. Public API
 
@@ -45,7 +46,7 @@ stuck in `LOADING`.
 | `robo_html_tree_builder_begin(builder, &src, diag)` | Clear any previous tree, attach the source, create the tokenizer, go to `FEEDING` |
 | `robo_html_tree_builder_next(builder, diag)` | Pull one token and consume it; consuming `EOF` finishes the build |
 | `robo_html_tree_builder_consume(builder, &token, diag)` | Consume an externally supplied token (same rules, no tokenizer) |
-| `robo_html_tree_builder_finish(builder, diag)` | Close open elements, count the result, mark the document `READY` |
+| `robo_html_tree_builder_finish(builder, diag)` | Close open elements, count the result, settle the document: `INTERACTIVE`, and `COMPLETE` when the whole source was consumed |
 | `robo_html_tree_builder_build(builder, &src, diag)` | `begin` + drive to EOF + `finish` |
 | `robo_html_build_tree(document_id, &src, &result, diag)` | One-shot: build with a temporary builder and hand the tree to the document |
 

@@ -81,10 +81,11 @@ robo_result_t robo_html_document_create(robo_html_document_id_t *out_id,
 
 /**
  * Attach @p src to @p document (copying metadata; never the bytes).
- * CREATED → LOADING. An empty source is valid and completes immediately
- * back to READY with the document still empty.
- * Replacement on READY → LOADING is allowed (architecture for later
- * phases). While LOADING → ROBO_BUSY.
+ * CREATED → LOADING. An empty source is valid and settles immediately
+ * back to COMPLETE with the document still empty: there is nothing to
+ * parse, so nothing can be outstanding.
+ * Replacement on INTERACTIVE/COMPLETE → LOADING is allowed. While
+ * LOADING → ROBO_BUSY.
  * The source bytes must stay valid until detach/destroy (borrow view).
  */
 robo_result_t robo_html_document_attach_source(
@@ -93,7 +94,10 @@ robo_result_t robo_html_document_attach_source(
     robo_html_diag_t *diag);
 
 /**
- * Detach any attached source and return a LOADING document to READY.
+ * Detach any attached source and return a LOADING document to
+ * INTERACTIVE. Detaching abandons input rather than completing it, so the
+ * document settles at INTERACTIVE and not COMPLETE: the tree is whatever
+ * was parsed so far, and it is live.
  * No-op with ROBO_OK when nothing is attached. Encoding state resets to
  * the boundary defaults.
  */
@@ -102,11 +106,29 @@ robo_result_t robo_html_document_detach_source(
     robo_html_diag_t *diag);
 
 /**
- * Mark @p document READY (LOADING → READY). Empty-source attachment
- * performs this automatically; later phases call it when parsing
- * completes. READY → READY is an error.
+ * Mark @p document INTERACTIVE (LOADING → INTERACTIVE): parsing has
+ * finished and the DOM is live. Called by the tree builder and parser when
+ * a build completes; callers driving a document by hand call it too.
+ * INTERACTIVE → INTERACTIVE is an error (nothing changed).
  */
-robo_result_t robo_html_document_mark_ready(
+robo_result_t robo_html_document_mark_interactive(
+    robo_html_document_id_t document_id,
+    robo_html_diag_t *diag);
+
+/**
+ * Mark @p document COMPLETE (INTERACTIVE → COMPLETE): the document has
+ * settled and no further input can arrive.
+ *
+ * This is deliberately reachable only from INTERACTIVE. A document that
+ * has not finished parsing cannot claim to be finished loading, so
+ * CREATED/LOADING → COMPLETE is ROBO_INVALID_ARGUMENT rather than a
+ * silent jump. COMPLETE → COMPLETE is also refused; completion happens
+ * once.
+ *
+ * Completion does not close anything: reading, traversal, mutation, a
+ * replacement source and reset all keep working.
+ */
+robo_result_t robo_html_document_mark_complete(
     robo_html_document_id_t document_id,
     robo_html_diag_t *diag);
 
@@ -124,6 +146,37 @@ robo_result_t robo_html_document_mark_failed(
 robo_result_t robo_html_document_get_lifecycle(
     robo_html_document_id_t document_id,
     robo_html_document_lifecycle_t *out_lifecycle);
+
+/*
+ * Lifecycle predicates (Phase 8.10).
+ *
+ * Convenience questions asked of a document id, so callers do not have to
+ * fetch the enum and switch on it. Each is false for an unknown or
+ * destroyed id — a retired id answers "no" to every state question
+ * rather than reporting a state it no longer has. Use get_lifecycle when
+ * you need to tell "not that state" apart from "not a document".
+ */
+
+/** Non-zero when the document is exactly LOADING (input in flight). */
+int robo_html_document_is_loading(robo_html_document_id_t document_id);
+
+/**
+ * Non-zero when the document is exactly INTERACTIVE: parsing has finished
+ * and input has not settled. Mirrors @c document.readyState ==
+ * "interactive", so it becomes false once the document is COMPLETE —
+ * use is_settled when the question is "is the DOM parsed and live".
+ */
+int robo_html_document_is_interactive(robo_html_document_id_t document_id);
+
+/** Non-zero when the document is exactly COMPLETE. */
+int robo_html_document_is_complete(robo_html_document_id_t document_id);
+
+/**
+ * Non-zero when the document has a parsed, live DOM and no input in
+ * flight (INTERACTIVE or COMPLETE). This is the question most callers
+ * actually mean, and the one the mutation and traversal paths run in.
+ */
+int robo_html_document_is_settled(robo_html_document_id_t document_id);
 
 /** Copy the encoding state snapshot; unknown id → ROBO_NOT_FOUND. */
 robo_result_t robo_html_document_get_encoding_state(

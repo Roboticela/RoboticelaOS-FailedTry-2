@@ -108,10 +108,13 @@ document lease. That is not politeness: the builder holds tree invariants in
 its own state (the open-element stack, the trailing text run), so dropping the
 tree underneath it would leave it linking into freed ids.
 
-Reset's resting state follows the 8.1 lifecycle machine rather than fighting
-it: **CREATED** for a document that never loaded anything, **READY (empty)** for
-one that had loaded. There is no edge back to CREATED, and failure stays sticky,
-so a FAILED document rejects reset until it is destroyed.
+Reset's resting state follows the lifecycle machine rather than fighting it:
+**CREATED** for a document that never loaded anything, **COMPLETE (empty)** for
+one that had loaded — which is the same state an empty source produces, and the
+reason reset steps through **INTERACTIVE** rather than jumping: the emptied
+DOM really is live before it is complete. There is no edge back to CREATED, and
+failure stays sticky, so a FAILED document rejects reset until it is destroyed.
+See `Lifecycle.md`.
 
 ## Invariant auditing
 

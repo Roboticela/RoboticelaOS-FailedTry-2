@@ -1391,7 +1391,12 @@ static void test_tv_tree_dump_on_walker(void)
 
     /* The walker supplies the order and the depth, so nesting is indented
      * and every parent appears before its children. */
-    ROBO_CHECK(strstr(buffer, "Document\n") != NULL);
+    /*
+     * The root line carries the document's own lifecycle state, read from the
+     * document rather than assumed (Phase 8.10). This build consumed a
+     * complete source, so the document is done.
+     */
+    ROBO_CHECK(strstr(buffer, "Document lifecycle=complete\n") != NULL);
     ROBO_CHECK(strstr(buffer, "doctype html\n") != NULL);
     ROBO_CHECK(strstr(buffer, "  html\n") != NULL);
     ROBO_CHECK(strstr(buffer, "    head\n") != NULL);
@@ -1409,7 +1414,7 @@ static void test_tv_tree_dump_on_walker(void)
     ROBO_CHECK(strstr(buffer, "Text: \"\\n\"") != NULL);
 
     {
-        const char *document = strstr(buffer, "Document\n");
+        const char *document = strstr(buffer, "Document lifecycle=complete");
         const char *div = strstr(buffer, "div id=\"main\"");
         const char *deep = strstr(buffer, "Text: \"deep\"");
 
