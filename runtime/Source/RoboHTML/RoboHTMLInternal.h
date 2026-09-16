@@ -53,6 +53,19 @@ typedef struct robo_html_document_slot {
     int finalized;
 
     /**
+     * Structural-change counter (Phase 8.9). Bumped once per successful
+     * tree mutation — a parser link, a DOM append/insert/replace, a DOM
+     * removal, a bulk clear. It is the document's "shape" generation: a
+     * traversal that snapshots it can tell that the tree it was walking is
+     * no longer the tree it started on, which is the only reason an
+     * iteration can be declared invalid rather than silently wrong.
+     *
+     * Monotonic for the slot's lifetime and never reset to 0, because
+     * "version 0" has to keep meaning "no document".
+     */
+    uint32_t tree_version;
+
+    /**
      * Node payload arena (Phase 8.3). Every element name, attribute pair,
      * text run, comment and doctype string lives here; a node entry stores
      * only a byte range. Bump-allocated, append-only, freed as a unit at
@@ -251,13 +264,84 @@ robo_html_node_handle_t robo_html_node_handle_make(
  * Append @p child_id as the last child of @p parent_id.
  * Rejects self-parenting, non-live ids, and a child that already has a
  * parent. Never touches payload or ordering beyond the sibling links.
+ *
+ * This is the *construction* path: it refuses once the document is
+ * finalized, which is what closes a parser's tree. The DOM mutation API
+ * (RoboHTMLMutation.h) deliberately does not use it — see
+ * robo_html_node_insert_relative.
  */
 robo_result_t robo_html_node_link_child(robo_html_document_id_t document_id,
                                         robo_html_node_id_t parent_id,
                                         robo_html_node_id_t child_id,
                                         robo_html_diag_t *diag);
 
-/** Detach @p node_id from its parent and siblings. */
+/**
+ * The one place a child link is made.
+ *
+ * Inserts @p child_id into @p parent_id's child list immediately before
+ * @p reference_id, or as the last child when @p reference_id is
+ * ROBO_HTML_NODE_ID_NONE. Applies every structural rule in one function so
+ * a parser link and a DOM link cannot disagree about them:
+ *
+ *   - @p parent_id and @p child_id must be live nodes of this document;
+ *   - the parent's kind must be able to hold children;
+ *   - the document node can never become a child;
+ *   - @p child_id must be detached (a node has at most one parent — this
+ *     primitive never moves a node implicitly; the caller must unlink
+ *     first, which is what makes an ownership transfer an explicit act);
+ *   - @p child_id must not be @p parent_id or an ancestor of it, so the
+ *     result is always acyclic;
+ *   - @p reference_id, when given, must be a live child of @p parent_id.
+ *
+ * Bumps the document's tree version exactly once on success and never
+ * partially links: every rejection happens before the first write.
+ *
+ * Unlike robo_html_node_link_child this does NOT consult the construction
+ * gate. A finalized document is still mutable by the DOM; finalization
+ * closes the parser's construction, not the tree's editability (see
+ * RoboHTMLDocument.h).
+ */
+robo_result_t robo_html_node_insert_relative(robo_html_document_id_t document_id,
+                                             robo_html_node_id_t parent_id,
+                                             robo_html_node_id_t child_id,
+                                             robo_html_node_id_t reference_id,
+                                             robo_html_diag_t *diag);
+
+/**
+ * Non-zero when @p kind is a node that can hold children (document,
+ * element, fragment). The one answer to "can this be a parent?", shared by
+ * the parser link, the DOM mutation API and the linking primitive so the
+ * three can never disagree about the shape of a tree.
+ */
+int robo_html_node_kind_can_hold_children(robo_html_node_kind_t kind);
+
+/**
+ * Non-zero when @p ancestor_id is @p node_id itself or reachable from
+ * @p node_id by following parent links. Bounded by the node ceiling, so a
+ * corrupted parent chain terminates as 0 instead of hanging. False for
+ * unknown or non-live ids.
+ */
+int robo_html_node_is_ancestor_of(robo_html_document_id_t document_id,
+                                  robo_html_node_id_t ancestor_id,
+                                  robo_html_node_id_t node_id);
+
+/** Bump @p slot's structural-change counter (never wraps to 0). */
+void robo_html_document_note_tree_change(robo_html_document_slot_t *slot);
+
+/**
+ * Current structural-change counter of @p document_id, or 0 when the
+ * document is unknown/destroyed. 0 is never a live version, so a caller
+ * that stores it can use it as "no document" too.
+ */
+uint32_t robo_html_document_tree_version(
+    robo_html_document_id_t document_id);
+
+/**
+ * Detach @p node_id from its parent and siblings. The node keeps its own
+ * subtree and payload; it becomes a detached root. No-op (ROBO_OK) when it
+ * is already detached. Bumps the document's tree version when it actually
+ * moves the node, because a detach is a structural change like any other.
+ */
 robo_result_t robo_html_node_unlink(robo_html_document_id_t document_id,
                                     robo_html_node_id_t node_id,
                                     robo_html_diag_t *diag);

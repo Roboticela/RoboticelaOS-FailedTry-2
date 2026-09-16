@@ -420,6 +420,31 @@ static robo_result_t walk_subtree(robo_demo_page_t *page,
 }
 
 /**
+ * Walk @p document_id's tree into @p page.
+ *
+ * Split out from the parse path (Phase 8.9) so a document that was built and
+ * then *mutated* can still be rendered: the page model is a copy, so it can
+ * be rebuilt from the same document as many times as the tree changes, and
+ * the picture follows the mutation. Nothing here parses or destroys.
+ */
+static robo_result_t build_page_from_document(robo_demo_page_t *page,
+                                              robo_html_document_id_t document_id)
+{
+    robo_html_node_handle_t root;
+
+    if (!robo_html_document_is_live(document_id)) {
+        return ROBO_HTML_DIAG(NULL, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_NOT_FOUND,
+                              "document is not live");
+    }
+    root = robo_html_document_root(document_id);
+    if (!robo_html_node_handle_is_wellformed(&root)) {
+        return ROBO_HTML_DIAG(NULL, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_ERROR,
+                              "document has no usable root");
+    }
+    return walk_subtree(page, &root, 0u);
+}
+
+/**
  * Build the page model from @p src through the real 8.3 tree builder.
  * The temporary document lives only for the duration of the call: the page
  * copies the text it keeps, exactly as before.
@@ -429,7 +454,6 @@ static robo_result_t build_page_from_tree(robo_demo_page_t *page,
 {
     robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
     robo_html_tree_builder_t *builder = NULL;
-    robo_html_node_handle_t root;
     robo_result_t r;
     size_t i;
 
@@ -442,8 +466,7 @@ static robo_result_t build_page_from_tree(robo_demo_page_t *page,
         r = robo_html_tree_builder_build(builder, src, NULL);
     }
     if (r == ROBO_OK) {
-        root = robo_html_document_root(doc);
-        r = walk_subtree(page, &root, 0u);
+        r = build_page_from_document(page, doc);
     }
     if (r == ROBO_OK) {
         /* Malformed markup is recovered by the builder; keep its report so
@@ -502,6 +525,45 @@ robo_result_t robo_demo_page_create_from_source(const robo_html_source_t *src,
                               "tree build failed while building the demo page");
     }
 
+    if (diag) {
+        robo_html_diag_reset(diag);
+    }
+    *out = page;
+    return ROBO_OK;
+}
+
+robo_result_t robo_demo_page_create_from_document(
+    robo_html_document_id_t document_id,
+    robo_demo_page_t **out,
+    robo_html_diag_t *diag)
+{
+    robo_demo_page_t *page;
+    robo_result_t r;
+
+    if (!out) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT,
+                              ROBO_INVALID_ARGUMENT, "out page is NULL");
+    }
+    *out = NULL;
+    if (!robo_html_is_initialized()) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT,
+                              ROBO_INIT_ERROR,
+                              "RoboHTML module is not initialized");
+    }
+
+    page = (robo_demo_page_t *)robo_calloc(1u, sizeof(robo_demo_page_t));
+    if (!page) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT,
+                              ROBO_OUT_OF_MEMORY, "page allocation failed");
+    }
+    page->title[0] = '\0';
+
+    r = build_page_from_document(page, document_id);
+    if (r != ROBO_OK) {
+        robo_demo_page_destroy(page);
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT, r,
+                              "could not read the document tree");
+    }
     if (diag) {
         robo_html_diag_reset(diag);
     }

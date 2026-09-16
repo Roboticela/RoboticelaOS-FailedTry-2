@@ -563,6 +563,14 @@ static void test_dm_invariants_orphan_detected(void)
      * reach. That is reachable through the public construction API, which is
      * exactly why the audit must notice it: an unreachable live node is a
      * leak that teardown would still reclaim but rendering would never see.
+     *
+     * Phase 8.9 refined the verdict rather than the counting. A node with no
+     * parent is now a *legal* state — remove_child detaches a node and keeps
+     * it re-insertable — so the audit reports such a node as @c detached
+     * instead of calling it corruption, and @c orphans is reserved for the
+     * case that is always wrong: a node claiming a parent while nothing
+     * reachable lists it. The node is still reported, which is the point of
+     * this test; what changed is which counter says so.
      */
     ROBO_CHECK_EQ_INT(robo_html_document_register_node(
                           id, ROBO_HTML_NODE_KIND_ELEMENT,
@@ -572,9 +580,10 @@ static void test_dm_invariants_orphan_detected(void)
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(rep.registered, 2u);
     ROBO_CHECK_EQ_INT(rep.nodes, 1u);   /* only the root is reachable */
-    ROBO_CHECK_EQ_INT(rep.orphans, 1u);
+    ROBO_CHECK_EQ_INT(rep.detached, 1u);
+    ROBO_CHECK_EQ_INT(rep.orphans, 0u);
     ROBO_CHECK_EQ_INT(rep.root_ok, 1);
-    ROBO_CHECK_EQ_INT(rep.ok, 0);
+    ROBO_CHECK_EQ_INT(rep.ok, 1);
 
     /* Clearing the tree removes both the stray node and the report. */
     dm_build(id, "<p>x</p>", NULL);

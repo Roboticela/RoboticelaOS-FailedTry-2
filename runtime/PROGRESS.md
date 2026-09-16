@@ -1203,6 +1203,87 @@ the literal value the model produces.
 - [x] No Chromium dependency; all independence scans green
 - [x] Stop after 8.8
 
+## Goal 8.9 — DOM mutation
+
+The tree was a read-only structure with an owner and a good navigation
+surface. Now it is editable, and the whole phase is organised around the fact
+that there is still exactly **one place a child link is written**:
+`robo_html_node_link_child` (the parser's append, construction-gated) is now a
+wrapper over `robo_html_node_insert_relative`, which is where the kind check,
+the detached-child rule, the reference-child rule and the sibling rewiring
+live. A parse and a DOM edit cannot disagree about what a tree is.
+
+**Five operations, one invariant set.** `append_child`, `insert_before`,
+`remove_child`, `replace_child` and `remove_children`, all on a finalized
+document — which is the state a parsed page is in, and the reason the phase is
+useful at all. A node has at most one parent (inserting an attached node is
+`ROBO_ALREADY_EXISTS`, never a silent steal), the result is always acyclic (a
+node beneath its own descendant is refused), the document node can never
+become a child, and only a document/element/fragment can be a parent.
+
+**Detachment is not destruction.** A removed node keeps its subtree,
+attributes and text, stays owned by its document, and can be re-inserted; in
+the meantime it is a tree in its own right — `subtree_text`, `contains`,
+`depth` (restarting at 0) and walks all work on it. There is no
+node-destroy API because there is no state that needs one.
+
+**A refusal is provably inert.** Every rejection is decided before the first
+write, so a failed mutation leaves the tree byte-for-byte as it was — including
+the document's tree version, which makes "this call changed nothing" something
+a test asserts rather than assumes.
+
+**Structural change is observable, so traversal can be honest about it.**
+Every insert, detach, replace and clear bumps a monotonic per-document tree
+version (0 stays reserved for "no document"). The 8.8 cursor and walkers now
+snapshot it and stop with a MUTATION-domain `ROBO_ERROR` the moment it moves,
+because the node they were about to hand out may have been detached — and a
+detached node is not a child. Mutation of a *different* document cannot affect
+an iteration, a refused mutation does not invalidate one, and a
+mid-visitor destroy stays the distinct `ROBO_NOT_FOUND` it was.
+
+**The whole-tree audit learned the difference** between a legally detached
+subtree (counted once at its root as `detached`, its own links audited, its
+descendants marked so they are not miscounted) and an orphan — a node that
+claims a parent while nothing reachable lists it, which is exactly the shape a
+buggy mutation leaves behind. Without the split, every document holding a
+detached node would report an unclean audit, which is how an alarm becomes
+noise.
+
+The mutation hook from 8.1 finally has something to report:
+`ROBO_HTML_MUTATION_TREE_MUTATED` fires once per structural change, which is
+the seam a future style/layout invalidation listens to. It is not a
+MutationObserver — no records, no targets, no subtree options, no microtask.
+
+**Two defects the new suite found, both in the tests' own bookkeeping:**
+cycle cases were being refused by the one-parent rule before the cycle rule
+could decide, so the fixtures now detach the ancestor first and the refusal is
+the rule under test rather than an accident (a wrong expectation that would
+have passed for the wrong reason); and a fixture created its siblings under the
+wrong parent, which the exact positional assertions caught immediately.
+
+**Definition of done:**
+
+- [x] `appendChild` / `insertBefore` / `removeChild` / `replaceChild` +
+      bulk child removal, on a finalized document
+- [x] One linking primitive shared with the parser; every structural rule in
+      one place
+- [x] One-parent invariant; cycle prevention; root immutability; parent-kind rule
+- [x] First / middle / last / only child positional correctness, each verified
+      by a specific assertion *and* a whole-tree audit
+- [x] Detached nodes legal, traversable, re-insertable, still document-owned
+- [x] Cross-document mutation refused (`ROBO_NOT_SUPPORTED`), stale handles miss
+- [x] A refused mutation changes nothing, version included
+- [x] Traversal invalidation reported with a MUTATION-domain diagnostic
+- [x] Audit separates `detached` from `orphans`
+- [x] `TREE_MUTATED` hook event; capability reports `mutation = 1`
+- [x] Attributes and Unicode text preserved across moves
+- [x] `html.mutate.*` (34 cases) + `demo.mutation.changes_picture`
+- [x] Visual vertical slice renders before and after a mutation, unchanged
+      when nothing is mutated
+- [x] Full suite green (1237/1237, Debug and Release)
+- [x] No Chromium dependency
+- [x] Stop after 8.9
+
 ## Next
 
-- Goal 8.9 — DOM mutation (do not start until requested)
+- Goal 8.10 — document lifecycle (do not start until requested)

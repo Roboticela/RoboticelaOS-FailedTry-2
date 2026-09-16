@@ -244,6 +244,13 @@ robo_result_t robo_html_document_clear_tree(robo_html_document_slot_t *slot,
 
     /* A new tree is about to exist, so construction is open again. */
     slot->finalized = 0;
+    /*
+     * Dropping every node is a structural change like any other: a
+     * traversal that snapshotted the old version must be able to see that
+     * the tree it started on is gone. Handles from the old tree already
+     * fail to resolve, so this is the belt to that pair of braces.
+     */
+    robo_html_document_note_tree_change(slot);
     robo_log_debug("robo_html: doc=%llu tree cleared (root preserved=%d)",
                    (unsigned long long)slot->id, have_root);
     return ROBO_OK;
@@ -323,6 +330,14 @@ robo_result_t robo_html_document_create(robo_html_document_id_t *out_id,
     slot->load_phase = ROBO_HTML_LOAD_PHASE_NONE;
     slot->loader = NULL;
     slot->finalized = 0;
+    /*
+     * 1, not 0: the tree version doubles as "this document exists". A
+     * traversal snapshots a live version, so 0 can only ever mean "no
+     * document". Monotonic from here — a clear or a mutation only ever
+     * moves it forward, so a snapshot can never be mistaken for a fresh
+     * one.
+     */
+    slot->tree_version = 1u;
 
     /* Enter CREATED and register the document node (future tree root). */
     slot->lifecycle = ROBO_HTML_DOCUMENT_LIFECYCLE_CREATED;
@@ -670,6 +685,14 @@ robo_result_t robo_html_document_destroy(robo_html_document_id_t document_id,
     slot->load_phase = ROBO_HTML_LOAD_PHASE_NONE;
     slot->loader = NULL;
     slot->finalized = 0;
+    /*
+     * 1, not 0: the tree version doubles as "this document exists". A
+     * traversal snapshots a live version, so 0 can only ever mean "no
+     * document". Monotonic from here — a clear or a mutation only ever
+     * moves it forward, so a snapshot can never be mistaken for a fresh
+     * one.
+     */
+    slot->tree_version = 1u;
     /* Payloads belong to the document, so the tree dies with it. */
     robo_html_document_arena_free(slot);
     robo_html_node_registry_init(&slot->nodes);

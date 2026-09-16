@@ -237,19 +237,78 @@ void robo_html_node_set_payload(robo_html_node_entry_t *entry,
     entry->payload_length = length;
 }
 
-robo_result_t robo_html_node_link_child(robo_html_document_id_t document_id,
-                                        robo_html_node_id_t parent_id,
-                                        robo_html_node_id_t child_id,
-                                        robo_html_diag_t *diag)
+int robo_html_node_kind_can_hold_children(robo_html_node_kind_t kind)
 {
+    return kind == ROBO_HTML_NODE_KIND_DOCUMENT ||
+           kind == ROBO_HTML_NODE_KIND_ELEMENT ||
+           kind == ROBO_HTML_NODE_KIND_FRAGMENT;
+}
+
+void robo_html_document_note_tree_change(robo_html_document_slot_t *slot)
+{
+    if (!slot) {
+        return;
+    }
+    slot->tree_version++;
+    if (slot->tree_version == 0u) {
+        slot->tree_version = 1u; /* 0 stays reserved for "no document" */
+    }
+}
+
+uint32_t robo_html_document_tree_version(robo_html_document_id_t document_id)
+{
+    const robo_html_document_slot_t *slot =
+        robo_html_document_slot_find(document_id);
+
+    return slot ? slot->tree_version : 0u;
+}
+
+int robo_html_node_is_ancestor_of(robo_html_document_id_t document_id,
+                                  robo_html_node_id_t ancestor_id,
+                                  robo_html_node_id_t node_id)
+{
+    const robo_html_node_entry_t *e;
+    size_t steps = 0u;
+
+    if (ancestor_id == ROBO_HTML_NODE_ID_NONE) {
+        return 0;
+    }
+    e = robo_html_node_entry_get(document_id, node_id);
+    if (!e) {
+        return 0;
+    }
+    for (;;) {
+        if (e->id == ancestor_id) {
+            return 1;
+        }
+        if (e->parent == ROBO_HTML_NODE_ID_NONE) {
+            return 0;
+        }
+        /* A parent chain cannot be longer than the registry; a longer one is
+         * a corrupted graph, and answering "not an ancestor" is the honest
+         * outcome rather than looping. */
+        if (steps++ >= (size_t)ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
+            return 0;
+        }
+        e = robo_html_node_entry_get(document_id, e->parent);
+        if (!e) {
+            return 0;
+        }
+    }
+}
+
+robo_result_t robo_html_node_insert_relative(robo_html_document_id_t document_id,
+                                             robo_html_node_id_t parent_id,
+                                             robo_html_node_id_t child_id,
+                                             robo_html_node_id_t reference_id,
+                                             robo_html_diag_t *diag)
+{
+    robo_html_document_slot_t *slot;
     robo_html_node_entry_t *parent;
     robo_html_node_entry_t *child;
-    robo_html_node_entry_t *last;
+    robo_html_node_entry_t *ref = NULL;
+    robo_html_node_entry_t *prev = NULL;
 
-    if (!robo_html_document_allows_construction(document_id)) {
-        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_TREE, ROBO_ERROR,
-                              "document tree is finalized");
-    }
     if (parent_id == child_id) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
                               ROBO_INVALID_ARGUMENT,
@@ -265,31 +324,84 @@ robo_result_t robo_html_node_link_child(robo_html_document_id_t document_id,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "child node is not live");
     }
+    if (child->kind == ROBO_HTML_NODE_KIND_DOCUMENT) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_SUPPORTED,
+                              "the document node cannot become a child");
+    }
+    if (!robo_html_node_kind_can_hold_children(parent->kind)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_SUPPORTED,
+                              "node kind cannot have children");
+    }
     if (child->parent != ROBO_HTML_NODE_ID_NONE) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_ALREADY_EXISTS,
                               "child already has a parent");
     }
-    if (parent->kind != ROBO_HTML_NODE_KIND_DOCUMENT &&
-        parent->kind != ROBO_HTML_NODE_KIND_ELEMENT &&
-        parent->kind != ROBO_HTML_NODE_KIND_FRAGMENT) {
-        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_SUPPORTED,
-                              "node kind cannot have children");
+    /*
+     * The cycle gate. Inserting a node beneath one of its own descendants
+     * would make it reachable from itself, which is not a tree any consumer
+     * of it could terminate on — so it is refused before any link is written.
+     */
+    if (robo_html_node_is_ancestor_of(document_id, child_id, parent_id)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_MUTATION,
+                              ROBO_INVALID_ARGUMENT,
+                              "a node cannot be inserted beneath its own "
+                              "descendant");
     }
 
-    last = (parent->last_child == ROBO_HTML_NODE_ID_NONE)
-               ? NULL
-               : robo_html_node_entry_mut(document_id, parent->last_child);
+    if (reference_id == ROBO_HTML_NODE_ID_NONE) {
+        prev = (parent->last_child == ROBO_HTML_NODE_ID_NONE)
+                   ? NULL
+                   : robo_html_node_entry_mut(document_id, parent->last_child);
+    } else {
+        ref = robo_html_node_entry_mut(document_id, reference_id);
+        if (!ref) {
+            return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_MUTATION,
+                                  ROBO_NOT_FOUND,
+                                  "reference child is not a live node");
+        }
+        if (ref->parent != parent_id) {
+            return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_MUTATION,
+                                  ROBO_NOT_FOUND,
+                                  "reference child does not belong to the "
+                                  "parent");
+        }
+        prev = (ref->prev_sibling == ROBO_HTML_NODE_ID_NONE)
+                   ? NULL
+                   : robo_html_node_entry_mut(document_id, ref->prev_sibling);
+    }
+
+    /* Nothing can fail from here: every rejection is behind us. */
     child->parent = parent_id;
-    child->prev_sibling = (last != NULL) ? last->id : ROBO_HTML_NODE_ID_NONE;
-    child->next_sibling = ROBO_HTML_NODE_ID_NONE;
-    if (last != NULL) {
-        last->next_sibling = child->id;
+    child->next_sibling = (ref != NULL) ? ref->id : ROBO_HTML_NODE_ID_NONE;
+    child->prev_sibling = (prev != NULL) ? prev->id : ROBO_HTML_NODE_ID_NONE;
+    if (prev != NULL) {
+        prev->next_sibling = child->id;
     } else {
         parent->first_child = child->id;
     }
-    parent->last_child = child->id;
+    if (ref != NULL) {
+        ref->prev_sibling = child->id;
+    } else {
+        parent->last_child = child->id;
+    }
     parent->child_count++;
+
+    slot = robo_html_document_slot_find(document_id);
+    robo_html_document_note_tree_change(slot);
     return ROBO_OK;
+}
+
+robo_result_t robo_html_node_link_child(robo_html_document_id_t document_id,
+                                        robo_html_node_id_t parent_id,
+                                        robo_html_node_id_t child_id,
+                                        robo_html_diag_t *diag)
+{
+    if (!robo_html_document_allows_construction(document_id)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_TREE, ROBO_ERROR,
+                              "document tree is finalized");
+    }
+    return robo_html_node_insert_relative(document_id, parent_id, child_id,
+                                          ROBO_HTML_NODE_ID_NONE, diag);
 }
 
 robo_result_t robo_html_node_unlink(robo_html_document_id_t document_id,
@@ -339,6 +451,7 @@ robo_result_t robo_html_node_unlink(robo_html_document_id_t document_id,
     node->parent = ROBO_HTML_NODE_ID_NONE;
     node->prev_sibling = ROBO_HTML_NODE_ID_NONE;
     node->next_sibling = ROBO_HTML_NODE_ID_NONE;
+    robo_html_document_note_tree_change(robo_html_document_slot_find(document_id));
     return ROBO_OK;
 }
 

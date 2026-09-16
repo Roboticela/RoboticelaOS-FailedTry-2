@@ -212,6 +212,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboHTML\RoboHTMLText.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLTreeBuilder.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLTraversal.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLMutation.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLDocumentModel.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
@@ -332,6 +333,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLText.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLAttribute.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLTraversal.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLMutation.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

@@ -304,13 +304,20 @@ the same values before and after.
 ## Lifetime
 
 - A walk **borrows nothing**: a visitor gets a view valid for its call, and
-  the child cursor holds two integers.
+  the child cursor holds a document id, a node id, a step budget and a tree
+  version.
 - Nothing here keeps a document alive, so a walk cannot extend a document's
   lifetime past what the caller already holds.
 - The one restriction this implies — **the tree must not be structurally
-  changed during a walk** — is largely inexpressible in 8.8, because the phase
-  adds no mutation API at all. The remaining path (destroying or resetting the
-  document from inside a visitor) is detected, not dereferenced.
+  changed during a walk** — was largely inexpressible when this phase shipped,
+  because 8.8 added no mutation API at all. 8.9 closed that gap, and the
+  restriction is now enforced rather than described: `mutation` reports `1`,
+  and the cursor and the walkers stop with a MUTATION-domain `ROBO_ERROR` the
+  moment the document's tree version moves (see `Mutation.md` §9). That is the
+  reason the cursor carries a version at all.
+- The other path — destroying or resetting the document from inside a
+  visitor — stays a distinct answer, `ROBO_NOT_FOUND`, because the document is
+  gone rather than merely reshaped.
 - A cursor or handle whose document went away reports `ROBO_NOT_FOUND`;
   nothing is retained to leak.
 
@@ -322,17 +329,20 @@ visitor/predicate/output, an unknown filter, and a link graph that is not a
 tree.
 
 `robo_html_dom_query_capabilities` reports `traversal = 1` as of this phase,
-alongside `tree_building`, `attributes` and `text_nodes`. `mutation` and
-`events` stay `0`: this phase is **read-only by construction**, and that is a
-claim about what the code can do, not a promise about how it is used.
+alongside `tree_building`, `attributes` and `text_nodes`; `events` stays `0`.
+`mutation` was `0` here — this phase is **read-only by construction**, a claim
+about what the code can do rather than a promise about how it is used — and
+became `1` in 8.9.
 
 ## What this phase is not
 
-DOM mutation (`appendChild`, `removeChild`, `insertBefore`, `replaceChild`,
-`cloneNode`) is 8.9. Also absent: CSS selectors, `querySelector`/`All`, the
-CSSOM, JavaScript bindings, mutation observers, `Range`, `Selection`, Shadow
-DOM and Web Components. Traversal answers *where things are*; none of those
-questions are answered here.
+DOM mutation (`appendChild`, `removeChild`, `insertBefore`, `replaceChild`)
+lives in `Mutation.md` (8.9): this header reads the tree, it does not write
+it. Still absent after both phases: `cloneNode`, `createElement`,
+CSS selectors, `querySelector`/`All`, the CSSOM, JavaScript bindings,
+mutation observers, `Range`, `Selection`, Shadow DOM and Web Components.
+Traversal answers *where things are*; none of those questions are answered
+here.
 
 ## Regressions
 

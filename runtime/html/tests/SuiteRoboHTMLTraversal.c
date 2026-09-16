@@ -1475,8 +1475,13 @@ static void test_tv_capabilities_and_diag(void)
     ROBO_CHECK_EQ_INT(robo_html_dom_query_capabilities(&caps), ROBO_OK);
     ROBO_CHECK_EQ_INT(caps.traversal, 1);
     ROBO_CHECK_EQ_INT(caps.tree_building, 1);
-    /* Read-only by construction: this phase adds no way to change the tree. */
-    ROBO_CHECK_EQ_INT(caps.mutation, 0);
+    /*
+     * Phase 8.9 added the mutation API, so the tree can now be changed —
+     * which is exactly why the traversal above snapshots the tree version
+     * rather than assuming it reads a frozen tree. Events are still later
+     * phase work.
+     */
+    ROBO_CHECK_EQ_INT(caps.mutation, 1);
     ROBO_CHECK_EQ_INT(caps.events, 0);
 
     /* The traversal domain is a defined, documented one. */

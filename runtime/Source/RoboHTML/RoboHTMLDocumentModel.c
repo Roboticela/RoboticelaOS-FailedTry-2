@@ -304,6 +304,78 @@ static size_t model_entry_index(const robo_html_document_slot_t *slot,
     return (size_t)(e - &slot->nodes.slots[0]);
 }
 
+static void model_audit_children(const robo_html_document_slot_t *slot,
+                                 const robo_html_node_entry_t *e,
+                                 robo_html_tree_report_t *rep);
+
+/**
+ * Mark and audit the detached subtree rooted at @p root_e (an unreached
+ * live node with no parent).
+ *
+ * The reason this exists rather than "unreachable means orphan": since
+ * Phase 8.9 a node can be legitimately detached — remove_child keeps it and
+ * everything below it alive — so its children must not be reported as
+ * orphans merely for being below a detached root. They are marked in
+ * @p seen, and their own links are audited, so a real inconsistency inside
+ * a detached subtree is still reported; and because @p seen is shared with
+ * the root walk, a detached subtree that reaches into the document tree is
+ * reported as the cycle/two-parents case it is.
+ */
+static void model_audit_detached_subtree(const robo_html_document_slot_t *slot,
+                                        const robo_html_node_entry_t *root_e,
+                                        uint8_t *seen,
+                                        robo_html_tree_report_t *rep)
+{
+    const robo_html_node_entry_t *cur = root_e;
+    size_t guard = 0u;
+
+    seen[model_entry_index(slot, root_e)] = 1u;
+    for (;;) {
+        const robo_html_node_entry_t *next = NULL;
+
+        if (guard++ > (size_t)ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
+            rep->cycles++;
+            return;
+        }
+        if (cur->first_child != ROBO_HTML_NODE_ID_NONE) {
+            next = robo_html_node_entry_get(slot->id, cur->first_child);
+        } else {
+            const robo_html_node_entry_t *up = cur;
+
+            while (up != NULL && up->id != root_e->id) {
+                if (up->next_sibling != ROBO_HTML_NODE_ID_NONE) {
+                    next = robo_html_node_entry_get(slot->id, up->next_sibling);
+                    break;
+                }
+                if (up->parent == ROBO_HTML_NODE_ID_NONE) {
+                    break;
+                }
+                up = robo_html_node_entry_get(slot->id, up->parent);
+            }
+        }
+        if (!next) {
+            return;
+        }
+        {
+            size_t idx = model_entry_index(slot, next);
+
+            if (seen[idx]) {
+                /* Already reached: a cycle, or a node inside the document
+                 * tree being claimed by a detached subtree. */
+                rep->cycles++;
+                return;
+            }
+            seen[idx] = 1u;
+        }
+        if (next->parent == ROBO_HTML_NODE_ID_NONE) {
+            rep->bad_parents++;
+            return;
+        }
+        model_audit_children(slot, next, rep);
+        cur = next;
+    }
+}
+
 /**
  * Verify @p e's child chain against its own bookkeeping links.
  * Reports into @p rep and returns nothing: an inconsistent chain is an
@@ -463,6 +535,28 @@ robo_result_t robo_html_document_validate_tree(
     }
 
 orphan_sweep:
+    /*
+     * Live nodes the root walk did not reach. A node with no parent is a
+     * detached root: legal since Phase 8.9, where removing a child keeps the
+     * node and its whole subtree alive and re-insertable. It is reported as
+     * @c detached rather than as an inconsistency — but its subtree is
+     * marked and audited, so a broken link *inside* a detached subtree is
+     * still reported, and its descendants are not then miscounted.
+     */
+    for (i = 0u; i < (size_t)ROBO_HTML_MAX_NODES_PER_DOCUMENT; i++) {
+        const robo_html_node_entry_t *e = &slot->nodes.slots[i];
+
+        if (e->in_use && !seen[i] && e->parent == ROBO_HTML_NODE_ID_NONE) {
+            out->detached++;
+            model_audit_detached_subtree(slot, e, seen, out);
+        }
+    }
+    /*
+     * Whatever is still unseen claims a parent while nothing reachable (and
+     * no detached root) lists it: a real orphan, and the shape a buggy
+     * mutation leaves behind when it writes a parent link without putting
+     * the node in a child list.
+     */
     for (i = 0u; i < (size_t)ROBO_HTML_MAX_NODES_PER_DOCUMENT; i++) {
         const robo_html_node_entry_t *e = &slot->nodes.slots[i];
 
@@ -477,12 +571,13 @@ orphan_sweep:
               out->sibling_mismatches == 0u && out->orphans == 0u;
     if (!out->ok) {
         robo_log_warn(
-            "robo_html: doc=%llu tree audit unclean: root_ok=%d "
-            "registered=%llu nodes=%llu orphans=%llu bad_links=%llu "
-            "cycles=%llu bad_parents=%llu bad_counts=%llu sibling=%llu",
+            "robo_html: doc=%llu tree audit unclean: root_ok=%d "                  "registered=%llu nodes=%llu orphans=%llu detached=%llu "
+                  "bad_links=%llu cycles=%llu bad_parents=%llu bad_counts=%llu "
+                  "sibling=%llu",
             (unsigned long long)document_id, out->root_ok,
             (unsigned long long)out->registered,
             (unsigned long long)out->nodes, (unsigned long long)out->orphans,
+            (unsigned long long)out->detached,
             (unsigned long long)out->bad_links, (unsigned long long)out->cycles,
             (unsigned long long)out->bad_parents,
             (unsigned long long)out->bad_counts,

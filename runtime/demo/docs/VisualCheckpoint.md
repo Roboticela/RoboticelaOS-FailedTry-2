@@ -80,6 +80,18 @@ has no filesystem in this path.
    checkpoint's output is unchanged; `demo.tree.attribute_hidden` covers it.
 4. The temporary document is destroyed — the page owns copies of the text it
    keeps, so nothing borrows the document afterwards.
+
+   Since Phase 8.9 there is a second entry point,
+   `robo_demo_page_create_from_document()`, which walks a document that
+   already exists and neither parses nor destroys it. Because the page is a
+   *copy* of the parts of the tree the adapter understands, it can be rebuilt
+   from the same document after the 8.9 DOM mutation API has changed the
+   tree — which is how a mutation becomes visible in the picture instead of
+   only in the tree. `demo.mutation.changes_picture` is that test: parse
+   `<h1>First</h1><p>Second</p>`, render it, move the paragraph ahead of the
+   heading with `robo_html_node_remove_child` + `robo_html_node_insert_before`,
+   render the *same* document again, and assert both the block order and that
+   the painted pixels differ.
 5. `robo_demo_page_layout()` flows the blocks vertically for the target size.
 6. `robo_demo_page_paint()` clears the surface and draws background, accent
    bar, heading, paragraphs and the button (states: normal / hover / pressed)
@@ -163,6 +175,7 @@ The exit code is 0 only when every marker appeared.
 | `demo.layout.*` | Flow, button rect, hit-test, resize re-flow |
 | `demo.paint.*` | Pixel probes, button states, determinism, clipping in a small target, invalid args |
 | `demo.export.png` | PNG export of the rendered frame |
+| `demo.mutation.changes_picture` | A real DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |
 | `demo.lifetime.*` | Repeated create/destroy; refusal when the module is down |
 | `demo.font.helpers` | Atlas metrics and helper names |
 

@@ -1,5 +1,5 @@
 /*
- * RoboHTML version pin — Phase 8.8 traversal milestone.
+ * RoboHTML version pin — Phase 8.9 DOM mutation milestone.
  *
  * 0.1.0 was the architecture-only surface (8.1); 0.2.0 added the tokenizer
  * (tokens, state machine, character references, raw-content families);
@@ -24,17 +24,24 @@
  * deterministic pre-order enumeration, an O(n) child cursor, the
  * all/elements/text filters, and bounded search — replacing three separate
  * copies of the pre-order successor with the one implementation all of them
- * now share. The surface still grows in 8.9+, so API freeze is NOT claimed
- * here (ROBO_HTML_API_FROZEN=0).
+ * now share. 0.9.0 makes that tree editable: append, insert before, remove,
+ * replace and bulk child removal, all through the same linking primitive the
+ * parser uses, with one-parent and acyclic invariants enforced, cross-document
+ * mutation refused rather than guessed, detachment as a legal state that the
+ * whole-tree audit now reports separately from corruption, and a monotonic
+ * tree version that lets traversal report an iteration invalidated by a
+ * structural change instead of returning a node that is no longer where it
+ * was read from. The surface still grows in 8.10+, so API freeze is NOT
+ * claimed here (ROBO_HTML_API_FROZEN=0).
  */
 
 #ifndef ROBO_HTML_VERSION_H
 #define ROBO_HTML_VERSION_H
 
 #define ROBO_HTML_VERSION_MAJOR 0
-#define ROBO_HTML_VERSION_MINOR 8
+#define ROBO_HTML_VERSION_MINOR 9
 #define ROBO_HTML_VERSION_PATCH 0
-#define ROBO_HTML_VERSION_STRING "0.8.0"
+#define ROBO_HTML_VERSION_STRING "0.9.0"
 
 /** 1 once the Phase 8 surface is frozen (not yet — see header comment). */
 #define ROBO_HTML_API_FROZEN 0

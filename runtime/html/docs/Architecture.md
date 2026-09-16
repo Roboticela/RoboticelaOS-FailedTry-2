@@ -1,4 +1,4 @@
-# RoboHTML Architecture (Phases 8.1–8.8)
+# RoboHTML Architecture (Phases 8.1–8.9)
 
 This document is the normative design record for Goals 8.1 and 8.2. Later
 phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
@@ -430,11 +430,65 @@ RoboHTMLTraversal.h (8.8)
   or ascended, so a visitor indents, buckets or bounds its work without
   walking the parent chain.
 - **Read-only by construction.** `robo_html_dom_query_capabilities` reports
-  `traversal = 1`; `mutation` and `events` stay `0`, because this phase adds
-  no way to change the tree.
+  `traversal = 1`; `events` stays `0` because this phase adds no event model.
+  (`mutation` was `0` here in 8.8 and became `1` in 8.9 — which is why the
+  cursor and the walkers snapshot the document's tree version: they were
+  written against a tree that only now can change under them.)
 
 The dump is a visitor now, so indentation costs no recursion, and the depth
 cut is a dump policy rather than a traversal limit.
 
 Full design, contracts and the test coverage:
 [`Traversal.md`](Traversal.md).
+
+## 17. Phase 8.9 — DOM mutation
+
+8.9 makes the tree editable. The only child link in the runtime belonged to
+ the parser and refused once a build finished, so the document model was a
+read-only tree with an owner. Mutation adds five operations and, more
+importantly, one place where a child link is written — the parser's link is
+now a wrapper over it, so a parse and a DOM edit cannot disagree about what a
+tree is.
+
+```
+RoboHTMLMutation.h (8.9)
+├── append_child      child becomes the last child
+├── insert_before     anchored to a sibling the parent actually lists
+├── remove_child      detach, keeping the subtree
+├── replace_child     hand the slot over in place
+├── remove_children   bulk detach
+└── queries           contains (the cycle predicate) · tree_version
+```
+
+- **One parent.** Inserting an attached node is `ROBO_ALREADY_EXISTS`: the API
+  never silently steals a node. Moving is `remove` then `insert` — two
+  explicit steps, both visible in the version history.
+- **Always a tree.** A node beneath itself or beneath its own descendant is
+  refused, and the document node can never become a child. The rule is a
+  bounded parent-chain walk, so the invariant costs O(depth) and nothing
+  downstream has to defend against a cycle.
+- **Detachment is not destruction.** A removed node keeps its subtree,
+  attributes and text, stays owned by its document, and can be re-inserted;
+  its own subtree is traversable in the meantime. There is no node-destroy API
+  because there is no state in which one is needed.
+- **Construction closure is not a lock.** Mutation works on a finalized
+  document — the state a parsed page is in. Node *creation* stays gated, so
+  this phase rearranges what a document has; `html.mutate.creation_stays_gated`
+  pins that boundary.
+- **Cross-document is refused, not guessed.** A foreign handle is
+  `ROBO_NOT_SUPPORTED` (adoption/import is a separate operation); the same
+  document with a stale handle is `ROBO_NOT_FOUND`.
+- **A refusal is inert.** Every rejection is decided before the first write,
+  so a failed mutation leaves the tree — including its version — byte-for-byte
+  as it was.
+- **Structural change is observable.** A monotonic per-document tree version
+  bumps on every insert, detach, replace and clear. Traversal snapshots it, so
+  an iteration interrupted by a mutation stops with a MUTATION-domain
+  `ROBO_ERROR` instead of returning a node that is no longer a child.
+- **The whole-tree audit learned the difference.** An unreachable live node
+  with no parent is now `detached` (legal, counted once at its root); one that
+  *claims* a parent stays `orphans`, which is the shape a buggy mutation
+  leaves behind.
+
+Full design, contracts and the test coverage:
+[`Mutation.md`](Mutation.md).

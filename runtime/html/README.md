@@ -2,9 +2,10 @@
 
 HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
 Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model +
-Phase 8.5 element model + Phase 8.6 attribute model + Phase 8.7 text model**).
+Phase 8.5 element model + Phase 8.6 attribute model + Phase 8.7 text model +
+Phase 8.8 traversal + Phase 8.9 DOM mutation**).
 
-**Version:** 0.7.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.9.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -78,11 +79,37 @@ re-encodes — and a character run coalesces per *run*, so the tokenizer's
 segmentation is never visible in the tree. The tree dump labels text nodes so
 a whitespace run is legible. See `docs/TextModel.md`.
 
+**8.8 (traversal):** the tree becomes navigable as a boundary rather than a
+set of accessors — relationships in both directions, absolute depth and
+rootmost-ancestor traversal, deterministic pre-order/document-order
+enumeration (iterative, allocation-free, with a cycle bound that reports
+rather than truncates), an O(n) child cursor, the all/elements/text filters,
+and bounded search (`find_first` at-or-below vs `find_descendant` inside).
+Three separate copies of the pre-order successor collapsed into one shared
+implementation, and child iteration by index (O(n²) per child list) moved
+onto the cursor. See `docs/Traversal.md`.
+
+**8.9 (DOM mutation):** the tree becomes editable — append, insert before,
+remove, replace and bulk child removal, all on a finalized document. Every
+rule lives in one linking primitive shared with the parser: one parent per
+node (inserting an attached node is refused, never silently moved), acyclic
+results (no node beneath its own descendant), the document node never a
+child, and only a document/element/fragment as a parent. Removal detaches
+without destroying — the node keeps its subtree, attributes and text and can
+be re-inserted — so detachment is a legal, reported state rather than
+corruption. Cross-document mutation is refused rather than guessed. Every
+structural change bumps a monotonic per-document tree version, which is what
+lets traversal report an iteration invalidated by a mutation instead of
+handing out a node that is no longer where it was read from. See
+`docs/Mutation.md`.
+
 **No DOM behaviour** — `NamedNodeMap`, `getElementById`, `querySelector`,
-`classList`, `dataset`, events and the rest of the DOM surface come later.
-Finalization closes *tree construction*, not the document: it is deliberately
-not a lock against the future DOM, and attribute mutation stays available
-after it.
+`classList`, `dataset`, events and the rest of the DOM surface come later, and
+so does node *creation* on a closed document (`createElement` /
+`createTextNode`): finalization closes tree construction, and registering a
+new node is a construction operation. What it deliberately does not do is lock
+the tree — mutation, traversal and reads all stay available after it, which is
+the state a parsed page is mutated in.
 The tokenizer stays independent of the tree builder: it never constructs a
 tree, never knows an element's meaning, and never touches
 CSS/layout/paint/JS/network. The tree builder is the only consumer that turns
@@ -99,7 +126,8 @@ registration.
 | `runtime/html/docs/` | Design docs |
 
 Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
-`ElementModel.md`, `AttributeModel.md`, `TextModel.md`, `Traversal.md`.
+`ElementModel.md`, `AttributeModel.md`, `TextModel.md`, `Traversal.md`,
+`Mutation.md`.
 
 ## Public headers
 
@@ -115,6 +143,7 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `RoboHTMLElement.h` | Element model: creation seam, view/state, namespace, classification, name policy, and the attribute model (lookup, presence, iteration, add/set/remove) |
 | `RoboHTMLText.h` | Text model: creation seam, view/content/length/parent, empty-text policy, and set/append mutation |
 | `RoboHTMLTraversal.h` | Traversal: relationships, depth/root, the child cursor, the all/elements/text filters, pre-order and descendant walkers, bounded search |
+| `RoboHTMLMutation.h` | DOM mutation: append/insert-before/remove/replace, bulk child removal, `contains`, the tree version |
 | `RoboHTMLSource.h` | Source/input abstraction (borrowing view) |
 | `RoboHTMLEncoding.h` | Encoding boundary (labels + state; no decoding yet) |
 | `RoboHTMLParser.h` | Parser lease between source and future tokenizer |
@@ -144,6 +173,8 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `html.attr.*` | Attribute type and lengths, parser integration and stored order, presence vs empty, duplicates, lookup/case/Unicode, the mutation verbs and their validation, the attribute limit, Unicode names and values, malformed input, the dump, ownership/lifetime, rebuild semantics |
 | `html.text.*` | Text creation (basic/empty/validation), kind identification and the not-text answers, `set`/`append` including the slow path, mutation after finalization, parser integration, runs and merging, whitespace, character references, Unicode, long runs, traversal, ownership/stale handles, teardown, malformed input, the dump, capability flag, demo document |
 | `html.traverse.*` | Relationship accessors and the miss contract, parent/root/depth, exact document order and its determinism, pre-order and descendant walks, the element/text filters, the child cursor, search (`find_first` vs `find_descendant`), parser-built trees with attributes intact, Unicode, a 1000-level tree, an empty document, defensive input, visitor control including destroy-from-visitor, the dump on the walker, capabilities and diagnostics, demo document |
+| `html.mutate.*` | Append/insert-before/remove/replace positional cases, bulk child removal, parent/first/last/sibling/order integrity (every mutating case ends in a whole-tree audit), duplicate ownership, self-insertion and ancestor cycles, cross-document refusal, detached-subtree behaviour, the tree version, parser-created (finalized) trees, the creation boundary, attribute and Unicode preservation, the mutation hook, traversal invalidation, teardown/reset/destroy |
+| `demo.mutation.*` | A DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |
 
 Two ownership rules in one line each:
 
@@ -163,6 +194,12 @@ Two ownership rules in one line each:
   `robo_html_text_create`. An empty run is a legal value, but the parser never
   produces one: a zero-length character token carries nothing, so `<p></p>`
   has no children rather than an empty text child.
+- A node has at most one parent. Mutation never steals a node from its current
+  parent: moving one is `remove_child` then `append_child`, two explicit steps.
+  A removed node is **detached, not destroyed** — it keeps its subtree and
+  stays owned by its document — and a structural change invalidates any
+  traversal that was in flight, reported as a MUTATION-domain
+  `ROBO_ERROR` rather than a wrong answer.
 - The document's **root** survives a rebuild; every other node handle from a
   previous tree becomes stale. Ownership is asked for, never assumed:
   `robo_html_document_owns_node` is the single check that covers "whose node

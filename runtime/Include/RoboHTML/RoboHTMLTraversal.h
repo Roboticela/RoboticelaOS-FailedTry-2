@@ -59,18 +59,31 @@
  *   - A traversal borrows nothing. There is no iterator object that can dangle
  *     and no callback receives an owned reference: a visitor gets a view
  *     snapshot valid for the duration of its call, and the child cursor holds
- *     two integers.
- *   - The restriction this implies: the tree must not be structurally changed
- *     during a walk. Phase 8.8 has no mutation API at all, so the only way to
- *     do that is destroying or resetting the document from inside a visitor —
- *     which is detected (the walk stops and reports ROBO_NOT_FOUND) rather than
- *     dereferenced. See @c robo_html_node_walk_pre_order.
+ *     a document id, a node id, a step budget and a tree version.
  *   - Nothing here keeps a document alive, so a walk cannot extend a
  *     document's lifetime past what the caller already holds.
  *
- * What this phase is NOT: DOM mutation (appendChild / removeChild /
- * insertBefore / replaceChild / cloneNode) is Phase 8.9. Also absent: CSS
- * selectors, querySelector/All, the CSSOM, JavaScript bindings, mutation
+ * Structural change ends an iteration (Phase 8.9)
+ *   - A cursor or a walk cannot survive the child list it is reading being
+ *     rewritten underneath it: the stored next-node id would name a node that
+ *     is no longer a child (it was detached, or moved elsewhere), and the
+ *     iteration would report a child the parent does not have.
+ *   - So the rule is stated once and enforced: a traversal may not be live
+ *     across a structural mutation. Both the cursor and the walkers snapshot
+ *     the document's tree version (see RoboHTMLMutation.h) and stop with a
+ *     ROBO_ERROR carrying a MUTATION-domain diagnostic the moment it moves.
+ *     The answer is "restart the iteration", never a silently wrong node.
+ *   - Mutation of a different document cannot affect an iteration, because
+ *     the version is per-document; and a *refused* mutation does not move it,
+ *     so an iteration is unaffected by a call that changed nothing.
+ *   - A destroy or reset from inside a visitor is still reported as
+ *     ROBO_NOT_FOUND (the document is gone entirely), which is why the two
+ *     cases have distinct codes and domains rather than one "iteration
+ *     broken" answer.
+ *
+ * What this phase is NOT: DOM mutation lives in RoboHTMLMutation.h — this
+ * header reads, it does not write. Also absent: createElement, cloneNode,
+ * CSS selectors, querySelector/All, the CSSOM, JavaScript bindings, mutation
  * observers, Range, Selection, Shadow DOM and Web Components.
  */
 
@@ -183,8 +196,11 @@ robo_result_t robo_html_node_root(const robo_html_node_handle_t *node,
  * also what it returns once the owning document is gone, so an abandoned
  * cursor is inert rather than dangerous.
  *
- * A cursor does not pin the node it walks: Phase 8.8 has no mutation, and a
- * tree reset or document destroy mid-iteration is reported, not followed.
+ * A cursor does not pin the node it walks. It does, however, remember the
+ * tree version it was opened at (Phase 8.9), so a structural change during
+ * the iteration is detected and reported rather than followed: the node the
+ * cursor was about to hand out may have been detached, and a detached node
+ * is not a child.
  */
 typedef struct robo_html_child_cursor {
     /** Owning document (ROBO_HTML_DOCUMENT_ID_NONE before _open). */
@@ -193,6 +209,12 @@ typedef struct robo_html_child_cursor {
     robo_html_node_id_t next_id;
     /** Remaining steps before the walk is judged impossible (cycle guard). */
     size_t remaining;
+    /**
+     * Document tree version at _open (0 = not opened). _next refuses to
+     * continue once it differs, because the child list it is reading has
+     * been rewritten.
+     */
+    uint32_t version;
 } robo_html_child_cursor_t;
 
 /** Clear @p cursor to the exhausted state. Safe on NULL. */
@@ -217,8 +239,12 @@ robo_result_t robo_html_child_cursor_open(robo_html_child_cursor_t *cursor,
  * ROBO_NOT_FOUND when the cursor is exhausted (and for a cursor that was
  * never opened or whose document is gone); @p out is cleared in that case.
  *
- * ROBO_ERROR means the child list did not end within the node ceiling, which
- * is a corrupted link graph rather than an empty list.
+ * ROBO_ERROR means the iteration can no longer be trusted, and the
+ * diagnostic's domain says which: TREE_MUTATED (a MUTATION-domain
+ * diagnostic) means the tree was structurally changed while the cursor was
+ * open — restart the iteration; a TRAVERSAL-domain diagnostic means the
+ * child list did not end within the node ceiling, which is a corrupted link
+ * graph rather than an empty list. The cursor is invalidated in both cases.
  */
 robo_result_t robo_html_child_cursor_next(robo_html_child_cursor_t *cursor,
                                           robo_html_node_handle_t *out,
@@ -305,11 +331,17 @@ typedef int (*robo_html_node_predicate_fn)(const robo_html_node_view_t *view,
  *         stopped the walk; ROBO_INVALID_ARGUMENT (NULL @p start or @p visit,
  *         unknown @p filter); ROBO_NOT_FOUND (@p start does not resolve, or
  *         the document was destroyed by the visitor); ROBO_ERROR (the walk
- *         exceeded the node ceiling, so the link graph is not a tree).
+ *         cannot be trusted — a MUTATION-domain diagnostic means the tree
+ *         was structurally changed during the walk, a TRAVERSAL-domain one
+ *         that it exceeded the node ceiling and so the link graph is not a
+ *         tree).
  *
  * Reentrancy: a visitor may start its own walk — the walker holds no
- * document-wide state. What it must not do is destroy or reset the document,
- * which the next step detects and reports.
+ * document-wide state. What it must not do is change what it is walking:
+ * destroying or resetting the document is reported as ROBO_NOT_FOUND, and a
+ * structural mutation (RoboHTMLMutation.h) as ROBO_ERROR with a
+ * MUTATION-domain diagnostic, because the remaining steps would describe a
+ * tree that no longer exists.
  */
 robo_result_t robo_html_node_walk_pre_order(
     const robo_html_node_handle_t *start,

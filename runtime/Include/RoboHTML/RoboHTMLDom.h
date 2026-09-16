@@ -76,7 +76,12 @@ typedef struct robo_html_dom_capabilities {
      * not a claim that the tree can be mutated.
      */
     int traversal;
-    /** DOM mutation APIs available (DOM phase). */
+    /**
+     * DOM mutation APIs are available (Phase 8.9): append, insert before,
+     * remove, replace and bulk child removal, all on a finalized document.
+     * This is not a claim of a complete DOM: creating nodes, cloning them
+     * and the ChildNode/ParentNode conveniences are later-phase work.
+     */
     int mutation;
     /** Event model available (DOM events phase). */
     int events;
@@ -114,7 +119,21 @@ robo_result_t robo_html_dom_query_capabilities(
 typedef enum robo_html_mutation_kind {
     ROBO_HTML_MUTATION_NONE = 0,
     ROBO_HTML_MUTATION_NODE_REGISTERED = 1,
-    ROBO_HTML_MUTATION_DOCUMENT_LIFECYCLE = 2
+    ROBO_HTML_MUTATION_DOCUMENT_LIFECYCLE = 2,
+    /**
+     * The tree's shape changed (Phase 8.9): a node was attached, detached or
+     * moved by the DOM mutation API. @c node is the node whose position
+     * changed — the child for append/insert/replace and for a removal, and
+     * the parent for a bulk child removal, where no single child describes
+     * the change.
+     *
+     * This is the hook a future style/layout invalidation listens to. It is
+     * deliberately not a MutationObserver: it is one synchronous,
+     * document-wide notification that something changed, with no record
+     * types, no targets, no subtree options and no queued microtask — all of
+     * which belong to the event phases.
+     */
+    ROBO_HTML_MUTATION_TREE_MUTATED = 3
 } robo_html_mutation_kind_t;
 
 /** Non-zero if @p kind is a defined mutation hook kind. */
@@ -123,7 +142,7 @@ int robo_html_mutation_kind_is_known(robo_html_mutation_kind_t kind);
 typedef struct robo_html_mutation_event {
     robo_html_mutation_kind_t kind;
     robo_html_document_id_t document_id;
-    robo_html_node_handle_t node; /* invalid for lifecycle events */
+    robo_html_node_handle_t node; /* the affected node; see each kind */
     robo_html_document_lifecycle_t lifecycle; /* for lifecycle events */
 } robo_html_mutation_event_t;
 

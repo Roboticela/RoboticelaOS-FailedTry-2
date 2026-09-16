@@ -323,8 +323,23 @@ typedef struct robo_html_tree_report {
     /** Non-zero when the root handle, kind and parent link are correct. */
     int root_ok;
 
-    /** Live nodes not reachable from the root. */
+    /**
+     * Live nodes that are not reachable from the root *and* claim a parent:
+     * a child link (or a parent link) that does not describe the tree. This
+     * is the corruption detector — a node that believes it is in the tree
+     * while the tree cannot reach it.
+     */
     size_t orphans;
+    /**
+     * Live nodes with no parent that the root walk did not reach: detached
+     * subtrees (Phase 8.9 — remove_child keeps the node and its subtree
+     * intact) and nodes registered but never linked. Detachment is a legal
+     * state, so these do NOT make @c ok false; they are counted because a
+     * document that meant to have them attached would otherwise look clean.
+     * A detached subtree is counted once, at its root, and its own links are
+     * audited like any other.
+     */
+    size_t detached;
     /** Links to non-live ids, and revisitings of an already-reached node. */
     size_t bad_links;
     size_t cycles;

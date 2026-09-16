@@ -307,6 +307,7 @@ void robo_html_child_cursor_init(robo_html_child_cursor_t *cursor)
     cursor->document_id = ROBO_HTML_DOCUMENT_ID_NONE;
     cursor->next_id = ROBO_HTML_NODE_ID_NONE;
     cursor->remaining = 0u;
+    cursor->version = 0u;
 }
 
 robo_result_t robo_html_child_cursor_open(robo_html_child_cursor_t *cursor,
@@ -338,6 +339,7 @@ robo_result_t robo_html_child_cursor_open(robo_html_child_cursor_t *cursor,
      * for the whole iteration — a sibling cycle runs out instead of looping.
      */
     cursor->remaining = slot->nodes.used;
+    cursor->version = slot->tree_version;
     return ROBO_OK;
 }
 
@@ -358,11 +360,29 @@ robo_result_t robo_html_child_cursor_next(robo_html_child_cursor_t *cursor,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_TRAVERSAL, ROBO_NOT_FOUND,
                               "cursor is exhausted");
     }
-    if (!robo_html_document_slot_find(cursor->document_id)) {
-        /* The document went away; the cursor is inert, not dangerous. */
-        robo_html_child_cursor_init(cursor);
-        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_TRAVERSAL, ROBO_NOT_FOUND,
-                              "document was destroyed during iteration");
+    {
+        const robo_html_document_slot_t *slot =
+            robo_html_document_slot_find(cursor->document_id);
+
+        if (!slot) {
+            /* The document went away; the cursor is inert, not dangerous. */
+            robo_html_child_cursor_init(cursor);
+            return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_TRAVERSAL,
+                                  ROBO_NOT_FOUND,
+                                  "document was destroyed during iteration");
+        }
+        /*
+         * The child list has been rewritten since this cursor was opened, so
+         * @c next_id may name a node that is no longer a child of the node
+         * the cursor came from. Handing it out would report a child the
+         * parent does not have; stopping says so instead.
+         */
+        if (slot->tree_version != cursor->version) {
+            robo_html_child_cursor_init(cursor);
+            return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_MUTATION, ROBO_ERROR,
+                                  "the tree was structurally changed during "
+                                  "iteration; restart it");
+        }
     }
     e = robo_html_node_entry_get(cursor->document_id, cursor->next_id);
     if (!e) {
@@ -514,6 +534,7 @@ static robo_result_t walk(const robo_html_node_handle_t *start,
     robo_html_node_id_t start_id;
     size_t depth = 0u;
     size_t budget;
+    uint32_t version;
     size_t steps = 0u;
     int at_start = 1;
     robo_result_t r;
@@ -551,6 +572,8 @@ static robo_result_t walk(const robo_html_node_handle_t *start,
      * silently partial tree.
      */
     budget = slot->nodes.used + 1u;
+    /* The shape this walk is reading; see the post-visitor check below. */
+    version = robo_html_document_tree_version(start->document_id);
 
     for (;;) {
         robo_html_node_id_t next_id;
@@ -597,6 +620,22 @@ static robo_result_t walk(const robo_html_node_handle_t *start,
                                       ROBO_NOT_FOUND,
                                       "document was destroyed during "
                                       "traversal");
+            }
+            /*
+             * A visitor may mutate the tree (that is the 8.9 phase's whole
+             * point), which invalidates the walk: the links this loop is
+             * about to step through describe the old shape, so continuing
+             * would visit a node that has moved — or, if the visitor
+             * detached the subtree, walk straight out of the traversal root.
+             * Checked here, right where the mutation can only have come
+             * from, so the report names the real cause.
+             */
+            if (robo_html_document_tree_version(start->document_id) !=
+                version) {
+                return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_MUTATION,
+                                      ROBO_ERROR,
+                                      "the tree was structurally changed "
+                                      "during traversal; restart it");
             }
         }
         at_start = 0;

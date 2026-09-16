@@ -64,9 +64,11 @@ robo_result_t robo_html_dom_query_capabilities(
      * model over it (content access, set/append), so text nodes are
      * available. Phase 8.8: the tree can be navigated and enumerated
      * deterministically from any node, in both directions, so traversal is
-     * available — read-only, and `mutation` stays 0 because this phase adds
-     * no way to change the tree. The node DOM, generic mutation hooks and
-     * events remain later-phase work — `attributes` here means the
+     * available. Phase 8.9: the tree's shape can be changed — append,
+     * insert before, remove, replace and bulk child removal — so mutation is
+     * available, which is what makes traversal's read-only claim no longer
+     * the whole story. The node DOM (`dom_nodes`), events and JavaScript
+     * bindings remain later-phase work; `attributes` still means the
      * attribute model and `text_nodes` the text model, neither a complete
      * DOM surface.
      */
@@ -74,6 +76,7 @@ robo_result_t robo_html_dom_query_capabilities(
     out->attributes = 1;
     out->text_nodes = 1;
     out->traversal = 1;
+    out->mutation = 1;
     return ROBO_OK;
 }
 
@@ -83,6 +86,7 @@ int robo_html_mutation_kind_is_known(robo_html_mutation_kind_t kind)
     case ROBO_HTML_MUTATION_NONE:
     case ROBO_HTML_MUTATION_NODE_REGISTERED:
     case ROBO_HTML_MUTATION_DOCUMENT_LIFECYCLE:
+    case ROBO_HTML_MUTATION_TREE_MUTATED:
         return 1;
     default:
         return 0;

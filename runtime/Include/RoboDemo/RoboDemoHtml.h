@@ -57,6 +57,7 @@
 #include "RoboGraphics/RoboGraphicsSurface.h"
 #include "RoboHTML/RoboHTMLDiagnostics.h"
 #include "RoboHTML/RoboHTMLSource.h"
+#include "RoboHTML/RoboHTMLTypes.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -114,6 +115,23 @@ robo_result_t robo_demo_page_create(const char *html,
 /** Same, taking a RoboHTML 8.1 source descriptor (borrowed bytes). */
 robo_result_t robo_demo_page_create_from_source(
     const robo_html_source_t *src,
+    robo_demo_page_t **out,
+    robo_html_diag_t *diag);
+
+/**
+ * Build a page from a document that already exists (Phase 8.9).
+ *
+ * The page is a copy of the parts of the tree the adapter understands, so it
+ * can be rebuilt from the same document after the DOM has changed the tree —
+ * which is how a mutation becomes visible in the picture rather than only in
+ * the tree. The document is borrowed and never destroyed or modified here.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p out; ROBO_NOT_FOUND
+ *         when @p document_id is unknown or destroyed; ROBO_INIT_ERROR when
+ *         the RoboHTML module is not initialized; ROBO_OUT_OF_MEMORY.
+ */
+robo_result_t robo_demo_page_create_from_document(
+    robo_html_document_id_t document_id,
     robo_demo_page_t **out,
     robo_html_diag_t *diag);
 

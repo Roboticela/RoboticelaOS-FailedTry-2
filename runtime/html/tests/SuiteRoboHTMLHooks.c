@@ -301,14 +301,15 @@ static void test_html_dom_capabilities(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_html_dom_query_capabilities(&caps), ROBO_OK);
     /*
-     * Tree construction (8.3) and attribute storage (8.6) are available; the
-     * node DOM, generic mutation and events are not. `attributes` reports the
-     * attribute model, not a NamedNodeMap: trait/permission surface is still
-     * later-phase work.
+     * Tree construction (8.3) and attribute storage (8.6) are available, and
+     * since 8.9 so is DOM mutation — which is what this file's hook
+     * foundation was built for. The node DOM and events are not.
+     * `attributes` reports the attribute model, not a NamedNodeMap:
+     * trait/permission surface is still later-phase work.
      */
     ROBO_CHECK_EQ_INT(caps.dom_nodes, 0);
     ROBO_CHECK_EQ_INT(caps.attributes, 1);
-    ROBO_CHECK_EQ_INT(caps.mutation, 0);
+    ROBO_CHECK_EQ_INT(caps.mutation, 1);
     ROBO_CHECK_EQ_INT(caps.events, 0);
     ROBO_CHECK_EQ_INT(caps.tree_building, 1);
 

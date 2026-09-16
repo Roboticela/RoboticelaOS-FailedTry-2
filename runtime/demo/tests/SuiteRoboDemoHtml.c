@@ -20,6 +20,11 @@
 #include "RoboGraphics/RoboGraphicsBitmap.h"
 #include "RoboGraphics/RoboGraphicsScreenshot.h"
 #include "RoboHTML/RoboHTML.h"
+#include "RoboHTML/RoboHTMLDocument.h"
+#include "RoboHTML/RoboHTMLMutation.h"
+#include "RoboHTML/RoboHTMLNode.h"
+#include "RoboHTML/RoboHTMLSource.h"
+#include "RoboHTML/RoboHTMLTreeBuilder.h"
 #include "RoboTest.h"
 
 #include <stdio.h>
@@ -1035,6 +1040,136 @@ static void test_demo_hidden_attribute(void)
     robo_demo_page_destroy(page);
 }
 
+/* ------------------------------------------------------------------ */
+/* DOM mutation reaches the picture (Phase 8.9)                        */
+/* ------------------------------------------------------------------ */
+
+/** Pixels that differ between two same-sized surfaces. */
+static int count_pixel_differences(const robo_gfx_surface_t *a,
+                                   const robo_gfx_surface_t *b,
+                                   uint32_t width,
+                                   uint32_t height)
+{
+    int diff = 0;
+    uint32_t x;
+    uint32_t y;
+
+    for (y = 0u; y < height; y++) {
+        for (x = 0u; x < width; x++) {
+            robo_gfx_color_rgba8_t ca;
+            robo_gfx_color_rgba8_t cb;
+
+            if (robo_gfx_surface_get_pixel(a, x, y, &ca) != ROBO_OK ||
+                robo_gfx_surface_get_pixel(b, x, y, &cb) != ROBO_OK) {
+                continue;
+            }
+            if (ca.r != cb.r || ca.g != cb.g || ca.b != cb.b ||
+                ca.a != cb.a) {
+                diff++;
+            }
+        }
+    }
+    return diff;
+}
+
+/**
+ * The mutation-to-picture seam: parse a document, render it, change the real
+ * DOM through the real mutation API, render the *same* document again, and
+ * show the picture followed.
+ *
+ * This is what keeps the visual checkpoint honest about being driven by the
+ * tree rather than by the source bytes: the adapter is a copy of the tree, so
+ * re-running it after the tree changed is the only way it can see a
+ * mutation — and no source string is parsed the second time.
+ */
+static void test_demo_mutation_changes_picture(void)
+{
+    robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
+    robo_html_node_handle_t root;
+    robo_html_node_handle_t body;
+    robo_html_node_handle_t heading;
+    robo_html_node_handle_t para;
+    robo_html_source_t src;
+    robo_demo_page_t *before = NULL;
+    robo_demo_page_t *after = NULL;
+    robo_gfx_surface_t *s_before = NULL;
+    robo_gfx_surface_t *s_after = NULL;
+
+    demo_fixture();
+
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc, NULL), ROBO_OK);
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(
+        robo_html_source_string(
+            &src, "<html><body><h1>First</h1><p>Second</p></body></html>",
+            NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+
+    root = robo_html_document_root(doc);
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&root, "body", &body, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_node_child_at(&body, 0u, &heading, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_node_child_at(&body, 1u, &para, NULL),
+                      ROBO_OK);
+
+    /* As parsed: the heading comes first. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &before, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(before != NULL);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(before), 2);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(before, 0), "First");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(before, 1), "Second");
+
+    /* The real mutation API moves the paragraph ahead of the heading. */
+    ROBO_CHECK_EQ_INT(robo_html_node_remove_child(&body, &para, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(
+        robo_html_node_insert_before(&body, &para, &heading, NULL), ROBO_OK);
+
+    /* The same document, re-read: the order changed, the source did not. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &after, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(after != NULL);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(after), 2);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(after, 0), "Second");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(after, 1), "First");
+    {
+        robo_gfx_rect_t r0;
+        robo_gfx_rect_t r1;
+
+        /* Rects are only meaningful once layout has run. */
+        ROBO_CHECK_EQ_INT(robo_demo_page_layout(after, 900, 600), ROBO_OK);
+        ROBO_CHECK(robo_demo_page_block_rect(after, 0, &r0));
+        ROBO_CHECK(robo_demo_page_block_rect(after, 1, &r1));
+        ROBO_CHECK(r0.y < r1.y);
+    }
+
+    /* And the painted output differs: the mutation is visible, not just
+     * modelled. */
+    s_before = make_surface(900, 600);
+    s_after = make_surface(900, 600);
+    ROBO_CHECK(s_before != NULL && s_after != NULL);
+    if (s_before && s_after && before && after) {
+        int diff;
+
+        ROBO_CHECK_EQ_INT(robo_demo_page_paint(before, s_before, NULL, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_demo_page_paint(after, s_after, NULL, NULL),
+                          ROBO_OK);
+        diff = count_pixel_differences(s_before, s_after, 900u, 600u);
+        ROBO_CHECK_MSG(diff > 100,
+                       "a DOM mutation did not change the rendered picture");
+    }
+
+    robo_demo_page_destroy(before);
+    robo_demo_page_destroy(after);
+    robo_gfx_surface_release(s_before);
+    robo_gfx_surface_release(s_after);
+    ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+}
+
 void robo_test_register_demo_html(void)
 {
     robo_test_register("demo.version", test_demo_version);
@@ -1066,6 +1201,8 @@ void robo_test_register_demo_html(void)
     robo_test_register("demo.export.png", test_demo_export_png);
     robo_test_register("demo.lifetime.repeated",
                        test_demo_repeated_lifecycle);
+    robo_test_register("demo.mutation.changes_picture",
+                       test_demo_mutation_changes_picture);
     robo_test_register("demo.lifetime.uninitialized",
                        test_demo_module_not_initialized);
     robo_test_register("demo.font.helpers", test_demo_font_helpers);
