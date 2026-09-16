@@ -99,7 +99,7 @@ registration.
 | `runtime/html/docs/` | Design docs |
 
 Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
-`ElementModel.md`, `AttributeModel.md`, `TextModel.md`.
+`ElementModel.md`, `AttributeModel.md`, `TextModel.md`, `Traversal.md`.
 
 ## Public headers
 
@@ -114,6 +114,7 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `RoboHTMLDom.h` | Future-DOM boundary, origins, mutation hooks, capabilities |
 | `RoboHTMLElement.h` | Element model: creation seam, view/state, namespace, classification, name policy, and the attribute model (lookup, presence, iteration, add/set/remove) |
 | `RoboHTMLText.h` | Text model: creation seam, view/content/length/parent, empty-text policy, and set/append mutation |
+| `RoboHTMLTraversal.h` | Traversal: relationships, depth/root, the child cursor, the all/elements/text filters, pre-order and descendant walkers, bounded search |
 | `RoboHTMLSource.h` | Source/input abstraction (borrowing view) |
 | `RoboHTMLEncoding.h` | Encoding boundary (labels + state; no decoding yet) |
 | `RoboHTMLParser.h` | Parser lease between source and future tokenizer |
@@ -142,6 +143,7 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `html.element.*` | Namespaces, classification, creation (valid, refused, cross-document), identity/validity, tag names, state bits, relationships, nesting/siblings, ownership, attributes, start/end tags, malformed recovery, Unicode text, teardown, tree dump, demo document |
 | `html.attr.*` | Attribute type and lengths, parser integration and stored order, presence vs empty, duplicates, lookup/case/Unicode, the mutation verbs and their validation, the attribute limit, Unicode names and values, malformed input, the dump, ownership/lifetime, rebuild semantics |
 | `html.text.*` | Text creation (basic/empty/validation), kind identification and the not-text answers, `set`/`append` including the slow path, mutation after finalization, parser integration, runs and merging, whitespace, character references, Unicode, long runs, traversal, ownership/stale handles, teardown, malformed input, the dump, capability flag, demo document |
+| `html.traverse.*` | Relationship accessors and the miss contract, parent/root/depth, exact document order and its determinism, pre-order and descendant walks, the element/text filters, the child cursor, search (`find_first` vs `find_descendant`), parser-built trees with attributes intact, Unicode, a 1000-level tree, an empty document, defensive input, visitor control including destroy-from-visitor, the dump on the walker, capabilities and diagnostics, demo document |
 
 Two ownership rules in one line each:
 

@@ -161,7 +161,14 @@ typedef enum robo_html_diagnostic_domain {
      * parent for creation, unknown origin), a handle that is not text, and
      * text content/mutation requested on a non-text node.
      */
-    ROBO_HTML_DOMAIN_TEXT = 13
+    ROBO_HTML_DOMAIN_TEXT = 13,
+    /**
+     * Traversal domain (Phase 8.8): a walk or search started from a handle
+     * that does not resolve, an unusable visitor/predicate/output, and a
+     * link graph that is not a tree (the node ceiling was reached during a
+     * walk, which means a cycle or a corrupted link).
+     */
+    ROBO_HTML_DOMAIN_TRAVERSAL = 14
 } robo_html_diagnostic_domain_t;
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */

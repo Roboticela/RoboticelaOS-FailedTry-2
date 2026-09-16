@@ -16,6 +16,7 @@
  */
 
 #include "RoboHTML/RoboHTMLNode.h"
+#include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTMLInternal.h"
 
 #include "RoboMem/RoboMem.h"
@@ -609,67 +610,78 @@ robo_result_t robo_html_node_find_child_by_name(
                           "no child element with that name");
 }
 
+/** Name query handed to the traversal predicate (no const cast needed). */
+typedef struct element_name_query {
+    const char *name;
+} element_name_query_t;
+
+/**
+ * Predicate for element search. The traversal view already carries the
+ * element's decoded local name, so matching does not reach into the payload
+ * — the same value an element-name read would return.
+ */
+static int element_name_matches(const robo_html_node_view_t *view, void *user)
+{
+    const element_name_query_t *query = (const element_name_query_t *)user;
+
+    return strcmp(view->name, query->name) == 0;
+}
+
 robo_result_t robo_html_node_find_element(const robo_html_node_handle_t *h,
                                           const char *name,
                                           robo_html_node_handle_t *out,
                                           robo_html_diag_t *diag)
 {
-    const robo_html_document_slot_t *slot;
-    const robo_html_node_entry_t *start;
-    robo_html_node_id_t current;
-    size_t guard = 0u;
+    element_name_query_t query;
 
     if (!h || !name || !out) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
                               ROBO_INVALID_ARGUMENT, "NULL argument");
     }
-    robo_html_node_handle_clear(out);
-    slot = robo_html_document_slot_find(h->document_id);
-    start = node_entry_for(h);
-    if (!slot || !start) {
-        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
-                              "node handle does not resolve");
-    }
-
+    query.name = name;
     /*
-     * Iterative pre-order walk over the sibling links. No recursion: an
-     * adversarial depth (a malformed tree 4096 nodes deep) must not be able
-     * to exhaust the C stack. The iteration guard is the registry size, so
-     * a corrupted link cycle terminates instead of spinning.
+     * Element search is the traversal search with an element filter: the
+     * walk, the document order and the cycle bound live in one place now
+     * rather than in a third copy of the pre-order successor (8.8).
+     * "Descendant" keeps this call's contract of excluding @p h itself.
      */
-    current = start->first_child;
-    while (current != ROBO_HTML_NODE_ID_NONE &&
-           guard++ < (size_t)ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
-        const robo_html_node_entry_t *e = node_lookup(h->document_id, current);
-        if (!e) {
-            break;
+    return robo_html_node_find_descendant(
+        h, ROBO_HTML_NODE_FILTER_ELEMENTS, element_name_matches, &query, out,
+        diag);
+}
+
+/** Accumulator for the subtree-text walk. */
+typedef struct subtree_text_state {
+    char *out;
+    size_t cap;
+    size_t written;
+    size_t total;
+} subtree_text_state_t;
+
+/**
+ * Append one visited text node's bytes, NUL-terminating as it goes.
+ *
+ * @c total counts every byte offered, @c written only those that fit, so a
+ * truncated result still reports its full length — the contract callers use
+ * to detect truncation. Written down once here, this is what both the
+ * whole-node case and the walk below share.
+ */
+static robo_result_t subtree_text_visit(const robo_html_node_view_t *view,
+                                        size_t depth,
+                                        void *user)
+{
+    subtree_text_state_t *state = (subtree_text_state_t *)user;
+    size_t i;
+
+    (void)depth;
+    for (i = 0u; i < view->text_length; i++) {
+        if (state->total + 1u < state->cap) {
+            state->out[state->written++] = view->text[i];
         }
-        if (node_name_is(slot, e, name)) {
-            *out = robo_html_node_handle_make(h->document_id, e);
-            return ROBO_OK;
-        }
-        if (e->first_child != ROBO_HTML_NODE_ID_NONE) {
-            current = e->first_child;
-            continue;
-        }
-        while (e != NULL) {
-            if (e->next_sibling != ROBO_HTML_NODE_ID_NONE) {
-                current = e->next_sibling;
-                break;
-            }
-            if (e->parent == ROBO_HTML_NODE_ID_NONE) {
-                current = ROBO_HTML_NODE_ID_NONE;
-                break;
-            }
-            e = node_lookup(h->document_id, e->parent);
-            if (e == NULL || e->id == start->id) {
-                current = ROBO_HTML_NODE_ID_NONE;
-                break;
-            }
-        }
+        state->total++;
     }
-    return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
-                          "no element with that name in the subtree");
+    state->out[state->written] = '\0';
+    return ROBO_OK;
 }
 
 robo_result_t robo_html_node_subtree_text(const robo_html_node_handle_t *h,
@@ -680,8 +692,8 @@ robo_result_t robo_html_node_subtree_text(const robo_html_node_handle_t *h,
 {
     const robo_html_document_slot_t *slot;
     const robo_html_node_entry_t *start;
-    size_t written = 0u;
-    size_t total = 0u;
+    subtree_text_state_t state;
+    robo_result_t r;
 
     if (!h || !out || out_cap == 0u) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
@@ -697,69 +709,45 @@ robo_result_t robo_html_node_subtree_text(const robo_html_node_handle_t *h,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_FOUND,
                               "node handle does not resolve");
     }
+    state.out = out;
+    state.cap = out_cap;
+    state.written = 0u;
+    state.total = 0u;
+
     if (start->kind == ROBO_HTML_NODE_KIND_TEXT ||
         start->kind == ROBO_HTML_NODE_KIND_COMMENT) {
+        /*
+         * The node IS the text: reading it back verbatim matches what
+         * robo_html_text_content returns for the same node, because the walk
+         * below skips its start.
+         */
         const robo_html_payload_header_t *hdr = payload_of(slot, start);
         if (hdr) {
             const char *bytes = payload_bytes(hdr);
-            total = hdr->length > 0u ? (size_t)hdr->length - 1u : 0u;
-            written = (total < out_cap - 1u) ? total : out_cap - 1u;
-            memcpy(out, bytes, written);
-            out[written] = '\0';
+            state.total = hdr->length > 0u ? (size_t)hdr->length - 1u : 0u;
+            state.written = (state.total < out_cap - 1u)
+                                ? state.total
+                                : out_cap - 1u;
+            memcpy(out, bytes, state.written);
+            out[state.written] = '\0';
         }
     } else {
         /*
-         * Pre-order walk collecting text nodes. Same iterative discipline as
-         * find_element: bounded iterations, no recursion.
+         * Text-only descendants, in document order. This replaces a third
+         * copy of the pre-order successor (8.8): the order, the filter, the
+         * cycle bound and the no-recursion rule now live in the walker.
          */
-        robo_html_node_id_t current = start->first_child;
-        size_t guard = 0u;
-
-        while (current != ROBO_HTML_NODE_ID_NONE &&
-               guard++ < (size_t)ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
-            const robo_html_node_entry_t *e =
-                node_lookup(h->document_id, current);
-            if (!e) {
-                break;
+        r = robo_html_node_walk_descendants(h, ROBO_HTML_NODE_FILTER_TEXT,
+                                            subtree_text_visit, &state, diag);
+        if (r != ROBO_OK) {
+            if (out_length) {
+                *out_length = state.total;
             }
-            if (e->kind == ROBO_HTML_NODE_KIND_TEXT) {
-                const robo_html_payload_header_t *hdr = payload_of(slot, e);
-                if (hdr) {
-                    const char *bytes = payload_bytes(hdr);
-                    size_t len = hdr->length > 0u ? (size_t)hdr->length - 1u : 0u;
-                    size_t i;
-                    for (i = 0u; i < len; i++) {
-                        if (total + 1u < out_cap) {
-                            out[written++] = bytes[i];
-                        }
-                        total++;
-                    }
-                    out[written] = '\0';
-                }
-            }
-            if (e->first_child != ROBO_HTML_NODE_ID_NONE) {
-                current = e->first_child;
-                continue;
-            }
-            for (;;) {
-                if (e->next_sibling != ROBO_HTML_NODE_ID_NONE) {
-                    current = e->next_sibling;
-                    break;
-                }
-                if (e->parent == ROBO_HTML_NODE_ID_NONE || e->id == start->id) {
-                    current = ROBO_HTML_NODE_ID_NONE;
-                    break;
-                }
-                e = node_lookup(h->document_id, e->parent);
-                if (e == NULL || e->id == start->id) {
-                    current = ROBO_HTML_NODE_ID_NONE;
-                    break;
-                }
-            }
+            return r;
         }
     }
     if (out_length) {
-        *out_length = total;
+        *out_length = state.total;
     }
     return ROBO_OK;
 }

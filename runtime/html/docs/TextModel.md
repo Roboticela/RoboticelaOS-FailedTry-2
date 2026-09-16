@@ -53,7 +53,8 @@ Siblings and children are deliberately *not* repeated here. A text node is a
 leaf, and where it sits among its siblings is a question `RoboHTMLNode.h`
 already answers for every node kind (`node_get_view`, `child_at`,
 `next_sibling`). Mirroring the links would create a second traversal surface
-to keep in step with the first.
+to keep in step with the first; 8.8 later made that surface authoritative —
+see [`Traversal.md`](Traversal.md).
 
 ## Stored form
 

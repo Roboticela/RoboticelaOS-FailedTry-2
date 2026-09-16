@@ -1,5 +1,5 @@
 /*
- * RoboHTML version pin — Phase 8.7 text-node milestone.
+ * RoboHTML version pin — Phase 8.8 traversal milestone.
  *
  * 0.1.0 was the architecture-only surface (8.1); 0.2.0 added the tokenizer
  * (tokens, state machine, character references, raw-content families);
@@ -18,18 +18,23 @@
  * data a modelled node: real Text nodes created through one seam
  * (robo_html_text_create), content access over the same payload arena every
  * other node kind uses, set/append mutation, byte-exact whitespace and
- * Unicode, and text runs that coalesce per run rather than per token. The
- * surface still grows in 8.8+, so API freeze is NOT claimed here
- * (ROBO_HTML_API_FROZEN=0).
+ * Unicode, and text runs that coalesce per run rather than per token. 0.8.0
+ * makes the tree navigable: one authoritative traversal surface for every
+ * node kind — relationships in both directions, absolute depth, a
+ * deterministic pre-order enumeration, an O(n) child cursor, the
+ * all/elements/text filters, and bounded search — replacing three separate
+ * copies of the pre-order successor with the one implementation all of them
+ * now share. The surface still grows in 8.9+, so API freeze is NOT claimed
+ * here (ROBO_HTML_API_FROZEN=0).
  */
 
 #ifndef ROBO_HTML_VERSION_H
 #define ROBO_HTML_VERSION_H
 
 #define ROBO_HTML_VERSION_MAJOR 0
-#define ROBO_HTML_VERSION_MINOR 7
+#define ROBO_HTML_VERSION_MINOR 8
 #define ROBO_HTML_VERSION_PATCH 0
-#define ROBO_HTML_VERSION_STRING "0.7.0"
+#define ROBO_HTML_VERSION_STRING "0.8.0"
 
 /** 1 once the Phase 8 surface is frozen (not yet — see header comment). */
 #define ROBO_HTML_API_FROZEN 0

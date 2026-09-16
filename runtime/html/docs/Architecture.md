@@ -1,4 +1,4 @@
-# RoboHTML Architecture (Phases 8.1–8.5)
+# RoboHTML Architecture (Phases 8.1–8.8)
 
 This document is the normative design record for Goals 8.1 and 8.2. Later
 phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
@@ -384,3 +384,57 @@ these bytes, and a value destroyed here is unrecoverable.
 
 Full design, contracts and the test coverage:
 [`TextModel.md`](TextModel.md).
+
+## 16. Phase 8.8 — traversal
+
+8.8 makes the tree navigable as a *boundary* rather than as a set of
+accessors. The same pre-order successor had grown in three places (element
+search, subtree text, and the debug dump — recursively), child iteration by
+index was O(n²), and the recursive dump was a stack-overflow vector on a
+tree the node ceiling permits. Those are now one implementation the consumers
+share.
+
+```
+RoboHTMLTraversal.h (8.8)
+├── relationships   parent / first_child / last_child / next / prev
+├── depth & root    absolute depth from the document node; rootmost ancestor
+├── child cursor    one-pass O(n) iteration
+├── filters         all · elements · text
+├── walkers         pre-order / descendants, depth-aware, visitor-driven
+└── search          find_first / find_descendant
+```
+
+- **Handles, not pointers.** Every accessor takes and returns a node handle,
+  so no caller can see the registry, the sibling links, the payload arena or
+  any container layout. Nothing borrowed can outlive its call: a visitor
+  receives a view borrowed for that call, and the child cursor holds two
+  integers.
+- **"Nothing there" is an answer.** A missing link is `ROBO_NOT_FOUND` with a
+  cleared output, mirroring `child_at`'s out-of-range contract. `NULL`
+  arguments are `ROBO_INVALID_ARGUMENT`; a handle that does not resolve is
+  `ROBO_NOT_FOUND`. A link target is looked up rather than trusted, so a
+  corrupted or retired link reports a miss instead of aliasing a new node.
+- **A filter selects what is visited, never what is stepped through.** A walk
+  for elements still descends past text nodes, so every filtered walk is a
+  subsequence of the same single document order — which is what makes the
+  ordering claim checkable.
+- **Iterative, bounded, allocation-free.** No recursion (an adversarial depth
+  cannot exhaust the stack), no allocation (a walk cannot fail halfway for
+  memory reasons), O(n), and a step bound of the document's live node count
+  so a cycle is reported as `ROBO_ERROR` instead of silently truncating.
+- **The visitor's code is the walk's result**, so early exit needs no cancel
+  channel; `find_first` is built on exactly that. A visitor may walk
+  reentrantly; destroying the document mid-walk is detected, not
+  dereferenced.
+- **Depth is absolute and free.** The walk already knows whether it descended
+  or ascended, so a visitor indents, buckets or bounds its work without
+  walking the parent chain.
+- **Read-only by construction.** `robo_html_dom_query_capabilities` reports
+  `traversal = 1`; `mutation` and `events` stay `0`, because this phase adds
+  no way to change the tree.
+
+The dump is a visitor now, so indentation costs no recursion, and the depth
+cut is a dump policy rather than a traversal limit.
+
+Full design, contracts and the test coverage:
+[`Traversal.md`](Traversal.md).

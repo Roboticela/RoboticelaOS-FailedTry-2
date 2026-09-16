@@ -1107,6 +1107,102 @@ payload layer this phase — the 8.6 scratch-zeroing fix already covers the
 - [x] No Chromium dependency; all independence scans green
 - [x] Stop after 8.7
 
+## Goal 8.8 — DOM traversal
+
+**Status:** complete
+
+The tree was already navigable before this phase (`child_at`, `next_sibling`,
+`find_element`, `subtree_text`). What 8.8 adds is the **authoritative
+traversal surface over every node kind**: one header that answers what is next,
+what is above, what is inside, in what order, and where the first match is —
+without any caller knowing how children are stored. Three things made it worth
+a phase rather than leaving the accessors alone: the same pre-order successor
+existed in three places (element search, subtree text, and the debug dump —
+recursively), child iteration by index was O(n²), and the recursive dump was a
+stack-overflow vector on a tree the node ceiling permits.
+
+**What changed**
+
+- `Include/RoboHTML/RoboHTMLTraversal.h`, `Source/RoboHTML/RoboHTMLTraversal.c`
+  — the traversal surface: relationship accessors (parent / first / last /
+  next / prev), `depth` and `root`, the child cursor, the all/elements/text
+  filters, the pre-order and descendant walkers, and `find_first` /
+  `find_descendant`.
+- `RoboHTMLNode.c` — `find_element` and `subtree_text` lose their private
+  copies of the pre-order successor and go through the walker (element search
+  through a predicate, subtree text through a text-filtered descendant walk),
+  so the order, the filter, the cycle bound and the no-recursion rule live in
+  one place.
+- `RoboHTMLTreeBuilder.c` (dump) — the dump is a visitor on the walker instead
+  of a recursion; depth arrives from the walk, and the depth cut is now a dump
+  policy rather than a traversal limit.
+- `RoboHTMLTypes.h/.c` — `ROBO_HTML_DOMAIN_TRAVERSAL` for traversal-domain
+  rejections.
+- `RoboHTMLDom.h/.c` — capability flip: `traversal = 1`, with `mutation` and
+  `events` explicitly still `0`.
+- `html/tests/SuiteRoboHTMLTraversal.c` — 20 `html.traverse.*` cases.
+- Docs: `html/docs/Traversal.md`, `html/README.md`,
+  `html/docs/Architecture.md` §16.
+- RoboHTML **0.8.0** (`ROBO_HTML_API_FROZEN=0`), runtime **0.13.0**.
+
+**The contracts worth stating once**
+
+- **Handles, not pointers.** Every accessor takes and returns a node handle, so
+  no caller can see the registry, the sibling links, the payload arena or any
+  container layout — which is what lets that storage change later without
+  touching a caller. Nothing borrowed can outlive its call: a visitor gets a
+  view for that call, and the child cursor holds two integers.
+- **"Nothing there" is an answer, not an error.** A missing link is
+  `ROBO_NOT_FOUND` with a cleared output, mirroring `child_at`'s out-of-range
+  contract, so a zeroed handle is never returned as success. `NULL` arguments
+  are argument errors; a handle that does not resolve is a lookup that missed.
+  Link targets are looked up rather than trusted, so a corrupted or retired
+  link reports a miss instead of aliasing a new node.
+- **A filter selects what is visited, never what is stepped through.** A walk
+  for elements still descends past text nodes, so every filtered walk is a
+  subsequence of the same single document order.
+- **Iterative, bounded, allocation-free, deterministic.** No recursion, no
+  allocation, O(n), and a step bound of the document's live node count so a
+  cycle is reported as `ROBO_ERROR` rather than silently truncating the walk.
+  Depth is absolute (document = 0) and free to the visitor.
+- **The visitor's code is the walk's result**, so early exit needs no cancel
+  channel; `find_first` is built on exactly that. A visitor may walk
+  reentrantly; destroying the document mid-walk is detected, not dereferenced.
+
+**Contract defect found while refactoring the consumers:** the walker checked
+whether the document still existed only at the top of each step, so a visitor
+that destroyed the document could still run a final `advance` and report
+`ROBO_OK` — a walk reported as finished over a tree that no longer existed.
+The check now also runs immediately after the visitor and at the "finished"
+exit, making `ROBO_NOT_FOUND` unconditional. The suite separately caught four
+wrong expectations of its own (relative-vs-absolute depth, `find_descendant`
+expected to match its start, a cursor copy expected to share state, and dump
+indentation off by one level) — each a body-of-the-test error, now pinned by
+the literal value the model produces.
+
+**Definition of done:**
+
+- [x] Authoritative traversal API over Document, Element and Text
+- [x] Relationships in both directions, with the miss contract
+- [x] Absolute depth from the document node; rootmost-ancestor traversal
+- [x] Child iteration that is O(n) (the cursor) and safe on empty parents
+- [x] Deterministic document-order / pre-order enumeration, allocation-free
+      and non-recursive, with a cycle bound that reports rather than truncates
+- [x] Element-only and text-only traversals that still step through every node
+- [x] Bounded search: `find_first` (at or below) vs `find_descendant` (inside)
+- [x] `find_element` and `subtree_text` refactored onto the walker; the dump
+      refactored onto the walker; the demo renderer's child iteration moved off
+      `child_at` onto the cursor (O(n) per child list instead of O(n^2))
+- [x] Attributes and text stay reachable from any traversed handle
+- [x] Parser integration, Unicode, a 1000-level tree, empty documents and
+      defensive input covered
+- [x] Ownership/lifetime safe: stale handles and abandoned cursors are inert
+- [x] Read-only by construction; capability reports `traversal = 1`
+- [x] Visual vertical slice unchanged on the host and in QEMU
+- [x] Full suite green (1202/1202, Debug and Release)
+- [x] No Chromium dependency; all independence scans green
+- [x] Stop after 8.8
+
 ## Next
 
-- Goal 8.8 — DOM traversal (do not start until requested)
+- Goal 8.9 — DOM mutation (do not start until requested)

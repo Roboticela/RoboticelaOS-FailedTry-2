@@ -62,13 +62,18 @@ robo_result_t robo_html_dom_query_capabilities(
      * model (lookup, presence, order, add/set/remove), so attribute storage
      * is available. Phase 8.7: character data is a real node kind with a
      * model over it (content access, set/append), so text nodes are
-     * available. The node DOM, generic mutation hooks and events remain
-     * later-phase work — `attributes` here means the attribute model and
-     * `text_nodes` the text model, neither a complete DOM surface.
+     * available. Phase 8.8: the tree can be navigated and enumerated
+     * deterministically from any node, in both directions, so traversal is
+     * available — read-only, and `mutation` stays 0 because this phase adds
+     * no way to change the tree. The node DOM, generic mutation hooks and
+     * events remain later-phase work — `attributes` here means the
+     * attribute model and `text_nodes` the text model, neither a complete
+     * DOM surface.
      */
     out->tree_building = 1;
     out->attributes = 1;
     out->text_nodes = 1;
+    out->traversal = 1;
     return ROBO_OK;
 }
 

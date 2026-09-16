@@ -245,7 +245,10 @@ the model's own verbs (8.6), not as a DOM API.
 Text nodes left this list in **8.7**, which gave them their own model over the
 same node kind — see [`TextModel.md`](TextModel.md). An element's children are
 still a mixed list of element and text nodes; 8.7 changed how the text half is
-read and written, not how it is stored or owned.
+read and written, not how it is stored or owned. 8.8 then made navigating that
+list a boundary in its own right — see [`Traversal.md`](Traversal.md) — so
+consumer code asks the traversal surface where a node sits rather than reading
+links or indices itself.
 
 Roboticela's application identity and capability model is implemented
 elsewhere; nothing here invents a second one.

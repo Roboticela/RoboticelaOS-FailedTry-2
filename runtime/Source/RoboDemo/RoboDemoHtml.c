@@ -22,6 +22,7 @@
 #include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
+#include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
 
 #include "RoboMem/RoboMem.h"
@@ -316,26 +317,31 @@ static void block_text_of(const robo_html_node_handle_t *node,
 /**
  * Depth-first walk of the built tree in document order.
  * @p depth bounds the recursion; the node registry already bounds the tree.
+ *
+ * Children come from the Phase 8.8 child cursor rather than child_at, because
+ * child_at resolves child 0 and then follows the sibling links index times —
+ * iterating a child list that way is O(n^2) over the list, while the cursor
+ * carries the next child's id and is O(n). It also means this loop never
+ * learns how children are stored, which is what the traversal API is for.
  */
 static robo_result_t walk_subtree(robo_demo_page_t *page,
                                   const robo_html_node_handle_t *node,
                                   unsigned int depth)
 {
-    size_t children = 0u;
-    size_t i;
+    robo_html_child_cursor_t cursor;
 
     if (depth > (unsigned int)DEMO_WALK_DEPTH_MAX) {
         return ROBO_OK;
     }
-    if (robo_html_node_child_count(node, &children, NULL) != ROBO_OK) {
+    if (robo_html_child_cursor_open(&cursor, node, NULL) != ROBO_OK) {
         return ROBO_OK;
     }
-    for (i = 0u; i < children; i++) {
+    for (;;) {
         robo_html_node_handle_t child;
         robo_html_element_view_t view;
         robo_demo_block_style_t style;
 
-        if (robo_html_node_child_at(node, i, &child, NULL) != ROBO_OK) {
+        if (robo_html_child_cursor_next(&cursor, &child, NULL) != ROBO_OK) {
             break;
         }
         /*

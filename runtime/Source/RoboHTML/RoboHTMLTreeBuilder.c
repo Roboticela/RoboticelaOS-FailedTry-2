@@ -28,6 +28,7 @@
 #include "RoboHTML/RoboHTMLTokenizer.h"
 #include "RoboHTML/RoboHTMLText.h"
 #include "RoboHTML/RoboHTMLTokenizerStates.h"
+#include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
 #include "RoboHTMLInternal.h"
 
@@ -2271,6 +2272,8 @@ typedef struct dump_writer {
     robo_html_tree_sink_fn sink;
     void *user;
     size_t emitted;
+    /* Set once the depth cut has been reported, so it prints exactly once. */
+    int elided;
 } dump_writer_t;
 
 static robo_result_t dump_write(dump_writer_t *w, const char *text, size_t length)
@@ -2346,68 +2349,45 @@ static robo_result_t dump_quoted(dump_writer_t *w, const char *bytes,
     return ROBO_OK;
 }
 
-static robo_result_t dump_one(robo_html_document_slot_t *slot,
-                              robo_html_document_id_t document_id,
-                              robo_html_node_id_t id,
-                              size_t depth,
-                              dump_writer_t *w);
-
-static robo_result_t dump_children(robo_html_document_slot_t *slot,
-                                   robo_html_document_id_t document_id,
-                                   robo_html_node_id_t first,
-                                   size_t depth,
-                                   dump_writer_t *w)
+/**
+ * Visitor for the traversal walk that renders the dump.
+ *
+ * Depth arrives from the walker instead of being carried by a recursive
+ * call, and the pre-order order, the cycle bound and the no-recursion rule
+ * are the ones every other consumer uses — this used to be the one place
+ * that walked the tree with the C stack. It is also the one consumer that
+ * cannot print an arbitrarily deep tree, so the depth cut below is a dump
+ * policy rather than a traversal limit.
+ */
+static robo_result_t dump_visit(const robo_html_node_view_t *view,
+                                size_t depth,
+                                void *user)
 {
-    robo_html_node_id_t child = first;
-    size_t guard = 0u;
+    dump_writer_t *w = (dump_writer_t *)user;
+    const robo_html_document_slot_t *slot =
+        robo_html_document_slot_find(view->handle.document_id);
+    const robo_html_node_entry_t *e =
+        robo_html_node_entry_get(view->handle.document_id,
+                                 view->handle.node_id);
+    robo_result_t r;
 
-    if (depth >= DUMP_DEPTH_MAX && first != ROBO_HTML_NODE_ID_NONE) {
-        /* Deeper subtrees are elided: the dump stays bounded, never fatal. */
-        robo_result_t r = dump_indent(w, depth);
-
+    if (!slot || !e) {
+        return ROBO_NOT_FOUND; /* the document went away mid-dump */
+    }
+    /*
+     * Deeper subtrees are elided: the dump stays bounded, never fatal, and
+     * one line marks where it was cut.
+     */
+    if (depth >= DUMP_DEPTH_MAX) {
+        if (w->elided) {
+            return ROBO_OK;
+        }
+        w->elided = 1;
+        r = dump_indent(w, depth);
         if (r != ROBO_OK) {
             return r;
         }
         return dump_str(w, "... (deeper nodes elided)\n");
-    }
-    while (child != ROBO_HTML_NODE_ID_NONE &&
-           guard < ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
-        const robo_html_node_entry_t *e =
-            robo_html_node_entry_get(document_id, child);
-        robo_html_node_id_t next;
-
-        if (!e) {
-            return ROBO_OK; /* corrupted link: stop rather than spin */
-        }
-        next = e->next_sibling;
-        {
-            robo_result_t r = dump_one(slot, document_id, child, depth, w);
-
-            if (r != ROBO_OK) {
-                return r;
-            }
-        }
-        child = next;
-        guard++;
-    }
-    if (guard >= ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
-        return dump_str(w, "  (sibling cycle truncated)\n");
-    }
-    return ROBO_OK;
-}
-
-static robo_result_t dump_one(robo_html_document_slot_t *slot,
-                              robo_html_document_id_t document_id,
-                              robo_html_node_id_t id,
-                              size_t depth,
-                              dump_writer_t *w)
-{
-    const robo_html_node_entry_t *e =
-        robo_html_node_entry_get(document_id, id);
-    robo_result_t r;
-
-    if (!e) {
-        return ROBO_NOT_FOUND;
     }
     if (w->emitted++ >= ROBO_HTML_MAX_NODES_PER_DOCUMENT) {
         return ROBO_OK;
@@ -2446,9 +2426,6 @@ static robo_result_t dump_one(robo_html_document_slot_t *slot,
     }
     case ROBO_HTML_NODE_KIND_ELEMENT: {
         robo_html_namespace_t ns = robo_html_payload_namespace(slot, e);
-        size_t name_length = 0u;
-        const char *name = robo_html_payload_element_name(slot, e,
-                                                          &name_length);
         size_t attrs = robo_html_payload_attr_count(slot, e);
         size_t i;
 
@@ -2466,7 +2443,7 @@ static robo_result_t dump_one(robo_html_document_slot_t *slot,
             r = ROBO_OK;
         }
         if (r == ROBO_OK) {
-            r = dump_write(w, name, name_length);
+            r = dump_str(w, view->name);
         }
         /*
          * Attributes are read through the model, not the raw payload, so
@@ -2506,24 +2483,16 @@ static robo_result_t dump_one(robo_html_document_slot_t *slot,
          * whitespace-only run legible (Text: "\n  ") and separates a text
          * node from the comment line right below it.
          */
-        robo_html_node_handle_t h =
-            robo_html_node_handle_make(document_id, e);
-        size_t length = 0u;
-        const char *text = robo_html_text_content(&h, &length);
-
         r = dump_str(w, "Text: ");
         if (r == ROBO_OK) {
-            r = dump_quoted(w, text ? text : "", text ? length : 0u);
+            r = dump_quoted(w, view->text, view->text_length);
         }
         break;
     }
     case ROBO_HTML_NODE_KIND_COMMENT: {
-        size_t length = 0u;
-        const char *text = robo_html_payload_text(slot, e, &length);
-
         r = dump_str(w, "#comment ");
         if (r == ROBO_OK) {
-            r = dump_quoted(w, text, length);
+            r = dump_quoted(w, view->text, view->text_length);
         }
         break;
     }
@@ -2535,11 +2504,10 @@ static robo_result_t dump_one(robo_html_document_slot_t *slot,
     if (r != ROBO_OK) {
         return r;
     }
-    r = dump_str(w, "\n");
     if (r != ROBO_OK) {
         return r;
     }
-    return dump_children(slot, document_id, e->first_child, depth + 1u, w);
+    return dump_str(w, "\n");
 }
 
 robo_result_t robo_html_tree_dump(robo_html_document_id_t document_id,
@@ -2561,7 +2529,14 @@ robo_result_t robo_html_tree_dump(robo_html_document_id_t document_id,
     w.sink = sink;
     w.user = user;
     w.emitted = 0u;
-    return dump_one(slot, document_id, slot->root.node_id, 0u, &w);
+    w.elided = 0;
+    /*
+     * The dump is a traversal now: order, depth, the cycle bound and the
+     * no-recursion rule come from the walker rather than from a second
+     * subtree walk that would have to be kept in step with it.
+     */
+    return robo_html_node_walk_pre_order(&slot->root, ROBO_HTML_NODE_FILTER_ALL,
+                                         dump_visit, &w, diag);
 }
 
 /* --- buffer sink ---------------------------------------------------- */

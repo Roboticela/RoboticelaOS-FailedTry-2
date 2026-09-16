@@ -69,7 +69,14 @@ typedef struct robo_html_dom_capabilities {
      * Range/Selection, no mutation observers).
      */
     int text_nodes;
-    /** Traversal/mutation APIs available (DOM phase). */
+    /**
+     * The read-only traversal model is available (Phase 8.8): relationships
+     * in both directions, deterministic pre-order enumeration, filters and
+     * bounded search over any node kind. Read-only by construction — this is
+     * not a claim that the tree can be mutated.
+     */
+    int traversal;
+    /** DOM mutation APIs available (DOM phase). */
     int mutation;
     /** Event model available (DOM events phase). */
     int events;
