@@ -277,23 +277,27 @@ robo_result_t robo_html_document_reset(robo_html_document_id_t document_id,
      * can arrive. A document that never loaded stays CREATED. Both accept a
      * new source; neither is FAILED or DESTROYED.
      *
-     * A reset abandons whatever was in flight, so it steps through
-     * INTERACTIVE rather than jumping: the document really does have a live
+     * A reset abandons whatever was in flight, so a loading document steps
+     * through INTERACTIVE rather than jumping: it really does have a live
      * (empty) DOM before it is complete.
+     *
+     * Each step is asked for only when it is still outstanding. A document
+     * that is *already* interactive needs the last step alone — re-requesting
+     * INTERACTIVE is not an edge the machine has, and asking for it would fail
+     * the reset after the tree had already been dropped, leaving the document
+     * cleared but still marked interactive.
      */
     life = slot->lifecycle;
-    if (life == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING ||
-        life == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) {
-        /*
-         * Abandoning input first makes the DOM live, then settles the
-         * document. Both steps are stated separately because the graph has
-         * no LOADING → COMPLETE edge: a reset document is genuinely
-         * interactive (its empty DOM is readable and mutable) before it is
-         * complete.
-         */
+    if (life == ROBO_HTML_DOCUMENT_LIFECYCLE_LOADING) {
         if (robo_html_document_apply_transition(
-                slot, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) != ROBO_OK ||
-            robo_html_document_apply_transition(
+                slot, ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) != ROBO_OK) {
+            return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_LIFECYCLE, ROBO_ERROR,
+                                  "reset could not settle the document");
+        }
+        life = ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE;
+    }
+    if (life == ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE) {
+        if (robo_html_document_apply_transition(
                 slot, ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE) != ROBO_OK) {
             return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_LIFECYCLE, ROBO_ERROR,
                                   "reset could not settle the document");

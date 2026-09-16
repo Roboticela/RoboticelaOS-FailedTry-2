@@ -18,9 +18,16 @@
  * Serial markers for automated validation:
  *   ROBO_QEMU_DISPLAY_OK
  *   ROBO_QEMU_HTML_OK
+ *   ROBO_QEMU_HTML_LINKS / _LINK_FRAGMENT / _LINK_UNSUPPORTED
  *   ROBO_QEMU_PRESENT_OK
  *   ROBO_QEMU_INPUT_OK
  *   ROBO_QEMU_DISPLAY_SHUTDOWN_OK
+ *
+ * The link markers (Phase 8.13) are the guest running the *same* navigation
+ * model the host checkpoint drives: with no handler installed the route link
+ * must refuse and the fragment link must resolve to the element it names. A
+ * marker that claimed otherwise would be the guest reporting navigation that
+ * did not happen.
  */
 
 #include "RoboBase/RoboBase.h"
@@ -31,6 +38,7 @@
 #include "RoboDisplay/RoboQemuFramebuffer.h"
 #include "RoboGraphics/RoboGraphics.h"
 #include "RoboHTML/RoboHTML.h"
+#include "RoboHTML/RoboHTMLAnchor.h"
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowBackendQemu.h"
 #include "RoboWindow/RoboWindowGraphics.h"
@@ -181,6 +189,60 @@ int main(void)
                (uint32_t)robo_demo_page_supported_element_count(page));
     serial_u32("ROBO_QEMU_HTML_IGNORED=",
                (uint32_t)robo_demo_page_ignored_tag_count(page));
+
+    /*
+     * Phase 8.13 in the guest: hit-test every link block and activate it for
+     * real. The layout target is the framebuffer the window is about to use,
+     * so the rectangles the probe hit-tests are the ones the paint will use.
+     */
+    {
+        int32_t lw = fb->ready ? (int32_t)fb->width : 800;
+        int32_t lh = fb->ready ? (int32_t)fb->height : 600;
+        uint32_t links = 0u;
+        uint32_t fragment_hits = 0u;
+        uint32_t unsupported = 0u;
+        size_t bi;
+
+        serial_u32("ROBO_QEMU_HTML_LINKS=",
+                   (uint32_t)robo_demo_page_link_count(page));
+        if (robo_demo_page_layout(page, lw, lh) != ROBO_OK) {
+            serial("ROBO_QEMU_DISPLAY_FAIL html_layout\n");
+        }
+        for (bi = 0u; bi < robo_demo_page_block_count(page); bi++) {
+            robo_demo_block_style_t style = (robo_demo_block_style_t)0;
+            robo_gfx_rect_t rect;
+            robo_gfx_point_t p;
+            robo_html_navigation_outcome_t outcome;
+            size_t hit = 0u;
+
+            if (robo_demo_page_block_style(page, bi, &style) != ROBO_OK ||
+                style != ROBO_DEMO_BLOCK_LINK ||
+                !robo_demo_page_block_rect(page, bi, &rect)) {
+                continue;
+            }
+            p.x = rect.x + rect.width / 2;
+            p.y = rect.y + rect.height / 2;
+            if (!robo_demo_page_hit_link(page, p, &hit) || hit != bi) {
+                continue;
+            }
+            links++;
+            memset(&outcome, 0, sizeof(outcome));
+            if (robo_demo_page_activate_link(page, bi, 0, &outcome, 0) ==
+                ROBO_OK) {
+                if (outcome.kind == ROBO_HTML_NAVIGATION_FRAGMENT &&
+                    outcome.fragment_found) {
+                    fragment_hits++;
+                } else if (outcome.kind ==
+                           ROBO_HTML_NAVIGATION_UNSUPPORTED) {
+                    unsupported++;
+                }
+            }
+            robo_html_navigation_outcome_clear(&outcome);
+        }
+        serial_u32("ROBO_QEMU_HTML_LINKS_HIT=", links);
+        serial_u32("ROBO_QEMU_HTML_LINK_FRAGMENT=", fragment_hits);
+        serial_u32("ROBO_QEMU_HTML_LINK_UNSUPPORTED=", unsupported);
+    }
 
     robo_window_config_init(&cfg);
     cfg.width = fb->ready ? (int32_t)fb->width : 800;

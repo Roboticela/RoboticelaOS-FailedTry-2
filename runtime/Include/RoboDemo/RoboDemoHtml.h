@@ -32,17 +32,27 @@
  *   RoboHTML and RoboGraphics, never the other way around.
  *
  * SUPPORTED SUBSET
- *   Recognised: html, head, title, body, h1, p, button.
+ *   Recognised: html, head, title, body, h1, p, button, a, img.
  *   Anything else is skipped safely and counted (see
  *   robo_demo_page_ignored_tag_count) — unsupported markup never fails the
  *   page, and supported markup nested inside it is still painted.
  *   Text comes from the tree's text nodes, so character references
  *   (&amp; &#65;) arrive already decoded by the 8.2 tokenizer.
  *
+ *   `a` became a block in 8.13 and `img` in 8.12 for one reason: both are
+ *   only interesting through something that is not their own text — a
+ *   navigation target and a decoded picture — so neither can be folded into
+ *   the text of the block that contains it.
+ *
  * LIFETIME
  *   - robo_demo_page_create copies the text it keeps; the source bytes are
  *     borrowed only for the duration of the call.
  *   - Blocks are owned by the page; their text is owned by the page.
+ *   - A page built from markup OWNS the document it built (the HTML it was
+ *     handed is gone, so there would be nothing left to activate a link
+ *     against); a page built from a caller's document BORROWS it and never
+ *     destroys it. One rule, stated on both constructors, so "who owns the
+ *     document?" has one answer per call rather than one per caller.
  *   - Page is single-threaded; layout state is cached and recomputed when
  *     the target size changes.
  *
@@ -54,6 +64,8 @@
 
 #include "RoboBase/RoboError.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
+#include "RoboHTML/RoboHTMLAnchor.h"
+#include "RoboGraphics/RoboGraphicsImage.h"
 #include "RoboGraphics/RoboGraphicsSurface.h"
 #include "RoboHTML/RoboHTMLDiagnostics.h"
 #include "RoboHTML/RoboHTMLSource.h"
@@ -78,7 +90,26 @@ typedef enum robo_demo_block_style {
     /** <button> — the one interactive element the demo supports. */
     ROBO_DEMO_BLOCK_BUTTON = 3,
     /** <title> — becomes the window title, never painted. */
-    ROBO_DEMO_BLOCK_DOCUMENT_TITLE = 4
+    ROBO_DEMO_BLOCK_DOCUMENT_TITLE = 4,
+    /**
+     * <img> with a resolved, decoded resource (Phase 8.12).
+     *
+     * Only a *decoded* image becomes a block. An <img> whose `src` has not
+     * been resolved is counted as unsupported markup rather than painted as
+     * a placeholder, because drawing something for a picture that was never
+     * fetched would be the adapter claiming a decode that did not happen.
+     */
+    ROBO_DEMO_BLOCK_IMAGE = 5,
+    /**
+     * <a href> — a link (Phase 8.13).
+     *
+     * Painted in the brand colour with a hairline rule under the run, and
+     * hit-testable, so the pointer → hit test → anchor → activation chain can
+     * be seen end to end. That styling is *adapter* behaviour, not a style
+     * rule: the link's appearance is CSS's job in a later phase, and nothing
+     * else in the runtime may infer a visual contract from this block.
+     */
+    ROBO_DEMO_BLOCK_LINK = 6
 } robo_demo_block_style_t;
 
 /** Human-readable style name; never NULL. */
@@ -106,6 +137,9 @@ typedef struct robo_demo_page robo_demo_page_t;
  * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p out or (NULL @p html
  *         with non-zero @p length); ROBO_OUT_OF_MEMORY; ROBO_INIT_ERROR
  *         when the RoboHTML module has not been initialized.
+ *
+ * The page owns the document it builds (see LIFETIME), so it must be
+ * destroyed with robo_demo_page_destroy.
  */
 robo_result_t robo_demo_page_create(const char *html,
                                     size_t length,
@@ -152,6 +186,68 @@ robo_result_t robo_demo_page_block_style(const robo_demo_page_t *page,
 /** Borrowed UTF-8 text of block @p index ("" when empty). */
 const char *robo_demo_page_block_text(const robo_demo_page_t *page,
                                       size_t index);
+
+/**
+ * Borrowed decoded pixels of image block @p index (Phase 8.12).
+ * NULL unless the block's style is ROBO_DEMO_BLOCK_IMAGE. The image follows
+ * the page's lifetime; retain it to outlive the page.
+ */
+robo_gfx_image_t *robo_demo_page_block_image(const robo_demo_page_t *page,
+                                             size_t index);
+
+/** Count of image blocks in @p page. */
+size_t robo_demo_page_image_count(const robo_demo_page_t *page);
+
+/**
+ * Borrowed `href` of block @p index (Phase 8.13).
+ *
+ * "" when the block is not a link, or when the anchor carried no `href` at
+ * all — the page keeps the bytes the document wrote, unresolved: resolution
+ * belongs to robo_html_navigation_target_create and repeating it here would
+ * be a second, worse URL parser.
+ */
+const char *robo_demo_page_block_href(const robo_demo_page_t *page,
+                                      size_t index);
+
+/** Count of link blocks in @p page. */
+size_t robo_demo_page_link_count(const robo_demo_page_t *page);
+
+/**
+ * Index of the link block containing @p p; 1 on a hit, 0 otherwise.
+ * @p out_index (optional) receives the index of the first hit.
+ *
+ * This is the hit-test half of the activation seam: the adapter's flow is a
+ * single vertical column, so at most one link rect contains a point and the
+ * first match is the answer.
+ */
+int robo_demo_page_hit_link(const robo_demo_page_t *page,
+                            robo_gfx_point_t p,
+                            size_t *out_index);
+
+/**
+ * Activate link block @p index as a link (Phase 8.13).
+ *
+ * Thin, and deliberately so: it resolves the block to its anchor in the
+ * document the page was built from and hands the call to
+ * robo_html_element_activate, which owns every decision — including the
+ * refusal to report navigation that did not happen. Nothing is faked here,
+ * so a route with no handler installed reports UNSUPPORTED and the demo's
+ * output can keep saying that routing is a later phase.
+ *
+ * @return ROBO_OK and a filled @p out — including the NO_TARGET, REJECTED,
+ *         UNSUPPORTED and DOWNLOAD_PENDING outcomes, which are answers;
+ *         ROBO_INVALID_ARGUMENT for a NULL page or an out-of-range index;
+ *         ROBO_NOT_SUPPORTED when the block is not a link; ROBO_NOT_FOUND
+ *         when the document the page was built from is gone (a page built
+ *         from a caller's document outlives it, and a dead document has no
+ *         anchor to activate).
+ */
+robo_result_t robo_demo_page_activate_link(
+    robo_demo_page_t *page,
+    size_t index,
+    const robo_html_navigation_handler_t *handler,
+    robo_html_navigation_outcome_t *out,
+    robo_html_diag_t *diag);
 
 /**
  * Count of recognised elements in the built document tree.

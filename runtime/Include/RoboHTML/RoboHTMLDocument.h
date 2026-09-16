@@ -346,8 +346,9 @@ int robo_html_document_allows_construction(
  * becomes stale), the source association and encoding state are cleared,
  * any failure record is cleared, and construction is reopened.
  *
- * Lifecycle on return: CREATED for a document that never loaded anything,
- * READY (empty) for one that did. Both mean the same thing to a caller —
+ * Lifecycle on return: CREATED for a document that never loaded anything, and
+ * COMPLETE for one that did — whatever it was in when it was reset, including
+ * an interrupted (INTERACTIVE) load. Both mean the same thing to a caller —
  * a document with no source and no content that can accept a new source —
  * and neither is FAILED or DESTROYED. A FAILED document is rejected: the
  * 8.1 rule that failure is sticky until destroy still holds.

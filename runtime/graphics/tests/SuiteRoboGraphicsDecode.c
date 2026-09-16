@@ -1,5 +1,5 @@
 /*
- * RoboGraphics Phase 8.12 — PNG decoding (gfx.decode.*).
+ * RoboGraphics Phase 8.12 — PNG decoding (graphics.decode.*).
  *
  * Three independent sources of truth are used against the decoder, and the
  * distinction between them is the whole point of the suite:
@@ -1208,25 +1208,25 @@ static void test_decode_tiling_and_large(void)
 
 void robo_test_register_graphics_decode(void)
 {
-    robo_test_register("gfx.decode.real_fixtures", test_decode_fixtures);
-    robo_test_register("gfx.decode.probe_safety",
+    robo_test_register("graphics.decode.real_fixtures", test_decode_fixtures);
+    robo_test_register("graphics.decode.probe_safety",
                        test_decode_probe_and_argument_safety);
-    robo_test_register("gfx.decode.rejections", test_decode_rejections);
-    robo_test_register("gfx.decode.round_trip_encoder",
+    robo_test_register("graphics.decode.rejections", test_decode_rejections);
+    robo_test_register("graphics.decode.round_trip_encoder",
                        test_decode_round_trip);
-    robo_test_register("gfx.decode.unfilter", test_decode_unfilter_filters);
-    robo_test_register("gfx.decode.limits", test_decode_limit_enforcement);
-    robo_test_register("gfx.decode.hostile_headers",
+    robo_test_register("graphics.decode.unfilter", test_decode_unfilter_filters);
+    robo_test_register("graphics.decode.limits", test_decode_limit_enforcement);
+    robo_test_register("graphics.decode.hostile_headers",
                        test_decode_hostile_headers);
-    robo_test_register("gfx.decode.hostile_headers_two",
+    robo_test_register("graphics.decode.hostile_headers_two",
                        test_decode_hostile_headers_continued);
-    robo_test_register("gfx.decode.hostile_streams",
+    robo_test_register("graphics.decode.hostile_streams",
                        test_decode_hostile_streams);
-    robo_test_register("gfx.decode.crc_and_truncation",
+    robo_test_register("graphics.decode.crc_and_truncation",
                        test_decode_crc_and_structure);
-    robo_test_register("gfx.decode.palette",
+    robo_test_register("graphics.decode.palette",
                        test_decode_palette_and_transparency);
-    robo_test_register("gfx.decode.palette_malformed",
+    robo_test_register("graphics.decode.palette_malformed",
                        test_decode_palette_malformed);
-    robo_test_register("gfx.decode.large_rows", test_decode_tiling_and_large);
+    robo_test_register("graphics.decode.large_rows", test_decode_tiling_and_large);
 }

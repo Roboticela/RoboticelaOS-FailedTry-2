@@ -20,6 +20,7 @@
 #include "RoboHTML/RoboHTML.h"
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLElement.h"
+#include "RoboHTML/RoboHTMLImage.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
 #include "RoboHTML/RoboHTMLTag.h"
@@ -39,6 +40,11 @@
  * the demo test asserts the two never drift, so the compiled-in source can
  * serve the guest (which has no filesystem in this path) without silently
  * going stale.
+ *
+ * Phase 8.13 added the two anchors and the `id` they target: one route link
+ * the runtime refuses to navigate (no handler, no networking) and one
+ * fragment link it really resolves against this document. A checkpoint that
+ * only showed link-coloured text would prove nothing about navigation.
  */
 static const char g_demo_source[] =
     "<!DOCTYPE html>\n"
@@ -50,6 +56,9 @@ static const char g_demo_source[] =
     "<h1>RoboticelaOS Runtime</h1>\n"
     "<p>Independent HTML rendering is working.</p>\n"
     "<p>RoboGraphics + RoboWindow + RoboHTML</p>\n"
+    "<a href=\"/Settings\">Settings</a>\n"
+    "<a href=\"#Overview\">Overview</a>\n"
+    "<p id=\"Overview\">RoboHTML links resolve to real elements.</p>\n"
     "<button>Demo Button</button>\n"
     "</body>\n"
     "</html>\n";
@@ -107,6 +116,28 @@ typedef struct robo_demo_block {
     size_t length;
     int text_scale;
     robo_gfx_rect_t rect;
+    /**
+     * Retained image resource for ROBO_DEMO_BLOCK_IMAGE, NULL otherwise
+     * (Phase 8.12). The page holds a reference rather than a borrowed
+     * pointer so the picture survives the element's attachment being
+     * replaced or the document being destroyed after the page was built —
+     * which is what lets a page outlive what it was built from.
+     */
+    robo_html_image_t *image;
+    /**
+     * Owned `href` bytes for ROBO_DEMO_BLOCK_LINK, NULL otherwise (Phase
+     * 8.13). Owned rather than borrowed because a page can outlive the tree
+     * it was built from, and a link that forgot its own target would report
+     * "no href" for a link that had one.
+     */
+    char *href;
+    /**
+     * The anchor this link block came from, so activation can resolve the
+     * block back to a real element. Meaningful only while the page's
+     * document is live; a page built from markup owns that document (see
+     * robo_demo_page_create_from_source).
+     */
+    robo_html_node_handle_t anchor;
 } robo_demo_block_t;
 
 struct robo_demo_page {
@@ -114,6 +145,13 @@ struct robo_demo_page {
     robo_demo_block_t *blocks;
     size_t block_count;
     size_t block_capacity;
+    /**
+     * The document the blocks were read from, and whether this page owns it
+     * (Phase 8.13). Built from markup → owned; built from a caller's
+     * document → borrowed. See the LIFETIME note in RoboDemoHtml.h.
+     */
+    robo_html_document_id_t document;
+    int owns_document;
     size_t supported_elements;
     size_t ignored_tags;
     robo_html_diag_t diags[DEMO_MAX_DIAGNOSTICS];
@@ -135,6 +173,10 @@ const char *robo_demo_block_style_name(robo_demo_block_style_t style)
         return "button";
     case ROBO_DEMO_BLOCK_DOCUMENT_TITLE:
         return "title";
+    case ROBO_DEMO_BLOCK_IMAGE:
+        return "image";
+    case ROBO_DEMO_BLOCK_LINK:
+        return "link";
     default:
         return "unknown";
     }
@@ -216,7 +258,79 @@ static robo_result_t page_add_block(robo_demo_page_t *page,
     page->blocks[page->block_count].length = length;
     page->blocks[page->block_count].text_scale = scale;
     page->blocks[page->block_count].rect = robo_gfx_rect_empty();
+    page->blocks[page->block_count].image = NULL;
+    page->blocks[page->block_count].href = NULL;
+    robo_html_node_handle_clear(&page->blocks[page->block_count].anchor);
     page->block_count++;
+    return ROBO_OK;
+}
+
+/**
+ * Append a link block (Phase 8.13).
+ *
+ * Separate from page_add_block for the same reason the image block is: it
+ * owns something else. A link block owns its `href` copy *and* remembers the
+ * anchor it came from, because activation needs an element and not a string
+ * — a fragment target only exists inside a document.
+ */
+static robo_result_t page_add_link_block(robo_demo_page_t *page,
+                                         const char *text,
+                                         size_t length,
+                                         const char *href,
+                                         size_t href_length,
+                                         const robo_html_node_handle_t *anchor)
+{
+    robo_demo_block_t *block;
+    char *copy = NULL;
+    robo_result_t res = page_add_block(page, ROBO_DEMO_BLOCK_LINK, text, length,
+                                       DEMO_BODY_SCALE);
+
+    if (res != ROBO_OK) {
+        return res;
+    }
+    if (href && href_length > 0u) {
+        copy = (char *)robo_malloc(href_length + 1u);
+        if (!copy) {
+            /*
+             * The block is already appended, so unwinding it is the only way
+             * to keep the page consistent with the failure: a link block
+             * whose `href` allocation failed would report "no href" for a
+             * link that had one.
+             */
+            robo_free(page->blocks[page->block_count - 1u].text);
+            page->block_count--;
+            return ROBO_OUT_OF_MEMORY;
+        }
+        memcpy(copy, href, href_length);
+        copy[href_length] = '\0';
+    }
+    block = &page->blocks[page->block_count - 1u];
+    block->href = copy;
+    if (anchor) {
+        block->anchor = *anchor;
+    }
+    return ROBO_OK;
+}
+
+/**
+ * Append an image block that retains @p image (Phase 8.12).
+ *
+ * Separate from page_add_block because it owns a different thing: a text
+ * block owns bytes it copied, an image block owns a reference to a resource
+ * it does not control. Releasing the page must release that one reference,
+ * and nothing else.
+ */
+static robo_result_t page_add_image_block(robo_demo_page_t *page,
+                                          robo_html_image_t *image)
+{
+    robo_result_t res = page_add_block(page, ROBO_DEMO_BLOCK_IMAGE, "", 0u,
+                                       DEMO_BODY_SCALE);
+
+    if (res != ROBO_OK) {
+        return res;
+    }
+    robo_html_image_retain(image);
+    page->blocks[page->block_count - 1u].image = image;
     return ROBO_OK;
 }
 
@@ -313,6 +427,18 @@ static robo_demo_block_style_t demo_style_for_element(
         return ROBO_DEMO_BLOCK_DOCUMENT_TITLE;
     }
     /*
+     * <a> is a block in this adapter even though it is inline markup, and
+     * that is a deliberate limit rather than an oversight: this adapter has
+     * no inline flow, so a link nested in a <p>/<div> run is painted as part
+     * of that run (text and all, since a block's text is its whole subtree)
+     * and only a link that is itself block-level here becomes its own
+     * hit-testable block. Painting it any other way would mean inventing an
+     * inline layout model in the one module that must not grow one.
+     */
+    if (robo_html_element_is_tag(element, ROBO_HTML_TAG_A)) {
+        return ROBO_DEMO_BLOCK_LINK;
+    }
+    /*
      * A division that holds text *and nothing else* takes the paragraph
      * representation: this adapter has one way to draw a block of text, and
      * <div> is the element that means "a block of content". Without this row
@@ -348,6 +474,7 @@ static int scale_for_style(robo_demo_block_style_t style)
         return DEMO_BUTTON_LABEL_SCALE;
     case ROBO_DEMO_BLOCK_PARAGRAPH:
     case ROBO_DEMO_BLOCK_DOCUMENT_TITLE:
+    case ROBO_DEMO_BLOCK_LINK:
     default:
         return DEMO_BODY_SCALE;
     }
@@ -410,6 +537,32 @@ static robo_result_t walk_subtree(robo_demo_page_t *page,
         if (robo_html_element_view_get(&child, &view, NULL) != ROBO_OK) {
             continue;
         }
+        /*
+         * <img> is handled before the style table because it is the one
+         * element whose block comes from a *resource* rather than from its
+         * own text: the page copies the decoded picture, not a string. A
+         * recognised-but-unresolved image is counted as unsupported markup
+         * and paints nothing, so the adapter never draws a picture that was
+         * not decoded.
+         */
+        if (robo_html_element_is_tag(&child, ROBO_HTML_TAG_IMG)) {
+            robo_html_image_t *resolved = NULL;
+
+            if (robo_html_element_image_get(&child, &resolved, NULL) ==
+                    ROBO_OK &&
+                resolved && robo_html_image_graphics(resolved)) {
+                robo_result_t r = page_add_image_block(page, resolved);
+
+                page->supported_elements++;
+                if (r != ROBO_OK) {
+                    return r;
+                }
+            } else {
+                page->ignored_tags++;
+            }
+            /* A void element: nothing to descend into. */
+            continue;
+        }
         style = demo_style_for_element(&child, &view);
         if (style == (robo_demo_block_style_t)0) {
             /* html/head/body are recognised structure; the rest is not in
@@ -449,6 +602,27 @@ static robo_result_t walk_subtree(robo_demo_page_t *page,
                     }
                     memcpy(page->title, text, n);
                     page->title[n] = '\0';
+                } else if (style == ROBO_DEMO_BLOCK_LINK) {
+                    /*
+                     * The one block that keeps an attribute as well as its
+                     * text: a link without its target is not a link, and the
+                     * bytes are copied here because the attribute view
+                     * borrows from the document's payload arena. The anchor
+                     * handle is kept so activation can reach the real
+                     * element — a fragment target only exists in a document.
+                     */
+                    robo_html_anchor_attributes_t attrs;
+                    robo_result_t r;
+
+                    memset(&attrs, 0, sizeof(attrs));
+                    (void)robo_html_element_anchor_attributes(&child, &attrs,
+                                                              NULL);
+                    r = page_add_link_block(page, text, strlen(text),
+                                            attrs.href, attrs.href_length,
+                                            &child);
+                    if (r != ROBO_OK) {
+                        return r;
+                    }
                 } else {
                     robo_result_t r;
 
@@ -488,6 +662,7 @@ static robo_result_t build_page_from_document(robo_demo_page_t *page,
                                               robo_html_document_id_t document_id)
 {
     robo_html_node_handle_t root;
+    robo_result_t r;
 
     if (!robo_html_document_is_live(document_id)) {
         return ROBO_HTML_DIAG(NULL, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_NOT_FOUND,
@@ -498,13 +673,28 @@ static robo_result_t build_page_from_document(robo_demo_page_t *page,
         return ROBO_HTML_DIAG(NULL, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_ERROR,
                               "document has no usable root");
     }
-    return walk_subtree(page, &root, 0u);
+    r = walk_subtree(page, &root, 0u);
+    if (r != ROBO_OK) {
+        return r;
+    }
+    /*
+     * Recorded so activation has a document to resolve against. Ownership is
+     * the caller's: this function borrows, and build_page_from_tree — which
+     * created the document itself — flips the flag once the page is built.
+     */
+    page->document = document_id;
+    page->owns_document = 0;
+    return ROBO_OK;
 }
 
 /**
  * Build the page model from @p src through the real 8.3 tree builder.
- * The temporary document lives only for the duration of the call: the page
- * copies the text it keeps, exactly as before.
+ *
+ * The page copies the text it keeps, but it KEEPS THE DOCUMENT (Phase
+ * 8.13): the tree is what a link activation resolves against, and a page
+ * built from markup has no other owner to borrow from. Ownership transfers
+ * to the page only once the walk succeeds; every failure path still destroys
+ * the document here, so a failed create leaves nothing behind.
  */
 static robo_result_t build_page_from_tree(robo_demo_page_t *page,
                                           const robo_html_source_t *src)
@@ -542,8 +732,12 @@ static robo_result_t build_page_from_tree(robo_demo_page_t *page,
         }
     }
     robo_html_tree_builder_destroy(builder);
-    (void)robo_html_document_destroy(doc, NULL);
-    return r;
+    if (r != ROBO_OK) {
+        (void)robo_html_document_destroy(doc, NULL);
+        return r;
+    }
+    page->owns_document = 1;
+    return ROBO_OK;
 }
 
 robo_result_t robo_demo_page_create_from_source(const robo_html_source_t *src,
@@ -665,9 +859,28 @@ void robo_demo_page_destroy(robo_demo_page_t *page)
         if (page->blocks[i].text) {
             robo_free(page->blocks[i].text);
         }
+        if (page->blocks[i].href) {
+            robo_free(page->blocks[i].href);
+        }
+        /* Each image block holds one reference; releasing it here is the
+         * whole of the page's claim on a decoded picture. */
+        if (page->blocks[i].image) {
+            robo_html_image_release(page->blocks[i].image);
+        }
     }
     if (page->blocks) {
         robo_free(page->blocks);
+    }
+    /*
+     * Only a page built from markup owns its document. A page built from a
+     * caller's document must not destroy something it does not own, and a
+     * failure is ignored rather than reported: the only ways this can fail
+     * are a document the caller already destroyed or a module that was shut
+     * down first, and neither is something a destructor can report to
+     * anyone. The blocks are the page's own either way, so nothing leaks.
+     */
+    if (page->owns_document) {
+        (void)robo_html_document_destroy(page->document, NULL);
     }
     robo_free(page);
 }
@@ -700,6 +913,56 @@ const char *robo_demo_page_block_text(const robo_demo_page_t *page,
         return "";
     }
     return page->blocks[index].text ? page->blocks[index].text : "";
+}
+
+robo_gfx_image_t *robo_demo_page_block_image(const robo_demo_page_t *page,
+                                             size_t index)
+{
+    if (!page || index >= page->block_count || !page->blocks[index].image) {
+        return NULL;
+    }
+    return robo_html_image_graphics(page->blocks[index].image);
+}
+
+const char *robo_demo_page_block_href(const robo_demo_page_t *page,
+                                      size_t index)
+{
+    if (!page || index >= page->block_count || !page->blocks[index].href) {
+        return "";
+    }
+    return page->blocks[index].href;
+}
+
+size_t robo_demo_page_link_count(const robo_demo_page_t *page)
+{
+    size_t i;
+    size_t count = 0u;
+
+    if (!page) {
+        return 0u;
+    }
+    for (i = 0u; i < page->block_count; i++) {
+        if (page->blocks[i].style == ROBO_DEMO_BLOCK_LINK) {
+            count++;
+        }
+    }
+    return count;
+}
+
+size_t robo_demo_page_image_count(const robo_demo_page_t *page)
+{
+    size_t i;
+    size_t count = 0u;
+
+    if (!page) {
+        return 0u;
+    }
+    for (i = 0u; i < page->block_count; i++) {
+        if (page->blocks[i].style == ROBO_DEMO_BLOCK_IMAGE) {
+            count++;
+        }
+    }
+    return count;
 }
 
 size_t robo_demo_page_supported_element_count(const robo_demo_page_t *page)
@@ -768,9 +1031,29 @@ robo_result_t robo_demo_page_layout(robo_demo_page_t *page,
             y += ink.height + DEMO_HEADING_GAP;
             break;
         case ROBO_DEMO_BLOCK_PARAGRAPH:
+        case ROBO_DEMO_BLOCK_LINK:
+            /* A link occupies exactly the same flow slot as a paragraph: the
+             * adapter's link difference is paint and hit-testing, not
+             * geometry. Wrapping and inline flow are Phase 10's, and giving a
+             * link its own metric here would bake an invented one in. */
             b->rect = robo_gfx_rect(DEMO_PAD, y, ink.width, ink.height);
             y += ink.height + DEMO_PARAGRAPH_GAP;
             break;
+        case ROBO_DEMO_BLOCK_IMAGE: {
+            uint32_t iw = 0u;
+            uint32_t ih = 0u;
+
+            if (!b->image ||
+                !robo_html_image_intrinsic_size(b->image, &iw, &ih)) {
+                b->rect = robo_gfx_rect_empty();
+                break;
+            }
+            /* One image pixel is one surface pixel: this adapter has no
+             * scaling, and inventing one here would be layout. */
+            b->rect = robo_gfx_rect(DEMO_PAD, y, (int32_t)iw, (int32_t)ih);
+            y += (int32_t)ih + DEMO_PARAGRAPH_GAP;
+            break;
+        }
         case ROBO_DEMO_BLOCK_BUTTON: {
             int32_t bw = ink.width + DEMO_BUTTON_PAD_X * 2;
             y += DEMO_BUTTON_GAP;
@@ -830,6 +1113,65 @@ int robo_demo_page_hit_button(const robo_demo_page_t *page, robo_gfx_point_t p)
         return 0;
     }
     return robo_gfx_rect_contains_point(r, p);
+}
+
+int robo_demo_page_hit_link(const robo_demo_page_t *page,
+                            robo_gfx_point_t p,
+                            size_t *out_index)
+{
+    size_t i;
+
+    if (!page) {
+        return 0;
+    }
+    for (i = 0u; i < page->block_count; i++) {
+        if (page->blocks[i].style != ROBO_DEMO_BLOCK_LINK) {
+            continue;
+        }
+        if (robo_gfx_rect_is_empty(page->blocks[i].rect)) {
+            continue;
+        }
+        if (!robo_gfx_rect_contains_point(page->blocks[i].rect, p)) {
+            continue;
+        }
+        if (out_index) {
+            *out_index = i;
+        }
+        return 1;
+    }
+    return 0;
+}
+
+robo_result_t robo_demo_page_activate_link(
+    robo_demo_page_t *page,
+    size_t index,
+    const robo_html_navigation_handler_t *handler,
+    robo_html_navigation_outcome_t *out,
+    robo_html_diag_t *diag)
+{
+    if (!page || index >= page->block_count) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT,
+                              ROBO_INVALID_ARGUMENT,
+                              "link block index out of range");
+    }
+    if (page->blocks[index].style != ROBO_DEMO_BLOCK_LINK) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT,
+                              ROBO_NOT_SUPPORTED,
+                              "block is not a link");
+    }
+    if (!robo_html_document_is_live(page->document)) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_DOCUMENT, ROBO_NOT_FOUND,
+                              "the document this page was built from is gone");
+    }
+    /*
+     * No fake fallback for a page that lost its document: activation of a
+     * fragment needs the tree, and a route request needs an anchor handle
+     * that still resolves. Re-resolving the stored `href` string here would
+     * build a request the module would then have to invent an anchor for,
+     * which is exactly the "pretend" this phase refuses to do.
+     */
+    return robo_html_element_activate(&page->blocks[index].anchor, handler, out,
+                                      diag);
 }
 
 /* ------------------------------------------------------------------ */
@@ -945,6 +1287,45 @@ robo_result_t robo_demo_page_paint(robo_demo_page_t *page,
             continue;
         }
         switch (b->style) {
+        case ROBO_DEMO_BLOCK_IMAGE: {
+            robo_gfx_image_t *picture =
+                b->image ? robo_html_image_graphics(b->image) : NULL;
+            robo_gfx_surface_t *source_surface;
+            robo_gfx_rect_t visible;
+
+            if (!picture) {
+                break; /* nothing decoded behind this block */
+            }
+            source_surface = robo_gfx_image_surface(picture);
+            if (!source_surface) {
+                break;
+            }
+            /*
+             * Clip by intersecting, then offset the source rect by however
+             * far the visible part starts inside the picture. One copy_rect
+             * call does the whole draw, and because the copy is scoped to
+             * the intersection there is no path that reads or writes outside
+             * either surface.
+             */
+            if (robo_gfx_rect_clip(rect, robo_gfx_rect(0, 0, (int32_t)w,
+                                                       (int32_t)h),
+                                   &visible) != ROBO_OK) {
+                return ROBO_ERROR;
+            }
+            if (robo_gfx_rect_is_empty(visible)) {
+                break;
+            }
+            r = robo_gfx_surface_copy_rect(
+                source_surface,
+                robo_gfx_rect(visible.x - rect.x, visible.y - rect.y,
+                              visible.width, visible.height),
+                surface, robo_gfx_point(visible.x, visible.y));
+            if (r != ROBO_OK) {
+                return r;
+            }
+            stats.rects_painted++;
+            break;
+        }
         case ROBO_DEMO_BLOCK_HEADING:
             r = robo_demo_font_draw(surface, rect.x, rect.y, b->text,
                                     b->length, b->text_scale, C_TEXT);
@@ -971,6 +1352,26 @@ robo_result_t robo_demo_page_paint(robo_demo_page_t *page,
             }
             stats.text_runs_painted++;
             break;
+        case ROBO_DEMO_BLOCK_LINK: {
+            /* Brand colour plus a rule under the run. Temporary adapter
+             * styling so a link is distinguishable in the picture, not a
+             * style engine — the phase says so in as many words. */
+            r = robo_demo_font_draw(surface, rect.x, rect.y, b->text,
+                                    b->length, b->text_scale, C_BRAND);
+            if (r != ROBO_OK) {
+                return r;
+            }
+            stats.text_runs_painted++;
+            r = robo_demo_fill_clipped(
+                surface, robo_gfx_rect(rect.x, rect.y + rect.height + 1,
+                                       rect.width, 1),
+                C_BRAND);
+            if (r != ROBO_OK) {
+                return r;
+            }
+            stats.lines_painted++;
+            break;
+        }
         case ROBO_DEMO_BLOCK_BUTTON: {
             robo_gfx_size_t ink =
                 robo_demo_font_measure(b->text, b->length, b->text_scale);

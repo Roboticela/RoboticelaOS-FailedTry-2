@@ -93,6 +93,33 @@ typedef struct robo_html_dom_capabilities {
      * this runtime does not recognise is UNKNOWN and still fully functional.
      */
     int element_tags;
+    /**
+     * The image resource model is available (Phase 8.12): `<img>` attributes
+     * (src/alt/width/height) readable as a typed view, a resource with an
+     * explicit state that holds real decoded RGBA8 pixels, a per-element
+     * resolve/get/detach and a per-document attachment table.
+     *
+     * "Available" does not mean reachable from the network: bytes arrive
+     * through a caller-installed resolver, and this build ships only an
+     * in-memory asset table. There is no CSS, layout, intrinsic sizing,
+     * srcset/<picture>, load/error event or accessibility tree.
+     */
+    int images;
+    /**
+     * The anchor and navigation model is available (Phase 8.13): `<a>`
+     * attributes readable as a typed view, a reference resolved into a
+     * navigation target (route / fragment / external / invalid) against the
+     * document's own reference, a fragment resolved to a real element in this
+     * document, and an activation that produces a deterministic outcome and
+     * consults a caller-installed handler for anything it cannot answer
+     * itself.
+     *
+     * "Available" is a narrow claim: an activation with no handler reports
+     * UNSUPPORTED, a scheme outside the permitted set is refused before the
+     * handler is consulted, and there is no network, no History API, no
+     * click/event DOM API and no download manager.
+     */
+    int links;
     /** Event model available (DOM events phase). */
     int events;
     /** Tree construction from parser callbacks (Phase 8.3). */

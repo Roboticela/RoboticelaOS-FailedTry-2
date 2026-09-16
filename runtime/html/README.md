@@ -4,9 +4,9 @@ HTML document subsystem for Roboticela Runtime (**Phase 8.1 architecture +
 Phase 8.2 tokenizer + Phase 8.3 tree builder + Phase 8.4 document model +
 Phase 8.5 element model + Phase 8.6 attribute model + Phase 8.7 text model +
 Phase 8.8 traversal + Phase 8.9 DOM mutation + Phase 8.10 document lifecycle +
-Phase 8.11 basic HTML elements**).
+Phase 8.11 basic HTML elements + Phase 8.12 images + Phase 8.13 links**).
 
-**Version:** 0.11.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
+**Version:** 0.13.0 — `ROBO_HTML_API_FROZEN=0` (freezes in a later Phase 8 goal)
 
 Public RoboHTML never depends on Chromium, and — per `DEPENDENCIES.md` — never
 depends on RoboCSS / RoboLayout / RoboPaint / RoboRender / RoboWindow /
@@ -137,6 +137,50 @@ HTML namespace — is `UNKNOWN`, which is a supported state: it keeps its name,
 attributes, children, traversal and mutation behaviour and is never coerced
 into a known type. See `docs/Elements.md`.
 
+**8.12 (images):** an `<img>` becomes a resource rather than a tag. Adds
+`RoboHTMLImage.h`, which reads the image-relevant attributes
+(`src`/`alt`/`width`/`height`) and models the resource behind them — a state
+(`NONE`/`PENDING`/`DECODED`/`FAILED`/`UNSUPPORTED`) plus, when decoded, real
+RGBA8 pixels from RoboGraphics' new PNG decoder. **Bytes arrive through a
+seam, never through RoboHTML**: a caller installs a resolver, RoboHTML hands it
+the reference and receives bytes borrowed for the duration of the call, so the
+future network loader is an *implementation of a resolver* rather than a change
+to this model. The one resolver this phase ships is an in-memory asset table —
+it cannot touch the filesystem, so there is no path to traverse — and a
+reference naming a scheme (`http:`, `file:`, `data:`) is refused as
+UNSUPPORTED rather than reported as not-found, because "we will not fetch
+that" and "those bytes are not here" are different facts. **Failure is a
+state, not an exception**: a missing asset, undecodable bytes and a refused
+scheme all leave the DOM exactly as it was, which is the only shape that keeps
+an `<img>` from being able to break a document. Declared dimensions are parsed
+by the HTML rule (ASCII digits, no `px`, no overflow) and an invalid one is
+*reported* rather than clamped. No CSS, layout, intrinsic sizing, `srcset`,
+`<picture>`, `load`/`error` events, accessibility tree or networking. See
+`docs/Images.md`.
+
+**8.13 (links):** an `<a>` becomes a navigation target. Adds
+`RoboHTMLAnchor.h`, which reads the anchor attributes (`href`/`target`/`rel`/
+`download`/`title`) without interpreting them, resolves a reference against the
+document's own reference into a navigation target — `ROUTE`, `FRAGMENT`,
+`EXTERNAL`, `INVALID` or `NONE` — classifies the `target` context, and reports
+every activation through an outcome vocabulary **that has no "navigated"
+kind**, so nothing can claim navigation this runtime did not perform. Two rules
+carry the phase. First, **a scheme the runtime does not permit never reaches a
+handler**: `javascript:`, `data:` and `file:` are refused by policy before the
+seam is consulted, which is why an attribute cannot be used to reach a
+subsystem the document was never granted. Second, **the outcome owns the
+resolved target it reports**, because activation resolves the reference itself
+and a borrowed target would dangle the moment the call returned. Fragments are
+the one navigation this phase completes, and it completes them locally —
+`#Overview` names an element in *this* document and finding one needs no I/O,
+so it is answered here as `FRAGMENT` or `FRAGMENT_MISSING` rather than
+delegated. `rel` is preserved and answerable, never interpreted; `download` is
+an intent and an activation that would need to save something says
+`DOWNLOAD_PENDING`; `_blank` is a distinct context, not a new tab. RoboticelaOS
+is an application runtime, so this phase invents no origin, cookie jar or
+session and adds no security model of its own — it refuses, and says why. See
+`docs/Links.md`.
+
 **No DOM behaviour** — `NamedNodeMap`, `getElementById`, `querySelector`,
 `classList`, `dataset`, events and the rest of the DOM surface come later, and
 so does node *creation* on a closed document (`createElement` /
@@ -161,7 +205,7 @@ registration.
 
 Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 `ElementModel.md`, `AttributeModel.md`, `TextModel.md`, `Traversal.md`,
-`Mutation.md`.
+`Mutation.md`, `Lifecycle.md`, `Elements.md`, `Images.md`, `Links.md`.
 
 ## Public headers
 
@@ -178,6 +222,9 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `RoboHTMLText.h` | Text model: creation seam, view/content/length/parent, empty-text policy, and set/append mutation |
 | `RoboHTMLTraversal.h` | Traversal: relationships, depth/root, the child cursor, the all/elements/text filters, pre-order and descendant walkers, bounded search |
 | `RoboHTMLMutation.h` | DOM mutation: append/insert-before/remove/replace, bulk child removal, `contains`, the tree version |
+| `RoboHTMLTag.h` | Element vocabulary: tag identity, name/class/flags lookup, intrinsic predicates |
+| `RoboHTMLImage.h` | Image resources: attribute view, dimension parsing, resource states, the fetch-resolver seam, the in-memory asset resolver, per-document attachment |
+| `RoboHTMLAnchor.h` | Anchors and navigation: attribute view, reference resolution, target kinds, scheme policy, fragment lookup, target context, `rel` tokens, the navigation request/handler/outcome, activation |
 | `RoboHTMLSource.h` | Source/input abstraction (borrowing view) |
 | `RoboHTMLEncoding.h` | Encoding boundary (labels + state; no decoding yet) |
 | `RoboHTMLParser.h` | Parser lease between source and future tokenizer |
@@ -208,7 +255,14 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `html.text.*` | Text creation (basic/empty/validation), kind identification and the not-text answers, `set`/`append` including the slow path, mutation after finalization, parser integration, runs and merging, whitespace, character references, Unicode, long runs, traversal, ownership/stale handles, teardown, malformed input, the dump, capability flag, demo document |
 | `html.traverse.*` | Relationship accessors and the miss contract, parent/root/depth, exact document order and its determinism, pre-order and descendant walks, the element/text filters, the child cursor, search (`find_first` vs `find_descendant`), parser-built trees with attributes intact, Unicode, a 1000-level tree, an empty document, defensive input, visitor control including destroy-from-visitor, the dump on the walker, capabilities and diagnostics, demo document |
 | `html.mutate.*` | Append/insert-before/remove/replace positional cases, bulk child removal, parent/first/last/sibling/order integrity (every mutating case ends in a whole-tree audit), duplicate ownership, self-insertion and ancestor cycles, cross-document refusal, detached-subtree behaviour, the tree version, parser-created (finalized) trees, the creation boundary, attribute and Unicode preservation, the mutation hook, traversal invalidation, teardown/reset/destroy |
+| `html.lifecycle.*` | Initial state, the valid transition graph, every invalid transition refused without partial state, the restrictive edges (no `LOADING → COMPLETE`, no `CREATED → COMPLETE`), repeated transitions and destruction, parser integration, malformed source, mutation and traversal in every state, ownership/root/sibling integrity across a transition |
+| `html.tag.*` | Table density and row order, name lookup and round-trip, role/flag agreement, every predicate against its flag, parser identity, custom and out-of-range tags, non-element handles |
+| `html.elements.*` | All 32 basic element types through the parser, the creation seam, void behaviour, attributes, text and whitespace, Unicode (Arabic/Persian/Urdu/Hindi/Bengali/CJK/emoji), traversal, mutation, lifecycle, 23 malformed inputs, the dump |
+| `html.image.*` | `<img>` through the parser (identity, four attributes, void, siblings), dimension parsing, alt verbatim including Unicode, decode through the asset resolver, failure and scheme refusal as distinct states, re-resolve on a mutated `src`, detach, teardown, mutation and traversal, debug describe |
+| `html.anchor.*` | `<a>` through the parser, the attribute view (present vs usable), the resolution matrix with and without a base, fragments, external URIs, scheme knowledge vs permission, target contexts, `rel` tokens, activation for every outcome kind including the refusals, request contents, no fake success, structure, mutation, lifecycle and destroyed-document safety, Unicode link text, debug describe, capability flag |
+| `demo.link.*` | The link checkpoint end to end: the built-in document's two anchors as real DOM elements, hit-testing through block rects, a route refusing to navigate with no handler, a fragment resolving to the `id` it names, link paint colour and underline versus body copy, activation after the document is destroyed, and `href` mutation reaching the picture |
 | `demo.mutation.*` | A DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |
+| `demo.paint.*` | The visual checkpoint: element kinds, the lifecycle not changing what is rendered, and a decoded PNG reaching the surface |
 
 Two ownership rules in one line each:
 

@@ -43,7 +43,24 @@
  * copies of that knowledge — the classification table in the element model
  * and the void-element list in the tree builder — so "what is <div>?" and
  * "is <br> void?" now have one answer each, readable by a caller as a
- * symbol instead of a string comparison. The surface still grows in 8.12+,
+ * symbol instead of a string comparison. 0.12.0 gives `<img>` a resource:
+ * RoboHTMLImage.h models the image as a state (none, pending, decoded,
+ * failed, unsupported) over a RoboGraphics bitmap, reads `src`/`alt` and
+ * parses declared dimensions without trusting them, fetches bytes through an
+ * installed resolver instead of doing any I/O itself, ships one safe
+ * in-memory asset resolver for local/test assets, refuses scheme references
+ * by policy rather than reporting them missing, and attaches the result to
+ * the element in a per-document table keyed by node identity. Failure is a
+ * state, not an exception, so a bad `src` cannot damage a document. 0.13.0
+ * gives anchors a target: RoboHTMLAnchor.h reads `href`/`target`/`rel`/
+ * `download`/`title` without interpreting them, resolves a reference against
+ * the document's own reference into a navigation target (route, fragment,
+ * external, invalid, or none), classifies the target context, refuses
+ * schemes by policy before any seam is consulted (`javascript:`, `data:` and
+ * `file:` never reach a handler), resolves a fragment locally because that
+ * is the one navigation needing no I/O, and reports every activation through
+ * an outcome vocabulary with no "navigated" kind — so nothing can claim
+ * navigation this runtime did not perform. The surface still grows in 8.14+,
  * so API freeze is NOT claimed here (ROBO_HTML_API_FROZEN=0).
  */
 
@@ -51,9 +68,9 @@
 #define ROBO_HTML_VERSION_H
 
 #define ROBO_HTML_VERSION_MAJOR 0
-#define ROBO_HTML_VERSION_MINOR 11
+#define ROBO_HTML_VERSION_MINOR 13
 #define ROBO_HTML_VERSION_PATCH 0
-#define ROBO_HTML_VERSION_STRING "0.11.0"
+#define ROBO_HTML_VERSION_STRING "0.13.0"
 
 /** 1 once the Phase 8 surface is frozen (not yet — see header comment). */
 #define ROBO_HTML_API_FROZEN 0

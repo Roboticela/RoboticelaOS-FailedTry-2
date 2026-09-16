@@ -18,15 +18,20 @@
 #include "RoboDemo/RoboDemoVersion.h"
 #include "RoboGraphics/RoboGraphics.h"
 #include "RoboGraphics/RoboGraphicsBitmap.h"
+#include "RoboGraphics/RoboGraphicsEncode.h"
+#include "RoboGraphics/RoboGraphicsImage.h"
 #include "RoboGraphics/RoboGraphicsScreenshot.h"
 #include "RoboHTML/RoboHTML.h"
+#include "RoboHTML/RoboHTMLAnchor.h"
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLElement.h"
+#include "RoboHTML/RoboHTMLImage.h"
 #include "RoboHTML/RoboHTMLLifecycle.h"
 #include "RoboHTML/RoboHTMLMutation.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
 #include "RoboHTML/RoboHTMLTag.h"
+#include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
 #include "RoboTest.h"
 
@@ -191,13 +196,14 @@ static void test_demo_default_source(void)
     }
 
     /* <title> becomes the window title, and html/head/body are structural
-     * only, so the four visible elements become exactly four blocks. */
+     * only, so the visible elements become exactly these blocks. */
     ROBO_CHECK_STR_EQ(robo_demo_page_title(page), "RoboticelaOS Runtime");
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(page), 4);
-    ROBO_CHECK_EQ_INT(robo_demo_page_supported_element_count(page), 8);
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(page), 7);
+    ROBO_CHECK_EQ_INT(robo_demo_page_supported_element_count(page), 11);
     ROBO_CHECK_EQ_INT(robo_demo_page_ignored_tag_count(page), 0);
     ROBO_CHECK_EQ_INT(robo_demo_page_diagnostic_count(page), 0);
     ROBO_CHECK_EQ_INT(robo_demo_page_has_button(page), 1);
+    ROBO_CHECK_EQ_INT(robo_demo_page_link_count(page), 2);
 
     ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 0, &style), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_HEADING);
@@ -214,14 +220,37 @@ static void test_demo_default_source(void)
     ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 2),
                       "RoboGraphics + RoboWindow + RoboHTML");
 
+    /*
+     * The two links (Phase 8.13): a block each, because they are only
+     * interesting through their `href`. The `href` bytes are kept verbatim
+     * and unresolved, and the paragraph that follows carries the `id` the
+     * fragment link names.
+     */
     ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 3, &style), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_LINK);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 3), "Settings");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 3), "/Settings");
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 4, &style), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_LINK);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 4), "Overview");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 4), "#Overview");
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 5, &style), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_PARAGRAPH);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 5),
+                      "RoboHTML links resolve to real elements.");
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 6, &style), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_BUTTON);
-    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 3), "Demo Button");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 6), "Demo Button");
 
     /* Out-of-range access is a clean NOT_FOUND, never garbage. */
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 4, &style),
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 7, &style),
                       ROBO_NOT_FOUND);
-    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 4), "");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 7), "");
+    /* A non-link block has no href, and says so rather than inventing one. */
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 0), "");
 
     robo_demo_page_destroy(page);
 }
@@ -553,10 +582,11 @@ static void test_demo_layout_flow(void)
     ROBO_CHECK(robo_demo_page_block_rect(page, 0, &r0));
     ROBO_CHECK(robo_demo_page_block_rect(page, 1, &r1));
     ROBO_CHECK(robo_demo_page_block_rect(page, 2, &r2));
-    ROBO_CHECK(robo_demo_page_block_rect(page, 3, &r3));
+    /* Block 3 is the first link; the button is the last block. */
+    ROBO_CHECK(robo_demo_page_block_rect(page, 6, &r3));
     ROBO_CHECK_EQ_INT(robo_demo_page_block_rect(page, 9, &r3), 0);
 
-    /* Deterministic vertical flow: heading, two paragraphs, then button. */
+    /* Deterministic vertical flow: heading, paragraphs, links, then button. */
     ROBO_CHECK(r0.y < r1.y);
     ROBO_CHECK(r1.y < r2.y);
     ROBO_CHECK(r2.y < r3.y);
@@ -567,6 +597,28 @@ static void test_demo_layout_flow(void)
     ROBO_CHECK_EQ_INT(r0.height, 24);
     ROBO_CHECK_EQ_INT(r1.height, 16);
     ROBO_CHECK_EQ_INT(r2.height, 16);
+
+    /*
+     * A link occupies the same flow slot as a paragraph — the adapter's link
+     * difference is paint and hit-testing, not geometry — and every block in
+     * the document column stays ordered.
+     */
+    {
+        size_t i;
+        int32_t prev_y = 0;
+        int have_prev = 0;
+
+        for (i = 0u; i < robo_demo_page_block_count(page); i++) {
+            robo_gfx_rect_t r;
+
+            ROBO_CHECK(robo_demo_page_block_rect(page, i, &r));
+            if (have_prev) {
+                ROBO_CHECK(prev_y < r.y);
+            }
+            prev_y = r.y;
+            have_prev = 1;
+        }
+    }
 
     centre.x = r3.x + r3.width / 2;
     centre.y = r3.y + r3.height / 2;
@@ -662,10 +714,11 @@ static void test_demo_paint_probes(void)
     ROBO_CHECK_EQ_INT(robo_demo_page_paint(page, surface, &opts, &stats),
                       ROBO_OK);
 
-    ROBO_CHECK_EQ_INT(stats.blocks_painted, 4);
-    ROBO_CHECK_EQ_INT(stats.text_runs_painted, 4);
+    ROBO_CHECK_EQ_INT(stats.blocks_painted, 7);
+    ROBO_CHECK_EQ_INT(stats.text_runs_painted, 7);
     ROBO_CHECK(stats.rects_painted >= 6u);
-    ROBO_CHECK_EQ_INT(stats.lines_painted, 1);
+    /* One rule under the headline plus one underline per link. */
+    ROBO_CHECK_EQ_INT(stats.lines_painted, 3);
 
     ROBO_CHECK(robo_demo_page_button_rect(page, &button));
     ROBO_CHECK(robo_demo_page_block_rect(page, 0, &heading));
@@ -1432,6 +1485,518 @@ static void test_demo_paint_element_kinds(void)
     ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
 }
 
+/*
+ * The Phase 8.12 visual regression: a real decoded image, travelling from
+ * markup through the DOM to the framebuffer.
+ *
+ * Every step is the real implementation — the tokenizer and tree builder
+ * produce the `<img>`, the asset resolver supplies genuine PNG bytes, the
+ * RoboGraphics decoder produces the pixels, and the assertion is made on the
+ * painted surface. Nothing here draws a rectangle and calls it an image.
+ */
+typedef struct demo_image_resolve_ctx {
+    const robo_html_image_resolver_t *resolver;
+    size_t count;
+} demo_image_resolve_ctx_t;
+
+static robo_result_t demo_image_resolve_visitor(
+    const robo_html_node_view_t *view, size_t depth, void *user)
+{
+    demo_image_resolve_ctx_t *ctx = (demo_image_resolve_ctx_t *)user;
+
+    (void)depth;
+    if (!robo_html_element_is_tag(&view->handle, ROBO_HTML_TAG_IMG)) {
+        return ROBO_OK;
+    }
+    if (robo_html_element_image_resolve(&view->handle, ctx->resolver, NULL) !=
+        ROBO_OK) {
+        return ROBO_ERROR;
+    }
+    ctx->count++;
+    return ROBO_OK;
+}
+
+static void test_demo_image_reaches_framebuffer(void)
+{
+    static const uint8_t IMG_R = 200u;
+    static const uint8_t IMG_G = 40u;
+    static const uint8_t IMG_B = 90u;
+    robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
+    robo_html_node_handle_t root;
+    robo_html_source_t src;
+    robo_gfx_surface_desc_t sdesc;
+    robo_gfx_surface_t *picture_surface = NULL;
+    robo_gfx_surface_t *canvas = NULL;
+    robo_gfx_encoded_buffer_t encoded;
+    robo_html_image_assets_t *assets = NULL;
+    robo_html_image_resolver_t resolver;
+    demo_image_resolve_ctx_t ctx;
+    robo_demo_page_t *page = NULL;
+    robo_gfx_rect_t rect;
+    robo_gfx_color_rgba8_t painted;
+    uint32_t x;
+    uint32_t y;
+    size_t image_index = 0u;
+    size_t i;
+
+    demo_fixture();
+
+    /* A 6x5 picture whose first pixel is a colour nothing else on the page
+     * uses, so "the image was painted" is a pixel fact and not a guess. */
+    robo_gfx_surface_desc_init(&sdesc);
+    sdesc.width = 6u;
+    sdesc.height = 5u;
+    sdesc.format = ROBO_GFX_FORMAT_RGBA8;
+    sdesc.access = ROBO_GFX_SURFACE_ACCESS_READ_WRITE;
+    ROBO_CHECK_EQ_INT(robo_gfx_surface_create(&sdesc, &picture_surface),
+                      ROBO_OK);
+    for (y = 0u; y < 5u; y++) {
+        for (x = 0u; x < 6u; x++) {
+            robo_gfx_color_rgba8_t c;
+
+            c.r = IMG_R;
+            c.g = IMG_G;
+            c.b = IMG_B;
+            c.a = 255u;
+            ROBO_CHECK_EQ_INT(
+                robo_gfx_surface_set_pixel(picture_surface, x, y, c), ROBO_OK);
+        }
+    }
+    {
+        robo_gfx_encode_options_t eopts;
+
+        robo_gfx_encode_options_init(&eopts);
+        eopts.container = ROBO_GFX_ENCODE_PNG;
+        eopts.layout = ROBO_GFX_ENCODE_LAYOUT_RGBA8;
+        memset(&encoded, 0, sizeof(encoded));
+        ROBO_CHECK_EQ_INT(
+            robo_gfx_surface_encode(picture_surface, &eopts, &encoded),
+            ROBO_OK);
+    }
+
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc, NULL), ROBO_OK);
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(
+        robo_html_source_string(
+            &src,
+            "<html><body><h1>Roboticela</h1>"
+            "<img src=\"Assets/Logo.png\" alt=\"Roboticela logo\">"
+            "<p>After the image.</p></body></html>",
+            NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+
+    ROBO_CHECK_EQ_INT(
+        robo_html_image_assets_create(NULL, 0u, &assets), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_image_assets_add(assets, "Assets/Logo.png",
+                                                 encoded.data, encoded.size,
+                                                 NULL),
+                      ROBO_OK);
+    resolver = robo_html_image_assets_resolver(assets);
+
+    root = robo_html_document_root(doc);
+    ctx.resolver = &resolver;
+    ctx.count = 0u;
+    ROBO_CHECK_EQ_INT(
+        robo_html_node_walk_descendants(&root, ROBO_HTML_NODE_FILTER_ELEMENTS,
+                                        demo_image_resolve_visitor, &ctx,
+                                        NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)ctx.count, 1);
+    ROBO_CHECK_EQ_INT((int)robo_html_document_image_count(doc), 1);
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(page != NULL);
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_image_count(page), 1);
+
+    for (i = 0u; i < robo_demo_page_block_count(page); i++) {
+        robo_demo_block_style_t style = (robo_demo_block_style_t)0;
+
+        ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, i, &style), ROBO_OK);
+        if (style == ROBO_DEMO_BLOCK_IMAGE) {
+            image_index = i;
+            break;
+        }
+    }
+    { /* The block really is the decoded picture, at its intrinsic size. */
+        robo_gfx_image_t *block_image =
+            robo_demo_page_block_image(page, image_index);
+
+        ROBO_CHECK(block_image != NULL);
+        if (!block_image) {
+            robo_demo_page_destroy(page);
+            robo_html_image_assets_destroy(assets);
+            robo_gfx_encoded_buffer_release(&encoded);
+            robo_gfx_surface_release(picture_surface);
+            ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+            return;
+        }
+        ROBO_CHECK_EQ_INT((int)robo_gfx_image_width(block_image), 6);
+        ROBO_CHECK_EQ_INT((int)robo_gfx_image_height(block_image), 5);
+        ROBO_CHECK_EQ_INT(robo_gfx_image_format(block_image),
+                          ROBO_GFX_FORMAT_RGBA8);
+    }
+
+    /* Paint it for real and read the framebuffer back. */
+    robo_gfx_surface_desc_init(&sdesc);
+    sdesc.width = 420u;
+    sdesc.height = 320u;
+    sdesc.format = ROBO_GFX_FORMAT_RGBA8;
+    sdesc.access = ROBO_GFX_SURFACE_ACCESS_READ_WRITE;
+    ROBO_CHECK_EQ_INT(robo_gfx_surface_create(&sdesc, &canvas), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_paint(page, canvas, NULL, NULL), ROBO_OK);
+    ROBO_CHECK(robo_demo_page_block_rect(page, image_index, &rect));
+    ROBO_CHECK(rect.width == 6 && rect.height == 5);
+
+    ROBO_CHECK_EQ_INT(
+        robo_gfx_surface_get_pixel(canvas, (uint32_t)rect.x, (uint32_t)rect.y,
+                                   &painted),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(painted.r, IMG_R);
+    ROBO_CHECK_EQ_INT(painted.g, IMG_G);
+    ROBO_CHECK_EQ_INT(painted.b, IMG_B);
+
+    /* And the image occupies exactly its own rect: the page background above
+     * it is untouched by the blit. */
+    ROBO_CHECK_EQ_INT(
+        robo_gfx_surface_get_pixel(canvas, (uint32_t)rect.x,
+                                   (uint32_t)rect.y - 1, &painted),
+        ROBO_OK);
+    ROBO_CHECK(!(painted.r == IMG_R && painted.g == IMG_G &&
+                 painted.b == IMG_B));
+
+    robo_demo_page_destroy(page);
+    robo_html_image_assets_destroy(assets);
+    robo_gfx_encoded_buffer_release(&encoded);
+    robo_gfx_surface_release(picture_surface);
+    robo_gfx_surface_release(canvas);
+    ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+}
+
+/* ------------------------------------------------------------------ */
+/* The Phase 8.13 link checkpoint                                      */
+/* ------------------------------------------------------------------ */
+/*
+ * The visual checkpoint is only evidence if the picture came from a real
+ * anchor in a real document. These tests take the chain the phase asks for —
+ * pointer → hit test → anchor → navigation request → outcome — and assert it
+ * against the built-in checkpoint document, so a link that stopped resolving
+ * (or a runtime that started claiming navigation it cannot perform) fails
+ * here rather than looking pretty in a screenshot.
+ */
+
+/** Non-zero when @p rect contains a pixel exactly @p expect (RGB). */
+static int rect_has_color(const robo_gfx_surface_t *surface,
+                          robo_gfx_rect_t rect,
+                          robo_gfx_color_rgba8_t expect)
+{
+    int32_t x;
+    int32_t y;
+
+    for (y = rect.y; y < rect.y + rect.height; y++) {
+        for (x = rect.x; x < rect.x + rect.width; x++) {
+            uint8_t r;
+            uint8_t g;
+            uint8_t b;
+
+            if (x < 0 || y < 0) {
+                continue;
+            }
+            if (!rgb_at(surface, (uint32_t)x, (uint32_t)y, &r, &g, &b)) {
+                continue;
+            }
+            if (r == expect.r && g == expect.g && b == expect.b) {
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
+static void test_demo_link_checkpoint(void)
+{
+    robo_demo_page_t *page;
+    robo_gfx_rect_t link_rect;
+    robo_gfx_rect_t heading_rect;
+    robo_gfx_point_t p;
+    size_t hit = 0u;
+
+    demo_fixture();
+    page = page_from(robo_demo_default_html(), NULL);
+    ROBO_CHECK(page != NULL);
+    if (!page) {
+        return;
+    }
+
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_link_count(page), 2);
+    ROBO_CHECK_EQ_INT(robo_demo_page_layout(page, 900, 600), ROBO_OK);
+
+    /* The blocks carry the bytes the document wrote, unresolved: resolution
+     * is the navigation model's job and doing it here would be a second,
+     * worse URL parser. */
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 3), "/Settings");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 4), "#Overview");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 0), "");
+
+    /* Pointer → hit test: the centre of a link block resolves to that
+     * block, and the heading above it resolves to no link at all. */
+    ROBO_CHECK(robo_demo_page_block_rect(page, 3, &link_rect));
+    p.x = link_rect.x + link_rect.width / 2;
+    p.y = link_rect.y + link_rect.height / 2;
+    ROBO_CHECK_EQ_INT(robo_demo_page_hit_link(page, p, &hit), 1);
+    ROBO_CHECK_EQ_INT((int)hit, 3);
+
+    ROBO_CHECK(robo_demo_page_block_rect(page, 4, &link_rect));
+    p.x = link_rect.x + link_rect.width / 2;
+    p.y = link_rect.y + link_rect.height / 2;
+    ROBO_CHECK_EQ_INT(robo_demo_page_hit_link(page, p, &hit), 1);
+    ROBO_CHECK_EQ_INT((int)hit, 4);
+
+    ROBO_CHECK(robo_demo_page_block_rect(page, 0, &heading_rect));
+    p.x = heading_rect.x + 1;
+    p.y = heading_rect.y + heading_rect.height / 2;
+    ROBO_CHECK_EQ_INT(robo_demo_page_hit_link(page, p, NULL), 0);
+
+    /* Activation of the route link: no handler is installed, so the honest
+     * answer is UNSUPPORTED. Nothing here may report navigation. */
+    {
+        robo_html_navigation_handler_t handler;
+        robo_html_navigation_outcome_t outcome;
+
+        robo_html_navigation_handler_init(&handler);
+        ROBO_CHECK_EQ_INT(robo_html_navigation_handler_is_usable(&handler), 0);
+
+        memset(&outcome, 0, sizeof(outcome));
+        ROBO_CHECK_EQ_INT(
+            robo_demo_page_activate_link(page, 3, &handler, &outcome, NULL),
+            ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)outcome.kind,
+                          (int)ROBO_HTML_NAVIGATION_UNSUPPORTED);
+        ROBO_CHECK_EQ_INT((int)outcome.target_kind,
+                          (int)ROBO_HTML_TARGET_ROUTE);
+        ROBO_CHECK_STR_EQ(outcome.resolved, "/Settings");
+        ROBO_CHECK_EQ_INT(outcome.handler_called, 0);
+        ROBO_CHECK_EQ_INT(outcome.fragment_found, 0);
+        robo_html_navigation_outcome_clear(&outcome);
+    }
+
+    /* Activation of the fragment link: this is the one navigation the phase
+     * really performs, and it names an element in this document. */
+    {
+        robo_html_navigation_outcome_t outcome;
+        robo_html_element_view_t view;
+
+        memset(&outcome, 0, sizeof(outcome));
+        ROBO_CHECK_EQ_INT(
+            robo_demo_page_activate_link(page, 4, NULL, &outcome, NULL),
+            ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)outcome.kind,
+                          (int)ROBO_HTML_NAVIGATION_FRAGMENT);
+        ROBO_CHECK_EQ_INT((int)outcome.target_kind,
+                          (int)ROBO_HTML_TARGET_FRAGMENT);
+        ROBO_CHECK_STR_EQ(outcome.fragment, "Overview");
+        ROBO_CHECK_EQ_INT(outcome.fragment_found, 1);
+        /* The named element is a real one in the tree — the paragraph that
+         * carries id="Overview" — not a fabricated handle. */
+        ROBO_CHECK_EQ_INT(
+            robo_html_element_view_get(&outcome.fragment_node, &view, NULL),
+            ROBO_OK);
+        ROBO_CHECK(robo_html_element_is_tag(&outcome.fragment_node,
+                                            ROBO_HTML_TAG_P));
+        ROBO_CHECK(robo_html_element_has_attribute(&outcome.fragment_node,
+                                                   "id"));
+        robo_html_navigation_outcome_clear(&outcome);
+    }
+
+    /* Refusals are refusals: an out-of-range index and a non-link block
+     * answer differently, and neither is treated as an activation. */
+    ROBO_CHECK_EQ_INT(robo_demo_page_activate_link(page, 99u, NULL, NULL, NULL),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_demo_page_activate_link(page, 0, NULL, NULL, NULL),
+                      ROBO_NOT_SUPPORTED);
+
+    robo_demo_page_destroy(page);
+}
+
+static void test_demo_link_visual(void)
+{
+    robo_demo_page_t *page;
+    robo_gfx_surface_t *surface;
+    robo_gfx_rect_t link_rect;
+    robo_gfx_rect_t paragraph_rect;
+    robo_gfx_point_t p;
+
+    demo_fixture();
+    page = page_from(robo_demo_default_html(), NULL);
+    surface = make_surface(900, 600);
+    ROBO_CHECK(page != NULL && surface != NULL);
+    if (!page || !surface) {
+        robo_demo_page_destroy(page);
+        robo_gfx_surface_release(surface);
+        return;
+    }
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_paint(page, surface, NULL, NULL), ROBO_OK);
+    ROBO_CHECK(robo_demo_page_block_rect(page, 3, &link_rect));
+    ROBO_CHECK(robo_demo_page_block_rect(page, 1, &paragraph_rect));
+
+    /* The link is drawn in the brand colour and the paragraph is not, so the
+     * difference is a colour fact and not "something was drawn". */
+    ROBO_CHECK(rect_has_color(surface, link_rect, T_BRAND));
+    ROBO_CHECK(!rect_has_color(surface, paragraph_rect, T_BRAND));
+    ROBO_CHECK(rect_has_ink(surface, paragraph_rect, T_BG));
+
+    /* And the link carries the hairline rule the paragraph does not: the
+     * adapter's one visual difference between a link and body copy. */
+    ROBO_CHECK(pixel_is(surface, (uint32_t)link_rect.x,
+                        (uint32_t)(link_rect.y + link_rect.height + 1),
+                        T_BRAND));
+    ROBO_CHECK(pixel_is(surface, (uint32_t)paragraph_rect.x,
+                        (uint32_t)(paragraph_rect.y + paragraph_rect.height + 1),
+                        T_BG));
+
+    /* The picture still tells the pointer where the link is. */
+    p.x = link_rect.x + link_rect.width / 2;
+    p.y = link_rect.y + link_rect.height / 2;
+    ROBO_CHECK_EQ_INT(robo_demo_page_hit_link(page, p, NULL), 1);
+
+    robo_gfx_surface_release(surface);
+    robo_demo_page_destroy(page);
+}
+
+static void test_demo_link_after_document_destroyed(void)
+{
+    robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
+    robo_html_source_t src;
+    robo_demo_page_t *page = NULL;
+    robo_gfx_rect_t rect;
+    robo_gfx_point_t p;
+    robo_html_navigation_outcome_t outcome;
+    size_t before;
+    size_t hit = 0u;
+
+    demo_fixture();
+    before = robo_html_live_document_count();
+
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc, NULL), ROBO_OK);
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(
+        robo_html_source_string(
+            &src, "<html><body><a href=\"/Settings\">Settings</a></body></html>",
+            NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(page != NULL);
+    if (!page) {
+        ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+        return;
+    }
+    ROBO_CHECK_EQ_INT((int)robo_demo_page_link_count(page), 1);
+    ROBO_CHECK_EQ_INT(robo_demo_page_layout(page, 600, 400), ROBO_OK);
+    ROBO_CHECK(robo_demo_page_block_rect(page, 0, &rect));
+    p.x = rect.x + 1;
+    p.y = rect.y + 1;
+    ROBO_CHECK_EQ_INT(robo_demo_page_hit_link(page, p, &hit), 1);
+    ROBO_CHECK_EQ_INT((int)hit, 0);
+
+    /* A page built from a caller's document borrows it, so destroying the
+     * document must leave the page reading fine and activating cleanly. */
+    ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 0), "/Settings");
+    ROBO_CHECK_EQ_INT(robo_demo_page_hit_link(page, p, &hit), 1);
+
+    memset(&outcome, 0, sizeof(outcome));
+    ROBO_CHECK_EQ_INT(robo_demo_page_activate_link(page, 0, NULL, &outcome, NULL),
+                      ROBO_NOT_FOUND);
+    /* Nothing was decided, and the outcome says so by staying zeroed rather
+     * than by inventing a kind for navigation that could not happen. */
+    ROBO_CHECK_EQ_INT((int)outcome.kind, (int)ROBO_HTML_NAVIGATION_NONE);
+    ROBO_CHECK(outcome.target == NULL);
+    ROBO_CHECK_EQ_INT(outcome.handler_called, 0);
+    robo_html_navigation_outcome_clear(&outcome);
+
+    robo_demo_page_destroy(page);
+    /* The page borrowed the document; destroying it must not have destroyed
+     * someone else's document twice, and nothing may leak. */
+    ROBO_CHECK_EQ_INT(robo_html_live_document_count(), before);
+}
+
+static void test_demo_link_mutation(void)
+{
+    robo_html_document_id_t doc = ROBO_HTML_DOCUMENT_ID_NONE;
+    robo_html_source_t src;
+    robo_html_node_handle_t root;
+    robo_html_node_handle_t anchor;
+    robo_demo_page_t *page = NULL;
+    robo_html_navigation_outcome_t outcome;
+
+    demo_fixture();
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc, NULL), ROBO_OK);
+    robo_html_source_init(&src);
+    ROBO_CHECK_EQ_INT(
+        robo_html_source_string(
+            &src,
+            "<html><body><a href=\"/Settings\">Settings</a>"
+            "<p id=\"Overview\">Overview</p></body></html>",
+            NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_build_tree(doc, &src, NULL, NULL), ROBO_OK);
+
+    root = robo_html_document_root(doc);
+    ROBO_CHECK_EQ_INT(robo_html_node_find_element(&root, "a", &anchor, NULL),
+                      ROBO_OK);
+
+    /* Mutating the attribute must reach the page: the href it reports is
+     * re-read from the DOM, not remembered from the first build. */
+    ROBO_CHECK_EQ_INT(
+        robo_html_element_set_attribute(&anchor, "href", "#Overview", NULL),
+        ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(page != NULL);
+    if (!page) {
+        ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+        return;
+    }
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 0), "#Overview");
+    memset(&outcome, 0, sizeof(outcome));
+    ROBO_CHECK_EQ_INT(robo_demo_page_activate_link(page, 0, NULL, &outcome, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)outcome.kind, (int)ROBO_HTML_NAVIGATION_FRAGMENT);
+    ROBO_CHECK_EQ_INT(outcome.fragment_found, 1);
+    robo_html_navigation_outcome_clear(&outcome);
+    robo_demo_page_destroy(page);
+
+    /* Removing the href leaves a link-shaped block with no target, and the
+     * runtime says NO_TARGET instead of resolving an empty reference. */
+    ROBO_CHECK_EQ_INT(
+        robo_html_element_remove_attribute(&anchor, "href", NULL), ROBO_OK);
+    page = NULL;
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(doc, &page, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(page != NULL);
+    if (page) {
+        robo_html_navigation_outcome_t bare;
+
+        ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 0), "");
+        memset(&bare, 0, sizeof(bare));
+        ROBO_CHECK_EQ_INT(robo_demo_page_activate_link(page, 0, NULL, &bare,
+                                                       NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)bare.kind,
+                          (int)ROBO_HTML_NAVIGATION_NO_TARGET);
+        ROBO_CHECK_EQ_INT((int)bare.target_kind, (int)ROBO_HTML_TARGET_NONE);
+        ROBO_CHECK(bare.resolved == NULL);
+        robo_html_navigation_outcome_clear(&bare);
+        robo_demo_page_destroy(page);
+    }
+
+    ROBO_CHECK_EQ_INT(robo_html_document_destroy(doc, NULL), ROBO_OK);
+}
+
 void robo_test_register_demo_html(void)
 {
     robo_test_register("demo.version", test_demo_version);
@@ -1469,7 +2034,14 @@ void robo_test_register_demo_html(void)
                        test_demo_paint_element_kinds);
     robo_test_register("demo.lifecycle.advance_keeps_picture",
                        test_demo_lifecycle_advance_keeps_picture);
+    robo_test_register("demo.image.reaches_framebuffer",
+                       test_demo_image_reaches_framebuffer);
     robo_test_register("demo.lifetime.uninitialized",
                        test_demo_module_not_initialized);
     robo_test_register("demo.font.helpers", test_demo_font_helpers);
+    robo_test_register("demo.link.checkpoint", test_demo_link_checkpoint);
+    robo_test_register("demo.link.visual", test_demo_link_visual);
+    robo_test_register("demo.link.document_destroyed",
+                       test_demo_link_after_document_destroyed);
+    robo_test_register("demo.link.mutation", test_demo_link_mutation);
 }

@@ -78,8 +78,10 @@ has no filesystem in this path.
    the demo document cannot change the picture, so they could not show that the
    seam works. Nothing in the shipped demo document carries `hidden`, so the
    checkpoint's output is unchanged; `demo.tree.attribute_hidden` covers it.
-4. The temporary document is destroyed — the page owns copies of the text it
-   keeps, so nothing borrows the document afterwards.
+4. The document stays with the page. It owns the one it built (since Phase
+   8.13), so nothing borrows a document that has been freed — and the tree is
+   still there for a link activation to resolve against. A page built from a
+   caller's document borrows it instead and never destroys it.
 
    Since Phase 8.9 there is a second entry point,
    `robo_demo_page_create_from_document()`, which walks a document that
@@ -112,12 +114,40 @@ has no filesystem in this path.
    deterministic second paint. A bare `span` is deliberately unpainted (the
    demo has no inline flow) and the test asserts that count, so the limit is
    recorded rather than latent.
+   Since Phase 8.12 an `<img>` is a *resource* path rather than a tag: the walk
+   asks `robo_html_element_image_get` for an element's attached resource and,
+   when there are real decoded pixels, emits an image block that retains it.
+   The painting step draws the actual bitmap at one image pixel per surface
+   pixel — this adapter has no scaling — so what reaches the framebuffer is the
+   decoded PNG, not a rectangle standing in for one. A recognised-but-
+   unresolved image (no `src`, a failed fetch) is counted as unsupported markup,
+   which keeps that limit stated and lets a document with a broken `src` render
+   everything else. Bytes reach the element through the 8.12 resolver seam;
+   `demo.image.reaches_framebuffer` installs an in-memory asset table, resolves
+   a real PNG, renders, mutates the DOM, renders again and asserts the frame
+   changed — a pixel fact, not a guess about a draw call.
+   Since Phase 8.13 an `<a>` is a *navigation target* path rather than a tag:
+   the walk reads the anchor's attributes, keeps the `href` bytes verbatim and
+   remembers the element, so a link block can be hit-tested and activated. The
+   painting step draws it in the brand colour with a hairline rule under the
+   run — temporary adapter styling, not a style engine — and
+   `demo.link.visual` asserts the difference is a colour fact (the link rect
+   contains brand pixels, the paragraph rect does not) rather than "something
+   was drawn". The checkpoint document carries one route link and one fragment
+   link plus the `id` the fragment names, and both the offscreen probe and the
+   windowed run activate them for real: the route reports `unsupported` and the
+   fragment reports `fragment` with the element it found. No handler is
+   installed, which is the point — a run that claimed either one had been
+   navigated would be the failure this checkpoint exists to catch.
 5. `robo_demo_page_layout()` flows the blocks vertically for the target size.
 6. `robo_demo_page_paint()` clears the surface and draws background, accent
    bar, heading, paragraphs and the button (states: normal / hover / pressed)
    with RoboGraphics primitives and the shared RoboDemo bitmap font.
 7. RoboWindow presents the surface; the event loop feeds mouse motion and
-   clicks back into the button state.
+   clicks back into the button state, and a click that lands on a link is
+   hit-tested and activated (Phase 8.13). The press index is remembered, so an
+   activation is a press *and* a release on the same link — a release elsewhere
+   is not a click.
 
 Diagnostics from the tree builder are kept on the page
 (`robo_demo_page_diagnostic_count`) rather than hidden, so malformed input is
@@ -149,15 +179,23 @@ automated smoke test.
 Example:
 
 ```
-page:  title="RoboticelaOS Runtime" blocks=4 supported=8 ignored=0 diagnostics=0
+page:  title="RoboticelaOS Runtime" blocks=7 supported=11 ignored=0 diagnostics=0
 offscreen: 900x600 RGBA8
-paint: blocks=4 rects=6 lines=1 text_runs=4
+paint: blocks=7 rects=6 lines=3 text_runs=7
 probe OK   accent-bar       (450,2) = 14,122,255
 probe OK   page-background  (896,596) = 245,245,247
-probe OK   button-fill      (40,174) = 14,122,255
-probe OK   button-border    (32,152) = 7,87,199
+probe OK   button-fill      (40,264) = 14,122,255
+probe OK   button-border    (32,242) = 7,87,199
 probe OK   heading-ink      ink at (35,32)
-checks: 15 passed=15 failed=0
+probe OK   paragraph-ink    ink at (36,76)
+probe OK   paragraph-ink    ink at (34,106)
+probe OK   link-ink         ink at (36,136)
+probe OK   link-ink         ink at (36,166)
+probe OK   paragraph-ink    ink at (34,196)
+link: block 3 href="/Settings" outcome=unsupported resolved="/Settings"
+link: block 4 href="#Overview" outcome=fragment resolved=""
+probe OK   link-seam       2 links: 1 fragment, 1 unsupported (no handler installed, so nothing claims navigation)
+checks: 27 passed=27 failed=0
 RESULT: PASS
 ```
 
@@ -177,12 +215,23 @@ asserts:
 ROBO_QEMU_DISPLAY_OK / ROBO_QEMU_HTML_OK / ROBO_QEMU_PRESENT_OK
 ROBO_QEMU_INPUT_OK   / ROBO_QEMU_DISPLAY_SHUTDOWN_OK
 ROBO_QEMU_HTML_TITLE=RoboticelaOS Runtime
-ROBO_QEMU_HTML_BLOCKS=0x00000004
-ROBO_QEMU_HTML_SUPPORTED=0x00000008
+ROBO_QEMU_HTML_BLOCKS=0x00000007
+ROBO_QEMU_HTML_SUPPORTED=0x0000000B
 ROBO_QEMU_HTML_IGNORED=0x00000000
+ROBO_QEMU_HTML_LINKS=0x00000002
+ROBO_QEMU_HTML_LINKS_HIT=0x00000002
+ROBO_QEMU_HTML_LINK_FRAGMENT=0x00000001
+ROBO_QEMU_HTML_LINK_UNSUPPORTED=0x00000001
 ```
 
 The exit code is 0 only when every marker appeared.
+
+The four link markers (Phase 8.13) are the guest running the *same* navigation
+model the host checkpoint drives — hit-testing each link block and activating
+it — so the phase is validated in QEMU and not only in the host window. With no
+handler installed the route link refuses (`UNSUPPORTED`) and the fragment link
+resolves to the element it names (`FRAGMENT`); a marker that claimed otherwise
+would be the guest reporting navigation that did not happen.
 
 ## 6. Tests
 
@@ -196,7 +245,9 @@ The exit code is 0 only when every marker appeared.
 | `demo.paint.*` | Pixel probes, button states, determinism, clipping in a small target, invalid args, and the typed multi-element document |
 | `demo.export.png` | PNG export of the rendered frame |
 | `demo.mutation.changes_picture` | A real DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |
+| `demo.link.*` | The link checkpoint: the built-in document's anchors as real DOM elements with their `href` bytes, hit-testing through block rects, a route refusing to navigate with no handler, a fragment resolving to the `id` it names, the link's own paint colour and underline versus body copy, activation after the document is destroyed, and `href` mutation reaching the picture |
 | `demo.lifecycle.advance_keeps_picture` | A lifecycle transition leaves the picture pixel-identical; a reload changes it |
+| `demo.image.reaches_framebuffer` | A real decoded PNG travels source → `<img>` → resource → decoder → surface, and a mutation changes the frame |
 | `demo.lifetime.*` | Repeated create/destroy; refusal when the module is down |
 | `demo.font.helpers` | Atlas metrics and helper names |
 
@@ -210,6 +261,9 @@ document's expected tree.
 - **The layout constants** (`DEMO_*`) — stand-ins for Phase 9/10 computed styles.
 - **The block model and the bitmap font** — the demo has no text shaping; it
   uses the shared RoboDemo atlas rather than RoboFont/RoboText.
+- **Image scaling** — an image paints 1:1 and is clipped to the target, so
+  `width`/`height` are model data this adapter does not yet honour. Intrinsic
+  sizing belongs to CSS and layout.
 - **No text wrapping, no scrolling, no focus** — the demo fits in one screen
   by construction.
 

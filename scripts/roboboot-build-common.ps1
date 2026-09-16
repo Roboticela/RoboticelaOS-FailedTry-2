@@ -653,6 +653,9 @@ function Invoke-RoboBuildUserland {
             "Source\RoboGraphics\RoboGraphicsBitmap.c",
             "Source\RoboGraphics\RoboGraphicsCapabilities.c",
             "Source\RoboGraphics\RoboGraphicsColor.c",
+            # RoboGraphics 8.12: PNG decoding. The guest image needs it because
+            # RoboHTML's image resource model decodes through it.
+            "Source\RoboGraphics\RoboGraphicsDecode.c",
             "Source\RoboGraphics\RoboGraphicsFrame.c",
             "Source\RoboGraphics\RoboGraphicsFramebuffer.c",
             "Source\RoboGraphics\RoboGraphicsGeometry.c",
@@ -698,6 +701,10 @@ function Invoke-RoboBuildUserland {
             "Source\RoboHTML\RoboHTMLDom.c",
             "Source\RoboHTML\RoboHTMLElement.c",
             "Source\RoboHTML\RoboHTMLTag.c",
+            # RoboHTML 8.12: the image resource model behind `<img>`.
+            "Source\RoboHTML\RoboHTMLImage.c",
+            # RoboHTML 8.13: anchors and the navigation-target model.
+            "Source\RoboHTML\RoboHTMLAnchor.c",
             "Source\RoboHTML\RoboHTMLClient.c",
             "Source\RoboHTML\RoboHTMLResource.c",
             "Source\RoboHTML\RoboHTMLParser.c",

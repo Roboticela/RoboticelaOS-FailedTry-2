@@ -23,6 +23,7 @@
 
 #include "RoboHTML/RoboHTMLImage.h"
 
+#include "RoboHTML/RoboHTML.h"
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLTag.h"
@@ -263,9 +264,16 @@ static char *dup_bytes(const char *bytes, size_t length)
     return copy;
 }
 
+/**
+ * Allocate one resource. The reference is taken as bytes plus a length
+ * rather than as a C string, because that is how it arrives: attribute
+ * values are byte runs with no terminator contract, and copying them through
+ * a temporary terminator would be a second copy for nothing.
+ */
 static robo_html_image_t *image_new(robo_html_image_state_t state,
                                     robo_result_t failure,
-                                    const char *source_reference)
+                                    const char *source_reference,
+                                    size_t source_length)
 {
     robo_html_image_t *image =
         (robo_html_image_t *)robo_calloc(1u, sizeof(robo_html_image_t));
@@ -276,12 +284,11 @@ static robo_html_image_t *image_new(robo_html_image_state_t state,
     image->refcount = 1u;
     image->state = state;
     image->failure = failure;
-    if (source_reference) {
-        image->source_length = strlen(source_reference);
-        image->source = dup_bytes(source_reference, image->source_length);
-        if (!image->source) {
-            image->source_length = 0u; /* recorded name is optional */
-        }
+    if (source_reference && source_length > 0u) {
+        image->source = dup_bytes(source_reference, source_length);
+        /* The recorded name is diagnostic only: losing it is preferable to
+         * failing a resolve that otherwise succeeded. */
+        image->source_length = image->source ? source_length : 0u;
     }
     return image;
 }
@@ -308,6 +315,7 @@ robo_result_t robo_html_image_create_decoded(const void *bytes, size_t length,
                                             robo_html_diag_t *diag)
 {
     robo_html_image_t *image;
+    robo_gfx_image_t *graphics = NULL;
     robo_result_t decode = ROBO_ERROR;
 
     if (!out || (!bytes && length != 0u)) {
@@ -316,22 +324,26 @@ robo_result_t robo_html_image_create_decoded(const void *bytes, size_t length,
     }
     *out = NULL;
     if (bytes && length > 0u) {
-        decode = robo_gfx_image_decode(bytes, length, NULL, NULL);
+        /* One decode. Its result code *is* the reason, so there is nothing to
+         * probe for separately — and a resource that reports DECODED holds
+         * pixels, never a promise of them. */
+        decode = robo_gfx_image_decode(bytes, length, NULL, &graphics);
     }
-    image = image_new(state_for_result(decode), decode, source_reference);
+    image = image_new(state_for_result(decode), decode, source_reference,
+                      source_reference ? strlen(source_reference) : 0u);
     if (!image) {
+        if (graphics) {
+            robo_gfx_image_release(graphics);
+        }
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE, ROBO_OUT_OF_MEMORY,
                               "image allocation failed");
     }
     if (decode == ROBO_OK) {
-        robo_result_t res = robo_gfx_image_decode(bytes, length, NULL,
-                                                 &image->graphics);
-        if (res != ROBO_OK) {
-            /* The probe said these bytes decode and the decode disagreed;
-             * record the failure rather than claiming pixels we do not have. */
-            image->state = state_for_result(res);
-            image->failure = res;
-        }
+        image->graphics = graphics;
+    } else if (graphics) {
+        /* The decoder only hands back pixels with ROBO_OK, but a resource
+         * must never hold a picture its state says it does not have. */
+        robo_gfx_image_release(graphics);
     }
     *out = image;
     return ROBO_OK;
@@ -840,6 +852,14 @@ static void attachment_remove(robo_html_document_slot_t *slot, size_t index)
     slot->image_count--;
 }
 
+/**
+ * Give @p image to @p node, replacing any resource already there.
+ *
+ * The table *consumes* the caller's reference on ROBO_OK — that is the whole
+ * ownership rule for an attachment, and the reason resolve() must not release
+ * after storing. On failure the reference is left with the caller, so the
+ * caller releases it and nothing leaks either way.
+ */
 static robo_result_t attachment_store(robo_html_document_slot_t *slot,
                                       const robo_html_node_handle_t *node,
                                       robo_html_image_t *image,
@@ -848,12 +868,15 @@ static robo_result_t attachment_store(robo_html_document_slot_t *slot,
     robo_html_image_attachment_t *existing = attachment_find(slot, node);
 
     if (existing) {
-        if (existing->image != image) {
-            if (existing->image) {
-                robo_html_image_release(existing->image);
-            }
-            existing->image = image;
+        if (existing->image == image) {
+            /* Already attached: keep one reference, not two. */
+            robo_html_image_release(image);
+            return ROBO_OK;
         }
+        if (existing->image) {
+            robo_html_image_release(existing->image);
+        }
+        existing->image = image;
         return ROBO_OK;
     }
     if (slot->image_count == slot->image_capacity) {
@@ -906,10 +929,20 @@ size_t robo_html_document_image_count(robo_html_document_id_t document_id)
 /* Element-side API                                                    */
 /* ------------------------------------------------------------------ */
 
-/** Shared argument/eligibility gate for every element-side entry point. */
+/**
+ * Shared argument/eligibility gate for every element-side entry point.
+ *
+ * Liveness is asked of the element model itself rather than inferred from a
+ * tag lookup: "missing node" and "not an img" are different answers, and a
+ * tag query alone cannot tell them apart because both report UNKNOWN for a
+ * stale handle and for a custom element respectively.
+ */
 static robo_result_t image_element_gate(const robo_html_node_handle_t *element,
                                         robo_html_diag_t *diag)
 {
+    robo_html_element_view_t view;
+    robo_result_t res;
+
     if (!element) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE,
                               ROBO_INVALID_ARGUMENT, "null element");
@@ -918,12 +951,12 @@ static robo_result_t image_element_gate(const robo_html_node_handle_t *element,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE, ROBO_INIT_ERROR,
                               "RoboHTML module not initialized");
     }
+    memset(&view, 0, sizeof(view));
+    res = robo_html_element_view_get(element, &view, diag);
+    if (res != ROBO_OK) {
+        return res; /* a document/node that does not resolve stays NOT_FOUND */
+    }
     if (robo_html_element_tag(element) != ROBO_HTML_TAG_IMG) {
-        if (!robo_html_element_has_attribute(element, "src") &&
-            robo_html_element_tag(element) == ROBO_HTML_TAG_UNKNOWN) {
-            return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE,
-                                  ROBO_NOT_FOUND, "element does not resolve");
-        }
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE,
                               ROBO_NOT_SUPPORTED, "element is not an img");
     }
@@ -1072,49 +1105,43 @@ robo_result_t robo_html_element_image_resolve(
         fetch = ROBO_ERROR;
     }
 
-    {
-        char *reference = (char *)robo_malloc(attributes.source_length + 1u);
-
-        if (reference) {
-            memcpy(reference, attributes.source, attributes.source_length);
-            reference[attributes.source_length] = '\0';
-        }
-        if (fetch == ROBO_OK) {
-            res = robo_html_image_create_decoded(bytes, length, reference,
-                                                 &image, diag);
-        } else {
-            image = image_new(state_for_result(fetch), fetch, reference);
-            res = image ? ROBO_OK : ROBO_OUT_OF_MEMORY;
-        }
-        if (reference) {
-            robo_free(reference);
-        }
-        if (res != ROBO_OK) {
-            return res;
-        }
-        if (!image) {
-            return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE,
-                                  ROBO_OUT_OF_MEMORY, "image allocation");
-        }
+    if (fetch == ROBO_OK) {
+        res = robo_html_image_create_decoded(bytes, length, attributes.source,
+                                             &image, diag);
+    } else {
+        /*
+         * The fetch failed, and the element still gets a resource — one whose
+         * state records why. Without it, "failed to load" would be
+         * indistinguishable from "not loaded yet", and a renderer could not
+         * tell a broken image from an unresolved one.
+         */
+        image = image_new(state_for_result(fetch), fetch, attributes.source,
+                          attributes.source_length);
+        res = image ? ROBO_OK : ROBO_OUT_OF_MEMORY;
+    }
+    if (res != ROBO_OK) {
+        return res;
+    }
+    if (!image) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE,
+                              ROBO_OUT_OF_MEMORY, "image allocation");
     }
 
+    robo_log_debug("robo_html: img resolved src=\"%s\" state=%s",
+                   attributes.source ? attributes.source : "",
+                   robo_html_image_state_name(robo_html_image_state(image)));
+
+    /*
+     * The table consumes this reference on success, which is what makes
+     * resolving twice a *replacement* rather than an accumulation: the
+     * previous resource loses the table's reference and dies unless someone
+     * else retained it.
+     */
     res = attachment_store(slot, element, image, diag);
     if (res != ROBO_OK) {
         robo_html_image_release(image);
         return res;
     }
-    /*
-     * The table's reference is the one that counts. Resolving twice replaces
-     * the resource rather than accumulating, so a mutated `src` costs one
-     * decode and no leak.
-     */
-    robo_html_image_release(image);
-    robo_log_debug("robo_html: img resolved src=\"%s\" state=%s",
-                   attributes.source ? attributes.source : "",
-                   robo_html_image_state_name(robo_html_image_state(
-                       attachment_find(slot, element)
-                           ? attachment_find(slot, element)->image
-                           : NULL)));
     return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_IMAGE, ROBO_OK,
                           robo_html_image_state_name(
                               robo_html_element_image_state(element)));

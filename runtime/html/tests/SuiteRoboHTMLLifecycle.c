@@ -1011,6 +1011,21 @@ static void test_lifecycle_reset_settles_complete(void)
     ROBO_CHECK(robo_html_document_is_empty(id));
     lc_expect_clean(id);
 
+    /*
+     * Reset on an *interactive* document — a load that was abandoned part way,
+     * which is what a streamed document sits in — settles it the same way, and
+     * succeeds. Re-requesting INTERACTIVE first would be an edge the machine
+     * does not have, and failing here would leave the document cleared but
+     * still marked interactive: a half-applied reset.
+     */
+    lc_attach(id, "<p>interrupted</p>");
+    ROBO_CHECK_EQ_INT(robo_html_document_mark_interactive(id, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(lc_state(id), ROBO_HTML_DOCUMENT_LIFECYCLE_INTERACTIVE);
+    ROBO_CHECK_EQ_INT(robo_html_document_reset(id, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(lc_state(id), ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);
+    ROBO_CHECK(robo_html_document_is_empty(id));
+    lc_expect_clean(id);
+
     /* Reset on a settled document leaves the state where it was. */
     lc_build(id, "<p>y</p>", NULL);
     ROBO_CHECK_EQ_INT(lc_state(id), ROBO_HTML_DOCUMENT_LIFECYCLE_COMPLETE);

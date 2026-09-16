@@ -67,10 +67,20 @@ robo_result_t robo_html_dom_query_capabilities(
      * available. Phase 8.9: the tree's shape can be changed — append,
      * insert before, remove, replace and bulk child removal — so mutation is
      * available, which is what makes traversal's read-only claim no longer
-     * the whole story. The node DOM (`dom_nodes`), events and JavaScript
+     * the whole story. Phase 8.12: an image is a resource — `<img>`
+     * attributes as a typed view, a resource carrying real decoded pixels,
+     * resolve/get/detach per element and an attachment table per document —
+     * so images are available, with the caveat that bytes come from a
+     * caller-installed resolver and this build ships only an in-memory
+     * asset table. Phase 8.13: an `<a>` resolves its `href` into a navigation
+     * target and an activation produces a deterministic outcome, answered
+     * locally for a fragment and delegated to a caller-installed handler for
+     * a route or a permitted URI — with a refused scheme never reaching the
+     * handler at all. The node DOM (`dom_nodes`), events and JavaScript
      * bindings remain later-phase work; `attributes` still means the
-     * attribute model and `text_nodes` the text model, neither a complete
-     * DOM surface.
+     * attribute model, `text_nodes` the text model, `images` a resource
+     * model and `links` a navigation model, none of them a complete DOM
+     * surface.
      */
     out->tree_building = 1;
     out->attributes = 1;
@@ -78,6 +88,8 @@ robo_result_t robo_html_dom_query_capabilities(
     out->traversal = 1;
     out->mutation = 1;
     out->element_tags = 1;
+    out->images = 1;
+    out->links = 1;
     return ROBO_OK;
 }
 

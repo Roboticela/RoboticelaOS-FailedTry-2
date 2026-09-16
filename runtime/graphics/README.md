@@ -2,7 +2,11 @@
 
 Independent graphics subsystem for Roboticela Runtime (**Goals 6.1–6.15**).
 
-**Version:** 0.15.0 — **RoboGraphics API v1 frozen** (`ROBO_GRAPHICS_API_FROZEN=1`)
+**Version:** 0.16.0 — **RoboGraphics API v1 frozen** (`ROBO_GRAPHICS_API_FROZEN=1`)
+
+0.16.0 is additive: Phase 8.12 added `RoboGraphicsDecode.h`, the read half of
+Goal 6.13 (PNG → RGBA8). No declaration in the frozen v1 surface changed, so
+v1 remains a usable promise.
 
 RoboGraphics must never depend on Chromium headers/libraries, Skia, Vulkan,
 OpenGL, Direct3D, Metal, or OS window APIs. Chromium may be consulted as a
@@ -34,6 +38,7 @@ RoboGraphics API
       ├── CPU raster          (6.11 — immediate draw context)
       ├── Text bridge         (6.12 — glyph → path / outline stroke)
       ├── Image output        (6.13 — PNG/BMP encode)
+      ├── Image decode        (8.12 — PNG → RGBA8; the read half of 6.13)
       ├── Screenshot          (6.14 — surface/FB capture → encode)
       ├── Tests / API freeze  (6.15)
       ├── Image / Frame
@@ -45,6 +50,7 @@ RoboGraphics API
 | Goal | Scope |
 |---|---|
 | **6.1–6.15** | Complete — see [Phase6.md](docs/Phase6.md) |
+| **8.12** | Adds `robo_gfx_image_decode*` — PNG → RGBA8 (see [ImageDecode.md](docs/ImageDecode.md)) |
 
 ## Docs
 
@@ -64,6 +70,7 @@ RoboGraphics API
 * [Raster.md](docs/Raster.md)
 * [TextBridge.md](docs/TextBridge.md)
 * [ImageOutput.md](docs/ImageOutput.md)
+* [ImageDecode.md](docs/ImageDecode.md)
 * [Screenshot.md](docs/Screenshot.md)
 * [coordinates.md](docs/coordinates.md)
 * [ownership.md](docs/ownership.md)

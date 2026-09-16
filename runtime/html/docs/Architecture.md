@@ -1,4 +1,4 @@
-# RoboHTML Architecture (Phases 8.1–8.11)
+# RoboHTML Architecture (Phases 8.1–8.13)
 
 This document is the normative design record for Goals 8.1 and 8.2. Later
 phases (8.3 tree builder, DOM, CSS, layout, paint) must extend it, not
@@ -626,3 +626,135 @@ RoboHTMLElement.h (extends 8.5)
   Two questions, two accessors, stated in the headers.
 
 Full design, contracts and the test coverage: [`Elements.md`](Elements.md).
+
+## 20. Phase 8.12 — images
+
+8.12 makes an `<img>` a **resource** rather than a tag. 8.11 gave `img`
+identity and void behaviour, so the parser was already building the element
+correctly; what was missing is everything after that, because an `<img>` is
+only interesting on account of the thing its `src` names.
+
+```
+RoboGraphicsDecode.h (8.12 — the read half of Goal 6.13)
+├── probe(bytes)      → container, from the leading bytes only
+├── decode_info(...)  → dimensions/encoding plus decoded_bytes, no pixels
+└── decode(...)       → a retained RGBA8 robo_gfx_image_t
+
+RoboHTMLImage.h (8.12)
+├── attributes   src · alt · width/height (set/valid/value)
+├── resource     robo_html_image_t: state + pixels
+│                NONE │ PENDING │ DECODED │ FAILED │ UNSUPPORTED
+├── seam         robo_html_image_resolver_t — borrowed bytes, per call
+├── local        robo_html_image_assets_t — the in-memory asset table
+└── element      resolve · get · detach · state, plus a per-document table
+```
+
+- **The decoder lives in RoboGraphics, not RoboHTML.** A document may own an
+  `<img>`, but what an `<img>` holds is a `robo_gfx_image_t`; PNG is a
+  container format, not a document concept. Putting it under RoboHTML would
+  make every future caller — a screenshot path, a style sheet, a favicon, a
+  test fixture — depend on the HTML subsystem to read a picture. It is
+  additive, so the v1 freeze holds: the module minor moves to 0.16.0 and
+  `ROBO_GRAPHICS_API_FROZEN` stays 1.
+- **The decoder implements what real files use.** PNG at bit depth 8 across
+  colour types 0/2/3/4/6, DEFLATE in full (stored, fixed-Huffman *and*
+  dynamic-Huffman blocks), and all five row filters. The 6.13 encoder only ever
+  writes stored blocks, so a decoder that handled only those would round-trip
+  our own output and fail on everything else — a test that cannot fail for the
+  wrong reason. Interlacing and sub-byte depths are refused as
+  `ROBO_NOT_SUPPORTED` rather than approximated, because "this cannot be
+  decoded here" is a better answer than a silently wrong picture.
+- **Hostile metadata is the normal case.** A file's dimensions are checked
+  against caller policy *and* against overflow before a byte is allocated, and
+  the DEFLATE stream must produce exactly the expected scanline count. A
+  16-byte file claiming 100000×100000 fails in the header parse at zero
+  allocation, which is what the security tests pin.
+- **Bytes come through a seam, never through RoboHTML.** The 8.1 boundary said
+  RoboHTML does not open files or speak protocols, and this phase keeps it: a
+  caller installs a resolver, RoboHTML hands it the reference and receives
+  bytes **borrowed for the duration of the call**. That one sentence is why the
+  future network loader is an *implementation of a resolver* rather than a
+  change to this model — resource ownership never crosses the boundary.
+- **`UNSUPPORTED` and `FAILED` are different answers.** A reference naming a
+  scheme (`http:`, `file:`, `data:`, `//host`) is refused as UNSUPPORTED —
+  "this runtime will not fetch that", true whether or not the resource exists.
+  A reference the resolver does not know is FAILED — "the bytes you asked for
+  are not here". Collapsing them would make the network phase's work look like
+  a bug fix.
+- **Failure is state, not an exception.** A missing asset, undecodable bytes
+  and a refused scheme all leave the DOM exactly as it was and move the
+  image's state; `robo_html_image_create_decoded` returns `ROBO_OK` with a
+  FAILED state so the object exists *precisely* to be asked why. The states
+  describe the resource, not the element: `<img>` with no `src` is a resource
+  in state NONE, which is valid and not an error.
+- **Declared dimensions are parsed, not trusted.** The HTML rule minus
+  percentages: optional ASCII whitespace, then digits, nothing else. `set` and
+  `valid` are separate so `<img width>`, `<img width="abc">` and `<img>` are
+  three distinguishable situations, and an invalid value is reported rather
+  than clamped so a typo cannot silently resize.
+- **Attachments follow their own refcount.** The per-document table is freed as
+  a unit on both `clear_tree` and `destroy`, but it holds one reference — a
+  caller that retained a resource keeps a valid image past teardown. That is
+  why the table does not live in the payload arena, which is freed and
+  re-bumped as a unit.
+
+Full design, contracts and the test coverage: [`Images.md`](Images.md)
+(the decoder: [`graphics/docs/ImageDecode.md`](../../graphics/docs/ImageDecode.md)).
+
+## 21. Phase 8.13 — links
+
+8.13 makes an `<a>` a **navigation target**. 8.11 gave `a` identity, so the
+parser was already building anchors; what was missing is everything after the
+element, because an `<a>` is only interesting on account of what its `href`
+names.
+
+```
+RoboHTMLAnchor.h (8.13)
+├── attributes   href · target · rel · download · title (read, never interpreted)
+├── target       robo_html_navigation_target_t  — owned, resolved
+│                NONE │ ROUTE │ FRAGMENT │ EXTERNAL │ INVALID
+├── policy       scheme known  vs  scheme permitted   (two different questions)
+├── fragment     robo_html_navigation_find_fragment  — the one local navigation
+├── request      robo_html_navigation_request_t      — borrowed, per call
+├── seam         robo_html_navigation_handler_t      — the delegated half
+└── outcome      robo_html_navigation_outcome_t      — owns the target it reports
+```
+
+- **There is no browser here, so there is no browser security model.** A
+  document belongs to an application; navigation is a request the application's
+  router takes or does not. What a browser expresses through cookies, sessions
+  and origins, RoboticelaOS expresses through application identity and the
+  capability model it already has, so this phase adds no security model of its
+  own — it refuses, and says why.
+- **A scheme the runtime does not permit never reaches a handler.**
+  `javascript:`, `data:` and `file:` are refused by policy *before* the seam is
+  consulted, which is what stops an attribute from reaching a subsystem the
+  document was never granted. "Known" and "permitted" are separate answers: a
+  `file:` URI is understood and refused, an unknown scheme is neither.
+- **Permitted is not reachable.** With no handler installed, even `https`
+  reports `UNSUPPORTED`, because the stack that would serve it is a later
+  phase. The honest answer is the point: the outcome vocabulary has no
+  `NAVIGATED` kind and will not have one until something can navigate.
+- **Fragments resolve locally, because they need no I/O.** `#Overview` names an
+  element in *this* document and finding one is a tree walk, so it is answered
+  here as `FRAGMENT` or `FRAGMENT_MISSING` rather than delegated. The lookup is
+  named for its caller and is not `getElementById`: that API is a later phase's,
+  with its own caching question and its own error surface.
+- **The outcome owns the target it reports.** Activation resolves the reference
+  itself, so a borrowed target would dangle the moment the call returned. One
+  clear rule — `robo_html_navigation_outcome_clear` releases it — and an
+  outcome that was never filled is safe to clear, so a failure path can always
+  clear what it was handed.
+- **Resolution is a pure function of its arguments.** It is total (failure is a
+  *kind*, not an error), works with no document at all, and is the only place a
+  reference is turned into a target — there is no second URL parser, and the
+  `href` bytes are kept verbatim beside the resolution. No percent-encoding,
+  path case folding or IDNA: those belong to a URL library, and
+  half-implementing them would be a claim this phase cannot back.
+- **`rel` is preserved and answered, never interpreted.** `noopener`,
+  `nofollow` and `external` change what a browser's network layer does and mean
+  nothing to a runtime with no network; inventing consequences would be
+  inventing behaviour. `rel` travels on the request so a later phase can act on
+  it without this API changing.
+
+Full design, contracts and the test coverage: [`Links.md`](Links.md).

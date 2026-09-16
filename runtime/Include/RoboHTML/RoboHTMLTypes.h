@@ -242,7 +242,16 @@ typedef enum robo_html_diagnostic_domain {
      * load — is not a diagnostic; this domain carries the reason attached to
      * one.
      */
-    ROBO_HTML_DOMAIN_IMAGE = 15
+    ROBO_HTML_DOMAIN_IMAGE = 15,
+    /**
+     * Anchor domain (Phase 8.13): reading an `<a>`'s attributes, refusing a
+     * reference this runtime will not resolve, and refusing a scheme it will
+     * not hand to a navigation handler. A navigation *outcome* — no target,
+     * a missing fragment, a refused scheme — is not a diagnostic; this domain
+     * carries the reason attached to a call that could not be attempted at
+     * all.
+     */
+    ROBO_HTML_DOMAIN_ANCHOR = 16
 } robo_html_diagnostic_domain_t;
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */

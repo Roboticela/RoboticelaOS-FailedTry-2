@@ -297,6 +297,7 @@ static void test_html_dom_capabilities(void)
     ROBO_CHECK_EQ_INT(caps.attributes, 0);
     ROBO_CHECK_EQ_INT(caps.mutation, 0);
     ROBO_CHECK_EQ_INT(caps.element_tags, 0);
+    ROBO_CHECK_EQ_INT(caps.images, 0);
     ROBO_CHECK_EQ_INT(caps.events, 0);
     ROBO_CHECK_EQ_INT(caps.tree_building, 0);
     ROBO_CHECK_EQ_INT(robo_html_dom_query_capabilities(NULL),
@@ -306,15 +307,19 @@ static void test_html_dom_capabilities(void)
      * Tree construction (8.3) and attribute storage (8.6) are available, and
      * since 8.9 so is DOM mutation — which is what this file's hook
      * foundation was built for — and since 8.11 so is element type identity.
-     * The node DOM and events are not. Each flag reports the model its own
-     * phase landed, not a compatible DOM surface: `attributes` is the
-     * attribute model rather than a NamedNodeMap, and `element_tags` is the
-     * tag vocabulary rather than a style or selector engine.
+     * Since 8.12 so is the image resource model: `images` means an `<img>`
+     * holds real decoded pixels reachable through a resolver, not that the
+     * runtime can reach a network. The node DOM and events are not. Each flag
+     * reports the model its own phase landed, not a compatible DOM surface:
+     * `attributes` is the attribute model rather than a NamedNodeMap,
+     * `element_tags` is the tag vocabulary rather than a style or selector
+     * engine, and `images` is a resource model rather than an `HTMLImageElement`.
      */
     ROBO_CHECK_EQ_INT(caps.dom_nodes, 0);
     ROBO_CHECK_EQ_INT(caps.attributes, 1);
     ROBO_CHECK_EQ_INT(caps.mutation, 1);
     ROBO_CHECK_EQ_INT(caps.element_tags, 1);
+    ROBO_CHECK_EQ_INT(caps.images, 1);
     ROBO_CHECK_EQ_INT(caps.events, 0);
     ROBO_CHECK_EQ_INT(caps.tree_building, 1);
 

@@ -73,6 +73,19 @@ typedef struct demo_state {
     size_t mouse_events;
     size_t resize_events;
     size_t clicks;
+    /**
+     * Pointer → hit test → anchor → activation (Phase 8.13).
+     *
+     * `link_pressed` is the block index the pointer went down on, or -1, so a
+     * click is a press and a release on the *same* link — a release elsewhere
+     * is not an activation. The counters exist so the checkpoint reports what
+     * really happened rather than asserting a link was clicked because it was
+     * drawn.
+     */
+    int link_pressed;
+    size_t link_activations;
+    size_t link_fragment_hits;
+    size_t link_unsupported;
 } demo_state_t;
 
 /* ------------------------------------------------------------------ */
@@ -277,6 +290,9 @@ static void validate_frame(const robo_demo_page_t *page,
         case ROBO_DEMO_BLOCK_PARAGRAPH:
             label = "paragraph-ink";
             break;
+        case ROBO_DEMO_BLOCK_LINK:
+            label = "link-ink";
+            break;
         default:
             continue; /* the button is covered by its own probes */
         }
@@ -287,6 +303,46 @@ static void validate_frame(const robo_demo_page_t *page,
 /* ------------------------------------------------------------------ */
 /* Event loop                                                         */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Activate link block @p index and record what the module decided.
+ *
+ * No handler is installed, and that is the point of the checkpoint: a route
+ * or a permitted URI must come back UNSUPPORTED here rather than reported as
+ * navigated, because nothing in this build can navigate one. The fragment
+ * link is the one navigation that really completes, and its outcome says so.
+ */
+static void demo_activate_link(demo_state_t *st, size_t index)
+{
+    robo_html_navigation_outcome_t outcome;
+    robo_result_t r;
+
+    memset(&outcome, 0, sizeof(outcome));
+    r = robo_demo_page_activate_link(st->page, index, NULL, &outcome, NULL);
+    st->link_activations++;
+    if (r != ROBO_OK) {
+        printf("link: block %lu activation failed code=%d\n",
+               (unsigned long)index, (int)r);
+        robo_html_navigation_outcome_clear(&outcome);
+        return;
+    }
+    switch (outcome.kind) {
+    case ROBO_HTML_NAVIGATION_FRAGMENT:
+        st->link_fragment_hits++;
+        break;
+    case ROBO_HTML_NAVIGATION_UNSUPPORTED:
+        st->link_unsupported++;
+        break;
+    default:
+        break;
+    }
+    printf("link: block %lu href=\"%s\" outcome=%s resolved=\"%s\"\n",
+           (unsigned long)index,
+           robo_demo_page_block_href(st->page, index),
+           robo_html_navigation_outcome_kind_name(outcome.kind),
+           outcome.resolved ? outcome.resolved : "");
+    robo_html_navigation_outcome_clear(&outcome);
+}
 
 static void handle_event(demo_state_t *st, const robo_window_event_t *ev)
 {
@@ -322,6 +378,7 @@ static void handle_event(demo_state_t *st, const robo_window_event_t *ev)
     }
     case ROBO_WINDOW_EVENT_MOUSE_BUTTON_DOWN: {
         robo_gfx_point_t p;
+        size_t link_index = 0u;
 
         st->mouse_events++;
         if (ev->mouse.button != ROBO_MOUSE_BUTTON_LEFT) {
@@ -329,6 +386,12 @@ static void handle_event(demo_state_t *st, const robo_window_event_t *ev)
         }
         p.x = ev->mouse.client_x;
         p.y = ev->mouse.client_y;
+        /* Links are hit-tested first: they are the only content here that a
+         * click can *do* something with, and the button sits below them. */
+        if (robo_demo_page_hit_link(st->page, p, &link_index)) {
+            st->link_pressed = (int)link_index;
+            break;
+        }
         if (!robo_demo_page_hit_button(st->page, p)) {
             break;
         }
@@ -339,6 +402,7 @@ static void handle_event(demo_state_t *st, const robo_window_event_t *ev)
     }
     case ROBO_WINDOW_EVENT_MOUSE_BUTTON_UP: {
         robo_gfx_point_t p;
+        size_t link_index = 0u;
 
         st->mouse_events++;
         if (ev->mouse.button != ROBO_MOUSE_BUTTON_LEFT) {
@@ -346,6 +410,14 @@ static void handle_event(demo_state_t *st, const robo_window_event_t *ev)
         }
         p.x = ev->mouse.client_x;
         p.y = ev->mouse.client_y;
+        if (st->link_pressed >= 0 &&
+            robo_demo_page_hit_link(st->page, p, &link_index) &&
+            (int)link_index == st->link_pressed) {
+            demo_activate_link(st, link_index);
+            st->link_pressed = -1;
+            break;
+        }
+        st->link_pressed = -1;
         if (st->pressed && robo_demo_page_hit_button(st->page, p)) {
             st->clicks++;
         }
@@ -360,6 +432,102 @@ static void handle_event(demo_state_t *st, const robo_window_event_t *ev)
     default:
         break;
     }
+}
+
+/**
+ * Run the pointer → hit test → anchor → activation seam over every link
+ * block, offscreen and deterministically (Phase 8.13).
+ *
+ * No navigation handler is installed, which is what makes this a real test
+ * of the honesty rule rather than of the happy path: a route must report
+ * UNSUPPORTED and a fragment of this document must report FRAGMENT, and
+ * neither may be reported as navigation that happened.
+ */
+static void probe_links(robo_demo_page_t *page, demo_report_t *report)
+{
+    size_t activated = 0u;
+    size_t fragments = 0u;
+    size_t unsupported = 0u;
+    size_t i;
+
+    report->checks++;
+    if (robo_demo_page_link_count(page) == 0u) {
+        report->failures++;
+        printf("probe FAIL link-seam  the checkpoint document has no links\n");
+        return;
+    }
+
+    for (i = 0u; i < robo_demo_page_block_count(page); i++) {
+        robo_demo_block_style_t style;
+        robo_gfx_rect_t rect;
+        robo_gfx_point_t p;
+        robo_html_navigation_outcome_t outcome;
+        size_t hit = 0u;
+        robo_result_t r;
+
+        if (robo_demo_page_block_style(page, i, &style) != ROBO_OK ||
+            style != ROBO_DEMO_BLOCK_LINK ||
+            !robo_demo_page_block_rect(page, i, &rect)) {
+            continue;
+        }
+        p.x = rect.x + rect.width / 2;
+        p.y = rect.y + rect.height / 2;
+
+        report->checks++;
+        if (!robo_demo_page_hit_link(page, p, &hit) || hit != i) {
+            report->failures++;
+            printf("probe FAIL link-hit-test  block %lu not hit at its centre\n",
+                   (unsigned long)i);
+            continue;
+        }
+
+        memset(&outcome, 0, sizeof(outcome));
+        r = robo_demo_page_activate_link(page, i, NULL, &outcome, NULL);
+        if (r != ROBO_OK) {
+            report->failures++;
+            printf("probe FAIL link-activate  block %lu returned %d\n",
+                   (unsigned long)i, (int)r);
+            robo_html_navigation_outcome_clear(&outcome);
+            continue;
+        }
+        activated++;
+        printf("link: block %lu href=\"%s\" outcome=%s resolved=\"%s\"\n",
+               (unsigned long)i, robo_demo_page_block_href(page, i),
+               robo_html_navigation_outcome_kind_name(outcome.kind),
+               outcome.resolved ? outcome.resolved : "");
+        if (outcome.kind == ROBO_HTML_NAVIGATION_FRAGMENT) {
+            fragments++;
+            /* A fragment is resolved here, in this document: if the outcome
+             * says it found an element, the element must really exist. */
+            report->checks++;
+            if (!outcome.fragment_found || outcome.fragment_length == 0u) {
+                report->failures++;
+                printf("probe FAIL link-fragment  reported FRAGMENT without a "
+                       "found element\n");
+            }
+        } else if (outcome.kind == ROBO_HTML_NAVIGATION_UNSUPPORTED) {
+            unsupported++;
+        } else if (outcome.kind == ROBO_HTML_NAVIGATION_NONE) {
+            report->failures++;
+            printf("probe FAIL link-outcome  produced NONE\n");
+        }
+        robo_html_navigation_outcome_clear(&outcome);
+    }
+
+    report->checks++;
+    if (activated != robo_demo_page_link_count(page) ||
+        fragments == 0u || unsupported == 0u) {
+        report->failures++;
+        printf("probe FAIL link-seam  activated=%lu fragments=%lu "
+               "unsupported=%lu\n",
+               (unsigned long)activated, (unsigned long)fragments,
+               (unsigned long)unsupported);
+        return;
+    }
+    printf("probe OK   link-seam       %lu links: %lu fragment, %lu unsupported "
+           "(no handler installed, so nothing claims navigation)\n",
+           (unsigned long)activated, (unsigned long)fragments,
+           (unsigned long)unsupported);
 }
 
 static void drain_events(demo_state_t *st)
@@ -413,6 +581,34 @@ static void inject_input(robo_window_id_t id, const robo_demo_page_t *page)
     robo_gfx_rect_t br;
     robo_mouse_event_t m;
     robo_keyboard_event_t k;
+    size_t i;
+
+    /*
+     * Press and release on every link first, so the windowed checkpoint
+     * exercises the same seam the offscreen probe does, but through the real
+     * event queue: observe → queue → poll → hit test → activation.
+     */
+    for (i = 0u; i < robo_demo_page_block_count(page); i++) {
+        robo_demo_block_style_t style;
+        robo_gfx_rect_t lr;
+
+        if (robo_demo_page_block_style(page, i, &style) != ROBO_OK ||
+            style != ROBO_DEMO_BLOCK_LINK ||
+            !robo_demo_page_block_rect(page, i, &lr)) {
+            continue;
+        }
+        robo_mouse_event_init(&m);
+        m.window_id = id;
+        m.type = ROBO_MOUSE_EVENT_MOVE;
+        m.client_x = lr.x + lr.width / 2;
+        m.client_y = lr.y + lr.height / 2;
+        (void)robo_window_observe_mouse(id, &m);
+        m.type = ROBO_MOUSE_EVENT_BUTTON_DOWN;
+        m.button = ROBO_MOUSE_BUTTON_LEFT;
+        (void)robo_window_observe_mouse(id, &m);
+        m.type = ROBO_MOUSE_EVENT_BUTTON_UP;
+        (void)robo_window_observe_mouse(id, &m);
+    }
 
     if (!robo_demo_page_button_rect(page, &br)) {
         return;
@@ -484,6 +680,7 @@ static int run_offscreen(robo_demo_page_t *page,
         return 0;
     }
     validate_frame(page, surface, ROBO_DEMO_BUTTON_NORMAL, &stats, report);
+    probe_links(page, report);
     if (shot_path) {
         (void)write_screenshot(surface, shot_path);
     }
@@ -518,6 +715,7 @@ static int run_windowed(robo_demo_page_t *page,
     st.page = page;
     st.button = ROBO_DEMO_BUTTON_NORMAL;
     st.need_paint = 1;
+    st.link_pressed = -1;
 
     robo_window_config_init(&cfg);
     cfg.width = DEMO_OFFSCREEN_W;
@@ -602,6 +800,23 @@ static int run_windowed(robo_demo_page_t *page,
                    ">=1 click\n");
         } else {
             printf("probe OK   injected-input\n");
+        }
+        /* The click path really activated real anchors: both links were
+         * pressed and released, the fragment one resolved inside this
+         * document, and the route one refused because no handler is
+         * installed (nothing may report navigation that did not happen). */
+        report->checks++;
+        if (st.link_activations != robo_demo_page_link_count(page) ||
+            st.link_fragment_hits == 0u || st.link_unsupported == 0u) {
+            report->failures++;
+            printf("probe FAIL injected-link-click  activations=%lu "
+                   "fragments=%lu unsupported=%lu\n",
+                   (unsigned long)st.link_activations,
+                   (unsigned long)st.link_fragment_hits,
+                   (unsigned long)st.link_unsupported);
+        } else {
+            printf("probe OK   injected-link-click %lu links activated from "
+                   "pointer input\n", (unsigned long)st.link_activations);
         }
     }
 
