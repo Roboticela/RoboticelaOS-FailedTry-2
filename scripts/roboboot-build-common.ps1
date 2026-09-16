@@ -705,6 +705,8 @@ function Invoke-RoboBuildUserland {
             "Source\RoboHTML\RoboHTMLImage.c",
             # RoboHTML 8.13: anchors and the navigation-target model.
             "Source\RoboHTML\RoboHTMLAnchor.c",
+            # RoboHTML 8.14: the form-control model behind <form> and friends.
+            "Source\RoboHTML\RoboHTMLForm.c",
             "Source\RoboHTML\RoboHTMLClient.c",
             "Source\RoboHTML\RoboHTMLResource.c",
             "Source\RoboHTML\RoboHTMLParser.c",

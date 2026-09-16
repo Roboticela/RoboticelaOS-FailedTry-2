@@ -307,6 +307,32 @@ int robo_html_tag_is_list_item(robo_html_tag_t tag);
 /** Non-zero for inline/text-level elements (`<span>`, `<em>`, `<br>`, ...). */
 int robo_html_tag_is_text_level(robo_html_tag_t tag);
 
+/**
+ * Non-zero for an element that can have a *form owner*: `<button>`,
+ * `<fieldset>`, `<input>`, `<object>`, `<output>`, `<select>`, `<textarea>`.
+ *
+ * This is a fact about the element type, so it is a column of the vocabulary
+ * rather than a list inside the forms module — the same reasoning that put
+ * void-ness here. Phase 8.14 reads it to decide which elements have an
+ * owner at all; a `<div>` inside a `<form>` is not owned by it, and asking
+ * "which form owns this?" about a `<div>` would be a category error rather
+ * than a lookup that happens to fail.
+ */
+int robo_html_tag_is_form_associated(robo_html_tag_t tag);
+
+/**
+ * Non-zero for an element a `<label>` may be attached to: `<button>`,
+ * `<input>`, `<meter>`, `<output>`, `<progress>`, `<select>`, `<textarea>`.
+ *
+ * Distinct from form-associated: an `<output>` is form-associated but not
+ * labelable, and a `<label>` is neither. Phase 8.14 uses it to decide whether
+ * a `for="..."` reference names something a label can actually label.
+ * `<input type=hidden>` is labelable by this rule but not by the HTML rule;
+ * that refinement is a check on the input's *type* and belongs to the caller
+ * that has the type, not to a name table.
+ */
+int robo_html_tag_is_labelable(robo_html_tag_t tag);
+
 /* ------------------------------------------------------------------ */
 /* Intrinsic flags                                                     */
 /* ------------------------------------------------------------------ */
@@ -333,6 +359,10 @@ int robo_html_tag_is_text_level(robo_html_tag_t tag);
 #define ROBO_HTML_TAG_FLAG_LIST_ITEM 256u
 /** Inline/text-level content. */
 #define ROBO_HTML_TAG_FLAG_TEXT_LEVEL 512u
+/** Can have a form owner (Phase 8.14). */
+#define ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED 1024u
+/** A `<label>` may be attached to it (Phase 8.14). */
+#define ROBO_HTML_TAG_FLAG_LABELABLE 2048u
 
 /* ------------------------------------------------------------------ */
 /* Element-side access                                                  */

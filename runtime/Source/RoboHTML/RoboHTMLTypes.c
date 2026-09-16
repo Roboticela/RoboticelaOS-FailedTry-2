@@ -99,6 +99,7 @@ int robo_html_diagnostic_domain_is_known(robo_html_diagnostic_domain_t domain)
     case ROBO_HTML_DOMAIN_TRAVERSAL:
     case ROBO_HTML_DOMAIN_IMAGE:
     case ROBO_HTML_DOMAIN_ANCHOR:
+    case ROBO_HTML_DOMAIN_FORMS:
         return 1;
     default:
         return 0;
@@ -142,6 +143,8 @@ const char *robo_html_diagnostic_domain_name(robo_html_diagnostic_domain_t domai
         return "image";
     case ROBO_HTML_DOMAIN_ANCHOR:
         return "anchor";
+    case ROBO_HTML_DOMAIN_FORMS:
+        return "forms";
     default:
         return "unknown";
     }

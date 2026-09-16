@@ -20,6 +20,7 @@
 #include "RoboHTML/RoboHTML.h"
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLElement.h"
+#include "RoboHTML/RoboHTMLForm.h"
 #include "RoboHTML/RoboHTMLImage.h"
 #include "RoboHTML/RoboHTMLNode.h"
 #include "RoboHTML/RoboHTMLSource.h"
@@ -45,6 +46,11 @@
  * the runtime refuses to navigate (no handler, no networking) and one
  * fragment link it really resolves against this document. A checkpoint that
  * only showed link-coloured text would prove nothing about navigation.
+ *
+ * Phase 8.14 added the form. Every control is drawn from the state the form
+ * model reports — the placeholder or the value, the checked attribute, the
+ * selected option — so the picture is a claim about the DOM that the demo
+ * tests can check against the DOM rather than against the markup.
  */
 static const char g_demo_source[] =
     "<!DOCTYPE html>\n"
@@ -59,6 +65,32 @@ static const char g_demo_source[] =
     "<a href=\"/Settings\">Settings</a>\n"
     "<a href=\"#Overview\">Overview</a>\n"
     "<p id=\"Overview\">RoboHTML links resolve to real elements.</p>\n"
+    "<form action=\"/Register\" method=\"post\" "
+    "enctype=\"application/x-www-form-urlencoded\">\n"
+    "<label for=\"DisplayName\">Display name</label>\n"
+    "<input id=\"DisplayName\" type=\"text\" name=\"displayName\" "
+    "placeholder=\"Your name\" required>\n"
+    "<label for=\"Passphrase\">Passphrase</label>\n"
+    "<input id=\"Passphrase\" type=\"password\" name=\"passphrase\">\n"
+    "<label for=\"Revision\">Build revision</label>\n"
+    "<input id=\"Revision\" type=\"number\" name=\"revision\" min=\"1\" "
+    "max=\"999\" value=\"8\">\n"
+    "<label for=\"Subscribed\">Platform notes</label>\n"
+    "<input id=\"Subscribed\" type=\"checkbox\" name=\"subscribed\" "
+    "checked>\n"
+    "<label for=\"ReleaseRing\">Release ring</label>\n"
+    "<input id=\"ReleaseRing\" type=\"radio\" name=\"ring\" "
+    "value=\"Stable\" checked>\n"
+    "<label for=\"Notes\">Notes</label>\n"
+    "<textarea id=\"Notes\" name=\"notes\" rows=\"3\" cols=\"40\" "
+    "placeholder=\"Anything else\"></textarea>\n"
+    "<label for=\"Country\">Country</label>\n"
+    "<select id=\"Country\" name=\"country\">\n"
+    "<option value=\"pk\">Pakistan</option>\n"
+    "<option value=\"us\" selected>United States</option>\n"
+    "</select>\n"
+    "<button type=\"submit\">Register</button>\n"
+    "</form>\n"
     "<button>Demo Button</button>\n"
     "</body>\n"
     "</html>\n";
@@ -85,6 +117,9 @@ static const robo_gfx_color_rgba8_t C_BRAND_HOVER = {10, 106, 232, 255};
 static const robo_gfx_color_rgba8_t C_BRAND_ACTIVE = {7, 87, 199, 255};
 static const robo_gfx_color_rgba8_t C_BORDER = {210, 210, 215, 255};  /* --border-default */
 static const robo_gfx_color_rgba8_t C_ON_BRAND = {255, 255, 255, 255};
+/* --bg-primary: the surface a control's box is drawn on, which is what makes
+ * an input read as a field rather than as another paragraph. */
+static const robo_gfx_color_rgba8_t C_SURFACE = {255, 255, 255, 255};
 
 /* ------------------------------------------------------------------ */
 /* Layout constants (stand-ins for Phase 9/10 computed styles)         */
@@ -101,6 +136,22 @@ static const robo_gfx_color_rgba8_t C_ON_BRAND = {255, 255, 255, 255};
 #define DEMO_HEADING_GAP 20
 #define DEMO_PARAGRAPH_GAP 14
 #define DEMO_BUTTON_GAP 16
+
+/* Form-control metrics (Phase 8.14). A field row is one control: either a
+ * drawn box with its text inside, or a run of caption text. */
+#define DEMO_FIELD_HEIGHT 34
+#define DEMO_FIELD_TEXTAREA_HEIGHT 68
+#define DEMO_FIELD_MIN_WIDTH 260
+#define DEMO_FIELD_PAD_X 10
+#define DEMO_FIELD_BOX_SIZE 18
+#define DEMO_FIELD_BOX_GAP 10
+#define DEMO_FIELD_GAP 10
+
+/** Text copied out of one block (demo-scope, not a real limit). */
+#define DEMO_BLOCK_TEXT_MAX 1024u
+
+/** Recursion bound for the tree walk. */
+#define DEMO_WALK_DEPTH_MAX 48u
 
 /** Cap on retained parse diagnostics (bounded demo memory). */
 #define DEMO_MAX_DIAGNOSTICS 32u
@@ -138,6 +189,27 @@ typedef struct robo_demo_block {
      * robo_demo_page_create_from_source).
      */
     robo_html_node_handle_t anchor;
+    /**
+     * Form-control state for ROBO_DEMO_BLOCK_FIELD (Phase 8.14).
+     *
+     * These are copied out of the model at build time rather than kept as
+     * handles, for the reason the image and href are: a page can outlive the
+     * document it was built from, so a block that remembered a handle would
+     * go stale, while a block that remembers the *answer* stays correct. The
+     * value is owned for the same reason the href is.
+     */
+    robo_html_tag_t control_tag;
+    robo_html_input_type_t control_type;
+    int control_checked;
+    int control_disabled;
+    int control_readonly;
+    /** Owned current value, or the selected option's value for a select. */
+    char *control_value;
+    size_t control_value_length;
+    /** Number of `<option>` elements, for a `<select>`; 0 otherwise. */
+    size_t option_count;
+    /** Non-zero when @c text is the placeholder rather than a value. */
+    int text_is_placeholder;
 } robo_demo_block_t;
 
 struct robo_demo_page {
@@ -177,6 +249,8 @@ const char *robo_demo_block_style_name(robo_demo_block_style_t style)
         return "image";
     case ROBO_DEMO_BLOCK_LINK:
         return "link";
+    case ROBO_DEMO_BLOCK_FIELD:
+        return "field";
     default:
         return "unknown";
     }
@@ -253,6 +327,16 @@ static robo_result_t page_add_block(robo_demo_page_t *page,
     }
     copy[length] = '\0';
 
+    /*
+     * Zero the whole slot first. A block list grows by robo_realloc, so the
+     * tail of a grown array is *uninitialised* memory: any field this
+     * function does not write would hold whatever the allocator left there.
+     * The pointer fields make that fatal rather than untidy — the destructor
+     * frees control_value the way it frees text, and a garbage pointer would
+     * be freed as if it were an allocation. One memset states the invariant
+     * for every field, including ones a later phase adds.
+     */
+    memset(&page->blocks[page->block_count], 0, sizeof(robo_demo_block_t));
     page->blocks[page->block_count].style = style;
     page->blocks[page->block_count].text = copy;
     page->blocks[page->block_count].length = length;
@@ -334,6 +418,219 @@ static robo_result_t page_add_image_block(robo_demo_page_t *page,
     return ROBO_OK;
 }
 
+/* Two forward declarations because the field helpers below run before the
+ * walk that defines them: they read a control's text through the same
+ * accessor as every other block, and a field row uses the body scale. */
+static void block_text_of(const robo_html_node_handle_t *node, char *out,
+                          size_t cap);
+static int scale_for_style(robo_demo_block_style_t style);
+
+/** A control's tag, effective type, current checked/value state, and the text
+ *  this adapter will draw for it. */
+typedef struct demo_field_view {
+    robo_html_tag_t tag;
+    robo_html_input_type_t type;
+    int checked;
+    int disabled;
+    int readonly;
+    int text_is_placeholder;
+    size_t option_count;
+    /** Collapsed display text; `""` when the control draws only its box. */
+    char text[DEMO_BLOCK_TEXT_MAX];
+    /** Collapsed current value; `""` for a control that holds none. */
+    char value[DEMO_BLOCK_TEXT_MAX];
+    size_t value_length;
+} demo_field_view_t;
+
+/**
+ * Copy @p src (collapsed) into @p dst, a @c DEMO_BLOCK_TEXT_MAX buffer.
+ *
+ * @p src is a borrowed attribute value, so it is a pointer and a length rather
+ * than a string: it is not necessarily NUL-terminated inside the payload
+ * arena, and reading past @p length would read the next attribute.
+ */
+static void field_copy_text(char *dst, const char *src, size_t length)
+{
+    size_t usable = (length < DEMO_BLOCK_TEXT_MAX) ? length
+                                                   : DEMO_BLOCK_TEXT_MAX - 1u;
+
+    dst[0] = '\0';
+    if (!src || usable == 0u) {
+        return;
+    }
+    collapse_ws(src, usable, dst, DEMO_BLOCK_TEXT_MAX);
+}
+
+/**
+ * Read one control's real state, and decide what this adapter will draw.
+ *
+ * Every field comes from the Phase 8.14 model: the element's own tag, its
+ * effective input type, its current checkedness, its current value. Nothing is
+ * re-derived from the markup, so a picture painted from this cannot show a
+ * control the DOM does not have.
+ *
+ * The display text is chosen here because a control has no text of its own to
+ * paint. A text field shows its placeholder, or failing that its value (which
+ * is also how a `submit`/`button` input gets its caption); a textarea the
+ * same; a select the option it is on; a checkbox nothing but its box, because
+ * its caption is the label beside it, which is its own block.
+ */
+static void demo_field_view_of(const robo_html_node_handle_t *element,
+                               robo_html_tag_t tag,
+                               demo_field_view_t *out)
+{
+    memset(out, 0, sizeof(*out));
+    out->tag = tag;
+    out->type = ROBO_HTML_INPUT_TYPE_TEXT;
+
+    switch (tag) {
+    case ROBO_HTML_TAG_LABEL:
+        /* A label's own text is its caption, and that is the whole block. */
+        block_text_of(element, out->text, sizeof(out->text));
+        return;
+    case ROBO_HTML_TAG_INPUT: {
+        robo_html_input_attributes_t attrs;
+        size_t got = 0u;
+
+        memset(&attrs, 0, sizeof(attrs));
+        if (robo_html_element_input_attributes(element, &attrs, NULL) ==
+            ROBO_OK) {
+            out->type = attrs.type_effective;
+            out->disabled = attrs.disabled;
+            out->readonly = attrs.readonly;
+        }
+        if (robo_html_element_control_value(element, out->value,
+                                           sizeof(out->value), &got, NULL,
+                                           NULL) == ROBO_OK) {
+            out->value_length =
+                (got < sizeof(out->value)) ? got : sizeof(out->value) - 1u;
+        }
+        if (robo_html_input_type_is_checkable(out->type)) {
+            /* The box is the control; a caption would be the label's. */
+            (void)robo_html_element_control_checked(element, &out->checked,
+                                                    NULL, NULL);
+            out->text[0] = '\0';
+            return;
+        }
+        if (attrs.placeholder_present && attrs.placeholder_length > 0u) {
+            field_copy_text(out->text, attrs.placeholder,
+                            attrs.placeholder_length);
+            out->text_is_placeholder = 1;
+        } else {
+            field_copy_text(out->text, out->value, out->value_length);
+        }
+        return;
+    }
+    case ROBO_HTML_TAG_TEXTAREA: {
+        robo_html_textarea_attributes_t attrs;
+        size_t got = 0u;
+
+        memset(&attrs, 0, sizeof(attrs));
+        if (robo_html_element_textarea_attributes(element, &attrs, NULL) ==
+            ROBO_OK) {
+            out->disabled = attrs.disabled;
+            out->readonly = attrs.readonly;
+        }
+        /* No `value` attribute exists on a textarea: the current value falls
+         * back to the element's child text, which is its default content. */
+        if (robo_html_element_control_value(element, out->value,
+                                           sizeof(out->value), &got, NULL,
+                                           NULL) == ROBO_OK) {
+            out->value_length =
+                (got < sizeof(out->value)) ? got : sizeof(out->value) - 1u;
+        }
+        if (attrs.placeholder_present && attrs.placeholder_length > 0u) {
+            field_copy_text(out->text, attrs.placeholder,
+                            attrs.placeholder_length);
+            out->text_is_placeholder = 1;
+        } else {
+            field_copy_text(out->text, out->value, out->value_length);
+        }
+        return;
+    }
+    case ROBO_HTML_TAG_SELECT: {
+        robo_html_select_attributes_t attrs;
+        robo_html_node_handle_t selected;
+        size_t count = 0u;
+        size_t got = 0u;
+
+        memset(&attrs, 0, sizeof(attrs));
+        if (robo_html_element_select_attributes(element, &attrs, NULL) ==
+            ROBO_OK) {
+            out->disabled = attrs.disabled;
+        }
+        (void)robo_html_element_select_option_count(element, &count, NULL);
+        out->option_count = count;
+        if (robo_html_element_select_selected_option(element, &selected, NULL) ==
+            ROBO_OK) {
+            /* The option's value, by the real fallback rule: its `value`
+             * attribute, else its own text. */
+            (void)robo_html_element_option_value(&selected, out->value,
+                                                 sizeof(out->value), &got, NULL,
+                                                 NULL);
+            out->value_length =
+                (got < sizeof(out->value)) ? got : sizeof(out->value) - 1u;
+            block_text_of(&selected, out->text, sizeof(out->text));
+        }
+        return;
+    }
+    default:
+        return;
+    }
+}
+
+/**
+ * Append a form-control block (Phase 8.14).
+ *
+ * The third block that owns something besides its text, and the one that owns
+ * the most: a control's state, because state is the only reason a control is
+ * not just text. The block is appended even when its display text is empty —
+ * a checkbox draws a box and nothing else, and a text field the document left
+ * blank is still a field the document has — which is why this cannot go
+ * through the walk's "only if there is text" branch.
+ */
+static robo_result_t page_add_field_block(robo_demo_page_t *page,
+                                          const robo_html_node_handle_t *element,
+                                          robo_html_tag_t tag)
+{
+    demo_field_view_t view;
+    robo_demo_block_t *block;
+    char *copy = NULL;
+    robo_result_t res;
+
+    demo_field_view_of(element, tag, &view);
+
+    res = page_add_block(page, ROBO_DEMO_BLOCK_FIELD, view.text,
+                         strlen(view.text), scale_for_style(ROBO_DEMO_BLOCK_FIELD));
+    if (res != ROBO_OK) {
+        return res;
+    }
+    if (view.value_length > 0u) {
+        copy = (char *)robo_malloc(view.value_length + 1u);
+        if (!copy) {
+            /* Unwind the appended block, for the reason the link block does:
+             * a field that forgot its own value would report "empty" for a
+             * control that is not. */
+            robo_free(page->blocks[page->block_count - 1u].text);
+            page->block_count--;
+            return ROBO_OUT_OF_MEMORY;
+        }
+        memcpy(copy, view.value, view.value_length);
+        copy[view.value_length] = '\0';
+    }
+    block = &page->blocks[page->block_count - 1u];
+    block->control_tag = view.tag;
+    block->control_type = view.type;
+    block->control_checked = view.checked;
+    block->control_disabled = view.disabled;
+    block->control_readonly = view.readonly;
+    block->control_value = copy;
+    block->control_value_length = view.value_length;
+    block->option_count = view.option_count;
+    block->text_is_placeholder = view.text_is_placeholder;
+    return ROBO_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Page from the RoboHTML document tree (Phase 8.3)                    */
 /* ------------------------------------------------------------------ */
@@ -357,12 +654,6 @@ static robo_result_t page_add_image_block(robo_demo_page_t *page,
  * unchanged (headings, paragraphs, button, and the <title> window caption),
  * so the picture stays stable. Phases 9/10/11 replace the walk itself.
  */
-
-/** Text copied out of one block (demo-scope, not a real limit). */
-#define DEMO_BLOCK_TEXT_MAX 1024u
-
-/** Recursion bound for the tree walk. */
-#define DEMO_WALK_DEPTH_MAX 48u
 
 /**
  * Painted style for one element; 0 when the demo's subset does not paint it.
@@ -462,7 +753,51 @@ static robo_demo_block_style_t demo_style_for_element(
         !has_element_child(element)) {
         return ROBO_DEMO_BLOCK_PARAGRAPH;
     }
+    /*
+     * The form controls (Phase 8.14). A label only becomes its own block when
+     * it wraps nothing — same rule and same reason as <div> above: this
+     * adapter paints a block's whole subtree, so a label holding a control
+     * would draw that control's text a second time. The `for` spelling is
+     * what the demo document uses, and it is the one that reads as a caption.
+     */
+    if (robo_html_element_is_tag(element, ROBO_HTML_TAG_LABEL) &&
+        !has_element_child(element)) {
+        return ROBO_DEMO_BLOCK_FIELD;
+    }
+    if (robo_html_element_is_tag(element, ROBO_HTML_TAG_INPUT) ||
+        robo_html_element_is_tag(element, ROBO_HTML_TAG_TEXTAREA) ||
+        robo_html_element_is_tag(element, ROBO_HTML_TAG_SELECT)) {
+        return ROBO_DEMO_BLOCK_FIELD;
+    }
     return (robo_demo_block_style_t)0;
+}
+
+/**
+ * Non-zero for an element the walk recognises as structure: it is part of the
+ * painted subset but is not a block of its own, so it is counted supported and
+ * descended into.
+ *
+ * `<form>`, `<fieldset>`, `<legend>`, `<option>` and `<optgroup>` are here
+ * because Phase 8.14 models them: an `<option>` is not painted separately —
+ * its select draws the selected one — but counting it as *unsupported markup*
+ * would be a lie about a runtime that now represents it.
+ *
+ * `<label>` is here for the same reason in the other direction: a label that
+ * *wraps* a control is not a caption (the caption rule takes an empty label),
+ * so it is transparent — the walk descends through it and paints the control
+ * inside, which is what the document means.
+ */
+static int demo_element_is_structure(const robo_html_node_handle_t *element)
+{
+    return robo_html_element_is_named(element, "html") ||
+           robo_html_element_is_named(element, "head") ||
+           robo_html_element_is_named(element, "body") ||
+           robo_html_element_is_named(element, "label") ||
+           robo_html_element_is_named(element, "form") ||
+           robo_html_element_is_named(element, "fieldset") ||
+           robo_html_element_is_named(element, "legend") ||
+           robo_html_element_is_named(element, "option") ||
+           robo_html_element_is_named(element, "optgroup");
 }
 
 static int scale_for_style(robo_demo_block_style_t style)
@@ -475,6 +810,7 @@ static int scale_for_style(robo_demo_block_style_t style)
     case ROBO_DEMO_BLOCK_PARAGRAPH:
     case ROBO_DEMO_BLOCK_DOCUMENT_TITLE:
     case ROBO_DEMO_BLOCK_LINK:
+    case ROBO_DEMO_BLOCK_FIELD:
     default:
         return DEMO_BODY_SCALE;
     }
@@ -564,16 +900,11 @@ static robo_result_t walk_subtree(robo_demo_page_t *page,
             continue;
         }
         style = demo_style_for_element(&child, &view);
-        if (style == (robo_demo_block_style_t)0) {
-            /* html/head/body are recognised structure; the rest is not in
-             * the subset and is counted so tests can assert it. */
-            if (robo_html_element_is_named(&child, "html") ||
-                robo_html_element_is_named(&child, "head") ||
-                robo_html_element_is_named(&child, "body")) {
-                page->supported_elements++;
-            } else {
-                page->ignored_tags++;
-            }
+        if (!demo_element_is_structure(&child) &&
+            style == (robo_demo_block_style_t)0) {
+            /* Not a block and not structure: markup this adapter does not
+             * paint, counted so tests can assert the subset's edge. */
+            page->ignored_tags++;
         } else {
             page->supported_elements++;
         }
@@ -589,7 +920,21 @@ static robo_result_t walk_subtree(robo_demo_page_t *page,
         if (robo_html_element_has_attribute(&child, "hidden")) {
             continue;
         }
-        if (style != (robo_demo_block_style_t)0) {
+        if (style == ROBO_DEMO_BLOCK_FIELD) {
+            /*
+             * A control becomes a block whether or not it has any text, and
+             * that is why it is handled ahead of the rule below: a checkbox
+             * draws a box and nothing else, and a text field the document
+             * left blank is still a field the document has. The "only if
+             * there is text" test exists so empty markup paints no gap, and
+             * applying it here would silently drop real controls.
+             */
+            robo_result_t fr = page_add_field_block(page, &child, view.tag);
+
+            if (fr != ROBO_OK) {
+                return fr;
+            }
+        } else if (style != (robo_demo_block_style_t)0) {
             char text[DEMO_BLOCK_TEXT_MAX];
 
             block_text_of(&child, text, sizeof(text));
@@ -862,6 +1207,10 @@ void robo_demo_page_destroy(robo_demo_page_t *page)
         if (page->blocks[i].href) {
             robo_free(page->blocks[i].href);
         }
+        /* A field block owns a copy of its current value (Phase 8.14). */
+        if (page->blocks[i].control_value) {
+            robo_free(page->blocks[i].control_value);
+        }
         /* Each image block holds one reference; releasing it here is the
          * whole of the page's claim on a decoded picture. */
         if (page->blocks[i].image) {
@@ -965,6 +1314,46 @@ size_t robo_demo_page_image_count(const robo_demo_page_t *page)
     return count;
 }
 
+int robo_demo_page_block_field(const robo_demo_page_t *page,
+                               size_t index,
+                               robo_demo_field_info_t *out)
+{
+    const robo_demo_block_t *b;
+
+    if (!page || !out || index >= page->block_count) {
+        return 0;
+    }
+    b = &page->blocks[index];
+    if (b->style != ROBO_DEMO_BLOCK_FIELD) {
+        return 0;
+    }
+    out->tag = b->control_tag;
+    out->type = b->control_type;
+    out->checked = b->control_checked;
+    out->disabled = b->control_disabled;
+    out->readonly = b->control_readonly;
+    out->value = b->control_value ? b->control_value : "";
+    out->value_length = b->control_value ? b->control_value_length : 0u;
+    out->option_count = b->option_count;
+    return 1;
+}
+
+size_t robo_demo_page_field_count(const robo_demo_page_t *page)
+{
+    size_t i;
+    size_t count = 0u;
+
+    if (!page) {
+        return 0u;
+    }
+    for (i = 0u; i < page->block_count; i++) {
+        if (page->blocks[i].style == ROBO_DEMO_BLOCK_FIELD) {
+            count++;
+        }
+    }
+    return count;
+}
+
 size_t robo_demo_page_supported_element_count(const robo_demo_page_t *page)
 {
     return page ? page->supported_elements : 0u;
@@ -1052,6 +1441,33 @@ robo_result_t robo_demo_page_layout(robo_demo_page_t *page,
              * scaling, and inventing one here would be layout. */
             b->rect = robo_gfx_rect(DEMO_PAD, y, (int32_t)iw, (int32_t)ih);
             y += (int32_t)ih + DEMO_PARAGRAPH_GAP;
+            break;
+        }
+        case ROBO_DEMO_BLOCK_FIELD: {
+            int32_t fh = (b->control_tag == ROBO_HTML_TAG_TEXTAREA)
+                             ? DEMO_FIELD_TEXTAREA_HEIGHT
+                             : DEMO_FIELD_HEIGHT;
+            int32_t fw = ink.width + DEMO_FIELD_PAD_X * 2;
+
+            if (b->control_tag == ROBO_HTML_TAG_LABEL) {
+                /*
+                 * A label is a caption, not a control, so it takes the text's
+                 * own metrics and paints no box. The gap is still the field
+                 * gap, so a label reads as the caption of the row under it.
+                 */
+                b->rect = robo_gfx_rect(DEMO_PAD, y, ink.width, ink.height);
+                y += ink.height + DEMO_FIELD_GAP;
+                break;
+            }
+            if (robo_html_input_type_is_checkable(b->control_type)) {
+                /* The box, its gap, and then the run beside it. */
+                fw += DEMO_FIELD_BOX_SIZE + DEMO_FIELD_BOX_GAP;
+            }
+            if (fw < DEMO_FIELD_MIN_WIDTH) {
+                fw = DEMO_FIELD_MIN_WIDTH;
+            }
+            b->rect = robo_gfx_rect(DEMO_PAD, y, fw, fh);
+            y += fh + DEMO_FIELD_GAP;
             break;
         }
         case ROBO_DEMO_BLOCK_BUTTON: {
@@ -1397,6 +1813,113 @@ robo_result_t robo_demo_page_paint(robo_demo_page_t *page,
                 return r;
             }
             stats.text_runs_painted++;
+            break;
+        }
+        case ROBO_DEMO_BLOCK_FIELD: {
+            robo_gfx_size_t ink =
+                robo_demo_font_measure(b->text, b->length, b->text_scale);
+
+            if (b->control_tag == ROBO_HTML_TAG_LABEL) {
+                /* A caption is a run of text and nothing more. */
+                r = robo_demo_font_draw(surface, rect.x, rect.y, b->text,
+                                        b->length, b->text_scale,
+                                        b->control_disabled ? C_MUTED : C_TEXT);
+                if (r != ROBO_OK) {
+                    return r;
+                }
+                stats.text_runs_painted++;
+                break;
+            }
+            if (robo_html_input_type_is_checkable(b->control_type)) {
+                robo_gfx_rect_t box = robo_gfx_rect(
+                    rect.x, rect.y + (rect.height - DEMO_FIELD_BOX_SIZE) / 2,
+                    DEMO_FIELD_BOX_SIZE, DEMO_FIELD_BOX_SIZE);
+
+                r = robo_demo_fill_clipped(surface, box, C_SURFACE);
+                if (r != ROBO_OK) {
+                    return r;
+                }
+                stats.rects_painted++;
+                r = paint_border(surface, box, C_BORDER, &stats.rects_painted);
+                if (r != ROBO_OK) {
+                    return r;
+                }
+                /*
+                 * The checked mark: a filled inner square, which is this
+                 * adapter's stand-in for a tick or a dot. Drawing it for a
+                 * radio too is the honest simplification — the *state* is
+                 * what the checkpoint is proving, and it comes from
+                 * robo_html_element_control_checked, not from here.
+                 */
+                if (b->control_checked) {
+                    r = robo_demo_fill_clipped(
+                        surface,
+                        robo_gfx_rect(box.x + 4, box.y + 4, box.width - 8,
+                                      box.height - 8),
+                        C_BRAND);
+                    if (r != ROBO_OK) {
+                        return r;
+                    }
+                    stats.rects_painted++;
+                }
+                if (b->text[0] != '\0') {
+                    r = robo_demo_font_draw(
+                        surface,
+                        rect.x + DEMO_FIELD_BOX_SIZE + DEMO_FIELD_BOX_GAP,
+                        rect.y + (rect.height - ink.height) / 2, b->text,
+                        b->length, b->text_scale, C_TEXT);
+                    if (r != ROBO_OK) {
+                        return r;
+                    }
+                    stats.text_runs_painted++;
+                }
+                break;
+            }
+            /* A text field, a textarea or a select: a bordered box with its
+             * text inside it. Placeholder text is muted so the checkpoint
+             * shows the difference between "empty" and "holding a value". */
+            r = robo_demo_fill_clipped(surface, rect, C_SURFACE);
+            if (r != ROBO_OK) {
+                return r;
+            }
+            stats.rects_painted++;
+            r = paint_border(surface, rect, C_BORDER, &stats.rects_painted);
+            if (r != ROBO_OK) {
+                return r;
+            }
+            if (b->control_tag == ROBO_HTML_TAG_SELECT) {
+                /* A chevron, so a select is distinguishable from a text field
+                 * in the picture. It is paint, not a dropdown: nothing here
+                 * opens, and the phase implements no such behaviour. */
+                int32_t cx = rect.x + rect.width - 18;
+                int32_t cy = rect.y + rect.height / 2 - 1;
+
+                r = robo_demo_fill_clipped(
+                    surface, robo_gfx_rect(cx, cy, 8, 2), C_MUTED);
+                if (r != ROBO_OK) {
+                    return r;
+                }
+                r = robo_demo_fill_clipped(
+                    surface, robo_gfx_rect(cx + 2, cy + 2, 4, 2), C_MUTED);
+                if (r != ROBO_OK) {
+                    return r;
+                }
+                stats.rects_painted += 2u;
+            }
+            if (b->text[0] != '\0') {
+                robo_gfx_color_rgba8_t ink_color =
+                    (b->text_is_placeholder || b->control_disabled) ? C_MUTED
+                                                                    : C_TEXT;
+
+                r = robo_demo_font_draw(surface, rect.x + DEMO_FIELD_PAD_X,
+                                        rect.y + (rect.height - ink.height) / 2,
+                                        b->text, b->length, b->text_scale,
+                                        ink_color);
+                if (r != ROBO_OK) {
+                    return r;
+                }
+                stats.text_runs_painted++;
+            }
             break;
         }
         default:

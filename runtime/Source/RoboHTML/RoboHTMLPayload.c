@@ -73,6 +73,32 @@ static char ascii_lower(char c)
     return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
 }
 
+/**
+ * ASCII whitespace as HTML defines it in a reference: space, tab, newline,
+ * form feed and carriage return. Deliberately not isspace(): the C locale's
+ * extras (vertical tab, and anything a locale adds) are not HTML whitespace,
+ * and a validity rule must not depend on the host locale.
+ */
+static int span_is_space(char c)
+{
+    return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r';
+}
+
+int robo_html_span_is_usable(const char *text, size_t length)
+{
+    size_t i;
+
+    if (!text) {
+        return 0;
+    }
+    for (i = 0u; i < length; i++) {
+        if (!span_is_space(text[i])) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int robo_html_name_equal(const char *a, const char *b)
 {
     if (!a || !b) {

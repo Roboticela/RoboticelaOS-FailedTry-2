@@ -217,7 +217,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboHTML\RoboHTMLTraversal.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLMutation.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLDocumentModel.c"),
-    (Join-Path $SourceDir "RoboHTML\RoboHTMLAnchor.c")
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLAnchor.c"),
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLForm.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -344,6 +345,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLElements.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLImage.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLAnchor.c"),
+    (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLForm.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

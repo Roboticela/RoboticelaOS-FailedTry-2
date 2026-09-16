@@ -68,7 +68,9 @@
 #include "RoboGraphics/RoboGraphicsImage.h"
 #include "RoboGraphics/RoboGraphicsSurface.h"
 #include "RoboHTML/RoboHTMLDiagnostics.h"
+#include "RoboHTML/RoboHTMLForm.h"
 #include "RoboHTML/RoboHTMLSource.h"
+#include "RoboHTML/RoboHTMLTag.h"
 #include "RoboHTML/RoboHTMLTypes.h"
 
 #include <stddef.h>
@@ -109,7 +111,25 @@ typedef enum robo_demo_block_style {
      * rule: the link's appearance is CSS's job in a later phase, and nothing
      * else in the runtime may infer a visual contract from this block.
      */
-    ROBO_DEMO_BLOCK_LINK = 6
+    ROBO_DEMO_BLOCK_LINK = 6,
+    /**
+     * A form control (Phase 8.14): `<label>`, `<input>`, `<textarea>` or
+     * `<select>`.
+     *
+     * One style for four elements because this adapter has one way to draw a
+     * control — a labelled box — and because what a caller needs to tell
+     * apart is not the element but its *state*: whether a checkbox is checked,
+     * what a text field is holding, how many options a select has. That state
+     * is read from the real model through the Phase 8.14 API
+     * (robo_html_element_control_value and friends), never re-derived from
+     * the markup, which is what makes the picture a report of the DOM rather
+     * than a second opinion about it.
+     *
+     * `<button>` keeps its own style rather than becoming a field: it was a
+     * block before this phase and its rect is the one the press/hover states
+     * are keyed to, so folding it in would change 8.13's picture for no gain.
+     */
+    ROBO_DEMO_BLOCK_FIELD = 7
 } robo_demo_block_style_t;
 
 /** Human-readable style name; never NULL. */
@@ -211,6 +231,55 @@ const char *robo_demo_page_block_href(const robo_demo_page_t *page,
 
 /** Count of link blocks in @p page. */
 size_t robo_demo_page_link_count(const robo_demo_page_t *page);
+
+/**
+ * What a form-control block was built from (Phase 8.14).
+ *
+ * Every field is a fact the Phase 8.14 model reported, recorded when the
+ * block was built: the element's real tag, its *effective* input type, its
+ * current checkedness, and its current value as
+ * robo_html_element_control_value returned it. The adapter paints from these
+ * bytes and reports them, so the visual checkpoint cannot show a control the
+ * DOM does not have.
+ *
+ * Nothing here is a second form model. There is no declared/current split in
+ * this struct because there is no current state in the adapter: a block is a
+ * snapshot, and a page rebuilt from a mutated document reports the new state
+ * because it re-reads it.
+ */
+typedef struct robo_demo_field_info {
+    /** The element this block is: `label`, `input`, `textarea` or `select`. */
+    robo_html_tag_t tag;
+    /**
+     * The effective input type for an `<input>` (`robo_html_input_type_t`),
+     * and @c ROBO_HTML_INPUT_TYPE_TEXT for the other three — which is the
+     * same "no type means text" default the model uses, rather than a
+     * second sentinel.
+     */
+    robo_html_input_type_t type;
+    /** Current checkedness; 0 for anything without any. */
+    int checked;
+    int disabled;
+    int readonly;
+    /** Borrowed current value / selected option value; "" when there is none. */
+    const char *value;
+    size_t value_length;
+    /** Number of `<option>` elements for a `<select>`; 0 otherwise. */
+    size_t option_count;
+} robo_demo_field_info_t;
+
+/**
+ * Describe form-control block @p index.
+ *
+ * @return 1 and a filled @p out when block @p index is a control; 0 otherwise
+ *         (including an out-of-range index).
+ */
+int robo_demo_page_block_field(const robo_demo_page_t *page,
+                               size_t index,
+                               robo_demo_field_info_t *out);
+
+/** Count of form-control blocks in @p page. */
+size_t robo_demo_page_field_count(const robo_demo_page_t *page);
 
 /**
  * Index of the link block containing @p p; 1 on a hit, 0 otherwise.

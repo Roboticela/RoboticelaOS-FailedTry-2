@@ -164,7 +164,7 @@ static const tag_row_t k_tags[] = {
     {ROBO_HTML_TAG_DT, "dt", ROBO_HTML_ELEMENT_CLASS_SECTION,
      ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_FIELDSET, "fieldset", ROBO_HTML_ELEMENT_CLASS_SECTION,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED},
     {ROBO_HTML_TAG_FIGCAPTION, "figcaption",
      ROBO_HTML_ELEMENT_CLASS_SECTION, ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_FIGURE, "figure", ROBO_HTML_ELEMENT_CLASS_SECTION,
@@ -242,7 +242,7 @@ static const tag_row_t k_tags[] = {
     {ROBO_HTML_TAG_MAP, "map", ROBO_HTML_ELEMENT_CLASS_REPLACED,
      ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_OBJECT, "object", ROBO_HTML_ELEMENT_CLASS_REPLACED,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED},
     {ROBO_HTML_TAG_PARAM, "param", ROBO_HTML_ELEMENT_CLASS_REPLACED,
      ROBO_HTML_TAG_FLAG_VOID},
     {ROBO_HTML_TAG_PICTURE, "picture", ROBO_HTML_ELEMENT_CLASS_REPLACED,
@@ -255,30 +255,38 @@ static const tag_row_t k_tags[] = {
      ROBO_HTML_TAG_FLAG_NONE},
 
     /* -- Form controls ----------------------------------------------- */
+    /*
+     * The two form flags (Phase 8.14) are columns of the type, like void:
+     * which elements can have a form owner, and which a <label> can attach
+     * to, are facts about the element, not parser policy. Note they are not
+     * the same set — <output> is form-associated but not labelable, and
+     * <label> is neither.
+     */
     {ROBO_HTML_TAG_BUTTON, "button", ROBO_HTML_ELEMENT_CLASS_CONTROL,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED | ROBO_HTML_TAG_FLAG_LABELABLE},
     {ROBO_HTML_TAG_DATALIST, "datalist", ROBO_HTML_ELEMENT_CLASS_CONTROL,
      ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_FORM, "form", ROBO_HTML_ELEMENT_CLASS_CONTROL,
      ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_INPUT, "input", ROBO_HTML_ELEMENT_CLASS_CONTROL,
-     ROBO_HTML_TAG_FLAG_VOID},
+     ROBO_HTML_TAG_FLAG_VOID | ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED |
+         ROBO_HTML_TAG_FLAG_LABELABLE},
     {ROBO_HTML_TAG_LABEL, "label", ROBO_HTML_ELEMENT_CLASS_CONTROL,
      ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_METER, "meter", ROBO_HTML_ELEMENT_CLASS_CONTROL,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_LABELABLE},
     {ROBO_HTML_TAG_OPTGROUP, "optgroup", ROBO_HTML_ELEMENT_CLASS_CONTROL,
      ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_OPTION, "option", ROBO_HTML_ELEMENT_CLASS_CONTROL,
      ROBO_HTML_TAG_FLAG_NONE},
     {ROBO_HTML_TAG_OUTPUT, "output", ROBO_HTML_ELEMENT_CLASS_CONTROL,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED | ROBO_HTML_TAG_FLAG_LABELABLE},
     {ROBO_HTML_TAG_PROGRESS, "progress", ROBO_HTML_ELEMENT_CLASS_CONTROL,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_LABELABLE},
     {ROBO_HTML_TAG_SELECT, "select", ROBO_HTML_ELEMENT_CLASS_CONTROL,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED | ROBO_HTML_TAG_FLAG_LABELABLE},
     {ROBO_HTML_TAG_TEXTAREA, "textarea", ROBO_HTML_ELEMENT_CLASS_CONTROL,
-     ROBO_HTML_TAG_FLAG_NONE},
+     ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED | ROBO_HTML_TAG_FLAG_LABELABLE},
 
     /* -- Void elements with no classified role yet -------------------- */
     {ROBO_HTML_TAG_COL, "col", ROBO_HTML_ELEMENT_CLASS_GENERIC,
@@ -445,4 +453,14 @@ int robo_html_tag_is_list_item(robo_html_tag_t tag)
 int robo_html_tag_is_text_level(robo_html_tag_t tag)
 {
     return tag_has_flag(tag, ROBO_HTML_TAG_FLAG_TEXT_LEVEL);
+}
+
+int robo_html_tag_is_form_associated(robo_html_tag_t tag)
+{
+    return tag_has_flag(tag, ROBO_HTML_TAG_FLAG_FORM_ASSOCIATED);
+}
+
+int robo_html_tag_is_labelable(robo_html_tag_t tag)
+{
+    return tag_has_flag(tag, ROBO_HTML_TAG_FLAG_LABELABLE);
 }

@@ -100,6 +100,7 @@ void robo_test_register_graphics_text(void);
 void robo_test_register_graphics_encode(void);
 void robo_test_register_html_image(void);
 void robo_test_register_html_anchor(void);
+void robo_test_register_html_form(void);
 void robo_test_register_graphics_decode(void);
 void robo_test_register_graphics_screenshot(void);
 void robo_test_register_graphics_phase6(void);
@@ -314,6 +315,7 @@ int main(int argc, char **argv)
     robo_test_register_html_elements();
     robo_test_register_html_image();
     robo_test_register_html_anchor();
+    robo_test_register_html_form();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */
     robo_test_register_demo_html();

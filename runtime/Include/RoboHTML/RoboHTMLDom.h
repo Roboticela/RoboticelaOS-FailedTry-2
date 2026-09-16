@@ -120,6 +120,21 @@ typedef struct robo_html_dom_capabilities {
      * click/event DOM API and no download manager.
      */
     int links;
+    /**
+     * The forms foundation is available (Phase 8.14): `<form>`, `<label>`,
+     * `<input>`, `<button>`, `<textarea>`, `<select>` and `<option>`
+     * attributes readable as typed views, an input/button type vocabulary
+     * with a defined degradation for an unrecognised `type`, a label resolved
+     * to the control it names, a control resolved to its form owner (by
+     * `form` attribute ID, else nearest ancestor `<form>`), and per-document
+     * control state that distinguishes a control's *declared* value from its
+     * *current* value.
+     *
+     * "Available" is a narrow claim: no submission, no encoding, no
+     * validation, no user interaction and no `load`/`error`/`input` events.
+     * A value is only ever changed by an explicit API call in this phase.
+     */
+    int forms;
     /** Event model available (DOM events phase). */
     int events;
     /** Tree construction from parser callbacks (Phase 8.3). */

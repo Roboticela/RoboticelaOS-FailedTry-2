@@ -198,8 +198,15 @@ static void test_demo_default_source(void)
     /* <title> becomes the window title, and html/head/body are structural
      * only, so the visible elements become exactly these blocks. */
     ROBO_CHECK_STR_EQ(robo_demo_page_title(page), "RoboticelaOS Runtime");
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(page), 7);
-    ROBO_CHECK_EQ_INT(robo_demo_page_supported_element_count(page), 11);
+    /*
+     * Six blocks above the form, then the Phase 8.14 form: seven `<label>`
+     * captions, five `<input>`s, the `<textarea>` and the `<select>` —
+     * fourteen control blocks — and the two `<button>`s (the form's submit
+     * and the plain one below it).
+     */
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(page), 22);
+    ROBO_CHECK_EQ_INT(robo_demo_page_field_count(page), 14);
+    ROBO_CHECK_EQ_INT(robo_demo_page_supported_element_count(page), 30);
     ROBO_CHECK_EQ_INT(robo_demo_page_ignored_tag_count(page), 0);
     ROBO_CHECK_EQ_INT(robo_demo_page_diagnostic_count(page), 0);
     ROBO_CHECK_EQ_INT(robo_demo_page_has_button(page), 1);
@@ -241,14 +248,45 @@ static void test_demo_default_source(void)
     ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 5),
                       "RoboHTML links resolve to real elements.");
 
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 6, &style), ROBO_OK);
+    /*
+     * The form's caption/control pairs, alternating, exactly as the document
+     * spells them. Asserting the *pairs* rather than only the count is what
+     * makes this a check on the walk: a caption that swallowed its control,
+     * or a control that lost its caption, would still leave fourteen blocks.
+     */
+    {
+        static const char *const k_captions[] = {
+            "Display name", "Passphrase", "Build revision", "Platform notes",
+            "Release ring", "Notes",          "Country",
+        };
+        size_t c;
+
+        for (c = 0u; c < 7u; c++) {
+            size_t at = 6u + c * 2u;
+
+            ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, at, &style),
+                              ROBO_OK);
+            ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_FIELD);
+            ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, at),
+                              k_captions[c]);
+            ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, at + 1u, &style),
+                              ROBO_OK);
+            ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_FIELD);
+        }
+    }
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 20, &style), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_BUTTON);
-    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 6), "Demo Button");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 20), "Register");
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 21, &style), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)style, (int)ROBO_DEMO_BLOCK_BUTTON);
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 21), "Demo Button");
 
     /* Out-of-range access is a clean NOT_FOUND, never garbage. */
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 7, &style),
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_style(page, 22, &style),
                       ROBO_NOT_FOUND);
-    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 7), "");
+    ROBO_CHECK_STR_EQ(robo_demo_page_block_text(page, 22), "");
     /* A non-link block has no href, and says so rather than inventing one. */
     ROBO_CHECK_STR_EQ(robo_demo_page_block_href(page, 0), "");
 
@@ -583,8 +621,8 @@ static void test_demo_layout_flow(void)
     ROBO_CHECK(robo_demo_page_block_rect(page, 1, &r1));
     ROBO_CHECK(robo_demo_page_block_rect(page, 2, &r2));
     /* Block 3 is the first link; the button is the last block. */
-    ROBO_CHECK(robo_demo_page_block_rect(page, 6, &r3));
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_rect(page, 9, &r3), 0);
+    ROBO_CHECK(robo_demo_page_block_rect(page, 21, &r3));
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_rect(page, 22, &r3), 0);
 
     /* Deterministic vertical flow: heading, paragraphs, links, then button. */
     ROBO_CHECK(r0.y < r1.y);
@@ -701,7 +739,7 @@ static void test_demo_paint_probes(void)
 
     demo_fixture();
     page = page_from(robo_demo_default_html(), NULL);
-    surface = make_surface(900, 600);
+    surface = make_surface(900, 800);
     ROBO_CHECK(page != NULL && surface != NULL);
     if (!page || !surface) {
         robo_demo_page_destroy(page);
@@ -714,8 +752,16 @@ static void test_demo_paint_probes(void)
     ROBO_CHECK_EQ_INT(robo_demo_page_paint(page, surface, &opts, &stats),
                       ROBO_OK);
 
-    ROBO_CHECK_EQ_INT(stats.blocks_painted, 7);
-    ROBO_CHECK_EQ_INT(stats.text_runs_painted, 7);
+    ROBO_CHECK_EQ_INT(stats.blocks_painted, 22);
+    /*
+     * Six runs above the form, seven captions, three controls carrying text
+     * (the text and number inputs and the textarea, whose placeholders and
+     * value this adapter draws), the select's selected option, and the two
+     * buttons. The password input is deliberately absent from that count: it
+     * has no placeholder and no value, so it draws its box and nothing else —
+     * which is the honest picture of an empty field.
+     */
+    ROBO_CHECK_EQ_INT(stats.text_runs_painted, 19);
     ROBO_CHECK(stats.rects_painted >= 6u);
     /* One rule under the headline plus one underline per link. */
     ROBO_CHECK_EQ_INT(stats.lines_painted, 3);
@@ -726,7 +772,7 @@ static void test_demo_paint_probes(void)
     /* Accent strip spans the full width at the top. */
     ROBO_CHECK(pixel_is(surface, 450, 2, T_BRAND));
     /* Right/bottom margin stays page background: nothing bleeds out. */
-    ROBO_CHECK(pixel_is(surface, 896, 596, T_BG));
+    ROBO_CHECK(pixel_is(surface, 896, 796, T_BG));
     /* Button: filled brand, one-pixel darker border. Sampled three pixels in
      * from the left edge: the label is centred, so this point is always fill
      * regardless of button state. */
@@ -753,7 +799,7 @@ static void test_demo_paint_button_states(void)
 
     demo_fixture();
     page = page_from(robo_demo_default_html(), NULL);
-    surface = make_surface(900, 600);
+    surface = make_surface(900, 800);
     ROBO_CHECK(page != NULL && surface != NULL);
     if (!page || !surface) {
         robo_demo_page_destroy(page);

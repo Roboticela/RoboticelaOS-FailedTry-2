@@ -80,7 +80,10 @@ robo_result_t robo_html_dom_query_capabilities(
      * bindings remain later-phase work; `attributes` still means the
      * attribute model, `text_nodes` the text model, `images` a resource
      * model and `links` a navigation model, none of them a complete DOM
-     * surface.
+     * surface. Phase 8.14: the form controls are a typed model over the same
+     * attributes — an input's type, a control's form owner, a label's
+     * target, and a control's declared-versus-current value — so forms are
+     * available, without submission, encoding, validation or interaction.
      */
     out->tree_building = 1;
     out->attributes = 1;
@@ -90,6 +93,7 @@ robo_result_t robo_html_dom_query_capabilities(
     out->element_tags = 1;
     out->images = 1;
     out->links = 1;
+    out->forms = 1;
     return ROBO_OK;
 }
 

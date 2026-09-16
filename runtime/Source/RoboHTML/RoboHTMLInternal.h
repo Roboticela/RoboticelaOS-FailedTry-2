@@ -109,6 +109,34 @@ typedef struct robo_html_document_slot {
     struct robo_html_image_attachment *images;
     size_t image_count;
     size_t image_capacity;
+
+    /**
+     * Form-control state (Phase 8.14), one entry per control whose *current*
+     * value or checkedness has been set explicitly.
+     *
+     * Keyed by node identity for the same reason the image table is: a moved
+     * control keeps its state, and a recycled node id cannot inherit one
+     * because a fresh node gets a new generation.
+     *
+     * It is deliberately NOT stored in the element's payload. The payload is
+     * the attribute record, and it is rewritten wholesale on every attribute
+     * mutation — so control state living there would be clobbered by the very
+     * operation the model has to survive (`<input value="a">` then
+     * `setAttribute("value", "b")` must not resurrect a cleared value), and
+     * the attribute payload would have to grow a concept that only form
+     * controls have. A separate table keeps the attribute model and the
+     * element-type model independent, which is what lets an attribute be read
+     * by code that has never heard of forms.
+     *
+     * An entry exists only while a control is *not* tracking its attribute:
+     * no entry means "current value is the declared value", so the common
+     * case costs no memory and a document full of untouched inputs allocates
+     * nothing. That is also why `present` is not a field — the entry's
+     * existence is the fact.
+     */
+    struct robo_html_control_state *controls;
+    size_t control_count;
+    size_t control_capacity;
 } robo_html_document_slot_t;
 
 /** One image resource attached to one node of one document. */
@@ -116,6 +144,36 @@ typedef struct robo_html_image_attachment {
     robo_html_node_handle_t node;
     struct robo_html_image *image;
 } robo_html_image_attachment_t;
+
+/**
+ * Explicit state of one form control (Phase 8.14).
+ *
+ * `value` is owned by the table (NUL-terminated as well as counted, so a C
+ * caller can pass it on without copying) and is NULL when only the checkedness
+ * was set explicitly — the two overrides are independent, exactly as they are
+ * in HTML, where setting `.value` does not touch `.checked`.
+ *
+ * There is no `value_dirty` flag beside a nullable pointer: a NULL pointer
+ * *is* "not overridden", and a flag next to it could only disagree.
+ */
+typedef struct robo_html_control_state {
+    robo_html_node_handle_t node;
+    /** Owned current value, or NULL when the value still tracks the attribute. */
+    char *value;
+    size_t value_length;
+    /** Non-zero when a checkedness override exists, in @c checked. */
+    int checked_set;
+    int checked;
+} robo_html_control_state_t;
+
+/**
+ * Release every control-state entry and the table itself (Phase 8.14).
+ * Safe on a NULL slot and on a slot that never held one; clears the fields.
+ * Called from both teardown paths — robo_html_document_clear_tree and
+ * robo_html_document_destroy — because in both cases the nodes the table
+ * refers to are gone and a recycled id must not inherit their state.
+ */
+void robo_html_document_controls_free(robo_html_document_slot_t *slot);
 
 /**
  * Release every attached image resource and the table itself (Phase 8.12).
@@ -403,6 +461,19 @@ void robo_html_node_set_payload(robo_html_node_entry_t *entry,
  * NULL operands are never equal; both must be NUL-terminated.
  */
 int robo_html_name_equal(const char *a, const char *b);
+
+/**
+ * Non-zero when @p text holds something once surrounding ASCII whitespace is
+ * ignored: present, and not blank.
+ *
+ * This is the "did the author actually name something?" test, and it is the
+ * same rule everywhere it is asked — `<a href="  ">` names nothing, and so
+ * does `<form action="  ">` or a control's `form="  "`. Callers with an
+ * extra policy of their own compose it with their own filter rather than
+ * re-implementing this one (the anchor module also refuses control bytes, so
+ * its usable test is this rule plus that check).
+ */
+int robo_html_span_is_usable(const char *text, size_t length);
 
 /** Same, with @p a given by length (a payload name is length-prefixed). */
 int robo_html_name_equal_span(const char *a, size_t a_length, const char *b);

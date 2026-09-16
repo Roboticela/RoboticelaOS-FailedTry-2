@@ -251,7 +251,17 @@ typedef enum robo_html_diagnostic_domain {
      * carries the reason attached to a call that could not be attempted at
      * all.
      */
-    ROBO_HTML_DOMAIN_ANCHOR = 16
+    ROBO_HTML_DOMAIN_ANCHOR = 16,
+    /**
+     * Forms domain (Phase 8.14): reading a form/control's attributes,
+     * refusing a control operation on an element that is not a control,
+     * and reporting a form-owner or label-target reference that names
+     * nothing usable. "This input has no form owner" is *not* a diagnostic —
+     * a control outside any form is an ordinary, valid document — so this
+     * domain carries the reason attached to a call that could not be made at
+     * all.
+     */
+    ROBO_HTML_DOMAIN_FORMS = 17
 } robo_html_diagnostic_domain_t;
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */

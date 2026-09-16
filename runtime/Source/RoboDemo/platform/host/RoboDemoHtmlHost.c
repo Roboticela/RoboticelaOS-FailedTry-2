@@ -41,7 +41,14 @@
 #include <string.h>
 
 #define DEMO_OFFSCREEN_W 900
-#define DEMO_OFFSCREEN_H 600
+/*
+ * 800, not 600: Phase 8.14's form pushes the checkpoint document past 600
+ * device pixels, and a checkpoint that clipped its own demonstration would
+ * hide exactly the part it exists to show. 800 is also the guest's
+ * framebuffer height, so the host window and the QEMU window now show the
+ * same amount of the page.
+ */
+#define DEMO_OFFSCREEN_H 800
 #define DEMO_HOLD_DEFAULT_MS 4000u
 #define DEMO_FRAME_WAIT_MS 16u
 #define DEMO_INJECT_TIMEOUT_MS 1000u

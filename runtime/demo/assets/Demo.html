@@ -10,6 +10,26 @@
 <a href="/Settings">Settings</a>
 <a href="#Overview">Overview</a>
 <p id="Overview">RoboHTML links resolve to real elements.</p>
+<form action="/Register" method="post" enctype="application/x-www-form-urlencoded">
+<label for="DisplayName">Display name</label>
+<input id="DisplayName" type="text" name="displayName" placeholder="Your name" required>
+<label for="Passphrase">Passphrase</label>
+<input id="Passphrase" type="password" name="passphrase">
+<label for="Revision">Build revision</label>
+<input id="Revision" type="number" name="revision" min="1" max="999" value="8">
+<label for="Subscribed">Platform notes</label>
+<input id="Subscribed" type="checkbox" name="subscribed" checked>
+<label for="ReleaseRing">Release ring</label>
+<input id="ReleaseRing" type="radio" name="ring" value="Stable" checked>
+<label for="Notes">Notes</label>
+<textarea id="Notes" name="notes" rows="3" cols="40" placeholder="Anything else"></textarea>
+<label for="Country">Country</label>
+<select id="Country" name="country">
+<option value="pk">Pakistan</option>
+<option value="us" selected>United States</option>
+</select>
+<button type="submit">Register</button>
+</form>
 <button>Demo Button</button>
 </body>
 </html>
