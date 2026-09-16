@@ -1892,6 +1892,127 @@ checkpoint in name only.
       independence assertion)
 - [x] Stop after 8.14
 
+## Goal 8.15 — DOM tests
+
+This phase adds no product behaviour. Every surface it exercises was built by
+8.6 through 8.14, and the running system is unchanged by it. What it adds is the
+test layer those phases could not write, because a suite written *by* a phase is
+positioned to see that phase's surface and not the seams between surfaces.
+
+**Fourteen suites can each be green while the model as a system is wrong.**
+`html.attr.*` can prove an attribute changes and `html.image.*` can prove an
+image's state follows its `src`, and both can pass while the *first* one stops
+moving the second. `html.anchor.*` can prove a fragment resolves and
+`html.form.*` can prove a label resolves its `for`, and both can pass while the
+two disagree about which element an id names. `html.tree.*` can prove the builder
+never puts a child under `<input>` and `html.mutate.*` can prove the mutation API
+inserts children into a node of any kind, and both are correct — the invariant
+that is *actually* true is that void is a parser rule and not a DOM rule, and no
+single-phase suite has a reason to state it. So this phase adds one more suite,
+`SuiteRoboHTMLDom.c` (`html.dom.*`, 13 tests), and it is the only one allowed to
+be cross-cutting. It is not a second framework: it uses the same
+`robo_test_register` and the same `ROBO_CHECK*` vocabulary, and its shared
+support header is `static inline` helpers rather than a runner, a reporter or a
+new assertion language.
+
+**The subject is invariants, not APIs.** Three tests carry most of that weight.
+`document_isolation` parses the same bytes into two documents and then checks
+every cross-document operation is refused *and* that the document nobody
+addressed is byte-identical afterwards — which is what the ownership model
+exists for, since identical markup means identical names and identical ids, and
+anything resolved by name or id-string across documents would look right on one
+and corrupt the other. `id_resolution_agrees` asserts the three consumers of the
+single id rule agree, including the case where they agree on *nothing*: a `for`
+naming a non-labelable element answers nothing rather than falling back to
+ancestry, while a `form` attribute that does not resolve deliberately does fall
+back — two different choices, both deliberate, and the suite pins the difference
+rather than smoothing it away. `attribute_mutation_sequences` walks set → read →
+replace → remove with the dependent state checked at every step, through the
+anchor view, the image state and the declared/current control value, including
+the case that justifies the declared/current split existing at all: an explicit
+control value surviving the removal of the attribute it defaulted from.
+
+The rest of the suite is the matrix around those: a malformed corpus that must
+still audit clean and rebuild byte-identically, 200 levels and 300 siblings,
+thirteen script families through both the parser and the construction seam and
+through all three id consumers (with a one-byte near miss), 24 document
+lifetimes with the debug allocator's live count returning exactly to baseline,
+and one document that uses every subsystem at once, is mutated, and is torn
+down. The capability flags are asserted as they are: `dom_nodes` is checked to
+be **0**, because it names a *complete* node DOM surface and this build has one
+model per aspect rather than the whole, and `events` is 0 because its phase has
+not run. A pass does not get to round either of those up.
+
+**The fixtures parse real HTML, with one exception that is the model's.**
+`dom_document_of()` runs the real tokenizer and tree builder, and the lookup and
+audit helpers use the runtime's own descendant walk and its own
+`robo_html_document_validate_tree`, so a test cannot pass on hand-built nodes
+while the parser integration it claims to test is broken. Construction is the
+one case that cannot go through the parser — the construction seam is gated on a
+document that has not been finalized, and a parsed document is finalized by
+definition — so those tests build a document by hand and are still checked by
+the same traversal and the same audit.
+
+**The sanitizer run was the point of the exercise, and it found two real bugs
+that predate this phase.** `-Sanitize` already existed in the host build and was
+used rather than duplicated. UBSan reported a misaligned payload header on
+*every element write*: the payload arena is a bump allocator over a byte cursor,
+so a reservation following an odd-length name began at an odd offset, and a
+header is four `uint32_t`s — undefined behaviour on x86-64, a fault on stricter
+targets. Fixed by aligning the cursor to the header's own required alignment
+before each reservation, with the padding unreachable through any offset/length
+pair and the reservation still ending exactly at the new `payload_used` so the
+in-place tail-growth path is unchanged. UBSan then found `href + begin` on a NULL
+`href` — `NULL + 0` is UB even at a zero offset — fixed by keeping an absent
+reference NULL. Neither was introduced here; both had been latent since the arena
+and the anchor model were written and both are invisible without UBSan.
+
+- [x] One cross-cutting suite (`SuiteRoboHTMLDom.c`, `html.dom.*`, 13 tests)
+      reusing the existing framework — no second runner, reporter or assertion
+      vocabulary
+- [x] Shared fixtures (`RoboHTMLDomTestSupport.h`): parsed-document builders, the
+      three lookups over the runtime's own descendant walk, the whole-tree audit,
+      truncation-fatal text/dump readers, and one Unicode sample table shared by
+      both Unicode tests
+- [x] Document isolation: identical bytes in two documents, every cross-document
+      operation refused, the unaddressed document verified unchanged
+- [x] Elements, attributes, text nodes, traversal and mutation covered at the
+      system level through parsed trees, with the whole-tree audit run after
+      every mutating case
+- [x] The three id consumers asserted to agree, to move together under an `id`
+      rename, and to diverge where the model deliberately diverges — with no
+      parallel id index introduced for the tests
+- [x] Void asserted as a parser rule *and* as a node-kind rule, stated as two
+      different facts rather than one conflated one
+- [x] Parser: nested, empty, void, comment, malformed, incomplete and Unicode
+      markup, and a recovery corpus that must audit clean and rebuild
+      deterministically
+- [x] Links, images and forms regression-tested through the shared model,
+      including anchor view, image state, label→control, control→form and the
+      declared/current value and checkedness sequences
+- [x] Lifecycle churn: 24 lifetimes balanced against the debug allocator's live
+      count, stale handles after destroy, and a second destroy as `NOT_FOUND`
+- [x] Unicode: English, French, German, Arabic, Persian, Urdu, Hebrew,
+      Devanagari, Bengali, Chinese, Japanese, Korean and emoji, preserved
+      verbatim through parse, attributes, text nodes, mutation and all three id
+      consumers
+- [x] Attribute mutation sequences, deep (200) and wide (300) structure, and one
+      document integrating every subsystem
+- [x] `dom_nodes` and `events` asserted 0 — the flags report what this build
+      does, not what the phase list intends
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled, full
+      suite green, **zero findings after the two fixes**
+- [x] Two real latent defects fixed rather than suppressed: misaligned payload
+      headers in the arena, and `NULL + 0` in anchor reference trimming
+- [x] `html/docs/Tests.md` records the suite map, the cross-cutting tests, the
+      fixture rule, the focused and full run commands, and the sanitizer result
+- [x] `html/README.md` documents the `html.dom.*` filter and the docs list
+- [x] Full suite green (1407 tests, Debug, no documented exclusions) — up 13
+      from 8.14's 1394, with no existing test weakened or removed
+- [x] No Chromium dependency (verified by scan and by the build's own
+      independence assertion)
+- [x] Stop after 8.15
+
 ## Next
 
-- Goal 8.15 — DOM queries and events (do not start until requested)
+- Goal 8.16 — DOM queries and events (do not start until requested)

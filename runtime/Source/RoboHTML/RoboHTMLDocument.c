@@ -68,6 +68,9 @@ robo_result_t robo_html_document_arena_alloc(robo_html_document_slot_t *slot,
                                              void **out_ptr,
                                              robo_html_diag_t *diag)
 {
+    size_t aligned;
+    size_t padding;
+
     if (!slot || !out_offset) {
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE,
                               ROBO_INVALID_ARGUMENT, "arena args are NULL");
@@ -80,14 +83,29 @@ robo_result_t robo_html_document_arena_alloc(robo_html_document_slot_t *slot,
         return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_SUPPORTED,
                               "payload exceeds one addressable range");
     }
-    if (arena_reserve(slot, size, diag) != ROBO_OK) {
+    /*
+     * Skip to the next aligned cursor before reserving. The payload header is
+     * four `uint32_t`s, so a reservation that followed an odd-length name would
+     * be misaligned, and accessing it there is undefined behaviour — harmless
+     * on x86-64, a fault on stricter targets, and a real defect either way.
+     * The padding is unreachable through any payload: no offset or length ever
+     * describes it.
+     */
+    aligned = (slot->payload_used + (ROBO_HTML_PAYLOAD_ALIGNMENT - 1u)) &
+              ~(size_t)(ROBO_HTML_PAYLOAD_ALIGNMENT - 1u);
+    padding = aligned - slot->payload_used;
+    if (padding + size > 0xFFFFFFFFu) {
+        return ROBO_HTML_DIAG(diag, ROBO_HTML_DOMAIN_NODE, ROBO_NOT_SUPPORTED,
+                              "payload exceeds one addressable range");
+    }
+    if (arena_reserve(slot, padding + size, diag) != ROBO_OK) {
         return diag ? diag->code : ROBO_OUT_OF_MEMORY;
     }
-    *out_offset = (uint32_t)slot->payload_used;
+    *out_offset = (uint32_t)aligned;
     if (out_ptr) {
-        *out_ptr = slot->payload + slot->payload_used;
+        *out_ptr = slot->payload + aligned;
     }
-    slot->payload_used += size;
+    slot->payload_used = aligned + size;
     return ROBO_OK;
 }
 

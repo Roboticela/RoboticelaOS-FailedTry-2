@@ -233,7 +233,12 @@ registration.
 Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 `ElementModel.md`, `AttributeModel.md`, `TextModel.md`, `Traversal.md`,
 `Mutation.md`, `Lifecycle.md`, `Elements.md`, `Images.md`, `Links.md`,
-`Forms.md`.
+`Forms.md`, `Tests.md`.
+
+`Tests.md` is the map of the suite: which suite owns which surface, what the
+cross-cutting `html.dom.*` tests pin and why they exist separately, the
+parsed-versus-hand-built fixture rule, how to run a focused suite, and what the
+sanitizer builds found.
 
 ## Public headers
 
@@ -290,6 +295,7 @@ Design docs: `Architecture.md`, `TreeBuilder.md`, `DocumentModel.md`,
 | `html.image.*` | `<img>` through the parser (identity, four attributes, void, siblings), dimension parsing, alt verbatim including Unicode, decode through the asset resolver, failure and scheme refusal as distinct states, re-resolve on a mutated `src`, detach, teardown, mutation and traversal, debug describe |
 | `html.anchor.*` | `<a>` through the parser, the attribute view (present vs usable), the resolution matrix with and without a base, fragments, external URIs, scheme knowledge vs permission, target contexts, `rel` tokens, activation for every outcome kind including the refusals, request contents, no fake success, structure, mutation, lifecycle and destroyed-document safety, Unicode link text, debug describe, capability flag |
 | `html.form.*` | Forms: the elements through the parser, the form and control attribute views (present vs usable, `method`/`enctype` classification), the input type vocabulary and its degradation, value and checkedness state (declared vs current, overrides set/cleared, independence), numeric constraints parsed not compared, button, textarea, select/option ordering, the option value fallback, label→control, form ownership by attribute and by ancestry, refusals for non-form elements, malformed input, mutation including option restructuring, lifecycle including a control mutated after the document settled, a destroyed document's state, structure, Unicode |
+| `html.dom.*` | Cross-cutting DOM invariants (8.15): document isolation (identical bytes, two documents, every cross-document operation refused), the three `id` consumers (fragment lookup, a label's `for`, a control's `form`) agreeing and moving together under an `id` rename, void as a *parser* rule versus a node-kind rule in the mutation API, malformed input still auditing clean and rebuilding deterministically, attribute mutation sequences with the dependent state (anchor, image, declared/current value) checked at every step, 200-level and 300-sibling structure, a thirteen-family Unicode matrix through both the parser and the construction seam, allocator-balanced document churn over 24 lifetimes, and one document exercising every subsystem at once |
 | `demo.field.*` | The form checkpoint: every control in the shipped document reporting the state the model holds, a caption drawing no box while a field draws a white bordered one, a placeholder drawn muted versus a value drawn in the text colour, a checked box drawing a brand mark, a textarea taller than a single-line control, a select's chevron, state re-read from the DOM after mutation (including the attribute-tracking override rule), and an unmodelled `type` degrading to `text` |
 | `demo.link.*` | The link checkpoint end to end: the built-in document's two anchors as real DOM elements, hit-testing through block rects, a route refusing to navigate with no handler, a fragment resolving to the `id` it names, link paint colour and underline versus body copy, activation after the document is destroyed, and `href` mutation reaching the picture |
 | `demo.mutation.*` | A DOM mutation reaching the picture: the same document rendered before and after, with the block order and the painted output changing |

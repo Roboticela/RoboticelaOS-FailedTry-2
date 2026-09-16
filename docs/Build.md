@@ -224,6 +224,28 @@ matches `secret|password|token|credential|api_key|private_key` is redacted.
 If a QEMU setting looks wrong, `scripts/robo config` shows exactly what will be
 used before you run anything.
 
+### Sanitizer builds
+
+`--sanitize` (runtime builds; `-Sanitize` on `runtime/Tools/Build.ps1`) probes
+the host toolchain for AddressSanitizer and UndefinedBehaviorSanitizer, enables
+whichever exist, and then **fails the run if it enabled either and the build did
+not actually use it** — a silently ignored sanitizer flag would otherwise look
+like a clean result. It is a real gate, not a report: the suite runs under the
+sanitizers and the usual verdict applies.
+
+As of Goal 8.15 both are enabled on this toolchain and the whole host suite is
+green under them with zero findings. Getting there fixed two real latent
+defects — misaligned payload headers in the RoboHTML payload arena, and
+`NULL + 0` in anchor reference trimming — which is what the switch is for. Use
+`--filter <substr>` to sanitize a focused suite quickly:
+
+```powershell
+.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Sanitize -Filter "html.dom"
+```
+
+`runtime/html/docs/Tests.md` records what the sanitizers found and how each was
+fixed.
+
 ---
 
 ## 6. Known behaviour and limitations

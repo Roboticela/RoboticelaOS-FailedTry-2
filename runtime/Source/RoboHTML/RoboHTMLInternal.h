@@ -294,7 +294,26 @@ typedef struct robo_html_payload_header {
 #define ROBO_HTML_PAYLOAD_FLAG_SELF_CLOSING 1u
 
 /**
+ * Alignment, in bytes, guaranteed for the start of every arena reservation.
+ *
+ * The arena is a byte cursor, so without this a name of an odd length would
+ * place the *next* reservation at an odd offset — and a payload header is
+ * four `uint32_t`s, which is undefined behaviour to access unaligned. The
+ * value is the header's own required alignment rather than a word size,
+ * because the header is the only type the arena is ever reinterpreted as;
+ * string payloads live *inside* a reservation and need no alignment of their
+ * own.
+ */
+#define ROBO_HTML_PAYLOAD_ALIGNMENT 4u
+
+/**
  * Reserve @p size bytes at the arena tail.
+ *
+ * The returned offset is aligned to @c ROBO_HTML_PAYLOAD_ALIGNMENT (padding,
+ * when needed, is skipped and never read), and the reservation still ends
+ * exactly at the new @c payload_used, so a payload that ends the arena can
+ * still be grown in place by robo_html_document_arena_extend_tail.
+ *
  * @p out_ptr is borrowed until the next arena call (growth may move it).
  */
 robo_result_t robo_html_document_arena_alloc(robo_html_document_slot_t *slot,

@@ -983,7 +983,11 @@ robo_result_t robo_html_navigation_target_create(
     while (end > begin && ascii_is_space(href[end - 1u])) {
         end--;
     }
-    ref = href + begin;
+    /* `href` is NULL when it is absent, and `href + 0` is undefined behaviour
+     * even at a zero offset — so an absent reference stays NULL rather than
+     * becoming "the trimmed pointer". Only a non-empty `ref_len` is read past
+     * the early return below, and that implies a non-NULL `href`. */
+    ref = href ? href + begin : NULL;
     ref_len = end - begin;
 
     if (ref_len == 0u) {
