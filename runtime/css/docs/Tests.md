@@ -1,7 +1,7 @@
-# RoboCSS Test Organisation (Phase 9.1–9.3)
+# RoboCSS Test Organisation (Phase 9.1–9.5)
 
-Nineteen suites, 208 tests, one framework. These phases add no test runner, no
-reporter, and no assertion vocabulary: everything here goes through
+Twenty-seven suites, 355 tests, one framework. These phases add no test runner,
+no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
 
@@ -10,7 +10,15 @@ record own what it says it owns?). The 9.2 suites pin the machine (does a byte
 sequence produce the vocabulary 9.1 defined?), one suite per family of token
 classes, so a failure names both the class and the rule. The 9.3 suites pin what
 the grammar builds out of that stream — one per level of it (sheets and rules,
-declarations, values), plus recovery and Unicode.
+declarations, values), plus recovery and Unicode. The 9.4 suites pin the two
+ends of a selector: what the grammar *makes* of a prelude (one suite, exhaustively)
+and what the matcher *answers* about an element (matched, refused, or
+unevaluatable — three different outcomes, so three suites against the callback
+host plus one for the matcher's own structural levels). The 9.5 suites pin the
+cascade in the same shape: the level table as a table (one suite, including the
+two decisions it encodes), what a collection *finds and cannot use* (one suite,
+which is where the counters live), and what a resolution *concludes* (one suite,
+whose subject is the three verdicts and when one flips).
 
 ## 1. Suite map
 
@@ -48,6 +56,25 @@ declarations, values), plus recovery and Unicode.
 | `SuiteRoboCssParseRecover.c` | 11 | The four malformed rule shapes, stray top-level braces, a broken declaration that keeps its rule, a dropped rule that costs exactly one rule, several problems in one sheet with the *first* reported, nested-rule and nested-at-rule skipping, the rule nesting bound, and the three tokenizer-integration properties |
 | `SuiteRoboCssParseUnicode.c` | 6 | Preludes, string values, property names, custom properties, comments, at-rule preludes, and byte-offset ranges — over the thirteen-script `css_samples` corpus |
 
+### 9.4 — the selectors
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssSelectParse.c` | 51 | The selector grammar: every simple selector kind, all four combinators, all six attribute comparators and the `i`/`s` flags, quoted and identifier attribute values, escapes resolved through the tokenizer (`\:`, hex escapes, leading digits), `*` in compounds, `:not()` nesting and its bound, the An+B microsyntax table (including what must be *rejected*), pseudo-elements vs pseudo-classes and the four legacy one-colon spellings, source ranges, and the malformed table |
+| `SuiteRoboCssMatchSimple.c` | 13 | Type (with the ASCII fold and non-ASCII non-folding), class word semantics, id, attribute operators including empty values and case flags, and that a compound requires every one of its simple selectors |
+| `SuiteRoboCssMatchCombinator.c` | 14 | The four combinators, the `>`/`+`/`~` boundaries, selector-list index and range reporting, and that a relation the host cannot answer is *undecided* rather than false |
+| `SuiteRoboCssMatchStructural.c` | 7 | `:root`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`/`:nth-last-child()` incl. negatives and out-of-range forms, and `:not()` including its unevaluatable-argument path |
+| `SuiteRoboCssMatchLevels.c` | 14 | The matcher's four structural doors: each driven directly, the argument contract of the lower ones, that a complex selector of one compound *is* that compound, that an incoherent record is refused by the complex door and skipped by the list door, that `>` is strictly narrower than a space, that an unavailable relation is undecided, that a cyclic host is bounded, and that the three levels agree over a wide selector table |
+| `SuiteRoboCssDomSelect.c` | 16 | The same selectors against the **real** RoboHTML tree: the visual checkpoint's own document, text/comment nodes not counting as siblings, deep trees, rebuilding after mutation, determinism, matching not mutating the DOM, and that running the selectors over the checkpoint leaves the rendered picture unchanged — plus the 9.5 cascade over the same tree (`css.dom.cascade.*`): the document's own `style` attribute read through the seam, a collection that has to use real parent and sibling links to find the right rules, importance beating inline, and a byte-for-byte proof that collecting a cascade changes nothing the demo paints |
+
+### 9.5 — the cascade
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssCascade.c` | 5 | The level table: every (origin, importance) pair reaching exactly one level and every level being reachable, the spelled-out rows, `ROBO_CSS_ORIGIN_NONE` and unknown origins having no level, the ascending order of all eight, the names, and the two decisions the table encodes — inline above the origin it belongs to, and an important half that is *not* a plain reversal of the normal one |
+| `SuiteRoboCssCascadeCollect.c` | 15 | What applies and what could not be used: only the matching rules contribute, cascade order across origins and within one origin, `!important` moving a declaration past its normal siblings, the inline boundary (present / absent / empty / malformed / host failure), and every counter — undecided selectors, at-rule blocks, unparsed rules, destroyed sheets, origin mismatches — plus collection replacing a previous result and releasing everything it allocated |
+| `SuiteRoboCssCascadeResolve.c` | 12 | The three verdicts and the cases that flip them: nothing declared, a single candidate, two declarations of one selector (decided by order), two selectors at one level (undecided), order-independence of that undecided answer, a stronger level deciding *after* an undecided pair — the case a one-pass resolver gets wrong by remembering its first verdict — importance across origins and inline, identity by property id and by name, provenance, and per-property independence |
+
 The parser suites are where this documentation's older claim — "they never assert
 that something was *parsed*" — stops being true. From 9.3 a parse really happens,
 and these suites assert node types, tag-level structure, ranges, tree shapes and
@@ -82,11 +109,11 @@ stack garbage and freed a pointer that was never an allocation.
 
 They assert what the **model** does with bytes — kinds, ownership, ranges,
 slices, invariants, lifetimes — what the **tokenizer** does with a byte sequence
-(which token type, what value, which range), and what the **grammar** builds out
-of that stream (which rule, at which offsets, holding which declarations and
-which component-value tree). They never assert that anything was *matched* or
-*computed*, because nothing in these phases is: selector matching, the cascade,
-specificity, inheritance and computed values remain boundaries with no
+(which token type, what value, which range), what the **grammar** builds out of
+that stream (which rule, at which offsets, holding which declarations and which
+component-value tree), what the **matcher** answers about an element, and what the
+**cascade** collects and concludes. They never assert that anything was
+*computed*: specificity, inheritance and computed values remain boundaries with no
 implementation behind them.
 
 Where a boundary answers `ROBO_NOT_SUPPORTED`, the suites assert the whole shape
@@ -96,7 +123,9 @@ that will implement it, and a NULL out-parameter is tolerated.
 
 `css.capabilities` asserts that `parser`, `source_model`, `selectors`, `cascade`,
 `computed_values` and the rest report what this build *does*. A pass does not get
-to round those flags up to what the phase list intends.
+to round those flags up to what the phase list intends — which is why `cascade`
+is asserted 1 while `inheritance` and `computed_values` are asserted 0 in the same
+test, and why the comment beside it says what the 1 does *not* include.
 
 ## 4. Fixtures
 
@@ -119,6 +148,26 @@ From 9.3 it also carries the parsing helpers: `css_parse_sheet` (copy the text
 into a fresh sheet and parse it), `css_parse_declarations` (the inline-style
 door), `css_sheet_style_rule`, `css_prelude_shape`, `css_declaration_shape`,
 `css_declaration_name_of`, `css_component_is` and `css_parse_declaration_is`.
+
+From 9.4 it carries the selector helpers (`css_select_parse`,
+`css_select_parse_rejected`, `css_select_simple`, `css_select_text`) and the
+element-host double (`css_host_t` with `css_host_add`, `css_host_attribute`,
+`css_host_set_parent`, `css_host_seal`, `css_host_drop_relation`) — a host, not a
+DOM: a tag, an id, a class list, an attribute list and three relations, which is
+exactly what a view holds.
+
+From 9.5 it carries the cascade fixtures: `css_cascade_fixture_t` with
+`css_cascade_begin` / `css_cascade_end` (a context with the host double installed),
+`css_cascade_sheet` (parse a stylesheet, parse every rule's selectors, add it
+under an origin — the two steps a real caller performs and the cascade requires),
+`css_cascade_collect`, `css_cascade_candidate_name` and
+`css_cascade_winner_text`. The inline half of the seam is `css_inline_stub_t` with
+`css_cascade_inline`, shared by the collection and resolution suites rather than
+duplicated: one stub for one callback interface, or the two suites drift.
+
+The host double is shared with the 9.4 suites on purpose. A cascade test that
+needs to know *what* matched and a matching test that needs to know *whether*
+something matched are asking one seam two questions.
 
 The shape helpers are the ones that carry the weight. `css_shape` writes a
 component-value tree as **one line** — children comma-separated, whitespace
@@ -144,7 +193,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 208 css.* tests only
+scripts/robo test-css                     # the 355 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -154,6 +203,19 @@ A focused run builds the same host binary and filters on the `css.` prefix, so a
 failure in another subsystem cannot be reported against this one. The tokenizer
 subtree is `--filter=css.tokenize` (63 tests); the parser subtree is
 `--filter=css.parse` (59 tests); one suite is `--filter=css.tokenize.number`.
+
+The 9.4 surface is three filters, and they do not nest the way the names suggest:
+`--filter=css.select` (107) is the grammar plus the three callback-host matcher
+suites **plus** the eight `css.selector.*` model tests, because `css.select` is a
+prefix of `css.selector`. The precise counts are
+`--filter=css.select.parse` (51), `--filter=css.select.match` (34),
+`--filter=css.select.levels` (14), and `--filter=css.dom` (16) for the suites
+that run against the real RoboHTML tree.
+
+The 9.5 surface is `--filter=css.cascade` (32) for the three cascade suites —
+levels, collection and resolution — and `--filter=css.dom.cascade` (4) for the
+part of it that drives the real tree. `css.cascade` does not pick up
+`css.dom.cascade`, because the prefix is matched against the whole name.
 
 `--list` prints every registered name, which is how a documented test name can be
 checked against the binary instead of trusted.
@@ -169,8 +231,8 @@ UndefinedBehaviorSanitizer for the host test binary; it is documented in
 `docs/Build.md`. The result for this phase:
 
 * **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** Zero sanitizer
-  findings across the whole runtime suite, and `--filter=css` is 208/208 under
-  the sanitized binary. Phase 9.3 introduced no memory-safety or
+  findings across the whole runtime suite — 1762/1762 — and `--filter=css` is
+  355/355 under the sanitized binary. Phase 9.5 introduced no memory-safety or
   undefined-behaviour defect.
 
 Run the whole suite rather than the `css.` subtree and the sanitized binary may
@@ -247,3 +309,92 @@ thirteen `css_samples` entries are two words, and a property name is one
 identifier, so the property-name test uses each sample's first word and its
 value test uses the whole sample. Asserting otherwise would have been asserting
 that a space is an identifier character.
+
+## 8. What the 9.4 suites found
+
+One product defect, caught by UBSan; one gap in the matcher's *public surface*,
+caught by asking which functions anything actually calls; and six test
+expectations that were wrong — four of them wrong about the fixture, two wrong
+about what CSS itself says.
+
+> **Signed overflow in the An+B digits.** A long enough run of digits in
+> `:nth-child(...)` overflowed the accumulator — `long` is 32-bit on Windows —
+> and UBSan reported it as `signed integer overflow`. The fix bounds the
+> accumulation at `ANB_VALUE_MAX` inside `anb_digits` and *rejects* the form that
+> would exceed it, and the bound test is written as a division
+> (`value > (MAX - digit) / 10`) so the check itself cannot overflow. The suite
+> asserts the oversize argument is refused, rather than wrapped into a plausible
+> wrong sequence.
+
+> **Three matcher entry points nobody called.** `robo_css_simple_selector_matches`,
+> `robo_css_compound_selector_matches` and `robo_css_complex_selector_matches` are
+> declared in `RoboCSSMatcher.h` and documented as independently testable, and
+> every existing matcher test reached the levels through the *list* door. All
+> three could have been broken, or disagreed with the list, and the whole suite
+> would have stayed green. `SuiteRoboCssMatchLevels.c` drives each door directly
+> and then requires the levels to agree over a 24-selector × 7-element table —
+> the cross-level check is the one that would catch a change to the shared walk
+> that moved two doors in different directions.
+
+> **Four expectations were wrong about the fixture.** Two hosts had elements added
+> without a parent and then asserted `h1 + p` and `:nth-child(2)`; the host double
+> derives siblings from the parent link, and two elements with no parent are not
+> siblings (this is the `css_host_seal` rule, and it exists precisely so two roots
+> are not treated as siblings). Giving the elements a parent fixed the fixture
+> rather than the code. A third passed `NULL` for the matcher's output and
+> expected a verdict, where the output is required. The fourth asserted that a
+> cyclic host leaves a `>` selector undecided, when a `>` chain recurses once per
+> compound and so terminates on its own — the *descendant* walk is the one that
+> needs the step limit, and the suite now pins both behaviors side by side.
+
+> **Two expectations were wrong about CSS.** `[data-x=1]` is not a valid
+> attribute selector: an unquoted value must be an identifier, and a bare number
+> is not one, so the parser is right to reject it (`[data-x="1"]` is the spelling
+> that works). And `div + , span` cannot be parsed as "a list with one broken
+> member": a selector list is all-or-nothing by design, so the parser rejects the
+> whole thing. The skip-an-incoherent-member guard therefore only ever sees
+> hand-built input, and the suite now builds it that way — asserting, in the same
+> test, that the parser refuses the text that would have produced it.
+
+## 9. What the 9.5 suites found
+
+One build-integration defect that had been hiding behind a green 9.4 claim, one
+wrong row in a test's picture of CSS, and two mistakes in the *fixtures* that the
+implementation was right about.
+
+> **The DOM suite could not be built.** `SuiteRoboCssDomSelect.c` lives in
+> `Tests/Suites/` — it is the one suite that must see RoboCSS and RoboHTML
+> together, and the two are peers whose guards forbid each other's headers, so it
+> belongs in neither directory — but it includes `css/tests`'
+> `RoboCssTestSupport.h`, and the host compile line never had that directory on its
+> include path. A suite in its own test directory resolves the header relatively;
+> a suite outside one needs `-I`. The 9.4 record reported the whole suite green,
+> so this is the first thing the 9.5 work had to fix, and the reason the counts in
+> this document are worth checking against the binary (`--list`) rather than
+> trusted.
+
+> **The fixture was an id where the rules wanted a class.** Three resolution tests
+> asserted that `div` and `.app` could not be separated without specificity while
+> the host was built with `css_host_add(host, "div", "app", NULL)` — that is the
+> *id* `app`, so `.app` matched nothing, one candidate arrived, and the cascade
+> answered `DECIDED` where the test expected `UNDECIDED_SPECIFICITY`. The
+> implementation was right: a single candidate is decided however the winning
+> selector was spelled. The lesson is the one the 9.4 record already learned — a
+> fixture that disagrees with its own rules produces a test that asserts the wrong
+> thing about real code — and it is why every cascade test now adds its elements
+> *before* the sheet that selects them.
+
+> **One expectation was wrong about CSS itself.** `css.cascade.levels.inline_is_author_level`
+> first asserted that an inline declaration loses to a *user* rule. It does not:
+> author-origin normal declarations beat user-origin ones, and an inline `style`
+> attribute is an author declaration with a specificity no selector reaches. The
+> table was right and the expectation was wrong, which is exactly the class of
+> mistake the spelled-out assertions beside the table exist to catch — a level
+> table that merely returns *a* level for every input would have passed the wrong
+> test.
+
+> **A counting sort is where a candidate can be lost.** `cascade_order_by_level`
+> counts and then places over the same bucket function, deliberately, because a
+> candidate counted into one bucket and placed from another is the one failure a
+> counting sort has. It is invisible to every other test: the array would simply
+> be one element shorter than the collection's own count.

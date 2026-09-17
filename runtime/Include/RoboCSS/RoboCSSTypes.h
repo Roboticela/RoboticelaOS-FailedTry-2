@@ -111,6 +111,21 @@ int robo_css_slice_is_absent(robo_css_slice_t slice);
 /** Byte-exact equality. Two absent slices are equal. */
 int robo_css_slice_equals(robo_css_slice_t a, robo_css_slice_t b);
 
+/**
+ * ASCII case-insensitive equality of two slices.
+ *
+ * Some CSS names fold and some do not, and the difference matters: property
+ * names and attribute names are ASCII case-insensitive, class names and ids are
+ * not. This is the comparison for the first kind, and it is deliberately a
+ * slice-to-slice call rather than one that takes a C string, because both sides
+ * of such a comparison are usually borrowed views (a declaration's name, an
+ * attribute name from a host) rather than NUL-terminated text.
+ *
+ * Two absent slices are equal, as they are for robo_css_slice_equals; an absent
+ * slice and an empty one are equal too (both hold no bytes).
+ */
+int robo_css_slice_equals_ci(robo_css_slice_t a, robo_css_slice_t b);
+
 /** Byte-exact equality against a NUL-terminated ASCII string. */
 int robo_css_slice_equals_ascii(robo_css_slice_t slice, const char *ascii);
 

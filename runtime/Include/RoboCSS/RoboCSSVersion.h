@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.3 parser milestone.
+ * RoboCSS version pin — Phase 9.5 cascade milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -9,6 +9,28 @@
  *
  * 0.3.0 adds the second: the grammar that consumes the tokenizer and builds the
  * model out of real CSS.
+ *
+ * 0.4.0 adds the third: the selector grammar, which turns a rule's prelude into
+ * real selectors — names resolved through the tokenizer's own escape rule,
+ * `:not()` arguments parsed into owned nested lists, An+B parsed once — and the
+ * matcher, which answers "does this element satisfy this selector" by asking a
+ * *host* (RoboCSSStyle.h) for one element at a time. No DOM is copied, no
+ * document is walked, and neither RoboHTML nor any other subsystem is included.
+ *
+ * 0.5.0 adds the fourth, and it is the first thing in the subsystem that
+ * *applies* anything: the cascade. robo_css_style_context_match_declarations is
+ * now real — it walks the context's sheets by origin, matches their rules
+ * through the same host, parses the element's `style` attribute through the same
+ * grammar a rule's block uses, and hands back a robo_css_cascade_t
+ * (RoboCSSCascade.h) in cascade order. The level table (origin × importance,
+ * with inline placed where a browser places it and the important half mirrored
+ * the way CSS mirrors it) is complete and final; resolution answers a property
+ * whenever a level or the document order decides it and reports
+ * UNDECIDED_SPECIFICITY otherwise, because specificity is 9.6 and a guess would
+ * be indistinguishable from an answer. Everything the collection could not use —
+ * an undecided selector, an at-rule block nothing evaluates, a sheet destroyed
+ * while referenced, a rule whose prelude was never parsed as selectors — is
+ * counted on the result rather than dropped.
  *
  *   source        the bytes CSS arrives as, plus positions and ranges
  *   token         the CSS Syntax token record, and the token's *value*:
@@ -43,12 +65,15 @@
  * at-rule name is looked up in a table, because there is no table. The inline
  * `style` boundary (9.1.10) is filled by the same declaration-list grammar.
  *
- * Everything past parsing — selector matching, the cascade, specificity,
- * inheritance, computed values, colours, units, the box model — is still a
- * declared boundary with no implementation behind it. A style rule's prelude is
- * component values and `selectors` is empty until 9.4 fills it. No stub pretends
- * to parse or to match, and robo_css_get_capabilities reports exactly what is
- * and is not here, so a caller never has to guess.
+ * Everything past that — specificity, inheritance, computed values, colours,
+ * units, the box model — is still a declared boundary with no implementation
+ * behind it, and `robo_css_capabilities_t` reports exactly what is and is not
+ * here so a caller never has to guess. Three boundaries are deliberately not
+ * crossed rather than merely unfinished: `:hover` and its state-dependent
+ * relatives are *reported* as unevaluatable rather than assumed, a pseudo-element
+ * matches no element because generated content does not exist yet, and a contest
+ * between two declarations of one cascade level is reported undecided rather
+ * than settled by document order alone, which would be right only by luck.
  *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (ROBO_CSS_API_FROZEN=0).
@@ -58,9 +83,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 3
+#define ROBO_CSS_VERSION_MINOR 5
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.3.0"
+#define ROBO_CSS_VERSION_STRING "0.5.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

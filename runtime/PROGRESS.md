@@ -2384,6 +2384,288 @@ against the old layout. A clean rebuild fixed it, and the 9.1 tests that had
 called `strstr` on a now-`NULL` message were then updated to assert the real
 parse instead of a refusal that no longer exists.
 
+## Goal 9.4 — CSS selectors
+
+9.1 built the selector *records*, 9.3 deliberately left every rule's `selectors`
+empty and kept the prelude as component values so that "has this prelude been
+understood yet" would be answerable by asking. 9.4 is the thing that answers it:
+a selector grammar over those records, and a matcher that says whether one element
+satisfies one selector. Written independently, with no Chromium code or tables.
+
+**The grammar lexes nothing.** Every byte arrives as a 9.2 token and every name it
+records is that token's **value** — the tokenizer's own escape rule, already
+applied — interned once into the list's name arena. So `.foo\:bar` carries the six
+bytes `foo:bar` and `#item\31 23` carries `item23`, and a matcher never has to know
+that escapes exist, because both sides compare resolved bytes. There is no second
+escape implementation, which is the point: 9.2 has one.
+
+**All-or-nothing, as CSS says.** One bad selector in a list makes the whole list
+invalid — the rule that makes `:is()` worth having later. `out` is initialised
+first (the 9.3 grammar's rule) and `out_error` is written on success too, so a
+caller that never checks a result code still cannot be handed a record describing
+a previous call. Nothing fails the process, allocates unboundedly or recurses
+unboundedly: `:not()` nesting is capped by `ROBO_CSS_MAX_SELECTOR_NESTING` (8) and
+past the cap the selector is **rejected** rather than parsed more deeply.
+
+**The matcher holds no DOM, no document, no cache.** It asks a *host* — the four
+callbacks in `RoboCSSStyle.h` — about one element at a time, which is what keeps
+RoboCSS a peer of RoboHTML rather than a client: nothing in `Source/RoboCSS/`
+includes a RoboHTML header, and the DOM integration suite is what makes the real
+tree visible one element at a time.
+
+**Three outcomes, not two.** `matched` and `unsupported` are independent and both
+can be set. A host that supplies only a view can answer type, universal, class, id
+and attribute selectors perfectly well and cannot answer `>` or `+` at all — so
+`h1 + p` against such a host is *undecided*, not false. The distinction is
+load-bearing in both directions: an absent callback and an answer of `NONE` both
+yield no element, and reading the first as the second would silently turn every
+`+` and `>` selector into a non-match, while `:first-child` *is* "no previous
+sibling". Every caller that would read the answer as a *fact* goes through
+`match_relation_answer`, which refuses the answer when the relation was
+unavailable.
+
+**Right-most compound first, with backtracking.** A compound is evaluated against
+one view; a complex selector starts at its right-most compound — the one the
+candidate must be — and walks leftwards through the combinators. Backtracking is
+not an optimisation: `a b c` must be able to reject an ancestor `b` and try a
+higher one, and `.x .y .z` can match through either of two `.y`s. The recursion is
+bounded by the number of **compounds in the selector**, never by the tree, so the
+stack cost is a property of the stylesheet rather than of the document; and a host
+whose parent links form a cycle stops after `MATCH_WALK_LIMIT` steps with
+`unsupported = 1` rather than answering wrongly or hanging.
+
+**Supported exactly, and no more.** Type, universal, class, id, the six attribute
+comparators plus existence (with the `i`/`s` case flags), the four combinators, and
+`:root`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`,
+`:nth-last-child()`, `:not()`. Sibling counting is **element** counting, so a text
+node or a comment between two elements neither hides a sibling nor counts as one.
+Pseudo-elements are parsed and distinguished from pseudo-classes, including the
+four legacy one-colon spellings. Everything outside that set is *reported* rather
+than guessed at, and two boundaries are deliberate rather than gaps: `:hover` and
+its state-dependent relatives parse and are `unsupported`, while a pseudo-element
+matches no element **decidedly**, because an element is not its own `::before`.
+
+### Definition of done
+
+- [x] Selector grammar over the 9.2 tokenizer: type, universal, id, class,
+      attribute (existence plus all six comparators, quoted and identifier values,
+      `i`/`s` flags), all four combinators, compounds, complex selectors, comma
+      lists, escapes resolved through the tokenizer (`\:`, hex escapes, leading
+      digits), pseudo-classes and pseudo-elements with the legacy one-colon
+      spellings
+- [x] The seven structural pseudo-classes parse, and `:not()` takes a real
+      selector list rather than a re-parsed string, with an explicit nesting bound
+- [x] An+B parsed once (`odd`, `even`, integers, `n`, `-n`, `+n`, signed offsets,
+      whitespace only where the microsyntax allows it) and matched against a
+      1-based element index
+- [x] `robo_css_style_rule_parse_selectors` closes 9.3's open question and is the
+      **only** way a rule's `selectors` is filled — replaces on success, so calling
+      it twice is idempotent, and leaves an empty list on failure
+- [x] The element host seam (`robo_css_element_host_t`): one userdata, four
+      callbacks, `view` the only required one
+- [x] Four matcher entry points, one per structural level, each independently
+      testable and each exercised directly
+- [x] A relation the host cannot answer is *reported*, never guessed
+- [x] `matched` / `unsupported` / `condition` / `selector_index` / `range`, with
+      `condition` documented as borrowing from the list's arena
+- [x] Malformed selectors fail safely with real diagnostics and real positions,
+      and a selector list is all-or-nothing
+- [x] Source ranges preserved on every selector record
+- [x] Six new suites, 111 tests: `css.select.parse` 51, `css.select.match` 34
+      (simple 13, combinators 14, structural 7), `css.select.levels` 14, and
+      `css.dom` 12 against the real RoboHTML tree
+- [x] DOM integration against the **real** DOM: the visual checkpoint's own
+      document, text and comment nodes not counting as siblings, deep trees,
+      rebuilding after mutation, determinism, and matching not mutating the DOM
+- [x] The visual checkpoint is untouched and still renders: running the selectors
+      over its document leaves the picture identical
+- [x] Build integration through the existing source and component tables
+- [x] Capability flag `selector_matching` flipped to 1 because the thing it names
+      now works end to end; `cascade`, `inheritance` and `computed_values` still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer over the whole
+      suite, **zero findings**; the plain build is 1726/1726
+- [x] Phases 6–9.3 regression-tested: full suite green (1726 tests) — up 111 from
+      9.3's 1615, with no existing test weakened or removed and no HTML/DOM
+      behaviour changed
+- [x] `css/docs/Selectors.md` added, and `css/README.md`, `css/docs/Tests.md` and
+      `css/docs/Architecture.md` updated for the selector milestone
+- [x] No Chromium dependency introduced
+- [x] No cascade, no specificity, no inheritance, no computed values, no layout,
+      no painting, no CSSOM, no animations
+- [x] Stop after 9.4
+
+### What 9.4 found
+
+**One product defect, caught by UBSan.** A long enough run of digits in
+`:nth-child(...)` overflowed the An+B accumulator — `long` is 32-bit on Windows —
+reported as `signed integer overflow`. The accumulation is now bounded at
+`ANB_VALUE_MAX` inside `anb_digits` and the oversize form is *rejected* rather
+than wrapped into a plausible wrong sequence, with the bound test written as a
+division so the check itself cannot overflow.
+
+**One gap in the matcher's public surface**, found by asking which functions
+anything actually calls rather than by any failing test:
+`robo_css_simple_selector_matches`, `robo_css_compound_selector_matches` and
+`robo_css_complex_selector_matches` are declared as independently testable and
+were reached by *nothing* — every existing matcher test went through the list
+door. All three could have been broken, or could have disagreed with the list, and
+the suite would have stayed green. `SuiteRoboCssMatchLevels.c` now drives each
+door directly and then requires the levels to agree across a table of 24 selectors
+× 7 elements, which is what would catch a change to the shared walk that moved two
+doors in different directions.
+
+**Six test expectations were wrong and the implementation was right.** Four were
+wrong about the fixture: two hosts asserted `h1 + p` and `:nth-child(2)` over
+elements added without a parent, where the host double derives siblings from the
+parent link and two parentless elements are not siblings (the `css_host_seal`
+rule, which exists so two roots are not treated as siblings); one passed `NULL`
+for the matcher's required output; and one asserted that a cyclic host leaves a
+`>` selector undecided, when a `>` chain recurses once per compound and so
+terminates on its own — the *descendant* walk is the one that needs the step
+limit, and both behaviors are now pinned side by side. Two were wrong about CSS
+itself: `[data-x=1]` is not a valid attribute selector (an unquoted value must be
+an identifier, and a bare number is not one), and `div + , span` cannot be parsed
+as "a list with one broken member", because a selector list is all-or-nothing —
+so the list door's skip-an-incoherent-member guard only ever sees hand-built
+input, and the suite builds it that way while asserting in the same test that the
+parser refuses the text that would have produced it.
+
+## Goal 9.5 — CSS cascade
+
+9.4 answered yes or no about one element and one selector. 9.5 is the first thing
+in the subsystem that *applies* anything: it collects everything that matches an
+element, in cascade order, and answers which declaration wins for a property.
+Written independently, with no Chromium code or tables.
+
+**The cascade has three keys and this phase owns two.** Origin and importance
+(the *level*), and the document order of the declarations, are complete here.
+Specificity is 9.6, and it is not approximated, not defaulted and not given a
+placeholder field. So resolution has **three** outcomes rather than two:
+`DECIDED`, `NONE`, and `UNDECIDED_SPECIFICITY` for a contest between candidates of
+one level from two different selectors. Settling *that* by document order would be
+right only by luck, and wrong silently — the same reason 9.4 reports a relation its
+host cannot answer instead of reading it as a negative.
+
+**The level table is written out rather than derived**, because the derivation
+that reads as obviously right is not. Two rows are decisions: inline sits above
+the origin it belongs to (a `style` attribute is author-level with a specificity
+no selector reaches — modelled as a level, which is what makes inline work without
+9.6), and the important half is *not* a plain reversal — it reverses the origins
+while inline stays directly above author, so an inline `!important` beats an
+author `!important` and still loses to a user one.
+
+**Collection reports everything it could not use.** An undecided selector, an
+at-rule block nothing evaluates, a rule whose prelude was never parsed as
+selectors, a sheet that was destroyed while referenced: each is counted on the
+result and each sets `unsupported`, because a cascade that dropped any of them
+quietly would apply the wrong rule and look like it had answered. `unsupported == 0`
+means the answer is complete — **not** that nothing matched.
+
+**One forward pass is enough, and the verdict can go back.** The array is in
+cascade order (ascending level, then document order), so a candidate is at the
+current level or above it. A strictly stronger level wins and *re-enables* an
+answer that an earlier same-level pair had made undecided — the case a resolver
+that remembered its first verdict would get wrong — while same-level rivals from
+different selectors make it undecided and keep it there however many same-selector
+declarations follow. Two declarations of one selector are comparable because a
+specificity is a property of the selector and there is only one of it.
+
+### Definition of done
+
+- [x] The cascade model (`RoboCSSCascade.h`): the eight levels, the candidate with
+      its provenance and document position, the collected result with its
+      counters, and the three verdicts
+- [x] `robo_css_cascade_level_of` / `_holds` / `_compare`, the level names, and
+      `ROBO_CSS_CASCADE_LEVEL_NONE` for `ORIGIN_NONE` and unknown origins
+- [x] `robo_css_style_context_match_declarations` is real: every stylesheet origin
+      in the context's order, every matched rule's usable declarations, and the
+      element's own `style` attribute, all in cascade order — it was the 9.1
+      boundary whose own header said 9.4 and 9.5 would arrive here
+- [x] Cascade order maintained by counting sort over the eight levels, stable,
+      because two declarations in one rule can sit at different levels and
+      document order is the tie-break inside a level
+- [x] The level table verified twice: every pair reaching exactly one level and
+      every level being reachable, and the eight rows asserted by name so a
+      "correct by construction" mistake cannot hide behind a loop
+- [x] `robo_css_cascade_resolve_name` and `_resolve_property`, with the winner
+      written out **only** for `DECIDED`, and `NONE` refused as a property id
+      rather than matched
+- [x] `robo_css_cascade_candidate_same_provenance` public, so a caller reading an
+      undecided verdict can see which pairs were comparable
+- [x] The inline boundary exercised from the host side: no attribute vs `style=""`,
+      malformed inline CSS recovered and reported, a host that cannot answer marked
+      as an incomplete answer rather than as "no inline declarations", and the
+      declarations parsed into a list the cascade owns
+- [x] Every "could not use this" path counted and tested: undecided selectors, no
+      host at all, unparsed rules, at-rules with blocks vs without, destroyed
+      sheets, origin mismatches, unusable declarations
+- [x] `robo_css_slice_equals_ci`, the slice-to-slice ASCII fold both the attribute
+      view and the cascade need — and it replaced a private duplicate in
+      `RoboCSSStyle.c` rather than being added beside one
+- [x] `robo_css_style_context_inline_userdata`, so a caller (the cascade) can
+      actually call the callback the getter hands out
+- [x] Four new suites, 32 tests: `css.cascade.levels` 5, `css.cascade.collect` 15,
+      `css.cascade.resolve` 12, plus `css.style.match_declarations_empty_context`
+      rewritten from the 9.1 refusal to the 9.5 answer
+- [x] `css.dom.cascade` 4 against the **real** RoboHTML tree: the document's own
+      `style` attribute read through the seam, a collection that needs real parent
+      and sibling links to pick the right rules, importance outranking inline, and
+      a byte-for-byte proof that collecting a cascade for all 29 checkpoint
+      elements leaves the painted frame identical
+- [x] Build integration through the existing source and component tables, and the
+      `css/tests` include path the 9.4 DOM suite needed (see below)
+- [x] Capability flag `cascade` flipped to 1 for exactly what works end to end;
+      `inheritance`, `computed_values`, `default_styles` and `stylesheet_loading`
+      still 0. Version 0.5.0, `ROBO_CSS_API_FROZEN` still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer over the whole
+      suite, **zero findings**; the plain build is 1762/1762
+- [x] Phases 6–9.4 regression-tested: full suite green (1762 tests) — up 36 from
+      9.4's 1726, with no existing test weakened or removed and no HTML/DOM
+      behaviour changed
+- [x] `css/docs/Cascade.md` added, and `css/README.md`, `css/docs/Tests.md`,
+      `css/docs/Architecture.md`, `css/docs/Selectors.md` and `ARCHITECTURE.md`
+      updated for the cascade milestone
+- [x] No Chromium dependency introduced
+- [x] No specificity, no inheritance, no computed values, no colours, no units, no
+      box model, no at-rule evaluation, no shorthand expansion, no layout, no
+      painting, no CSSOM, no animations
+- [x] Stop after 9.5
+
+### What 9.5 found
+
+**One build-integration defect that a green 9.4 claim was hiding.**
+`SuiteRoboCssDomSelect.c` lives in `Tests/Suites/` — it is the one suite that must
+see RoboCSS and RoboHTML together, and the two are peers whose guards forbid each
+other's headers, so it belongs in neither directory — but it includes
+`css/tests`' support header and the host compile line never had that directory on
+its include path. A suite inside its own test directory resolves the header
+relatively; a suite outside one needs `-I`. The 9.4 record reported the whole
+suite green, so the claim and the build disagreed; the fix is one line in
+`Build.ps1`, and the lesson is that a suite which has never been *compiled* from
+the documented command cannot be reported as passing.
+
+**One expectation was wrong about CSS, and the table was right.**
+`css.cascade.levels.inline_is_author_level` first asserted that inline loses to a
+user rule. It does not: author normal beats user normal, and an inline `style`
+attribute is an author declaration with a specificity no selector reaches. The
+spelled-out assertions beside the loop exist for exactly this — a table that
+returned *a* level for every input would have passed the wrong test.
+
+**Two fixtures disagreed with their own rules.** Three resolution tests asserted
+that `div` and `.app` cannot be separated without specificity while the host was
+built with the `app` *id*, so `.app` matched nothing, one candidate arrived and the
+cascade answered `DECIDED` where the test expected `UNDECIDED_SPECIFICITY`. The
+implementation was right both times; the fixtures were not. This is the same
+lesson 9.4 learned about its host double, and it is why every cascade test now
+adds its elements before the sheet that selects them.
+
+**One thing worth writing down about the sort.** `cascade_order_by_level` counts
+and then places over the *same* bucket function, deliberately: a candidate counted
+into one bucket and placed from another is the one failure a counting sort has,
+and it is invisible — the array would simply be shorter than the collection's own
+count, with no error anywhere. The bucket helper is the contract between the two
+passes, not an implementation detail.
+
 ## Next
 
-- Goal 9.4 — CSS selectors (do not start until requested)
+- Goal 9.6 — CSS specificity (do not start until requested)

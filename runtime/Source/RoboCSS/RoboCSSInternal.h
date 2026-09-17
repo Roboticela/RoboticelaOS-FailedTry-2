@@ -20,6 +20,8 @@
 #define ROBO_CSS_INTERNAL_H
 
 #include "RoboCSS/RoboCSSError.h"
+#include "RoboCSS/RoboCSSCascade.h"
+#include "RoboCSS/RoboCSSStyle.h"
 #include "RoboCSS/RoboCSSStyleSheet.h"
 #include "RoboCSS/RoboCSSTypes.h"
 
@@ -246,5 +248,28 @@ robo_result_t robo_css_grammar_parse_declarations(
     const robo_css_source_t *source,
     robo_css_origin_t origin,
     robo_css_error_t *out_error);
+
+/* ------------------------------------------------------------------ */
+/* The cascade (9.5)                                                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The cascade's collection, living in RoboCSSCascade.c.
+ *
+ * Internal for the same reason the grammar is: Phase 9.1 fixed the doors a
+ * resolution can arrive through, and robo_css_style_context_match_declarations
+ * (RoboCSSStyle.h) is the only one. The context owns the sheets, the host and
+ * the origins a cascade is a function of, so publishing a second way to collect
+ * one would be publishing a way to collect a cascade from nowhere.
+ *
+ * `out` must already be initialised or cleared; it is initialised here as well,
+ * because a collection replaces whatever the record held. On a failure that
+ * produced no answer at all, `out` is left empty rather than partly filled.
+ */
+robo_result_t robo_css_cascade_collect(const robo_css_style_context_t *context,
+                                       robo_css_element_ref_t element,
+                                       robo_css_cascade_t *out,
+                                       robo_css_error_t *out_error,
+                                       robo_css_diag_t *diag);
 
 #endif /* ROBO_CSS_INTERNAL_H */

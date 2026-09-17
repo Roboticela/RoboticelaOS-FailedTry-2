@@ -12,29 +12,10 @@
 #include "RoboCSS/RoboCSSStyle.h"
 
 #include "RoboCSSInternal.h"
+/* For robo_css_cascade_init and robo_css_cascade_collect: this translation unit
+ * owns the door, the cascade owns what comes out of it. */
+#include "RoboCSS/RoboCSSCascade.h"
 #include "RoboMem/RoboMem.h"
-
-/** ASCII case-insensitive slice comparison — how attribute names compare. */
-static int slice_equals_ci(robo_css_slice_t a, robo_css_slice_t b)
-{
-    size_t i;
-
-    if (a.length != b.length) {
-        return 0;
-    }
-    if (a.length == 0u) {
-        return 1;
-    }
-    if (!a.bytes || !b.bytes) {
-        return 0;
-    }
-    for (i = 0u; i < a.length; i++) {
-        if (robo_css_ascii_lower(a.bytes[i]) != robo_css_ascii_lower(b.bytes[i])) {
-            return 0;
-        }
-    }
-    return 1;
-}
 
 /** One origin's ordered list of borrowed stylesheet ids. */
 typedef struct robo_css_origin_sheets {
@@ -46,11 +27,34 @@ typedef struct robo_css_origin_sheets {
 struct robo_css_style_context {
     robo_css_origin_sheets_t origins[ROBO_CSS_ORIGIN_COUNT];
     const robo_css_property_table_t *property_table;
-    robo_css_element_lookup_fn lookup;
-    void *lookup_userdata;
+    /* The one place a host is stored. set_element_lookup writes this too, so
+     * there is a single answer to "which callbacks are installed" rather than a
+     * lookup slot and a host that could disagree. */
+    robo_css_element_host_t host;
     robo_css_inline_style_fn inline_style;
     void *inline_userdata;
 };
+
+/* ------------------------------------------------------------------ */
+/* Element host                                                        */
+/* ------------------------------------------------------------------ */
+
+void robo_css_element_host_init(robo_css_element_host_t *host)
+{
+    if (!host) {
+        return;
+    }
+    host->userdata = NULL;
+    host->view = NULL;
+    host->parent = NULL;
+    host->previous_sibling = NULL;
+    host->next_sibling = NULL;
+}
+
+int robo_css_element_host_is_usable(const robo_css_element_host_t *host)
+{
+    return host && host->view != NULL;
+}
 
 /* ------------------------------------------------------------------ */
 /* Element view                                                        */
@@ -158,7 +162,7 @@ int robo_css_element_view_find_attribute(const robo_css_element_view_t *view,
         return 0;
     }
     for (i = 0u; i < view->attribute_count; i++) {
-        if (slice_equals_ci(view->attributes[i].name, name)) {
+        if (robo_css_slice_equals_ci(view->attributes[i].name, name)) {
             if (out_value) {
                 *out_value = view->attributes[i].value;
             }
@@ -362,15 +366,60 @@ robo_result_t robo_css_style_context_set_element_lookup(
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_INVALID_ARGUMENT,
                              "context is NULL");
     }
-    context->lookup = lookup;
-    context->lookup_userdata = userdata;
+    if (lookup) {
+        context->host.view = lookup;
+        context->host.userdata = userdata;
+    } else {
+        /* Clearing the lookup clears the host: a host installs its callbacks as
+         * a set, and leaving relations behind that no longer have a view to
+         * describe elements would be half a host. */
+        robo_css_element_host_init(&context->host);
+    }
     return ROBO_OK;
 }
 
 robo_css_element_lookup_fn robo_css_style_context_element_lookup(
     const robo_css_style_context_t *context)
 {
-    return context ? context->lookup : NULL;
+    return context ? context->host.view : NULL;
+}
+
+robo_result_t robo_css_style_context_set_element_host(
+    robo_css_style_context_t *context,
+    const robo_css_element_host_t *host,
+    robo_css_diag_t *diag)
+{
+    if (!context) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_INVALID_ARGUMENT,
+                             "context is NULL");
+    }
+    if (!host) {
+        robo_css_element_host_init(&context->host);
+        return ROBO_OK;
+    }
+    if (!host->view &&
+        (host->parent || host->previous_sibling || host->next_sibling)) {
+        /* A host that can say where an element sits but not what it is has
+         * nothing a view could be filled from, so every selector would be
+         * unevaluatable. Refusing here says so at the install site rather than
+         * at the first match. */
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_INVALID_ARGUMENT,
+                             "a host with relations needs a view callback");
+    }
+    context->host = *host;
+    return ROBO_OK;
+}
+
+robo_css_element_host_t robo_css_style_context_element_host(
+    const robo_css_style_context_t *context)
+{
+    robo_css_element_host_t host;
+
+    robo_css_element_host_init(&host);
+    if (context) {
+        host = context->host;
+    }
+    return host;
 }
 
 robo_result_t robo_css_style_context_set_inline_style(
@@ -394,6 +443,11 @@ robo_css_inline_style_fn robo_css_style_context_inline_style(
     return context ? context->inline_style : NULL;
 }
 
+void *robo_css_style_context_inline_userdata(const robo_css_style_context_t *context)
+{
+    return context ? context->inline_userdata : NULL;
+}
+
 int robo_css_style_context_has_runtime_sheet(
     const robo_css_style_context_t *context)
 {
@@ -407,7 +461,7 @@ int robo_css_style_context_has_runtime_sheet(
 robo_result_t robo_css_style_context_match_declarations(
     const robo_css_style_context_t *context,
     robo_css_element_ref_t element,
-    robo_css_declaration_list_t *out,
+    robo_css_cascade_t *out,
     robo_css_error_t *out_error,
     robo_css_diag_t *diag)
 {
@@ -416,16 +470,20 @@ robo_result_t robo_css_style_context_match_declarations(
                            NULL, "context or output is NULL");
         return ROBO_INVALID_ARGUMENT;
     }
-    /* The output is initialised and left empty: a caller that ignores the
-     * result still has a valid, disposable object rather than an uninitialised
-     * one it must not touch. */
-    robo_css_declaration_list_init(out);
-    (void)element;
-    robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_UNSUPPORTED, ROBO_NOT_SUPPORTED,
-                       NULL,
-                       "selector matching and the cascade arrive in Goals 9.4 and 9.5");
-    return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_NOT_SUPPORTED,
-                         "selector matching and the cascade arrive in Goals 9.4 and 9.5");
+    if (element == ROBO_CSS_ELEMENT_REF_NONE) {
+        /* A cascade is collected *for* an element. Nothing applies to no
+         * element, so answering with an empty result would be a plausible lie
+         * rather than a refusal, and every counter on the result would be
+         * zero for a reason that had nothing to do with the stylesheets. */
+        robo_css_cascade_init(out);
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
+                           NULL, "a collection needs an element");
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_INVALID_ARGUMENT,
+                             "a collection needs an element");
+    }
+    /* The output is initialised first: a caller that ignores the result still
+     * has a valid, disposable object rather than an uninitialised one. */
+    return robo_css_cascade_collect(context, element, out, out_error, diag);
 }
 
 robo_result_t robo_css_style_context_compute_style(

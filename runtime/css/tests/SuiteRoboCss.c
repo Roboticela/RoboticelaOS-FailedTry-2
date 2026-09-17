@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 3);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 5);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 3);
+    ROBO_CHECK_EQ_INT(minor, 5);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -388,11 +388,23 @@ static void test_css_capabilities(void)
     ROBO_CHECK_EQ_INT(caps.parser, 1);
     ROBO_CHECK_EQ_INT(caps.inline_styles, 1);
 
-    /* ...and nothing that would interpret the tokens is, because nothing does:
-     * a parsed selector is still just component values, and no declaration has
-     * been given a meaning. */
-    ROBO_CHECK_EQ_INT(caps.selector_matching, 0);
-    ROBO_CHECK_EQ_INT(caps.cascade, 0);
+    /* 9.4 turned a prelude into selectors and made them matchable. Both flags
+     * are 1 because both halves exist end to end — not because the model gained
+     * a field, but because RoboCSSSelectorParser.c and RoboCSSMatcher.c back
+     * them. */
+    ROBO_CHECK_EQ_INT(caps.selector_parsing, 1);
+    ROBO_CHECK_EQ_INT(caps.selector_matching, 1);
+
+    /* 9.5 collects what applies to an element in cascade order and answers a
+     * property whenever a level or the document order decides it. It is 1 for
+     * exactly that, and the flag below it is still 0: a contest between two
+     * declarations of one level needs specificity (9.6) and comes back as an
+     * undecided verdict rather than as a winner chosen by document order. */
+    ROBO_CHECK_EQ_INT(caps.cascade, 1);
+
+    /* ...and everything that would turn the cascade into a *value* is still 0,
+     * because nothing does it: no style has been computed, nothing is inherited
+     * and no default stylesheet exists. */
     ROBO_CHECK_EQ_INT(caps.inheritance, 0);
     ROBO_CHECK_EQ_INT(caps.computed_values, 0);
     ROBO_CHECK_EQ_INT(caps.default_styles, 0);

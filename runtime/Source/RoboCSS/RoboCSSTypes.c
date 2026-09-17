@@ -66,6 +66,27 @@ int robo_css_slice_equals(robo_css_slice_t a, robo_css_slice_t b)
     return memcmp(a.bytes, b.bytes, a.length) == 0;
 }
 
+int robo_css_slice_equals_ci(robo_css_slice_t a, robo_css_slice_t b)
+{
+    size_t i;
+
+    if (a.length != b.length) {
+        return 0;
+    }
+    if (a.length == 0u) {
+        return 1;
+    }
+    if (!a.bytes || !b.bytes) {
+        return 0;
+    }
+    for (i = 0u; i < a.length; i++) {
+        if (robo_css_ascii_lower(a.bytes[i]) != robo_css_ascii_lower(b.bytes[i])) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int robo_css_slice_equals_ascii(robo_css_slice_t slice, const char *ascii)
 {
     return robo_css_bytes_equal_ascii(slice.bytes, slice.length, ascii);

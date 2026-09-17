@@ -391,10 +391,18 @@ static void test_css_style_context_borrows(void)
 /* Resolution boundaries                                               */
 /* ------------------------------------------------------------------ */
 
-static void test_css_style_match_declarations_unsupported(void)
+/*
+ * The collection door, exercised where it is *not* about CSS at all: an empty
+ * context declares nothing for any element, and that is a complete answer rather
+ * than a missing feature. What a context with sheets in it does is the cascade
+ * suites' business (css.cascade.*); what belongs here is the door's own shape —
+ * what it refuses, what it fills, and what it leaves behind for a caller that
+ * ignores the result code.
+ */
+static void test_css_style_match_declarations_empty_context(void)
 {
     robo_css_style_context_t *context = NULL;
-    robo_css_declaration_list_t list = ROBO_CSS_CLEARED;
+    robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
     robo_css_error_t error = ROBO_CSS_CLEARED;
     robo_css_diag_t diag;
 
@@ -402,32 +410,47 @@ static void test_css_style_match_declarations_unsupported(void)
     ROBO_CHECK_EQ_INT(robo_css_style_context_create(&context, NULL), ROBO_OK);
 
     robo_css_diag_reset(&diag);
-    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(context, 5u, &list,
+    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(context, 5u, &cascade,
                                                                 &error, &diag),
-                      ROBO_NOT_SUPPORTED);
-    ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 0u);
-    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_UNSUPPORTED);
-    ROBO_CHECK(robo_css_error_is_error(&error));
-    ROBO_CHECK(error.message != NULL);
-    ROBO_CHECK(strstr(error.message, "9.4") != NULL);
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 0u);
+    /* No sheets, so nothing was even looked at — and an empty answer over clean
+     * input is complete, which is the distinction the result has to keep. */
+    ROBO_CHECK_EQ_INT(cascade.unsupported, 0);
+    ROBO_CHECK_EQ_INT(robo_css_cascade_is_complete(&cascade), 1);
+    ROBO_CHECK_EQ_INT(cascade.element, 5u);
+    ROBO_CHECK_EQ_INT(robo_css_cascade_at(&cascade, 0u) == NULL, 1);
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+    ROBO_CHECK_EQ_INT(robo_css_error_is_error(&error), 0);
+    /* Nothing failed, so there is nothing to diagnose. */
+    ROBO_CHECK_EQ_INT(diag.code, ROBO_OK);
+    robo_css_cascade_dispose(&cascade);
+
+    /* An element is not optional: nothing applies to no element, and an empty
+     * result would be indistinguishable from a real "nothing matched". */
+    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(
+                          context, ROBO_CSS_ELEMENT_REF_NONE, &cascade, &error, &diag),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 0u);
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+    ROBO_CHECK_EQ_INT(diag.code, ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(diag.domain, ROBO_CSS_DOMAIN_STYLE);
-    /* The list is initialised even though nothing was matched into it, so a
-     * caller that ignores the result still owns something valid. */
-    robo_css_declaration_list_dispose(&list);
+    robo_css_cascade_dispose(&cascade);
 
     ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(context, 5u, NULL,
                                                                 &error, NULL),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
-    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(NULL, 5u, &list, &error,
-                                                                NULL),
+    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(NULL, 5u, &cascade,
+                                                                &error, NULL),
                       ROBO_INVALID_ARGUMENT);
-    robo_css_declaration_list_dispose(&list);
+    robo_css_cascade_dispose(&cascade);
     /* The error record is optional. */
-    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(context, 5u, &list, NULL,
-                                                                NULL),
-                      ROBO_NOT_SUPPORTED);
-    robo_css_declaration_list_dispose(&list);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(context, 5u, &cascade,
+                                                                NULL, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 0u);
+    robo_css_cascade_dispose(&cascade);
 
     robo_css_style_context_destroy(context);
 }
@@ -637,8 +660,8 @@ void robo_test_register_css_style(void)
                        test_css_element_view_classes_and_attributes);
     robo_test_register("css.style.context_sheets", test_css_style_context_sheets);
     robo_test_register("css.style.context_borrows", test_css_style_context_borrows);
-    robo_test_register("css.style.match_declarations_unsupported",
-                       test_css_style_match_declarations_unsupported);
+    robo_test_register("css.style.match_declarations_empty_context",
+                       test_css_style_match_declarations_empty_context);
     robo_test_register("css.style.compute_unsupported",
                        test_css_style_compute_unsupported);
     robo_test_register("css.computed.container", test_css_computed_container);

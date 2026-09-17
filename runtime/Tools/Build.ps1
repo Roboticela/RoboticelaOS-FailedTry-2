@@ -236,7 +236,10 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSParser.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSParserGrammar.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSComputed.c"),
-    (Join-Path $SourceDir "RoboCSS\RoboCSSStyle.c")
+    (Join-Path $SourceDir "RoboCSS\RoboCSSStyle.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSSelectorParser.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSMatcher.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSCascade.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -384,6 +387,18 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseValue.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseRecover.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseUnicode.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssSelectParse.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssMatchSimple.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssMatchCombinator.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssMatchStructural.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssMatchLevels.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssCascade.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssCascadeCollect.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssCascadeResolve.c"),
+    # The selector/DOM integration suite deliberately lives outside css/: it
+    # includes both RoboCSS and RoboHTML, and the two are peers whose guards
+    # forbid each other's headers. A suite that must see both belongs in neither.
+    (Join-Path $SuitesDir "SuiteRoboCssDomSelect.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -702,6 +717,11 @@ $hostFlags = @(
     "-Wall", "-Wextra", "-Werror",
     "-I", $IncludeDir,
     "-I", $FrameworkDir,
+    # SuiteRoboCssDomSelect.c lives in Tests/Suites because it is the one suite
+    # that must see RoboCSS and RoboHTML together, and it shares css/tests'
+    # fixture header. A suite in its own directory resolves that relatively; a
+    # suite outside one needs the path here.
+    "-I", (Join-Path $RuntimeRoot "css\tests"),
     "-I", (Join-Path $SourceDir "RoboWindow\platform\win32"),
     "-I", (Join-Path $SourceDir "RoboDisplay\platform\win32"),
     "-D_CRT_SECURE_NO_WARNINGS",

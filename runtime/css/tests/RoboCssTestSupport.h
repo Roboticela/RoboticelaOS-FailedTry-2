@@ -23,12 +23,15 @@
 
 #include "RoboBase/RoboBase.h"
 #include "RoboCSS/RoboCSS.h"
+#include "RoboCSS/RoboCSSCascade.h"
 #include "RoboCSS/RoboCSSDeclaration.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSParser.h"
+#include "RoboCSS/RoboCSSMatcher.h"
 #include "RoboCSS/RoboCSSProperty.h"
 #include "RoboCSS/RoboCSSRule.h"
 #include "RoboCSS/RoboCSSSelector.h"
+#include "RoboCSS/RoboCSSSelectorParser.h"
 #include "RoboCSS/RoboCSSSource.h"
 #include "RoboCSS/RoboCSSStyleSheet.h"
 #include "RoboCSS/RoboCSSToken.h"
@@ -726,6 +729,601 @@ static inline void css_declaration_name_of(const robo_css_declaration_list_t *li
             css_shape_byte(out, capacity, &offset, name.bytes[i]);
         }
     }
+}
+
+/* ------------------------------------------------------------------ */
+/* Selector parsing (Phase 9.4)                                        */
+/* ------------------------------------------------------------------ */
+
+/** Parse @p text, asserting it is a valid selector list. */
+static inline void css_select_parse(const char *text, robo_css_selector_list_t *out)
+{
+    robo_css_error_t error;
+
+    css_fixture();
+    robo_css_error_init(&error);
+    ROBO_CHECK_EQ_INT(robo_css_selector_list_parse_text(out, text, &error, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_error_is_error(&error), 0);
+}
+
+/**
+ * Parse @p text, asserting it is *not* a valid selector list. Returns the
+ * recorded error kind so a test can pin which problem was reported rather than
+ * merely that one was.
+ */
+static inline robo_css_error_kind_t css_select_parse_rejected(const char *text)
+{
+    robo_css_selector_list_t list = ROBO_CSS_CLEARED;
+    robo_css_error_t error;
+
+    css_fixture();
+    robo_css_error_init(&error);
+    ROBO_CHECK_EQ_INT(robo_css_selector_list_parse_text(&list, text, &error, NULL),
+                      ROBO_PARSE_ERROR);
+    ROBO_CHECK_EQ_INT(robo_css_error_is_error(&error), 1);
+    ROBO_CHECK_EQ_INT(robo_css_selector_list_count(&list), 0u);
+    robo_css_selector_list_dispose(&list);
+    return error.kind;
+}
+
+/** The @p index'th simple selector of a list's @p list_index'th complex
+ *  selector's @p compound_index'th compound selector, or NULL. */
+static inline const robo_css_simple_selector_t *css_select_simple(
+    const robo_css_selector_list_t *list,
+    size_t list_index,
+    size_t compound_index,
+    size_t simple_index)
+{
+    const robo_css_complex_selector_t *complex =
+        robo_css_selector_list_at(list, list_index);
+    const robo_css_compound_selector_t *compound =
+        robo_css_complex_selector_compound_at(complex, compound_index);
+
+    return robo_css_compound_selector_at(compound, simple_index);
+}
+
+/** Number of simple selectors in the first compound of the first selector. */
+static inline size_t css_select_first_compound_count(const robo_css_selector_list_t *list)
+{
+    const robo_css_complex_selector_t *complex = robo_css_selector_list_at(list, 0u);
+    const robo_css_compound_selector_t *compound =
+        robo_css_complex_selector_compound_at(complex, 0u);
+
+    return robo_css_compound_selector_count(compound);
+}
+
+/** Write @p slice into @p out as a NUL-terminated string (truncating). */
+static inline void css_select_text(robo_css_slice_t slice, char *out, size_t capacity)
+{
+    size_t i;
+
+    if (!out || capacity == 0u) {
+        return;
+    }
+    for (i = 0u; i + 1u < capacity && i < slice.length; i++) {
+        out[i] = (char)slice.bytes[i];
+    }
+    out[i] = '\0';
+}
+
+/* ------------------------------------------------------------------ */
+/* The element host test double (Phase 9.4)                            */
+/* ------------------------------------------------------------------ */
+
+/*
+ * A host, not a DOM.
+ *
+ * RoboCSS matches through callbacks (RoboCSSStyle.h), so the matcher can be
+ * tested exhaustively — every combinator, every structural pseudo-class, every
+ * boundary — without a document, and the DOM integration suite separately proves
+ * the same results against the real RoboHTML tree. What this holds is exactly
+ * what a view holds: a tag, an id, a class list, an attribute list, and three
+ * relations. It has no node kinds, no text, no payload arena and no tree
+ * operations, which is what keeps it a test double for a callback interface
+ * rather than a second DOM in a test file.
+ *
+ * Refs are `index + 1`, so 0 stays "no element" as the seam requires.
+ */
+
+#define CSS_HOST_MAX_ELEMENTS 24u
+#define CSS_HOST_MAX_ATTRIBUTES 6u
+#define CSS_HOST_MAX_CLASSES 4u
+
+typedef struct css_host_element {
+    const char *tag;
+    const char *id;
+    robo_css_slice_t classes[CSS_HOST_MAX_CLASSES];
+    size_t class_count;
+    robo_css_attribute_t attributes[CSS_HOST_MAX_ATTRIBUTES];
+    size_t attribute_count;
+    robo_css_element_ref_t parent;
+    robo_css_element_ref_t previous;
+    robo_css_element_ref_t next;
+} css_host_element_t;
+
+typedef struct css_host {
+    css_host_element_t elements[CSS_HOST_MAX_ELEMENTS];
+    size_t count;
+    /* The seam, ready to hand to the matcher or install in a style context. */
+    robo_css_element_host_t host;
+} css_host_t;
+
+static inline robo_result_t css_host_view_of(void *userdata,
+                                             robo_css_element_ref_t ref,
+                                             robo_css_element_view_t *out)
+{
+    css_host_t *host = (css_host_t *)userdata;
+    css_host_element_t *element;
+
+    if (!host || !out || ref == ROBO_CSS_ELEMENT_REF_NONE ||
+        (size_t)(ref - 1u) >= host->count) {
+        return ROBO_NOT_FOUND;
+    }
+    element = &host->elements[ref - 1u];
+    robo_css_element_view_init(out);
+    ROBO_CHECK_EQ_INT(robo_css_element_view_set_element(
+                          out, ref, robo_css_slice_from_text(element->tag), NULL),
+                      ROBO_OK);
+    if (element->id) {
+        ROBO_CHECK_EQ_INT(robo_css_element_view_set_id(
+                              out, robo_css_slice_from_text(element->id), NULL),
+                          ROBO_OK);
+    }
+    ROBO_CHECK_EQ_INT(robo_css_element_view_set_classes(out, element->classes,
+                                                       element->class_count, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_element_view_set_attributes(out, element->attributes,
+                                                          element->attribute_count, NULL),
+                      ROBO_OK);
+    return ROBO_OK;
+}
+
+static inline robo_css_element_ref_t css_host_parent_of(void *userdata,
+                                                        robo_css_element_ref_t ref)
+{
+    css_host_t *host = (css_host_t *)userdata;
+
+    if (!host || ref == ROBO_CSS_ELEMENT_REF_NONE || (size_t)(ref - 1u) >= host->count) {
+        return ROBO_CSS_ELEMENT_REF_NONE;
+    }
+    return host->elements[ref - 1u].parent;
+}
+
+static inline robo_css_element_ref_t css_host_previous_of(void *userdata,
+                                                          robo_css_element_ref_t ref)
+{
+    css_host_t *host = (css_host_t *)userdata;
+
+    if (!host || ref == ROBO_CSS_ELEMENT_REF_NONE || (size_t)(ref - 1u) >= host->count) {
+        return ROBO_CSS_ELEMENT_REF_NONE;
+    }
+    return host->elements[ref - 1u].previous;
+}
+
+static inline robo_css_element_ref_t css_host_next_of(void *userdata,
+                                                      robo_css_element_ref_t ref)
+{
+    css_host_t *host = (css_host_t *)userdata;
+
+    if (!host || ref == ROBO_CSS_ELEMENT_REF_NONE || (size_t)(ref - 1u) >= host->count) {
+        return ROBO_CSS_ELEMENT_REF_NONE;
+    }
+    return host->elements[ref - 1u].next;
+}
+
+/** Reset @p host to empty and install the four callbacks. */
+static inline void css_host_init(css_host_t *host)
+{
+    css_fixture();
+    memset(host, 0, sizeof(*host));
+    robo_css_element_host_init(&host->host);
+    host->host.userdata = host;
+    host->host.view = css_host_view_of;
+    host->host.parent = css_host_parent_of;
+    host->host.previous_sibling = css_host_previous_of;
+    host->host.next_sibling = css_host_next_of;
+}
+
+/** Add an element and return its ref. @p classes is whitespace-separated. */
+static inline robo_css_element_ref_t css_host_add(css_host_t *host,
+                                                  const char *tag,
+                                                  const char *id,
+                                                  const char *classes)
+{
+    css_host_element_t *element;
+    const char *at;
+
+    ROBO_CHECK_EQ_INT(host->count < CSS_HOST_MAX_ELEMENTS, 1);
+    element = &host->elements[host->count];
+    memset(element, 0, sizeof(*element));
+    element->tag = tag;
+    element->id = id;
+
+    at = classes;
+    while (at && *at && element->class_count < CSS_HOST_MAX_CLASSES) {
+        const char *begin;
+
+        while (*at == ' ') {
+            at++;
+        }
+        if (!*at) {
+            break;
+        }
+        begin = at;
+        while (*at && *at != ' ') {
+            at++;
+        }
+        element->classes[element->class_count] =
+            robo_css_slice_from_bytes((const uint8_t *)begin, (size_t)(at - begin));
+        element->class_count++;
+    }
+    host->count++;
+    return (robo_css_element_ref_t)host->count;
+}
+
+/** Attach an attribute to @p ref. Both strings must outlive the host's use. */
+static inline void css_host_attribute(css_host_t *host,
+                                      robo_css_element_ref_t ref,
+                                      const char *name,
+                                      const char *value)
+{
+    css_host_element_t *element;
+
+    ROBO_CHECK_EQ_INT(ref != ROBO_CSS_ELEMENT_REF_NONE &&
+                          (size_t)(ref - 1u) < host->count,
+                      1);
+    element = &host->elements[ref - 1u];
+    ROBO_CHECK_EQ_INT(element->attribute_count < CSS_HOST_MAX_ATTRIBUTES, 1);
+    element->attributes[element->attribute_count].name = robo_css_slice_from_text(name);
+    element->attributes[element->attribute_count].value =
+        robo_css_slice_from_text(value ? value : "");
+    element->attribute_count++;
+}
+
+/** Make @p child a child of @p parent. */
+static inline void css_host_set_parent(css_host_t *host,
+                                       robo_css_element_ref_t child,
+                                       robo_css_element_ref_t parent)
+{
+    ROBO_CHECK_EQ_INT(child != ROBO_CSS_ELEMENT_REF_NONE &&
+                          (size_t)(child - 1u) < host->count,
+                      1);
+    host->elements[child - 1u].parent = parent;
+}
+
+/**
+ * Derive the sibling chain of every parent from insertion order, which is how
+ * these fixtures are written: elements are added parent-first, then their
+ * children in the order they appear. Call once after the last set_parent.
+ *
+ * An element with no parent has no siblings. That is not a detail of the
+ * double: two root elements are not siblings in any document, and treating them
+ * as such would make `:first-child` false for the second root and for the first
+ * — which is exactly the bug this guard prevents here.
+ */
+static inline void css_host_seal(css_host_t *host)
+{
+    size_t i;
+
+    for (i = 0u; i < host->count; i++) {
+        size_t j;
+
+        host->elements[i].previous = ROBO_CSS_ELEMENT_REF_NONE;
+        host->elements[i].next = ROBO_CSS_ELEMENT_REF_NONE;
+        if (host->elements[i].parent == ROBO_CSS_ELEMENT_REF_NONE) {
+            continue;
+        }
+        for (j = 0u; j < i; j++) {
+            if (host->elements[j].parent == host->elements[i].parent) {
+                host->elements[i].previous = (robo_css_element_ref_t)(j + 1u);
+            }
+        }
+        for (j = i + 1u; j < host->count; j++) {
+            if (host->elements[j].parent == host->elements[i].parent) {
+                host->elements[i].next = (robo_css_element_ref_t)(j + 1u);
+                break;
+            }
+        }
+    }
+}
+
+/**
+ * Match @p text against @p ref, filling @p out with everything the matcher
+ * found. Used when the test is about `unsupported`, `condition`, `selector_index`
+ * or `range` rather than only about the verdict.
+ */
+static inline int css_match_full(css_host_t *host,
+                                 const char *text,
+                                 robo_css_element_ref_t ref,
+                                 robo_css_selector_match_t *out)
+{
+    robo_css_selector_list_t list = ROBO_CSS_CLEARED;
+    int matched;
+
+    css_select_parse(text, &list);
+    robo_css_selector_match_init(out);
+    matched = robo_css_selector_list_matches(&list, &host->host, ref, out, NULL);
+    robo_css_selector_list_dispose(&list);
+    return matched;
+}
+
+/**
+ * Match @p text against @p ref and copy the reported `condition` into @p name.
+ *
+ * `condition` is the one field of the result that *borrows* — it points into the
+ * selector list's name arena — so it has to be read before the list is released.
+ * The other fields are values and survive the dispose. A test that read the
+ * slice after this helper returned would be reading freed bytes.
+ */
+static inline int css_match_condition(css_host_t *host,
+                                      const char *text,
+                                      robo_css_element_ref_t ref,
+                                      robo_css_selector_match_t *out,
+                                      char *name,
+                                      size_t capacity)
+{
+    robo_css_selector_list_t list = ROBO_CSS_CLEARED;
+    int matched;
+
+    css_select_parse(text, &list);
+    robo_css_selector_match_init(out);
+    matched = robo_css_selector_list_matches(&list, &host->host, ref, out, NULL);
+    if (name && capacity > 0u) {
+        css_select_text(out->condition, name, capacity);
+    }
+    robo_css_selector_list_dispose(&list);
+    return matched;
+}
+
+/**
+ * Match @p text against @p ref, asserting it was decided one way or the other.
+ *
+ * The `unsupported == 0` assertion is the important half: a negative that means
+ * "not decided" would pass a plain `matched == 0` test while quietly leaving a
+ * rule unapplied.
+ */
+static inline int css_match(css_host_t *host, const char *text, robo_css_element_ref_t ref)
+{
+    robo_css_selector_match_t result;
+    int matched = css_match_full(host, text, ref, &result);
+
+    ROBO_CHECK_EQ_INT(result.unsupported, 0);
+    return matched;
+}
+
+/** Which relation a host is to be left without. */
+typedef enum css_host_relation {
+    CSS_HOST_RELATION_PARENT = 0,
+    CSS_HOST_RELATION_PREVIOUS = 1,
+    CSS_HOST_RELATION_NEXT = 2
+} css_host_relation_t;
+
+/**
+ * Remove one callback from @p host, modelling a seam that cannot answer that
+ * relation at all — a host with only a view, for instance.
+ */
+static inline void css_host_drop_relation(css_host_t *host, css_host_relation_t which)
+{
+    switch (which) {
+    case CSS_HOST_RELATION_PARENT:
+        host->host.parent = NULL;
+        break;
+    case CSS_HOST_RELATION_PREVIOUS:
+        host->host.previous_sibling = NULL;
+        break;
+    case CSS_HOST_RELATION_NEXT:
+        host->host.next_sibling = NULL;
+        break;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* The cascade (Phase 9.5)                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A style context with a host installed, ready to collect a cascade from.
+ *
+ * The host double is the same one the matcher suites use, which is deliberate:
+ * a cascade test that needs to know *what* matched and a matching test that
+ * needs to know *whether* something matched are asking the same seam two
+ * questions, and giving each suite its own fake host would let them drift.
+ */
+typedef struct css_cascade_fixture {
+    css_host_t host;
+    robo_css_style_context_t *context;
+} css_cascade_fixture_t;
+
+/** Create @p context with @p host installed, and seal the host's sibling links. */
+static inline void css_cascade_begin(css_cascade_fixture_t *fixture)
+{
+    css_host_init(&fixture->host);
+    css_host_seal(&fixture->host);
+    fixture->context = NULL;
+    ROBO_CHECK_EQ_INT(robo_css_style_context_create(&fixture->context, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_set_element_host(
+                          fixture->context, &fixture->host.host, NULL),
+                      ROBO_OK);
+}
+
+/** Destroy the context. The host belongs to the caller and is left alone. */
+static inline void css_cascade_end(css_cascade_fixture_t *fixture)
+{
+    robo_css_style_context_destroy(fixture->context);
+    fixture->context = NULL;
+}
+
+/**
+ * Parse @p text as a stylesheet, parse every style rule's selectors, and add the
+ * sheet to @p fixture under @p origin.
+ *
+ * The selector parse is what a real caller does and what the cascade requires:
+ * a rule whose prelude was never turned into selectors reaches the cascade as a
+ * rule with no selectors, which it reports as incomplete. Doing both here keeps
+ * the suites from testing that report by accident in every test.
+ */
+static inline robo_css_stylesheet_id_t css_cascade_sheet(css_cascade_fixture_t *fixture,
+                                                         robo_css_origin_t origin,
+                                                         const char *text)
+{
+    robo_css_stylesheet_id_t id = css_parse_sheet(text, NULL);
+    size_t index;
+
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_set_origin(id, origin, NULL), ROBO_OK);
+    for (index = 0u; index < robo_css_stylesheet_rule_count(id); index++) {
+        robo_css_style_rule_t *rule = (robo_css_style_rule_t *)robo_css_rule_style(
+            robo_css_stylesheet_rule(id, index));
+
+        if (rule) {
+            robo_css_error_t rule_error = ROBO_CSS_CLEARED;
+
+            ROBO_CHECK_EQ_INT(robo_css_style_rule_parse_selectors(
+                                  rule, robo_css_stylesheet_source(id), &rule_error, NULL),
+                              ROBO_OK);
+        }
+    }
+    ROBO_CHECK_EQ_INT(robo_css_style_context_add_sheet(fixture->context, origin, id, NULL),
+                      ROBO_OK);
+    return id;
+}
+
+/*
+ * The `style` attribute side of the seam, standing in for a DOM.
+ *
+ * RoboCSS calls it, parses what it returns and keeps none of it (9.1.10), so the
+ * stub has two facts to offer — the text, or "there is no attribute" — and a
+ * counter for the call itself. The text it hands over is a literal, which is
+ * what the ownership rule requires: the declarations parsed from it borrow those
+ * bytes, so they must outlive the cascade.
+ */
+typedef struct css_inline_stub {
+    const char *text;      /* NULL: the element has no style attribute */
+    robo_result_t failure; /* non-OK: the host could not answer at all */
+    int calls;
+    robo_css_element_ref_t last_element;
+} css_inline_stub_t;
+
+static inline robo_result_t css_inline_stub_load(void *userdata,
+                                                robo_css_element_ref_t element,
+                                                robo_css_slice_t *out_text)
+{
+    css_inline_stub_t *stub = (css_inline_stub_t *)userdata;
+
+    stub->calls++;
+    stub->last_element = element;
+    if (stub->failure != ROBO_OK) {
+        return stub->failure;
+    }
+    if (!stub->text) {
+        return ROBO_NOT_FOUND;
+    }
+    *out_text = robo_css_slice_from_text(stub->text);
+    return ROBO_OK;
+}
+
+/** Install the stub with @p text (NULL means "no `style` attribute"). */
+static inline void css_cascade_inline(css_cascade_fixture_t *fixture,
+                                     css_inline_stub_t *stub,
+                                     const char *text)
+{
+    memset(stub, 0, sizeof(*stub));
+    stub->text = text;
+    stub->failure = ROBO_OK;
+    ROBO_CHECK_EQ_INT(robo_css_style_context_set_inline_style(
+                          fixture->context, css_inline_stub_load, stub, NULL),
+                      ROBO_OK);
+    /* The callback and its userdata are installed and read together: a caller
+     * that could reach one without the other could not call it at all. */
+    ROBO_CHECK_EQ_INT(robo_css_style_context_inline_style(fixture->context) ==
+                          css_inline_stub_load,
+                      1);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_inline_userdata(fixture->context) ==
+                          (void *)stub,
+                      1);
+}
+
+/** Collect the cascade for @p element, asserting the call succeeded. */
+static inline void css_cascade_collect(css_cascade_fixture_t *fixture,
+                                       robo_css_element_ref_t element,
+                                       robo_css_cascade_t *out,
+                                       robo_css_error_t *out_error)
+{
+    robo_css_error_t error = ROBO_CSS_CLEARED;
+
+    ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(
+                          fixture->context, element, out, &error, NULL),
+                      ROBO_OK);
+    if (out_error) {
+        *out_error = error;
+    }
+}
+
+/** The name of the @p index'th candidate's declaration, as a NUL-terminated
+ *  string, shaped the way css_declaration_name_of shapes a list's. */
+static inline void css_cascade_candidate_name(const robo_css_cascade_t *cascade,
+                                              size_t index,
+                                              char *out,
+                                              size_t capacity)
+{
+    const robo_css_cascade_candidate_t *candidate = robo_css_cascade_at(cascade, index);
+    size_t offset = 0u;
+
+    if (!out || capacity == 0u) {
+        return;
+    }
+    out[0] = '\0';
+    if (candidate) {
+        robo_css_slice_t name = robo_css_declaration_name(candidate->declaration);
+        size_t i;
+
+        for (i = 0u; i < name.length; i++) {
+            css_shape_byte(out, capacity, &offset, name.bytes[i]);
+        }
+    }
+}
+
+/**
+ * Resolve @p name in @p cascade and copy the winning declaration's value *text*
+ * into @p out.
+ *
+ * The value is read as its first token's raw text, which is all a cascade suite
+ * needs: what is being asserted is *which* declaration won, and the value is the
+ * shortest way to say which one. Nothing here interprets the value — that is
+ * 9.8's job — so the helper deliberately reads the token's bytes rather than a
+ * parsed form.
+ */
+static inline robo_css_cascade_verdict_t css_cascade_winner_text(
+    const robo_css_cascade_t *cascade,
+    const char *name,
+    char *out,
+    size_t capacity)
+{
+    const robo_css_cascade_candidate_t *winner = NULL;
+    robo_css_cascade_verdict_t verdict;
+    const robo_css_value_t *value;
+
+    if (out && capacity > 0u) {
+        out[0] = '\0';
+    }
+    verdict = robo_css_cascade_resolve_name(cascade,
+                                           robo_css_slice_from_text(name), &winner);
+    if (verdict != ROBO_CSS_CASCADE_VERDICT_DECIDED || !winner || !out || capacity == 0u) {
+        return verdict;
+    }
+    value = robo_css_declaration_value(winner->declaration);
+    if (value && value->kind == ROBO_CSS_VALUE_KIND_LIST && value->children.count > 0u) {
+        value = &value->children.items[0];
+    }
+    if (value && value->kind == ROBO_CSS_VALUE_KIND_TOKEN) {
+        size_t offset = 0u;
+        size_t i;
+
+        for (i = 0u; i < value->token.text.length; i++) {
+            css_shape_byte(out, capacity, &offset, value->token.text.bytes[i]);
+        }
+    }
+    return verdict;
 }
 
 #endif /* ROBO_CSS_TEST_SUPPORT_H */

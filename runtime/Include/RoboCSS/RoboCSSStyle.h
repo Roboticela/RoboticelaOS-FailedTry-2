@@ -14,7 +14,8 @@
  *   the host (the DOM side, or an application)        RoboCSS
  *   ──────────────────────────────────────────        ───────────────
  *   fills robo_css_element_view_t from a node         reads the view
- *   answers the element-lookup callback               walks selectors later (9.4)
+ *   answers the element-lookup callback               walks selectors (9.4)
+ *   answers the three relation callbacks              matches combinators (9.4)
  *   answers the inline-style callback with the        parses that text later (9.3)
  *     `style` attribute's *text*
  *   owns the attribute bytes                          owns the stylesheets
@@ -25,7 +26,10 @@
  *   9.1.9  DOM integration    the element view and the lookup callback — the
  *                             element is identified by an opaque token, and
  *                             every fact about it (tag, id, classes,
- *                             attributes) arrives in the view
+ *                             attributes) arrives in the view. 9.4 extended
+ *                             this with the three *relation* callbacks
+ *                             (parent, previous, next) that combinator and
+ *                             structural-pseudo-class matching needs
  *   9.1.10 inline styles      robo_css_inline_style_fn returns the `style`
  *                             attribute's text; RoboCSS parses it into
  *                             declarations and stores none of it. There is no
@@ -42,11 +46,14 @@
  * the sheets it references are the caller's to destroy. Destroying the context
  * therefore frees the context and nothing else.
  *
- * Resolution itself is *declared and not implemented*: matching declarations
- * (9.4/9.5) and computing a style (9.8) both answer ROBO_NOT_SUPPORTED and say
- * so in their error record. They exist now because the contract a host has to
- * build against — what it must be able to answer, what comes back, who owns it
- * — is the thing Phase 9.1 is for.
+ * The two resolution doors have parted company as the phases landed.
+ * robo_css_style_context_match_declarations is **real as of 9.5**: it walks the
+ * context's sheets, matches their rules through the host (9.4), parses the
+ * element's `style` attribute through the same grammar as any other
+ * declarations, and hands back a robo_css_cascade_t (RoboCSSCascade.h) in
+ * cascade order. robo_css_style_context_compute_style is still 9.8 and still
+ * answers ROBO_NOT_SUPPORTED, because computing a value needs colours, units
+ * and inheritance as well as a cascade.
  */
 
 #ifndef ROBO_CSS_STYLE_H
@@ -192,12 +199,84 @@ typedef robo_result_t (*robo_css_inline_style_fn)(
     robo_css_element_ref_t element,
     robo_css_slice_t *out_text);
 
+/*
+ * The relation half of the seam (9.4).
+ *
+ * A view answers "what is this element"; a relation answers "which element is
+ * next to it". Matching a combinator — `div > p`, `.a + .b`, `#x .y` — is the
+ * only thing that needs the second question, and it needs exactly three
+ * answers: the parent, the element before, and the element after.
+ *
+ * Returning ROBO_CSS_ELEMENT_REF_NONE is how a host says "there is none", and
+ * that answer is load-bearing rather than an edge case: it is what `:root`, the
+ * document element, makes true; it is what `:first-child` and `:last-child`
+ * are; and it is how a walk up the ancestor chain terminates. A host therefore
+ * must not invent a sentinel element for "the top" — the absence *is* the fact.
+ *
+ * Element siblings, not node siblings: a host whose tree stores text and
+ * comments beside elements answers with the nearest *element*, because
+ * `:first-child` and `+` count elements. Filtering is the host's job precisely
+ * because RoboCSS cannot see the nodes it would have to filter.
+ *
+ * All three are optional. A host that supplies only a view can still answer
+ * type, universal, class, id and attribute selectors — those need one element —
+ * and the matcher reports the combinators and structural pseudo-classes it
+ * cannot evaluate rather than guessing at them.
+ */
+typedef robo_css_element_ref_t (*robo_css_element_parent_fn)(
+    void *userdata,
+    robo_css_element_ref_t element);
+
+typedef robo_css_element_ref_t (*robo_css_element_previous_sibling_fn)(
+    void *userdata,
+    robo_css_element_ref_t element);
+
+typedef robo_css_element_ref_t (*robo_css_element_next_sibling_fn)(
+    void *userdata,
+    robo_css_element_ref_t element);
+
+/**
+ * Everything RoboCSS may ask a host about one element.
+ *
+ * One `userdata` for all four callbacks, because they come from one host: a
+ * host is a document, a document is one object, and four contexts to keep in
+ * step would be four chances to get it wrong. `view` is the only required
+ * member.
+ */
+typedef struct robo_css_element_host {
+    void *userdata;
+    robo_css_element_lookup_fn view;
+    robo_css_element_parent_fn parent;
+    robo_css_element_previous_sibling_fn previous_sibling;
+    robo_css_element_next_sibling_fn next_sibling;
+} robo_css_element_host_t;
+
+/** Clear @p host to "no callbacks". Safe on NULL. */
+void robo_css_element_host_init(robo_css_element_host_t *host);
+
+/**
+ * Non-zero when @p host can answer for an element (its `view` is set).
+ * Says nothing about the relations: a usable host may still be unable to answer
+ * a combinator, and the matcher reports that per selector rather than here.
+ */
+int robo_css_element_host_is_usable(const robo_css_element_host_t *host);
+
 /* ------------------------------------------------------------------ */
 /* Style context                                                       */
 /* ------------------------------------------------------------------ */
 
 /** An opaque, caller-owned assembly of everything a resolution needs. */
 typedef struct robo_css_style_context robo_css_style_context_t;
+
+/**
+ * Forward declaration of what a collection produces (RoboCSSCascade.h).
+ *
+ * The definition lives in that header, and this one does not include it, so the
+ * dependency between the two runs one way: the cascade model knows about style
+ * contexts (it has to match through a host), and the style context only knows
+ * that a cascade *type* exists. A caller that collects one includes both.
+ */
+typedef struct robo_css_cascade robo_css_cascade_t;
 
 /**
  * Create an empty context: no sheets, no property table, no callbacks.
@@ -265,7 +344,15 @@ robo_result_t robo_css_style_context_set_property_table(
 const robo_css_property_table_t *robo_css_style_context_property_table(
     const robo_css_style_context_t *context);
 
-/** Install the element-lookup callback (NULL clears it). */
+/**
+ * Install the element-lookup callback (NULL clears it).
+ *
+ * A convenience over robo_css_style_context_set_element_host for the host that
+ * has only a view to give: it sets the view callback and the shared userdata
+ * and leaves the relations cleared, exactly as if a host with only `view` filled
+ * in had been installed. The two setters write the same storage, so whichever is
+ * called last decides.
+ */
 robo_result_t robo_css_style_context_set_element_lookup(
     robo_css_style_context_t *context,
     robo_css_element_lookup_fn lookup,
@@ -274,6 +361,27 @@ robo_result_t robo_css_style_context_set_element_lookup(
 
 /** Borrowed element-lookup callback, or NULL when none was installed. */
 robo_css_element_lookup_fn robo_css_style_context_element_lookup(
+    const robo_css_style_context_t *context);
+
+/**
+ * Install the whole element host. NULL clears every callback.
+ * The host is copied; its userdata stays owned by the caller.
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL context, or for a host whose
+ *         `view` is NULL but which supplies a relation (a host that can say
+ *         where an element sits but not what it is cannot be used for
+ *         anything).
+ */
+robo_result_t robo_css_style_context_set_element_host(
+    robo_css_style_context_t *context,
+    const robo_css_element_host_t *host,
+    robo_css_diag_t *diag);
+
+/**
+ * The installed host, by value; every callback NULL when none was installed.
+ * Returned by value rather than by pointer so that a caller can hand it straight
+ * to the matcher without a lifetime question.
+ */
+robo_css_element_host_t robo_css_style_context_element_host(
     const robo_css_style_context_t *context);
 
 /** Install the inline-style callback (NULL clears it). */
@@ -287,6 +395,18 @@ robo_result_t robo_css_style_context_set_inline_style(
 robo_css_inline_style_fn robo_css_style_context_inline_style(
     const robo_css_style_context_t *context);
 
+/**
+ * The userdata that goes with the inline-style callback, or NULL when none was
+ * installed.
+ *
+ * A callback without its userdata is not callable, and the cascade has to call
+ * this one itself — asking for the `style` attribute's text, parsing it and
+ * collecting it are all RoboCSS's job (9.1.10) rather than the host's. The two
+ * setters write the two fields together, so this cannot disagree with
+ * robo_css_style_context_inline_style.
+ */
+void *robo_css_style_context_inline_userdata(const robo_css_style_context_t *context);
+
 /** Non-zero when @p context has a RUNTIME-origin stylesheet — i.e. this build
  *  is using a runtime default stylesheet. Always 0 in Phase 9.1, which ships
  *  none. */
@@ -294,27 +414,42 @@ int robo_css_style_context_has_runtime_sheet(
     const robo_css_style_context_t *context);
 
 /* ------------------------------------------------------------------ */
-/* Resolution boundaries (declared; not implemented in 9.1)            */
+/* Resolution                                                          */
 /* ------------------------------------------------------------------ */
 
 /**
- * Collect the declarations that apply to @p element.
+ * Collect, in cascade order, everything that applies to @p element.
  *
- * This is where 9.4 (matching) and 9.5 (the cascade) arrive, and where the
- * context's origin lists, element lookup and inline callback are consumed.
+ * A real collection as of 9.5, and the door through which the whole cascade
+ * arrives. It consumes every seam above: the origin lists decide the order the
+ * sheets are walked in, the element host answers what the element is and how it
+ * relates (9.4), the property table turns declaration names into identities, and
+ * the inline callback hands over the `style` attribute's text, which is then
+ * parsed by the same grammar a rule's block uses.
  *
- * Phase 9.1 does not match anything. This validates its arguments, records
- * ROBO_CSS_ERROR_KIND_UNSUPPORTED (when @p out_error is non-NULL, which it
- * fills either way), and returns ROBO_NOT_SUPPORTED; @p out is initialised and
- * left empty.
+ * What comes back is a robo_css_cascade_t (RoboCSSCascade.h): the candidates in
+ * cascade order, plus a count of everything the build could not use — an
+ * undecided selector, an at-rule block nothing evaluates, a sheet that was
+ * destroyed, a rule whose prelude was never parsed as selectors. Those counts
+ * are the whole reason a collection is allowed to succeed while being
+ * incomplete: a cascade that dropped an undecided selector silently would apply
+ * the wrong rule and look like it had answered.
  *
- * @return ROBO_NOT_SUPPORTED in this build; ROBO_INVALID_ARGUMENT for a NULL
- *         context or output.
+ * @p out is initialised first, so a caller that ignores the result code still
+ * owns something disposable. @p out_error is always filled: the first CSS
+ * problem met (a malformed `style` attribute, say), or a record of kind NONE
+ * when there was none. A recovered problem is not a failed call — that is the
+ * 9.3 rule and it holds here too.
+ *
+ * @return ROBO_OK whenever a cascade was produced, including an incomplete one;
+ *         ROBO_INVALID_ARGUMENT for a NULL context, output or element;
+ *         ROBO_OUT_OF_MEMORY when no answer could be produced at all, in which
+ *         case @p out is left empty rather than half-filled.
  */
 robo_result_t robo_css_style_context_match_declarations(
     const robo_css_style_context_t *context,
     robo_css_element_ref_t element,
-    robo_css_declaration_list_t *out,
+    robo_css_cascade_t *out,
     robo_css_error_t *out_error,
     robo_css_diag_t *diag);
 
@@ -324,9 +459,12 @@ robo_result_t robo_css_style_context_match_declarations(
  * This is 9.8, plus everything it depends on: 9.5's cascade, 9.6's specificity,
  * 9.7's inheritance, 9.9's colours and 9.10's units.
  *
- * Phase 9.1 computes nothing. This validates its arguments, records
- * ROBO_CSS_ERROR_KIND_UNSUPPORTED (@p out_error is filled either way), and
- * returns ROBO_NOT_SUPPORTED; @p out_style is left empty.
+ * Nothing computes a style yet, 9.5's cascade included: collecting the
+ * declarations that apply is not the same thing as turning them into values,
+ * and it is the values that need colours, units and inheritance. This validates
+ * its arguments, records ROBO_CSS_ERROR_KIND_UNSUPPORTED (@p out_error is
+ * filled either way), and returns ROBO_NOT_SUPPORTED; @p out_style is left
+ * empty rather than half-filled with guesses.
  *
  * @return ROBO_NOT_SUPPORTED in this build; ROBO_INVALID_ARGUMENT for a NULL
  *         context or output.

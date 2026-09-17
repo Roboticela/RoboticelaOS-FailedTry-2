@@ -6,12 +6,29 @@
  * combinators, list owns complex selectors) each follow the subsystem's one
  * rule — children are moved in, never copied in — with the single exception of
  * simple selectors, which own nothing and are therefore copied.
+ *
+ * Phase 9.4 gave two records something of their own to own, and both are
+ * disposed here rather than by their consumers: a compound owns its nested
+ * argument lists (`:not(...)`), and a selector list owns the arena holding the
+ * resolved spelling of its names. Nested lists are addressed by index from the
+ * simple selectors that use them, which is what keeps the copy rule above
+ * intact: resetting an index on copy costs one assignment, whereas owning the
+ * list on the simple selector would have forced every copy to deep-copy or to
+ * be banned.
+ *
+ * One deliberately defensive reader lives here too: nested_at and argument_of
+ * treat an index as a *claim* and check it, because a simple selector copied
+ * from one compound into another carries an index that means nothing in its new
+ * home. That is a hole the type system cannot close, so it is closed by a bound
+ * check at the one place that would otherwise dereference it.
  */
 
 #include "RoboCSS/RoboCSSSelector.h"
 
 #include "RoboCSSInternal.h"
 #include "RoboMem/RoboMem.h"
+
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /* Vocabulary                                                          */
@@ -139,6 +156,10 @@ void robo_css_simple_selector_init(robo_css_simple_selector_t *selector)
     selector->case_flag = ROBO_CSS_ATTRIBUTE_CASE_DEFAULT;
     selector->value_was_string = 0;
     selector->argument = robo_css_slice_empty();
+    selector->nested_index = ROBO_CSS_NESTED_NONE;
+    selector->nth_parsed = 0;
+    selector->nth_a = 0;
+    selector->nth_b = 0;
 }
 
 void robo_css_simple_selector_dispose(robo_css_simple_selector_t *selector)
@@ -243,6 +264,56 @@ robo_result_t robo_css_simple_selector_set_argument(
     return ROBO_OK;
 }
 
+size_t robo_css_simple_selector_nested_index(const robo_css_simple_selector_t *selector)
+{
+    return selector ? selector->nested_index : ROBO_CSS_NESTED_NONE;
+}
+
+robo_result_t robo_css_simple_selector_set_nth(robo_css_simple_selector_t *selector,
+                                               int a,
+                                               int b,
+                                               robo_css_diag_t *diag)
+{
+    if (!selector) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_SELECTOR, ROBO_INVALID_ARGUMENT,
+                             "selector is NULL");
+    }
+    if (selector->kind != ROBO_CSS_SIMPLE_SELECTOR_PSEUDO_CLASS) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_SELECTOR, ROBO_INVALID_ARGUMENT,
+                             "An+B belongs to a pseudo-class");
+    }
+    selector->nth_parsed = 1;
+    selector->nth_a = a;
+    selector->nth_b = b;
+    return ROBO_OK;
+}
+
+int robo_css_simple_selector_has_nth(const robo_css_simple_selector_t *selector)
+{
+    return selector && selector->nth_parsed;
+}
+
+int robo_css_simple_selector_nth_a(const robo_css_simple_selector_t *selector)
+{
+    return selector ? selector->nth_a : 0;
+}
+
+int robo_css_simple_selector_nth_b(const robo_css_simple_selector_t *selector)
+{
+    return selector ? selector->nth_b : 0;
+}
+
+int robo_css_simple_selector_is_pseudo_named(const robo_css_simple_selector_t *selector,
+                                            const char *ascii)
+{
+    if (!selector || !ascii || !selector->kind ||
+        (selector->kind != ROBO_CSS_SIMPLE_SELECTOR_PSEUDO_CLASS &&
+         selector->kind != ROBO_CSS_SIMPLE_SELECTOR_PSEUDO_ELEMENT)) {
+        return 0;
+    }
+    return robo_css_slice_equals_ascii_ci(selector->name, ascii);
+}
+
 int robo_css_simple_selector_is_set(const robo_css_simple_selector_t *selector)
 {
     return selector && selector->kind != ROBO_CSS_SIMPLE_SELECTOR_NONE;
@@ -261,15 +332,28 @@ void robo_css_compound_selector_init(robo_css_compound_selector_t *compound)
     compound->count = 0u;
     compound->capacity = 0u;
     compound->range = robo_css_range_at(0u);
+    compound->nested = NULL;
+    compound->nested_count = 0u;
+    compound->nested_capacity = 0u;
 }
 
 void robo_css_compound_selector_dispose(robo_css_compound_selector_t *compound)
 {
+    size_t i;
+
     if (!compound) {
         return;
     }
+    /* Nested argument lists own their own compounds and name arenas, so they are
+     * disposed through the same call a top-level list uses. */
+    for (i = 0u; i < compound->nested_count; i++) {
+        robo_css_selector_list_dispose(&compound->nested[i]);
+    }
+    if (compound->nested) {
+        robo_free(compound->nested);
+    }
     /* Simple selectors own nothing, so there is nothing to dispose element by
-     * element; the array itself is the only allocation. */
+     * element; the array itself is the only other allocation. */
     if (compound->items) {
         robo_free(compound->items);
     }
@@ -295,8 +379,74 @@ robo_result_t robo_css_compound_selector_append(
                              "could not grow the simple selector array");
     }
     compound->items[compound->count] = *selector;
+    /* An index names a list inside the compound that issued it, so a copy can
+     * never inherit one — it would address this compound's unrelated slot. The
+     * parser re-attaches the copy's own list with attach_nested. */
+    compound->items[compound->count].nested_index = ROBO_CSS_NESTED_NONE;
     compound->count++;
     return ROBO_OK;
+}
+
+robo_result_t robo_css_compound_selector_attach_nested(
+    robo_css_compound_selector_t *compound,
+    size_t simple_index,
+    robo_css_selector_list_t *list,
+    robo_css_diag_t *diag)
+{
+    size_t index;
+
+    if (!compound || !list) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_SELECTOR, ROBO_INVALID_ARGUMENT,
+                             "compound or list is NULL");
+    }
+    if (simple_index >= compound->count) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_SELECTOR, ROBO_INVALID_ARGUMENT,
+                             "no such simple selector in this compound");
+    }
+    if (!robo_css_grow((void **)&compound->nested, &compound->nested_capacity,
+                       compound->nested_count, sizeof(robo_css_selector_list_t))) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_SELECTOR, ROBO_OUT_OF_MEMORY,
+                             "could not grow the nested argument list array");
+    }
+    index = compound->nested_count;
+    compound->nested[index] = *list;
+    compound->nested_count++;
+    /* Moving the list in is why the caller's copy is cleared here: the list
+     * holds the only pointer to its compounds and its arena. */
+    robo_css_selector_list_init(list);
+    compound->items[simple_index].nested_index = index;
+    return ROBO_OK;
+}
+
+size_t robo_css_compound_selector_nested_count(const robo_css_compound_selector_t *compound)
+{
+    return compound ? compound->nested_count : 0u;
+}
+
+const robo_css_selector_list_t *robo_css_compound_selector_nested_at(
+    const robo_css_compound_selector_t *compound,
+    size_t index)
+{
+    if (!compound || index >= compound->nested_count) {
+        return NULL;
+    }
+    return &compound->nested[index];
+}
+
+const robo_css_selector_list_t *robo_css_compound_selector_argument_of(
+    const robo_css_compound_selector_t *compound,
+    size_t simple_index)
+{
+    const robo_css_simple_selector_t *simple;
+
+    if (!compound || simple_index >= compound->count) {
+        return NULL;
+    }
+    simple = &compound->items[simple_index];
+    if (simple->nested_index == ROBO_CSS_NESTED_NONE) {
+        return NULL;
+    }
+    return robo_css_compound_selector_nested_at(compound, simple->nested_index);
 }
 
 size_t robo_css_compound_selector_count(const robo_css_compound_selector_t *compound)
@@ -479,6 +629,9 @@ void robo_css_selector_list_init(robo_css_selector_list_t *list)
     list->count = 0u;
     list->capacity = 0u;
     list->range = robo_css_range_at(0u);
+    list->names = NULL;
+    list->names_length = 0u;
+    list->names_capacity = 0u;
 }
 
 void robo_css_selector_list_dispose(robo_css_selector_list_t *list)
@@ -494,7 +647,100 @@ void robo_css_selector_list_dispose(robo_css_selector_list_t *list)
     if (list->items) {
         robo_free(list->items);
     }
+    if (list->names) {
+        robo_free(list->names);
+    }
     robo_css_selector_list_init(list);
+}
+
+robo_result_t robo_css_selector_list_reserve_names(robo_css_selector_list_t *list,
+                                                  size_t bytes,
+                                                  robo_css_diag_t *diag)
+{
+    if (!list) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_SELECTOR, ROBO_INVALID_ARGUMENT,
+                             "list is NULL");
+    }
+    if (bytes <= list->names_capacity) {
+        return ROBO_OK;
+    }
+    {
+        char *grown = (char *)robo_realloc(list->names, bytes);
+
+        if (!grown) {
+            return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_SELECTOR, ROBO_OUT_OF_MEMORY,
+                                 "could not reserve the name arena");
+        }
+        list->names = grown;
+        list->names_capacity = bytes;
+    }
+    return ROBO_OK;
+}
+
+robo_css_slice_t robo_css_selector_list_intern(robo_css_selector_list_t *list,
+                                               const uint8_t *bytes,
+                                               size_t length)
+{
+    size_t wanted;
+    robo_css_slice_t slice;
+
+    if (!list || (length > 0u && !bytes)) {
+        return robo_css_slice_empty();
+    }
+    if (length == 0u) {
+        /* A zero-length name is a real record, not a failure: `[a=""]` is an
+         * attribute selector comparing against an empty value, which is a
+         * different selector from the presence-only `[a]`. The answer is empty
+         * but *present*, so it needs a byte address — the arena's end will do,
+         * and reserving one byte gives it one even for an otherwise empty list.
+         */
+        if (!list->names &&
+            robo_css_selector_list_reserve_names(list, 1u, NULL) != ROBO_OK) {
+            return robo_css_slice_empty();
+        }
+        return robo_css_slice_from_bytes(
+            (const uint8_t *)(list->names + list->names_length), 0u);
+    }
+    wanted = list->names_length + length;
+    if (wanted > list->names_capacity) {
+        size_t capacity = list->names_capacity;
+        char *grown;
+
+        if (capacity == 0u) {
+            capacity = ROBO_CSS_COLLECTION_MIN_CAPACITY;
+        }
+        while (capacity < wanted) {
+            if (capacity > ((size_t)-1) / 2u) {
+                capacity = wanted;
+                break;
+            }
+            capacity *= 2u;
+        }
+        grown = (char *)robo_realloc(list->names, capacity);
+        if (!grown) {
+            /* Absent, not empty: a caller that recorded this slice would
+             * otherwise compare names against no bytes and silently never
+             * match, which is worse than failing the parse. */
+            return robo_css_slice_empty();
+        }
+        list->names = grown;
+        list->names_capacity = capacity;
+    }
+    memcpy(list->names + list->names_length, bytes, length);
+    slice = robo_css_slice_from_bytes(
+        (const uint8_t *)(list->names + list->names_length), length);
+    list->names_length = wanted;
+    return slice;
+}
+
+size_t robo_css_selector_list_names_length(const robo_css_selector_list_t *list)
+{
+    return list ? list->names_length : 0u;
+}
+
+const char *robo_css_selector_list_names(const robo_css_selector_list_t *list)
+{
+    return list ? list->names : NULL;
 }
 
 robo_result_t robo_css_selector_list_append(robo_css_selector_list_t *list,

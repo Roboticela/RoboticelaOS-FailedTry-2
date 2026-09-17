@@ -1,9 +1,11 @@
-# RoboCSS Architecture (Phase 9.1–9.2)
+# RoboCSS Architecture (Phase 9.1–9.5)
 
-This is the design record for RoboCSS as it exists after Goal 9.1. It documents
+This is the design record for RoboCSS as it exists after Goal 9.5. It documents
 boundaries and rules, not plans: everything described here is compilable code
 with tests behind it, and everything *not* described here is a boundary that
-answers `ROBO_NOT_SUPPORTED`.
+answers `ROBO_NOT_SUPPORTED` — with one deliberate exception, the *undecided*
+answer, which is what a phase gives when it can see that a question exists and
+cannot yet answer it (`docs/Cascade.md`, `docs/Selectors.md`).
 
 ## 1. Position in the runtime
 
@@ -256,6 +258,25 @@ accepting a *present and empty* one. `[a]` and `[a=""]` are different selectors
 and the model keeps them distinguishable; this is the source model's
 present/empty distinction reappearing one level up, on purpose.
 
+Three fields exist because 9.4 needed them and neither earlier phase could have
+invented them correctly:
+
+| Field | Why |
+|---|---|
+| `robo_css_selector_list_t::names` | An owned arena holding the resolved spelling of every name in the list, `:not()` arguments included. Escapes are resolved **once**, here, so a matcher compares the bytes CSS meant rather than the bytes the author typed. The parser reserves it up front from the prelude's length, so interning can never reallocate a name it has already handed out |
+| `robo_css_simple_selector_t::nested_index` | An index into the owning compound's nested argument lists, not a pointer. A simple selector therefore owns nothing, which is what makes `compound_selector_append` a safe by-value copy — and the copy clears the index, because an index names a list inside the compound that issued it |
+| `nth_parsed` / `nth_a` / `nth_b` | `:nth-child()`'s An+B, parsed once at parse time. `a` is signed, which is what makes `-n+3` and `n-1` expressible; `a == 0` is the bare-integer form |
+
+A `:not()` argument is a full `robo_css_selector_list_t` owned by the compound,
+which is the one place in the model where a list contains a list. It disposes
+recursively, and nesting is capped at `ROBO_CSS_MAX_SELECTOR_NESTING` (8) — past
+the cap the selector is **rejected**, because depth costs stack and the budget is
+there to bound it rather than to be exceeded politely.
+
+The selector grammar over these records is `RoboCSSSelectorParser.c` and the
+matcher is `RoboCSSMatcher.c`. `docs/Selectors.md` is their document; this file
+records only why the *model* is shaped the way it is.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -286,10 +307,20 @@ is transactional against it: `slot->rules` is replaced, never appended to. The
 first CSS problem is kept in the sheet's own error slot as well as being handed to
 the caller, so a call site that did not want the record still sees it.
 
-`robo_css_stylesheet_parse` is the declared boundary for 9.3. It returns
-`ROBO_NOT_SUPPORTED`, records an `UNSUPPORTED` reason both in the caller's record
-(if the caller wanted one) and on the stylesheet, and **touches nothing else** —
-rules, state and source are exactly as they were.
+### Cascade
+
+```text
+Cascade                          what one element gets, in cascade order
+  ├── candidates                 borrowed declarations + provenance + level + order
+  └── inline_declarations        owned: parsed from the element's `style` attribute
+```
+
+A cascade is a *result*, not a model in the source sense: it owns the array of
+candidates and the declaration list parsed from the `style` attribute, and every
+candidate borrows the declaration it points at. It is produced by the style
+context and read through `RoboCSSCascade.h`; the cascade's own vocabulary — the
+level table, the verdicts — is separate from the origin vocabulary, so provenance
+stays provenance and priority stays priority.
 
 ## 6. The DOM boundary
 
@@ -304,16 +335,23 @@ DOM Element  →  style resolution  →  computed style
 * `robo_css_element_ref_t` — an opaque host-supplied element identity. It is a
   pointer or an index as far as RoboCSS is concerned; RoboCSS never dereferences
   it and never assumes it is a node handle.
-* `robo_css_element_view_t` — what a *matcher* is given: tag name, id, class
-  slices, attribute name/value pairs, parent and previous-sibling references, and
-  a borrowed opaque userdata.
-* `robo_css_element_lookup_fn` — a host callback that turns an element ref into a
-  view, in the host's own terms.
+* `robo_css_element_view_t` — what a matcher is given *about one element*: its
+  ref, tag name, id, class slices and attribute name/value pairs. Nothing about
+  the tree, because a view is a description of one element and not of a
+  neighbourhood.
+* `robo_css_element_host_t` (9.4) — one `userdata` and **four** callbacks: `view`
+  (required), `parent`, `previous_sibling`, `next_sibling` (all optional). The
+  three relation callbacks are separate from the view rather than fields in it,
+  because they answer questions about *other* elements and because a host may
+  legitimately be unable to answer them at all — which the matcher must be able
+  to tell apart from "there is no such element", since `:first-child` is exactly
+  "there is no previous sibling". See `docs/Selectors.md` §4.
 * The **style context** (`RoboCSSStyle.h`) holds the property table, the
-  stylesheets in scope with their origins, and the two borrowed callbacks, and
-  exposes `robo_css_style_context_match_declarations` /
-  `robo_css_style_context_compute_style`, both of which answer
-  `ROBO_NOT_SUPPORTED`.
+  stylesheets in scope with their origins, the element host and the inline-style
+  callback. `robo_css_style_context_match_declarations` is real as of 9.5 — it
+  collects what applies to one element in cascade order (`docs/Cascade.md`) —
+  while `robo_css_style_context_compute_style` still answers
+  `ROBO_NOT_SUPPORTED`, because turning a cascade into values is 9.8.
 
 The DOM stays authoritative for elements, attributes, tree relationships and text
 nodes. RoboCSS is authoritative for CSS source, stylesheets, rules, declarations
@@ -331,8 +369,11 @@ exactly that: it asserts the contract a host has to satisfy.
 ```
 
 The DOM keeps the `style` attribute. RoboCSS parses its *text* into declarations
-on request through `robo_css_declaration_list_parse_text`, which answers
-`ROBO_NOT_SUPPORTED` in this phase while already enforcing the shape of the seam:
+on request through `robo_css_declaration_list_parse_text` — a real parse as of
+9.3, the same grammar a rule's block uses — and as of 9.5 the cascade is one of
+the callers, asking the host for the text, parsing it, and collecting the result
+as `ROBO_CSS_ORIGIN_INLINE` candidates. RoboCSS still stores none of it. The seam
+enforces:
 
 * declarations produced carry `ROBO_CSS_ORIGIN_INLINE`;
 * an empty or absent attribute is **no declarations** (not an error, not an empty
@@ -358,7 +399,7 @@ behind it there is nothing.
 
 ## 9. Origin and the cascade
 
-Origin in 9.1 is **provenance, not priority**:
+Origin is both a **provenance** and, since 9.5, half of a **priority**:
 
 ```text
 ROBO_CSS_ORIGIN_NONE / RUNTIME / USER / AUTHOR / INLINE
@@ -369,8 +410,17 @@ A stylesheet may only carry `RUNTIME`, `USER` or `AUTHOR`
 and is explicitly *not* a stylesheet origin, because an element's `style`
 attribute is not a stylesheet and never becomes one here.
 
-No priority is assigned. The cascade, specificity and inheritance are 9.5, 9.6
-and 9.7, and none of them is implemented or approximated.
+The model still assigns no priority: a *level* is a separate vocabulary
+(`RoboCSSCascade.h`), computed as `robo_css_cascade_level_of(origin, important)`,
+so an origin remains a fact about where a rule was written and a level remains a
+fact about who wins. Two rows of that table are decisions rather than
+transcriptions — inline sits above the origin it belongs to, and `!important`
+reverses the origin order without reversing inline's position — and
+`docs/Cascade.md` states both and why.
+
+The cascade's pair is 9.6 (specificity): 9.5 owns the levels and the document
+order, and a contest that needs specificity is reported `UNDECIDED_SPECIFICITY`
+rather than approximated. Inheritance (9.7) is not implemented either.
 
 ## 10. Errors
 
@@ -415,17 +465,37 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Selector parsing and matching (9.4), the cascade (9.5), specificity (9.6),
-inheritance (9.7), computed values (9.8), colours (9.9), units (9.10), the box
-model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
-(9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
-transitions, external stylesheet fetching and networking. **Reading bytes is not
-interpreting them, and building a tree is not interpreting it either**: the
-tokenizer knows `10px` is a dimension with the unit `px`, the grammar knows a
-prelude is component values up to `{`, and both deliberately know nothing about
-what a length or a selector means.
+Specificity (9.6), inheritance (9.7), computed values (9.8), colours (9.9), units
+(9.10), the box model (9.11), display (9.12), positioning (9.13), backgrounds
+(9.14), borders (9.15), conformance tests (9.16), layout, painting, rendering,
+CSSOM, animations, transitions, external stylesheet fetching and networking —
+plus, within the cascade itself, evaluating at-rules, expanding shorthands and
+the animation and transition origins. **Reading bytes is not interpreting them,
+building a tree is not interpreting it either, and answering a question about one
+element is not applying a style to it**: the tokenizer knows `10px` is a dimension
+with the unit `px`, the grammar knows a prelude is component values up to `{`,
+the matcher knows whether an element satisfies a selector, and the cascade knows
+which declaration beat which. None of them knows what a length *means*.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
-(9.2) and the parser and inline styles (9.3) flipped to 1 for exactly that reason,
-and no other flag did.
+(9.2), the parser and inline styles (9.3), selector matching (9.4) and the cascade
+(9.5) flipped to 1 for exactly that reason, and no other flag did — with `cascade`
+being the one that is 1 while half of its ordering is still ahead of it, because
+the half it does own works end to end and the half it does not is *reported*
+rather than guessed.
+
+Three boundaries are permanent features of the phases that introduced them rather
+than gaps in them, and they are the reason "is selector matching done?" and "is
+the cascade done?" both have nuanced answers. `:hover` and its state-dependent
+relatives **parse** and are reported `unsupported` rather than assumed true or
+false, because the input state they read does not exist yet — and a cascade that
+could not tell "false" from "not decided" would apply the wrong rules silently. A
+pseudo-element matches no element, *decidedly*, because an element is not its own
+`::before`: generated content does not exist yet, so the question was answered
+rather than skipped. And a contest between two candidates of one cascade level is
+reported `UNDECIDED_SPECIFICITY`, because settling it by document order would be
+right only by luck.
+
+A later phase that generates content matches pseudo-elements by giving the matcher
+a subject, and that is where it lands.

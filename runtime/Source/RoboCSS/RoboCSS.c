@@ -232,13 +232,26 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * the suites assert 1. `inline_styles` goes with the grammar rather than
      * with a phase of its own, because the boundary it names is
      * robo_css_declaration_list_parse_text, which is a declaration-list parse —
-     * the same code path a block uses. Every flag below still describes work
-     * that has not been done. */
+     * the same code path a block uses. Each later flag is 1 only once its own
+     * phase has landed, which is what the two comments below record. */
     out->tokenizer = 1;
     out->parser = 1;
     out->inline_styles = 1;
-    out->selector_matching = 0;
-    out->cascade = 0;
+    /* 9.4 turns a prelude into selectors and matches them against a host's
+     * elements. Both flags name something end to end: the selector grammar in
+     * RoboCSSSelectorParser.c, and the matcher in RoboCSSMatcher.c. What is left
+     * above them — specificity, inheritance, computed values — still has no
+     * implementation, and says so below. */
+    out->selector_parsing = 1;
+    out->selector_matching = 1;
+    /* 9.5 collects what applies to an element — every origin, every matched
+     * rule, the inline attribute — in cascade order, and answers the winner for
+     * a property wherever the level or the document order decides it. It is 1
+     * for that reason and no other: the *level* table is complete and final
+     * here, while the part of the ordering that needs specificity is reported as
+     * undecided rather than guessed, so `cascade` names a thing that works end
+     * to end *and says where it stops*. Specificity is the next flag's world. */
+    out->cascade = 1;
     out->inheritance = 0;
     out->computed_values = 0;
     out->default_styles = 0;

@@ -18,12 +18,19 @@
  * why shutdown has nothing else to free.
  *
  * Capabilities, not marketing: robo_css_get_capabilities reports what this
- * build actually does. The model flags are 1, and so is `tokenizer` as of 9.2;
- * every flag that would claim an *interpretation* beyond lexing — parser,
- * selector matching, cascade, inheritance, computed values, inline parsing,
- * default styles, loading — is 0, because none of them exists yet. A caller
- * that wants to know whether CSS will style anything should read this rather
- * than infer it from a version number.
+ * build actually does. The model flags are 1, and so are the behaviour flags of
+ * every phase that has landed — the tokenizer (9.2), the grammar and inline
+ * parsing (9.3), selector parsing and matching (9.4), the cascade (9.5). The
+ * flags that remain 0 are specificity, inheritance, computed values, default
+ * styles and loading, and each of those names work this build does not do. A
+ * caller that wants to know whether CSS will style anything should read this
+ * rather than infer it from a version number.
+ *
+ * A flag is 1 only when the thing it names works end to end, which is why
+ * `cascade` can be 1 while specificity is still ahead: collecting what applies
+ * and ordering it is complete, and the one question that needs specificity — two
+ * candidates of one level from different selectors — comes back *reported* as
+ * undecided rather than answered by accident.
  */
 
 #ifndef ROBO_CSS_H
@@ -99,9 +106,23 @@ typedef struct robo_css_capabilities {
      * component values out (9.3).
      */
     int parser;
-    /** Selector matching against an element view (9.4). */
+    /**
+     * The selector grammar: a rule's prelude in, a selector list out, names
+     * resolved and arguments (An+B, `:not()`) parsed (9.4).
+     */
+    int selector_parsing;
+    /** Selector matching against an element host (9.4). */
     int selector_matching;
-    /** Specificity and the cascade order (9.5/9.6). */
+    /**
+     * The cascade order (9.5): collecting what applies to an element in cascade
+     * order and resolving a property wherever origin, importance and document
+     * order decide it.
+     *
+     * 1 does not mean "the cascade is finished". Specificity is the other half
+     * of the ordering and is 9.6, so a contest between two candidates of the
+     * same level from different selectors comes back as
+     * ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY — reported, never guessed.
+     */
     int cascade;
     /** Inheritance of inherited properties (9.7). */
     int inheritance;

@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.3
-CSS parser**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.5, the
+cascade**).
 
-**Version:** 0.3.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.5.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -13,10 +13,14 @@ and consume it.
 
 ## Scope
 
-**9.1 (architecture), 9.2 (tokenizer) and 9.3 (parser).** 9.1 builds the model the
-rest of Phase 9 is written against; 9.2 builds the first machine that fills it;
-9.3 builds the second — the grammar that consumes the token stream and produces
-that model out of real CSS. Nothing here yet *interprets* what it builds:
+**9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors) and 9.5 (the
+cascade).** 9.1 builds the model the rest of Phase 9 is written against; 9.2
+builds the first machine that fills it; 9.3 builds the second — the grammar that
+consumes the token stream and produces that model out of real CSS; 9.4 builds the
+third, which turns a rule's prelude into real selectors and answers whether an
+element satisfies one; 9.5 is the first thing that *applies* anything, by
+collecting what matches an element in cascade order and answering which
+declaration wins — as far as that can be told without specificity:
 
 | Goal | What 9.1 delivers | What it does **not** do |
 |---|---|---|
@@ -32,6 +36,9 @@ that model out of real CSS. Nothing here yet *interprets* what it builds:
 | 9.1.14 parser | A cursor over a source: offset, line, column, seek, advance, and the first-error record | Read a single token |
 | 9.2.1 tokenizer | **The real CSS Syntax state machine**: source bytes → the 9.1 token vocabulary, one token per call, with lookahead, trivia skipping, accurate ranges and the first-error record | Parse the token stream |
 | 9.3.1 parser | **The real CSS Syntax grammar**: token stream → rules, at-rules, declaration blocks and component values. Transactional, bounded, and recovering; the inline-style boundary is the same code path as a rule's block | Match a selector, order the cascade, compute a value |
+| 9.5.1 cascade levels | The precedence table: origin × importance → one of eight levels, ascending, with `inline` above the origin it belongs to and the important half mirrored the way CSS mirrors it | Change (the table is final; specificity is a different key altogether) |
+| 9.5.2 collection | **The real resolution door**: every origin's sheets, every matched rule's declarations, and the element's own `style` attribute, in cascade order, with a count of everything the build could not use | Apply a *value* |
+| 9.5.3 resolution | The winner for one property, whenever a level or the document order decides it | Decide a contest that needs specificity (9.6) — that is answered `UNDECIDED_SPECIFICITY`, never guessed |
 
 ## The tokenizer (9.2)
 
@@ -86,8 +93,58 @@ abandoned** — the tokens are still consumed, the rule is still produced, and o
 its contents are dropped. `docs/Parser.md` has the full architecture, the
 declaration and at-rule rules, the recovery boundaries and the range conventions.
 
+9.4 adds the selector **grammar** and the **matcher**, and they are two separate
+things. The grammar lexes nothing of its own: every name it records is a 9.2
+token's *value*, escapes already resolved, interned once into the list's own name
+arena — so `.foo\:bar` carries `foo:bar` and no matcher ever has to know escapes
+exist. A selector list is **all-or-nothing**, as CSS says it is.
+
+The matcher holds no DOM, no document, no cache and no stylesheet. It asks a
+**host** — the four callbacks in `RoboCSSStyle.h` — about one element at a time,
+which is what keeps RoboCSS a peer of RoboHTML rather than a client of it: nothing
+in `Source/RoboCSS/` includes a RoboHTML header. Complex selectors are evaluated
+right-most compound first and walked leftwards *with backtracking*, and the
+recursion is bounded by the number of compounds in the selector rather than by the
+tree, so the stack cost is a property of the stylesheet and not of the document.
+
+Three outcomes, not two. `matched` and `unsupported` are independent, so a
+negative is either *decided* or *undecided*: `h1 + p` against a host with no
+sibling callback is undecided, while `:hover` parses, matches nothing, and names
+itself in `condition`. What is supported is exactly 9.4's list — type, universal,
+class, id, the six attribute comparators, the four combinators, and the seven
+structural pseudo-classes — and everything else is reported rather than guessed
+at. `docs/Selectors.md` has the full account.
+
+## The cascade (9.5)
+
+`robo_css_style_context_match_declarations` is a real collection as of 9.5. It
+walks the context's sheets by origin, matches their rules through the same host,
+parses the element's `style` attribute through the same grammar a rule's block
+uses, and returns a `robo_css_cascade_t` — the declarations that apply, in
+cascade order, each carrying its origin, its level, the sheet, rule and selector
+it came from, and its document position.
+
+The **level table** (origin × importance) is complete and final. Two rows are
+decisions rather than transcriptions: inline sits above the origin it belongs to
+(a `style` attribute is author-level with a specificity no selector reaches), and
+the important half is *not* a plain reversal of the normal one — it reverses the
+origins while inline stays directly above author, so an inline `!important` beats
+an author `!important` and still loses to a user one.
+
+Resolution answers one property at a time, and it answers **three** things, not
+two. Two candidates at one level from two selectors need specificity to separate,
+and specificity is 9.6 — so that comes back `UNDECIDED_SPECIFICITY` rather than
+being settled by document order, which would be right only by luck. Everything the
+collection could not use is *counted* on the result — an undecided selector, an
+at-rule block nothing evaluates, a sheet destroyed while referenced, a rule whose
+prelude was never parsed as selectors — so `unsupported` on the result is the
+difference between a lower bound and a wrong answer. `docs/Cascade.md` has the
+full account.
+
 `robo_css_get_capabilities` reports which of these subsystems exist, so a caller
-never has to infer it from a version number.
+never has to infer it from a version number. `cascade` is 1 for exactly the above:
+collecting and ordering are complete, and the one question that needs specificity
+is reported rather than answered by accident.
 
 ## The one rule worth reading first
 
@@ -116,6 +173,7 @@ equivalence field by field.
 | `robo_css_source_t` | Its bytes only in `KIND_COPY` | Borrowed bytes, labels (copied into the record) |
 | `robo_css_value_t` | Its children array and every child, recursively | Its token, its slices |
 | `robo_css_declaration_list_t` / `robo_css_rule_list_t` / selector collections | Their element arrays and every element moved into them | — |
+| `robo_css_cascade_t` | Its candidate array and the declaration list parsed from the element's `style` attribute | The declarations it borrows from the context's sheets |
 | Stylesheet slot | Its rule list, its source copy, its last-error record | The source when borrowed, error messages (never freed) |
 | Every `robo_css_slice_t` | Nothing, ever | — |
 
@@ -134,7 +192,7 @@ runtime/
 ├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h)
 ├── Source/RoboCSS/           production sources
 └── css/
-    ├── tests/                the fourteen suites and their shared fixtures
+    ├── tests/                this subsystem's suites and their shared fixtures
     └── docs/                 this subsystem's design record
 ```
 
@@ -149,7 +207,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 208 tests only
+scripts/robo test-css        # this subsystem's 355 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -166,5 +224,7 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Architecture.md` | Module boundaries, ownership and lifetime rules, every model, and the DOM / inline-style / default-stylesheet boundaries |
 | `docs/Tokenizer.md` | The 9.2 tokenizer: the three decisions, token categories, source ranges, malformed-input outcomes, the stream API, lifetime, and how to run its tests |
 | `docs/Parser.md` | The 9.3 parser: the two entry points, what the grammar is, nesting and the bound, declarations and `!important`, at-rules as rules *or* descriptors, the recovery boundaries, source-range conventions, lifetime, and the integration properties |
+| `docs/Selectors.md` | The 9.4 selectors: the two doors, the name arena, the all-or-nothing rule, the four matcher levels and their result, how a complex selector is walked, the two facts about a relation, what is supported and what is deliberately not, the host seam, lifetime, and how to run the suites |
+| `docs/Cascade.md` | The 9.5 cascade: the level table and the two decisions it encodes, the collection walk and what every counter means, cascade order and the stable sort that maintains it, the three verdicts and when one flips, the inline boundary's three answers, what 9.5 deliberately does not do, lifetime, and how to run the suites |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1, 9.2 and 9.3 records and their definitions of done |
+| `../PROGRESS.md` | The Goal 9.1, 9.2, 9.3 and 9.4 records and their definitions of done |

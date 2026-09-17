@@ -205,8 +205,8 @@ API names below are **planned boundaries**, not implemented headers yet (except 
 | **Responsibility** | CSS tokenize/parse, selectors, style rules, computed style, inheritance applied onto DOM. |
 | **May depend on** | RoboBase, RoboMem, RoboContainers, RoboDOM. |
 | **Must NOT depend on it** | RoboBase … RoboDOM; RoboHTML (CSS must work on any DOM tree); layout, paint, JS. |
-| **Public C API boundary** | `Include/RoboCSS/RoboCSS.h` — the 9.1 model (source, token, value, property, declaration, selector, rule, stylesheet, parser cursor), the 9.2 tokenizer (`RoboCSSTokenizer.h`) and the 9.3 grammar behind `robo_css_stylesheet_parse` and `robo_css_declaration_list_parse_text` are in place. The parser *builds and interprets nothing*: a rule's prelude is component values, an at-rule is syntax, and selector matching, the cascade, inheritance and computed values still answer `ROBO_NOT_SUPPORTED`. `robo_css_get_capabilities` reports what this build actually does. |
-| **Status** | Goals 9.1 (architecture), 9.2 (the real CSS Syntax tokenizer) and 9.3 (the real CSS Syntax parser, and the inline-style boundary filled by the same grammar) complete (`css/README.md`, `css/docs/`). Chromium- *and* higher-layer independence asserted by `-Verify`. |
+| **Public C API boundary** | `Include/RoboCSS/RoboCSS.h` — the 9.1 model (source, token, value, property, declaration, selector, rule, stylesheet, parser cursor), the 9.2 tokenizer (`RoboCSSTokenizer.h`), the 9.3 grammar behind `robo_css_stylesheet_parse` and `robo_css_declaration_list_parse_text`, the 9.4 selector surface: the selector grammar (`RoboCSSSelectorParser.h`) and the matcher (`RoboCSSMatcher.h`), and the 9.5 cascade (`RoboCSSCascade.h`) behind `robo_css_style_context_match_declarations`. The parser *builds and interprets nothing*; the matcher *answers and applies nothing* — it asks a host (the four callbacks in `RoboCSSStyle.h`) about one element at a time, holds no document and mutates nothing; the cascade *collects and orders* what applies and refuses to guess at specificity, which is 9.6. Inheritance and computed values still answer `ROBO_NOT_SUPPORTED`. `robo_css_get_capabilities` reports what this build actually does. |
+| **Status** | Goals 9.1 (architecture), 9.2 (the real CSS Syntax tokenizer), 9.3 (the real CSS Syntax parser, and the inline-style boundary filled by the same grammar) and 9.4 (the selector grammar and matcher, tested against the real DOM as well as a callback host) complete (`css/README.md`, `css/docs/`). Chromium- *and* higher-layer independence asserted by `-Verify`. |
 
 ---
 
@@ -356,5 +356,5 @@ runtime/
 └── Out/
 ```
 
-Implemented: RoboBase (Goals 1.x), RoboMem Phase 2, RoboArray/RoboString, RoboUnicode, RoboI18N and CLDR data, RoboFont, RoboText, RoboGraphics, RoboWindow and the QEMU display backend, RoboHTML/DOM (Goals 8.1–8.15), and RoboCSS through the parser (Goals 9.1–9.3).
+Implemented: RoboBase (Goals 1.x), RoboMem Phase 2, RoboArray/RoboString, RoboUnicode, RoboI18N and CLDR data, RoboFont, RoboText, RoboGraphics, RoboWindow and the QEMU display backend, RoboHTML/DOM (Goals 8.1–8.15), and RoboCSS through the cascade (Goals 9.1–9.5).
 Still not implemented: the CSS parser/selectors/cascade and computed style (Goal 9.3 onward), threads, events, JS, layout, paint and networking.
