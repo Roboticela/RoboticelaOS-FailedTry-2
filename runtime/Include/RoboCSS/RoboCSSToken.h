@@ -14,16 +14,27 @@
  *
  * Two rules keep this honest:
  *
- *   - A token borrows. `text`, `repr` and `unit` all point into the source the
- *     token was taken from; no token copies bytes and no token owns memory, so
- *     a token is a plain value that can be copied freely and disposed as a
+ *   - A token borrows, always. `text`, `repr` and `unit` point into the source
+ *     the token was taken from; no token copies bytes and no token owns memory,
+ *     so a token is a plain value that can be copied freely and disposed as a
  *     no-op (robo_css_token_dispose exists so the lifetime story is uniform
- *     with the owning models, not because anything is freed).
+ *     with the owning models, not because anything is freed). Nothing about a
+ *     token ever dangles, and nothing about a token is ever invalidated by
+ *     asking for the next one at the same time.
  *   - A constructor does not tokenize. robo_css_token_make binds a type to a
  *     range of an existing source and nothing else: it does not classify the
  *     bytes, does not parse a number, and does not validate that the bytes
  *     could ever be that type. Classification is 9.2's job; claiming it here
  *     would be the one thing this phase must not do.
+ *
+ * Raw bytes versus value (9.2). `text` is always the raw bytes the token covers,
+ * so `text` and `range` can never disagree. That is deliberately *not* the same
+ * thing as the token's value, because CSS resolves escapes and strips the
+ * delimiters that are part of the token: `col\6fr` is the identifier `color`,
+ * and a string token's value excludes its quotes. Both are reachable, without
+ * either one lying: `text` for the bytes, and the robo_css_token_value_* family
+ * at the bottom of this header for the value. Those accessors work from `text`
+ * alone — no source pointer is needed — so a token stays a self-contained value.
  */
 
 #ifndef ROBO_CSS_TOKEN_H
@@ -169,7 +180,11 @@ typedef struct robo_css_token {
     robo_css_token_type_t type;
     /** Source range this token covers (`[begin, end)`). */
     robo_css_range_t range;
-    /** Raw bytes of the token, borrowed from the source. */
+    /**
+     * Raw bytes of the token, borrowed from the source: `range`'s bytes exactly,
+     * delimiters and escapes included, never resolved. Use the value accessors
+     * below for what the token *means*.
+     */
     robo_css_slice_t text;
     /** NUMBER/PERCENTAGE/DIMENSION value (9.2); 0 otherwise. */
     double number;
@@ -246,10 +261,90 @@ int robo_css_token_equals_ascii(const robo_css_token_t *token, const char *ascii
 /**
  * Non-zero when @p token's raw bytes equal the ASCII @p ascii ignoring ASCII
  * case. This is the comparison CSS itself uses for property names, tag names,
- * keywords and hex colours, so it is the one a caller almost always wants.
+ * keywords and hex colours, so it is the one a caller almost always wants —
+ * but it compares *raw* bytes, so it answers "no" for an escaped spelling of
+ * the same name. Use robo_css_token_value_equals_ascii_ci for that.
  */
 int robo_css_token_equals_ascii_ci(const robo_css_token_t *token,
                                    const char *ascii);
+
+/* ------------------------------------------------------------------ */
+/* The token's value (Phase 9.2)                                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The token's value is the text CSS says the token stands for, which is not
+ * always the text it is written with:
+ *
+ * | Token | Value |
+ * |---|---|
+ * | IDENT | the name, escapes resolved (`col\6fr` → `color`) |
+ * | FUNCTION | the name without the `(` |
+ * | AT_KEYWORD | the name without the leading `@` |
+ * | HASH | the name without the leading `#` |
+ * | DIMENSION | the numeric part as written; the unit is separate, in `unit` |
+ * | STRING / BAD_STRING | the content, quotes excluded, escapes resolved |
+ * | URL | the content, `url(` and the closing `)` excluded, surrounding
+ *   whitespace trimmed, escapes resolved |
+ * | BAD_URL | everything after `url(` — a bad url has no value to speak of,
+ *   so what comes back is what is actually there |
+ * | COMMENT | the comment as written, its opening and closing markers included |
+ * | anything else | the same bytes as `text` |
+ *
+ * Four accessors rather than one, because the four things a consumer needs are
+ * genuinely different: how long the value is, whether it *is* some ASCII word, a
+ * case-insensitive spelling of it, and the bytes themselves. The first three
+ * decode escapes as they go and allocate nothing, so a keyword check on a token
+ * never needs a buffer and never needs the source. Only
+ * robo_css_token_value_copy writes bytes, and it writes them into storage the
+ * caller owns.
+ */
+
+/**
+ * Number of bytes in @p token's value once escapes are resolved.
+ * NULL token → 0.
+ */
+size_t robo_css_token_value_length(const robo_css_token_t *token);
+
+/**
+ * Non-zero when @p token's value equals the ASCII @p ascii byte for byte.
+ * A value containing a non-ASCII character never matches a pure-ASCII needle.
+ */
+int robo_css_token_value_equals_ascii(const robo_css_token_t *token,
+                                      const char *ascii);
+
+/**
+ * Non-zero when @p token's value equals @p ascii ignoring ASCII case. This is
+ * the comparison CSS itself uses for property names, tag names, keywords and
+ * hex colours, and unlike robo_css_token_equals_ascii_ci it sees through
+ * escapes: `R\47 B` matches "rgb".
+ */
+int robo_css_token_value_equals_ascii_ci(const robo_css_token_t *token,
+                                         const char *ascii);
+
+/**
+ * Write @p token's resolved value into @p out as @p out_capacity bytes, and the
+ * number written to @p out_length. The bytes are not NUL-terminated; the length
+ * is the answer.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL @p token, a NULL @p out or
+ *         @p out_length, or a capacity smaller than
+ *         robo_css_token_value_length (@p out_length still receives the length
+ *         that was needed, so a caller can size a second attempt).
+ */
+robo_result_t robo_css_token_value_copy(const robo_css_token_t *token,
+                                        uint8_t *out,
+                                        size_t out_capacity,
+                                        size_t *out_length,
+                                        robo_css_diag_t *diag);
+
+/**
+ * Non-zero when @p token's bytes contain an escape, i.e. when its value differs
+ * from its text. The tokenizer sets this as it scans, so it costs nothing to
+ * ask; a caller that needs a value as a slice rather than as comparisons can use
+ * it to skip the copy in the overwhelmingly common no-escape case.
+ */
+int robo_css_token_has_escapes(const robo_css_token_t *token);
 
 #ifdef __cplusplus
 }

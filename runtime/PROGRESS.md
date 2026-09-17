@@ -2142,6 +2142,121 @@ looks for it.
 - [x] No Chromium dependency introduced
 - [x] Stop after 9.1
 
+## Goal 9.2 — CSS tokenizer
+
+9.1 shipped the record; 9.2 ships the machine that fills it. This is the CSS
+Syntax state machine — whitespace, comments, CDO/CDC, identifiers, functions,
+at-keywords, hashes, strings, urls, numbers, percentages, dimensions,
+punctuation and EOF — written independently, with no Chromium code or tables.
+Nothing downstream of it exists: this reads bytes, it does not interpret them.
+
+**The tokenizer is a cursor the caller owns, and it allocates nothing.**
+RoboHTML's tokenizer is created and destroyed because it retains a bounded
+diagnostic list; RoboCSS's is a by-value record with `init`/`dispose`/`reset`,
+exactly like `robo_css_parser_t` — the thing it will be embedded in. So `init`
+cannot fail for an allocation reason, nothing leaks, and a tokenizer is as cheap
+to put on the stack as to keep in a parser. That is not a micro-optimisation: it
+is what makes "does this style sheet tokenize" answerable without a lifetime
+ceremony, and it is why the whole subsystem's memory-safety surface is two
+`memcmp`s and a bound check.
+
+**The caller's bytes are never rewritten, and that is the decision that
+distinguishes the rest.** The specification's input preprocessing maps CR, CRLF
+and FF to LF and NUL to U+FFFD; this build does not, because a token's range is a
+byte range into the caller's own buffer and rewriting would make that range a
+lie. The same effect is reached by *classification* — CR/LF/FF are read as one
+newline, a hex escape's trailing whitespace swallows a whole CRLF pair, and a
+newline inside a string makes it a `BAD_STRING` rather than being replaced.
+Exactly one case classification cannot substitute: NUL, which preprocessing
+would have made an identifier character. Reporting the delimiter that is
+actually there beats claiming a value the bytes do not contain, and the suite
+pins that choice rather than leaving it to drift. Ill-formed UTF-8 is likewise
+preserved and reported as an `INVALID` token one byte at a time — the same
+"one ill-formed position" rule the source model uses — never repaired and never
+silently folded into a neighbouring name.
+
+**A token is raw; its value is computed.** The tokenizer fills every field of
+the 9.1 record — numeric value, representation, unit, hash classification — but
+leaves `text` as the raw bytes, so `text` and `range` can never disagree. The
+resolved value (escapes applied, delimiters stripped) is reached on demand
+through the `robo_css_token_value_*` accessors, which work from `text` alone. The
+payoff is worth stating plainly: no token points into scratch storage, none is
+invalidated by asking for the next one, and a token can be copied, stored and
+compared for as long as its source lives.
+
+**Four real defects were found and fixed at the source, not at the test.** The
+largest was a rule split across two layers: the scanner swallowed the whitespace
+that terminates a hexadecimal escape (`\41 b` is the ident `Ab`), but the *value*
+accessor did not re-apply it, so the accessor returned `A b` for a token whose
+representation said `Ab`. The same class of drift hit line continuations in
+strings, where the accessor wrote both the backslash and the newline into the
+resolved text. Both are now tested against each other so the two layers cannot
+diverge again. Two more were a wrong comparison in a value predicate and a
+framework ceiling — the expectation log is bounded, so a several-thousand-token
+audit failed by overflowing the reporter instead of by reporting; that suite now
+streams. And one finding was a *contract violation in the new suites
+themselves*: records reaching `dispose`/`copy` without being `ROBO_CSS_CLEARED`
+first, which surfaced as an invalid-free rather than a failed assertion — the
+exact failure mode 9.1's cleared-record contract exists to prevent, and the
+reason it gained a regression test in the tokenizer suite.
+
+**Malformed CSS is a value, not a failure.** A malformed style sheet is a token
+plus a recorded error, never a failed call and never a terminated caller. The
+first problem wins and later ones do not overwrite it, matching the parser
+cursor's rule. EOF is a real token with an empty range at the end offset;
+asking again returns that same token without advancing or touching the source, so
+a loop that terminates only on EOF terminates on a value.
+
+- [x] `robo_css_tokenizer_t` as a real state machine over `robo_css_source_t`,
+      emitting the 9.1 token record — no second token model
+- [x] Cursor API: `init`/`dispose`/`reset`, `next`/`peek`/`skip`/`skip_trivia`,
+      `at_end`/`offset`/`remaining`/`has_peek`/`tokens_produced`/`position`
+- [x] One-token lookahead shared by `peek` and `skip_trivia`, so peeking twice
+      reads the same token rather than tokenizing it twice — and trivia skipping
+      is opt-out, because trivia is preserved by default
+- [x] Whitespace runs, comments (empty, multiline, Unicode, unterminated), and
+      CDO/CDC as their own tokens
+- [x] Identifiers (hyphenated, underscore, `--custom-property`, non-ASCII,
+      escaped), functions, at-keywords, hashes (`HASH_ID` vs
+      `HASH_UNRESTRICTED`)
+- [x] Strings (both quotes, escapes, hex escapes, line continuations, Unicode,
+      empty, malformed) and urls (bare, quoted, escaped, malformed) as `URL` /
+      `BAD_URL` with `url(` and `)` excluded from the value
+- [x] Numbers, percentages and dimensions preserving both components (the
+      numeric value and the unit identifier), with no unit semantics
+- [x] Delimiters, punctuation and brackets, with matching-open/close pairing
+- [x] CSS escapes: hex escapes with their terminator whitespace, escaped
+      punctuation, escaped code points, and safe handling of invalid escapes
+- [x] Accurate source ranges on every token — including that a whitespace run is
+      one token, a comment's range includes its delimiters, a function's includes
+      the `(`, and a url's includes `url(` and `)`
+- [x] Unicode preserved verbatim through tokenization: Arabic, Persian, Urdu,
+      Hebrew, Devanagari, Bengali, Chinese, Japanese, Korean and emoji
+- [x] LF/CR/CRLF/form-feed newline handling with deterministic positions
+- [x] Deterministic, non-fatal malformed-input behaviour with no crash, no
+      out-of-bounds read and no source truncation
+- [x] Five new suites, 63 tests: stream/lifetime, core classes plus the two ends
+      of the byte spectrum, identifiers/functions/at-keywords/hashes/urls,
+      strings/numbers/percentages/dimensions, and whole-snippet sequences
+- [x] Tests assert token types, values and ranges — not merely that a function
+      returned without crashing
+- [x] Fixtures and helpers reused from the 9.1 support header; no second runner,
+      reporter or assertion vocabulary
+- [x] Build integration through the existing component table and source lists
+- [x] Capability flag `tokenizer` flipped to 1 because the thing it names now
+      works end to end; every other behaviour flag still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled over the
+      whole suite, **zero findings** after the fixes
+- [x] Phases 6–9.1 regression-tested: full suite green (1558 tests, Debug, no
+      documented exclusions) — up 63 from 9.1's 1495, with no existing test
+      weakened or removed and no HTML/DOM behaviour changed
+- [x] The visual vertical slice still works end to end on the host and in QEMU;
+      tokenization is not consulted by the rendering path
+- [x] `css/docs/Tokenizer.md` added, and `css/README.md`, `css/docs/Tests.md` and
+      `css/docs/Architecture.md` updated for the tokenizer
+- [x] No Chromium dependency introduced
+- [x] Stop after 9.2
+
 ## Next
 
-- Goal 9.2 — CSS tokenizer (do not start until requested)
+- Goal 9.3 — CSS parser (do not start until requested)

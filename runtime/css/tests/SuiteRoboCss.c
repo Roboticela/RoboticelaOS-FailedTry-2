@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 1);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 2);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 1);
+    ROBO_CHECK_EQ_INT(minor, 2);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -379,8 +379,12 @@ static void test_css_capabilities(void)
     ROBO_CHECK_EQ_INT(caps.stylesheet_model, 1);
     ROBO_CHECK_EQ_INT(caps.error_model, 1);
 
-    /* ...and nothing that would interpret it is, because nothing does. */
-    ROBO_CHECK_EQ_INT(caps.tokenizer, 0);
+    /* Phase 9.2 is the first capability under that model to become real: bytes
+     * become tokens, and a caller can run the tokenizer today. Everything above
+     * it is still only described. */
+    ROBO_CHECK_EQ_INT(caps.tokenizer, 1);
+
+    /* ...and nothing that would interpret the tokens is, because nothing does. */
     ROBO_CHECK_EQ_INT(caps.parser, 0);
     ROBO_CHECK_EQ_INT(caps.selector_matching, 0);
     ROBO_CHECK_EQ_INT(caps.cascade, 0);

@@ -71,6 +71,71 @@ void robo_css_copy_label(char *dst, size_t capacity, const char *src);
  */
 size_t robo_css_utf8_scalar_length(const uint8_t *bytes, size_t available);
 
+/**
+ * Non-zero for a byte a CSS newline is made of: LF, CR, FF. The tokenizer
+ * treats these as one code point, and a CRLF pair as one break, without ever
+ * rewriting the caller's bytes (see the input-preprocessing note in
+ * RoboCSSTokenizer.h).
+ */
+int robo_css_is_newline_byte(uint8_t b);
+
+/**
+ * Bytes of the newline at @p bytes: 2 for a CRLF pair, 1 for a lone LF/CR/FF,
+ * 0 when the bytes there are not a newline or @p available == 0.
+ */
+size_t robo_css_newline_length(const uint8_t *bytes, size_t available);
+
+/* ------------------------------------------------------------------ */
+/* CSS escapes                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One escape, as CSS Syntax's "consume an escaped code point" resolves it.
+ *
+ * An escape is a backslash that is not followed by a newline: the newline case
+ * is not an escape at all (it is a parse error, and the backslash is a
+ * delimiter on its own). A hexadecimal escape runs to six digits and swallows
+ * one following whitespace — a whole CRLF pair counts as one — and yields
+ * U+FFFD when what it spells is zero, a surrogate, or above U+10FFFF, which is
+ * the specification's replacement rule and not a local invention.
+ */
+typedef struct robo_css_escape {
+    /** 1 when a valid escape starts at the bytes looked at; 0 otherwise. */
+    int valid;
+    /** 1 when the escape was written as hexadecimal digits; 0 for a literal
+     *  escape, whose character is already spelled in the source. */
+    int is_hex;
+    /** Bytes the escape occupies, backslash included (0 when not valid). */
+    size_t length;
+    /**
+     * The code point it yields; 0 when not valid.
+     *
+     * Always filled, including for a literal escape (`\.` yields `.`, and a
+     * literal non-ASCII escape yields the character the source already spells),
+     * so a consumer can decide between re-encoding this and copying the source
+     * bytes without having to ask which kind of escape it got.
+     */
+    uint32_t code_point;
+} robo_css_escape_t;
+
+/**
+ * Inspect the bytes at @p bytes/@p available as a CSS escape.
+ * Never reads past @p available; @p bytes is not dereferenced when it is 0.
+ */
+robo_css_escape_t robo_css_escape_scan(const uint8_t *bytes, size_t available);
+
+/**
+ * Append the UTF-8 encoding of @p code_point to @p out, which holds @p length
+ * bytes of @p capacity. A code point that cannot be encoded (a surrogate, or
+ * above U+10FFFF) is written as U+FFFD, which is what CSS does with it.
+ *
+ * Writes nothing and reports 1 when @p code_point does not fit — the caller
+ * decides whether that is a failure, so this never silently truncates a scalar.
+ * @return 1 when the bytes were written, 0 when they did not fit or an argument
+ *         is unusable.
+ */
+int robo_css_utf8_append(uint8_t *out, size_t capacity, size_t *length, uint32_t code_point);
+
 /* ------------------------------------------------------------------ */
 /* Growable collections                                                */
 /* ------------------------------------------------------------------ */

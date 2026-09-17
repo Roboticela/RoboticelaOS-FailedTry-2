@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1)
+# RoboCSS Architecture (Phase 9.1–9.2)
 
 This is the design record for RoboCSS as it exists after Goal 9.1. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -128,7 +128,30 @@ bad-url, number, percentage, dimension, whitespace, comment, CDO, CDC, colon,
 semicolon, comma, `(`, `)`, `[`, `]`, `{`, `}`, delimiter, EOF and invalid — with
 `type_is_known`, `type_is_block_start`, `type_matching_close` and, for numbers,
 the numeric value, the integer and sign flags, the raw representation and the
-unit. **Phase 9.1 defines the record; it does not tokenize.**
+unit.
+
+**Phase 9.1 defines the record; 9.2 fills it.** The split between them is the
+point: `text` is left as the **raw bytes** so it can never disagree with `range`,
+and the token's resolved *value* (escapes applied, delimiters stripped) is reached
+on demand through the `robo_css_token_value_*` accessors, which work from `text`
+alone. A tokenizer therefore never hands out a token pointing into scratch
+storage, no token is invalidated by asking for the next one, and a token survives
+being copied and kept as long as its source does.
+
+### Tokenizer
+
+`robo_css_tokenizer_t` (Phase 9.2) is the CSS Syntax state machine. It is a
+by-value cursor the caller owns — `init`, `dispose`, `reset` — with no allocation
+anywhere in the subsystem, and it consumes a `robo_css_source_t` without ever
+rewriting the caller's bytes. It pairs with the token model rather than replacing
+it: `robo_css_tokenizer_next` produces a token, and the token is an ordinary 9.1
+record.
+
+Its own architecture, the three decisions it turns on, the token categories,
+source-range behaviour, the deterministic malformed-input outcomes and the stream
+API are documented in `docs/Tokenizer.md`. Two properties matter to a reader of
+*this* document: it holds no reference to a DOM node, a stylesheet or a parser,
+and it records its first error with the same rule the parser cursor uses.
 
 ### Component value
 
@@ -334,14 +357,16 @@ record out and clears it.
 * Sanitizers are clean: AddressSanitizer and UndefinedBehaviorSanitizer both run
   over the whole suite with zero findings. See `docs/Tests.md`.
 
-## 12. What Phase 9.1 explicitly does not do
+## 12. What the phases so far explicitly do not do
 
-CSS tokenizing (9.2), parsing (9.3), selectors and matching (9.4), the cascade
-(9.5), specificity (9.6), inheritance (9.7), computed values (9.8), colours
-(9.9), units (9.10), the box model (9.11), display (9.12), positioning (9.13),
-backgrounds (9.14), borders (9.15), conformance tests (9.16), layout, painting,
-rendering, CSSOM, animations, transitions, external stylesheet fetching and
-networking.
+Parsing (9.3), selectors and matching (9.4), the cascade (9.5), specificity
+(9.6), inheritance (9.7), computed values (9.8), colours (9.9), units (9.10), the
+box model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
+(9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
+transitions, external stylesheet fetching and networking. **Reading bytes is not
+interpreting them**: the tokenizer knows that `10px` is a dimension with the unit
+`px`, and deliberately knows nothing about what a length means.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
-`robo_css_get_capabilities` reports that it is absent.
+`robo_css_get_capabilities` reports that it is absent — the capability flag for
+the tokenizer flipped to 1 in 9.2 for exactly that reason, and no other flag did.

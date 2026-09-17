@@ -227,7 +227,10 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
     /* Everything that would interpret it is 0, and stays 0 until its own phase
      * lands. A caller that reads this is never told a feature works because a
      * type for it exists. */
-    out->tokenizer = 0;
+    /* 9.2 produced a tokenizer: the flag names something that now exists end
+     * to end, so it is 1, and the suites assert 1. Every flag below still
+     * describes a phase that has not run. */
+    out->tokenizer = 1;
     out->parser = 0;
     out->selector_matching = 0;
     out->cascade = 0;

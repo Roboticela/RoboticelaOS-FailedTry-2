@@ -1,11 +1,18 @@
-# RoboCSS Test Organisation (Phase 9.1)
+# RoboCSS Test Organisation (Phase 9.1–9.2)
 
-Nine suites, 88 tests, one framework. This phase adds no test runner, no
+Fourteen suites, 151 tests, one framework. These phases add no test runner, no
 reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
 
+The split is by **phase, then by token class**. The 9.1 suites pin the model
+(does a record own what it says it owns?). The 9.2 suites pin the machine (does a
+byte sequence produce the vocabulary 9.1 defined?), one suite per family of token
+classes, so a failure names both the class and the rule.
+
 ## 1. Suite map
+
+### 9.1 — the model
 
 | Suite | Tests | Subject |
 |---|---|---|
@@ -18,6 +25,16 @@ every other subsystem.
 | `SuiteRoboCssSheet.c` | 12 | Stylesheet lifecycle, origin/state/name, source attachment and ownership, rule storage and nesting, the parse boundary, the parser cursor and its first-error rule |
 | `SuiteRoboCssStyle.c` | 8 | Element view, its classes and attributes, the style context, borrowed callbacks, the unsupported match/compute seams, computed-style lifetime |
 | `SuiteRoboCssRobust.c` | 8 | Empty, whitespace-only, large, incomplete and malformed input; repeated churn; deep rule nesting; wide structures; deep value trees; Unicode through every model |
+
+### 9.2 — the machine
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssTokenizer.c` | 13 | Stream API and lifetime: init/dispose/reset, `next`/`peek`/`skip`/`skip_trivia`, peek sharing one slot, EOF as a value and EOF repeats, cursor state, first-error rule, the cleared-record regression, tokenizer-fits-in-a-parser |
+| `SuiteRoboCssTokenizeCore.c` | 13 | Whitespace runs, comments (empty, multiline, Unicode, unterminated), CDO/CDC, punctuation, delimiters, bracket pairing, EOF range; NUL and ill-formed UTF-8 — the two ends of the byte spectrum where the no-preprocessing decision is visible |
+| `SuiteRoboCssTokenizeIdent.c` | 12 | Identifiers (simple, hyphenated, underscore, `--custom`, Unicode, escaped), functions, at-keywords, hashes (`HASH_ID` vs `HASH_UNRESTRICTED`), urls (bare, quoted, escapes, malformed) |
+| `SuiteRoboCssTokenizeLiteral.c` | 13 | Strings (quote forms, escapes, hex escapes, line continuations, Unicode, empty, malformed), numbers (integer, decimal, leading point, signs, exponents, extremes), percentages, dimensions and their `unit` |
+| `SuiteRoboCssTokenizeSequence.c` | 12 | Whole snippets lexed end to end (`color: red;`, `margin: 10px 20px;`, the `@media` block), range/position audit, malformed inputs, streamed large-input robustness |
 
 ## 2. The cleared-record contract test
 
@@ -47,8 +64,9 @@ stack garbage and freed a pointer that was never an allocation.
 ## 3. What the CSS suites do and do not assert
 
 They assert what the **model** does with bytes — kinds, ownership, ranges,
-slices, invariants, lifetimes. They never assert that something was parsed,
-matched or computed, because in this phase nothing is.
+slices, invariants, lifetimes — and what the **tokenizer** does with a byte
+sequence: which token type, what value, which range. They never assert that
+something was *parsed*, matched or computed, because in these phases nothing is.
 
 Where a boundary answers `ROBO_NOT_SUPPORTED`, the suites assert the whole shape
 of the refusal, not just the code: nothing changed, the state did not advance, the
@@ -69,9 +87,18 @@ holds the three things a suite would otherwise copy:
 * `css_samples[]` — the thirteen script families every "does it preserve text"
   test walks, in one place so two tests cannot disagree about what "Arabic" means.
 * Builders (`css_value_token_at`, `css_value_function_with_token`,
-  `css_declaration_append`, `css_complex_selector_of`) and the allocator
-  measurement pair `css_allocator_ensure_enabled` / `css_allocator_restore`, so a
-  lifetime test never leaves the debug allocator on for the next suite.
+  `css_declaration_append`, `css_complex_selector_of`), the lexing pair
+  `css_lex` / `css_lex_text` with `css_token_log_t`, `css_token_at`,
+  `css_count_type`, `css_kind_label` and `css_log_kinds`, the streaming pair
+  `css_stream_audit_t` / `css_audit_stream`, and the allocator measurement pair
+  `css_allocator_ensure_enabled` / `css_allocator_restore`, so a lifetime test
+  never leaves the debug allocator on for the next suite.
+
+The audit pair exists for a specific reason. The framework's expectation log is
+bounded, so a test that logs one line per token fails by *overflowing the
+reporter* on a several-thousand-token input — it reports nothing about the thing
+it was written to check. `css_audit_stream` walks a stream counting tokens by
+type and total instead, so a large-input test asserts a shape rather than a list.
 
 Everything in the header is `static inline`. That is not decoration: a plain
 `static` function in a header that one suite does not use is an unused-function
@@ -83,14 +110,19 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 88 css.* tests only
+scripts/robo test-css                     # the 151 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
 ```
 
 A focused run builds the same host binary and filters on the `css.` prefix, so a
-failure in another subsystem cannot be reported against this one.
+failure in another subsystem cannot be reported against this one. The tokenizer
+subtree is `--filter=css.tokenize` (63 tests); one suite is
+`--filter=css.tokenize.number`.
+
+`--list` prints every registered name, which is how a documented test name can be
+checked against the binary instead of trusted.
 
 ## 6. Sanitizers
 
@@ -102,7 +134,7 @@ The flag probes the toolchain and enables AddressSanitizer and
 UndefinedBehaviorSanitizer for the host test binary; it is documented in
 `docs/Build.md`. The result for this phase:
 
-* **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** 1495 tests, 0
+* **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** 1558 tests, 0
   failures, zero sanitizer findings across the whole runtime suite.
 
 One real defect was found by the sanitizers during 9.1 and fixed rather than
@@ -118,3 +150,29 @@ suppressed:
 
 No sanitizer finding was suppressed, and no test was weakened to reach a clean
 run.
+
+Two more real defects surfaced during 9.2, both from tests rather than from the
+sanitizers:
+
+> **The hex-escape terminator rule.** `\41 b` is the ident `Ab`: the whitespace
+> after a hexadecimal escape is part of the escape and must be swallowed. The
+> scanner consumed it but the *value* accessor did not re-apply the same rule, so
+> `robo_css_token_value_*` returned `A b` for a token whose `repr` said `Ab`.
+> The accessor now applies the identical rule — the two layers are tested against
+> each other so they cannot drift again.
+>
+> **Line continuations in strings, again across the two layers.** A backslash
+> before a newline inside a string is a continuation that produces no character.
+> The tokenizer classified it correctly; the value accessor wrote both the
+> backslash and the newline into the resolved text.
+
+A third finding was a **contract violation in the new suites themselves**: several
+records reached `dispose`/`copy` without being `ROBO_CSS_CLEARED` first. The
+first symptom was not a failed assertion but an invalid-free, which is exactly the
+failure mode that contract exists to prevent — hence the regression test it
+gained in `SuiteRoboCssTokenizer.c`.
+
+`SuiteRoboCssTokenizeSequence.c` also streams its large-input audit rather than
+logging every token, because the framework's expectation log is bounded and a
+several-thousand-token snippet would exhaust it — a test that fails by
+overflowing the reporter reports nothing useful.

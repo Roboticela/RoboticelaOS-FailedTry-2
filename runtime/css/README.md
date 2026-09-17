@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**Phase 9.1
-architecture**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.2
+CSS tokenizer**).
 
-**Version:** 0.1.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.2.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -13,8 +13,9 @@ and consume it.
 
 ## Scope
 
-**9.1 (architecture) only.** This phase builds the model the rest of Phase 9 is
-written against, and nothing that would interpret it:
+**9.1 (architecture) and 9.2 (tokenizer).** 9.1 builds the model the rest of
+Phase 9 is written against; 9.2 builds the first machine that fills it. Nothing
+here yet *interprets* what it lexes:
 
 | Goal | What 9.1 delivers | What it does **not** do |
 |---|---|---|
@@ -28,8 +29,35 @@ written against, and nothing that would interpret it:
 | 9.1.16 property | A property *table*: name → stable per-table identity, and an id → parser/computer hook registration | Ship a property database |
 | 9.1.13 error | `recoverable` vs `fatal` vocabulary, distinct from `robo_result_t` | Recover from anything |
 | 9.1.14 parser | A cursor over a source: offset, line, column, seek, advance, and the first-error record | Read a single token |
+| 9.2.1 tokenizer | **The real CSS Syntax state machine**: source bytes → the 9.1 token vocabulary, one token per call, with lookahead, trivia skipping, accurate ranges and the first-error record | Parse the token stream |
 
-A parsed stylesheet in this phase is one assembled by hand.
+## The tokenizer (9.2)
+
+The tokenizer is a **by-value cursor the caller owns**, not a heap object, and it
+allocates nothing at all — `init` cannot fail for an allocation reason, nothing
+leaks, and one is as cheap to put on the stack as to embed in the parser it will
+live in. `RoboCSSTokenizer.h` documents the three decisions that shape it:
+
+1. **The stream is a cursor, not an object.** `init`, `dispose`, `reset`; no
+   allocation anywhere in the subsystem.
+2. **The caller's bytes are never rewritten.** The specification's preprocessing
+   (CR/CRLF/FF → LF, NUL → U+FFFD) is replaced by *classification*, because a
+   token's range is a byte range into the caller's own buffer and rewriting would
+   make that range a lie. The one case classification cannot substitute — NUL,
+   which preprocessing would have made an identifier character — is reported as
+   the delimiter it really is, rather than claiming a value the bytes do not
+   contain.
+3. **A token is raw; its value is computed.** `text` stays the raw bytes so `text`
+   and `range` can never disagree; escapes are resolved on demand through the
+   `robo_css_token_value_*` accessors. So no token points into scratch storage, no
+   token is invalidated by asking for the next one, and a token can be copied and
+   kept for as long as its source lives.
+
+Malformed CSS never crashes and never terminates the caller: a bad style sheet is
+a **token plus a recorded error**, not a failed call. `docs/Tokenizer.md` has the
+full architecture and the deterministic outcome table.
+
+A parsed stylesheet in these phases is one assembled by hand.
 `robo_css_stylesheet_parse` answers `ROBO_NOT_SUPPORTED` and says so in the
 message (`Goal 9.3`), leaves the rules and the state untouched, and records the
 reason on the stylesheet so a caller that did not ask for it still sees it. **No stub pretends to parse.**
@@ -79,10 +107,10 @@ a destroyed id stays dead.
 
 ```text
 runtime/
-├── Include/RoboCSS/          public headers (one per model)
+├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h)
 ├── Source/RoboCSS/           production sources
 └── css/
-    ├── tests/                the nine suites and their shared fixtures
+    ├── tests/                the fourteen suites and their shared fixtures
     └── docs/                 this subsystem's design record
 ```
 
@@ -97,7 +125,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 88 tests only
+scripts/robo test-css        # this subsystem's 151 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -112,5 +140,6 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | Document | Contents |
 |---|---|
 | `docs/Architecture.md` | Module boundaries, ownership and lifetime rules, every model, and the DOM / inline-style / default-stylesheet boundaries |
+| `docs/Tokenizer.md` | The 9.2 tokenizer: the three decisions, token categories, source ranges, malformed-input outcomes, the stream API, lifetime, and how to run its tests |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1 record and its definition of done |
+| `../PROGRESS.md` | The Goal 9.1 and 9.2 records and their definitions of done |

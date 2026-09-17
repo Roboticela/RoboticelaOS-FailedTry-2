@@ -5,6 +5,7 @@
 #include "RoboCSSInternal.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboUnicode/RoboUnicode.h"
 
 #include <string.h>
 
@@ -84,6 +85,151 @@ void robo_css_copy_label(char *dst, size_t capacity, const char *src)
         dst[i] = src[i];
     }
     dst[i] = '\0';
+}
+
+/* ------------------------------------------------------------------ */
+/* Newlines                                                            */
+/* ------------------------------------------------------------------ */
+
+int robo_css_is_newline_byte(uint8_t b)
+{
+    return b == (uint8_t)'\n' || b == (uint8_t)'\r' || b == (uint8_t)'\f';
+}
+
+size_t robo_css_newline_length(const uint8_t *bytes, size_t available)
+{
+    if (!bytes || available == 0u || !robo_css_is_newline_byte(bytes[0])) {
+        return 0u;
+    }
+    /* A CRLF pair is one break; the tokenizer reads it as one even though both
+     * bytes stay in the source and in the token's range. */
+    if (bytes[0] == (uint8_t)'\r' && available >= 2u && bytes[1] == (uint8_t)'\n') {
+        return 2u;
+    }
+    return 1u;
+}
+
+/* ------------------------------------------------------------------ */
+/* Escapes                                                             */
+/* ------------------------------------------------------------------ */
+
+static int css_hex_digit_value(uint8_t c, uint32_t *out_value)
+{
+    if (c >= (uint8_t)'0' && c <= (uint8_t)'9') {
+        *out_value = (uint32_t)(c - (uint8_t)'0');
+        return 1;
+    }
+    if (c >= (uint8_t)'a' && c <= (uint8_t)'f') {
+        *out_value = (uint32_t)(c - (uint8_t)'a') + 10u;
+        return 1;
+    }
+    if (c >= (uint8_t)'A' && c <= (uint8_t)'F') {
+        *out_value = (uint32_t)(c - (uint8_t)'A') + 10u;
+        return 1;
+    }
+    return 0;
+}
+
+robo_css_escape_t robo_css_escape_scan(const uint8_t *bytes, size_t available)
+{
+    robo_css_escape_t escape;
+    uint32_t value = 0u;
+    size_t i = 0u;
+    int digits = 0;
+
+    escape.valid = 0;
+    escape.is_hex = 0;
+    escape.length = 0u;
+    escape.code_point = 0u;
+
+    if (!bytes || available < 2u || bytes[0] != (uint8_t)'\\') {
+        return escape;
+    }
+    /* A backslash followed by a newline is not an escape: it is the one case
+     * the specification makes a parse error and leaves as a bare delimiter. */
+    if (robo_css_is_newline_byte(bytes[1])) {
+        return escape;
+    }
+
+    escape.valid = 1;
+
+    if (css_hex_digit_value(bytes[1], &value)) {
+        escape.is_hex = 1;
+        /* The test above answered through `value`; the loop below is what
+         * accumulates, and it starts at that same first digit. Zeroing is what
+         * stops the first digit from being counted twice — `\41` is `A`, not
+         * `D`. */
+        value = 0u;
+        i = 1u;
+        while (i < available && digits < 6) {
+            uint32_t digit = 0u;
+
+            if (!css_hex_digit_value(bytes[i], &digit)) {
+                break;
+            }
+            value = (value * 16u) + digit;
+            i++;
+            digits++;
+        }
+        /* One whitespace after a hexadecimal escape belongs to the escape; a
+         * CRLF pair is one whitespace, not two. */
+        if (i < available && robo_css_ascii_is_space(bytes[i])) {
+            size_t break_length = robo_css_newline_length(bytes + i, available - i);
+
+            /* A CRLF pair counts as one whitespace; a space, tab or form feed is
+             * one byte. robo_css_newline_length reports 0 for those, which is
+             * not the same as "nothing to consume" — and it is `i`, already past
+             * the first hex digit, that must grow, so the 0 has to be turned
+             * into one here. */
+            i += (break_length > 0u) ? break_length : 1u;
+        }
+        escape.length = i;
+        /* Zero, a surrogate and anything above U+10FFFF are the specification's
+         * three out-of-range cases, and all three become U+FFFD. */
+        if (value == 0u || value > 0x10FFFFu ||
+            (value >= 0xD800u && value <= 0xDFFFu)) {
+            value = 0xFFFDu;
+        }
+        escape.code_point = value;
+        return escape;
+    }
+
+    /* Any other escaped character stands for itself: the escape's length is the
+     * backslash plus one whole scalar, so a multi-byte character is not cut in
+     * half even when its bytes would otherwise read as a delimiter. */
+    escape.length = 1u + robo_css_utf8_scalar_length(bytes + 1u, available - 1u);
+    {
+        uint32_t code_point = 0u;
+        size_t next = 0u;
+
+        if (robo_unicode_utf8_decode((const char *)(bytes + 1u), escape.length - 1u, 0u,
+                                     ROBO_UNICODE_REPLACE, &code_point, &next) !=
+            ROBO_UNICODE_OK) {
+            code_point = 0xFFFDu;
+        }
+        escape.code_point = code_point;
+    }
+    return escape;
+}
+
+int robo_css_utf8_append(uint8_t *out, size_t capacity, size_t *length, uint32_t code_point)
+{
+    size_t written = 0u;
+
+    if (!out || !length || *length > capacity) {
+        return 0;
+    }
+    /* A code point that cannot be a scalar is written as U+FFFD, which is what
+     * CSS does with it; robo_unicode_utf8_encode would refuse it instead. */
+    if (code_point > 0x10FFFFu || (code_point >= 0xD800u && code_point <= 0xDFFFu)) {
+        code_point = 0xFFFDu;
+    }
+    if (robo_unicode_utf8_encode((robo_uchar32_t)code_point, (char *)(out + *length),
+                                 capacity - *length, &written) != ROBO_UNICODE_OK) {
+        return 0;
+    }
+    *length += written;
+    return 1;
 }
 
 /* ------------------------------------------------------------------ */

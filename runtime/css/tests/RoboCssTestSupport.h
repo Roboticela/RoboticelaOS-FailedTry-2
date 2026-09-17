@@ -32,6 +32,7 @@
 #include "RoboCSS/RoboCSSSource.h"
 #include "RoboCSS/RoboCSSStyleSheet.h"
 #include "RoboCSS/RoboCSSToken.h"
+#include "RoboCSS/RoboCSSTokenizer.h"
 #include "RoboCSS/RoboCSSValue.h"
 #include "RoboMem/RoboMemDebug.h"
 #include "RoboTest.h"
@@ -201,6 +202,284 @@ static inline void css_complex_selector_of(robo_css_complex_selector_t *selector
     ROBO_CHECK_EQ_INT(robo_css_complex_selector_append_compound(selector, &compound,
                                                                NULL),
                       ROBO_OK);
+}
+
+/* ------------------------------------------------------------------ */
+/* Lexing (Phase 9.2)                                                  */
+/* ------------------------------------------------------------------ */
+
+/** Upper bound on the tokens a fixture in these suites may produce. */
+#define CSS_TOK_MAX 256u
+
+/**
+ * A whole token stream, kept so a test can assert on the sequence rather than
+ * on one token at a time.
+ *
+ * The tokens borrow the *source*, not the tokenizer that produced them, so a
+ * log stays valid after its tokenizer is gone — which is a property worth
+ * relying on (and worth testing: see css.tokenize.tokens_outlive_tokenizer).
+ */
+typedef struct css_token_log {
+    size_t count;
+    int truncated;      /* 1 when the fixture produced more than CSS_TOK_MAX */
+    int eof_seen;       /* 1 when the stream ended on an EOF token */
+    robo_css_error_t error;
+    int has_error;
+    robo_css_token_t tokens[CSS_TOK_MAX];
+} css_token_log_t;
+
+/**
+ * Lex @p source completely into @p log.
+ *
+ * The tokenizer is local and is disposed before returning, which is the point:
+ * the tokens in the log borrow @p source and nothing else. Returns the number
+ * of tokens the stream consumed (EOF included).
+ */
+static inline size_t css_lex(const robo_css_source_t *source, css_token_log_t *log)
+{
+    robo_css_tokenizer_t tokenizer;
+    robo_css_token_t token;
+    size_t consumed;
+
+    css_fixture();
+    memset(log, 0, sizeof(*log));
+    ROBO_CHECK_EQ_INT(robo_css_tokenizer_init(&tokenizer, source, NULL), ROBO_OK);
+    for (;;) {
+        ROBO_CHECK_EQ_INT(robo_css_tokenizer_next(&tokenizer, &token, NULL), ROBO_OK);
+        if (log->count < CSS_TOK_MAX) {
+            log->tokens[log->count] = token;
+        } else {
+            log->truncated = 1;
+        }
+        log->count++;
+        if (token.type == ROBO_CSS_TOKEN_EOF) {
+            log->eof_seen = 1;
+            break;
+        }
+    }
+    consumed = robo_css_tokenizer_tokens_produced(&tokenizer);
+    if (robo_css_tokenizer_has_error(&tokenizer)) {
+        log->has_error = 1;
+        log->error = *robo_css_tokenizer_error(&tokenizer);
+    }
+    robo_css_tokenizer_dispose(&tokenizer);
+    return consumed;
+}
+
+/** Lex @p text (borrowing the literal) into @p log. */
+static inline size_t css_lex_text(robo_css_source_t *source, const char *text, css_token_log_t *log)
+{
+    css_source_of_string(source, text);
+    return css_lex(source, log);
+}
+
+/**
+ * The name @p type is written as inside an expected-sequence string.
+ *
+ * The canonical name comes from robo_css_token_type_name, and that is what the
+ * vocabulary tests assert against. Inside a sequence string, though, the ten
+ * types with the longest names are also the ones a fixture repeats most, and a
+ * hint that compares forty tokens is unreadable when each one costs twenty
+ * characters. Whitespace is shortened because it is the separator between
+ * every other token; nothing else is, so a mismatch still names the class that
+ * was wrong. The mapping stays one-to-one, which is the property that matters:
+ * a misclassified token still shows up as a diff.
+ */
+static inline const char *css_kind_label(robo_css_token_type_t type)
+{
+    if (type == ROBO_CSS_TOKEN_WHITESPACE) {
+        return "ws";
+    }
+    return robo_css_token_type_name(type);
+}
+
+/**
+ * Write the log as `ident|colon|ws|...` into @p buffer, which must be
+ * comfortably larger than CSS_TOK_MAX * 12. A whole sequence in one string is
+ * what makes a mismatch readable: the assertion prints both sides.
+ */
+static inline void css_log_kinds(const css_token_log_t *log, char *buffer, size_t capacity)
+{
+    size_t i;
+    size_t written = 0u;
+
+    if (!buffer || capacity == 0u) {
+        return;
+    }
+    buffer[0] = '\0';
+    for (i = 0u; i < log->count && i < CSS_TOK_MAX; i++) {
+        const char *name = css_kind_label(log->tokens[i].type);
+        size_t need = strlen(name) + 2u;
+
+        if (written + need >= capacity) {
+            break;
+        }
+        if (i > 0u) {
+            buffer[written++] = '|';
+        }
+        memcpy(buffer + written, name, strlen(name));
+        written += strlen(name);
+        buffer[written] = '\0';
+    }
+}
+
+/**
+ * Assert a double equals @p expected exactly, reporting both values.
+ *
+ * The framework's only numeric macro casts to `long long`, which would quietly
+ * turn 0.5 into 0 — so a double comparison needs its own. This is a macro in the
+ * shared test header, not new vocabulary in the framework, which is left
+ * exactly as it is.
+ */
+#define CSS_CHECK_DOUBLE(actual, expected)                                     \
+    do {                                                                       \
+        double _css_da = (actual);                                             \
+        double _css_de = (expected);                                           \
+        if (!(_css_da == _css_de)) {                                           \
+            robo_test_fail(__FILE__, __LINE__,                                 \
+                           "%s == %s  (%.17g != %.17g)", #actual, #expected,   \
+                           _css_da, _css_de);                                  \
+        }                                                                      \
+    } while (0)
+
+/** Assert two doubles are within @p tolerance of each other. */
+#define CSS_CHECK_DOUBLE_NEAR(actual, expected, tolerance)                     \
+    do {                                                                       \
+        double _css_na = (actual);                                             \
+        double _css_ne = (expected);                                           \
+        double _css_nt = (tolerance);                                          \
+        double _css_nd = _css_na - _css_ne;                                    \
+        if (_css_nd < 0.0) {                                                   \
+            _css_nd = -_css_nd;                                                \
+        }                                                                      \
+        if (!(_css_nd <= _css_nt)) {                                           \
+            robo_test_fail(__FILE__, __LINE__,                                 \
+                           "%s ~= %s  (%.17g vs %.17g)", #actual, #expected,   \
+                           _css_na, _css_ne);                                  \
+        }                                                                      \
+    } while (0)
+
+/**
+ * Non-zero when the log's token ranges tile `[0, length)` exactly: the first
+ * token starts at 0, every token starts where the previous one ended, and the
+ * last ends at @p length.
+ *
+ * This is the invariant that makes a source-preserving consumer possible, and
+ * it is the one thing a tokenizer can get wrong invisibly: a token that eats a
+ * byte it should not, or forgets one it should, still produces a plausible
+ * stream. The EOF token is the empty range at the end and contributes nothing.
+ */
+static inline int css_log_tiles(const css_token_log_t *log, size_t length)
+{
+    size_t cursor = 0u;
+    size_t i;
+
+    if (!log || log->count == 0u || log->truncated) {
+        return 0;
+    }
+    for (i = 0u; i < log->count && i < CSS_TOK_MAX; i++) {
+        const robo_css_token_t *token = &log->tokens[i];
+
+        if (token->type == ROBO_CSS_TOKEN_EOF) {
+            return cursor == length;
+        }
+        if (token->range.begin != cursor || token->range.end < token->range.begin) {
+            return 0;
+        }
+        cursor = token->range.end;
+    }
+    return 0;
+}
+
+/** The @p index'th token, or NULL when the log is shorter than that. */
+static inline const robo_css_token_t *css_token_at(const css_token_log_t *log, size_t index)
+{
+    if (!log || index >= log->count || index >= CSS_TOK_MAX) {
+        return NULL;
+    }
+    return &log->tokens[index];
+}
+
+/**
+ * How a whole stream looked when it was read without being kept.
+ */
+typedef struct css_stream_audit {
+    size_t total;                              /* tokens, EOF included */
+    size_t by_type[ROBO_CSS_TOKEN_TYPE_COUNT]; /* one count per token type */
+    int tiles;      /* ranges covered [0, length) exactly and ended at EOF */
+    int eof_seen;
+    int has_error;
+} css_stream_audit_t;
+
+/**
+ * Lex @p source from end to end, counting types and checking the tiling, but
+ * storing nothing.
+ *
+ * A log is what lets a test point at one token, and it is bounded by
+ * CSS_TOK_MAX — which a two-hundred-rule sheet and a two-hundred-deep nest both
+ * exceed. Those two properties are exactly the ones worth testing (the
+ * tokenizer is a cursor, and its cost must not follow the input's depth), so
+ * they are read through the stream instead: the same single pass a log would
+ * have made, minus the storage. Counting and tiling in one walk also means the
+ * audit cannot disagree with itself about what it saw.
+ */
+static inline void css_audit_stream(const robo_css_source_t *source,
+                                   css_stream_audit_t *audit)
+{
+    robo_css_tokenizer_t tokenizer = ROBO_CSS_CLEARED;
+    robo_css_token_t token = ROBO_CSS_CLEARED;
+    size_t cursor = 0u;
+
+    if (!audit) {
+        return;
+    }
+    memset(audit, 0, sizeof(*audit));
+    audit->tiles = 1;
+    ROBO_CHECK_EQ_INT(robo_css_tokenizer_init(&tokenizer, source, NULL), ROBO_OK);
+    for (;;) {
+        ROBO_CHECK_EQ_INT(robo_css_tokenizer_next(&tokenizer, &token, NULL), ROBO_OK);
+        if ((size_t)token.type < (size_t)ROBO_CSS_TOKEN_TYPE_COUNT) {
+            audit->by_type[token.type]++;
+        }
+        audit->total++;
+        if (token.type == ROBO_CSS_TOKEN_EOF) {
+            audit->eof_seen = 1;
+            if (token.range.begin != cursor) {
+                audit->tiles = 0;
+            }
+            break;
+        }
+        if (token.range.begin != cursor || token.range.end <= token.range.begin) {
+            audit->tiles = 0;
+            /* A token that covered nothing would spin this loop forever, so a
+             * regression stops the audit instead of hanging the suite. */
+            if (token.range.end <= token.range.begin) {
+                break;
+            }
+        }
+        cursor = token.range.end;
+    }
+    if (cursor != robo_css_source_length(source)) {
+        audit->tiles = 0;
+    }
+    audit->has_error = robo_css_tokenizer_has_error(&tokenizer);
+    robo_css_tokenizer_dispose(&tokenizer);
+}
+
+/**
+ * Number of tokens in @p log with type @p type.
+ */
+static inline size_t css_count_type(const css_token_log_t *log, robo_css_token_type_t type)
+{
+    size_t i;
+    size_t total = 0u;
+
+    for (i = 0u; i < log->count && i < CSS_TOK_MAX; i++) {
+        if (log->tokens[i].type == type) {
+            total++;
+        }
+    }
+    return total;
 }
 
 /* ------------------------------------------------------------------ */

@@ -286,7 +286,11 @@ robo_result_t robo_css_source_position(const robo_css_source_t *source,
             column = 1u;
             continue;
         }
-        if (byte == (uint8_t)'\n') {
+        /* A form feed ends a line exactly as LF and CR do: CSS defines its
+         * newline as the three of them, and robo_css_is_newline_byte says the
+         * same thing — counting only two of the three would make a position
+         * disagree with the tokenizer that produced it. */
+        if (byte == (uint8_t)'\n' || byte == (uint8_t)'\f') {
             i += 1u;
             line++;
             column = 1u;

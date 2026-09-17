@@ -18,12 +18,12 @@
  * why shutdown has nothing else to free.
  *
  * Capabilities, not marketing: robo_css_get_capabilities reports what this
- * build actually does. In Phase 9.1 the model flags are 1 and every flag that
- * would claim an *interpretation* — tokenizer, parser, selector matching,
- * cascade, inheritance, computed values, inline parsing, default styles,
- * loading — is 0, because none of them exists yet. A caller that wants to know
- * whether CSS will style anything should read this rather than infer it from a
- * version number.
+ * build actually does. The model flags are 1, and so is `tokenizer` as of 9.2;
+ * every flag that would claim an *interpretation* beyond lexing — parser,
+ * selector matching, cascade, inheritance, computed values, inline parsing,
+ * default styles, loading — is 0, because none of them exists yet. A caller
+ * that wants to know whether CSS will style anything should read this rather
+ * than infer it from a version number.
  */
 
 #ifndef ROBO_CSS_H
@@ -91,8 +91,8 @@ typedef struct robo_css_capabilities {
     /** The CSS error vocabulary and the parser cursor (9.1). */
     int error_model;
 
-    /* --- behaviour: absent in 9.1 --- */
-    /** The tokenizer state machine (9.2). */
+    /* --- behaviour --- */
+    /** The tokenizer state machine: CSS bytes in, tokens out (9.2). */
     int tokenizer;
     /** The stylesheet/declaration grammar (9.3). */
     int parser;
