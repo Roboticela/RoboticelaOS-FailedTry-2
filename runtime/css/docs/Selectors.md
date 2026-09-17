@@ -17,8 +17,10 @@ There is **no document, no style resolution and no cascade** here. The matcher
 asks a *host* (`RoboCSSStyle.h`) about one element at a time; the DOM integration
 suite is what proves the same answers hold against the real RoboHTML tree.
 
-`robo_css_get_capabilities` reports `selector_matching = 1`. The cascade,
-specificity, inheritance and computed values remain 0 and are not stubbed.
+`robo_css_get_capabilities` reports `selector_matching = 1`. Inheritance and
+computed values remain 0 and are not stubbed; the cascade (9.5) and specificity
+(9.6) sit *above* these records and are documented in `docs/Cascade.md` and
+`docs/Specificity.md`.
 
 ---
 
@@ -234,7 +236,7 @@ represented, not rendered.
 | `::before`, `::after`, … | **decided false**, not unsupported | the question *was* answered: this element is the `div`, not the content before it |
 | the `\|\|` column combinator | parses, represented, `unsupported = 1` | needs a table model the DOM does not have |
 | applying a style | collected, not applied | 9.5's cascade gathers what matches an element and orders it (`docs/Cascade.md`); turning it into a value is 9.8 |
-| specificity | not computed | 9.6 — and because it is missing, a contest between two declarations of one cascade level is *reported* as undecided rather than settled by document order |
+| specificity | **computed, by 9.6** — `docs/Specificity.md` | a property of the selector records this file defines, so the two share one representation and matching and specificity can never disagree about what a selector is |
 
 There is no selector index, no bloom filter and no per-document cache. The
 matching API is shaped so those can be added behind it — the matcher takes a host

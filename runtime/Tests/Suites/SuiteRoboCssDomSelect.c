@@ -1365,6 +1365,7 @@ static void test_css_dom_cascade_uses_the_real_tree_relations(void)
     robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
     robo_css_stylesheet_id_t sheet;
     robo_css_element_ref_t deep;
+    char value[32];
 
     css_dom_cascade_begin(&fixture, html);
     /* Three rules that match the same element by different routes: its id, a
@@ -1383,16 +1384,14 @@ static void test_css_dom_cascade_uses_the_real_tree_relations(void)
     ROBO_CHECK_EQ_INT(cascade.rules_undecided, 0u);
     ROBO_CHECK_EQ_INT(cascade.unsupported, 0);
     ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 2u);
-    /* Two matched rules, two selectors, one level: specificity decides this and
-     * it is 9.6 — so the honest answer is that it is undecided. */
-    {
-        const robo_css_cascade_candidate_t *winner = NULL;
-
-        ROBO_CHECK_EQ_INT(robo_css_cascade_resolve_name(
-                              &cascade, robo_css_slice_from_text("color"), &winner),
-                          ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
-        ROBO_CHECK(winner == NULL);
-    }
+    /* Two matched rules, one level: specificity decides, and it is the id rule —
+     * (1,0,0) against the descendant chain's (0,1,1). The relations came from
+     * the real tree, so the specificity is deciding between two selectors that
+     * really did match the real element. */
+    css_specificity_is(cascade.items[0].specificity, 1u, 0u, 0u);
+    css_specificity_is(cascade.items[1].specificity, 0u, 1u, 1u);
+    css_dom_cascade_winner(&cascade, "color", value, sizeof(value));
+    ROBO_CHECK_STR_EQ(value, "by-id");
     /* The candidates carry the sheet and rule they came from, which is how a
      * caller reads back that the child rule was the one left out. */
     ROBO_CHECK_EQ_INT(cascade.items[0].rule_index, 0u);
@@ -1540,6 +1539,44 @@ static void test_css_dom_cascade_does_not_disturb_the_picture(void)
     css_dom_cascade_end(&fixture);
 }
 
+static void test_css_dom_specificity_picks_the_winner(void)
+{
+    /* The specification's own example, against the real tree: `p` (0,0,1),
+     * `.title` (0,1,0) and `#App .title` (1,1,0) all match the same paragraph,
+     * and the cascade must pick the third. Tokenize → parse → match → specificity
+     * → cascade, over a real RoboHTML document rather than a host double. */
+    static const char *const html =
+        "<div id=\"App\"><p id=\"Title\" class=\"title\">Hello</p></div>";
+    css_dom_cascade_t fixture;
+    robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
+    robo_css_stylesheet_id_t sheet;
+    robo_css_element_ref_t paragraph;
+    char value[32];
+
+    css_dom_cascade_begin(&fixture, html);
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "p { color: from-type }\n"
+                                  ".title { color: from-class }\n"
+                                  "#App .title { color: from-both }");
+    paragraph = css_dom_ref_by_id(&fixture.dom, "Title");
+    ROBO_CHECK_EQ_INT(paragraph != ROBO_CSS_ELEMENT_REF_NONE, 1);
+
+    css_dom_cascade_collect(&fixture, paragraph, &cascade);
+    ROBO_CHECK_EQ_INT(cascade.rules_matched, 3u);
+    ROBO_CHECK_EQ_INT(cascade.unsupported, 0);
+    ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 3u);
+    /* Ascending specificity in document order, and the last one wins. */
+    css_specificity_is(cascade.items[0].specificity, 0u, 0u, 1u);
+    css_specificity_is(cascade.items[1].specificity, 0u, 1u, 0u);
+    css_specificity_is(cascade.items[2].specificity, 1u, 1u, 0u);
+    css_dom_cascade_winner(&cascade, "color", value, sizeof(value));
+    ROBO_CHECK_STR_EQ(value, "from-both");
+
+    robo_css_cascade_dispose(&cascade);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -1574,4 +1611,6 @@ void robo_test_register_css_dom_select(void)
                        test_css_dom_cascade_importance_outranks_inline);
     robo_test_register("css.dom.cascade.does_not_disturb_the_picture",
                        test_css_dom_cascade_does_not_disturb_the_picture);
+    robo_test_register("css.dom.specificity.picks_the_winner",
+                       test_css_dom_specificity_picks_the_winner);
 }

@@ -102,9 +102,9 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 9.1 CSS architecture ✅
 9.2 CSS tokenizer ✅
 9.3 CSS parser ✅
-9.4 Selectors
-9.5 Cascade
-9.6 Specificity
+9.4 Selectors ✅
+9.5 Cascade ✅
+9.6 Specificity ✅
 9.7 Inheritance
 9.8 Computed values
 9.9 Colors

@@ -1,11 +1,12 @@
-# RoboCSS Architecture (Phase 9.1–9.5)
+# RoboCSS Architecture (Phase 9.1–9.6)
 
-This is the design record for RoboCSS as it exists after Goal 9.5. It documents
+This is the design record for RoboCSS as it exists after Goal 9.6. It documents
 boundaries and rules, not plans: everything described here is compilable code
 with tests behind it, and everything *not* described here is a boundary that
-answers `ROBO_NOT_SUPPORTED` — with one deliberate exception, the *undecided*
-answer, which is what a phase gives when it can see that a question exists and
-cannot yet answer it (`docs/Cascade.md`, `docs/Selectors.md`).
+answers `ROBO_NOT_SUPPORTED`. Where a phase can see that a question exists and
+cannot answer it, it *reports* that rather than guessing — an unevaluatable
+selector is `unsupported` and a relation the host cannot answer is *undecided*,
+and both are documented where they occur (`docs/Cascade.md`, `docs/Selectors.md`).
 
 ## 1. Position in the runtime
 
@@ -277,6 +278,33 @@ The selector grammar over these records is `RoboCSSSelectorParser.c` and the
 matcher is `RoboCSSMatcher.c`. `docs/Selectors.md` is their document; this file
 records only why the *model* is shaped the way it is.
 
+### Specificity
+
+Specificity is **not** a fourth record beside these. It is three counts *about* a
+selector, and the one thing it must never be is a second description of one — so
+`RoboCSSSpecificity.h` computes them by walking the same simple/compound/complex
+records the matcher walks, and there is no field on a selector record that could
+disagree with a calculation. Nothing is stored: a specificity is derived on
+demand from immutable records, so it cannot go stale and no cache can be wrong.
+
+The representation is a tuple of three counts, not a packed integer:
+
+```text
+(A, B, C)
+  A = #id
+  B = .class + [attribute] + :pseudo-class
+  C = type + ::pseudo-element
+```
+
+Each count is clamped at `ROBO_CSS_SPECIFICITY_COMPONENT_MAX`, so the tuple is a total order
+ever selector depth and saturation is a stated behaviour rather than a wrap. A
+packed integer would have the same comparison outcome only until a component
+overflowed into its neighbour, at which point a more specific selector would
+compare as less specific — an ambiguity the tuple cannot represent. A selector's
+specificity, a whole selector list's per-member specificities, and the "most
+specific member" a rule's list is worth to the cascade are all the same three
+numbers.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -311,7 +339,8 @@ the caller, so a call site that did not want the record still sees it.
 
 ```text
 Cascade                          what one element gets, in cascade order
-  ├── candidates                 borrowed declarations + provenance + level + order
+  ├── candidates                 borrowed declarations + provenance + level
+  │                              + specificity + document order
   └── inline_declarations        owned: parsed from the element's `style` attribute
 ```
 
@@ -320,7 +349,9 @@ candidates and the declaration list parsed from the `style` attribute, and every
 candidate borrows the declaration it points at. It is produced by the style
 context and read through `RoboCSSCascade.h`; the cascade's own vocabulary — the
 level table, the verdicts — is separate from the origin vocabulary, so provenance
-stays provenance and priority stays priority.
+stays provenance and priority stays priority. A candidate's `specificity` is the
+one of the selector that *matched* it, because a rule's list may have several and
+only the matching member is the declaration's reason for being here.
 
 ## 6. The DOM boundary
 
@@ -418,9 +449,12 @@ transcriptions — inline sits above the origin it belongs to, and `!important`
 reverses the origin order without reversing inline's position — and
 `docs/Cascade.md` states both and why.
 
-The cascade's pair is 9.6 (specificity): 9.5 owns the levels and the document
-order, and a contest that needs specificity is reported `UNDECIDED_SPECIFICITY`
-rather than approximated. Inheritance (9.7) is not implemented either.
+The cascade's three keys are level, then specificity (9.6), then document order,
+and all three are now present: 9.5 owns the levels and the ordering, 9.6 owns the
+middle key, and the cascade holds no arithmetic of its own — it asks
+`robo_css_specificity_compare`, which is the single comparison in the runtime. A
+contest is therefore always decided; there is no third verdict left to report it
+as pending. Inheritance (9.7) is not implemented.
 
 ## 10. Errors
 
@@ -465,12 +499,12 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Specificity (9.6), inheritance (9.7), computed values (9.8), colours (9.9), units
-(9.10), the box model (9.11), display (9.12), positioning (9.13), backgrounds
-(9.14), borders (9.15), conformance tests (9.16), layout, painting, rendering,
-CSSOM, animations, transitions, external stylesheet fetching and networking —
-plus, within the cascade itself, evaluating at-rules, expanding shorthands and
-the animation and transition origins. **Reading bytes is not interpreting them,
+Inheritance (9.7), computed values (9.8), colours (9.9), units (9.10), the box
+model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
+(9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
+transitions, external stylesheet fetching and networking — plus, within the
+cascade itself, evaluating at-rules, expanding shorthands and the animation and
+transition origins. **Reading bytes is not interpreting them,
 building a tree is not interpreting it either, and answering a question about one
 element is not applying a style to it**: the tokenizer knows `10px` is a dimension
 with the unit `px`, the grammar knows a prelude is component values up to `{`,
@@ -479,23 +513,23 @@ which declaration beat which. None of them knows what a length *means*.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
-(9.2), the parser and inline styles (9.3), selector matching (9.4) and the cascade
-(9.5) flipped to 1 for exactly that reason, and no other flag did — with `cascade`
-being the one that is 1 while half of its ordering is still ahead of it, because
-the half it does own works end to end and the half it does not is *reported*
-rather than guessed.
+(9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade
+(9.5) and specificity (9.6) flipped to 1 for exactly that reason, and no other
+flag did. Each flipped only when its whole job worked end to end: `cascade` waited
+for `specificity` rather than claiming an ordering it could not complete.
 
-Three boundaries are permanent features of the phases that introduced them rather
-than gaps in them, and they are the reason "is selector matching done?" and "is
-the cascade done?" both have nuanced answers. `:hover` and its state-dependent
-relatives **parse** and are reported `unsupported` rather than assumed true or
-false, because the input state they read does not exist yet — and a cascade that
-could not tell "false" from "not decided" would apply the wrong rules silently. A
-pseudo-element matches no element, *decidedly*, because an element is not its own
-`::before`: generated content does not exist yet, so the question was answered
-rather than skipped. And a contest between two candidates of one cascade level is
-reported `UNDECIDED_SPECIFICITY`, because settling it by document order would be
-right only by luck.
+Two boundaries are permanent features of the phases that introduced them rather
+than gaps in them, and they are why "is selector matching done?" has a nuanced
+answer even though the selector phase is finished. `:hover` and its
+state-dependent relatives **parse** and are reported `unsupported` rather than
+assumed true or false, because the input state they read does not exist yet — and
+a cascade that could not tell "false" from "not decided" would apply the wrong
+rules silently. A pseudo-element matches no element, *decidedly*, because an
+element is not its own `::before`: generated content does not exist yet, so the
+question was answered rather than skipped. A third boundary had that shape in 9.5 —
+a contest needing specificity — and 9.6 closed it rather than leaving it, which is
+why the cascade's third verdict was **deleted** instead of kept as a documented
+outcome that can no longer occur.
 
 A later phase that generates content matches pseudo-elements by giving the matcher
 a subject, and that is where it lands.

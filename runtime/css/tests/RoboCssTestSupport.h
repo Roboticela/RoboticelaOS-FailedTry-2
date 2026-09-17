@@ -33,6 +33,7 @@
 #include "RoboCSS/RoboCSSSelector.h"
 #include "RoboCSS/RoboCSSSelectorParser.h"
 #include "RoboCSS/RoboCSSSource.h"
+#include "RoboCSS/RoboCSSSpecificity.h"
 #include "RoboCSS/RoboCSSStyleSheet.h"
 #include "RoboCSS/RoboCSSToken.h"
 #include "RoboCSS/RoboCSSTokenizer.h"
@@ -791,6 +792,32 @@ static inline size_t css_select_first_compound_count(const robo_css_selector_lis
         robo_css_complex_selector_compound_at(complex, 0u);
 
     return robo_css_compound_selector_count(compound);
+}
+
+/**
+ * Parse @p text and return the specificity of its @p index'th complex selector.
+ * The one-line door the specificity suites read every case through.
+ */
+static inline robo_css_specificity_t css_specificity_of(const char *text, size_t index)
+{
+    robo_css_selector_list_t list;
+    robo_css_specificity_t specificity;
+
+    css_select_parse(text, &list);
+    specificity = robo_css_specificity_of_list_item(&list, index);
+    robo_css_selector_list_dispose(&list);
+    return specificity;
+}
+
+/** Assert @p specificity is exactly (id, class_like, type_like). */
+static inline void css_specificity_is(robo_css_specificity_t specificity,
+                                      uint32_t id,
+                                      uint32_t class_like,
+                                      uint32_t type_like)
+{
+    ROBO_CHECK_EQ_INT(specificity.id, id);
+    ROBO_CHECK_EQ_INT(specificity.class_like, class_like);
+    ROBO_CHECK_EQ_INT(specificity.type_like, type_like);
 }
 
 /** Write @p slice into @p out as a NUL-terminated string (truncating). */

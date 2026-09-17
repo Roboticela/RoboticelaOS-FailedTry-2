@@ -9,9 +9,11 @@
  * cascade that quietly drops an undecided selector is a cascade that applies the
  * wrong rule and gives no sign that it did.
  *
- * Resolution is then a read of that collected array, and it answers only what
- * can be answered without specificity: see the header for why "I cannot decide
- * this" is a third outcome rather than a coin flip.
+ * Resolution is then a read of that collected array, ordered by the cascade's
+ * three keys: level, then the specificity the selector that matched carried
+ * (9.6), then document order. The cascade computes no specificity of its own —
+ * robo_css_specificity_of_list_item is the one implementation, and this file
+ * only ever calls robo_css_specificity_compare.
  *
  * The array is kept in cascade order as it is built — the walk visits origins in
  * ascending level order and, within an origin, sheets, rules and declarations in
@@ -127,23 +129,6 @@ int robo_css_cascade_level_compare(robo_css_cascade_level_t a,
 /* Candidates                                                          */
 /* ------------------------------------------------------------------ */
 
-int robo_css_cascade_candidate_same_provenance(
-    const robo_css_cascade_candidate_t *a,
-    const robo_css_cascade_candidate_t *b)
-{
-    if (!a || !b) {
-        return 0;
-    }
-    /* Both inline: one attribute, one implicit selector, one specificity. */
-    if (robo_css_origin_is_inline(a->origin) && robo_css_origin_is_inline(b->origin)) {
-        return 1;
-    }
-    /* Otherwise it is the *selector* that has to match, and no two sheets can
-     * share a live id, so comparing the id is what makes this safe. */
-    return a->sheet != ROBO_CSS_STYLESHEET_ID_NONE && a->sheet == b->sheet &&
-           a->rule_index == b->rule_index && a->selector_index == b->selector_index;
-}
-
 /* ------------------------------------------------------------------ */
 /* The collected cascade                                               */
 /* ------------------------------------------------------------------ */
@@ -197,7 +182,7 @@ int robo_css_cascade_is_complete(const robo_css_cascade_t *cascade)
 int robo_css_cascade_verdict_is_known(robo_css_cascade_verdict_t verdict)
 {
     return verdict >= ROBO_CSS_CASCADE_VERDICT_NONE &&
-           verdict <= ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY;
+           verdict <= ROBO_CSS_CASCADE_VERDICT_DECIDED;
 }
 
 const char *robo_css_cascade_verdict_name(robo_css_cascade_verdict_t verdict)
@@ -207,8 +192,6 @@ const char *robo_css_cascade_verdict_name(robo_css_cascade_verdict_t verdict)
         return "none";
     case ROBO_CSS_CASCADE_VERDICT_DECIDED:
         return "decided";
-    case ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY:
-        return "undecided-specificity";
     default:
         return "unknown";
     }
@@ -270,32 +253,31 @@ static robo_css_cascade_verdict_t cascade_resolve(
             verdict = ROBO_CSS_CASCADE_VERDICT_DECIDED;
             continue;
         }
-        if (candidate->level > best->level) {
-            /* A strictly stronger level: the earlier undecided pair, if any,
-             * never mattered, so the answer becomes decidable again. */
+        {
+            int level_order =
+                robo_css_cascade_level_compare(candidate->level, best->level);
+
+            if (level_order > 0) {
+                /* A strictly stronger level: nothing the weaker level said can
+                 * matter, so the incumbent is replaced outright. */
+                best = candidate;
+                continue;
+            }
+            if (level_order < 0) {
+                /* Cannot happen in cascade order; refusing to read it as a win
+                 * is cheaper than being wrong if the order is ever broken. */
+                continue;
+            }
+        }
+        /* Same level, so specificity decides — through the one implementation,
+         * never by arithmetic here. A greater specificity displaces the
+         * incumbent, and an *equal* one does too: the array is in document order
+         * within a level, so the candidate being looked at is the later of the
+         * two and the tie-break is exactly "later wins". */
+        if (robo_css_specificity_compare(&candidate->specificity,
+                                         &best->specificity) >= 0) {
             best = candidate;
-            verdict = ROBO_CSS_CASCADE_VERDICT_DECIDED;
-            continue;
         }
-        if (candidate->level < best->level) {
-            /* Cannot happen in cascade order; refusing to read it as a win is
-             * cheaper than being wrong if the order is ever broken. */
-            continue;
-        }
-        /* Same level. Document order decides exactly when the two selectors
-         * have the same specificity, and sharing a selector is the only way to
-         * know that without computing one (9.6).
-         *
-         * The verdict is deliberately *not* recomputed from scratch here. Two
-         * declarations of one rule resolve among themselves by order; whether
-         * they in turn beat an earlier declaration of a *different* rule is the
-         * question specificity owns, and one undecided rival is enough to keep
-         * the whole answer undecided however many same-selector declarations
-         * follow it. */
-        if (!robo_css_cascade_candidate_same_provenance(candidate, best)) {
-            verdict = ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY;
-        }
-        best = candidate;
     }
 
     if (verdict == ROBO_CSS_CASCADE_VERDICT_DECIDED && out_winner) {
@@ -371,6 +353,7 @@ static void cascade_note_error(cascade_walk_t *walk, const robo_css_error_t *err
 static int cascade_append(cascade_walk_t *walk,
                          const robo_css_declaration_t *declaration,
                          robo_css_origin_t origin,
+                         robo_css_specificity_t specificity,
                          robo_css_stylesheet_id_t sheet,
                          size_t sheet_index,
                          size_t rule_index,
@@ -390,6 +373,9 @@ static int cascade_append(cascade_walk_t *walk,
     slot->origin = origin;
     slot->important = declaration->important ? 1 : 0;
     slot->level = robo_css_cascade_level_of(origin, slot->important);
+    /* Carried, not recomputed: the specificity belongs to the selector that
+     * matched, and only the matching step knows which one that was. */
+    slot->specificity = specificity;
     slot->property = walk->table
                          ? robo_css_property_table_lookup_slice(walk->table,
                                                                 declaration->name)
@@ -408,6 +394,7 @@ static int cascade_append(cascade_walk_t *walk,
 static int cascade_append_rule_declarations(cascade_walk_t *walk,
                                            const robo_css_style_rule_t *rule,
                                            robo_css_origin_t origin,
+                                           robo_css_specificity_t specificity,
                                            robo_css_stylesheet_id_t sheet,
                                            size_t sheet_index,
                                            size_t rule_index,
@@ -425,12 +412,102 @@ static int cascade_append_rule_declarations(cascade_walk_t *walk,
             walk->cascade->declarations_ignored++;
             continue;
         }
-        if (!cascade_append(walk, declaration, origin, sheet, sheet_index, rule_index,
-                            selector_index, index)) {
+        if (!cascade_append(walk, declaration, origin, specificity, sheet, sheet_index,
+                            rule_index, selector_index, index)) {
             return 0;
         }
     }
     return 1;
+}
+
+/**
+ * Match a rule's selector list against the element and report the specificity of
+ * the selector that matched.
+ *
+ * Three answers, and the third is why this is a loop rather than one call to
+ * robo_css_selector_list_matches.
+ *
+ * A selector *list* does not have a specificity. Each of its members does, and
+ * CSS says the value in force for a match is that of the most specific member
+ * that matches the element — not the first one to match, and not the maximum of
+ * the whole list, which could be a member that does not apply. So the walk
+ * cannot stop at the first match: it has to see every member that matches and
+ * keep the greatest. `div, #main` on `<div id="main">` is (1,0,0), and a cascade
+ * that took `div`'s (0,0,1) because it came first would sort the rule in the
+ * wrong place on every element the two share.
+ *
+ * The matching itself is the 9.4 matcher's — one call per complex selector — so
+ * nothing about *how* a selector matches is restated here. What is here is only
+ * the list-level rule the per-selector door does not implement.
+ *
+ * @return 1 matched, with @p out_specificity and @p out_selector_index filled
+ *         (the index the matcher would report, i.e. a member of the winning
+ *         specificity); 0 when no member matched; -1 when no member matched and
+ *         at least one could not be evaluated, which is not a negative.
+ */
+static int cascade_match_rule_selectors(const cascade_walk_t *walk,
+                                        const robo_css_selector_list_t *selectors,
+                                        robo_css_specificity_t *out_specificity,
+                                        size_t *out_selector_index)
+{
+    size_t count = robo_css_selector_list_count(selectors);
+    robo_css_specificity_t best;
+    size_t best_index = 0u;
+    int matched = 0;
+    int undecided = 0;
+    size_t i;
+
+    robo_css_specificity_init(&best);
+    for (i = 0u; i < count; i++) {
+        const robo_css_complex_selector_t *selector =
+            robo_css_selector_list_at(selectors, i);
+        robo_css_selector_match_t attempt;
+        int verdict;
+
+        if (!robo_css_complex_selector_is_well_formed(selector)) {
+            /* A combinator with no compound on one side is a broken record, not
+             * a selector that failed to match — the same distinction the list
+             * door draws. */
+            continue;
+        }
+        robo_css_selector_match_init(&attempt);
+        verdict = robo_css_complex_selector_matches(selector, walk->host,
+                                                    walk->cascade->element, &attempt,
+                                                    NULL);
+        if (verdict < 0) {
+            continue;
+        }
+        if (verdict == 0) {
+            if (attempt.unsupported) {
+                undecided = 1;
+            }
+            continue;
+        }
+        if (!matched) {
+            matched = 1;
+            best = robo_css_specificity_of_list_item(selectors, i);
+            best_index = i;
+            continue;
+        }
+        {
+            robo_css_specificity_t candidate =
+                robo_css_specificity_of_list_item(selectors, i);
+
+            /* Strictly greater, so two members of equal specificity leave the
+             * earlier index reported; either is the same answer to the question
+             * this function exists to answer. */
+            if (robo_css_specificity_compare(&candidate, &best) > 0) {
+                best = candidate;
+                best_index = i;
+            }
+        }
+    }
+    if (matched) {
+        *out_specificity = best;
+        *out_selector_index = best_index;
+        return 1;
+    }
+    return undecided ? -1 : 0;
 }
 
 /**
@@ -466,7 +543,8 @@ static int cascade_walk_sheet(cascade_walk_t *walk,
         const robo_css_rule_t *rule = robo_css_stylesheet_rule(sheet, index);
         const robo_css_style_rule_t *style = robo_css_rule_style(rule);
         const robo_css_selector_list_t *selectors;
-        robo_css_selector_match_t match;
+        robo_css_specificity_t specificity;
+        size_t matched_selector = 0u;
         int verdict;
 
         if (!style) {
@@ -496,25 +574,23 @@ static int cascade_walk_sheet(cascade_walk_t *walk,
             cascade->unsupported = 1;
             continue;
         }
-        robo_css_selector_match_init(&match);
-        verdict = robo_css_selector_list_matches(selectors, walk->host,
-                                                cascade->element, &match, NULL);
+        robo_css_specificity_init(&specificity);
+        verdict = cascade_match_rule_selectors(walk, selectors, &specificity,
+                                               &matched_selector);
         if (verdict < 0) {
-            /* A selector list that cannot be walked at all is not a negative. */
+            /* No member matched and at least one could not be evaluated: a rule
+             * whose reach is unknown, which is an incomplete answer rather than
+             * a negative. */
             cascade->rules_undecided++;
             cascade->unsupported = 1;
             continue;
         }
         if (verdict == 0) {
-            if (match.unsupported) {
-                cascade->rules_undecided++;
-                cascade->unsupported = 1;
-            }
             continue;
         }
         cascade->rules_matched++;
-        if (!cascade_append_rule_declarations(walk, style, origin, sheet, sheet_index,
-                                              index, match.selector_index)) {
+        if (!cascade_append_rule_declarations(walk, style, origin, specificity, sheet,
+                                              sheet_index, index, matched_selector)) {
             return 0;
         }
     }
@@ -529,9 +605,15 @@ static robo_result_t cascade_walk_inline(cascade_walk_t *walk,
     robo_css_cascade_t *cascade = walk->cascade;
     robo_css_slice_t text = robo_css_slice_empty();
     robo_css_error_t error = ROBO_CSS_CLEARED;
+    robo_css_specificity_t specificity;
     robo_result_t rc;
     size_t index;
 
+    /* Every inline declaration has the *same* specificity, and it is zero: a
+     * `style` attribute declares through no selector at all. Its strength is the
+     * INLINE level, which no selector reaches, so it never meets a selector in a
+     * specificity comparison and this value is never the reason anything wins. */
+    robo_css_specificity_init(&specificity);
     cascade->inline_checked = 1;
     rc = provider(userdata, cascade->element, &text);
     if (rc == ROBO_NOT_FOUND) {
@@ -597,7 +679,7 @@ static robo_result_t cascade_walk_inline(cascade_walk_t *walk,
             cascade->declarations_ignored++;
             continue;
         }
-        if (!cascade_append(walk, declaration, ROBO_CSS_ORIGIN_INLINE,
+        if (!cascade_append(walk, declaration, ROBO_CSS_ORIGIN_INLINE, specificity,
                             ROBO_CSS_STYLESHEET_ID_NONE, ROBO_CSS_CASCADE_NO_INDEX,
                             ROBO_CSS_CASCADE_NO_INDEX, ROBO_CSS_CASCADE_NO_INDEX, index)) {
             return ROBO_OUT_OF_MEMORY;

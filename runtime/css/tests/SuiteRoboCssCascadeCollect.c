@@ -186,11 +186,16 @@ static void test_css_cascade_collect_two_sheets_in_one_origin(void)
     ROBO_CHECK_EQ_INT(cascade.items[1].sheet_index, 1u);
     ROBO_CHECK_EQ_INT(cascade.items[0].level, cascade.items[1].level);
     ROBO_CHECK_EQ_INT(cascade.items[0].sheet != cascade.items[1].sheet, 1);
-    /* Two different selectors, one level: the cascade can place them but cannot
-     * say which wins, and it must say *that* rather than pick the later one. */
+    /* Two rules of equal specificity at one level: the third key is reached, and
+     * it is document order — so the second sheet's declaration wins. The
+     * specificities are equal, which is what makes this a statement about sheet
+     * order rather than about specificity. */
+    ROBO_CHECK_EQ_INT(robo_css_specificity_equal(&cascade.items[0].specificity,
+                                                 &cascade.items[1].specificity),
+                      1);
     ROBO_CHECK_EQ_INT(css_cascade_winner_text(&cascade, "color", text, sizeof(text)),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
-    ROBO_CHECK_STR_EQ(text, "");
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    ROBO_CHECK_STR_EQ(text, "two");
 
     robo_css_cascade_dispose(&cascade);
     css_cascade_end(&fixture);

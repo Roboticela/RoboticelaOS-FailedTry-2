@@ -2540,7 +2540,7 @@ Written independently, with no Chromium code or tables.
 **The cascade has three keys and this phase owns two.** Origin and importance
 (the *level*), and the document order of the declarations, are complete here.
 Specificity is 9.6, and it is not approximated, not defaulted and not given a
-placeholder field. So resolution has **three** outcomes rather than two:
+placeholder field. So resolution has **three** outcomes rather than two *(9.6 later supplied specificity and **deleted the third verdict** — see the Goal 9.6 record; the text below describes 9.5 as it shipped)*:
 `DECIDED`, `NONE`, and `UNDECIDED_SPECIFICITY` for a contest between candidates of
 one level from two different selectors. Settling *that* by document order would be
 right only by luck, and wrong silently — the same reason 9.4 reports a relation its
@@ -2666,6 +2666,143 @@ and it is invisible — the array would simply be shorter than the collection's 
 count, with no error anywhere. The bucket helper is the contract between the two
 passes, not an implementation detail.
 
+## Goal 9.6 — CSS specificity
+
+9.5 built an ordering that could place two declarations from one selector but had
+to *report* a contest between two declarations from different selectors. 9.6
+supplies the missing key, so the cascade is now total: every question it can see,
+it answers. Written independently, with no Chromium code or tables.
+
+**Specificity is not a fourth record beside the selector model.** It is three
+counts *about* a selector, and the one thing it must never be is a second
+description of one — so it is computed by walking the same simple/compound/complex
+records the matcher walks, and there is no field on a selector record that could
+disagree with a calculation. Nothing is stored, so nothing can go stale and no
+cache can be wrong.
+
+**The representation is a tuple, not a packed integer.** `(A, B, C)` — ids, then
+classes/attributes/pseudo-classes, then types/pseudo-elements — compared
+lexicographically by one exported function. A packed integer has the same
+comparison outcome only until a component overflows into its neighbour, at which
+point a more specific selector compares as less specific; that ambiguity is not
+representable in a tuple. Each count clamps at `ROBO_CSS_SPECIFICITY_COMPONENT_MAX`, so
+saturation is a stated behaviour rather than a wrap.
+
+**Three rules that are easy to get subtly wrong, and each has a test that would
+catch the wrong reading.** The universal selector is zero, so `*.card` is `(0,1,0)`
+and not `(0,1,1)`. `:not()` is worth **its argument's** specificity, not one class
+component — because `:not()` takes the *most specific* selector in its argument
+list, `:not(.a, #x)` is `(1,0,0)`. And a pseudo-element counts toward the type
+component while a pseudo-class counts toward the class component, which is exactly
+the distinction the matcher already makes to decide whether an element *is* the
+pseudo-element or merely satisfies the pseudo-class.
+
+**A rule's selector list is worth the specificity of the member that matched**,
+not its first member and not its maximum. `div, .card, #main` is `(0,0,1)` to a
+bare `div` and `(1,0,0)` to the element the `#main` member matched; a cascade that
+took the list's maximum would let an unrelated member promote a rule over a more
+specific one. The specificity is carried on every *candidate*, so it is the
+specificity of the declaration's actual reason for being here.
+
+**9.5's third verdict was deleted rather than kept.** `UNDECIDED_SPECIFICITY`
+described a question specificity answers, and keeping it would leave a documented
+outcome that can never occur — the same failure mode the capability flags exist to
+prevent. `ROBO_CSS_CASCADE_VERDICT_COUNT` is 2 and the enumerator's name string is
+gone with it. This is the one change in the phase that could break a caller, which
+is why the API is not frozen.
+
+### Definition of done
+
+- [x] The specificity model (`RoboCSSSpecificity.h`): the three-count record, the
+      component constants, `robo_css_specificity_compare` / `_equal` / `_is_zero`,
+      the clamping add, the four computation doors, and
+      `robo_css_specificity_of_list_item` — the per-member door the cascade uses
+      with the index the matcher reported
+- [x] `RoboCSSSpecificity.c` computes the counts by walking the 9.4 records at all
+      four levels (simple, compound, complex, list) — one implementation, and the
+      `levels_agree` test requires the levels to reach the same answer for a wide
+      selector table so they cannot drift
+- [x] `:not()` worth its argument: the argument's *most specific* selector,
+      recursed for nested `:not()`, with `not_chain_depth` pinning the recursion to
+      the parser's own nesting bound rather than a second one invented here
+- [x] Saturation at `ROBO_CSS_SPECIFICITY_COMPONENT_MAX` with a stress selector built from a
+      generated `.a.a.a…` chain and a many-id chain, so a wrap could not pass
+- [x] Malformed input never reaches a calculation: the parser refuses the text, the
+      suite asserts the refusal, and a hand-built incoherent record is refused by
+      the calculation door rather than read
+- [x] Cascade integration: `RoboCSSCascade.h` carries a `specificity` on every
+      candidate, the resolver consults `robo_css_specificity_compare` and holds no
+      arithmetic of its own, and `ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY`
+      is removed
+- [x] Ordering unchanged where it should be: level before specificity, specificity
+      before document order, `!important` at its own stage, inline still above
+      author — each re-asserted with the new key in place
+- [x] Two new suites, 30 tests: `css.specificity.*` 20 (the matrix, the simple
+      kinds, the attribute operators, pseudo-classes, pseudo-elements, `:not()`,
+      compounds and complexes, combinators-are-zero, lists, escaping, saturation,
+      stress, level agreement, malformed, the API contract) and
+      `css.specificity.cascade.*` 10 (decides, order-independence, source order
+      after specificity, level outranks specificity, importance, the
+      matching-member rule, `:not()` deciding, a pseudo-element winning nothing,
+      inline, determinism)
+- [x] `css.dom.specificity.picks_the_winner` against the **real** RoboHTML tree: an
+      `id`/`class`/`type` contest over the visual checkpoint's own document
+- [x] The 9.5 tests that asserted the placeholder verdict rewritten to assert the
+      *decision* and, in the same test, that the decision is about specificity
+      rather than order — the rival is written later in both, so a resolver that
+      had fallen back to document order would pick the same winner by luck
+- [x] Capability flag `specificity` flipped to 1, and `cascade` re-documented as
+      complete now that its third key exists; `inheritance`, `computed_values`,
+      `default_styles` and `stylesheet_loading` still 0. Version 0.6.0,
+      `ROBO_CSS_API_FROZEN` still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer over the whole
+      suite, **zero findings**; the plain build is 1793/1793 and `css.` is 386/386
+- [x] Phases 6–9.5 regression-tested: full suite green (1793 tests) — up 31 from
+      9.5's 1762, with no existing test weakened or removed and no HTML/DOM or
+      selector behaviour changed
+- [x] `css/docs/Specificity.md` added, and `css/README.md`, `css/docs/Tests.md`,
+      `css/docs/Cascade.md`, `css/docs/Architecture.md`, `css/docs/Selectors.md`,
+      `css/docs/Parser.md` and `ARCHITECTURE.md` updated for the milestone
+- [x] No Chromium dependency introduced
+- [x] No inheritance, no computed values, no colours, no units, no box model, no
+      at-rule evaluation, no shorthand expansion, no layout, no painting, no
+      CSSOM, no animations
+- [x] Stop after 9.6
+
+### What 9.6 found
+
+**No product defect and no sanitizer finding.** What the phase found was one
+public-API change that had to be made rather than tested, and one expectation
+written before the implementation that CSS disagrees with.
+
+**The third verdict had to be deleted, and that is the riskiest thing here.** 9.5
+shipped `ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY` and its name, and the 9.5
+tests asserted both. 9.6 makes the cascade total, so the verdict describes nothing
+and is gone: `ROBO_CSS_CASCADE_VERDICT_COUNT` is 2, a value that used to name the
+third verdict is no longer known, and its name string is gone with it. The
+alternative — keep the dead verdict so nothing has to change — would leave a
+documented outcome that can never occur.
+
+**`:not(:not(.a)):not(#x)` is `(1,1,0)`, not `(1,0,0)`.** The matrix was written
+before the code, and this row was copied from the simpler `:not(:not(#x))` =
+`(1,0,0)` without thinking the two `:not()`s through separately: the outer one is
+worth *its argument's whole specificity*, so `:not(:not(.a))` is `(0,1,0)` and the
+`:not(#x)` beside it adds the `(1,0,0)`. The implementation was right and the
+expectation was wrong. The neighbouring rows (`:not(#x)` and `:not(:not(#x))`, both
+`(1,0,0)`) exist so that nesting is pinned as "the argument's specificity, however
+deep" rather than by the one case that would pass under either reading.
+
+**Two tests had to say something different, not something weaker.**
+`css.cascade.resolve.same_level_rivals_are_*` and
+`css.cascade.collect.two_sheets_in_one_origin` both asserted the 9.5 undecided
+answer. They now assert the *decision* and, in the same test, that the decision is
+about specificity rather than order — the rival selector is written *later* in both
+cases, so a resolver that had simply fallen back to document order would have
+picked the same winner and the test would have proved nothing. The collect case
+goes further and asserts `robo_css_specificity_equal` on the two candidates before
+asserting the winner, so "this was decided by order" is a fact the test establishes
+rather than an assumption it leans on.
+
 ## Next
 
-- Goal 9.6 — CSS specificity (do not start until requested)
+- Goal 9.7 — CSS inheritance (do not start until requested)

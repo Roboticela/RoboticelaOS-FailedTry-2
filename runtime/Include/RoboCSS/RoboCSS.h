@@ -26,11 +26,9 @@
  * caller that wants to know whether CSS will style anything should read this
  * rather than infer it from a version number.
  *
- * A flag is 1 only when the thing it names works end to end, which is why
- * `cascade` can be 1 while specificity is still ahead: collecting what applies
- * and ordering it is complete, and the one question that needs specificity — two
- * candidates of one level from different selectors — comes back *reported* as
- * undecided rather than answered by accident.
+ * A flag is 1 only when the thing it names works end to end: the cascade orders
+ * by all three keys because specificity (9.6) is here, and the flags that remain
+ * 0 each name work this build does not do.
  */
 
 #ifndef ROBO_CSS_H
@@ -115,15 +113,15 @@ typedef struct robo_css_capabilities {
     int selector_matching;
     /**
      * The cascade order (9.5): collecting what applies to an element in cascade
-     * order and resolving a property wherever origin, importance and document
-     * order decide it.
-     *
-     * 1 does not mean "the cascade is finished". Specificity is the other half
-     * of the ordering and is 9.6, so a contest between two candidates of the
-     * same level from different selectors comes back as
-     * ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY — reported, never guessed.
+     * order and resolving a property by origin, importance and document order.
      */
     int cascade;
+    /**
+     * Specificity (9.6): the third cascade key, a property of the selector that
+     * matched. It is what turns 9.5's reported-undecided contest between two
+     * candidates of one level from different selectors into a decision.
+     */
+    int specificity;
     /** Inheritance of inherited properties (9.7). */
     int inheritance;
     /** Computed values (9.8). */

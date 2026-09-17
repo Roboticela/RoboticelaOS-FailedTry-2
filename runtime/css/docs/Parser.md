@@ -14,8 +14,9 @@ robo_css_stylesheet_t / robo_css_declaration_list_t
 
 Selector matching, the cascade, specificity, inheritance and computed values are
 **not** here. Later phases built them above this one (the matcher in 9.4, the
-cascade in 9.5); `robo_css_get_capabilities` reports `parser`, `selector_matching`
-and `cascade` = 1 and `inheritance` / `computed_values` = 0.
+cascade in 9.5, specificity in 9.6); `robo_css_get_capabilities` reports `parser`,
+`selector_matching`, `cascade` and `specificity` = 1 and `inheritance` /
+`computed_values` = 0.
 
 ---
 
@@ -260,10 +261,11 @@ are included.
 
 - No selector parsing or matching. A prelude is component values, and turning it
   into selectors is a separate call (9.4).
-- No specificity, inheritance or computed values. `!important` is *recorded* here
-  and nothing in *this* phase is ordered by it — 9.5's cascade reads the flag and
-  places the declaration on that basis, which is why 9.3 had to keep it rather
-  than fold it into a value.
+- No inheritance or computed values. `!important` is *recorded* here and nothing
+  in *this* phase is ordered by it — 9.5's cascade reads the flag and places the
+  declaration on that basis, which is why 9.3 had to keep it rather than fold it
+  into a value. Specificity is not this phase's either: it is a property of the
+  9.4 selector records and is computed in 9.6 (`docs/Specificity.md`).
 - No property semantics. A property name is a slice; `robo_css_declaration_resolve_property`
   is the hook 9.8 will use, and nothing calls it from the parse.
 - No at-rule semantics: no `@media` evaluation, no `@import`, no `@font-face`

@@ -1,6 +1,6 @@
-# RoboCSS Test Organisation (Phase 9.1–9.5)
+# RoboCSS Test Organisation (Phase 9.1–9.6)
 
-Twenty-seven suites, 355 tests, one framework. These phases add no test runner,
+Twenty-nine suites, 386 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -18,7 +18,11 @@ host plus one for the matcher's own structural levels). The 9.5 suites pin the
 cascade in the same shape: the level table as a table (one suite, including the
 two decisions it encodes), what a collection *finds and cannot use* (one suite,
 which is where the counters live), and what a resolution *concludes* (one suite,
-whose subject is the three verdicts and when one flips).
+whose subject is the three keys and when one decides). The 9.6 suites pin the
+third key twice over: once against the selector records (one suite, a table of
+selectors and their counts, including saturation and malformed input that must
+never reach a calculation) and once against the cascade (one suite, whose subject
+is that specificity now decides contests the 9.5 resolver had to report).
 
 ## 1. Suite map
 
@@ -65,7 +69,7 @@ whose subject is the three verdicts and when one flips).
 | `SuiteRoboCssMatchCombinator.c` | 14 | The four combinators, the `>`/`+`/`~` boundaries, selector-list index and range reporting, and that a relation the host cannot answer is *undecided* rather than false |
 | `SuiteRoboCssMatchStructural.c` | 7 | `:root`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`/`:nth-last-child()` incl. negatives and out-of-range forms, and `:not()` including its unevaluatable-argument path |
 | `SuiteRoboCssMatchLevels.c` | 14 | The matcher's four structural doors: each driven directly, the argument contract of the lower ones, that a complex selector of one compound *is* that compound, that an incoherent record is refused by the complex door and skipped by the list door, that `>` is strictly narrower than a space, that an unavailable relation is undecided, that a cyclic host is bounded, and that the three levels agree over a wide selector table |
-| `SuiteRoboCssDomSelect.c` | 16 | The same selectors against the **real** RoboHTML tree: the visual checkpoint's own document, text/comment nodes not counting as siblings, deep trees, rebuilding after mutation, determinism, matching not mutating the DOM, and that running the selectors over the checkpoint leaves the rendered picture unchanged — plus the 9.5 cascade over the same tree (`css.dom.cascade.*`): the document's own `style` attribute read through the seam, a collection that has to use real parent and sibling links to find the right rules, importance beating inline, and a byte-for-byte proof that collecting a cascade changes nothing the demo paints |
+| `SuiteRoboCssDomSelect.c` | 17 | The same selectors against the **real** RoboHTML tree: the visual checkpoint's own document, text/comment nodes not counting as siblings, deep trees, rebuilding after mutation, determinism, matching not mutating the DOM, and that running the selectors over the checkpoint leaves the rendered picture unchanged — plus the 9.5 cascade over the same tree (`css.dom.cascade.*`): the document's own `style` attribute read through the seam, a collection that has to use real parent and sibling links to find the right rules, importance beating inline, a byte-for-byte proof that collecting a cascade changes nothing the demo paints, and (`css.dom.specificity.picks_the_winner`) a real `id`/`class`/`type` contest resolved by specificity over the checkpoint's own tree |
 
 ### 9.5 — the cascade
 
@@ -73,7 +77,14 @@ whose subject is the three verdicts and when one flips).
 |---|---|---|
 | `SuiteRoboCssCascade.c` | 5 | The level table: every (origin, importance) pair reaching exactly one level and every level being reachable, the spelled-out rows, `ROBO_CSS_ORIGIN_NONE` and unknown origins having no level, the ascending order of all eight, the names, and the two decisions the table encodes — inline above the origin it belongs to, and an important half that is *not* a plain reversal of the normal one |
 | `SuiteRoboCssCascadeCollect.c` | 15 | What applies and what could not be used: only the matching rules contribute, cascade order across origins and within one origin, `!important` moving a declaration past its normal siblings, the inline boundary (present / absent / empty / malformed / host failure), and every counter — undecided selectors, at-rule blocks, unparsed rules, destroyed sheets, origin mismatches — plus collection replacing a previous result and releasing everything it allocated |
-| `SuiteRoboCssCascadeResolve.c` | 12 | The three verdicts and the cases that flip them: nothing declared, a single candidate, two declarations of one selector (decided by order), two selectors at one level (undecided), order-independence of that undecided answer, a stronger level deciding *after* an undecided pair — the case a one-pass resolver gets wrong by remembering its first verdict — importance across origins and inline, identity by property id and by name, provenance, and per-property independence |
+| `SuiteRoboCssCascadeResolve.c` | 12 | The three keys and the cases that settle them: nothing declared, a single candidate, two declarations of one selector (decided by order), two selectors at one level and different specificity (decided), equal specificity (document order), a stronger level deciding *after* an undecided pair — the case a one-pass resolver gets wrong by remembering its first verdict — importance across origins and inline, identity by property id and by name, provenance, and per-property independence |
+
+### 9.6 — specificity
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssSpecificity.c` | 20 | The three counts and their comparison: the spelled-out matrix (`*`, `div`, `.card`, `#main`, `[disabled]`, `:root`, `::before`, and the compound and complex forms), every simple-selector kind, all six attribute operators, the pseudo-class set and the pseudo-elements that must *not* count as them, `:not()` worth its argument (including nesting and an empty argument), compound and complex accumulation, combinators contributing zero, per-member selector-list values and the most-specific member, escaped identifiers, saturation at the represented maximum, a stress selector that must not wrap, agreement across the four model levels, malformed input that the parser refuses before a calculation can see it, and the API's argument contract |
+| `SuiteRoboCssSpecificityCascade.c` | 10 | The key reaching the cascade: a specificity gap deciding a contest, order-independence of that decision, document order still deciding an exact tie, a stronger level outranking specificity, importance at the right stage, a rule whose selector list matched through one member, `:not()` deciding by its argument, a pseudo-element winning nothing, inline still above author, and repeated resolution producing identical results |
 
 The parser suites are where this documentation's older claim — "they never assert
 that something was *parsed*" — stops being true. From 9.3 a parse really happens,
@@ -193,7 +204,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 355 css.* tests only
+scripts/robo test-css                     # the 386 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -217,6 +228,10 @@ levels, collection and resolution — and `--filter=css.dom.cascade` (4) for the
 part of it that drives the real tree. `css.cascade` does not pick up
 `css.dom.cascade`, because the prefix is matched against the whole name.
 
+The 9.6 surface is `--filter=css.specificity` (30), which is both suites:
+twenty value/calculation cases and ten that drive the cascade with them. The real
+tree's one case is `--filter=css.dom.specificity` (1).
+
 `--list` prints every registered name, which is how a documented test name can be
 checked against the binary instead of trusted.
 
@@ -231,8 +246,8 @@ UndefinedBehaviorSanitizer for the host test binary; it is documented in
 `docs/Build.md`. The result for this phase:
 
 * **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** Zero sanitizer
-  findings across the whole runtime suite — 1762/1762 — and `--filter=css` is
-  355/355 under the sanitized binary. Phase 9.5 introduced no memory-safety or
+  findings across the whole runtime suite — 1793/1793 — and `--filter=css` is
+  386/386 under the sanitized binary. Phase 9.6 introduced no memory-safety or
   undefined-behaviour defect.
 
 Run the whole suite rather than the `css.` subtree and the sanitized binary may
@@ -398,3 +413,42 @@ implementation was right about.
 > candidate counted into one bucket and placed from another is the one failure a
 > counting sort has. It is invisible to every other test: the array would simply
 > be one element shorter than the collection's own count.
+
+## 10. What the 9.6 suites found
+
+No product defect and no sanitizer finding. What the phase did find was a public
+API change that had to be made rather than tested, and one expectation written
+before the implementation that CSS disagrees with.
+
+> **The third verdict had to be deleted, and that is the riskiest thing here.**
+> 9.5 shipped `ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY` and its name, and
+> the 9.5 tests asserted both. 9.6 makes the cascade total, so the verdict
+describes nothing and is gone: `ROBO_CSS_CASCADE_VERDICT_COUNT` is 2, a value that
+> used to name the third verdict is no longer known (`verdict_is_known` returns 0
+> for it), and its name string is gone with it. Removing an enumerator from a
+> public header breaks a caller that switches on it, which is why the API is not
+> frozen. The alternative — keep the dead verdict so nothing has to change — would
+> leave a documented outcome that can never occur, the same failure mode the
+> "no flag claims a half-built feature" rule exists to prevent.
+
+> **`:not(:not(.a)):not(#x)` is (1,1,0), not (1,0,0).** The matrix was written
+> before the code, and this row was copied from the simpler
+> `:not(:not(#x))` = (1,0,0) without thinking the two `:not()`s through
+> separately: the outer one is worth *its argument's whole specificity*, so
+> `:not(:not(.a))` is (0,1,0) and the `:not(#x)` beside it adds the (1,0,0). The
+> implementation was right and the expectation was wrong. The neighbouring rows
+> (`:not(#x)` and `:not(:not(#x))`, both (1,0,0)) exist precisely so that the
+> nesting is pinned as "the argument's specificity, however deep" rather than by
+> the one case that would pass under either reading.
+
+> **Two tests had to say something different, not something weaker.**
+> `css.cascade.resolve.same_level_rivals_are_*` and
+> `css.cascade.collect.two_sheets_in_one_origin` both asserted the 9.5 undecided
+> answer. They were rewritten to assert the *decision* and, in the same test, that
+> the decision is about specificity rather than order — the rival selector is the
+> one written *later* in both cases, so a resolver that had simply fallen back to
+> document order would have picked the same winner the specificity key picks, and
+> the test would have proved nothing. The collect case goes further and asserts
+> `robo_css_specificity_equal` on the two candidates before asserting the winner,
+> so "this was decided by order" is a fact the test establishes rather than an
+> assumption it leans on.

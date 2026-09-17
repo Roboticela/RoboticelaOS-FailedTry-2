@@ -162,6 +162,8 @@ void robo_test_register_css_select_match_simple(void);
 void robo_test_register_css_select_match_combinator(void);
 void robo_test_register_css_select_match_structural(void);
 void robo_test_register_css_select_match_levels(void);
+void robo_test_register_css_specificity(void);
+void robo_test_register_css_specificity_cascade(void);
 void robo_test_register_css_cascade_levels(void);
 void robo_test_register_css_cascade_collect(void);
 void robo_test_register_css_cascade_resolve(void);
@@ -370,6 +372,8 @@ int main(int argc, char **argv)
     robo_test_register_css_select_match_combinator();
     robo_test_register_css_select_match_structural();
     robo_test_register_css_select_match_levels();
+    robo_test_register_css_specificity();
+    robo_test_register_css_specificity_cascade();
     robo_test_register_css_cascade_levels();
     robo_test_register_css_cascade_collect();
     robo_test_register_css_cascade_resolve();

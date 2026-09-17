@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.5, the
-cascade**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.6,
+specificity**).
 
-**Version:** 0.5.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.6.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -13,14 +13,15 @@ and consume it.
 
 ## Scope
 
-**9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors) and 9.5 (the
-cascade).** 9.1 builds the model the rest of Phase 9 is written against; 9.2
-builds the first machine that fills it; 9.3 builds the second — the grammar that
-consumes the token stream and produces that model out of real CSS; 9.4 builds the
-third, which turns a rule's prelude into real selectors and answers whether an
-element satisfies one; 9.5 is the first thing that *applies* anything, by
-collecting what matches an element in cascade order and answering which
-declaration wins — as far as that can be told without specificity:
+**9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors), 9.5 (the
+cascade) and 9.6 (specificity).** 9.1 builds the model the rest of Phase 9 is
+written against; 9.2 builds the first machine that fills it; 9.3 builds the
+second — the grammar that consumes the token stream and produces that model out of
+real CSS; 9.4 builds the third, which turns a rule's prelude into real selectors
+and answers whether an element satisfies one; 9.5 is the first thing that
+*applies* anything, by collecting what matches an element in cascade order; 9.6
+supplies the third and last ordering key, so the cascade can now answer every
+contest it can see:
 
 | Goal | What 9.1 delivers | What it does **not** do |
 |---|---|---|
@@ -38,7 +39,9 @@ declaration wins — as far as that can be told without specificity:
 | 9.3.1 parser | **The real CSS Syntax grammar**: token stream → rules, at-rules, declaration blocks and component values. Transactional, bounded, and recovering; the inline-style boundary is the same code path as a rule's block | Match a selector, order the cascade, compute a value |
 | 9.5.1 cascade levels | The precedence table: origin × importance → one of eight levels, ascending, with `inline` above the origin it belongs to and the important half mirrored the way CSS mirrors it | Change (the table is final; specificity is a different key altogether) |
 | 9.5.2 collection | **The real resolution door**: every origin's sheets, every matched rule's declarations, and the element's own `style` attribute, in cascade order, with a count of everything the build could not use | Apply a *value* |
-| 9.5.3 resolution | The winner for one property, whenever a level or the document order decides it | Decide a contest that needs specificity (9.6) — that is answered `UNDECIDED_SPECIFICITY`, never guessed |
+| 9.5.3 resolution | The winner for one property, by level, then specificity, then document order | Compute a value |
+| 9.6.1 specificity | **The dedicated third key**: a selector's three counts — ids, then classes/attributes/pseudo-classes, then types/pseudo-elements — computed from the same selector records matching reads, compared as a tuple and saturated rather than wrapped | Inherit or compute anything |
+| 9.6.2 integration | The cascade consumes specificity through one comparison function and holds no arithmetic of its own; `:not()` is worth its argument; a rule's selector list is worth the member that matched | Guess when a selector matched nothing |
 
 ## The tokenizer (9.2)
 
@@ -131,20 +134,42 @@ the important half is *not* a plain reversal of the normal one — it reverses t
 origins while inline stays directly above author, so an inline `!important` beats
 an author `!important` and still loses to a user one.
 
-Resolution answers one property at a time, and it answers **three** things, not
-two. Two candidates at one level from two selectors need specificity to separate,
-and specificity is 9.6 — so that comes back `UNDECIDED_SPECIFICITY` rather than
-being settled by document order, which would be right only by luck. Everything the
-collection could not use is *counted* on the result — an undecided selector, an
-at-rule block nothing evaluates, a sheet destroyed while referenced, a rule whose
-prelude was never parsed as selectors — so `unsupported` on the result is the
-difference between a lower bound and a wrong answer. `docs/Cascade.md` has the
-full account.
+The **ordering key** is three keys in one direction: level, then specificity, then
+document order. 9.6 supplied the middle one, so resolution answers one property at
+a time with a single verdict — a level decides first, a specificity gap decides
+next, and the document position decides a genuine tie within one matched selector.
+Everything the collection could not use is *counted* on the result — an undecided
+selector, an at-rule block nothing evaluates, a sheet destroyed while referenced, a
+rule whose prelude was never parsed as selectors — so `unsupported` on the result
+is the difference between a lower bound and a wrong answer. `docs/Cascade.md` has
+the full account.
 
-`robo_css_get_capabilities` reports which of these subsystems exist, so a caller
-never has to infer it from a version number. `cascade` is 1 for exactly the above:
-collecting and ordering are complete, and the one question that needs specificity
-is reported rather than answered by accident.
+## Specificity (9.6)
+
+`RoboCSSSpecificity.h` is the third cascade key, and it owns *all* of the
+arithmetic. A selector's specificity is three counts compared as a tuple:
+
+```text
+(A, B, C)
+A = id selectors
+B = class selectors + attribute selectors + pseudo-classes
+C = type selectors + pseudo-elements
+```
+
+Three decisions shape it. It is **computed from the same records matching reads**,
+so there is no second selector AST to keep in step, and no specificity is ever
+reparsed from text. It is the specificity of **the member that matched**, not of
+the rule's whole selector list, so `div, .card, #main` is worth `(0,0,1)` to a
+bare `div` and `(1,0,0)` to the element the `#main` member matched. And it
+**saturates rather than wraps**: each count is clamped at a represented maximum,
+so an adversarial pile of `.a.a.a…` can never roll a highly specific selector back
+into a low one.
+
+`(A,B,C)` comparison is lexicographic and explicit — there is no single packed
+integer to misread and no string comparison — and the ordering key has no other
+implementation. `robo_css_get_capabilities` reports which of these subsystems
+exist, so a caller never has to infer it from a version number. `cascade` and
+`specificity` are both 1 for exactly the above.
 
 ## The one rule worth reading first
 
@@ -176,6 +201,7 @@ equivalence field by field.
 | `robo_css_cascade_t` | Its candidate array and the declaration list parsed from the element's `style` attribute | The declarations it borrows from the context's sheets |
 | Stylesheet slot | Its rule list, its source copy, its last-error record | The source when borrowed, error messages (never freed) |
 | Every `robo_css_slice_t` | Nothing, ever | — |
+| `robo_css_specificity_t` | Nothing, ever — it is three counts by value | — |
 
 `robo_css_slice_t` is a borrowed view. Every API that produces one documents who
 keeps those bytes alive; no slice is ever freed by RoboCSS.
@@ -189,7 +215,8 @@ a destroyed id stays dead.
 
 ```text
 runtime/
-├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h)
+├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h
+│                             and RoboCSSSpecificity.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -207,7 +234,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 355 tests only
+scripts/robo test-css        # this subsystem's 386 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -225,6 +252,7 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Tokenizer.md` | The 9.2 tokenizer: the three decisions, token categories, source ranges, malformed-input outcomes, the stream API, lifetime, and how to run its tests |
 | `docs/Parser.md` | The 9.3 parser: the two entry points, what the grammar is, nesting and the bound, declarations and `!important`, at-rules as rules *or* descriptors, the recovery boundaries, source-range conventions, lifetime, and the integration properties |
 | `docs/Selectors.md` | The 9.4 selectors: the two doors, the name arena, the all-or-nothing rule, the four matcher levels and their result, how a complex selector is walked, the two facts about a relation, what is supported and what is deliberately not, the host seam, lifetime, and how to run the suites |
-| `docs/Cascade.md` | The 9.5 cascade: the level table and the two decisions it encodes, the collection walk and what every counter means, cascade order and the stable sort that maintains it, the three verdicts and when one flips, the inline boundary's three answers, what 9.5 deliberately does not do, lifetime, and how to run the suites |
+| `docs/Cascade.md` | The 9.5 cascade: the level table and the two decisions it encodes, the collection walk and what every counter means, cascade order and the stable sort that maintains it, resolution by the three keys, the inline boundary's three answers, what 9.5 deliberately does not do, lifetime, and how to run the suites |
+| `docs/Specificity.md` | The 9.6 specificity: the `(A,B,C)` representation and why it is a tuple, the comparison, the per-level rules (universal zero, `:not()` worth its argument, pseudo-elements vs pseudo-classes), selector-list behaviour, saturation and its bounds, the cascade integration, and how to run the suites |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1, 9.2, 9.3 and 9.4 records and their definitions of done |
+| `../PROGRESS.md` | The Goal 9.1–9.6 records and their definitions of done |

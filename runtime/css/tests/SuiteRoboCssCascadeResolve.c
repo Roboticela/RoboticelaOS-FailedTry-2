@@ -117,10 +117,10 @@ static void test_css_cascade_resolve_one_rule_takes_the_last(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Same level, different selectors: not this phase's question           */
+/* Same level, different selectors: specificity decides (9.6)           */
 /* ------------------------------------------------------------------ */
 
-static void test_css_cascade_resolve_same_level_rivals_are_undecided(void)
+static void test_css_cascade_resolve_same_level_rivals_are_decided(void)
 {
     css_cascade_fixture_t fixture;
     robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
@@ -132,29 +132,34 @@ static void test_css_cascade_resolve_same_level_rivals_are_undecided(void)
     (void)css_host_add(&fixture.host, "div", NULL, "app");
     css_host_seal(&fixture.host);
     /* `.app` and `div` both match, at the same level, with different
-     * specificities — a class selector beats a type selector, which is exactly
-     * what 9.6 will compute and what this phase refuses to invent. Answering
-     * "the later one wins" would be right only by coincidence. */
+     * specificities — a class selector beats a type selector. 9.5 reported this
+     * as undecided because it had no specificity to consult; 9.6 supplies one,
+     * so the answer is the class rule. The type rule is *later* in document
+     * order, which is what makes this a statement about specificity rather than
+     * about order. */
     css_cascade_sheet(&fixture, ROBO_CSS_ORIGIN_AUTHOR,
-                      "div { color: bare }\n.app { color: classy }");
+                      ".app { color: classy }\ndiv { color: bare }");
 
     css_cascade_collect(&fixture, 1u, &cascade, NULL);
     ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 2u);
     ROBO_CHECK_EQ_INT(css_cascade_winner_text(&cascade, "color", text, sizeof(text)),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
-    ROBO_CHECK_STR_EQ(text, "");
-    /* Nothing is written out for an undecided answer, so a caller cannot read a
-     * winner that was not decided. */
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    ROBO_CHECK_STR_EQ(text, "classy");
+    /* A decided answer writes the winner out, and it is the class rule. */
     ROBO_CHECK_EQ_INT(robo_css_cascade_resolve_name(
                           &cascade, robo_css_slice_from_text("color"), &winner),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
-    ROBO_CHECK(winner == NULL);
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    ROBO_CHECK(winner != NULL);
+    if (winner) {
+        ROBO_CHECK_EQ_INT(winner->rule_index, 0u);
+        css_specificity_is(winner->specificity, 0u, 1u, 0u);
+    }
 
     robo_css_cascade_dispose(&cascade);
     css_cascade_end(&fixture);
 }
 
-static void test_css_cascade_resolve_undecided_pair_is_order_independent(void)
+static void test_css_cascade_resolve_same_selector_takes_the_last(void)
 {
     css_cascade_fixture_t fixture;
     robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
@@ -164,9 +169,9 @@ static void test_css_cascade_resolve_undecided_pair_is_order_independent(void)
     css_fixture();
 
     /* The same shape twice, with the repeated declaration on either side of the
-     * rival. The answers must match, which is what pins the resolver to "one
-     * undecided rival is enough" rather than to whichever declaration it happens
-     * to meet last. */
+     * rival. The *specificity* is what decides in both, and it must not move
+     * with the order the declarations were written in: the class rule is (0,1,0)
+     * and the type rule is (0,0,1), so the class rule wins either way. */
     css_cascade_begin(&fixture);
     (void)css_host_add(&fixture.host, "div", NULL, "app");
     css_host_seal(&fixture.host);
@@ -175,7 +180,8 @@ static void test_css_cascade_resolve_undecided_pair_is_order_independent(void)
     css_cascade_collect(&fixture, 1u, &cascade, NULL);
     ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 3u);
     ROBO_CHECK_EQ_INT(css_cascade_winner_text(&cascade, "color", text, sizeof(text)),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    ROBO_CHECK_STR_EQ(text, "b");
     robo_css_cascade_dispose(&cascade);
     css_cascade_end(&fixture);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
@@ -188,7 +194,10 @@ static void test_css_cascade_resolve_undecided_pair_is_order_independent(void)
     css_cascade_collect(&fixture, 1u, &cascade, NULL);
     ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 3u);
     ROBO_CHECK_EQ_INT(css_cascade_winner_text(&cascade, "color", text, sizeof(text)),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    /* And within the winning selector, document order still picks the last
+     * declaration — the other key, reached after specificity ties. */
+    ROBO_CHECK_STR_EQ(text, "b2");
     robo_css_cascade_dispose(&cascade);
     css_cascade_end(&fixture);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
@@ -209,10 +218,10 @@ static void test_css_cascade_resolve_stronger_level_decides(void)
     css_cascade_begin(&fixture);
     (void)css_host_add(&fixture.host, "div", NULL, "app");
     css_host_seal(&fixture.host);
-    /* An undecided pair at the author level, and one inline declaration above
-     * it: the inline one wins outright, so the unresolved author pair never
-     * mattered. A resolver that kept the first verdict it reached would report
-     * undecided here and be wrong. */
+    /* A contested author pair and one inline declaration above it: the inline
+     * one wins outright, because the level is consulted before the specificity
+     * of anything below it. A resolver that stopped at the first level it met
+     * would pick the class rule and be wrong. */
     css_cascade_sheet(&fixture, ROBO_CSS_ORIGIN_AUTHOR,
                       "div { color: bare }\n.app { color: classy }");
     css_cascade_inline(&fixture, &stub, "color: inline");
@@ -238,8 +247,8 @@ static void test_css_cascade_resolve_important_beats_normal(void)
     (void)css_host_add(&fixture.host, "div", NULL, NULL);
     css_host_seal(&fixture.host);
     /* `!important` is a level, not a tie-break: the important declaration wins
-     * even though the normal one comes from a selector that would outrank it in
-     * 9.6, which is the whole point of importance. */
+     * even though the normal one comes from a more specific selector, which is
+     * the whole point of importance. */
     css_cascade_sheet(&fixture, ROBO_CSS_ORIGIN_AUTHOR,
                       "div { color: plain !important }\n"
                       ".outranks { color: classy }");
@@ -393,7 +402,7 @@ static void test_css_cascade_resolve_by_property_id(void)
     robo_css_property_table_destroy(table);
 }
 
-static void test_css_cascade_resolve_provenance_identity(void)
+static void test_css_cascade_resolve_specificity_is_carried(void)
 {
     css_cascade_fixture_t fixture;
     css_inline_stub_t stub;
@@ -409,25 +418,19 @@ static void test_css_cascade_resolve_provenance_identity(void)
 
     css_cascade_collect(&fixture, 1u, &cascade, NULL);
     ROBO_CHECK_EQ_INT(robo_css_cascade_count(&cascade), 4u);
-    /* Two declarations of one rule: same selector, so same specificity. */
-    ROBO_CHECK_EQ_INT(robo_css_cascade_candidate_same_provenance(
-                          robo_css_cascade_at(&cascade, 0u),
-                          robo_css_cascade_at(&cascade, 1u)),
+    /* Two declarations of one rule carry one specificity, because a specificity
+     * is a property of the selector and there is only one of it. */
+    css_specificity_is(cascade.items[0].specificity, 0u, 0u, 1u);
+    css_specificity_is(cascade.items[1].specificity, 0u, 0u, 1u);
+    ROBO_CHECK_EQ_INT(robo_css_specificity_equal(&cascade.items[0].specificity,
+                                                 &cascade.items[1].specificity),
                       1);
-    /* A rule and the style attribute are not comparable. */
-    ROBO_CHECK_EQ_INT(robo_css_cascade_candidate_same_provenance(
-                          robo_css_cascade_at(&cascade, 0u),
-                          robo_css_cascade_at(&cascade, 2u)),
-                      0);
-    /* Two inline declarations are one attribute and one implicit selector. */
-    ROBO_CHECK_EQ_INT(robo_css_cascade_candidate_same_provenance(
-                          robo_css_cascade_at(&cascade, 2u),
-                          robo_css_cascade_at(&cascade, 3u)),
-                      1);
-    ROBO_CHECK_EQ_INT(robo_css_cascade_candidate_same_provenance(NULL,
-                                                                robo_css_cascade_at(&cascade,
-                                                                                    0u)),
-                      0);
+    /* Inline declarations carry the zero specificity, because their strength is
+     * the INLINE level and no selector reaches it. */
+    ROBO_CHECK_EQ_INT(robo_css_specificity_is_zero(&cascade.items[2].specificity), 1);
+    ROBO_CHECK_EQ_INT(robo_css_specificity_is_zero(&cascade.items[3].specificity), 1);
+    ROBO_CHECK_EQ_INT(cascade.items[0].level, ROBO_CSS_CASCADE_LEVEL_AUTHOR);
+    ROBO_CHECK_EQ_INT(cascade.items[2].level, ROBO_CSS_CASCADE_LEVEL_INLINE);
 
     robo_css_cascade_dispose(&cascade);
     css_cascade_end(&fixture);
@@ -455,11 +458,15 @@ static void test_css_cascade_resolve_is_per_property(void)
                       ".app { color: classy; padding: 2px }");
 
     css_cascade_collect(&fixture, 1u, &cascade, NULL);
+    /* Both properties are contested, and both resolve to the class rule — one
+     * answer per property, from one specificity each. */
     ROBO_CHECK_EQ_INT(css_cascade_winner_text(&cascade, "color", text, sizeof(text)),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    ROBO_CHECK_STR_EQ(text, "classy");
     ROBO_CHECK_EQ_INT(css_cascade_winner_text(&cascade, "padding", text, sizeof(text)),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
-    /*…and the same cascade with one of them made important is decided for that
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    ROBO_CHECK_STR_EQ(text, "2px");
+    /* …and the same cascade with one of them made important is decided for that
      * one alone, which is what "per property" has to mean. */
     css_cascade_sheet(&fixture, ROBO_CSS_ORIGIN_USER,
                       "div { color: user !important }");
@@ -469,7 +476,8 @@ static void test_css_cascade_resolve_is_per_property(void)
                       ROBO_CSS_CASCADE_VERDICT_DECIDED);
     ROBO_CHECK_STR_EQ(text, "user");
     ROBO_CHECK_EQ_INT(css_cascade_winner_text(&cascade, "padding", text, sizeof(text)),
-                      ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY);
+                      ROBO_CSS_CASCADE_VERDICT_DECIDED);
+    ROBO_CHECK_STR_EQ(text, "2px");
 
     robo_css_cascade_dispose(&cascade);
     css_cascade_end(&fixture);
@@ -485,10 +493,10 @@ void robo_test_register_css_cascade_resolve(void)
                        test_css_cascade_resolve_single_candidate_is_decided);
     robo_test_register("css.cascade.resolve.one_rule_takes_the_last",
                        test_css_cascade_resolve_one_rule_takes_the_last);
-    robo_test_register("css.cascade.resolve.same_level_rivals_are_undecided",
-                       test_css_cascade_resolve_same_level_rivals_are_undecided);
-    robo_test_register("css.cascade.resolve.undecided_pair_is_order_independent",
-                       test_css_cascade_resolve_undecided_pair_is_order_independent);
+    robo_test_register("css.cascade.resolve.same_level_rivals_are_decided",
+                       test_css_cascade_resolve_same_level_rivals_are_decided);
+    robo_test_register("css.cascade.resolve.same_selector_takes_the_last",
+                       test_css_cascade_resolve_same_selector_takes_the_last);
     robo_test_register("css.cascade.resolve.stronger_level_decides",
                        test_css_cascade_resolve_stronger_level_decides);
     robo_test_register("css.cascade.resolve.important_beats_normal",
@@ -499,8 +507,8 @@ void robo_test_register_css_cascade_resolve(void)
                        test_css_cascade_resolve_inline_and_user_important);
     robo_test_register("css.cascade.resolve.by_property_id",
                        test_css_cascade_resolve_by_property_id);
-    robo_test_register("css.cascade.resolve.provenance_identity",
-                       test_css_cascade_resolve_provenance_identity);
+    robo_test_register("css.cascade.resolve.specificity_is_carried",
+                       test_css_cascade_resolve_specificity_is_carried);
     robo_test_register("css.cascade.resolve.is_per_property",
                        test_css_cascade_resolve_is_per_property);
 }

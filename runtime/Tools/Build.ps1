@@ -239,6 +239,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSStyle.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSSelectorParser.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSMatcher.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSSpecificity.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSCascade.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
@@ -392,6 +393,8 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssMatchCombinator.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssMatchStructural.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssMatchLevels.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssSpecificity.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssSpecificityCascade.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssCascade.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssCascadeCollect.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssCascadeResolve.c"),

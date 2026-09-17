@@ -3,37 +3,38 @@
  *
  * A stylesheet is a set of claims about elements; the cascade is the part that
  * answers "so what applies here, and in what order". CSS sorts those claims by
- * three things, and it is worth being exact about which of them this phase owns:
+ * three things, and all three are now complete:
  *
  *   1. origin and importance   — the *level*. A user-agent rule loses to a user
  *      rule, which loses to an author rule, and an `!important` declaration
- *      reverses that order. This phase owns the whole table, and it is final:
+ *      reverses that order. Phase 9.5 owns the whole table, and it is final:
  *      no later goal changes a level.
- *   2. specificity             — a property of the selector that matched. This
- *      is 9.6 and is deliberately *not* computed here. A placeholder number
- *      would be worse than none, so there is no field for one.
+ *   2. specificity             — a property of the selector that matched. Phase
+ *      9.6 owns it (RoboCSSSpecificity.h), and this header *consumes* it: a
+ *      candidate carries the specificity of the selector that matched, computed
+ *      once at collection time by the authoritative implementation. The cascade
+ *      contains no specificity arithmetic of its own.
  *   3. document order          — later wins. Owned here, and it is the
  *      provenance a candidate carries.
  *
- * So Phase 9.5 delivers the cascade *as far as it can be told the truth*, and
- * reports the rest rather than guessing. Concretely:
+ * So the cascade is total: every property question has an answer.
  *
  *   the level table                      complete, and never revisited
  *   collection of what applies           complete: every declaration of every
  *                                        matched rule, from every origin, plus
  *                                        the element's own `style` attribute
  *   the order of those candidates        complete: by level, then document order
- *   the winner for a property            answered whenever level or document
- *                                        order decides it — and reported as
- *                                        UNDECIDED_SPECIFICITY when it would
- *                                        take specificity (9.6) to know
+ *   the winner for a property            decided by level, then specificity, then
+ *                                        document order
  *
- * That last line is the same discipline the 9.4 matcher applies to a relation
- * its host cannot answer: "I cannot decide this" is a third answer, and a
- * cascade that confused it with "the first one wins" would apply the wrong rule
- * silently and irreproducibly. Most real sheets have two class rules competing
- * for one property, so the undecided case is the common one and it is the whole
- * reason this is a phase rather than a footnote.
+ * Phase 9.5 shipped without the middle key and answered
+ * ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY rather than guessing. That
+ * verdict is gone: 9.6 is the middle key, so there is nothing left to be
+ * undecided about. The rule that produced it survives in a sharper form — the
+ * specificity a candidate carries is the specificity of the selector that
+ * *matched*, never the first selector's in its list and never the list's
+ * maximum — which is the same refusal to answer from the wrong input, expressed
+ * where it cannot be got wrong.
  *
  * The level table
  *
@@ -115,6 +116,7 @@
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSError.h"
 #include "RoboCSS/RoboCSSProperty.h"
+#include "RoboCSS/RoboCSSSpecificity.h"
 #include "RoboCSS/RoboCSSStyle.h"
 #include "RoboCSS/RoboCSSStyleSheet.h"
 #include "RoboCSS/RoboCSSTypes.h"
@@ -219,6 +221,17 @@ typedef struct robo_css_cascade_candidate {
     /** The declaration's own `!important`. */
     int important;
     /**
+     * The specificity of the selector that matched (9.6), computed once here by
+     * robo_css_specificity_of_list_item with the index the matcher reported.
+     *
+     * For an inline declaration this is the zero specificity — not because a
+     * `style` attribute is weak but because its strength is carried by
+     * ROBO_CSS_CASCADE_LEVEL_INLINE, which no selector reaches. Inline therefore
+     * never ties a selector on level, so the two never meet in a specificity
+     * comparison, and the two fields cannot disagree.
+     */
+    robo_css_specificity_t specificity;
+    /**
      * The declaration's property, resolved against the context's property table
      * at collection time; ROBO_CSS_PROPERTY_ID_NONE when no table was installed
      * or the table has never heard of the name.
@@ -251,22 +264,6 @@ typedef struct robo_css_cascade_candidate {
      */
     size_t declaration_index;
 } robo_css_cascade_candidate_t;
-
-/**
- * Non-zero when @p a and @p b came from the same *selector* — the same rule of
- * the same sheet, addressed by the same selector index — or both from the
- * element's own `style` attribute.
- *
- * Two declarations that share this provenance necessarily share a specificity,
- * because a specificity is a property of the selector and inline has exactly
- * one, so document order decides between them and the cascade can answer
- * without 9.6. That is precisely the case the resolver uses this for, and it is
- * why the function exists rather than being inlined into it: a caller reading
- * `undecided` should be able to see for itself which pairs were comparable.
- */
-int robo_css_cascade_candidate_same_provenance(
-    const robo_css_cascade_candidate_t *a,
-    const robo_css_cascade_candidate_t *b);
 
 /* ------------------------------------------------------------------ */
 /* The collected cascade                                               */
@@ -363,22 +360,23 @@ int robo_css_cascade_is_complete(const robo_css_cascade_t *cascade);
 /* Resolution                                                          */
 /* ------------------------------------------------------------------ */
 
-/** What a resolution concluded. */
+/**
+ * What a resolution concluded.
+ *
+ * Two outcomes, because there are two facts: nothing declares the property, or
+ * one declaration beat the others. Phase 9.5 had a third — "only specificity
+ * could separate these" — and 9.6 removed it by supplying the specificity, so a
+ * caller that used to branch on an undecided answer now gets a decision.
+ */
 typedef enum robo_css_cascade_verdict {
     /** No candidate for that property: nothing in any origin declares it. */
     ROBO_CSS_CASCADE_VERDICT_NONE = 0,
     /** A winner was found and written out. */
-    ROBO_CSS_CASCADE_VERDICT_DECIDED = 1,
-    /**
-     * Two or more candidates compete at the same level from different
-     * selectors, so only specificity can separate them. That is 9.6, and
-     * nothing is guessed: no winner is written out.
-     */
-    ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY = 2
+    ROBO_CSS_CASCADE_VERDICT_DECIDED = 1
 } robo_css_cascade_verdict_t;
 
 /** Number of defined verdicts. */
-#define ROBO_CSS_CASCADE_VERDICT_COUNT 3u
+#define ROBO_CSS_CASCADE_VERDICT_COUNT 2u
 
 /** Non-zero when @p verdict is a defined verdict enumerator. */
 int robo_css_cascade_verdict_is_known(robo_css_cascade_verdict_t verdict);
@@ -389,9 +387,16 @@ const char *robo_css_cascade_verdict_name(robo_css_cascade_verdict_t verdict);
 /**
  * Resolve the winning candidate for a property, by property id.
  *
- * The answer is `DECIDED` when the strongest level holding the property has
- * exactly one candidate, or when every candidate at that level came from the
- * same selector — where document order decides, and the *last* one wins.
+ * The winner is the candidate at the strongest level; among candidates at that
+ * level, the greatest specificity; among those, the latest in document order.
+ * The candidate array is already in (level, document order) order, so one
+ * forward pass suffices: a candidate always arrives at the current level or
+ * above it, a strictly stronger level displaces the incumbent, and within one
+ * level a greater specificity displaces it while an equal specificity leaves the
+ * *later* candidate in place — which is the document-order tie-break.
+ *
+ * Every comparison goes through robo_css_specificity_compare; the cascade holds
+ * no specificity arithmetic of its own.
  *
  * @p out_winner is written only for `DECIDED`, and it borrows: it points into
  * @p cascade's own array. Passing NULL for it is legal and asks only the

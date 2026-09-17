@@ -158,18 +158,19 @@ static void test_css_cascade_level_names(void)
     ROBO_CHECK_EQ_INT(robo_css_cascade_verdict_is_known(ROBO_CSS_CASCADE_VERDICT_DECIDED),
                       1);
     ROBO_CHECK_EQ_INT(robo_css_cascade_verdict_is_known(
-                          ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY),
-                      1);
+                          (robo_css_cascade_verdict_t)2),
+                      0);
     ROBO_CHECK_EQ_INT(robo_css_cascade_verdict_is_known(
                           (robo_css_cascade_verdict_t)ROBO_CSS_CASCADE_VERDICT_COUNT),
                       0);
+    /* 9.5's third verdict is gone: it described a question specificity answers,
+     * so a value that used to be the third one is not a verdict any more. */
+    ROBO_CHECK_EQ_INT(ROBO_CSS_CASCADE_VERDICT_COUNT, 2);
     ROBO_CHECK_STR_EQ(robo_css_cascade_verdict_name(ROBO_CSS_CASCADE_VERDICT_NONE),
                       "none");
     ROBO_CHECK_STR_EQ(robo_css_cascade_verdict_name(ROBO_CSS_CASCADE_VERDICT_DECIDED),
                       "decided");
-    ROBO_CHECK_STR_EQ(
-        robo_css_cascade_verdict_name(ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY),
-        "undecided-specificity");
+
     ROBO_CHECK_STR_EQ(robo_css_cascade_verdict_name((robo_css_cascade_verdict_t)77),
                       "unknown");
 }

@@ -246,12 +246,15 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
     out->selector_matching = 1;
     /* 9.5 collects what applies to an element — every origin, every matched
      * rule, the inline attribute — in cascade order, and answers the winner for
-     * a property wherever the level or the document order decides it. It is 1
-     * for that reason and no other: the *level* table is complete and final
-     * here, while the part of the ordering that needs specificity is reported as
-     * undecided rather than guessed, so `cascade` names a thing that works end
-     * to end *and says where it stops*. Specificity is the next flag's world. */
+     * a property by level, specificity and document order. 9.6 supplied the
+     * middle key and removed the reported-undecided outcome, so the two flags
+     * below now name a complete ordering rather than half of one. */
     out->cascade = 1;
+    /* 9.6 computes a selector's specificity and hands it to the cascade as
+     * structured data. The cascade consumes it through one comparison function
+     * and holds no arithmetic of its own, which is what makes this a flag rather
+     * than a second implementation. */
+    out->specificity = 1;
     out->inheritance = 0;
     out->computed_values = 0;
     out->default_styles = 0;
