@@ -124,6 +124,32 @@ robo_result_t robo_css_value_move(robo_css_value_t *value,
                                  robo_css_value_t *out_value,
                                  robo_css_diag_t *diag);
 
+/**
+ * Deep-copy @p value into @p out_value, which is disposed first. (9.7)
+ *
+ * Moving is how 9.1 hands a value across an ownership boundary; *copying* is
+ * what a resolved style needs, because inheritance carries a value from a
+ * parent's style into a child's and the two must not alias — a child that
+ * shared its parent's child array would be mutated (or freed) through the
+ * parent, which is the exact ownership hazard the rest of this model avoids by
+ * always moving.
+ *
+ * Every slice inside is borrowed and stays borrowed: a copy shares the source
+ * bytes and the token text with the original, which is correct, because slices
+ * are never owned by a value in the first place. Only the child arrays are new.
+ *
+ * Transactional in the same way @p robo_css_value_append is: on
+ * ROBO_OUT_OF_MEMORY, @p out_value is left KIND_NONE rather than half-copied,
+ * so a caller that ignores the result still owns something consistent.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL argument or for
+ *         `value == out_value`; ROBO_OUT_OF_MEMORY when a child array could not
+ *         be allocated.
+ */
+robo_result_t robo_css_value_copy(robo_css_value_t *out_value,
+                                  const robo_css_value_t *value,
+                                  robo_css_diag_t *diag);
+
 /** Non-zero when @p value is NONE. NULL → 1. */
 int robo_css_value_is_empty(const robo_css_value_t *value);
 

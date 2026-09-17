@@ -386,6 +386,10 @@ const char *robo_css_diagnostic_domain_name(robo_css_diagnostic_domain_t domain)
         return "style";
     case ROBO_CSS_DOMAIN_COMPUTED:
         return "computed";
+    case ROBO_CSS_DOMAIN_PROPERTY_REGISTRY:
+        return "property registry";
+    case ROBO_CSS_DOMAIN_INHERIT:
+        return "inherit";
     default:
         return "unknown";
     }

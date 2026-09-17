@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.6 specificity milestone.
+ * RoboCSS version pin — Phase 9.7 inheritance milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -29,7 +29,7 @@
  * destroyed while referenced, a rule whose prelude was never parsed as selectors
  * — is counted on the result rather than dropped.
  *
- * 0.6.0 adds the fifth and completes the ordering: specificity
+ * 0.6.0 added the fifth and completed the ordering: specificity
  * (RoboCSSSpecificity.h). A selector's specificity is three counts — ids, then
  * classes/attributes/pseudo-classes, then types/pseudo-elements — compared as a
  * tuple and saturated rather than wrapped, computed from the same selector
@@ -40,6 +40,23 @@
  * holds no specificity arithmetic of its own, so 9.5's
  * ROBO_CSS_CASCADE_VERDICT_UNDECIDED_SPECIFICITY is gone: there is nothing left
  * for it to describe.
+ *
+ * 0.7.0 adds the sixth, and it is the first that answers a question the cascade
+ * cannot: inheritance (RoboCSSInherit.h). A cascade says which declaration wins
+ * for an element; a resolved style says what the element *has*, which for the
+ * properties it says nothing about means the parent's answer (an inherited
+ * property) or the property's own initial value. The primitive door takes the
+ * parent's resolved style as an argument, so a resolution is a pure function of
+ * its inputs and nothing is cached; the context door walks to the root and
+ * resolves back down, so "the immediate resolved parent" is literal. The
+ * CSS-wide keywords are obeyed here — `inherit`, `initial`, `unset` — and
+ * `revert` is recognised, carried unresolved and *reported*, because obeying it
+ * means re-running a cascade and half-obeying it would be wrong in exactly the
+ * cases it exists for. A resolved value is not a computed one: `10px` is still
+ * `10px` and `red` is still `red`, and `computed_values` stays 0. The property
+ * registry (RoboCSSPropertyRegistry.h) is the other half of the milestone: CSS's
+ * own facts about a property — does it inherit by default, and what is its
+ * initial value — held apart from a caller's property *table*, which is identity.
  *
  *   source        the bytes CSS arrives as, plus positions and ranges
  *   token         the CSS Syntax token record, and the token's *value*:
@@ -53,6 +70,8 @@
  *   value         component values: token, function, block, list — and now the
  *                 tree a prelude or a declaration's value actually is
  *   property      identity for a property name, and the table that holds them
+ *   definitions   CSS's own facts about a property: does it inherit by default,
+ *                 and what is its initial value (RoboCSSPropertyRegistry.h)
  *   declaration   name + value + importance + source range + state
  *   selector      simple / compound / complex selectors and a selector list
  *   rule          style rules and at-rules, with their declaration and
@@ -64,6 +83,8 @@
  *   error         the CSS error vocabulary, recoverable distinguished from fatal
  *   parser        a cursor over a source with position tracking and the
  *                 first-error record, plus the grammar behind it
+ *   inherited     what one element resolved to: one entry per property it has an
+ *                 answer for, each with where the value came from
  *
  * What the grammar is: the CSS Syntax structure rules — a stylesheet, a list of
  * rules, an at-rule, a qualified rule, a block's declarations, a declaration,
@@ -74,15 +95,20 @@
  * at-rule name is looked up in a table, because there is no table. The inline
  * `style` boundary (9.1.10) is filled by the same declaration-list grammar.
  *
- * Everything past that — inheritance, computed values, colours, units, the box
- * model — is still a declared boundary with no implementation behind it, and
+ * Everything past that — computed values, colours, units, the box model — is
+ * still a declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
- * never has to guess. Two boundaries are deliberately not crossed rather than
- * merely unfinished: `:hover` and its state-dependent relatives are *reported*
- * as unevaluatable rather than assumed, and a pseudo-element matches no element
- * because generated content does not exist yet. The cascade, by contrast, is now
- * total: with specificity in hand there is no ordering question it cannot
- * answer, which is why 9.5's reported-undecided verdict no longer exists.
+ * never has to guess. Three boundaries are deliberately not crossed rather than
+ * merely unfinished, and each is a decision: `:hover` and its state-dependent
+ * relatives are *reported* as unevaluatable rather than assumed; a pseudo-element
+ * matches no element because generated content does not exist yet; and `revert`
+ * is recognised, carried and reported rather than obeyed, because obeying it
+ * means re-running a cascade with one origin removed and a half-answer would be
+ * wrong in exactly the cases `revert` exists for. The cascade, by contrast, is
+ * now total: with specificity in hand there is no ordering question it cannot
+ * answer, which is why 9.5's reported-undecided verdict no longer exists — and
+ * inheritance is total in the same sense, because every property an element
+ * does not declare has an answer: the parent's, or its own initial value.
  *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (ROBO_CSS_API_FROZEN=0).
@@ -92,9 +118,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 6
+#define ROBO_CSS_VERSION_MINOR 7
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.6.0"
+#define ROBO_CSS_VERSION_STRING "0.7.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

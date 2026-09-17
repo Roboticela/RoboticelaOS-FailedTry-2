@@ -12,6 +12,8 @@
 #include "RoboCSSInternal.h"
 #include "RoboMem/RoboMem.h"
 
+#include <string.h>
+
 void robo_css_value_init(robo_css_value_t *value)
 {
     if (!value) {
@@ -68,6 +70,72 @@ robo_result_t robo_css_value_move(robo_css_value_t *value,
     robo_css_value_dispose(out_value);
     *out_value = *value;
     robo_css_value_init(value);
+    return ROBO_OK;
+}
+
+/**
+ * Copy @p value's children into @p out, which already carries @p value's own
+ * fields. Recurses only as deep as the parser allowed anything to be built.
+ *
+ * The array is grown to its final size before any child is written, so a
+ * failure part-way through leaves nothing half-built for the caller to see —
+ * the frame above disposes @p out and reports the failure.
+ */
+static int value_copy_children(robo_css_value_t *out, const robo_css_value_t *value)
+{
+    size_t index;
+
+    if (value->children.count == 0u) {
+        return 1;
+    }
+    out->children.items = (robo_css_value_t *)robo_malloc(
+        value->children.count * sizeof(robo_css_value_t));
+    if (!out->children.items) {
+        return 0;
+    }
+    out->children.capacity = value->children.count;
+    for (index = 0u; index < value->children.count; index++) {
+        /* Zeroed before use: robo_css_value_copy disposes its output first, and
+         * the cleared byte pattern is a valid empty value by design (the rule
+         * stated in RoboCSSValue.h). */
+        memset(&out->children.items[index], 0, sizeof(robo_css_value_t));
+        if (robo_css_value_copy(&out->children.items[index],
+                                &value->children.items[index], NULL) != ROBO_OK) {
+            return 0;
+        }
+        out->children.count = index + 1u;
+    }
+    return 1;
+}
+
+robo_result_t robo_css_value_copy(robo_css_value_t *out_value,
+                                  const robo_css_value_t *value,
+                                  robo_css_diag_t *diag)
+{
+    if (!out_value || !value || out_value == value) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_VALUE, ROBO_INVALID_ARGUMENT,
+                             "value or output is NULL, or they are the same");
+    }
+    if (!robo_css_value_kind_is_known(value->kind)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_VALUE, ROBO_INVALID_ARGUMENT,
+                             "unknown value kind");
+    }
+    robo_css_value_dispose(out_value);
+    /* The scalar fields first: token, name, open/close and range are all plain
+     * values whose slices stay borrowed from the same bytes. */
+    out_value->kind = value->kind;
+    out_value->token = value->token;
+    out_value->name = value->name;
+    out_value->open = value->open;
+    out_value->close = value->close;
+    out_value->range = value->range;
+    if (!value_copy_children(out_value, value)) {
+        /* Not a partial copy: the caller gets an empty value, so nothing it
+         * might dispose is half-owned. */
+        robo_css_value_dispose(out_value);
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_VALUE, ROBO_OUT_OF_MEMORY,
+                             "could not copy the value tree");
+    }
     return ROBO_OK;
 }
 

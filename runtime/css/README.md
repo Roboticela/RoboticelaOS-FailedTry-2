@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.6,
-specificity**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.7,
+inheritance**).
 
-**Version:** 0.6.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.7.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -14,14 +14,15 @@ and consume it.
 ## Scope
 
 **9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors), 9.5 (the
-cascade) and 9.6 (specificity).** 9.1 builds the model the rest of Phase 9 is
-written against; 9.2 builds the first machine that fills it; 9.3 builds the
-second — the grammar that consumes the token stream and produces that model out of
-real CSS; 9.4 builds the third, which turns a rule's prelude into real selectors
-and answers whether an element satisfies one; 9.5 is the first thing that
+cascade), 9.6 (specificity) and 9.7 (inheritance).** 9.1 builds the model the rest
+of Phase 9 is written against; 9.2 builds the first machine that fills it; 9.3
+builds the second — the grammar that consumes the token stream and produces that
+model out of real CSS; 9.4 builds the third, which turns a rule's prelude into real
+selectors and answers whether an element satisfies one; 9.5 is the first thing that
 *applies* anything, by collecting what matches an element in cascade order; 9.6
-supplies the third and last ordering key, so the cascade can now answer every
-contest it can see:
+supplies the third and last ordering key, so the cascade can answer every contest
+it can see; 9.7 answers the question underneath the cascade — what the element
+*has* for the properties nothing declared:
 
 | Goal | What 9.1 delivers | What it does **not** do |
 |---|---|---|
@@ -42,6 +43,11 @@ contest it can see:
 | 9.5.3 resolution | The winner for one property, by level, then specificity, then document order | Compute a value |
 | 9.6.1 specificity | **The dedicated third key**: a selector's three counts — ids, then classes/attributes/pseudo-classes, then types/pseudo-elements — computed from the same selector records matching reads, compared as a tuple and saturated rather than wrapped | Inherit or compute anything |
 | 9.6.2 integration | The cascade consumes specificity through one comparison function and holds no arithmetic of its own; `:not()` is worth its argument; a rule's selector list is worth the member that matched | Guess when a selector matched nothing |
+| 9.7.1 property registry | **Property metadata, once**: does a property inherit by default, and what is its initial value — stored as text *and* as the parsed component-value tree, with initial values parsed once at registration | Issue property ids or hold per-caller state (that is the property table) |
+| 9.7.2 resolved style | **What one element resolves to**: one entry per property it has an answer for, each with its provenance (`DECLARED`/`PARENT`/`DEFAULT`/`DEFERRED`) and the keyword that produced it | Compute anything |
+| 9.7.3 resolution | The three sets walked in order — the element's cascade winners, then the inherited-by-default properties the parent carries, then the registry's initial values | Inherit across a DOM (the parent is an argument) |
+| 9.7.4 CSS-wide keywords | `inherit`, `initial` and `unset` obeyed on the parsed value; `revert` recognised, carried unresolved and **reported** | Treat a keyword as a string, or half-obey `revert` |
+| 9.7.5 chain door | `robo_css_style_context_resolve_inherited_style`: walk up through the host's `parent`, resolve top down so the parent is the *immediate* resolved parent, bounded and reported | Walk a tree this module does not own, or cache between calls |
 
 ## The tokenizer (9.2)
 
@@ -171,6 +177,35 @@ implementation. `robo_css_get_capabilities` reports which of these subsystems
 exist, so a caller never has to infer it from a version number. `cascade` and
 `specificity` are both 1 for exactly the above.
 
+## Inheritance (9.7)
+
+The cascade says which declaration wins; inheritance says what the element *has*.
+`robo_css_inherit_resolve` builds a **resolved style** from three sets, in the
+order it reports them: the properties the element's own cascade declares (taking
+the winner through the cascade's own resolver, never re-deciding precedence),
+then the inherited-by-default properties the parent carries, then the registry's
+initial values for the rest. The third set is deliberately only the
+inherited-by-default properties — materialising `width: auto` everywhere would put
+a value in a resolution that no input produced — so an element with no declarations
+at all still resolves to a *complete* style.
+
+A resolved style is a **pure function of its inputs**: the parent arrives as an
+argument, nothing is cached between calls, and no global "current style" exists.
+That is what makes it testable one element at a time and what makes its
+invalidation story "re-resolve" rather than "remember to invalidate". The context
+door (`robo_css_style_context_resolve_inherited_style`) walks up to the root and
+resolves **top down**, so every level's parent is the *immediate resolved* parent —
+`div { color: red } section { color: blue }` gives a `<p>` inside `<section>` blue
+— and the walk is bounded and *reported* rather than silently truncated.
+
+The CSS-wide keywords are obeyed here, on the parsed value and never on a string,
+and a keyword is a single identifier and nothing else (`calc(inherit)` is not one).
+`revert` is the deliberate exception: rolling it back means re-running a cascade
+with one origin removed, so it is carried as a *deferred* entry, counted, and
+reported through `unsupported` — never quietly resolved into something that looks
+like an answer. Custom properties inherit always and have **no** initial value, so
+an unset one simply has no entry. `docs/Inheritance.md` has the full account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -202,6 +237,8 @@ equivalence field by field.
 | Stylesheet slot | Its rule list, its source copy, its last-error record | The source when borrowed, error messages (never freed) |
 | Every `robo_css_slice_t` | Nothing, ever | — |
 | `robo_css_specificity_t` | Nothing, ever — it is three counts by value | — |
+| `robo_css_property_registry_t` | Its definitions, their names, their initial-value text *and* the parsed tree | Property ids (it issues none) |
+| `robo_css_inherited_style_t` | Every entry's name and value, both copied | The cascade, the parent style, the sheets the values' bytes come from |
 
 `robo_css_slice_t` is a borrowed view. Every API that produces one documents who
 keeps those bytes alive; no slice is ever freed by RoboCSS.
@@ -215,8 +252,9 @@ a destroyed id stays dead.
 
 ```text
 runtime/
-├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h
-│                             and RoboCSSSpecificity.h)
+├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h,
+│                             RoboCSSSpecificity.h, RoboCSSPropertyRegistry.h and
+│                             RoboCSSInherit.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -234,7 +272,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 386 tests only
+scripts/robo test-css        # this subsystem's 423 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -254,5 +292,6 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Selectors.md` | The 9.4 selectors: the two doors, the name arena, the all-or-nothing rule, the four matcher levels and their result, how a complex selector is walked, the two facts about a relation, what is supported and what is deliberately not, the host seam, lifetime, and how to run the suites |
 | `docs/Cascade.md` | The 9.5 cascade: the level table and the two decisions it encodes, the collection walk and what every counter means, cascade order and the stable sort that maintains it, resolution by the three keys, the inline boundary's three answers, what 9.5 deliberately does not do, lifetime, and how to run the suites |
 | `docs/Specificity.md` | The 9.6 specificity: the `(A,B,C)` representation and why it is a tuple, the comparison, the per-level rules (universal zero, `:not()` worth its argument, pseudo-elements vs pseudo-classes), selector-list behaviour, saturation and its bounds, the cascade integration, and how to run the suites |
+| `docs/Inheritance.md` | The 9.7 inheritance: the three sets and their order, the property registry and its precedence, the CSS-wide keywords and why `revert` is carried rather than obeyed, custom-property behaviour, provenance, ownership, the primitive and chain doors, the invalidation boundary, and the stylesheet-lifetime rule the suites follow |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1–9.6 records and their definitions of done |
+| `../PROGRESS.md` | The Goal 9.1–9.7 records and their definitions of done |

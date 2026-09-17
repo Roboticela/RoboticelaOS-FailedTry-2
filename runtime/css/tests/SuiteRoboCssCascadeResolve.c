@@ -183,8 +183,10 @@ static void test_css_cascade_resolve_same_selector_takes_the_last(void)
                       ROBO_CSS_CASCADE_VERDICT_DECIDED);
     ROBO_CHECK_STR_EQ(text, "b");
     robo_css_cascade_dispose(&cascade);
-    css_cascade_end(&fixture);
+    /* Before the fixture goes: the fixture releases what it made, so an explicit
+     * destroy has to happen while the sheet is still alive. */
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_cascade_end(&fixture);
 
     css_cascade_begin(&fixture);
     (void)css_host_add(&fixture.host, "div", NULL, "app");
@@ -199,8 +201,8 @@ static void test_css_cascade_resolve_same_selector_takes_the_last(void)
      * declaration — the other key, reached after specificity ties. */
     ROBO_CHECK_STR_EQ(text, "b2");
     robo_css_cascade_dispose(&cascade);
-    css_cascade_end(&fixture);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_cascade_end(&fixture);
 }
 
 /* ------------------------------------------------------------------ */

@@ -1,6 +1,6 @@
 # RoboCSS Test Organisation (Phase 9.1–9.6)
 
-Twenty-nine suites, 386 tests, one framework. These phases add no test runner,
+Thirty-two suites, 423 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -85,6 +85,14 @@ is that specificity now decides contests the 9.5 resolver had to report).
 |---|---|---|
 | `SuiteRoboCssSpecificity.c` | 20 | The three counts and their comparison: the spelled-out matrix (`*`, `div`, `.card`, `#main`, `[disabled]`, `:root`, `::before`, and the compound and complex forms), every simple-selector kind, all six attribute operators, the pseudo-class set and the pseudo-elements that must *not* count as them, `:not()` worth its argument (including nesting and an empty argument), compound and complex accumulation, combinators contributing zero, per-member selector-list values and the most-specific member, escaped identifiers, saturation at the represented maximum, a stress selector that must not wrap, agreement across the four model levels, malformed input that the parser refuses before a calculation can see it, and the API's argument contract |
 | `SuiteRoboCssSpecificityCascade.c` | 10 | The key reaching the cascade: a specificity gap deciding a contest, order-independence of that decision, document order still deciding an exact tie, a stronger level outranking specificity, importance at the right stage, a rule whose selector list matched through one member, `:not()` deciding by its argument, a pseudo-element winning nothing, inline still above author, and repeated resolution producing identical results |
+
+### 9.7 — property metadata and inheritance
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssPropertyRegistry.c` | 11 | The property metadata: lifecycle, the standard set (every row classified one way or the other, with a usable name and an initial value that parses), the inherited/non-inherited classification, initial values read back as both text and a parsed tree, custom-property naming and its case rule, lookup, registration (refused names, refused classifications, refused texts, `ALREADY_EXISTS` leaving the first registration alone), that a borrowed definition does not move when the registry grows, applying the set to a caller's table and the `INHERITED` bit it sets, the classification and provenance name tables, and that destroying a registry returns the allocator to where it started |
+| `SuiteRoboCssInherit.c` | 6 | The model without the resolver: the CSS-wide keyword table (the positives, and the negatives that matter — `inherit inherit`, `red inherit`, `calc(inherit)`, a quoted `"inherit"`, `12px`, an empty value and a bare token are none of them keywords), the keyword and provenance name tables, the resolved style's lifecycle and accessors (including moving one by value without a double free), the deep value copy (a four-level tree copied and proven independent, disposal in both directions, recopy-replaces rather than leaks, the argument contract) and its lifetime balance over repeated copies |
+| `SuiteRoboCssInheritResolve.c` | 20 | Resolution itself: what the element declares; an inherited property taking the parent's value; a non-inherited one not propagating; a child's declaration beating an inherited value; an *intermediate* level beating an ancestor; root behaviour (defaults, no `width` entry, and a root that declares overriding its own default); `inherit`, `initial`, `unset` (one keyword, two behaviours) and `revert` carried-but-reported; custom properties inheriting, being overridable and having no default; an unknown property not inheriting; inline participating; an incomplete cascade propagating its incompleteness; the counters and entry-for-entry determinism; a leak check over repeated resolutions; and the ancestor walk — walking to the root, a host with no `parent` callback, and a chain (and a cycle) bounded and reported rather than presented as a root |
 
 The parser suites are where this documentation's older claim — "they never assert
 that something was *parsed*" — stops being true. From 9.3 a parse really happens,
@@ -204,7 +212,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 386 css.* tests only
+scripts/robo test-css                     # the 423 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -232,6 +240,11 @@ The 9.6 surface is `--filter=css.specificity` (30), which is both suites:
 twenty value/calculation cases and ten that drive the cascade with them. The real
 tree's one case is `--filter=css.dom.specificity` (1).
 
+The 9.7 surface is `--filter=css.inherit` (26), which is the model and the
+resolver together, and `--filter=css.registry` (11) for the property metadata.
+`css.inherit.resolve` (17) and `css.inherit.chain` (3) are the two halves of the
+resolver, and `css.inherit` picks both up plus the model's six.
+
 `--list` prints every registered name, which is how a documented test name can be
 checked against the binary instead of trusted.
 
@@ -246,8 +259,8 @@ UndefinedBehaviorSanitizer for the host test binary; it is documented in
 `docs/Build.md`. The result for this phase:
 
 * **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** Zero sanitizer
-  findings across the whole runtime suite — 1793/1793 — and `--filter=css` is
-  386/386 under the sanitized binary. Phase 9.6 introduced no memory-safety or
+  findings across the whole runtime suite — 1832/1832 — and `--filter=css.` is
+  423/423 under the sanitized binary. Phase 9.7 introduced no memory-safety or
   undefined-behaviour defect.
 
 Run the whole suite rather than the `css.` subtree and the sanitized binary may
@@ -452,3 +465,54 @@ describes nothing and is gone: `ROBO_CSS_CASCADE_VERDICT_COUNT` is 2, a value th
 > `robo_css_specificity_equal` on the two candidates before asserting the winner,
 > so "this was decided by order" is a fact the test establishes rather than an
 > assumption it leans on.
+
+## 11. What the 9.7 suites found
+
+One real product defect — a NULL dereference that the sanitizer run caught and the
+plain build did not — plus four mistakes in the tests themselves and one in the
+fixtures that a combined run exposed.
+
+> **`robo_css_property_registry_create_standard` dereferenced its output.** The
+> function wrote `*out_registry = registry` without ever checking that
+> `out_registry` was non-NULL, so `create_standard(NULL, NULL)` — the argument
+> contract every other door in the subsystem honours — crashed instead of
+> returning `ROBO_INVALID_ARGUMENT`. The plain build's full-suite run died with a
+> segfault whose position could not be located, because the harness does not flush
+> stdout on the way out; the sanitizer run pinned it to the exact line and the
+> exact call. It is the clearest argument this project has for running the
+> sanitized binary even when the plain one looks green.
+
+> **The slot table is why a combined run and a filtered run disagree.**
+> `ROBO_CSS_MAX_STYLESHEETS` is a fixed 64-entry module table, and a suite that
+> created a sheet per test and never released it exhausted it partway through the
+> combined `css.` run — after which *every* sheet creation failed and unrelated
+> tests failed for a reason with nothing to do with what they test. Every suite
+> passed in isolation, which is exactly what made this hard to see. The fix is in
+> the fixture, not in the constant: the cascade fixture now owns the sheets it
+> makes and releases them in its `end`, so the bound stays a real product bound
+> rather than a number raised until the tests stopped complaining. A test that
+> destroys a sheet itself must now do so *before* the fixture's end.
+
+> **Three expectations were off by one against the resolution contract.** The
+> `unset` case, the counters case and the ancestor-walk case each counted a
+> property twice or subtracted it when it was already supplied: `unset` on an
+> inherited property lands *inside* the inherited family and so adds no entry (it
+> is `inherit` on `width`, a property *outside* the family, that adds one), a
+> declared inherited property means the family has one fewer default, and a child
+> that declares one family property still inherits the other fifteen from its
+> parent. In every case the implementation matched the header and the expectation
+> did not.
+
+> **A hand-built token is bound to a source.** The value-copy tests built their
+> tokens with a NULL source, which the constructor refuses — a token with no source
+> is not a token. The suite's own builder helper now goes through a real
+> (`set_memory`, borrowing) source, which is the same way a parsed token is bound.
+
+> **A host that cannot answer `parent` is not a host with no view.** The
+> without-a-host case cleared the whole element host, which takes matching away
+> too, then asserted that the sheet still matched. It now installs a host with the
+> view but no `parent` callback — the case the header actually describes. And its
+> argument-contract assertion expected a CSS error kind for a bad argument; the
+> style domain records argument failures with kind `NONE` and reports them through
+> the return code and the record's `code` (the cascade door does the same), so the
+> test now asserts the code.

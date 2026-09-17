@@ -255,7 +255,13 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * and holds no arithmetic of its own, which is what makes this a flag rather
      * than a second implementation. */
     out->specificity = 1;
-    out->inheritance = 0;
+    /* 9.7 takes a cascade and the parent's resolved style and produces a
+     * resolved style: every declared property, every inherited one, and every
+     * inherited-by-default default, each carrying where its value came from.
+     * `computed_values` stays 0 and is a different flag on purpose — a resolved
+     * style still holds `10px` and `red`, and nothing here turns either into a
+     * length or a colour. */
+    out->inheritance = 1;
     out->computed_values = 0;
     out->default_styles = 0;
     out->stylesheet_loading = 0;

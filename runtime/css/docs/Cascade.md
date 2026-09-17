@@ -187,9 +187,12 @@ problem is not an incomplete answer.
 * **Specificity** was 9.5's one gap, and **9.6 closed it** rather than this file.
   The cascade consumes `RoboCSSSpecificity.h` and carries a `specificity` on every
   candidate; nothing about how a specificity is computed is decided here.
-* **Inheritance (9.7) and computed values (9.8).** A cascade of declarations is
-  not a style. `robo_css_style_context_compute_style` is still
-  `ROBO_NOT_SUPPORTED`.
+* **Inheritance** was 9.5's other gap, and **9.7 closed it** rather than this
+  file: a cascade of declarations is not a style, so `robo_css_inherit_resolve`
+  turns one element's cascade (plus an explicit parent) into a *resolved* style.
+  The cascade itself still does not inherit anything.
+* **Computed values (9.8).** A resolved style is not a computed one.
+  `robo_css_style_context_compute_style` is still `ROBO_NOT_SUPPORTED`.
 * **Evaluating at-rules.** No `@media` is tested, no `@import` is fetched, no
   `@supports` is checked, no layer is created — and none of them is *named* in a
   table, which is the 9.3 decision this phase keeps.

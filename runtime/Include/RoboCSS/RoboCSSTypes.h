@@ -373,11 +373,15 @@ typedef enum robo_css_diagnostic_domain {
     /** Style resolution boundary: element views, the style context. */
     ROBO_CSS_DOMAIN_STYLE = 11,
     /** Computed-style container boundary. */
-    ROBO_CSS_DOMAIN_COMPUTED = 12
+    ROBO_CSS_DOMAIN_COMPUTED = 12,
+    /** The property registry: classification and initial values (9.7). */
+    ROBO_CSS_DOMAIN_PROPERTY_REGISTRY = 13,
+    /** Inheritance: the resolved-style representation and its resolution (9.7). */
+    ROBO_CSS_DOMAIN_INHERIT = 14
 } robo_css_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_CSS_DOMAIN_COUNT 13u
+#define ROBO_CSS_DOMAIN_COUNT 15u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_css_diagnostic_domain_is_known(robo_css_diagnostic_domain_t domain);

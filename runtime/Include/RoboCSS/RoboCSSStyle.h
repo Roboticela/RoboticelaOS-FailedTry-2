@@ -46,14 +46,17 @@
  * the sheets it references are the caller's to destroy. Destroying the context
  * therefore frees the context and nothing else.
  *
- * The two resolution doors have parted company as the phases landed.
+ * The resolution doors have arrived one phase at a time.
  * robo_css_style_context_match_declarations is **real as of 9.5**: it walks the
  * context's sheets, matches their rules through the host (9.4), parses the
  * element's `style` attribute through the same grammar as any other
  * declarations, and hands back a robo_css_cascade_t (RoboCSSCascade.h) in
- * cascade order. robo_css_style_context_compute_style is still 9.8 and still
- * answers ROBO_NOT_SUPPORTED, because computing a value needs colours, units
- * and inheritance as well as a cascade.
+ * cascade order. robo_css_style_context_resolve_inherited_style is **real as of
+ * 9.7**: it collects a cascade per ancestor and resolves the chain top down,
+ * handing back a robo_css_inherited_style_t (RoboCSSInherit.h).
+ * robo_css_style_context_compute_style is still 9.8 and still answers
+ * ROBO_NOT_SUPPORTED, because computing a value needs colours and units as well
+ * as a cascade and an inheritance behind it.
  */
 
 #ifndef ROBO_CSS_STYLE_H
@@ -279,6 +282,25 @@ typedef struct robo_css_style_context robo_css_style_context_t;
 typedef struct robo_css_cascade robo_css_cascade_t;
 
 /**
+ * Forward declaration of the property classification registry (9.7).
+ *
+ * Opaque here for the same reason: the inheritance phase owns what is in one,
+ * and a context only borrows it so that a resolution can ask whether a property
+ * inherits by default and what its initial value is.
+ */
+typedef struct robo_css_property_registry robo_css_property_registry_t;
+
+/**
+ * Forward declaration of what inheritance produces (RoboCSSInherit.h).
+ *
+ * The same one-way dependency as the cascade above, for the same reason: this
+ * header owns the *context* and the doors reached through it, and the model a
+ * door produces lives in the header named after it. A caller that resolves an
+ * inherited style includes both.
+ */
+typedef struct robo_css_inherited_style robo_css_inherited_style_t;
+
+/**
  * Create an empty context: no sheets, no property table, no callbacks.
  * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL output; ROBO_OUT_OF_MEMORY.
  */
@@ -342,6 +364,27 @@ robo_result_t robo_css_style_context_set_property_table(
 
 /** Borrowed property table, or NULL when none was set. */
 const robo_css_property_table_t *robo_css_style_context_property_table(
+    const robo_css_style_context_t *context);
+
+/**
+ * Borrow a property classification registry (9.7).
+ *
+ * The registry answers the two questions inheritance asks about a property it
+ * has already identified — does it inherit by default, and what is its initial
+ * value — and it is borrowed here for the same reason the property table is:
+ * which properties exist is *policy*, and policy belongs to the caller. NULL is
+ * accepted and means "no property is classified", which makes every property
+ * fall back to the table's flags and then to the default of "does not inherit".
+ *
+ * The registry must outlive the context's use of it.
+ */
+robo_result_t robo_css_style_context_set_property_registry(
+    robo_css_style_context_t *context,
+    const robo_css_property_registry_t *registry,
+    robo_css_diag_t *diag);
+
+/** Borrowed property registry, or NULL when none was set. */
+const robo_css_property_registry_t *robo_css_style_context_property_registry(
     const robo_css_style_context_t *context);
 
 /**
@@ -450,6 +493,43 @@ robo_result_t robo_css_style_context_match_declarations(
     const robo_css_style_context_t *context,
     robo_css_element_ref_t element,
     robo_css_cascade_t *out,
+    robo_css_error_t *out_error,
+    robo_css_diag_t *diag);
+
+/**
+ * Resolve @p element's inherited style — the whole chain, from the root down.
+ *
+ * The door 9.7 adds, and the one a caller normally wants. It walks from
+ * @p element up through the host's `parent` callback to the root, then resolves
+ * **top down**: each level gets its own cascade collected and its own style
+ * resolved, with the level above supplied as the parent. Only the element's own
+ * style comes back; the intermediate ones are disposed as the walk descends.
+ *
+ * Walking up first and resolving down is what makes "the immediate resolved
+ * parent" literal rather than approximate: `div { color: red } section { color:
+ * blue }` gives a `<p>` inside `<section>` blue, because `<section>`'s resolved
+ * style is the parent, not the nearest ancestor that happened to declare
+ * something. A child never reaches past the element directly above it.
+ *
+ * The walk is bounded by ROBO_CSS_INHERIT_MAX_DEPTH, and hitting the bound is
+ * *reported*: an ancestor chain longer than that, or a DOM that reports a cycle
+ * among parents, produces a style whose `unsupported` is set rather than a
+ * silent guess about where the top was.
+ *
+ * A context with no element host, or one whose `parent` callback is NULL, is
+ * still usable: the walk simply finds no ancestor and the element is resolved
+ * as a root. That is not a failure — a host that cannot answer "what is your
+ * parent" has told this module the one thing it needs to know.
+ *
+ * @return ROBO_OK whenever a style was produced, including an incomplete one;
+ *         ROBO_INVALID_ARGUMENT for a NULL context, output or element;
+ *         ROBO_OUT_OF_MEMORY when no answer could be produced at all, in which
+ *         case @p out is left empty rather than half-filled.
+ */
+robo_result_t robo_css_style_context_resolve_inherited_style(
+    const robo_css_style_context_t *context,
+    robo_css_element_ref_t element,
+    robo_css_inherited_style_t *out,
     robo_css_error_t *out_error,
     robo_css_diag_t *diag);
 

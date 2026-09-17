@@ -167,6 +167,9 @@ void robo_test_register_css_specificity_cascade(void);
 void robo_test_register_css_cascade_levels(void);
 void robo_test_register_css_cascade_collect(void);
 void robo_test_register_css_cascade_resolve(void);
+void robo_test_register_css_property_registry(void);
+void robo_test_register_css_inherit(void);
+void robo_test_register_css_inherit_resolve(void);
 void robo_test_register_css_dom_select(void);
 void robo_test_register_demo_html(void);
 
@@ -377,6 +380,9 @@ int main(int argc, char **argv)
     robo_test_register_css_cascade_levels();
     robo_test_register_css_cascade_collect();
     robo_test_register_css_cascade_resolve();
+    robo_test_register_css_property_registry();
+    robo_test_register_css_inherit();
+    robo_test_register_css_inherit_resolve();
     robo_test_register_css_dom_select();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */

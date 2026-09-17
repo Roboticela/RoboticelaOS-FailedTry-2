@@ -1,6 +1,6 @@
-# RoboCSS Architecture (Phase 9.1–9.6)
+# RoboCSS Architecture (Phase 9.1–9.7)
 
-This is the design record for RoboCSS as it exists after Goal 9.6. It documents
+This is the design record for RoboCSS as it exists after Goal 9.7. It documents
 boundaries and rules, not plans: everything described here is compilable code
 with tests behind it, and everything *not* described here is a boundary that
 answers `ROBO_NOT_SUPPORTED`. Where a phase can see that a question exists and
@@ -305,6 +305,45 @@ specificity, a whole selector list's per-member specificities, and the "most
 specific member" a rule's list is worth to the cascade are all the same three
 numbers.
 
+### Property registry
+
+The property *table* (`RoboCSSProperty.h`) is identity, per caller. The property
+*registry* (`RoboCSSPropertyRegistry.h`) is CSS's own metadata — does a property
+inherit by default, and what is its initial value — and it is deliberately the
+other object rather than more fields on the table: it issues no ids, resolves no
+names to identities and holds no per-caller state. A definition's initial value is
+stored as text **and** as the component-value tree that text parses to, built once
+at registration through the same grammar a declaration goes through, so a
+resolution never reparses an initial value per element and an initial value cannot
+be a different dialect of CSS. The two objects meet through
+`robo_css_property_registry_apply_to_table`, which sets
+`ROBO_CSS_PROPERTY_FLAG_INHERITED` from the registry's classification, so the flag
+a caller's table carries and the classification cannot drift.
+
+### Inheritance
+
+Inheritance is **not** a record in the source sense either. It is a *result*:
+
+```text
+InheritedStyle                   what one element resolved to
+  ├── entries                    borrowed-free: one owned name + one owned value each
+  │     ├── property             identity from the context's table, or NONE
+  │     ├── name                 copied (the entry does not borrow the sheet)
+  │     ├── value                deep-copied (the entry does not borrow the parent)
+  │     ├── source               DECLARED / PARENT / DEFAULT / DEFERRED
+  │     └── keyword              the CSS-wide keyword that produced it, or NONE
+  └── counters                   declared / inherited / default / deferred / unresolved
+```
+
+It is produced by `robo_css_inherit_resolve`, which takes the parent as an
+**argument** and the cascade as an argument, so a resolution is a pure function of
+its inputs: nothing is cached between calls and no global "current style" exists.
+The context door (`robo_css_style_context_resolve_inherited_style`) is the only
+thing that walks a tree, and it does so by asking the same host the matcher asks
+about one element's parent — never RoboHTML. The registry is borrowed by the style
+context exactly as the property table is, because which properties exist and how
+they are classified is *policy* and policy belongs to the caller.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -454,7 +493,14 @@ and all three are now present: 9.5 owns the levels and the ordering, 9.6 owns th
 middle key, and the cascade holds no arithmetic of its own — it asks
 `robo_css_specificity_compare`, which is the single comparison in the runtime. A
 contest is therefore always decided; there is no third verdict left to report it
-as pending. Inheritance (9.7) is not implemented.
+as pending.
+
+Inheritance (9.7) is the key *underneath* the cascade rather than a fourth one:
+it never competes with a declaration, so no level and no specificity is consulted
+when a value is inherited. A declaration on the parent — even an `!important` one —
+reaches a child only because the child's own resolution asked the parent for the
+properties it did not declare; there is no path by which the parent's declaration
+wins an argument on the child.
 
 ## 10. Errors
 
@@ -499,7 +545,7 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Inheritance (9.7), computed values (9.8), colours (9.9), units (9.10), the box
+Computed values (9.8), colours (9.9), units (9.10), the box
 model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
@@ -508,15 +554,18 @@ transition origins. **Reading bytes is not interpreting them,
 building a tree is not interpreting it either, and answering a question about one
 element is not applying a style to it**: the tokenizer knows `10px` is a dimension
 with the unit `px`, the grammar knows a prelude is component values up to `{`,
-the matcher knows whether an element satisfies a selector, and the cascade knows
-which declaration beat which. None of them knows what a length *means*.
+the matcher knows whether an element satisfies a selector, the cascade knows
+which declaration beat which, and inheritance knows *where each value it reports
+came from*. None of them knows what a length *means*.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
 (9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade
-(9.5) and specificity (9.6) flipped to 1 for exactly that reason, and no other
-flag did. Each flipped only when its whole job worked end to end: `cascade` waited
-for `specificity` rather than claiming an ordering it could not complete.
+(9.5), specificity (9.6) and inheritance (9.7) flipped to 1 for exactly that
+reason, and no other flag did. Each flipped only when its whole job worked end to
+end: `cascade` waited for `specificity` rather than claiming an ordering it could
+not complete, and `inheritance` is 1 while `computed_values` stays 0 because a
+*resolved* value is a different thing from a computed one.
 
 Two boundaries are permanent features of the phases that introduced them rather
 than gaps in them, and they are why "is selector matching done?" has a nuanced

@@ -15,6 +15,9 @@
 /* For robo_css_cascade_init and robo_css_cascade_collect: this translation unit
  * owns the door, the cascade owns what comes out of it. */
 #include "RoboCSS/RoboCSSCascade.h"
+/* For robo_css_inherit_resolve and the resolved-style accessors: this
+ * translation unit owns the door, inheritance owns what comes out of it. */
+#include "RoboCSS/RoboCSSInherit.h"
 #include "RoboMem/RoboMem.h"
 
 /** One origin's ordered list of borrowed stylesheet ids. */
@@ -27,6 +30,9 @@ typedef struct robo_css_origin_sheets {
 struct robo_css_style_context {
     robo_css_origin_sheets_t origins[ROBO_CSS_ORIGIN_COUNT];
     const robo_css_property_table_t *property_table;
+    /* Borrowed, like the table: which properties are classified is the caller's
+     * policy, and the registry is where that policy lives (9.7). */
+    const robo_css_property_registry_t *property_registry;
     /* The one place a host is stored. set_element_lookup writes this too, so
      * there is a single answer to "which callbacks are installed" rather than a
      * lookup slot and a host that could disagree. */
@@ -356,6 +362,25 @@ const robo_css_property_table_t *robo_css_style_context_property_table(
     return context ? context->property_table : NULL;
 }
 
+robo_result_t robo_css_style_context_set_property_registry(
+    robo_css_style_context_t *context,
+    const robo_css_property_registry_t *registry,
+    robo_css_diag_t *diag)
+{
+    if (!context) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_INVALID_ARGUMENT,
+                             "context is NULL");
+    }
+    context->property_registry = registry; /* borrowing: NULL clears it */
+    return ROBO_OK;
+}
+
+const robo_css_property_registry_t *robo_css_style_context_property_registry(
+    const robo_css_style_context_t *context)
+{
+    return context ? context->property_registry : NULL;
+}
+
 robo_result_t robo_css_style_context_set_element_lookup(
     robo_css_style_context_t *context,
     robo_css_element_lookup_fn lookup,
@@ -484,6 +509,112 @@ robo_result_t robo_css_style_context_match_declarations(
     /* The output is initialised first: a caller that ignores the result still
      * has a valid, disposable object rather than an uninitialised one. */
     return robo_css_cascade_collect(context, element, out, out_error, diag);
+}
+
+robo_result_t robo_css_style_context_resolve_inherited_style(
+    const robo_css_style_context_t *context,
+    robo_css_element_ref_t element,
+    robo_css_inherited_style_t *out,
+    robo_css_error_t *out_error,
+    robo_css_diag_t *diag)
+{
+    /* One stack array rather than an allocation: the chain is bounded by the
+     * same constant the walk is, and 64 element references is a size a frame
+     * can hold. */
+    robo_css_element_ref_t chain[ROBO_CSS_INHERIT_MAX_DEPTH];
+    robo_css_inherited_style_t below = ROBO_CSS_CLEARED;
+    robo_css_inherited_style_t current = ROBO_CSS_CLEARED;
+    robo_css_element_host_t host;
+    size_t chain_length = 0u;
+    size_t index;
+    int capped = 0;
+    int error_recorded = 0;
+    robo_result_t rc = ROBO_OK;
+
+    if (!context || !out) {
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
+                           NULL, "context or output is NULL");
+        return ROBO_INVALID_ARGUMENT;
+    }
+    robo_css_inherited_style_init(out);
+    robo_css_error_init(out_error);
+    if (element == ROBO_CSS_ELEMENT_REF_NONE) {
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
+                           NULL, "a resolution needs an element");
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_INHERIT, ROBO_INVALID_ARGUMENT,
+                             "a resolution needs an element");
+    }
+
+    /* Up first: the chain is built leaf-to-root, then resolved root-to-leaf, so
+     * that every level has its own *resolved parent* in hand rather than the
+     * nearest ancestor that happened to declare something. */
+    host = robo_css_style_context_element_host(context);
+    chain[chain_length++] = element;
+    while (host.parent) {
+        robo_css_element_ref_t next;
+
+        if (chain_length >= (size_t)ROBO_CSS_INHERIT_MAX_DEPTH) {
+            /* Ask once more, so a chain that happens to be exactly the bound
+             * long is not reported as truncated. */
+            capped = host.parent(host.userdata, chain[chain_length - 1u]) !=
+                     ROBO_CSS_ELEMENT_REF_NONE;
+            break;
+        }
+        next = host.parent(host.userdata, chain[chain_length - 1u]);
+        if (next == ROBO_CSS_ELEMENT_REF_NONE) {
+            break;
+        }
+        chain[chain_length++] = next;
+    }
+
+    for (index = chain_length; index-- > 0u;) {
+        robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
+        robo_css_error_t error = ROBO_CSS_CLEARED;
+
+        rc = robo_css_cascade_collect(context, chain[index], &cascade, &error, diag);
+        if (rc != ROBO_OK) {
+            break;
+        }
+        /* The first CSS problem met anywhere on the chain, which is the same
+         * rule every other door follows. */
+        if (!error_recorded && robo_css_error_is_error(&error)) {
+            if (out_error) {
+                *out_error = error;
+            }
+            error_recorded = 1;
+        }
+        rc = robo_css_inherit_resolve(context, &cascade,
+                                      index + 1u < chain_length ? &below : NULL,
+                                      &current, diag);
+        robo_css_cascade_dispose(&cascade);
+        if (rc != ROBO_OK) {
+            break;
+        }
+        robo_css_inherited_style_dispose(&below);
+        below = current;
+        robo_css_inherited_style_init(&current);
+    }
+
+    if (rc != ROBO_OK) {
+        robo_css_inherited_style_dispose(&below);
+        robo_css_inherited_style_dispose(&current);
+        /* Nothing was produced, so the caller gets an empty style rather than a
+         * partial one it might mistake for an answer. */
+        robo_css_inherited_style_init(out);
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_OUT_OF_MEMORY, rc, NULL,
+                           "the inherited style could not be resolved");
+        return rc;
+    }
+
+    *out = below;
+    robo_css_inherited_style_init(&below);
+    if (capped) {
+        /* The ancestor chain was longer than the walk goes, so the level this
+         * resolution treated as a root is not one. Reported rather than
+         * hidden: every value inherited from above that point is a lower bound. */
+        out->unsupported = 1;
+    }
+    return ROBO_OK;
 }
 
 robo_result_t robo_css_style_context_compute_style(

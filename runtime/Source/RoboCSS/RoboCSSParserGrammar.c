@@ -1107,6 +1107,64 @@ robo_result_t robo_css_grammar_parse_declarations(robo_css_declaration_list_t *o
     return ROBO_OK;
 }
 
+/** Parse @p source as one component-value list — an initial value (9.7). */
+robo_result_t robo_css_grammar_parse_value(robo_css_value_t *out_value,
+                                           const robo_css_source_t *source,
+                                           robo_css_origin_t origin,
+                                           robo_css_error_t *out_error)
+{
+    robo_css_grammar_t grammar = ROBO_CSS_CLEARED;
+    robo_result_t result;
+
+    if (!out_value || !source) {
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
+                           NULL, "value or source is NULL");
+        return ROBO_INVALID_ARGUMENT;
+    }
+    robo_css_value_init(out_value);
+    if (!robo_css_origin_is_known(origin)) {
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
+                           NULL, "unknown origin");
+        return ROBO_INVALID_ARGUMENT;
+    }
+
+    grammar.source = source;
+    grammar.origin = origin;
+    result = robo_css_tokenizer_init(&grammar.tokenizer, source, NULL);
+    if (result != ROBO_OK) {
+        robo_css_tokenizer_dispose(&grammar.tokenizer);
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, result, NULL,
+                           "the tokenizer could not be initialized");
+        return result;
+    }
+
+    /* No stops: a value runs to the end of its source, so an initial value's
+     * text is exactly the bytes between its ends. */
+    result = value_make_list(out_value);
+    if (result == ROBO_OK) {
+        result = grammar_consume_component_values(&grammar, out_value, NULL, 0u, 0u);
+    }
+    robo_css_tokenizer_dispose(&grammar.tokenizer);
+
+    if (result != ROBO_OK) {
+        robo_css_value_dispose(out_value);
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_OUT_OF_MEMORY, result, NULL,
+                           "the value could not be built");
+        return result;
+    }
+    /* Same rule a declaration's value follows: surrounding whitespace is not
+     * part of the value, interior whitespace is. */
+    value_trim_whitespace(out_value);
+    value_span_self(out_value);
+    if (grammar.has_error) {
+        robo_css_error_set(out_error, grammar.error.kind, grammar.error.code,
+                           &grammar.error.position, grammar.error.message);
+    } else {
+        robo_css_error_init(out_error);
+    }
+    return ROBO_OK;
+}
+
 /* ------------------------------------------------------------------ */
 /* Rules                                                               */
 /* ------------------------------------------------------------------ */

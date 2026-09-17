@@ -20,15 +20,18 @@
  * Capabilities, not marketing: robo_css_get_capabilities reports what this
  * build actually does. The model flags are 1, and so are the behaviour flags of
  * every phase that has landed — the tokenizer (9.2), the grammar and inline
- * parsing (9.3), selector parsing and matching (9.4), the cascade (9.5). The
- * flags that remain 0 are specificity, inheritance, computed values, default
- * styles and loading, and each of those names work this build does not do. A
- * caller that wants to know whether CSS will style anything should read this
- * rather than infer it from a version number.
+ * parsing (9.3), selector parsing and matching (9.4), the cascade (9.5),
+ * specificity (9.6) and the inheritance behind a cascade (9.7). The flags that
+ * remain 0 are computed values, default styles and loading, and each of those
+ * names work this build does not do. A caller that wants to know whether CSS
+ * will style anything should read this rather than infer it from a version
+ * number.
  *
- * A flag is 1 only when the thing it names works end to end: the cascade orders
- * by all three keys because specificity (9.6) is here, and the flags that remain
- * 0 each name work this build does not do.
+ * A flag is 1 only when the thing it names works end to end. The rule has real
+ * teeth at the boundaries: `cascade` waited for `specificity` rather than
+ * claiming an ordering it could not complete, and `inheritance` is 1 while
+ * `computed_values` is 0 because a *resolved* style is a different thing from a
+ * computed one and only the first exists.
  */
 
 #ifndef ROBO_CSS_H
@@ -122,7 +125,12 @@ typedef struct robo_css_capabilities {
      * candidates of one level from different selectors into a decision.
      */
     int specificity;
-    /** Inheritance of inherited properties (9.7). */
+    /**
+     * Inheritance (9.7): the properties that propagate by default, the
+     * CSS-wide keywords, and a resolved style per element carrying where every
+     * value came from. A resolved value is *not* a computed one: a length is
+     * still `10px` here, and a colour is still `red`.
+     */
     int inheritance;
     /** Computed values (9.8). */
     int computed_values;

@@ -29,6 +29,8 @@
 #include "RoboCSS/RoboCSSParser.h"
 #include "RoboCSS/RoboCSSMatcher.h"
 #include "RoboCSS/RoboCSSProperty.h"
+#include "RoboCSS/RoboCSSPropertyRegistry.h"
+#include "RoboCSS/RoboCSSInherit.h"
 #include "RoboCSS/RoboCSSRule.h"
 #include "RoboCSS/RoboCSSSelector.h"
 #include "RoboCSS/RoboCSSSelectorParser.h"
@@ -110,6 +112,39 @@ static const css_text_sample_t css_samples[] = {
 /* ------------------------------------------------------------------ */
 /* Builders                                                            */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Point @p source at @p text without copying it.
+ *
+ * @p source must be zeroed first (`ROBO_CSS_CLEARED`). A memory source borrows,
+ * so nothing owns the bytes and nothing has to outlive anything except the
+ * literal itself — which is why it is the right way to give a hand-built token
+ * something real to point at.
+ */
+static inline void css_source_of_literal(robo_css_source_t *source, const char *text)
+{
+    ROBO_CHECK_EQ_INT(robo_css_source_set_memory(source, (const uint8_t *)text,
+                                                 strlen(text), NULL),
+                      ROBO_OK);
+}
+
+/**
+ * Make a token of @p type covering @p text, borrowing @p source.
+ *
+ * A token is bound to a source and a range inside it; one built without a source
+ * is not a token and the constructor refuses it. Hand-built tokens therefore go
+ * through a real source exactly as parsed ones do. @p source must outlive the
+ * token's slice.
+ */
+static inline void css_token_of_text(robo_css_token_t *token,
+                                     robo_css_token_type_t type,
+                                     const robo_css_source_t *source,
+                                     const char *text)
+{
+    ROBO_CHECK_EQ_INT(robo_css_token_make(token, type, source,
+                                          robo_css_range_span(0u, strlen(text)), NULL),
+                      ROBO_OK);
+}
 
 /**
  * Make a TOKEN value from @p text, borrowing @p source for its range.
@@ -1157,9 +1192,28 @@ static inline void css_host_drop_relation(css_host_t *host, css_host_relation_t 
  * needs to know *whether* something matched are asking the same seam two
  * questions, and giving each suite its own fake host would let them drift.
  */
+/**
+ * How many sheets one fixture may own.
+ *
+ * The module keeps a fixed table of live stylesheets, so a suite that made one
+ * per test and never released it would exhaust the table partway through a run
+ * and start failing for a reason that has nothing to do with what it tests.
+ * The fixture therefore owns what it makes and releases it on the way out; the
+ * bound is the most any single fixture in these suites has needed.
+ */
+#define CSS_FIXTURE_MAX_SHEETS 32u
+
 typedef struct css_cascade_fixture {
     css_host_t host;
     robo_css_style_context_t *context;
+    /*
+     * The sheets this fixture created, so it can release them. A sheet made
+     * through css_cascade_sheet belongs to the fixture's test, and a test that
+     * destroys one itself is harmless: the release below tolerates an id that is
+     * already dead.
+     */
+    robo_css_stylesheet_id_t sheets[CSS_FIXTURE_MAX_SHEETS];
+    size_t sheet_count;
 } css_cascade_fixture_t;
 
 /** Create @p context with @p host installed, and seal the host's sibling links. */
@@ -1168,17 +1222,32 @@ static inline void css_cascade_begin(css_cascade_fixture_t *fixture)
     css_host_init(&fixture->host);
     css_host_seal(&fixture->host);
     fixture->context = NULL;
+    fixture->sheet_count = 0u;
     ROBO_CHECK_EQ_INT(robo_css_style_context_create(&fixture->context, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_css_style_context_set_element_host(
                           fixture->context, &fixture->host.host, NULL),
                       ROBO_OK);
 }
 
-/** Destroy the context. The host belongs to the caller and is left alone. */
+/**
+ * Destroy the context and every sheet the fixture made.
+ *
+ * The host belongs to the caller and is left alone. The sheets do not: they live
+ * in the module, and leaving them to accumulate would fill the module's fixed
+ * table long before the run ends.
+ */
 static inline void css_cascade_end(css_cascade_fixture_t *fixture)
 {
+    size_t index;
+
     robo_css_style_context_destroy(fixture->context);
     fixture->context = NULL;
+    for (index = 0u; index < fixture->sheet_count; index++) {
+        /* An id the test already destroyed answers NOT_FOUND, which is exactly
+         * the same state the fixture wanted: gone. */
+        (void)robo_css_stylesheet_destroy(fixture->sheets[index], NULL);
+    }
+    fixture->sheet_count = 0u;
 }
 
 /**
@@ -1212,6 +1281,9 @@ static inline robo_css_stylesheet_id_t css_cascade_sheet(css_cascade_fixture_t *
     }
     ROBO_CHECK_EQ_INT(robo_css_style_context_add_sheet(fixture->context, origin, id, NULL),
                       ROBO_OK);
+    if (fixture->sheet_count < CSS_FIXTURE_MAX_SHEETS) {
+        fixture->sheets[fixture->sheet_count++] = id;
+    }
     return id;
 }
 
@@ -1351,6 +1423,171 @@ static inline robo_css_cascade_verdict_t css_cascade_winner_text(
         }
     }
     return verdict;
+}
+
+/* ------------------------------------------------------------------ */
+/* Inheritance (Phase 9.7)                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A cascade fixture plus the two things a resolution needs.
+ *
+ * The property table and the registry are the caller's policy ("which
+ * properties exist, and which of them inherit"), and a resolution cannot answer
+ * `color: inherit` without both. They are built here through the supported path
+ * — create the standard registry, apply it to a table — so a suite exercises the
+ * same wiring an application would, and so the table's INHERITED flags and the
+ * registry's classifications cannot disagree in the fixture.
+ */
+typedef struct css_inherit_fixture {
+    css_cascade_fixture_t cascade;
+    robo_css_property_table_t *table;
+    robo_css_property_registry_t *registry;
+} css_inherit_fixture_t;
+
+static inline void css_inherit_begin(css_inherit_fixture_t *fixture)
+{
+    css_cascade_begin(&fixture->cascade);
+    fixture->table = NULL;
+    fixture->registry = NULL;
+    ROBO_CHECK_EQ_INT(robo_css_property_table_create(&fixture->table, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_property_registry_create_standard(&fixture->registry, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_property_registry_apply_to_table(fixture->registry,
+                                                               fixture->table, NULL, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_set_property_table(
+                          fixture->cascade.context, fixture->table, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_set_property_registry(
+                          fixture->cascade.context, fixture->registry, NULL),
+                      ROBO_OK);
+}
+
+/**
+ * The three nested things a resolution test needs, under names that read the
+ * way the tests write them.
+ *
+ * The fixture embeds the cascade fixture rather than duplicating it — one host
+ * double, one context, one place a callback is installed — so these are the
+ * doors to the parts, not second copies of them.
+ */
+static inline css_host_t *css_inherit_host(css_inherit_fixture_t *fixture)
+{
+    return &fixture->cascade.host;
+}
+
+static inline robo_css_style_context_t *css_inherit_context(css_inherit_fixture_t *fixture)
+{
+    return fixture->cascade.context;
+}
+
+/** Parse @p text and add it to the fixture's context under @p origin. */
+static inline robo_css_stylesheet_id_t css_inherit_sheet(css_inherit_fixture_t *fixture,
+                                                         robo_css_origin_t origin,
+                                                         const char *text)
+{
+    return css_cascade_sheet(&fixture->cascade, origin, text);
+}
+
+/** Install @p text as the element's `style` attribute (NULL means none). */
+static inline void css_inherit_inline(css_inherit_fixture_t *fixture,
+                                      css_inline_stub_t *stub,
+                                      const char *text)
+{
+    css_cascade_inline(&fixture->cascade, stub, text);
+}
+
+static inline void css_inherit_end(css_inherit_fixture_t *fixture)
+{
+    robo_css_property_registry_destroy(fixture->registry);
+    robo_css_property_table_destroy(fixture->table);
+    fixture->registry = NULL;
+    fixture->table = NULL;
+    css_cascade_end(&fixture->cascade);
+}
+
+/** Resolve @p cascade with @p parent (may be NULL) into @p out. */
+static inline void css_inherit_resolve(const css_inherit_fixture_t *fixture,
+                                       const robo_css_cascade_t *cascade,
+                                       const robo_css_inherited_style_t *parent,
+                                       robo_css_inherited_style_t *out)
+{
+    ROBO_CHECK_EQ_INT(robo_css_inherit_resolve(fixture->cascade.context, cascade, parent,
+                                              out, NULL),
+                      ROBO_OK);
+}
+
+/**
+ * The resolved value of @p name, as a shape string.
+ *
+ * Three states are distinguishable, and they are the three a test needs to tell
+ * apart: `""` shapes the value, `<absent>` means the property has no entry at
+ * all, and `<unresolved>` means the entry exists but this build does not know the
+ * property's default. Collapsing any two of those would let a test pass for the
+ * wrong reason.
+ */
+static inline void css_inherit_value(const robo_css_inherited_style_t *style,
+                                     const char *name,
+                                     char *out,
+                                     size_t capacity)
+{
+    const robo_css_inherited_property_t *entry;
+    size_t offset = 0u;
+
+    if (!out || capacity == 0u) {
+        return;
+    }
+    out[0] = '\0';
+    entry = robo_css_inherited_style_find(style, robo_css_slice_from_text(name));
+    if (!entry) {
+        css_shape_text(out, capacity, &offset, "<absent>");
+        return;
+    }
+    if (entry->unresolved) {
+        css_shape_text(out, capacity, &offset, "<unresolved>");
+        return;
+    }
+    css_shape_write(&entry->value, out, capacity, &offset);
+}
+
+/** The provenance of @p name as a name string, or "<absent>". */
+static inline const char *css_inherit_source(const robo_css_inherited_style_t *style,
+                                             const char *name)
+{
+    const robo_css_inherited_property_t *entry =
+        robo_css_inherited_style_find(style, robo_css_slice_from_text(name));
+
+    if (!entry) {
+        return "<absent>";
+    }
+    return robo_css_inherited_source_name(entry->source);
+}
+
+/** The CSS-wide keyword recorded for @p name, or "<absent>". */
+static inline const char *css_inherit_keyword(const robo_css_inherited_style_t *style,
+                                              const char *name)
+{
+    const robo_css_inherited_property_t *entry =
+        robo_css_inherited_style_find(style, robo_css_slice_from_text(name));
+
+    if (!entry) {
+        return "<absent>";
+    }
+    return robo_css_wide_keyword_name(entry->keyword);
+}
+
+/** Assert @p style's entry for @p name has @p value as its shape and @p source. */
+static inline void css_inherit_is(const robo_css_inherited_style_t *style,
+                                  const char *name,
+                                  const char *value,
+                                  const char *source)
+{
+    char shape[256];
+
+    css_inherit_value(style, name, shape, sizeof(shape));
+    ROBO_CHECK_STR_EQ(shape, value);
+    ROBO_CHECK_STR_EQ(css_inherit_source(style, name), source);
 }
 
 #endif /* ROBO_CSS_TEST_SUPPORT_H */

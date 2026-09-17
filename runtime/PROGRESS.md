@@ -2803,6 +2803,109 @@ goes further and asserts `robo_css_specificity_equal` on the two candidates befo
 asserting the winner, so "this was decided by order" is a fact the test establishes
 rather than an assumption it leans on.
 
+## Goal 9.7 — CSS inheritance
+
+**Status: complete.** The property registry, the resolved-style model, the
+resolution, the CSS-wide keywords and the ancestor walk are implemented, tested
+against the real RoboHTML DOM, and verified under sanitizers.
+
+### Delivered
+
+- [x] `Include/RoboCSS/RoboCSSPropertyRegistry.h` + `Source/RoboCSS/RoboCSSPropertyRegistry.c`
+      — the authoritative metadata: does a property inherit by default, and what is
+      its initial value. Initial values are stored as text **and** as the parsed
+      component-value tree, built once at registration through the same grammar a
+      declaration goes through; a text that does not parse is refused at
+      registration. The standard set is the sixteen inherited properties these
+      phases know (colour, the font and text properties) and the common
+      non-inherited ones. Deliberately *not* a second property table: no ids, no
+      per-caller state.
+- [x] `robo_css_property_registry_apply_to_table` — the one supported way to build
+      a table, setting `ROBO_CSS_PROPERTY_FLAG_INHERITED` from the classification,
+      so the flag and the classification cannot drift
+- [x] `Include/RoboCSS/RoboCSSInherit.h` + `Source/RoboCSS/RoboCSSInherit.c` — the
+      resolved style: one owned entry per property the element has an answer for,
+      each carrying its provenance (`DECLARED`/`PARENT`/`DEFAULT`/`DEFERRED`) and
+      the CSS-wide keyword that produced it, plus the counters that stop the result
+      being read as more complete than it is
+- [x] `robo_css_inherit_resolve` — the primitive, and the only door that does any
+      work. It takes the parent as an **argument** and walks three sets in order:
+      the element's own cascade winners (through the cascade's own resolver), the
+      inherited-by-default properties the parent carries, then the registry's
+      initial values for the rest. A resolution is therefore a pure function of its
+      inputs, with nothing cached and nothing global to invalidate
+- [x] The CSS-wide keywords obeyed on the parsed value and never on a string:
+      `inherit`, `initial`, `unset`; `revert` recognised, carried as a *deferred*
+      entry and **reported** rather than half-obeyed, because obeying it means
+      re-running a cascade with one origin removed
+- [x] Custom properties: inherit always, compared byte-exact, and carrying no
+      initial value (an unset one is invalid, not `initial`)
+- [x] `robo_css_style_context_resolve_inherited_style` — the chain door: walk up
+      through the host's `parent`, resolve **top down** so each level's parent is
+      the *immediate resolved* parent, bounded at `ROBO_CSS_INHERIT_MAX_DEPTH` and
+      reported when the bound is hit (a cycle is caught by the same bound)
+- [x] `robo_css_style_context_set_property_registry` / `_property_registry` and the
+      registry-aware classification path, so the table and the registry are both
+      borrowed from the caller
+- [x] `robo_css_value_copy` — a deep, transactional copy, the primitive inheritance
+      needed and no part of the subsystem had
+- [x] Three new suites, 37 tests: `css.registry.*` 11 (lifecycle, the standard set,
+      classification, initial values, custom-property naming, lookup, registration,
+      definition stability, apply-to-table, the name tables, and a leak check),
+      `css.inherit.*` 6 (the keyword table and its negatives, the name tables, the
+      resolved style's lifecycle, the deep value copy and its balance) and
+      `css.inherit.resolve.*` + `css.inherit.chain.*` 20 (declared, inherited,
+      non-inherited, child and intermediate overrides, root behaviour, `inherit`,
+      `initial`, `unset`, `revert`, custom properties, an unknown property, inline,
+      an incomplete cascade, counters and determinism, a leak check, and the walk)
+- [x] Capability flag `inheritance` flipped to 1; `computed_values`,
+      `default_styles` and `stylesheet_loading` still 0. Version 0.7.0,
+      `ROBO_CSS_API_FROZEN` still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer over the whole
+      suite, **zero findings**; the plain build is 1832/1832 and `css.` is 423/423
+- [x] QEMU display validation passes; `scripts/robo check` passes with the runtime
+      sources, headers and build wiring **CLEAN** for Chromium independence
+- [x] Phases 6–9.6 regression-tested: full suite green — up 37 CSS tests from 9.6,
+      with no existing test weakened or removed and no HTML/DOM, selector, cascade
+      or specificity behaviour changed
+- [x] `css/docs/Inheritance.md` added, and `css/README.md`, `css/docs/Tests.md`,
+      `css/docs/Architecture.md` and `ARCHITECTURE.md` updated for the milestone
+- [x] No Chromium dependency introduced
+- [x] No computed values, no colours, no units, no `calc()`, no `var()
+      substitution, no box model, no layout, no painting, no CSSOM, no animations
+- [x] Stop after 9.7
+
+### What 9.7 found
+
+**One real product defect, caught by the sanitizer run and not by the plain one.**
+`robo_css_property_registry_create_standard` wrote `*out_registry` without checking
+it was non-NULL, so `create_standard(NULL, …)` — the argument contract every other
+door honours — crashed instead of returning `ROBO_INVALID_ARGUMENT`. The plain
+build's combined run died with a segfault whose position could not be located,
+because the harness does not flush stdout on exit; the sanitized build pinned it to
+the line and the call.
+
+**The fixed slot table is why a filtered run and a combined run disagree.**
+`ROBO_CSS_MAX_STYLESHEETS` is 64, and the suites created a sheet per test and never
+released it, so a combined `css.` run exhausted the table partway through and every
+later sheet creation failed — making unrelated tests fail for a reason with nothing
+to do with them. The fix is in the fixture, not the constant: the cascade fixture
+now owns the sheets it makes and releases them in its `end`, so the bound stays a
+real product bound.
+
+**Three count expectations were off by one against the contract the header
+states.** `unset` on an inherited property lands inside the inherited family and so
+adds no entry (it is `inherit` on `width`, a property outside the family, that adds
+one); a declared inherited property leaves one fewer default; and a child that
+declares one family property still inherits the other fifteen. The implementation
+matched the header in all three; the expectations did not.
+
+**Two smaller fixture mistakes.** The value-copy tests built tokens with a NULL
+source, which the constructor refuses (a token with no source is not a token). And
+the without-a-host case cleared the whole element host — taking matching away too —
+then asserted the sheet still matched; it now installs a host with the view but no
+`parent` callback, which is the case the header describes.
+
 ## Next
 
-- Goal 9.7 — CSS inheritance (do not start until requested)
+- Goal 9.8 — CSS computed values (do not start until requested)

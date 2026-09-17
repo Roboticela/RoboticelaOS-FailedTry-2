@@ -249,6 +249,30 @@ robo_result_t robo_css_grammar_parse_declarations(
     robo_css_origin_t origin,
     robo_css_error_t *out_error);
 
+/**
+ * Parse @p source as a single component-value list into @p out_value (9.7).
+ *
+ * The third *internal* door, and deliberately not a public one: it exists so
+ * that a property registry can turn an initial-value spelling (`auto`,
+ * `medium none currentcolor`) into a value tree **once**, when the property is
+ * registered, instead of reparsing it for every element that falls back to its
+ * default. It is the same `grammar_consume_component_values` the declaration
+ * grammar uses, so an initial value and a declared one cannot be two dialects
+ * of CSS.
+ *
+ * Nothing outside this subsystem can reach it, and the public parser boundary
+ * is unchanged: a stylesheet still arrives through robo_css_stylesheet_parse
+ * and a `style` attribute through robo_css_declaration_list_parse_text.
+ *
+ * @p out_value is initialised first and left empty when nothing could be
+ * parsed. Slices in the result borrow @p source's bytes, so @p source must
+ * outlive @p out_value.
+ */
+robo_result_t robo_css_grammar_parse_value(robo_css_value_t *out_value,
+                                           const robo_css_source_t *source,
+                                           robo_css_origin_t origin,
+                                           robo_css_error_t *out_error);
+
 /* ------------------------------------------------------------------ */
 /* The cascade (9.5)                                                   */
 /* ------------------------------------------------------------------ */
