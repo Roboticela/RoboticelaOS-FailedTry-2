@@ -32,6 +32,7 @@ $script:RoboRuntimeComponents = [ordered]@{
     "window"      = @("window.")
     "display"     = @("display.")
     "html"        = @("html.")
+    "css"         = @("css.")
     "demo"        = @("demo.")
     "infra"       = @("infra.")
 }

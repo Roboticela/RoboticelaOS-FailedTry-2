@@ -218,7 +218,23 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboHTML\RoboHTMLMutation.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLDocumentModel.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLAnchor.c"),
-    (Join-Path $SourceDir "RoboHTML\RoboHTMLForm.c")
+    (Join-Path $SourceDir "RoboHTML\RoboHTMLForm.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSInternal.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSS.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSTypes.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSDiagnostics.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSError.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSSource.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSToken.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSValue.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSProperty.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSDeclaration.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSSelector.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSRule.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSStyleSheet.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSParser.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSComputed.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSStyle.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -347,6 +363,15 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLAnchor.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLForm.c"),
     (Join-Path $RuntimeRoot "html\tests\SuiteRoboHTMLDom.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCss.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssSource.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssToken.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssValue.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssDeclaration.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssSelector.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssSheet.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssStyle.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssRobust.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -546,6 +571,32 @@ function Assert-RoboHTMLChromiumIndependence {
         }
     }
     Write-Host "RoboHTML Chromium-independence source scan: OK"
+}
+
+function Assert-RoboCSSChromiumIndependence {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboCSS"),
+        (Join-Path $SourceDir "RoboCSS"),
+        (Join-Path $RuntimeRoot "css")
+    )
+    # RoboCSS answers "what does this stylesheet say"; it must not reach into
+    # Chromium, and it must not reach *up* either: it is a peer of RoboHTML, not
+    # a client of it, and it knows nothing about layout, painting, rendering or
+    # any windowing or drawing layer (see DEPENDENCIES.md and css/docs).
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboHTML|RoboLayout|RoboPaint|RoboRender|RoboCompositor|RoboWindow|RoboGraphics|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|never depend|no Chromium|without Chromium|independence|Chromium-specific|Chromium reference|not a dependency|Forbidden:'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboCSS Chromium/higher-layer dependency leaked into sources:`n$sample"
+        }
+    }
+    Write-Host "RoboCSS Chromium-independence source scan: OK"
 }
 
 function Assert-RoboDisplayChromiumIndependence {
@@ -795,6 +846,7 @@ if ($Verify) {
     Assert-RoboWindowChromiumIndependence
     Assert-RoboDisplayChromiumIndependence
     Assert-RoboHTMLChromiumIndependence
+    Assert-RoboCSSChromiumIndependence
     Assert-RoboDemoIsolation
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }

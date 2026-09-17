@@ -12,10 +12,10 @@
 #define ROBOTICELA_RUNTIME_H
 
 #define ROBOTICELA_RUNTIME_VERSION_MAJOR 0
-#define ROBOTICELA_RUNTIME_VERSION_MINOR 19
+#define ROBOTICELA_RUNTIME_VERSION_MINOR 20
 #define ROBOTICELA_RUNTIME_VERSION_PATCH 0
 
-/** Tracks Phase 8 progress (HTML architecture through Goal 8.14). */
-#define ROBOTICELA_RUNTIME_VERSION_STRING "0.19.0"
+/** Tracks Phase 9 progress (CSS architecture through Goal 9.1). */
+#define ROBOTICELA_RUNTIME_VERSION_STRING "0.20.0"
 
 #endif /* ROBOTICELA_RUNTIME_H */

@@ -205,7 +205,8 @@ API names below are **planned boundaries**, not implemented headers yet (except 
 | **Responsibility** | CSS tokenize/parse, selectors, style rules, computed style, inheritance applied onto DOM. |
 | **May depend on** | RoboBase, RoboMem, RoboContainers, RoboDOM. |
 | **Must NOT depend on it** | RoboBase … RoboDOM; RoboHTML (CSS must work on any DOM tree); layout, paint, JS. |
-| **Public C API boundary** | Planned: `Include/RoboCSS/RoboCSS.h` — parse stylesheet, compute styles for a document. |
+| **Public C API boundary** | `Include/RoboCSS/RoboCSS.h` — the 9.1 model (source, token, value, property, declaration, selector, rule, stylesheet, parser cursor) is in place; `robo_css_stylesheet_parse` refuses with `ROBO_NOT_SUPPORTED` naming Goal 9.3, and `robo_css_get_capabilities` reports what this build actually does. |
+| **Status** | Goal 9.1 architecture complete (`css/README.md`, `css/docs/`). Chromium- *and* higher-layer independence asserted by `-Verify`. |
 
 ---
 
@@ -355,5 +356,5 @@ runtime/
 └── Out/
 ```
 
-Implemented: RoboBase (Goals 1.x), RoboMem Phase 2, RoboArray/RoboString, RoboUnicode encoding (3.3).
-Not yet: UCD properties, containers beyond array/string, threads, events, HTML/CSS/JS, graphics.
+Implemented: RoboBase (Goals 1.x), RoboMem Phase 2, RoboArray/RoboString, RoboUnicode, RoboI18N and CLDR data, RoboFont, RoboText, RoboGraphics, RoboWindow and the QEMU display backend, RoboHTML/DOM (Goals 8.1–8.15) and the RoboCSS model (Goal 9.1).
+Still not implemented: the CSS tokenizer/parser/selectors/cascade and computed style (Goal 9.2 onward), threads, events, JS, layout, paint and networking.

@@ -2013,6 +2013,135 @@ and the anchor model were written and both are invisible without UBSan.
       independence assertion)
 - [x] Stop after 8.15
 
+## Goal 9.1 — CSS architecture
+
+This phase builds the *model* the rest of Phase 9 will be written against, and
+deliberately nothing that interprets it. No tokenizer, no parser, no selector
+matching, no cascade, no computed style, no layout, no painting — those are
+9.2 onward, and the whole point of doing 9.1 first is that each of them can then
+land independently, behind an interface that already exists.
+
+**The interesting decisions are the seams, not the structs.** RoboCSS is a
+**peer of RoboHTML**, not a client: per `DEPENDENCIES.md` it works on any DOM
+tree, so it must not include RoboHTML, and it must not know that layout,
+painting, rendering, windowing, graphics or display exist. That is enforced, not
+merely stated — `-Verify` now runs `Assert-RoboCSSChromiumIndependence` over
+`Include/RoboCSS`, `Source/RoboCSS` and `css/`, rejecting Chromium/Skia/V8 *and*
+the higher runtime layers, the same way the RoboHTML scan does. The DOM stays
+authoritative for elements, attributes, tree relationships and text; RoboCSS
+owner nothing from the tree and stores no second copy of it.
+
+**Syntax is modelled as by-value records, and that has a real cost.** A token, a
+value, a declaration, a selector and a rule are inert description with no
+external identity, so they are plain records rather than opaque pointers. The
+price is one precondition, stated once in `RoboCSSTypes.h` and depended on
+everywhere: a record must be **cleared** before any call that may release what
+it holds, because `make`/`init`/`append`/`dispose` release *first* and then set,
+so reconfiguring never leaks — and therefore an *uninitialized* record is not
+safe, since the release step reads fields still holding stack garbage. That is
+not theoretical: a `robo_css_value_t` local that reached
+`robo_css_value_make_list` uninitialized walked a `count` of stack garbage and
+freed a pointer that was never an allocation. The fix was to name the contract
+(`ROBO_CSS_CLEARED`, whose all-zero byte pattern is the cleared state *by
+design* — every field's zero is its empty value) and then to *test* it rather
+than comment it: `css.records.cleared_state` asserts the equivalence field by
+field for eleven record types, then asserts each cleared record is a usable
+starting point rather than an inert one.
+
+**Two real defects were found and fixed rather than worked around.**
+`robo_css_source_set_string` delegated to `set_memory` and so never produced
+`KIND_STRING`, leaving a documented source kind unreachable — the one place a
+caller asks for owned bytes it controls the lifetime of. And
+`robo_css_stylesheet_parse` dereferenced its `out_error` unconditionally while
+reporting the not-yet-implemented parse, even though `robo_css_error_set`
+tolerates a NULL destination and the header promises the record is optional;
+AddressSanitizer caught the access at `0x0`. Both were in code written this
+phase, and both were fixed at the source, not at the test.
+
+**The parser boundary refuses honestly.** `robo_css_stylesheet_parse` answers
+`ROBO_NOT_SUPPORTED`, names Goal 9.3 in the message, leaves the rule list and the
+stylesheet state untouched, and *records the reason on the stylesheet* so a
+caller that did not ask for the error still sees it. There is no stub that
+pretends to tokenize or parse. `robo_css_get_capabilities` reports which
+subsystems exist, so a caller never has to infer capability from a version
+number — and the suites assert the flags as they are rather than as the phase
+list intends them.
+
+**The plan's ten-directory layout is deliberately not reproduced.**
+`source/ tokenizer/ parser/ syntax/ selector/ declaration/ stylesheet/ cascade/
+computed/` would be ten directories holding one file each, against the
+repository's own convention of one flat module directory with a `Robo*`-prefixed
+translation unit per concern and an explicit, readable source list in the build.
+The separation of concerns the plan asks for lives in sixteen public headers —
+one per model, plus the umbrella `RoboCSS.h` — which is where a reader actually
+looks for it.
+
+- [x] Module boundaries for every later stage: source, token, value, property,
+      declaration, selector, rule, stylesheet, parser cursor, computed style
+- [x] Source model: borrowed string, borrowed memory and owned copy, byte
+      offsets, 1-based line/column tracking, half-open ranges that slice the
+      source, UTF-8 preservation, and malformed input representable safely
+- [x] Full CSS Syntax token vocabulary as an enum, with classification, bracket
+      pairing, hash types and range binding — but no tokenizer
+- [x] Component-value model (`token`/`function`/`block`/`list`) with move-in
+      children and recursive ownership — but no value parser
+- [x] Declaration model: name, value, `!important`, source ranges, and a
+      `NONE`/`PARSED`/`INVALID` state — but no property semantics
+- [x] Style rules, at-rules and nested-rule storage; a stylesheet with origin,
+      state, attached source, rule storage, rule traversal and module slots
+- [x] Selector architecture: simple (type/class/id/attribute/pseudo/universal),
+      compound, complex with combinators, and lists — but no matching and no
+      specificity
+- [x] Property boundary: a property table mapping name → stable per-table
+      identity, plus id → parser/computer hook registration, so later phases
+      register rather than hard-code a property database
+- [x] Error model distinct from `robo_result_t`, with `recoverable` vs `fatal`
+      and a non-fatal default for malformed source — nothing crashes on bad CSS
+- [x] DOM integration boundary (an element view and a style context) and the
+      inline-style boundary — the DOM keeps the `style` attribute, RoboCSS is
+      handed its text — with no resolution implemented and no second attribute
+      store
+- [x] Default/user-agent stylesheet boundary and a stylesheet-origin model
+      capable of distinguishing application, inline and runtime sources, with no
+      built-in stylesheet and no cascade priority assigned
+- [x] Parser pipeline interface defined end to end (source → tokenizer → parser →
+      stylesheet) with a real, deterministic, compilable skeleton that refuses
+      rather than fakes
+- [x] Deterministic lifetimes throughout: static bounded module slots, monotonic
+      never-reused stylesheet ids, borrowed slices never freed, and sanitizer
+      runs where supported
+- [x] Nine suites, 88 tests, reusing the existing framework — no second runner,
+      reporter or assertion vocabulary
+- [x] Tests: source (kinds, ownership, reconfiguration, argument rejection,
+      labels, LF/CRLF/lone-CR positions, ranges, Unicode preservation), token,
+      value, declaration, selector, rule, stylesheet, style context, robustness
+- [x] Fixtures for later phases as source data only, plus one shared Unicode
+      sample table so two tests cannot disagree about what "Arabic" means
+- [x] Unicode source preserved verbatim through every model: Arabic, Persian,
+      Urdu, Hebrew, Devanagari, Bengali, Chinese, Japanese, Korean and emoji
+- [x] Robustness: empty, whitespace-only, large, incomplete, malformed and
+      Unicode source, repeated creation/destruction, deep rule nesting, wide
+      structures and deep value trees — memory-safe in every case
+- [x] Build integration: production sources, test sources, module registration
+      and a `css` component in the pipeline's runtime component table, so
+      `scripts/robo test-css` is a real focused command — no competing build
+- [x] Chromium-independence asserted by the build itself, extended to reject any
+      higher runtime layer as well
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer enabled, full
+      suite green, **zero findings after the two fixes**
+- [x] Phases 6–8 regression-tested: full suite green (1495 tests, Debug, no
+      documented exclusions) — up 88 from 8.15's 1407, with no existing test
+      weakened or removed and no existing HTML/DOM behaviour changed
+- [x] The visual vertical slice still works end to end on the host and in QEMU,
+      and CSS is isolated from rendering — nothing in the rendering path
+      consults it yet
+- [x] `css/README.md`, `css/docs/Architecture.md` and `css/docs/Tests.md`
+      document the module boundaries, ownership and lifetime rules, every model,
+      the DOM/inline/default-stylesheet boundaries, the fixture rule and how to
+      run the focused and full suites
+- [x] No Chromium dependency introduced
+- [x] Stop after 9.1
+
 ## Next
 
-- Goal 8.16 — DOM queries and events (do not start until requested)
+- Goal 9.2 — CSS tokenizer (do not start until requested)
