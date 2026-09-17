@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.2
-CSS tokenizer**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.3
+CSS parser**).
 
-**Version:** 0.2.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.3.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -13,9 +13,10 @@ and consume it.
 
 ## Scope
 
-**9.1 (architecture) and 9.2 (tokenizer).** 9.1 builds the model the rest of
-Phase 9 is written against; 9.2 builds the first machine that fills it. Nothing
-here yet *interprets* what it lexes:
+**9.1 (architecture), 9.2 (tokenizer) and 9.3 (parser).** 9.1 builds the model the
+rest of Phase 9 is written against; 9.2 builds the first machine that fills it;
+9.3 builds the second — the grammar that consumes the token stream and produces
+that model out of real CSS. Nothing here yet *interprets* what it builds:
 
 | Goal | What 9.1 delivers | What it does **not** do |
 |---|---|---|
@@ -30,6 +31,7 @@ here yet *interprets* what it lexes:
 | 9.1.13 error | `recoverable` vs `fatal` vocabulary, distinct from `robo_result_t` | Recover from anything |
 | 9.1.14 parser | A cursor over a source: offset, line, column, seek, advance, and the first-error record | Read a single token |
 | 9.2.1 tokenizer | **The real CSS Syntax state machine**: source bytes → the 9.1 token vocabulary, one token per call, with lookahead, trivia skipping, accurate ranges and the first-error record | Parse the token stream |
+| 9.3.1 parser | **The real CSS Syntax grammar**: token stream → rules, at-rules, declaration blocks and component values. Transactional, bounded, and recovering; the inline-style boundary is the same code path as a rule's block | Match a selector, order the cascade, compute a value |
 
 ## The tokenizer (9.2)
 
@@ -57,10 +59,32 @@ Malformed CSS never crashes and never terminates the caller: a bad style sheet i
 a **token plus a recorded error**, not a failed call. `docs/Tokenizer.md` has the
 full architecture and the deterministic outcome table.
 
-A parsed stylesheet in these phases is one assembled by hand.
-`robo_css_stylesheet_parse` answers `ROBO_NOT_SUPPORTED` and says so in the
-message (`Goal 9.3`), leaves the rules and the state untouched, and records the
-reason on the stylesheet so a caller that did not ask for it still sees it. **No stub pretends to parse.**
+## The parser (9.3)
+
+`robo_css_stylesheet_parse` is a **real parse** as of 9.3: it tokenizes the
+attached source and runs the CSS Syntax structure rules over the result. It is
+**transactional** (a parse builds into its own rule list and only a parse that
+returned `ROBO_OK` replaces the sheet's rules, so parsing twice is idempotent
+rather than additive), and it separates **the call's outcome** from **the CSS's
+problems**: the return value is `ROBO_OK` whenever a model was built, *including*
+one built by recovering, and `out_error` — always filled — is the first problem
+recovered, or a record of kind `NONE` when the input was clean.
+
+The grammar **lexes nothing**: every byte it sees arrives as a 9.2 token, and
+every token it keeps is that same record — same type, same range, same hash
+classification, same dimension unit. There is no path from the parser to the
+source bytes except through a token, and `css.parse.integration.*` proves it by
+re-lexing the source independently and requiring every leaf of the parse to match
+a token at the same range with the same classification.
+
+It **builds and interprets nothing**: a prelude is component values (so `selectors`
+stays empty for 9.4), an at-rule is syntax and no more (`@media` and `@nonsense` go
+through the same code, because there is no table to look a name up in), and
+`!important` is *recorded* without ordering anything. Nesting is bounded at
+`ROBO_CSS_MAX_NESTING` and past the bound a construct is **flattened, not
+abandoned** — the tokens are still consumed, the rule is still produced, and only
+its contents are dropped. `docs/Parser.md` has the full architecture, the
+declaration and at-rule rules, the recovery boundaries and the range conventions.
 
 `robo_css_get_capabilities` reports which of these subsystems exist, so a caller
 never has to infer it from a version number.
@@ -125,7 +149,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 151 tests only
+scripts/robo test-css        # this subsystem's 208 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -141,5 +165,6 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 |---|---|
 | `docs/Architecture.md` | Module boundaries, ownership and lifetime rules, every model, and the DOM / inline-style / default-stylesheet boundaries |
 | `docs/Tokenizer.md` | The 9.2 tokenizer: the three decisions, token categories, source ranges, malformed-input outcomes, the stream API, lifetime, and how to run its tests |
+| `docs/Parser.md` | The 9.3 parser: the two entry points, what the grammar is, nesting and the bound, declarations and `!important`, at-rules as rules *or* descriptors, the recovery boundaries, source-range conventions, lifetime, and the integration properties |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1 and 9.2 records and their definitions of done |
+| `../PROGRESS.md` | The Goal 9.1, 9.2 and 9.3 records and their definitions of done |

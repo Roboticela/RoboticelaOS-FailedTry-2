@@ -2062,7 +2062,9 @@ phase, and both were fixed at the source, not at the test.
 `ROBO_NOT_SUPPORTED`, names Goal 9.3 in the message, leaves the rule list and the
 stylesheet state untouched, and *records the reason on the stylesheet* so a
 caller that did not ask for the error still sees it. There is no stub that
-pretends to tokenize or parse. `robo_css_get_capabilities` reports which
+pretends to tokenize or parse. *(Goal 9.3 replaced this refusal with the real
+parse; see the Goal 9.3 record below. This paragraph describes 9.1 as it
+shipped.)* `robo_css_get_capabilities` reports which
 subsystems exist, so a caller never has to infer capability from a version
 number — and the suites assert the flags as they are rather than as the phase
 list intends them.
@@ -2257,6 +2259,131 @@ a loop that terminates only on EOF terminates on a value.
 - [x] No Chromium dependency introduced
 - [x] Stop after 9.2
 
+## Goal 9.3 — CSS parser
+
+9.1 built the record, 9.2 built the machine that fills it, 9.3 builds the grammar
+that drives it. This is the CSS Syntax *structure* rules — a stylesheet, a rule
+list, an at-rule, a qualified rule, a declaration block, a declaration and
+component values — written independently, with no Chromium code or tables.
+`robo_css_stylesheet_parse` stopped answering `ROBO_NOT_SUPPORTED` and became a
+real parse.
+
+**The grammar lexes nothing.** Every byte it sees arrives as a 9.2 token, and
+every token it keeps is that same record — same type, same range, same hash
+classification, same dimension unit, same numeric payload. There is no path from
+the parser to the source bytes except through a token. That is asserted rather
+than asserted-to-be-true: `css.parse.integration.values_are_the_tokenizers_tokens`
+re-lexes the same source independently, walks the parse to its leaves, and
+requires every leaf to match a token at the same range with the same
+classification — and separately checks that `10px`'s number came across as 10 and
+its unit as `px`. A parser that scanned bytes itself, or trimmed a token's range,
+fails there and nowhere else.
+
+**Two doors, one grammar.** `robo_css_stylesheet_parse` (a sheet's source → its
+rules) and `robo_css_declaration_list_parse_text` (a caller's bytes → a
+declaration list) both call `grammar_consume_declaration_block`, so a `style`
+attribute and the inside of a `{ … }` cannot drift apart — the 9.1 inline-style
+boundary was filled without a second implementation.
+
+**The call's outcome and the CSS's problems are different things.** The return
+value is `ROBO_OK` whenever a model was built, *including* one built by
+recovering, because CSS error recovery is the normal case and the rules that
+survived are real rules. `out_error` is always filled with the *first* problem,
+or a record of kind `NONE` when the input was clean; the same record is kept on
+the sheet so a call site that did not want it still sees it. State is `PARSED`
+for a recovered parse and `FAILED` only when no usable stylesheet could be
+produced at all. And the parse is **transactional**: it builds into its own rule
+list and only a successful parse replaces the sheet's rules, so parsing twice is
+idempotent rather than additive.
+
+**Nesting is bounded, and past the bound a construct is flattened rather than
+abandoned.** `ROBO_CSS_MAX_NESTING` caps both recursions. The over-deep
+construct's tokens are still consumed so the parse resumes in the right place,
+the rule or at-rule is still *produced*, and only its contents are dropped. A
+hostile sheet therefore costs bounded stack and — the property the test actually
+pins — cannot cost the rules that follow it. `css.parse.recover.rule_nesting_bound`
+builds a chain past the bound and asserts both that the chain is still there and
+that the ordinary rule after it survived.
+
+**One place the grammar speculates, and it says so.** A block's contents are
+rules for some at-rules and declarations for others, and an at-rule this build has
+never heard of could be either. So the block is read as a rule list first — a rule
+carries more information — and when that yields nothing the same bytes are read
+again as declarations, on a **tokenizer of its own over the same source**, so no
+range has to be adjusted afterwards. The guess can be wrong in the direction of
+complaining about legal input (`@font-face { font-family: X }`), so the grammar
+saves its error state around the guess and restores it when the second reading
+succeeds: the first reading's complaint described this build's guess rather than
+the stylesheet.
+
+- [x] `robo_css_grammar_parse_stylesheet` and `robo_css_grammar_parse_declarations`
+      behind the two public entry points; one grammar, two doors
+- [x] Rule lists, style rules, at-rules (statement and block), declaration blocks,
+      declarations and component values — with no interpretation anywhere
+- [x] A rule's prelude is component values, so `selectors` stays empty for 9.4;
+      `p, .a > b { … }` is nine component values and no combinator
+- [x] `prelude_values` and `block_closed` added to the 9.1 rule model, so a prelude
+      has structure and an unclosed block is a fact rather than a missing `}`
+- [x] `!important` recognised, recorded, and *removed from the value* — finding it
+      is what removes it, so no value carries a stray flag
+- [x] Last-declaration-without-`;`, repeated semicolons, whitespace around `:`,
+      `;` and `{`, and interior whitespace preserved as component values
+- [x] Custom properties keep their name and their raw value, including `{ a: b }`
+      and a bare `,` — values that are not values anywhere else
+- [x] Malformed declarations are **kept and marked** (`state = INVALID`,
+      `is_usable() == 0`) rather than dropped, so the count reflects what the
+      author wrote; a malformed rule is dropped with the reason recorded
+- [x] Two recovery boundaries, both the specification's: skip to the `;`, the
+      balanced `{ … }`, or the enclosing `}` — which is deliberately *not*
+      consumed, because eating it would end the enclosing block one declaration
+      early
+- [x] Nested rule and nested at-rule inside a style block are recognised as CSS
+      Nesting, consumed whole and skipped, so a nested `color: blue` never becomes
+      its parent's declaration
+- [x] Accurate byte ranges for rules, at-rules, preludes, blocks, declarations,
+      names, values and component values — all inside the source, asserted for a
+      fixture containing a custom property, a `calc()` and an attribute selector
+- [x] Unicode preserved verbatim through the parse: preludes, string values,
+      property names, custom properties, comments and at-rule preludes, over the
+      thirteen-script corpus, with byte-offset arithmetic asserted separately
+      from the bytes so a character-counting bug cannot hide behind correct text
+- [x] Five new suites, 57 tests (`css.parse.*` is 59 with 9.1's two cursor cases)
+- [x] Existing 9.1/9.2 suites updated only where they asserted the *old* refusal:
+      the parse-boundary and declaration-boundary tests now assert the real parse,
+      and the sheet/robust tests were corrected rather than weakened
+- [x] Build integration through the existing source and component tables
+- [x] Capability flags `parser` and `inline_styles` flipped to 1 because the things
+      they name now work end to end; every other behaviour flag still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer over the whole
+      suite, **zero findings**; `--filter=css` is 208/208 under the sanitized
+      binary
+- [x] Phases 6–9.2 regression-tested: full suite green (1615 tests, Debug, plain
+      build 3 runs in a row) — up 57 from 9.2's 1558, with no existing test
+      weakened or removed and no HTML/DOM behaviour changed
+- [x] The visual vertical slice still works end to end on the host and in QEMU;
+      the parser is not consulted by the rendering path
+- [x] `css/docs/Parser.md` added, and `css/README.md`, `css/docs/Tests.md` and
+      `css/docs/Architecture.md` updated for the parser
+- [x] No Chromium dependency introduced
+- [x] Stop after 9.3
+
+### What 9.3 found
+
+No product defect, and that is worth recording precisely. Three of the new
+suites' expectations were wrong and the implementation was right each time: `var(--gutter, 20px)` has four children and not three (the comma and the space are
+component values until something reads them as separators); `a[1]` is contiguous,
+so `x: a[1] (2) [3` is six children with the blocks at 1, 3 and 5; and a block's
+range begins at the `{`, one byte after the space that separates it from the
+prelude. A fourth was a property of the corpus: four of the thirteen samples are
+two words, and a property name is one identifier, so the name test uses each
+sample's first word.
+
+The one crash was a **build hazard, not a source defect**: `RoboCSSRule.h` had
+grown `prelude_values` and `block_closed`, and the build reused objects compiled
+against the old layout. A clean rebuild fixed it, and the 9.1 tests that had
+called `strstr` on a now-`NULL` message were then updated to assert the real
+parse instead of a refusal that no longer exists.
+
 ## Next
 
-- Goal 9.3 — CSS parser (do not start until requested)
+- Goal 9.4 — CSS selectors (do not start until requested)

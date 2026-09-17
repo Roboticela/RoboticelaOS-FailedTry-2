@@ -46,8 +46,11 @@ void robo_css_at_rule_init(robo_css_at_rule_t *at_rule)
     at_rule->range = robo_css_range_at(0u);
     at_rule->prelude_range = robo_css_range_at(0u);
     at_rule->prelude = robo_css_slice_empty();
+    robo_css_value_init(&at_rule->prelude_values);
     at_rule->has_block = 0;
+    at_rule->block_closed = 0;
     at_rule->children = NULL;
+    robo_css_declaration_list_init(&at_rule->declarations);
 }
 
 void robo_css_at_rule_dispose(robo_css_at_rule_t *at_rule)
@@ -59,6 +62,11 @@ void robo_css_at_rule_dispose(robo_css_at_rule_t *at_rule)
         robo_css_rule_list_dispose(at_rule->children);
         robo_free(at_rule->children);
     }
+    /* The prelude's component values are owned like any other value tree, and
+     * the cleared record is the only state init produces, so releasing them
+     * here is what keeps the cleared-record contract true. */
+    robo_css_value_dispose(&at_rule->prelude_values);
+    robo_css_declaration_list_dispose(&at_rule->declarations);
     robo_css_at_rule_init(at_rule);
 }
 
@@ -92,17 +100,96 @@ robo_result_t robo_css_at_rule_set_prelude(robo_css_at_rule_t *at_rule,
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
                              "at-rule has not been named");
     }
-    /* An at-rule that had a block and no longer does must not keep the rules
-     * that lived in it: turning `@media { p { } }` into `@import url(x);` by
-     * clearing the flag would otherwise leave orphaned children behind. */
-    if (at_rule->has_block && !has_block && at_rule->children) {
-        robo_css_rule_list_dispose(at_rule->children);
-        robo_free(at_rule->children);
-        at_rule->children = NULL;
+    /* An at-rule that had a block and no longer does must not keep what lived
+     * in it: turning `@media { p { } }` into `@import url(x);` by clearing the
+     * flag would otherwise leave orphaned children — or descriptors — behind. */
+    if (at_rule->has_block && !has_block) {
+        if (at_rule->children) {
+            robo_css_rule_list_dispose(at_rule->children);
+            robo_free(at_rule->children);
+            at_rule->children = NULL;
+        }
+        robo_css_declaration_list_clear(&at_rule->declarations);
     }
     at_rule->prelude = prelude;
     at_rule->has_block = has_block ? 1 : 0;
     return ROBO_OK;
+}
+
+robo_result_t robo_css_at_rule_set_prelude_values(robo_css_at_rule_t *at_rule,
+                                                 robo_css_value_t *prelude_values,
+                                                 robo_css_diag_t *diag)
+{
+    if (!at_rule || !prelude_values) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "at-rule or prelude values is NULL");
+    }
+    if (prelude_values->kind != ROBO_CSS_VALUE_KIND_LIST) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "a prelude is a list of component values");
+    }
+    robo_css_value_dispose(&at_rule->prelude_values);
+    return robo_css_value_move(prelude_values, &at_rule->prelude_values, diag);
+}
+
+const robo_css_value_t *robo_css_at_rule_prelude_values(const robo_css_at_rule_t *at_rule)
+{
+    if (!at_rule) {
+        return NULL;
+    }
+    return &at_rule->prelude_values;
+}
+
+robo_result_t robo_css_at_rule_set_block_closed(robo_css_at_rule_t *at_rule,
+                                               int closed,
+                                               robo_css_diag_t *diag)
+{
+    if (!at_rule) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "at-rule is NULL");
+    }
+    if (!at_rule->has_block) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "at-rule has no block to close");
+    }
+    at_rule->block_closed = closed ? 1 : 0;
+    return ROBO_OK;
+}
+
+int robo_css_at_rule_block_closed(const robo_css_at_rule_t *at_rule)
+{
+    if (!at_rule || !at_rule->has_block) {
+        return 0;
+    }
+    return at_rule->block_closed;
+}
+
+robo_result_t robo_css_at_rule_set_range(robo_css_at_rule_t *at_rule,
+                                        robo_css_range_t range,
+                                        robo_css_diag_t *diag)
+{
+    if (!at_rule) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "at-rule is NULL");
+    }
+    at_rule->range = range;
+    return ROBO_OK;
+}
+
+robo_css_range_t robo_css_at_rule_range(const robo_css_at_rule_t *at_rule)
+{
+    if (!at_rule) {
+        return robo_css_range_at(0u);
+    }
+    return at_rule->range;
+}
+
+robo_css_range_t robo_css_at_rule_prelude_range(const robo_css_at_rule_t *at_rule)
+{
+    if (!at_rule) {
+        return robo_css_range_at(0u);
+    }
+    return at_rule->prelude_range;
 }
 
 robo_result_t robo_css_at_rule_append_rule(robo_css_at_rule_t *at_rule,
@@ -150,6 +237,55 @@ const robo_css_rule_t *robo_css_at_rule_rule_at(const robo_css_at_rule_t *at_rul
     return robo_css_rule_list_at(at_rule->children, index);
 }
 
+robo_result_t robo_css_at_rule_take_declarations(robo_css_at_rule_t *at_rule,
+                                                robo_css_declaration_list_t *declarations,
+                                                robo_css_diag_t *diag)
+{
+    if (!at_rule || !declarations) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "at-rule or declarations is NULL");
+    }
+    if (!at_rule->has_block) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "at-rule has no block to take declarations from");
+    }
+    if (!robo_css_declaration_list_is_empty(&at_rule->declarations)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "at-rule already has descriptor declarations");
+    }
+    /* Move, don't copy: the source list's buffer becomes the at-rule's, and the
+     * source is left as the cleared record its own contract promises. */
+    at_rule->declarations = *declarations;
+    robo_css_declaration_list_init(declarations);
+    return ROBO_OK;
+}
+
+size_t robo_css_at_rule_declaration_count(const robo_css_at_rule_t *at_rule)
+{
+    if (!at_rule) {
+        return 0u;
+    }
+    return robo_css_declaration_list_count(&at_rule->declarations);
+}
+
+const robo_css_declaration_t *robo_css_at_rule_declaration(const robo_css_at_rule_t *at_rule,
+                                                           size_t index)
+{
+    if (!at_rule) {
+        return NULL;
+    }
+    return robo_css_declaration_list_at(&at_rule->declarations, index);
+}
+
+const robo_css_declaration_list_t *robo_css_at_rule_declarations(
+    const robo_css_at_rule_t *at_rule)
+{
+    if (!at_rule) {
+        return NULL;
+    }
+    return &at_rule->declarations;
+}
+
 /* ------------------------------------------------------------------ */
 /* Style rules                                                         */
 /* ------------------------------------------------------------------ */
@@ -164,6 +300,8 @@ void robo_css_style_rule_init(robo_css_style_rule_t *rule)
     rule->range = robo_css_range_at(0u);
     rule->prelude_range = robo_css_range_at(0u);
     rule->block_range = robo_css_range_at(0u);
+    robo_css_value_init(&rule->prelude_values);
+    rule->block_closed = 0;
 }
 
 void robo_css_style_rule_dispose(robo_css_style_rule_t *rule)
@@ -173,7 +311,93 @@ void robo_css_style_rule_dispose(robo_css_style_rule_t *rule)
     }
     robo_css_selector_list_dispose(&rule->selectors);
     robo_css_declaration_list_dispose(&rule->declarations);
+    robo_css_value_dispose(&rule->prelude_values);
     robo_css_style_rule_init(rule);
+}
+
+robo_result_t robo_css_style_rule_set_prelude_values(robo_css_style_rule_t *rule,
+                                                    robo_css_value_t *prelude_values,
+                                                    robo_css_diag_t *diag)
+{
+    if (!rule || !prelude_values) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "rule or prelude values is NULL");
+    }
+    if (prelude_values->kind != ROBO_CSS_VALUE_KIND_LIST) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "a prelude is a list of component values");
+    }
+    robo_css_value_dispose(&rule->prelude_values);
+    return robo_css_value_move(prelude_values, &rule->prelude_values, diag);
+}
+
+const robo_css_value_t *robo_css_style_rule_prelude_values(
+    const robo_css_style_rule_t *rule)
+{
+    if (!rule) {
+        return NULL;
+    }
+    return &rule->prelude_values;
+}
+
+robo_result_t robo_css_style_rule_set_ranges(robo_css_style_rule_t *rule,
+                                            robo_css_range_t range,
+                                            robo_css_range_t prelude_range,
+                                            robo_css_range_t block_range,
+                                            robo_css_diag_t *diag)
+{
+    if (!rule) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "rule is NULL");
+    }
+    rule->range = range;
+    rule->prelude_range = prelude_range;
+    rule->block_range = block_range;
+    return ROBO_OK;
+}
+
+robo_result_t robo_css_style_rule_set_block_closed(robo_css_style_rule_t *rule,
+                                                  int closed,
+                                                  robo_css_diag_t *diag)
+{
+    if (!rule) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_RULE, ROBO_INVALID_ARGUMENT,
+                             "rule is NULL");
+    }
+    rule->block_closed = closed ? 1 : 0;
+    return ROBO_OK;
+}
+
+int robo_css_style_rule_block_closed(const robo_css_style_rule_t *rule)
+{
+    if (!rule) {
+        return 0;
+    }
+    return rule->block_closed;
+}
+
+robo_css_range_t robo_css_style_rule_range(const robo_css_style_rule_t *rule)
+{
+    if (!rule) {
+        return robo_css_range_at(0u);
+    }
+    return rule->range;
+}
+
+robo_css_range_t robo_css_style_rule_prelude_range(const robo_css_style_rule_t *rule)
+{
+    if (!rule) {
+        return robo_css_range_at(0u);
+    }
+    return rule->prelude_range;
+}
+
+robo_css_range_t robo_css_style_rule_block_range(const robo_css_style_rule_t *rule)
+{
+    if (!rule) {
+        return robo_css_range_at(0u);
+    }
+    return rule->block_range;
 }
 
 robo_result_t robo_css_style_rule_append_selector(robo_css_style_rule_t *rule,

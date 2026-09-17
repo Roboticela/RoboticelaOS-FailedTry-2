@@ -12,15 +12,17 @@
  * stylesheet resolves to nothing instead of to somebody else's sheet. The
  * module exposes how many are live, and shutdown tears down whatever is left.
  *
- * What a stylesheet is *not* in this phase:
+ * What a stylesheet is *not*:
  *
- *   - not parsed. robo_css_stylesheet_parse exists, validates its arguments,
- *     and reports ROBO_NOT_SUPPORTED, recording that in the stylesheet's last
- *     error and leaving the state CREATED (or FAILED, with a fatal error).
- *     Nothing here pretends to read CSS.
+ *   - not *interpreted* by its parse. robo_css_stylesheet_parse is a real parse
+ *     as of 9.3 (see its own documentation), and what it produces is syntax:
+ *     rules, declarations and component values. No selector is matched, no
+ *     at-rule is evaluated, and no declaration is given a meaning. Whether a
+ *     parse replaced the rules or left them alone is stated there.
  *   - not loaded. There is no fetch, no `@import`, no `@charset`, no encoding
- *     detection, no media evaluation. A stylesheet is created empty and rules
- *     are appended to it by whoever built them.
+ *     detection, no media evaluation. Parsing `@import "x";` records a name, a
+ *     prelude and a `;` — and fetches nothing. A stylesheet can also still be
+ *     built by hand and rules appended to it.
  *   - not attached. Which sheets apply to which document is the style
  *     context's business (RoboCSSStyle.h); a stylesheet knows nothing about
  *     the origin it is used under, only the origin recorded on it.
@@ -200,17 +202,43 @@ const robo_css_rule_list_t *robo_css_stylesheet_rules(robo_css_stylesheet_id_t i
 /**
  * Parse the attached source into this stylesheet's rule list.
  *
- * Phase 9.1 has no parser. This validates its arguments, records
- * ROBO_CSS_ERROR_KIND_UNSUPPORTED in the stylesheet's last error (and in
- * @p out_error when non-NULL, which is filled whenever it is passed, error or
- * not), and returns ROBO_NOT_SUPPORTED. The rule list, the state and the
- * source are all left exactly as they were: a refused parse changes nothing.
+ * A real parse as of 9.3: the source is tokenized (9.2) and the token stream is
+ * consumed by the CSS Syntax grammar, which builds style rules, at-rules,
+ * declaration blocks and component values, and interprets none of them.
  *
- * Filling @p out_error on a successful future call with kind NONE is what a
- * caller should expect from 9.3 onward, which is why the parameter is here now.
+ * **Transactional.** The parse builds into its own rule list and only a parse
+ * that returned ROBO_OK replaces this stylesheet's rules — so parsing twice is
+ * idempotent rather than additive, and an attempt that could not run leaves the
+ * rules and the source exactly as they were.
  *
- * @return ROBO_NOT_SUPPORTED in this build; ROBO_NOT_FOUND for an id that does
- *         not resolve.
+ * **The call's outcome and the CSS's problems are different things**, and each
+ * has its own place:
+ *
+ *   - the *return value* is the call: ROBO_OK whenever a rule list was built,
+ *     including one built by recovering from malformed CSS, because CSS error
+ *     recovery is the normal case and the rules that survived are real rules.
+ *     ROBO_NOT_FOUND for an id that does not resolve; ROBO_OUT_OF_MEMORY when
+ *     the model could not be built at all.
+ *   - `out_error` — always filled, never left untouched — is the *first* CSS
+ *     problem recovered, or a record of kind NONE when the input was clean. The
+ *     first problem wins and later ones do not overwrite it, because the first
+ *     is the one that explains the rest.
+ *
+ * The same record is kept in the stylesheet's last-error slot, so a caller that
+ * did not ask for it still sees why (see robo_css_stylesheet_last_error). The
+ * state becomes PARSED on any completed attempt, *including* a recovered one,
+ * and FAILED when no usable stylesheet could be produced.
+ *
+ * At-rules are parsed as syntax only: nothing is loaded, nothing is fetched, no
+ * `@media` is evaluated and no at-rule name is looked up in a table, because
+ * there is no table. Selectors are not parsed either — a style rule's prelude is
+ * kept as component values for 9.4.
+ *
+ * A stylesheet with no attached source parses to no rules, exactly like an
+ * attached empty source: a parse reads bytes, and there are none.
+ *
+ * @return ROBO_OK; ROBO_NOT_FOUND; ROBO_OUT_OF_MEMORY; ROBO_INVALID_ARGUMENT
+ *         for an unknown origin.
  */
 robo_result_t robo_css_stylesheet_parse(robo_css_stylesheet_id_t id,
                                         robo_css_error_t *out_error,

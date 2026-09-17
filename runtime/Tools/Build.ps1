@@ -234,6 +234,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSRule.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSStyleSheet.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSParser.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSParserGrammar.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSComputed.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSStyle.c")
 )
@@ -378,6 +379,11 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssSheet.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssStyle.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssRobust.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseSheet.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseDeclaration.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseValue.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseRecover.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssParseUnicode.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

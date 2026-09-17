@@ -226,18 +226,28 @@ size_t robo_css_declaration_list_count_of(const robo_css_declaration_list_t *lis
  * attribute store — the caller passes the bytes, and the caller's buffer stays
  * its own.
  *
- * Phase 9.1 has no parser: this returns ROBO_NOT_SUPPORTED, records
- * ROBO_CSS_ERROR_KIND_UNSUPPORTED in @p out_error, and leaves @p out_list
- * empty (it is initialised, never partially populated). It exists now so the
- * boundary, its ownership and its error contract are fixed before the parser
- * arrives in 9.3.
+ * A real parse as of 9.3, and the same code path a style rule's block uses:
+ * the text is tokenized and consumed as a declaration list, so a `style`
+ * attribute and the inside of a `{ … }` cannot drift apart.
+ *
+ * **Ownership: @p text is borrowed, and the declarations borrow from it.** The
+ * returned declarations' names and values are slices into the caller's bytes,
+ * so @p text must outlive @p out_list. RoboCSS still copies nothing, keeps no
+ * second attribute store, and never reads the attribute back.
  *
  * @p origin is recorded by the caller later; passing INLINE here is what the
  * call site does, and any origin is accepted (an author-provided fragment is
  * the same text with different provenance).
  *
- * @return ROBO_NOT_SUPPORTED in this build; ROBO_INVALID_ARGUMENT for a NULL
- *         out_list or a NULL text with a non-zero length.
+ * `out_error` is always filled: the first CSS problem recovered, or a record of
+ * kind NONE when the text was clean. A recovered problem is not a failed call,
+ * so ROBO_OK comes back with a partially recovered list — a malformed
+ * declaration is skipped (and appears in the list as an INVALID record) while
+ * the valid declarations around it are parsed.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL out_list, a NULL text with
+ *         a non-zero length, or an unknown origin; ROBO_OUT_OF_MEMORY when the
+ *         list could not be built (in which case @p out_list is left empty).
  */
 robo_result_t robo_css_declaration_list_parse_text(const char *text,
                                                    size_t length,

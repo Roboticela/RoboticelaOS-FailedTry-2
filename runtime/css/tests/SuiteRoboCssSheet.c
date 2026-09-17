@@ -590,33 +590,91 @@ static void test_css_stylesheet_parse_boundary(void)
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_css_rule_make_style(&rule, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_append_rule(id, &rule, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_rule_count(id), 1u);
 
-    /* The parser does not exist yet, and this is what that looks like from the
-     * outside: not supported, nothing changed, and a reason recorded. */
-    ROBO_CHECK_EQ_INT(robo_css_stylesheet_parse(id, &error, NULL), ROBO_NOT_SUPPORTED);
-    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_UNSUPPORTED);
-    ROBO_CHECK_EQ_INT(error.code, ROBO_NOT_SUPPORTED);
-    ROBO_CHECK(robo_css_error_kind_is_fatal(error.kind));
-    ROBO_CHECK(error.message != NULL);
-    ROBO_CHECK(strstr(error.message, "9.3") != NULL);
-
-    /* Nothing was touched: the rules are the ones that were appended by hand,
-     * the state has not advanced, and the source is intact. */
+    /* A real parse as of 9.3, and the hand-built rule is *replaced* by the parse
+     * result rather than added to: parsing twice cannot duplicate a stylesheet. */
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_parse(id, &error, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+    ROBO_CHECK(!robo_css_error_is_error(&error));
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_rule_count(id), 1u);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_state(id),
-                      ROBO_CSS_STYLESHEET_STATE_CREATED);
+                      ROBO_CSS_STYLESHEET_STATE_PARSED);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_source_length(id),
                       strlen(CSS_FIXTURE_PARAGRAPH));
 
-    /* The reason survives on the stylesheet, for a caller that did not ask for
-     * it at the call site. */
+    /* What came back is the fixture's rule: `p { color: red }`, as syntax. */
+    {
+        const robo_css_rule_t *parsed = robo_css_stylesheet_rule(id, 0u);
+        const robo_css_style_rule_t *style;
+
+        ROBO_CHECK(parsed != NULL);
+        ROBO_CHECK_EQ_INT(parsed->kind, ROBO_CSS_RULE_KIND_STYLE);
+        style = robo_css_rule_style(parsed);
+        ROBO_CHECK(style != NULL);
+        if (style) {
+            /* `p {\n    color: red;\n}\n` — the prelude is one ident, the block
+             * has one declaration, and the block was closed. */
+            ROBO_CHECK_EQ_INT(robo_css_value_child_count(
+                                  robo_css_style_rule_prelude_values(style)),
+                              1u);
+            ROBO_CHECK_EQ_INT(robo_css_style_rule_declaration_count(style), 1u);
+            ROBO_CHECK_EQ_INT(style->block_closed, 1);
+            ROBO_CHECK(robo_css_slice_equals_ascii(
+                robo_css_declaration_name(robo_css_style_rule_declaration(style, 0u)),
+                "color"));
+            /* The prelude's range covers `p` and nothing else, and the rule's
+             * range starts where its prelude does. */
+            ROBO_CHECK_EQ_INT(robo_css_style_rule_prelude_range(style).begin, 0u);
+            ROBO_CHECK_EQ_INT(robo_css_style_rule_prelude_range(style).end, 1u);
+            ROBO_CHECK_EQ_INT(robo_css_rule_range(parsed).begin, 0u);
+            ROBO_CHECK_EQ_INT(robo_css_rule_range(parsed).end,
+                              strlen(CSS_FIXTURE_PARAGRAPH) - 1u);
+        }
+    }
+
+    /* Idempotent: a second parse of the same source replaces, never appends. */
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_parse(id, &error, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_rule_count(id), 1u);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_tree_rule_count(id), 1u);
+
+    /* A clean parse leaves no error on the stylesheet, for a caller that never
+     * asked: there is nothing to explain. */
     {
         robo_css_error_t recorded = ROBO_CSS_CLEARED;
 
-        ROBO_CHECK_EQ_INT(robo_css_stylesheet_last_error(id, &recorded), 1);
-        ROBO_CHECK_EQ_INT(recorded.kind, ROBO_CSS_ERROR_KIND_UNSUPPORTED);
-        ROBO_CHECK_EQ_INT(recorded.code, ROBO_NOT_SUPPORTED);
-        ROBO_CHECK(robo_css_error_is_error(&recorded));
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_last_error(id, &recorded), 0);
+        ROBO_CHECK_EQ_INT(recorded.kind, ROBO_CSS_ERROR_KIND_NONE);
+    }
+
+    /* Malformed CSS is a *recovered* parse, not a refused one: the valid rules
+     * survive, the state is PARSED, and the first problem is kept both on the
+     * stylesheet and in the caller's record. */
+    {
+        robo_css_stylesheet_id_t broken = ROBO_CSS_STYLESHEET_ID_NONE;
+        robo_css_error_t problem = ROBO_CSS_CLEARED;
+        const char *text = "broken { oops } p { color: red }";
+
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_create(&broken, ROBO_CSS_ORIGIN_AUTHOR,
+                                                     NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_copy_source(broken,
+                                                          (const uint8_t *)text,
+                                                          strlen(text), NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_parse(broken, &problem, NULL), ROBO_OK);
+        ROBO_CHECK_EQ_INT(problem.kind, ROBO_CSS_ERROR_KIND_MALFORMED_DECLARATION);
+        ROBO_CHECK(robo_css_error_kind_is_recoverable(problem.kind));
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_rule_count(broken), 2u);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_state(broken),
+                          ROBO_CSS_STYLESHEET_STATE_PARSED);
+        {
+            robo_css_error_t recorded = ROBO_CSS_CLEARED;
+
+            ROBO_CHECK_EQ_INT(robo_css_stylesheet_last_error(broken, &recorded), 1);
+            ROBO_CHECK_EQ_INT(recorded.kind, problem.kind);
+        }
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(broken, NULL), ROBO_OK);
     }
 
     /* The error slot can be cleared, and clearing it reports "no error". */
@@ -643,7 +701,19 @@ static void test_css_stylesheet_parse_boundary(void)
     ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
 
     /* The error record is optional, and NULL is not dereferenced. */
-    ROBO_CHECK_EQ_INT(robo_css_stylesheet_parse(id, NULL, NULL), ROBO_NOT_SUPPORTED);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_parse(id, NULL, NULL), ROBO_OK);
+
+    /* An origin outside the closed vocabulary is refused, and the parse does
+     * not run. */
+    {
+        robo_css_stylesheet_id_t odd = ROBO_CSS_STYLESHEET_ID_NONE;
+
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_create(&odd, ROBO_CSS_ORIGIN_AUTHOR, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_set_origin(odd, (robo_css_origin_t)99, NULL),
+                          ROBO_INVALID_ARGUMENT);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(odd, NULL), ROBO_OK);
+    }
 
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(id, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_last_error(id, &error), 0);

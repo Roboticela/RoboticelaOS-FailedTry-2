@@ -320,8 +320,8 @@ robo_result_t robo_css_stylesheet_parse(robo_css_stylesheet_id_t id,
                                         robo_css_diag_t *diag)
 {
     robo_css_stylesheet_slot_t *slot = robo_css_slot_find(id);
-    robo_css_position_t position = robo_css_position_none();
-    robo_css_error_t reason = ROBO_CSS_CLEARED;
+    robo_css_rule_list_t parsed = ROBO_CSS_CLEARED;
+    robo_css_error_t problem = ROBO_CSS_CLEARED;
     robo_result_t result;
 
     if (!slot) {
@@ -330,22 +330,38 @@ robo_result_t robo_css_stylesheet_parse(robo_css_stylesheet_id_t id,
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLESHEET, ROBO_NOT_FOUND,
                              "stylesheet id does not resolve");
     }
-    /* The parser is 9.3. Reporting that is the only honest answer: no rules are
-     * touched, the state is not advanced, and the source is not read. */
-    robo_css_error_set(&reason, ROBO_CSS_ERROR_KIND_UNSUPPORTED, ROBO_NOT_SUPPORTED,
-                       &position, "the CSS parser arrives in Goal 9.3");
-    /* The reason is kept on the stylesheet whether or not the caller asked for
-     * a copy, which is what makes it survive a call site that did not want it.
-     * The caller's record is optional and must stay optional: robo_css_error_set
-     * tolerates a NULL destination, so this function has to as well. */
-    slot->has_error = 1;
-    slot->error = reason;
-    if (out_error) {
-        *out_error = reason;
+    /* Transactional: the parse builds into its own list, and only a parse that
+     * returned ROBO_OK replaces the stylesheet's rules. So a second parse is
+     * idempotent rather than additive, and an attempt that could not run leaves
+     * the rules exactly as they were. */
+    result = robo_css_grammar_parse_stylesheet(&parsed, &slot->source, slot->origin,
+                                               &problem);
+    if (result != ROBO_OK) {
+        slot->state = ROBO_CSS_STYLESHEET_STATE_FAILED;
+        slot->has_error = 1;
+        slot->error = problem;
+        robo_css_rule_list_dispose(&parsed);
+        if (out_error) {
+            *out_error = problem;
+        }
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_PARSER, result,
+                             robo_css_error_message(&problem));
     }
-    result = ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_PARSER, ROBO_NOT_SUPPORTED,
-                           "the CSS parser arrives in Goal 9.3");
-    return result;
+    robo_css_rule_list_dispose(&slot->rules);
+    slot->rules = parsed;
+    /* A recovered parse is still a parse: the rules that survived are real
+     * rules, so the state is PARSED and what went wrong lives in the error. */
+    slot->state = ROBO_CSS_STYLESHEET_STATE_PARSED;
+    /* The first CSS problem is kept on the stylesheet whether or not the caller
+     * asked for a copy, which is what makes it survive a call site that did not
+     * want it. The caller's record is optional and must stay optional:
+     * robo_css_error_set tolerates a NULL destination, so this does too. */
+    slot->has_error = robo_css_error_is_error(&problem) ? 1 : 0;
+    slot->error = problem;
+    if (out_error) {
+        *out_error = problem;
+    }
+    return ROBO_OK;
 }
 
 int robo_css_stylesheet_last_error(robo_css_stylesheet_id_t id,

@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 2);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 3);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 2);
+    ROBO_CHECK_EQ_INT(minor, 3);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -379,18 +379,22 @@ static void test_css_capabilities(void)
     ROBO_CHECK_EQ_INT(caps.stylesheet_model, 1);
     ROBO_CHECK_EQ_INT(caps.error_model, 1);
 
-    /* Phase 9.2 is the first capability under that model to become real: bytes
-     * become tokens, and a caller can run the tokenizer today. Everything above
-     * it is still only described. */
+    /* Two capabilities under that model have become real: 9.2 turns bytes into
+     * tokens and 9.3 turns tokens into rules, declarations and component values
+     * — including an inline `style` attribute's text, which goes through the
+     * same declaration-list grammar. Everything above them is still only
+     * described. */
     ROBO_CHECK_EQ_INT(caps.tokenizer, 1);
+    ROBO_CHECK_EQ_INT(caps.parser, 1);
+    ROBO_CHECK_EQ_INT(caps.inline_styles, 1);
 
-    /* ...and nothing that would interpret the tokens is, because nothing does. */
-    ROBO_CHECK_EQ_INT(caps.parser, 0);
+    /* ...and nothing that would interpret the tokens is, because nothing does:
+     * a parsed selector is still just component values, and no declaration has
+     * been given a meaning. */
     ROBO_CHECK_EQ_INT(caps.selector_matching, 0);
     ROBO_CHECK_EQ_INT(caps.cascade, 0);
     ROBO_CHECK_EQ_INT(caps.inheritance, 0);
     ROBO_CHECK_EQ_INT(caps.computed_values, 0);
-    ROBO_CHECK_EQ_INT(caps.inline_styles, 0);
     ROBO_CHECK_EQ_INT(caps.default_styles, 0);
     ROBO_CHECK_EQ_INT(caps.stylesheet_loading, 0);
 
@@ -398,7 +402,7 @@ static void test_css_capabilities(void)
     css_fixture();
     robo_css_shutdown();
     ROBO_CHECK_EQ_INT(robo_css_get_capabilities(&caps), ROBO_OK);
-    ROBO_CHECK_EQ_INT(caps.parser, 0);
+    ROBO_CHECK_EQ_INT(caps.parser, 1);
     ROBO_CHECK_EQ_INT(robo_css_init(), ROBO_OK);
 
     robo_css_capabilities_init(&caps);

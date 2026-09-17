@@ -185,8 +185,11 @@ static void test_css_robust_incomplete_and_malformed(void)
         robo_css_source_dispose(&source);
     }
 
-    /* Malformed markup is also a legal *declaration* value: the model carries
-     * whichever bytes the caller hands it, and only the parser would refuse. */
+    /* Malformed markup through the declaration parser: no crash, no leak, and a
+     * defined answer. A `}` ends a declaration list, so this text is a
+     * declaration list that ends immediately — the same thing a browser does
+     * with a stray brace inside a `style` attribute, because there is one
+     * declaration-list algorithm and this is it. */
     {
         robo_css_declaration_list_t list = ROBO_CSS_CLEARED;
         robo_css_error_t error = ROBO_CSS_CLEARED;
@@ -194,9 +197,33 @@ static void test_css_robust_incomplete_and_malformed(void)
         ROBO_CHECK_EQ_INT(robo_css_declaration_list_parse_text("}}}::;;", 7u,
                                                                ROBO_CSS_ORIGIN_INLINE,
                                                                &list, &error),
-                          ROBO_NOT_SUPPORTED);
+                          ROBO_OK);
         ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 0u);
-        ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_UNSUPPORTED);
+        ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+        robo_css_declaration_list_dispose(&list);
+    }
+
+    /* The recovery boundaries, exercised through the parser rather than
+     * described: a run of declarations with three different problems in it
+     * still yields every declaration that was fine, in source order, and the
+     * *first* problem is the one reported. */
+    {
+        robo_css_declaration_list_t list = ROBO_CSS_CLEARED;
+        robo_css_error_t error = ROBO_CSS_CLEARED;
+        const char *text =
+            "a: 1; b c; : 2; d: 4; e: calc(1px + 2px); f: 6";
+
+        ROBO_CHECK_EQ_INT(robo_css_declaration_list_parse_text(
+                              text, strlen(text), ROBO_CSS_ORIGIN_INLINE, &list, &error),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 6u);
+        ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_MALFORMED_DECLARATION);
+        ROBO_CHECK_EQ_INT(robo_css_declaration_list_at(&list, 1u)->state,
+                          ROBO_CSS_DECLARATION_STATE_INVALID);
+        ROBO_CHECK_EQ_INT(robo_css_declaration_list_at(&list, 2u)->state,
+                          ROBO_CSS_DECLARATION_STATE_INVALID);
+        ROBO_CHECK_EQ_INT(robo_css_declaration_list_at(&list, 5u)->state,
+                          ROBO_CSS_DECLARATION_STATE_PARSED);
         robo_css_declaration_list_dispose(&list);
     }
 }

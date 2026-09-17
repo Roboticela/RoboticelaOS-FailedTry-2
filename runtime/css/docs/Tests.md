@@ -1,14 +1,16 @@
-# RoboCSS Test Organisation (Phase 9.1–9.2)
+# RoboCSS Test Organisation (Phase 9.1–9.3)
 
-Fourteen suites, 151 tests, one framework. These phases add no test runner, no
+Nineteen suites, 208 tests, one framework. These phases add no test runner, no
 reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
 
-The split is by **phase, then by token class**. The 9.1 suites pin the model
-(does a record own what it says it owns?). The 9.2 suites pin the machine (does a
-byte sequence produce the vocabulary 9.1 defined?), one suite per family of token
-classes, so a failure names both the class and the rule.
+The split is by **phase, then by subject**. The 9.1 suites pin the model (does a
+record own what it says it owns?). The 9.2 suites pin the machine (does a byte
+sequence produce the vocabulary 9.1 defined?), one suite per family of token
+classes, so a failure names both the class and the rule. The 9.3 suites pin what
+the grammar builds out of that stream — one per level of it (sheets and rules,
+declarations, values), plus recovery and Unicode.
 
 ## 1. Suite map
 
@@ -35,6 +37,21 @@ classes, so a failure names both the class and the rule.
 | `SuiteRoboCssTokenizeIdent.c` | 12 | Identifiers (simple, hyphenated, underscore, `--custom`, Unicode, escaped), functions, at-keywords, hashes (`HASH_ID` vs `HASH_UNRESTRICTED`), urls (bare, quoted, escapes, malformed) |
 | `SuiteRoboCssTokenizeLiteral.c` | 13 | Strings (quote forms, escapes, hex escapes, line continuations, Unicode, empty, malformed), numbers (integer, decimal, leading point, signs, exponents, extremes), percentages, dimensions and their `unit` |
 | `SuiteRoboCssTokenizeSequence.c` | 12 | Whole snippets lexed end to end (`color: red;`, `margin: 10px 20px;`, the `@media` block), range/position audit, malformed inputs, streamed large-input robustness |
+
+### 9.3 — the grammar
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssParseSheet.c` | 14 | Rule counts and source order, preludes as component values, empty blocks as real rules, at-rules (statement, block, nested, unclosed, optional `;`, never interpreted), sheet lifetimes |
+| `SuiteRoboCssParseDeclaration.c` | 15 | Names and their case, value shapes, trivia around the colon and the `;`, `!important`, the omitted final semicolon, custom properties and their raw values, malformed declarations, duplicates kept in order, ranges, the inline-style boundary |
+| `SuiteRoboCssParseValue.c` | 11 | The component-value vocabulary, token ranges, functions, nested functions, blocks and the close they matched, the nesting bound, strings, url tokens, value lifetimes |
+| `SuiteRoboCssParseRecover.c` | 11 | The four malformed rule shapes, stray top-level braces, a broken declaration that keeps its rule, a dropped rule that costs exactly one rule, several problems in one sheet with the *first* reported, nested-rule and nested-at-rule skipping, the rule nesting bound, and the three tokenizer-integration properties |
+| `SuiteRoboCssParseUnicode.c` | 6 | Preludes, string values, property names, custom properties, comments, at-rule preludes, and byte-offset ranges — over the thirteen-script `css_samples` corpus |
+
+The parser suites are where this documentation's older claim — "they never assert
+that something was *parsed*" — stops being true. From 9.3 a parse really happens,
+and these suites assert node types, tag-level structure, ranges, tree shapes and
+the contents of every list, exactly as the DOM suites assert the DOM.
 
 ## 2. The cleared-record contract test
 
@@ -64,9 +81,13 @@ stack garbage and freed a pointer that was never an allocation.
 ## 3. What the CSS suites do and do not assert
 
 They assert what the **model** does with bytes — kinds, ownership, ranges,
-slices, invariants, lifetimes — and what the **tokenizer** does with a byte
-sequence: which token type, what value, which range. They never assert that
-something was *parsed*, matched or computed, because in these phases nothing is.
+slices, invariants, lifetimes — what the **tokenizer** does with a byte sequence
+(which token type, what value, which range), and what the **grammar** builds out
+of that stream (which rule, at which offsets, holding which declarations and
+which component-value tree). They never assert that anything was *matched* or
+*computed*, because nothing in these phases is: selector matching, the cascade,
+specificity, inheritance and computed values remain boundaries with no
+implementation behind them.
 
 Where a boundary answers `ROBO_NOT_SUPPORTED`, the suites assert the whole shape
 of the refusal, not just the code: nothing changed, the state did not advance, the
@@ -79,8 +100,8 @@ to round those flags up to what the phase list intends.
 
 ## 4. Fixtures
 
-`RoboCssTestSupport.h` is shared by all nine suites. It is not a framework; it
-holds the three things a suite would otherwise copy:
+`RoboCssTestSupport.h` is shared by every suite. It is not a framework; it holds
+the three things a suite would otherwise copy:
 
 * `css_fixture()` — brings RoboBase and RoboCSS up, and a `css_source_of_string`
   that builds a source from a literal without the caller tracking the length.
@@ -93,6 +114,19 @@ holds the three things a suite would otherwise copy:
   `css_stream_audit_t` / `css_audit_stream`, and the allocator measurement pair
   `css_allocator_ensure_enabled` / `css_allocator_restore`, so a lifetime test
   never leaves the debug allocator on for the next suite.
+
+From 9.3 it also carries the parsing helpers: `css_parse_sheet` (copy the text
+into a fresh sheet and parse it), `css_parse_declarations` (the inline-style
+door), `css_sheet_style_rule`, `css_prelude_shape`, `css_declaration_shape`,
+`css_declaration_name_of`, `css_component_is` and `css_parse_declaration_is`.
+
+The shape helpers are the ones that carry the weight. `css_shape` writes a
+component-value tree as **one line** — children comma-separated, whitespace
+folded to `_`, functions and blocks bracket-delimited — so
+`calc(100%,_,-,_,var(--gutter,,,_,20px))` pins a whole four-level tree in one
+string. A missing whitespace token, a mis-nested function or a trimmed-away leaf
+all change the string, which is what makes the assertion failure-sensitive rather
+than merely true.
 
 The audit pair exists for a specific reason. The framework's expectation log is
 bounded, so a test that logs one line per token fails by *overflowing the
@@ -110,7 +144,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 151 css.* tests only
+scripts/robo test-css                     # the 208 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -118,8 +152,8 @@ pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
 
 A focused run builds the same host binary and filters on the `css.` prefix, so a
 failure in another subsystem cannot be reported against this one. The tokenizer
-subtree is `--filter=css.tokenize` (63 tests); one suite is
-`--filter=css.tokenize.number`.
+subtree is `--filter=css.tokenize` (63 tests); the parser subtree is
+`--filter=css.parse` (59 tests); one suite is `--filter=css.tokenize.number`.
 
 `--list` prints every registered name, which is how a documented test name can be
 checked against the binary instead of trusted.
@@ -134,8 +168,19 @@ The flag probes the toolchain and enables AddressSanitizer and
 UndefinedBehaviorSanitizer for the host test binary; it is documented in
 `docs/Build.md`. The result for this phase:
 
-* **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** 1558 tests, 0
-  failures, zero sanitizer findings across the whole runtime suite.
+* **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** Zero sanitizer
+  findings across the whole runtime suite, and `--filter=css` is 208/208 under
+  the sanitized binary. Phase 9.3 introduced no memory-safety or
+  undefined-behaviour defect.
+
+Run the whole suite rather than the `css.` subtree and the sanitized binary may
+report **one** failure that is not a sanitizer result and not this subsystem's: `window.host.keyboard` asserts `robo_window_request_focus(id) == ROBO_OK`, and
+Windows declines `SetForegroundWindow` for a process not entitled to the
+foreground, so from a detached shell the call returns `ROBO_NOT_SUPPORTED` and
+the case fails. It is intermittent — in the 9.3 validation runs the plain build
+passed 3/3 and the sanitized one 1/2 — and it is documented in `docs/Build.md`
+§6. No `window.host.*` case exercises any RoboCSS code, and no ASan or UBSan
+diagnostic accompanied it.
 
 One real defect was found by the sanitizers during 9.1 and fixed rather than
 suppressed:
@@ -176,3 +221,29 @@ gained in `SuiteRoboCssTokenizer.c`.
 logging every token, because the framework's expectation log is bounded and a
 several-thousand-token snippet would exhaust it — a test that fails by
 overflowing the reporter reports nothing useful.
+
+## 7. What the 9.3 suites found
+
+Three test-expectation errors and **one** class of build hazard, and no product
+defect:
+
+> **A stale object is not a source defect.** The first 9.3 run crashed inside a
+> 9.1 test. `RoboCSSRule.h` had grown `prelude_values` and `block_closed`, and the
+> build reused objects compiled against the old layout, so a field read landed in
+> the wrong place. A clean rebuild fixed it, and the 9.1 tests that had called
+> `strstr` on a now-`NULL` message were then updated to assert the real parse.
+> The lesson is about the build, not the grammar: a struct layout change needs
+> `-Clean`.
+>
+> **Three expectations were simply wrong**, and the implementation was right each
+> time: `var(--gutter, 20px)` has four children and not three (the comma and the
+> space are component values until something reads them as separators); `a[1]` is
+> contiguous, so `x: a[1] (2) [3` is six children with the blocks at 1, 3 and 5;
+> and a block's range begins at the `{`, one byte after the space that separates
+> it from the prelude, not two.
+
+A fourth was a real property of the corpus rather than of the parser: four of the
+thirteen `css_samples` entries are two words, and a property name is one
+identifier, so the property-name test uses each sample's first word and its
+value test uses the whole sample. Asserting otherwise would have been asserting
+that a space is an identifier character.

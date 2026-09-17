@@ -200,4 +200,51 @@ robo_css_stylesheet_id_t robo_css_slot_id_at(size_t index);
 /** Number of live slots. */
 size_t robo_css_slot_live_count(void);
 
+/* ------------------------------------------------------------------ */
+/* The grammar (9.3)                                                   */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The CSS Syntax grammar, living in RoboCSSParserGrammar.c.
+ *
+ * It is internal for one reason: Phase 9.1 fixed the two entry points a parse
+ * can arrive through, and they are the public API. A stylesheet's source is
+ * parsed by robo_css_stylesheet_parse (RoboCSSStyleSheet.h) and a `style`
+ * attribute's text by robo_css_declaration_list_parse_text
+ * (RoboCSSDeclaration.h); publishing a third `parse` here would be a second way
+ * to produce the same thing, which is exactly what the 9.1 parser header says
+ * it does not do.
+ *
+ * Both functions consume the *tokenizer*, never the source bytes: the parser
+ * has no byte-level scanning of its own. Both are transactional — they build
+ * into a local list and hand it over only on success — so a failed attempt
+ * leaves the caller's object exactly as it was.
+ *
+ * Both report the first CSS problem through @p out_error, which is always
+ * filled (kind NONE when the input was clean) and is never NULL-checked away.
+ * A recovered problem is not a failed call: these return ROBO_OK whenever they
+ * produced a result, and only ROBO_OUT_OF_MEMORY or ROBO_INVALID_ARGUMENT
+ * otherwise. @p origin is recorded and never interpreted.
+ */
+
+/**
+ * Parse @p source into @p out_rules (which is initialised first, and is left
+ * empty when the parse could not run at all).
+ */
+robo_result_t robo_css_grammar_parse_stylesheet(robo_css_rule_list_t *out_rules,
+                                                const robo_css_source_t *source,
+                                                robo_css_origin_t origin,
+                                                robo_css_error_t *out_error);
+
+/**
+ * Parse @p source as a declaration list into @p out_list — the whole of the
+ * inline-style boundary (9.1.10). Declarations borrow @p source's bytes, so
+ * @p source must outlive @p out_list.
+ */
+robo_result_t robo_css_grammar_parse_declarations(
+    robo_css_declaration_list_t *out_list,
+    const robo_css_source_t *source,
+    robo_css_origin_t origin,
+    robo_css_error_t *out_error);
+
 #endif /* ROBO_CSS_INTERNAL_H */

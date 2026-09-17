@@ -153,6 +153,53 @@ API are documented in `docs/Tokenizer.md`. Two properties matter to a reader of
 *this* document: it holds no reference to a DOM node, a stylesheet or a parser,
 and it records its first error with the same rule the parser cursor uses.
 
+### Grammar (the parser)
+
+`robo_css_grammar_t` (Phase 9.3, `RoboCSSParserGrammar.c`) is the CSS Syntax
+*structure* rules: a stylesheet, a rule list, an at-rule, a qualified rule, a
+declaration block, a declaration, and component values. It holds a tokenizer **by
+value** and is itself a stack record, so the only parsing-time allocation is a
+second stack tokenizer for one speculative pass (see below).
+
+It reaches the caller through two doors into that one grammar:
+`robo_css_stylesheet_parse` (a sheet's attached source → its rule list) and
+`robo_css_declaration_list_parse_text` (a caller's bytes → a declaration list).
+Both call the same `grammar_consume_declaration_block`, which is what makes a
+`style` attribute and the inside of a `{ … }` incapable of drifting apart.
+
+Three properties are architectural rather than incidental:
+
+* **The grammar lexes nothing.** Every byte arrives as a 9.2 token and every token
+  it keeps is that same record — same type, same range, same hash classification,
+  same dimension unit, same numeric payload. It builds and interprets nothing:
+  a prelude is component values (so a style rule's selector list stays empty for
+  9.4), an at-rule is syntax with no table to look its name up in, and
+  `!important` is recorded without ordering anything.
+* **It is transactional and separates two kinds of outcome.** The parse builds
+  into its own rule list and only a parse that returned `ROBO_OK` replaces the
+  sheet's rules, so parsing twice is idempotent rather than additive. The *return
+  value* reports the call; `out_error` reports the CSS's first problem and is
+  always filled. A recovered parse is still `PARSED`.
+* **Nesting is bounded, and past the bound a construct is flattened rather than
+  abandoned.** `ROBO_CSS_MAX_NESTING` (64) caps both recursions. The over-deep
+  construct's tokens are still consumed, the rule is still produced, and only its
+  contents are dropped — so a hostile sheet costs bounded stack and, crucially,
+  cannot cost the rules that follow it.
+
+One design point is worth stating here because it is the only place the grammar
+speculates. A block's contents are rules for some at-rules and declarations for
+others, and an at-rule the build has never heard of could be either — so the block
+is read as a rule list first, and when that yields nothing the same bytes are read
+again as declarations, on a **tokenizer of its own over the same source** so no
+range has to be adjusted afterwards. The guess can be wrong in the direction of
+complaining about legal input (`@font-face { font-family: X }`), so the grammar
+saves its error state around the guess and restores it when the second reading
+succeeds.
+
+The full architecture — the stage map, the declaration and `!important` rules,
+the at-rule treatment, the two recovery boundaries, the range conventions and the
+lifetime rules — is in `docs/Parser.md`.
+
 ### Component value
 
 `robo_css_value_t` is a component value: one token, or a `function(name …)`, or a
@@ -233,6 +280,11 @@ States are `CREATED` (exists, no parse attempt), `PARSED` (an attempt finished a
 produced this rule list — a *recovered* parse is still `PARSED`) and `FAILED` (the
 attempt could not produce a usable stylesheet at all). There is no `DESTROYED`
 state: a destroyed stylesheet is an id that no longer resolves.
+
+As of 9.3 `robo_css_stylesheet_parse` fills that rule list for real, and the parse
+is transactional against it: `slot->rules` is replaced, never appended to. The
+first CSS problem is kept in the sheet's own error slot as well as being handed to
+the caller, so a call site that did not want the record still sees it.
 
 `robo_css_stylesheet_parse` is the declared boundary for 9.3. It returns
 `ROBO_NOT_SUPPORTED`, records an `UNSUPPORTED` reason both in the caller's record
@@ -340,7 +392,11 @@ carried, described and released.
 The parser's cursor keeps the **first** error and does not let a later one
 overwrite it, because after a recovery path has skipped three constructs the
 useful report is still the first problem. `robo_css_parser_take_error` hands the
-record out and clears it.
+record out and clears it. The 9.3 grammar follows the same rule across the whole
+parse, and counts recoveries separately: `grammar_fail_at` increments the count
+every time and fills the record only the first time. The tokenizer's own error is
+folded in the same way and *taken* as it is absorbed, so a second tokenizer
+problem is not masked by the first for the rest of the parse.
 
 ## 11. Memory and lifetime
 
@@ -359,14 +415,17 @@ record out and clears it.
 
 ## 12. What the phases so far explicitly do not do
 
-Parsing (9.3), selectors and matching (9.4), the cascade (9.5), specificity
-(9.6), inheritance (9.7), computed values (9.8), colours (9.9), units (9.10), the
-box model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
+Selector parsing and matching (9.4), the cascade (9.5), specificity (9.6),
+inheritance (9.7), computed values (9.8), colours (9.9), units (9.10), the box
+model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking. **Reading bytes is not
-interpreting them**: the tokenizer knows that `10px` is a dimension with the unit
-`px`, and deliberately knows nothing about what a length means.
+interpreting them, and building a tree is not interpreting it either**: the
+tokenizer knows `10px` is a dimension with the unit `px`, the grammar knows a
+prelude is component values up to `{`, and both deliberately know nothing about
+what a length or a selector means.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
-`robo_css_get_capabilities` reports that it is absent — the capability flag for
-the tokenizer flipped to 1 in 9.2 for exactly that reason, and no other flag did.
+`robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
+(9.2) and the parser and inline styles (9.3) flipped to 1 for exactly that reason,
+and no other flag did.

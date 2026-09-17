@@ -521,32 +521,85 @@ static void test_css_inline_parse_text_boundary(void)
     robo_css_declaration_list_t list = ROBO_CSS_CLEARED;
     robo_css_error_t error = ROBO_CSS_CLEARED;
     const char *text = "color: red; padding: 10px";
+    const robo_css_declaration_t *declaration;
 
     css_fixture();
+    /* The boundary is filled as of 9.3, and it parses: the DOM keeps the `style`
+     * attribute, hands RoboCSS its text, and gets declarations back. */
     ROBO_CHECK_EQ_INT(robo_css_declaration_list_parse_text(text, strlen(text),
                                                            ROBO_CSS_ORIGIN_INLINE,
                                                            &list, &error),
-                      ROBO_NOT_SUPPORTED);
-    /* The single most important property of a not-yet-implemented boundary: it
-     * does not pretend. The list is initialised and empty, and the error says
-     * exactly why. */
-    ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 0u);
-    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_UNSUPPORTED);
-    ROBO_CHECK_EQ_INT(error.code, ROBO_NOT_SUPPORTED);
-    ROBO_CHECK(robo_css_error_kind_is_fatal(error.kind));
-    ROBO_CHECK(!robo_css_error_kind_is_recoverable(error.kind));
-    ROBO_CHECK(robo_css_error_is_error(&error));
-    ROBO_CHECK(error.message != NULL);
-    ROBO_CHECK(strstr(error.message, "9.3") != NULL);
-    /* The list is disposable, so a caller that ignores the result leaks nothing. */
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 2u);
+    /* A clean fragment is not a problem: the call succeeded and the error record
+     * says so rather than being left untouched. */
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+    ROBO_CHECK(!robo_css_error_is_error(&error));
+
+    declaration = robo_css_declaration_list_at(&list, 0u);
+    ROBO_CHECK(declaration != NULL);
+    if (declaration) {
+        ROBO_CHECK_EQ_INT(declaration->state, ROBO_CSS_DECLARATION_STATE_PARSED);
+        ROBO_CHECK(robo_css_slice_equals_ascii(robo_css_declaration_name(declaration),
+                                               "color"));
+        ROBO_CHECK_EQ_INT(declaration->important, 0);
+        ROBO_CHECK_EQ_INT(robo_css_value_child_count(robo_css_declaration_value(declaration)),
+                          1u);
+        ROBO_CHECK(robo_css_slice_equals_ascii(
+            robo_css_value_token_text(
+                robo_css_value_child(robo_css_declaration_value(declaration), 0u)),
+            "red"));
+    }
+    declaration = robo_css_declaration_list_at(&list, 1u);
+    ROBO_CHECK(declaration != NULL);
+    if (declaration) {
+        ROBO_CHECK(robo_css_slice_equals_ascii(robo_css_declaration_name(declaration),
+                                               "padding"));
+        ROBO_CHECK_EQ_INT(robo_css_value_child_count(robo_css_declaration_value(declaration)),
+                          1u);
+        {
+            const robo_css_value_t *component =
+                robo_css_value_child(robo_css_declaration_value(declaration), 0u);
+
+            ROBO_CHECK_EQ_INT(component->token.type, ROBO_CSS_TOKEN_DIMENSION);
+            ROBO_CHECK(component->token.number == 10.0);
+            ROBO_CHECK(robo_css_slice_equals_ascii(component->token.unit, "px"));
+        }
+    }
+    /* The bytes are borrowed, never copied, so the list must be usable and
+     * disposable while the caller's buffer is alive — and it is. */
     robo_css_declaration_list_dispose(&list);
 
-    /* Empty text is still refused for the same reason, not treated as "nothing
-     * to parse" — there is no parser at all yet. */
+    /* Empty text is not an error either: there are no declarations, and the
+     * parse says so rather than refusing. */
     ROBO_CHECK_EQ_INT(robo_css_declaration_list_parse_text("", 0u,
                                                            ROBO_CSS_ORIGIN_INLINE, &list,
                                                            &error),
-                      ROBO_NOT_SUPPORTED);
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 0u);
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+    robo_css_declaration_list_dispose(&list);
+
+    /* Malformed text is recovered from, not refused: the bad declaration is
+     * kept as an INVALID record and the good one after it is still parsed. The
+     * first problem is reported, and the call still succeeded. The `;` matters:
+     * the specification's recovery consumes the remnants of a bad declaration up
+     * to the `;` that ends it, so without one there is no boundary to recover
+     * at and everything after it is remnants too. */
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_parse_text(
+                          "broken; padding: 10px", 21u, ROBO_CSS_ORIGIN_INLINE, &list,
+                          &error),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 2u);
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_MALFORMED_DECLARATION);
+    ROBO_CHECK(robo_css_error_kind_is_recoverable(error.kind));
+    ROBO_CHECK(error.message != NULL);
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_at(&list, 0u)->state,
+                      ROBO_CSS_DECLARATION_STATE_INVALID);
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_at(&list, 1u)->state,
+                      ROBO_CSS_DECLARATION_STATE_PARSED);
+    ROBO_CHECK(!robo_css_declaration_is_usable(robo_css_declaration_list_at(&list, 0u)));
+    ROBO_CHECK(robo_css_declaration_is_usable(robo_css_declaration_list_at(&list, 1u)));
     robo_css_declaration_list_dispose(&list);
 
     /* A NULL list, or text that does not exist, is a caller mistake. */
@@ -558,11 +611,17 @@ static void test_css_inline_parse_text_boundary(void)
                                                            ROBO_CSS_ORIGIN_INLINE, &list,
                                                            &error),
                       ROBO_INVALID_ARGUMENT);
+    /* An origin outside the closed vocabulary is refused by both entry points. */
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_parse_text(text, strlen(text),
+                                                           (robo_css_origin_t)99,
+                                                           &list, &error),
+                      ROBO_INVALID_ARGUMENT);
     /* A NULL error record is optional: the result code is authoritative. */
     ROBO_CHECK_EQ_INT(robo_css_declaration_list_parse_text(text, strlen(text),
                                                            ROBO_CSS_ORIGIN_INLINE, &list,
                                                            NULL),
-                      ROBO_NOT_SUPPORTED);
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_declaration_list_count(&list), 2u);
     robo_css_declaration_list_dispose(&list);
 
     robo_css_error_init(&error);

@@ -94,7 +94,10 @@ typedef struct robo_css_capabilities {
     /* --- behaviour --- */
     /** The tokenizer state machine: CSS bytes in, tokens out (9.2). */
     int tokenizer;
-    /** The stylesheet/declaration grammar (9.3). */
+    /**
+     * The stylesheet/declaration grammar: tokens in, rules, declarations and
+     * component values out (9.3).
+     */
     int parser;
     /** Selector matching against an element view (9.4). */
     int selector_matching;
@@ -104,7 +107,10 @@ typedef struct robo_css_capabilities {
     int inheritance;
     /** Computed values (9.8). */
     int computed_values;
-    /** Parsing an element's `style` attribute (9.1 boundary, 9.3 parser). */
+    /**
+     * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
+     * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
+     */
     int inline_styles;
     /** A runtime default stylesheet (9.1 boundary, later content). */
     int default_styles;

@@ -237,8 +237,14 @@ typedef struct css_token_log {
  */
 static inline size_t css_lex(const robo_css_source_t *source, css_token_log_t *log)
 {
-    robo_css_tokenizer_t tokenizer;
-    robo_css_token_t token;
+    /* Cleared, not merely declared. `init` releases what the record already
+     * holds before it configures anything — that is what makes re-initializing
+     * one safe — so an uninitialized record here would be read as if it were a
+     * tokenizer: harmless in effect (the release only memsets) but an
+     * indeterminate read, and it logs whatever was on the stack as though it
+     * were a token count and an error kind. */
+    robo_css_tokenizer_t tokenizer = ROBO_CSS_CLEARED;
+    robo_css_token_t token = ROBO_CSS_CLEARED;
     size_t consumed;
 
     css_fixture();
@@ -505,6 +511,220 @@ static inline void css_allocator_restore(int we_enabled_it)
 {
     if (we_enabled_it) {
         robo_mem_debug_disable();
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* The parser (9.3)                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Parse @p text as a stylesheet and return the sheet's id.
+ *
+ * The source is *copied* into the sheet, so @p text may be a temporary — which
+ * is what lets a suite call this with a string literal or a local buffer
+ * without worrying about what the rules borrow.
+ */
+static inline robo_css_stylesheet_id_t css_parse_sheet(const char *text,
+                                                       robo_css_error_t *out_error)
+{
+    robo_css_stylesheet_id_t id = ROBO_CSS_STYLESHEET_ID_NONE;
+
+    css_fixture();
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_create(&id, ROBO_CSS_ORIGIN_AUTHOR, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_copy_source(id, (const uint8_t *)text,
+                                                      strlen(text), NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_parse(id, out_error, NULL), ROBO_OK);
+    return id;
+}
+
+/**
+ * Parse @p text as a declaration list into @p out.
+ *
+ * @p text must outlive @p out: the declarations borrow its bytes (see
+ * robo_css_declaration_list_parse_text). Every suite here passes a literal or a
+ * buffer that outlives the list.
+ */
+static inline robo_result_t css_parse_declarations(const char *text,
+                                                   robo_css_declaration_list_t *out,
+                                                   robo_css_error_t *out_error)
+{
+    css_fixture();
+    return robo_css_declaration_list_parse_text(text, strlen(text),
+                                                ROBO_CSS_ORIGIN_INLINE, out, out_error);
+}
+
+/** The style rule of @p sheet at @p index, or NULL when it is not a style rule. */
+static inline const robo_css_style_rule_t *css_sheet_style_rule(
+    robo_css_stylesheet_id_t sheet,
+    size_t index)
+{
+    return robo_css_rule_style(robo_css_stylesheet_rule(sheet, index));
+}
+
+/** Non-zero when @p component is a token of @p type. */
+static inline int css_component_is(const robo_css_value_t *component,
+                                   robo_css_token_type_t type)
+{
+    return component && component->kind == ROBO_CSS_VALUE_KIND_TOKEN &&
+           component->token.type == type;
+}
+
+/** Append @p text to @p out at @p *offset, NUL-terminating, never overrunning. */
+static inline void css_shape_text(char *out, size_t capacity, size_t *offset,
+                                  const char *text)
+{
+    while (text && *text && *offset + 1u < capacity) {
+        out[(*offset)++] = *text++;
+    }
+    if (out && *offset < capacity) {
+        out[*offset] = '\0';
+    }
+}
+
+/** One byte of a shape: whitespace becomes `_` so a run is visible and exact. */
+static inline void css_shape_byte(char *out, size_t capacity, size_t *offset, uint8_t b)
+{
+    if (*offset + 1u >= capacity) {
+        return;
+    }
+    out[(*offset)++] = (b == (uint8_t)' ' || b == (uint8_t)'\t' || b == (uint8_t)'\n' ||
+                        b == (uint8_t)'\r' || b == (uint8_t)'\f')
+                           ? '_'
+                           : (char)b;
+    out[*offset] = '\0';
+}
+
+/**
+ * Write a component-value tree as a one-line shape.
+ *
+ *   LIST       its children, comma-separated
+ *   TOKEN      its raw text, whitespace folded to `_`
+ *   FUNCTION   `name(children)`
+ *   BLOCK      `(`/`[`/`{` then the children then the matching close
+ *
+ * One string pins a whole tree, which is what makes a value assertion readable
+ * *and* failure-sensitive: a missing whitespace token, a mis-nested function or
+ * a trimmed-away leaf all change the string. The tokenizer suite's `css_log_kinds`
+ * exists for the same reason one level down.
+ */
+static inline void css_shape_write(const robo_css_value_t *value, char *out,
+                                   size_t capacity, size_t *offset)
+{
+    size_t index;
+    char open = '(';
+    char close = ')';
+
+    if (!value || !out) {
+        return;
+    }
+    switch (value->kind) {
+    case ROBO_CSS_VALUE_KIND_LIST:
+        for (index = 0u; index < value->children.count; index++) {
+            if (index > 0u) {
+                css_shape_text(out, capacity, offset, ",");
+            }
+            css_shape_write(&value->children.items[index], out, capacity, offset);
+        }
+        return;
+    case ROBO_CSS_VALUE_KIND_TOKEN:
+        for (index = 0u; index < value->token.text.length; index++) {
+            css_shape_byte(out, capacity, offset, value->token.text.bytes[index]);
+        }
+        return;
+    case ROBO_CSS_VALUE_KIND_FUNCTION:
+        for (index = 0u; index < value->name.length; index++) {
+            css_shape_byte(out, capacity, offset, value->name.bytes[index]);
+        }
+        break;
+    case ROBO_CSS_VALUE_KIND_BLOCK:
+        if (value->open == ROBO_CSS_TOKEN_LEFT_SQUARE) {
+            open = '[';
+            close = ']';
+        } else if (value->open == ROBO_CSS_TOKEN_LEFT_CURLY) {
+            open = '{';
+            close = '}';
+        }
+        break;
+    default:
+        return;
+    }
+    css_shape_byte(out, capacity, offset, (uint8_t)open);
+    for (index = 0u; index < value->children.count; index++) {
+        if (index > 0u) {
+            css_shape_text(out, capacity, offset, ",");
+        }
+        css_shape_write(&value->children.items[index], out, capacity, offset);
+    }
+    css_shape_byte(out, capacity, offset, (uint8_t)close);
+}
+
+/**
+ * The shape of @p value written into @p out, which must hold @p capacity bytes.
+ * A shape longer than the buffer is truncated, and the assertion that read it
+ * then shows the truncation, which is why 256 bytes is worth asking for.
+ */
+static inline void css_shape(const robo_css_value_t *value, char *out, size_t capacity)
+{
+    size_t offset = 0u;
+
+    if (!out || capacity == 0u) {
+        return;
+    }
+    out[0] = '\0';
+    css_shape_write(value, out, capacity, &offset);
+}
+
+/** The shape of the @p index'th declaration's value in @p list ("" when absent). */
+static inline void css_declaration_shape(const robo_css_declaration_list_t *list,
+                                         size_t index, char *out, size_t capacity)
+{
+    const robo_css_declaration_t *declaration = robo_css_declaration_list_at(list, index);
+
+    css_shape(declaration ? robo_css_declaration_value(declaration) : NULL, out, capacity);
+}
+
+/** The shape of a style rule's prelude. */
+static inline void css_prelude_shape(const robo_css_style_rule_t *rule, char *out,
+                                     size_t capacity)
+{
+    css_shape(rule ? robo_css_style_rule_prelude_values(rule) : NULL, out, capacity);
+}
+
+/**
+ * Non-zero when the @p index'th declaration of @p rule is named @p name.
+ *
+ * A one-line wrapper for the assertion recovery tests make over and over —
+ * "the surviving rule kept *its* declaration" — because spelling it out at each
+ * site buries the fact being pinned under three levels of accessor.
+ */
+static inline int css_parse_declaration_is(const robo_css_style_rule_t *rule,
+                                           size_t index, const char *name)
+{
+    return robo_css_slice_equals_ascii(
+        robo_css_declaration_name(robo_css_style_rule_declaration(rule, index)), name);
+}
+
+/** The property name of a declaration in @p list as a NUL-terminated string. */
+static inline void css_declaration_name_of(const robo_css_declaration_list_t *list,
+                                           size_t index, char *out, size_t capacity)
+{
+    const robo_css_declaration_t *declaration = robo_css_declaration_list_at(list, index);
+    size_t offset = 0u;
+
+    if (!out || capacity == 0u) {
+        return;
+    }
+    out[0] = '\0';
+    if (declaration) {
+        robo_css_slice_t name = robo_css_declaration_name(declaration);
+        size_t i;
+
+        for (i = 0u; i < name.length; i++) {
+            css_shape_byte(out, capacity, &offset, name.bytes[i]);
+        }
     }
 }
 

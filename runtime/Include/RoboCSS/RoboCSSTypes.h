@@ -230,6 +230,23 @@ int robo_css_range_contains(robo_css_range_t range, size_t offset);
 /** Initial capacity of every growable CSS collection. */
 #define ROBO_CSS_COLLECTION_MIN_CAPACITY 4u
 
+/**
+ * Maximum nesting depth the parser will build (9.3).
+ *
+ * "Depth" means one thing for rules and another for values, and the number
+ * covers both: an at-rule's block inside an at-rule's block, and a function or
+ * simple block inside a component value. It is a *budget*, not a limit on legal
+ * CSS — 64 levels of `calc(calc(...))` or of nested `@media` is far past
+ * anything an author writes and well inside a comfortable stack.
+ *
+ * Past the bound the parser neither recurses nor fails: it consumes the
+ * construct flat and records a recoverable error, so adversarial input costs a
+ * bounded amount of stack and no correctness, and the token stream still ends
+ * at a defined place. Disposal walks the tree the parser built, so it recurses
+ * exactly as deep as this bound allows and no deeper.
+ */
+#define ROBO_CSS_MAX_NESTING 64u
+
 /* ------------------------------------------------------------------ */
 /* Stylesheet origin                                                   */
 /* ------------------------------------------------------------------ */

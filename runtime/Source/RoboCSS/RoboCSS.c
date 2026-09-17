@@ -227,16 +227,20 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
     /* Everything that would interpret it is 0, and stays 0 until its own phase
      * lands. A caller that reads this is never told a feature works because a
      * type for it exists. */
-    /* 9.2 produced a tokenizer: the flag names something that now exists end
-     * to end, so it is 1, and the suites assert 1. Every flag below still
-     * describes a phase that has not run. */
+    /* 9.2 produced a tokenizer and 9.3 produced the grammar that consumes it:
+     * both flags name something that now exists end to end, so both are 1, and
+     * the suites assert 1. `inline_styles` goes with the grammar rather than
+     * with a phase of its own, because the boundary it names is
+     * robo_css_declaration_list_parse_text, which is a declaration-list parse —
+     * the same code path a block uses. Every flag below still describes work
+     * that has not been done. */
     out->tokenizer = 1;
-    out->parser = 0;
+    out->parser = 1;
+    out->inline_styles = 1;
     out->selector_matching = 0;
     out->cascade = 0;
     out->inheritance = 0;
     out->computed_values = 0;
-    out->inline_styles = 0;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

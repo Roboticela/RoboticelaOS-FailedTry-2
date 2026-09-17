@@ -320,18 +320,29 @@ robo_result_t robo_css_declaration_list_parse_text(const char *text,
                                                    robo_css_declaration_list_t *out_list,
                                                    robo_css_error_t *out_error)
 {
+    robo_css_source_t source = ROBO_CSS_CLEARED;
+
     if (!out_list) {
         return ROBO_INVALID_ARGUMENT;
     }
     if (!text && length > 0u) {
         return ROBO_INVALID_ARGUMENT;
     }
-    /* The list is initialised even though nothing is parsed into it, so a
-     * caller can dispose it unconditionally and never has to guess. */
+    /* The list is initialised before anything can fail, so a caller can dispose
+     * it unconditionally and never has to guess. */
     robo_css_declaration_list_init(out_list);
-    (void)origin; /* recorded by the caller; provenance does not change the text */
-    robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_UNSUPPORTED,
-                       ROBO_NOT_SUPPORTED, NULL,
-                       "declaration parsing arrives with the CSS parser (Goal 9.3)");
-    return ROBO_NOT_SUPPORTED;
+
+    /* The caller's bytes, borrowed and never copied. That is the ownership
+     * contract of this boundary: the declarations that come back borrow their
+     * name and value slices from @p text, so @p text must outlive @p out_list.
+     * A DOM that parses its own `style` attribute keeps the attribute alive for
+     * as long as it keeps the list, which is exactly the lifetime a caller
+     * already has. */
+    if (robo_css_source_set_memory(&source, (const uint8_t *)text, length, NULL) != ROBO_OK) {
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
+                           NULL, "the declaration text could not be attached as a CSS source");
+        return ROBO_INVALID_ARGUMENT;
+    }
+    /* The source is borrowed, so there is nothing to release afterwards. */
+    return robo_css_grammar_parse_declarations(out_list, &source, origin, out_error);
 }
