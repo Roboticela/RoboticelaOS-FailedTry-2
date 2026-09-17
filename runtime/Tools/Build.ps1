@@ -242,7 +242,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSSpecificity.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSCascade.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSPropertyRegistry.c"),
-    (Join-Path $SourceDir "RoboCSS\RoboCSSInherit.c")
+    (Join-Path $SourceDir "RoboCSS\RoboCSSInherit.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSComputedValue.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -403,6 +404,8 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssPropertyRegistry.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssInherit.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssInheritResolve.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssComputedValue.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssComputed.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

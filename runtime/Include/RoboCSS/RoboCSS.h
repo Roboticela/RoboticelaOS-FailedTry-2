@@ -21,17 +21,19 @@
  * build actually does. The model flags are 1, and so are the behaviour flags of
  * every phase that has landed — the tokenizer (9.2), the grammar and inline
  * parsing (9.3), selector parsing and matching (9.4), the cascade (9.5),
- * specificity (9.6) and the inheritance behind a cascade (9.7). The flags that
- * remain 0 are computed values, default styles and loading, and each of those
- * names work this build does not do. A caller that wants to know whether CSS
- * will style anything should read this rather than infer it from a version
+ * specificity (9.6), the inheritance behind a cascade (9.7) and computed values
+ * (9.8). The flags that remain 0 are default styles and loading, and each of
+ * those names work this build does not do. A caller that wants to know whether
+ * CSS will style anything should read this rather than infer it from a version
  * number.
  *
  * A flag is 1 only when the thing it names works end to end. The rule has real
  * teeth at the boundaries: `cascade` waited for `specificity` rather than
- * claiming an ordering it could not complete, and `inheritance` is 1 while
- * `computed_values` is 0 because a *resolved* style is a different thing from a
- * computed one and only the first exists.
+ * claiming an ordering it could not complete, and `computed_values` was 0 while
+ * `inheritance` was already 1, because a *resolved* style is a different thing
+ * from a computed one and for a phase only the second existed. Both are 1 now,
+ * and neither claims anything about layout: a computed value here is a length, a
+ * percentage, a colour or a keyword, not a used one.
  */
 
 #ifndef ROBO_CSS_H

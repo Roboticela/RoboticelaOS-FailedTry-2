@@ -257,12 +257,16 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
     out->specificity = 1;
     /* 9.7 takes a cascade and the parent's resolved style and produces a
      * resolved style: every declared property, every inherited one, and every
-     * inherited-by-default default, each carrying where its value came from.
-     * `computed_values` stays 0 and is a different flag on purpose — a resolved
-     * style still holds `10px` and `red`, and nothing here turns either into a
-     * length or a colour. */
+     * inherited-by-default default, each carrying where its value came from. */
     out->inheritance = 1;
-    out->computed_values = 0;
+    /* 9.8 turns that resolved style into a computed one: every entry carries a
+     * typed value — a length with its unit, a percentage, a colour, a keyword, a
+     * family list, or the tokens themselves — normalised through the property's
+     * declared value shape. What it does *not* do is resolve: `50%` stays a
+     * percentage, `2em` stays relative, `var()` and `calc()` stay references, and
+     * `currentColor` stays contextual, which is why this is a flag for computing
+     * and not for laying anything out. */
+    out->computed_values = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

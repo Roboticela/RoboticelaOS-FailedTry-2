@@ -32,12 +32,41 @@
  * CSS-wide keywords, they are values like any other in the component-value
  * model, and giving them dedicated state here would be implementing 9.7 by
  * accident.
+ *
+ * ---- what 9.8 added, and why it is additive ----
+ *
+ * 9.8 makes an entry richer rather than different. The container still holds the
+ * *specified* component value it always did — that is what
+ * robo_css_computed_style_set moves in, and every 9.1 accessor still answers it —
+ * and an entry additionally carries, when the computation put it there:
+ *
+ *   name       the property's spelling, copied. Needed because a custom property
+ *              and an unknown property have no id, and an entry nothing can name
+ *              is an entry nothing can look up.
+ *   computed   the typed computed value (RoboCSSComputedValue.h), which is the
+ *              half of "specified vs computed" this phase exists to add.
+ *   flags      how the value was arrived at — declared, inherited, the
+ *              property's default, deferred — and whether anything is wrong
+ *              with it: unresolved (`var()`), or invalid for the property.
+ *
+ * The flags are this container's own vocabulary rather than the inheritance
+ * model's, and that is deliberate: a computed value can be *both* inherited and
+ * a default (a child inheriting the parent's initial `color`), and a single
+ * enumerator could not say so. A bitset can, and it lets this header stay a
+ * header about computed styles rather than one that has to include the
+ * inheritance model to describe its own contents.
+ *
+ * An entry with no computed value is not an error. It is what
+ * robo_css_computed_style_set produces, and it means "this property is present
+ * with this specified value and nobody has computed it" — which is a real state
+ * for a caller assembling a style by hand.
  */
 
 #ifndef ROBO_CSS_COMPUTED_H
 #define ROBO_CSS_COMPUTED_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboCSS/RoboCSSComputedValue.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSProperty.h"
 #include "RoboCSS/RoboCSSValue.h"
@@ -45,6 +74,32 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * How a computed entry was arrived at, and what is wrong with it.
+ *
+ * A bitset, not an enumerator, because the facts are not exclusive: a value the
+ * parent supplied *and* the property's default (a root's initial colour
+ * inherited by its child) is both, and an INVALID value is still, factually,
+ * something the element declared. Each bit is one question answered yes.
+ */
+typedef enum robo_css_computed_flag {
+    ROBO_CSS_COMPUTED_FLAG_NONE = 0,
+    /** The element's own cascade declared it. */
+    ROBO_CSS_COMPUTED_FLAG_DECLARED = 1 << 0,
+    /** The parent's computed style supplied it. */
+    ROBO_CSS_COMPUTED_FLAG_INHERITED = 1 << 1,
+    /** The property's own initial value supplied it. */
+    ROBO_CSS_COMPUTED_FLAG_DEFAULT = 1 << 2,
+    /** The `revert` keyword, carried unresolved for a later phase. */
+    ROBO_CSS_COMPUTED_FLAG_DEFERRED = 1 << 3,
+    /** A custom property (`--x`): preserved verbatim, never interpreted. */
+    ROBO_CSS_COMPUTED_FLAG_CUSTOM = 1 << 4,
+    /** Needs a later stage: `var()`, `calc()`, `currentColor`. */
+    ROBO_CSS_COMPUTED_FLAG_UNRESOLVED = 1 << 5,
+    /** The value means nothing for this property (RoboCSSComputedValue.h). */
+    ROBO_CSS_COMPUTED_FLAG_INVALID = 1 << 6
+} robo_css_computed_flag_t;
 
 /** An opaque, caller-owned set of computed property values. */
 typedef struct robo_css_computed_style robo_css_computed_style_t;
@@ -118,6 +173,132 @@ const robo_css_value_t *robo_css_computed_style_value_at(
 
 /** Remove every property. Safe on NULL. */
 void robo_css_computed_style_clear(robo_css_computed_style_t *style);
+
+/* ------------------------------------------------------------------ */
+/* The computed half of an entry (9.8)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Set @p property to (@p name, @p flags, @p specified, @p computed).
+ *
+ * The door the computation uses, and the one that fills an entry completely.
+ * Both values may be NULL, meaning "nothing on that side": a state the
+ * computation produces whenever a property's default is unknown to this build
+ * (no specified value and no computed one, and the entry is still there, which
+ * is the whole point). An existing entry is replaced in place, keeping its
+ * position, exactly as robo_css_computed_style_set does.
+ *
+ * @p name is copied and may be an absent slice for an entry identified only by
+ * @p property. ROBO_CSS_PROPERTY_ID_NONE is accepted when @p name is present —
+ * that is what a custom property and an unknown property are — and refused when
+ * it is not, because an entry with neither an id nor a name is unfindable and
+ * would be a hole in the style rather than a value in it.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL style or an unfindable
+ *         entry; ROBO_OUT_OF_MEMORY when nothing could be stored (the entry is
+ *         left untouched in that case).
+ */
+robo_result_t robo_css_computed_style_set_entry(
+    robo_css_computed_style_t *style,
+    robo_css_property_id_t property,
+    robo_css_slice_t name,
+    uint32_t flags,
+    robo_css_value_t *specified,
+    robo_css_computed_value_t *computed,
+    robo_css_diag_t *diag);
+
+/**
+ * Index of the entry for @p name, or (size_t)-1 when there is none.
+ *
+ * The comparison follows CSS's rule — ASCII case-insensitive for an ordinary
+ * property name, byte-exact for a custom property — which is the same rule the
+ * registry and the inheritance model use, so all three agree about what "the
+ * same property" means.
+ */
+size_t robo_css_computed_style_find(const robo_css_computed_style_t *style,
+                                    robo_css_slice_t name);
+
+/**
+ * Borrowed name of the entry at @p index, or an absent slice when it has none
+ * or @p index is out of range.
+ */
+robo_css_slice_t robo_css_computed_style_name_at(
+    const robo_css_computed_style_t *style,
+    size_t index);
+
+/** Borrowed flags of the entry at @p index; NONE when out of range. */
+uint32_t robo_css_computed_style_flags_at(const robo_css_computed_style_t *style,
+                                          size_t index);
+
+/**
+ * Borrowed *computed* value of the entry at @p index, or NULL when the entry
+ * has none (or @p index is out of range).
+ */
+const robo_css_computed_value_t *robo_css_computed_style_computed_at(
+    const robo_css_computed_style_t *style,
+    size_t index);
+
+/** Borrowed computed value for @p property, or NULL. */
+const robo_css_computed_value_t *robo_css_computed_style_computed(
+    const robo_css_computed_style_t *style,
+    robo_css_property_id_t property);
+
+/**
+ * Borrowed computed value for @p name, or NULL.
+ *
+ * The lookup to prefer when a property may be a custom property or may be one
+ * no table knows, because it is the one that does not need an id to have been
+ * resolved.
+ */
+const robo_css_computed_value_t *robo_css_computed_style_computed_by_name(
+    const robo_css_computed_style_t *style,
+    robo_css_slice_t name);
+
+/** Borrowed flags for @p name; NONE when there is no entry. */
+uint32_t robo_css_computed_style_flags(const robo_css_computed_style_t *style,
+                                       robo_css_slice_t name);
+
+/**
+ * Borrowed specified value for @p name, or NULL.
+ *
+ * The name-keyed spelling of robo_css_computed_style_get, and what makes the two
+ * halves of "specified vs computed" reachable the same way.
+ */
+const robo_css_value_t *robo_css_computed_style_specified_by_name(
+    const robo_css_computed_style_t *style,
+    robo_css_slice_t name);
+
+/** Non-zero when the entry for @p name carries @p flag. */
+int robo_css_computed_style_has_flag(const robo_css_computed_style_t *style,
+                                     robo_css_slice_t name,
+                                     uint32_t flag);
+
+/** Non-zero when any entry is marked INVALID but not UNRESOLVED. */
+int robo_css_computed_style_has_invalid(const robo_css_computed_style_t *style);
+
+/**
+ * Number of entries that are INVALID or UNRESOLVED.
+ *
+ * The counter that keeps a computed style from being read as more settled than
+ * it is: a `calc()` that only layout can reduce and a `color: nonsense` that is
+ * wrong both make the style incomplete, and a consumer can see how much.
+ */
+size_t robo_css_computed_style_incomplete_count(
+    const robo_css_computed_style_t *style);
+
+/**
+ * Non-zero when the resolution behind this style ran out of ancestor chain.
+ *
+ * A style computed for an element whose chain is longer than the walk goes (or
+ * whose DOM reports a cycle among parents) is a *lower bound*: every value it
+ * inherited from above the point the walk stopped could have been overridden
+ * there. Recorded on the style rather than on the entries, because it is a fact
+ * about the resolution and not about any one property.
+ *
+ * 0 does **not** mean the element declared anything — an element that declares
+ * nothing at all has a complete style, because defaults are answers.
+ */
+int robo_css_computed_style_is_truncated(const robo_css_computed_style_t *style);
 
 #ifdef __cplusplus
 }

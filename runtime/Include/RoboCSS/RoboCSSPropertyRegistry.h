@@ -98,6 +98,53 @@ const char *robo_css_property_inheritance_name(
     robo_css_property_inheritance_t inheritance);
 
 /**
+ * How a property's declared value becomes a *computed* value (9.8).
+ *
+ * Inheritance needed two facts about a property. Computation needs a third, and
+ * it is a different kind of fact: not "what is this property" but "what shape
+ * is its value". `color` holds a colour, `width` a length-or-keyword, `margin`
+ * whatever its shorthand says — and a computed value model that does not know
+ * the shape cannot normalise anything.
+ *
+ * So the shape is recorded here, beside the other two, and the computed-value
+ * normaliser dispatches on it. That is what keeps the dispatch out of a single
+ * enormous switch in the computation code: the *property* says what it is, and
+ * the computation reads the answer instead of re-deriving it from the name.
+ *
+ * PRESERVE is the honest default and the answer for every property nothing has
+ * classified — including an unknown property, a shorthand (whose longhands are
+ * not expanded yet) and a custom property. It means "carry the tokens", which
+ * is a computed representation in the same sense a length is: it is the value,
+ * structurally intact, with no interpretation claimed.
+ */
+typedef enum robo_css_property_computation {
+    /** Carry the token sequence structurally; interpret nothing. */
+    ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE = 0,
+    /** A colour: named, `transparent`, hex or `rgb()`/`rgba()`. */
+    ROBO_CSS_PROPERTY_COMPUTATION_COLOR = 1,
+    /** A length, a percentage, or a length-family keyword (`auto`, `normal`). */
+    ROBO_CSS_PROPERTY_COMPUTATION_LENGTH = 2,
+    /** A single identifier, kept as one (`display`, `position`, `visibility`). */
+    ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD = 3,
+    /** A font family list (`font-family`), kept as an ordered list. */
+    ROBO_CSS_PROPERTY_COMPUTATION_FONT_FAMILY = 4,
+    /** `normal`, `bold`, or 100–900 (`font-weight`). */
+    ROBO_CSS_PROPERTY_COMPUTATION_FONT_WEIGHT = 5,
+    /** `normal`, a number, a length or a percentage (`line-height`). */
+    ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT = 6
+} robo_css_property_computation_t;
+
+/** Number of defined computations. */
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 7u
+
+/** Non-zero when @p computation is a defined enumerator. */
+int robo_css_property_computation_is_known(robo_css_property_computation_t computation);
+
+/** Human-readable name ("preserve", "colour", "length"); never NULL. */
+const char *robo_css_property_computation_name(
+    robo_css_property_computation_t computation);
+
+/**
  * One registered property.
  *
  * Owned by the registry and handed out borrowed. `name` and `initial_text` are
@@ -116,6 +163,8 @@ typedef struct robo_css_property_definition {
     /** Length of @p name in bytes, excluding its NUL. */
     size_t name_length;
     robo_css_property_inheritance_t inheritance;
+    /** How this property's value becomes a computed value (9.8). */
+    robo_css_property_computation_t computation;
     /** Bitmask of robo_css_property_flag_t, for robo_css_property_registry_apply_to_table. */
     uint32_t flags;
     /** Owned, NUL-terminated initial value text; NULL when there is none. */
@@ -208,6 +257,45 @@ robo_result_t robo_css_property_registry_register(robo_css_property_registry_t *
                                                   const char *initial_text,
                                                   uint32_t flags,
                                                   robo_css_diag_t *diag);
+
+/**
+ * As robo_css_property_registry_register, plus the value shape computation needs.
+ *
+ * The five-argument form is this one with
+ * ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE, so a caller that registers a property
+ * for identity and inheritance alone is not forced to take a position on how its
+ * value is computed. That is a real position: PRESERVE is what an unclassified
+ * property gets, and it is not a placeholder — it is the correct computation for
+ * a property whose shape nothing here claims to know.
+ *
+ * @return the same codes as robo_css_property_registry_register, plus
+ *         ROBO_INVALID_ARGUMENT for an unknown @p computation.
+ */
+robo_result_t robo_css_property_registry_register_typed(
+    robo_css_property_registry_t *registry,
+    const char *name,
+    robo_css_property_inheritance_t inheritance,
+    robo_css_property_computation_t computation,
+    const char *initial_text,
+    uint32_t flags,
+    robo_css_diag_t *diag);
+
+/**
+ * Look up a property's classification *by identity* (9.8).
+ *
+ * The definitions here carry no id — ids belong to a caller's table — so a
+ * caller holding an id cannot ask the registry directly. This walks the
+ * registry's own order and asks @p table what each definition's name is worth,
+ * which is the only sound way to do it: the mapping is the table's, so the
+ * question has to go through it.
+ *
+ * @return a borrowed definition, or NULL when the registry has no definition
+ *         whose name the table resolves to @p property.
+ */
+const robo_css_property_definition_t *robo_css_property_registry_find_property(
+    const robo_css_property_registry_t *registry,
+    const robo_css_property_table_t *table,
+    robo_css_property_id_t property);
 
 /**
  * Find @p name (NUL-terminated).

@@ -511,6 +511,56 @@ robo_result_t robo_css_style_context_match_declarations(
     return robo_css_cascade_collect(context, element, out, out_error, diag);
 }
 
+/**
+ * Collect @p element's ancestor chain into @p chain, **leaf first**.
+ *
+ * The walk every resolution door in this file starts with, and the reason both
+ * of them share it: "which elements are above this one" is a question about the
+ * host, and a second answer to it would be a second chance to disagree with the
+ * first about where a chain ends or when it is too long.
+ *
+ * Up first, resolve down afterwards — that order is what makes "the immediate
+ * resolved parent" literal, because the level above is resolved before the
+ * level below needs it.
+ *
+ * The chain is bounded by ROBO_CSS_INHERIT_MAX_DEPTH, and hitting the bound is
+ * *reported* through @p out_capped rather than hidden: a DOM that reports a
+ * cycle among parents (`a`'s parent is `b`, `b`'s is `a`) would otherwise walk
+ * forever, and a truncated chain is not a root.
+ *
+ * @param capacity  entries @p chain can hold; must be at least 1.
+ * @return the number of levels collected, at least 1 for a real element.
+ */
+static size_t style_chain_collect(const robo_css_style_context_t *context,
+                                  robo_css_element_ref_t element,
+                                  robo_css_element_ref_t *chain,
+                                  size_t capacity,
+                                  int *out_capped)
+{
+    robo_css_element_host_t host = robo_css_style_context_element_host(context);
+    size_t chain_length = 0u;
+
+    *out_capped = 0;
+    chain[chain_length++] = element;
+    while (host.parent) {
+        robo_css_element_ref_t next;
+
+        if (chain_length >= capacity) {
+            /* Ask once more, so a chain that happens to be exactly the bound
+             * long is not reported as truncated. */
+            *out_capped = host.parent(host.userdata, chain[chain_length - 1u]) !=
+                          ROBO_CSS_ELEMENT_REF_NONE;
+            break;
+        }
+        next = host.parent(host.userdata, chain[chain_length - 1u]);
+        if (next == ROBO_CSS_ELEMENT_REF_NONE) {
+            break;
+        }
+        chain[chain_length++] = next;
+    }
+    return chain_length;
+}
+
 robo_result_t robo_css_style_context_resolve_inherited_style(
     const robo_css_style_context_t *context,
     robo_css_element_ref_t element,
@@ -524,7 +574,6 @@ robo_result_t robo_css_style_context_resolve_inherited_style(
     robo_css_element_ref_t chain[ROBO_CSS_INHERIT_MAX_DEPTH];
     robo_css_inherited_style_t below = ROBO_CSS_CLEARED;
     robo_css_inherited_style_t current = ROBO_CSS_CLEARED;
-    robo_css_element_host_t host;
     size_t chain_length = 0u;
     size_t index;
     int capped = 0;
@@ -545,27 +594,8 @@ robo_result_t robo_css_style_context_resolve_inherited_style(
                              "a resolution needs an element");
     }
 
-    /* Up first: the chain is built leaf-to-root, then resolved root-to-leaf, so
-     * that every level has its own *resolved parent* in hand rather than the
-     * nearest ancestor that happened to declare something. */
-    host = robo_css_style_context_element_host(context);
-    chain[chain_length++] = element;
-    while (host.parent) {
-        robo_css_element_ref_t next;
-
-        if (chain_length >= (size_t)ROBO_CSS_INHERIT_MAX_DEPTH) {
-            /* Ask once more, so a chain that happens to be exactly the bound
-             * long is not reported as truncated. */
-            capped = host.parent(host.userdata, chain[chain_length - 1u]) !=
-                     ROBO_CSS_ELEMENT_REF_NONE;
-            break;
-        }
-        next = host.parent(host.userdata, chain[chain_length - 1u]);
-        if (next == ROBO_CSS_ELEMENT_REF_NONE) {
-            break;
-        }
-        chain[chain_length++] = next;
-    }
+    chain_length = style_chain_collect(context, element, chain,
+                                       (size_t)ROBO_CSS_INHERIT_MAX_DEPTH, &capped);
 
     for (index = chain_length; index-- > 0u;) {
         robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
@@ -624,15 +654,131 @@ robo_result_t robo_css_style_context_compute_style(
     robo_css_error_t *out_error,
     robo_css_diag_t *diag)
 {
+    /* Two computed styles, swapped each level: the one just computed is the
+     * parent for the next, and the other is scratch. Nothing accumulates — the
+     * intermediate styles cost one level each and are gone the moment the level
+     * below has read them, which is what keeps computing a deep tree linear
+     * rather than quadratic. */
+    robo_css_element_ref_t chain[ROBO_CSS_INHERIT_MAX_DEPTH];
+    robo_css_inherited_style_t below = ROBO_CSS_CLEARED;
+    robo_css_inherited_style_t current = ROBO_CSS_CLEARED;
+    robo_css_computed_style_t *upper = NULL;
+    robo_css_computed_style_t *lower = NULL;
+    size_t chain_length = 0u;
+    size_t index;
+    int capped = 0;
+    int error_recorded = 0;
+    robo_result_t rc;
+
     if (!context || !out_style) {
         robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
                            NULL, "context or output is NULL");
         return ROBO_INVALID_ARGUMENT;
     }
-    (void)element;
-    robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_UNSUPPORTED, ROBO_NOT_SUPPORTED,
-                       NULL,
-                       "computed values arrive in Goal 9.8");
-    return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_NOT_SUPPORTED,
-                         "computed values arrive in Goal 9.8");
+    robo_css_error_init(out_error);
+    robo_css_computed_style_clear(out_style);
+    if (element == ROBO_CSS_ELEMENT_REF_NONE) {
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_NONE, ROBO_INVALID_ARGUMENT,
+                           NULL, "a computation needs an element");
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_STYLE, ROBO_INVALID_ARGUMENT,
+                             "a computation needs an element");
+    }
+
+    chain_length = style_chain_collect(context, element, chain,
+                                       (size_t)ROBO_CSS_INHERIT_MAX_DEPTH, &capped);
+    rc = robo_css_computed_style_create(&upper, diag);
+    if (rc == ROBO_OK) {
+        rc = robo_css_computed_style_create(&lower, diag);
+    }
+    if (rc != ROBO_OK) {
+        robo_css_computed_style_destroy(upper);
+        robo_css_computed_style_destroy(lower);
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_OUT_OF_MEMORY, rc, NULL,
+                           "the computed style could not be built");
+        return rc;
+    }
+
+    /* Root first, so every level below has its own computed parent in hand. */
+    for (index = chain_length; index-- > 0u;) {
+        robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
+        robo_css_error_t error = ROBO_CSS_CLEARED;
+
+        rc = robo_css_cascade_collect(context, chain[index], &cascade, &error, diag);
+        if (rc != ROBO_OK) {
+            break;
+        }
+        /* The first CSS problem met anywhere on the chain, which is the same
+         * rule every other door follows. */
+        if (!error_recorded && robo_css_error_is_error(&error)) {
+            if (out_error) {
+                *out_error = error;
+            }
+            error_recorded = 1;
+        }
+        rc = robo_css_inherit_resolve(context, &cascade,
+                                      index + 1u < chain_length ? &below : NULL,
+                                      &current, diag);
+        robo_css_cascade_dispose(&cascade);
+        if (rc != ROBO_OK) {
+            break;
+        }
+
+        robo_css_computed_style_clear(lower);
+        rc = robo_css_style_context_compute_resolved_style(context, &current, upper,
+                                                           lower, &error, diag);
+        if (rc != ROBO_OK) {
+            break;
+        }
+        if (!error_recorded && robo_css_error_is_error(&error)) {
+            if (out_error) {
+                *out_error = error;
+            }
+            error_recorded = 1;
+        }
+
+        /* This level's computed style becomes the next level's parent. */
+        {
+            robo_css_computed_style_t *swap = upper;
+
+            upper = lower;
+            lower = swap;
+        }
+        robo_css_inherited_style_dispose(&below);
+        below = current;
+        robo_css_inherited_style_init(&current);
+    }
+
+    robo_css_inherited_style_dispose(&below);
+    robo_css_inherited_style_dispose(&current);
+
+    if (rc != ROBO_OK) {
+        robo_css_computed_style_destroy(upper);
+        robo_css_computed_style_destroy(lower);
+        robo_css_computed_style_clear(out_style);
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_OUT_OF_MEMORY, rc, NULL,
+                           "the computed style could not be built");
+        return rc;
+    }
+
+    /* The last level computed is the element's own, and it is `upper` after the
+     * final swap. Moving rather than copying: the caller asked for this style
+     * and there is no reason to duplicate every value to hand it over. */
+    rc = robo_css_computed_style_take(out_style, upper, diag);
+    if (rc != ROBO_OK) {
+        robo_css_computed_style_destroy(upper);
+        robo_css_computed_style_destroy(lower);
+        robo_css_computed_style_clear(out_style);
+        robo_css_error_set(out_error, ROBO_CSS_ERROR_KIND_OUT_OF_MEMORY, rc, NULL,
+                           "the computed style could not be handed over");
+        return rc;
+    }
+    if (capped) {
+        /* Every value inherited from above the point the walk stopped is a
+         * lower bound, and saying so is what keeps the style from being read as
+         * complete. */
+        robo_css_computed_style_mark_truncated(out_style);
+    }
+    robo_css_computed_style_destroy(upper);
+    robo_css_computed_style_destroy(lower);
+    return ROBO_OK;
 }

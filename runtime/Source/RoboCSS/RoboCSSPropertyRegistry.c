@@ -137,6 +137,35 @@ const char *robo_css_property_inheritance_name(
     }
 }
 
+int robo_css_property_computation_is_known(robo_css_property_computation_t computation)
+{
+    return computation >= ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE &&
+           computation < (robo_css_property_computation_t)ROBO_CSS_PROPERTY_COMPUTATION_COUNT;
+}
+
+const char *robo_css_property_computation_name(
+    robo_css_property_computation_t computation)
+{
+    switch (computation) {
+    case ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE:
+        return "preserve";
+    case ROBO_CSS_PROPERTY_COMPUTATION_COLOR:
+        return "colour";
+    case ROBO_CSS_PROPERTY_COMPUTATION_LENGTH:
+        return "length";
+    case ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD:
+        return "keyword";
+    case ROBO_CSS_PROPERTY_COMPUTATION_FONT_FAMILY:
+        return "font-family";
+    case ROBO_CSS_PROPERTY_COMPUTATION_FONT_WEIGHT:
+        return "font-weight";
+    case ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT:
+        return "line-height";
+    default:
+        return "unknown";
+    }
+}
+
 int robo_css_property_definition_inherited(
     const robo_css_property_definition_t *definition)
 {
@@ -244,6 +273,29 @@ size_t robo_css_property_registry_count(const robo_css_property_registry_t *regi
     return registry ? registry->count : 0u;
 }
 
+const robo_css_property_definition_t *robo_css_property_registry_find_property(
+    const robo_css_property_registry_t *registry,
+    const robo_css_property_table_t *table,
+    robo_css_property_id_t property)
+{
+    size_t index;
+
+    if (!registry || !table || property == ROBO_CSS_PROPERTY_ID_NONE) {
+        return NULL;
+    }
+    for (index = 0u; index < registry->count; index++) {
+        const robo_css_property_definition_t *entry = registry->entries[index];
+
+        if (!entry) {
+            continue;
+        }
+        if (robo_css_property_table_lookup(table, entry->name) == property) {
+            return entry;
+        }
+    }
+    return NULL;
+}
+
 robo_result_t robo_css_property_registry_register(robo_css_property_registry_t *registry,
                                                   const char *name,
                                                   robo_css_property_inheritance_t inheritance,
@@ -251,12 +303,30 @@ robo_result_t robo_css_property_registry_register(robo_css_property_registry_t *
                                                   uint32_t flags,
                                                   robo_css_diag_t *diag)
 {
+    return robo_css_property_registry_register_typed(
+        registry, name, inheritance, ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,
+        initial_text, flags, diag);
+}
+
+robo_result_t robo_css_property_registry_register_typed(
+    robo_css_property_registry_t *registry,
+    const char *name,
+    robo_css_property_inheritance_t inheritance,
+    robo_css_property_computation_t computation,
+    const char *initial_text,
+    uint32_t flags,
+    robo_css_diag_t *diag)
+{
     robo_css_property_definition_t *entry;
     size_t name_length = 0u;
 
     if (!registry) {
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_PROPERTY_REGISTRY, ROBO_INVALID_ARGUMENT,
                              "registry is NULL");
+    }
+    if (!robo_css_property_computation_is_known(computation)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_PROPERTY_REGISTRY, ROBO_INVALID_ARGUMENT,
+                             "not a value-computation classification");
     }
     if (!registry_name_is_usable(name, &name_length)) {
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_PROPERTY_REGISTRY, ROBO_INVALID_ARGUMENT,
@@ -290,6 +360,7 @@ robo_result_t robo_css_property_registry_register(robo_css_property_registry_t *
     }
     entry->name_length = name_length;
     entry->inheritance = inheritance;
+    entry->computation = computation;
     entry->flags = flags;
 
     if (initial_text != NULL) {
@@ -342,10 +413,11 @@ robo_result_t robo_css_property_registry_register(robo_css_property_registry_t *
 /* The standard set                                                   */
 /* ------------------------------------------------------------------ */
 
-/** One row of the standard set: name, classification, initial value, flags. */
+/** One row of the standard set: name, classification, value shape, initial, flags. */
 typedef struct registry_standard_entry {
     const char *name;
     robo_css_property_inheritance_t inheritance;
+    robo_css_property_computation_t computation;
     const char *initial_text;
     uint32_t flags;
 } registry_standard_entry_t;
@@ -353,7 +425,7 @@ typedef struct registry_standard_entry {
 /*
  * The standard set.
  *
- * Two facts about this table are decisions rather than transcriptions.
+ * Three facts about this table are decisions rather than transcriptions.
  *
  * The **initial values are spellings, not computed values**: `black` is the
  * CSS2.1 initial for `color`, `medium none currentcolor` is the shorthand
@@ -362,6 +434,13 @@ typedef struct registry_standard_entry {
  * makes them safe to carry: an unresolved spelling is a representation, a
  * resolved one would be a guess about font metrics, the viewport and the
  * parent's geometry.
+ *
+ * The **computation column is the value's shape**, and it is what lets 9.8
+ * normalise a declared value without a switch on the property name. `margin`
+ * and the other shorthands are PRESERVE because their longhands are not
+ * expanded yet: expanding `margin: 0 auto` would be inventing a shorthand
+ * engine, and carrying `0 auto` intact is a computed representation that is
+ * exactly as true as `10px` is for `width`.
  *
  * The **font and text properties are included although this build implements no
  * font or text semantics for CSS**, because the classification question they
@@ -378,36 +457,60 @@ typedef struct registry_standard_entry {
  */
 static const registry_standard_entry_t registry_standard_entries[] = {
     /* --- inherited --- */
-    { "color",         ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "black",      0 },
-    { "cursor",        ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "auto",       0 },
-    { "direction",     ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "ltr",        0 },
-    { "font-family",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "serif",      0 },
-    { "font-size",     ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "medium",     0 },
-    { "font-style",    ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "normal",     0 },
-    { "font-variant",  ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "normal",     0 },
-    { "font-weight",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "normal",     0 },
-    { "letter-spacing",ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "normal",     0 },
-    { "line-height",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "normal",     0 },
-    { "text-align",    ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "start",      0 },
-    { "text-indent",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "0",          0 },
-    { "text-transform",ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "none",       0 },
-    { "visibility",    ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "visible",    0 },
-    { "white-space",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "normal",     0 },
-    { "word-spacing",  ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,     "normal",     0 },
+    { "color",         ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_COLOR,      "black",      0 },
+    { "cursor",        ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "auto",       0 },
+    { "direction",     ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "ltr",        0 },
+    { "font-family",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_FONT_FAMILY,"serif",      0 },
+    { "font-size",     ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "medium",     0 },
+    { "font-style",    ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "normal",     0 },
+    { "font-variant",  ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "normal",     0 },
+    { "font-weight",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_FONT_WEIGHT,"normal",     0 },
+    { "letter-spacing",ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "normal",     0 },
+    { "line-height",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT,"normal",     0 },
+    { "text-align",    ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "start",      0 },
+    { "text-indent",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "0",          0 },
+    { "text-transform",ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "none",       0 },
+    { "visibility",    ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "visible",    0 },
+    { "white-space",   ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "normal",     0 },
+    { "word-spacing",  ROBO_CSS_PROPERTY_INHERITANCE_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "normal",     0 },
 
     /* --- non-inherited --- */
-    { "background",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "transparent",
+    { "background",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "transparent",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
-    { "border",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "medium none currentcolor",
+    { "border",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
-    { "display",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "inline",     0 },
-    { "height",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "auto",       0 },
-    { "margin",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "0",
+    { "display",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "inline",     0 },
+    { "height",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "auto",       0 },
+    { "margin",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "0",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
-    { "padding",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "0",
+    { "padding",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "0",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
-    { "position",      ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "static",     0 },
-    { "width",         ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED, "auto",       0 }
+    { "position",      ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "static",     0 },
+    { "width",         ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "auto",       0 }
 };
 
 robo_result_t robo_css_property_registry_create_standard(
@@ -432,10 +535,9 @@ robo_result_t robo_css_property_registry_create_standard(
          index++) {
         const registry_standard_entry_t *entry = &registry_standard_entries[index];
 
-        result = robo_css_property_registry_register(registry, entry->name,
-                                                     entry->inheritance,
-                                                     entry->initial_text, entry->flags,
-                                                     diag);
+        result = robo_css_property_registry_register_typed(
+            registry, entry->name, entry->inheritance, entry->computation,
+            entry->initial_text, entry->flags, diag);
         if (result != ROBO_OK) {
             /* Fully built or not at all: a half-populated standard set would
              * classify some properties and silently not others. */

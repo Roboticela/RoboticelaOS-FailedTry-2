@@ -455,7 +455,17 @@ static void test_css_style_match_declarations_empty_context(void)
     robo_css_style_context_destroy(context);
 }
 
-static void test_css_style_compute_unsupported(void)
+/**
+ * The computation door's argument contract.
+ *
+ * 9.8 is the phase that made this door real, so the assertions here are about a
+ * door that answers rather than about one that refuses. An element of NONE is
+ * still refused — "no element" is not an element — and a context with no host, no
+ * table and no registry is still *accepted*, because a document with no
+ * stylesheets is a document and not an error: its cascade is empty, nothing
+ * inherits, and the answer is an empty style rather than a failed call.
+ */
+static void test_css_style_compute_arguments(void)
 {
     robo_css_style_context_t *context = NULL;
     robo_css_computed_style_t *style = NULL;
@@ -467,16 +477,15 @@ static void test_css_style_compute_unsupported(void)
     ROBO_CHECK_EQ_INT(robo_css_computed_style_create(&style, NULL), ROBO_OK);
 
     robo_css_diag_reset(&diag);
+    /* No host, no property table, no registry: an empty context still computes
+     * a style, and the style is empty because nothing was there to make it
+     * otherwise. An incomplete input is not an incomplete call. */
     ROBO_CHECK_EQ_INT(robo_css_style_context_compute_style(context, 5u, style, &error,
                                                            &diag),
-                      ROBO_NOT_SUPPORTED);
-    /* Nothing was computed, and the container says so: it is still empty rather
-     * than holding guessed values. */
+                      ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_css_computed_style_count(style), 0u);
-    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_UNSUPPORTED);
-    ROBO_CHECK(error.message != NULL);
-    ROBO_CHECK(strstr(error.message, "9.8") != NULL);
-    ROBO_CHECK_EQ_INT(diag.domain, ROBO_CSS_DOMAIN_STYLE);
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+    ROBO_CHECK_EQ_INT(robo_css_computed_style_is_truncated(style), 0);
 
     ROBO_CHECK_EQ_INT(robo_css_style_context_compute_style(context, 5u, NULL, &error,
                                                            NULL),
@@ -485,9 +494,14 @@ static void test_css_style_compute_unsupported(void)
     ROBO_CHECK_EQ_INT(robo_css_style_context_compute_style(NULL, 5u, style, &error,
                                                            NULL),
                       ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_compute_style(
+                          context, ROBO_CSS_ELEMENT_REF_NONE, style, &error, NULL),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(error.kind, ROBO_CSS_ERROR_KIND_NONE);
+    /* The error record is optional, as every other door in this file says. */
     ROBO_CHECK_EQ_INT(robo_css_style_context_compute_style(context, 5u, style, NULL,
                                                            NULL),
-                      ROBO_NOT_SUPPORTED);
+                      ROBO_OK);
 
     robo_css_computed_style_destroy(style);
     robo_css_style_context_destroy(context);
@@ -662,8 +676,8 @@ void robo_test_register_css_style(void)
     robo_test_register("css.style.context_borrows", test_css_style_context_borrows);
     robo_test_register("css.style.match_declarations_empty_context",
                        test_css_style_match_declarations_empty_context);
-    robo_test_register("css.style.compute_unsupported",
-                       test_css_style_compute_unsupported);
+    robo_test_register("css.style.compute_arguments",
+                       test_css_style_compute_arguments);
     robo_test_register("css.computed.container", test_css_computed_container);
     robo_test_register("css.computed.lifetime_balances",
                        test_css_computed_lifetime_balances);

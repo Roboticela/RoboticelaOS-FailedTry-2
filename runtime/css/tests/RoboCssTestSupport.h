@@ -24,6 +24,8 @@
 #include "RoboBase/RoboBase.h"
 #include "RoboCSS/RoboCSS.h"
 #include "RoboCSS/RoboCSSCascade.h"
+#include "RoboCSS/RoboCSSComputed.h"
+#include "RoboCSS/RoboCSSComputedValue.h"
 #include "RoboCSS/RoboCSSDeclaration.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSParser.h"
@@ -1588,6 +1590,206 @@ static inline void css_inherit_is(const robo_css_inherited_style_t *style,
     css_inherit_value(style, name, shape, sizeof(shape));
     ROBO_CHECK_STR_EQ(shape, value);
     ROBO_CHECK_STR_EQ(css_inherit_source(style, name), source);
+}
+
+/* ------------------------------------------------------------------ */
+/* Computed values (Phase 9.8)                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A computed value's canonical text, or one of two distinguishable absences.
+ *
+ * The three states are the three a test has to tell apart and they must not be
+ * collapsed: `""` shapes a value, `<absent>` means there is no entry, and
+ * `<none>` means the entry exists but carries no computed value. A style with a
+ * property silently missing and a style with the property computed as nothing
+ * are different answers.
+ */
+static inline void css_computed_note(const robo_css_computed_style_t *style,
+                                     const char *name,
+                                     char *out,
+                                     size_t capacity)
+{
+    const robo_css_computed_value_t *value;
+    size_t length = 0u;
+
+    if (!out || capacity == 0u) {
+        return;
+    }
+    out[0] = '\0';
+    if (robo_css_computed_style_find(style, robo_css_slice_from_text(name)) ==
+        (size_t)-1) {
+        css_shape_text(out, capacity, &length, "<absent>");
+        return;
+    }
+    value = robo_css_computed_style_computed_by_name(style, robo_css_slice_from_text(name));
+    if (!value) {
+        css_shape_text(out, capacity, &length, "<none>");
+        return;
+    }
+    out[length] = '\0';
+    if (robo_css_computed_value_write(value, out, capacity, &length, NULL) != ROBO_OK) {
+        out[0] = '\0';
+    }
+}
+
+/** Assert @p style's computed value for @p name renders as @p expected. */
+static inline void css_computed_is(const robo_css_computed_style_t *style,
+                                   const char *name,
+                                   const char *expected)
+{
+    char text[ROBO_CSS_COMPUTED_VALUE_TEXT_MAX];
+
+    css_computed_note(style, name, text, sizeof(text));
+    ROBO_CHECK_STR_EQ(text, expected);
+}
+
+/**
+ * The provenance flags of @p name as a `+`-joined name list, or `<absent>`.
+ *
+ * Names rather than bits, because an assertion that a value is
+ * `inherited+default` is a statement about the cascade and an assertion that a
+ * mask equals 6 is a statement about the mask.
+ */
+static inline void css_computed_flags(const robo_css_computed_style_t *style,
+                                      const char *name,
+                                      char *out,
+                                      size_t capacity)
+{
+    static const struct {
+        uint32_t flag;
+        const char *name;
+    } names[] = {
+        { ROBO_CSS_COMPUTED_FLAG_DECLARED, "declared" },
+        { ROBO_CSS_COMPUTED_FLAG_INHERITED, "inherited" },
+        { ROBO_CSS_COMPUTED_FLAG_DEFAULT, "default" },
+        { ROBO_CSS_COMPUTED_FLAG_DEFERRED, "deferred" },
+        { ROBO_CSS_COMPUTED_FLAG_CUSTOM, "custom" },
+        { ROBO_CSS_COMPUTED_FLAG_UNRESOLVED, "unresolved" },
+        { ROBO_CSS_COMPUTED_FLAG_INVALID, "invalid" }
+    };
+    uint32_t flags;
+    size_t offset = 0u;
+    size_t index;
+
+    if (!out || capacity == 0u) {
+        return;
+    }
+    out[0] = '\0';
+    if (robo_css_computed_style_find(style, robo_css_slice_from_text(name)) ==
+        (size_t)-1) {
+        css_shape_text(out, capacity, &offset, "<absent>");
+        return;
+    }
+    flags = robo_css_computed_style_flags(style, robo_css_slice_from_text(name));
+    if (flags == ROBO_CSS_COMPUTED_FLAG_NONE) {
+        css_shape_text(out, capacity, &offset, "none");
+        return;
+    }
+    for (index = 0u; index < sizeof(names) / sizeof(names[0]); index++) {
+        if ((flags & names[index].flag) == 0u) {
+            continue;
+        }
+        if (offset > 0u) {
+            css_shape_byte(out, capacity, &offset, (uint8_t)'+');
+        }
+        css_shape_text(out, capacity, &offset, names[index].name);
+    }
+}
+
+/** Assert @p name's provenance flags render as @p expected. */
+static inline void css_computed_flags_are(const robo_css_computed_style_t *style,
+                                          const char *name,
+                                          const char *expected)
+{
+    char text[128];
+
+    css_computed_flags(style, name, text, sizeof(text));
+    ROBO_CHECK_STR_EQ(text, expected);
+}
+
+/**
+ * The computed text of one value built from @p text and @p computation.
+ *
+ * A one-line fixture for the normaliser's own suite: parse @p text as a value
+ * through the *public* declaration path (so the value under test is one the real
+ * grammar produced, not a hand-built tree), compute it, and shape the result.
+ * The parse result is checked, because a fixture that silently failed to parse
+ * would make every expectation below it an assertion about nothing.
+ */
+static inline void css_compute_text(robo_css_property_computation_t computation,
+                                    const char *text,
+                                    char *out,
+                                    size_t capacity,
+                                    uint32_t *out_flags)
+{
+    robo_css_declaration_list_t list = ROBO_CSS_CLEARED;
+    robo_css_error_t error = ROBO_CSS_CLEARED;
+    const robo_css_declaration_t *declaration;
+    robo_css_computed_value_t value = ROBO_CSS_CLEARED;
+    size_t length = 0u;
+
+    if (out && capacity > 0u) {
+        out[0] = '\0';
+    }
+    if (out_flags) {
+        *out_flags = 0u;
+    }
+    ROBO_CHECK_EQ_INT(css_parse_declarations(text, &list, &error), ROBO_OK);
+    declaration = robo_css_declaration_list_at(&list, 0u);
+    ROBO_CHECK(declaration != NULL);
+    ROBO_CHECK_EQ_INT(robo_css_computed_value_compute(
+                          computation, robo_css_declaration_value(declaration), &value,
+                          NULL),
+                      ROBO_OK);
+    if (out_flags) {
+        *out_flags = value.unresolved ? 1u : 0u;
+    }
+    if (out && capacity > 0u) {
+        out[0] = '\0';
+        if (value.kind == ROBO_CSS_COMPUTED_VALUE_NONE) {
+            css_shape_text(out, capacity, &length, "<none>");
+        } else if (robo_css_computed_value_write(&value, out, capacity, &length, NULL) !=
+                   ROBO_OK) {
+            out[0] = '\0';
+        }
+    }
+    robo_css_computed_value_dispose(&value);
+    robo_css_declaration_list_dispose(&list);
+}
+
+/** Assert the normalised text of @p text under @p computation is @p expected. */
+static inline void css_compute_equals(robo_css_property_computation_t computation,
+                                      const char *text,
+                                      const char *expected)
+{
+    char shape[ROBO_CSS_COMPUTED_VALUE_TEXT_MAX];
+
+    css_compute_text(computation, text, shape, sizeof(shape), NULL);
+    ROBO_CHECK_STR_EQ(shape, expected);
+}
+
+/** The kind name of @p text computed under @p computation, as a static string. */
+static inline const char *css_compute_kind(robo_css_property_computation_t computation,
+                                           const char *text)
+{
+    robo_css_declaration_list_t list = ROBO_CSS_CLEARED;
+    robo_css_error_t error = ROBO_CSS_CLEARED;
+    const robo_css_declaration_t *declaration;
+    robo_css_computed_value_t value = ROBO_CSS_CLEARED;
+    const char *name;
+
+    ROBO_CHECK_EQ_INT(css_parse_declarations(text, &list, &error), ROBO_OK);
+    declaration = robo_css_declaration_list_at(&list, 0u);
+    ROBO_CHECK(declaration != NULL);
+    ROBO_CHECK_EQ_INT(robo_css_computed_value_compute(
+                          computation, robo_css_declaration_value(declaration), &value,
+                          NULL),
+                      ROBO_OK);
+    name = robo_css_computed_value_kind_name(value.kind);
+    robo_css_computed_value_dispose(&value);
+    robo_css_declaration_list_dispose(&list);
+    return name;
 }
 
 #endif /* ROBO_CSS_TEST_SUPPORT_H */

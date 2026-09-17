@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 7);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 8);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 7);
+    ROBO_CHECK_EQ_INT(minor, 8);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -406,14 +406,17 @@ static void test_css_capabilities(void)
 
     /* 9.7 answers the question the cascade cannot: for every property an
      * element does not declare, whether it takes the parent's answer or the
-     * property's own initial value. `computed_values` stays 0 because a resolved
-     * value is not a computed one. */
+     * property's own initial value. */
     ROBO_CHECK_EQ_INT(caps.inheritance, 1);
 
-    /* ...and everything that would turn a resolved style into a *computed*
-     * value is still 0: no percentages, units or box model are resolved, and no
-     * default stylesheet exists. */
-    ROBO_CHECK_EQ_INT(caps.computed_values, 0);
+    /* 9.8 turns that resolved style into a *computed* one — a length with a
+     * unit, a percentage, a colour, a keyword — through the property's declared
+     * value shape. What it does not do is resolve: `50%` stays a percentage and
+     * `var()` stays a reference, which is why nothing here claims a used value. */
+    ROBO_CHECK_EQ_INT(caps.computed_values, 1);
+
+    /* ...and everything past that is still 0: no default stylesheet exists, and
+     * nothing loads one. */
     ROBO_CHECK_EQ_INT(caps.default_styles, 0);
     ROBO_CHECK_EQ_INT(caps.stylesheet_loading, 0);
 

@@ -536,24 +536,73 @@ robo_result_t robo_css_style_context_resolve_inherited_style(
 /**
  * Compute @p element's style.
  *
- * This is 9.8, plus everything it depends on: 9.5's cascade, 9.6's specificity,
- * 9.7's inheritance, 9.9's colours and 9.10's units.
+ * The door 9.8 adds, and the last one in the chain: selector matching (9.4),
+ * specificity (9.6), the cascade (9.5) and inheritance (9.7) all feed it, and it
+ * hands back a robo_css_computed_style_t (RoboCSSComputed.h) whose entries carry
+ * both the specified value and a typed computed value.
  *
- * Nothing computes a style yet, 9.5's cascade included: collecting the
- * declarations that apply is not the same thing as turning them into values,
- * and it is the values that need colours, units and inheritance. This validates
- * its arguments, records ROBO_CSS_ERROR_KIND_UNSUPPORTED (@p out_error is
- * filled either way), and returns ROBO_NOT_SUPPORTED; @p out_style is left
- * empty rather than half-filled with guesses.
+ * It computes the whole ancestor chain, not just the element. That is what makes
+ * an inherited value *the parent's computed value* rather than a recomputation
+ * of something that looked like it: each level is resolved and then computed
+ * top-down, so the level below inherits a value that has already been through
+ * the same normalisation. The intermediate styles are the walk's own and are
+ * disposed as it descends; only @p element's comes back.
  *
- * @return ROBO_NOT_SUPPORTED in this build; ROBO_INVALID_ARGUMENT for a NULL
- *         context or output.
+ * A value that cannot be computed *yet* is not a failure and not a guess. A
+ * `calc()` needs a containing block, a `var()` needs a custom property the
+ * author may never have declared, and `currentColor` needs the element's own
+ * `color`; each is carried with its tokens intact and counted through
+ * robo_css_computed_style_incomplete_count. A value that means nothing for its
+ * property at all — `color: nonsense` — is marked invalid rather than dropped,
+ * so the caller can see that the declaration was there and was wrong.
+ *
+ * @p out_style is cleared first and is left empty when no answer could be
+ * produced at all. @p out_error is always filled: the first CSS problem met on
+ * the chain, or a record of kind NONE when there was none.
+ *
+ * @return ROBO_OK whenever a style was produced, including an incomplete one;
+ *         ROBO_INVALID_ARGUMENT for a NULL context or output, or an element of
+ *         NONE; ROBO_OUT_OF_MEMORY when no answer could be produced at all.
  */
 robo_result_t robo_css_style_context_compute_style(
     const robo_css_style_context_t *context,
     robo_css_element_ref_t element,
     robo_css_computed_style_t *out_style,
     robo_css_error_t *out_error,
+    robo_css_diag_t *diag);
+
+/**
+ * The computed value of one property, with the property's own initial value as
+ * the fallback.
+ *
+ * A computed style holds the properties *this element has an answer for*, which
+ * for a non-inherited property nothing declared means: no entry. That is the
+ * right shape for the container and a poor one for a question, because
+ * "what is this element's `width`" has an answer even when the element never
+ * mentions width — the property's initial value. This door supplies it.
+ *
+ * @p style may be NULL, meaning "nothing was computed for this element", and
+ * every property then answers with its initial value; that is the difference
+ * between "the element declares nothing" and "there is no element".
+ *
+ * @param out              receives the computed value (a copy / a fresh
+ *                         computation); untouched when the call fails.
+ * @param out_from_initial non-NULL; receives 1 when the answer is the
+ *                         property's initial value and 0 when it came from
+ *                         @p style. This is the fact the caller usually wants:
+ *                         a non-inherited property nothing declared is *at* its
+ *                         initial value, and it did not get there from a parent.
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL context or output, or an
+ *         absent name; ROBO_NOT_FOUND when neither @p style nor this build has
+ *         an answer — an unknown property, or a custom property (which CSS gives
+ *         no initial value at all).
+ */
+robo_result_t robo_css_style_context_query_computed_value(
+    const robo_css_style_context_t *context,
+    const robo_css_computed_style_t *style,
+    robo_css_slice_t name,
+    robo_css_computed_value_t *out,
+    int *out_from_initial,
     robo_css_diag_t *diag);
 
 #ifdef __cplusplus

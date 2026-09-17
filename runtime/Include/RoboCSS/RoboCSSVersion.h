@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.7 inheritance milestone.
+ * RoboCSS version pin — Phase 9.8 computed-value milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -58,6 +58,29 @@
  * own facts about a property — does it inherit by default, and what is its
  * initial value — held apart from a caller's property *table*, which is identity.
  *
+ * 0.8.0 adds the seventh, and it is the first that changes a value rather than
+ * locating one: computed values (RoboCSSComputedValue.h). Inheritance says what
+ * an element *has*; computation says what that is, and it is the difference
+ * between the token `10px` and a length of ten pixels in the px unit, between
+ * `#f00` and a colour, between `AUTO` and the keyword `auto`. The normaliser is
+ * a function of the value's shape and the value (the property registry supplies
+ * the shape), so it needs no context and no parent — which keeps the second half
+ * of the milestone, `robo_css_style_context_compute_style`, a pure walk: resolve
+ * a level, compute it, hand it to the level below as its parent. A child
+ * therefore inherits its parent's *computed* value, not a recomputation of
+ * something the parent specified. The container from 9.1 grew rather than
+ * changed: an entry still holds the specified component value a 9.1 caller put
+ * there and now also the name, the typed value, and a flag set saying whether it
+ * was declared, inherited or defaulted. Three boundaries are crossed
+ * deliberately and no further: `50%` stays a percentage and `2em` stays relative
+ * because only layout can resolve either; `var()` and `calc()` are recognised,
+ * carried intact with the *unresolved* flag, and never reduced, because a wrong
+ * number is worse than a deferred one; and `currentColor` is carried the same
+ * way rather than resolved against a default, since its value is the element's
+ * own computed `color`. A value that means nothing for its property — `color:
+ * nonsense` — is reported *invalid* rather than dropped, so a caller can see the
+ * declaration was wrong instead of finding its property silently absent.
+ *
  *   source        the bytes CSS arrives as, plus positions and ranges
  *   token         the CSS Syntax token record, and the token's *value*:
  *                 escapes resolved and delimiters stripped, computed from the
@@ -85,6 +108,11 @@
  *                 first-error record, plus the grammar behind it
  *   inherited     what one element resolved to: one entry per property it has an
  *                 answer for, each with where the value came from
+ *   computed      the typed value of one property: keyword, number, percentage,
+ *                 length, colour, family list, preserved tokens, or invalid —
+ *                 plus whether it needs a later stage to be resolved
+ *   computed      (container) one element's computed style: per property the
+ *                 specified value, the typed value and the provenance flags
  *
  * What the grammar is: the CSS Syntax structure rules — a stylesheet, a list of
  * rules, an at-rule, a qualified rule, a block's declarations, a declaration,
@@ -95,8 +123,9 @@
  * at-rule name is looked up in a table, because there is no table. The inline
  * `style` boundary (9.1.10) is filled by the same declaration-list grammar.
  *
- * Everything past that — computed values, colours, units, the box model — is
- * still a declared boundary with no implementation behind it, and
+ * Everything past that — the full colour syntax (`hsl()` and the modern spaces),
+ * the unit system beyond the length forms a computed value carries, the box model
+ * and layout — is still a declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
  * never has to guess. Three boundaries are deliberately not crossed rather than
  * merely unfinished, and each is a decision: `:hover` and its state-dependent
@@ -118,9 +147,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 7
+#define ROBO_CSS_VERSION_MINOR 8
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.7.0"
+#define ROBO_CSS_VERSION_STRING "0.8.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

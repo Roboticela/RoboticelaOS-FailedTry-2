@@ -21,6 +21,7 @@
 
 #include "RoboCSS/RoboCSSError.h"
 #include "RoboCSS/RoboCSSCascade.h"
+#include "RoboCSS/RoboCSSComputed.h"
 #include "RoboCSS/RoboCSSStyle.h"
 #include "RoboCSS/RoboCSSStyleSheet.h"
 #include "RoboCSS/RoboCSSTypes.h"
@@ -295,5 +296,67 @@ robo_result_t robo_css_cascade_collect(const robo_css_style_context_t *context,
                                        robo_css_cascade_t *out,
                                        robo_css_error_t *out_error,
                                        robo_css_diag_t *diag);
+
+/* ------------------------------------------------------------------ */
+/* The computation (9.8)                                               */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The two helpers the style boundary needs from the computation, and the only
+ * two: an element's computed style is assembled per level by the walk in
+ * RoboCSSStyle.c, which has to be able to *replace* a caller's style and to take
+ * a finished one it built itself. Both live in RoboCSSComputed.c, next to the
+ * container they operate on.
+ */
+
+/**
+ * Replace @p dest's contents with @p src's, moving every entry and leaving
+ * @p src empty.
+ *
+ * A move rather than a copy, and that is why it is not part of the public
+ * surface: the computation builds a style of its own and hands it to the caller
+ * through the caller's object, and copying every value on the way would double
+ * the work to produce something the caller could have had directly. The
+ * capacity is grown *before* @p dest is cleared, so a failure leaves it exactly
+ * as it was rather than emptied.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL argument;
+ *         ROBO_OUT_OF_MEMORY when @p dest could not be enlarged.
+ */
+robo_result_t robo_css_computed_style_take(robo_css_computed_style_t *dest,
+                                           robo_css_computed_style_t *src,
+                                           robo_css_diag_t *diag);
+
+/**
+ * Record that the resolution behind @p style ran out of ancestor chain.
+ *
+ * A setter rather than a public field because the flag is not something a
+ * caller decides: only the walk knows whether it stopped early, and a style a
+ * caller assembled by hand is truncated by nobody's reckoning.
+ */
+void robo_css_computed_style_mark_truncated(robo_css_computed_style_t *style);
+
+/**
+ * Compute one element's style from its resolved (9.7) style.
+ *
+ * The primitive of 9.8 and the same door the context door is built from: every
+ * entry of @p resolved becomes an entry of @p out carrying a typed computed
+ * value, and the entries the parent supplied take the parent's *computed* value
+ * rather than a recomputation of the parent's specified one — which is what
+ * makes inherited values agree with the parent's own computed style instead of
+ * merely resembling it.
+ *
+ * @p parent_computed may be NULL, meaning the level above has no computed style
+ * (a root, or a caller that did not compute one); a parent-sourced entry is then
+ * computed from the value it carries, which is the same thing when the value has
+ * nothing to resolve.
+ */
+robo_result_t robo_css_style_context_compute_resolved_style(
+    const robo_css_style_context_t *context,
+    const robo_css_inherited_style_t *resolved,
+    const robo_css_computed_style_t *parent_computed,
+    robo_css_computed_style_t *out,
+    robo_css_error_t *out_error,
+    robo_css_diag_t *diag);
 
 #endif /* ROBO_CSS_INTERNAL_H */
