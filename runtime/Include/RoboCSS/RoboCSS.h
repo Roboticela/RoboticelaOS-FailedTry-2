@@ -21,11 +21,11 @@
  * build actually does. The model flags are 1, and so are the behaviour flags of
  * every phase that has landed — the tokenizer (9.2), the grammar and inline
  * parsing (9.3), selector parsing and matching (9.4), the cascade (9.5),
- * specificity (9.6), the inheritance behind a cascade (9.7) and computed values
- * (9.8). The flags that remain 0 are default styles and loading, and each of
- * those names work this build does not do. A caller that wants to know whether
- * CSS will style anything should read this rather than infer it from a version
- * number.
+ * specificity (9.6), the inheritance behind a cascade (9.7), computed values
+ * (9.8) and colours (9.9). The flags that remain 0 are default styles and
+ * loading, and each of those names work this build does not do. A caller that
+ * wants to know whether CSS will style anything should read this rather than
+ * infer it from a version number.
  *
  * A flag is 1 only when the thing it names works end to end. The rule has real
  * teeth at the boundaries: `cascade` waited for `specificity` rather than
@@ -136,6 +136,17 @@ typedef struct robo_css_capabilities {
     int inheritance;
     /** Computed values (9.8). */
     int computed_values;
+    /**
+     * Colours (9.9): the standard named set, all four hex lengths,
+     * `rgb()`/`rgba()` and `hsl()`/`hsla()` in both argument syntaxes,
+     * `transparent`, and `currentColor` as a contextual colour that the computed
+     * style resolves against the element's — or its parent's — `color`.
+     *
+     * What it does not claim is the colour spaces this build has no
+     * representation for (`hwb`, `lab`, `lch`, `oklab`, `oklch`, `color()`,
+     * `color-mix`): those are carried and reported as deferred, not computed.
+     */
+    int colors;
     /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.

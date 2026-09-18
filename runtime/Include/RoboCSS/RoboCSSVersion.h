@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.8 computed-value milestone.
+ * RoboCSS version pin — Phase 9.9 colour milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -113,6 +113,10 @@
  *                 plus whether it needs a later stage to be resolved
  *   computed      (container) one element's computed style: per property the
  *                 specified value, the typed value and the provenance flags
+ *   colour        one colour: a kind (resolved, contextual, invalid, none), the
+ *                 four channels, every CSS spelling that produces one, the
+ *                 substitution `currentColor` stands for, and one stable text
+ *                 per kind
  *
  * What the grammar is: the CSS Syntax structure rules — a stylesheet, a list of
  * rules, an at-rule, a qualified rule, a block's declarations, a declaration,
@@ -123,9 +127,36 @@
  * at-rule name is looked up in a table, because there is no table. The inline
  * `style` boundary (9.1.10) is filled by the same declaration-list grammar.
  *
- * Everything past that — the full colour syntax (`hsl()` and the modern spaces),
- * the unit system beyond the length forms a computed value carries, the box model
- * and layout — is still a declared boundary with no implementation behind it, and
+ * 0.9.0 adds the eighth, and it is the first that is a *representation* rather
+ * than a stage: colours (RoboCSSColor.h). A colour is the one CSS value whose
+ * meaning is arithmetic — three channels and an alpha, in a space, at a
+ * precision — and 9.8's colour code lived inside the computed-value layer
+ * because that was the only reader. 9.9 gives it a module, and the module owns
+ * every spelling: the 148 standard named keywords, `transparent`, all four hex
+ * lengths, `rgb()`/`rgba()` and `hsl()`/`hsla()` in both the legacy comma and the
+ * modern space syntax, with numeric or percentage channels, hue as a number or in
+ * `deg`/`grad`/`rad`/`turn`, and range clamping rather than wrapping. The value
+ * layer now consumes that one parser instead of carrying its own, which is what
+ * keeps two spellings of the same colour from disagreeing.
+ *
+ * The record is a *kind*, not just channels, and that is what makes
+ * `currentColor` expressible: CURRENT is a colour that is not a colour yet, it is
+ * typed and flagged through the value stage rather than approximated, and the
+ * computed style resolves it at the one point that has the answer — against the
+ * parent's computed `color` when the property *is* `color` (where `currentColor`
+ * means `inherit`), and against the element's own computed `color` everywhere
+ * else. With no parent computed style to read it stays contextual and says so.
+ * Colours this build has no representation for (`hwb`, `lab`, `lch`, `oklab`,
+ * `oklch`, `color()`, `color-mix`, `device-cmyk`) are carried with their tokens
+ * and *reported* as deferred: the author wrote legal CSS, and calling it invalid
+ * would be a lie while approximating it would be worse. Malformed colour calls
+ * are reported as malformed, with the function named, which is a different
+ * message from "not a colour" and a different message from "unknown colour
+ * name" — three diagnostics, because they tell a developer three things.
+ *
+ * Everything past that — the unit system beyond the length forms a computed value
+ * carries, the box model and layout — is still a declared boundary with no
+ * implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
  * never has to guess. Three boundaries are deliberately not crossed rather than
  * merely unfinished, and each is a decision: `:hover` and its state-dependent
@@ -147,9 +178,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 8
+#define ROBO_CSS_VERSION_MINOR 9
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.8.0"
+#define ROBO_CSS_VERSION_STRING "0.9.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

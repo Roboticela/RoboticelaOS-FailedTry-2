@@ -267,6 +267,14 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * `currentColor` stays contextual, which is why this is a flag for computing
      * and not for laying anything out. */
     out->computed_values = 1;
+    /* 9.9 gave colours a module of their own (RoboCSSColor.h): every spelling
+     * CSS's ordinary colour syntax has, in one authoritative parser that the
+     * value layer consumes rather than duplicates. `currentColor` is a typed
+     * contextual colour and is resolved by the computed style against the
+     * element's — or, on `color` itself, the parent's — computed `color`; the
+     * colour spaces this build cannot represent are carried and *reported* as
+     * deferred rather than approximated. */
+    out->colors = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

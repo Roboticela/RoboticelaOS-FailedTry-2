@@ -1,6 +1,6 @@
-# RoboCSS Test Organisation (Phase 9.1–9.8)
+# RoboCSS Test Organisation (Phase 9.1–9.9)
 
-Thirty-four suites, 452 tests, one framework. These phases add no test runner,
+Thirty-five suites, 471 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -27,7 +27,17 @@ is that specificity now decides contests the 9.5 resolver had to report). The
 closed set of shapes, the unit table, the colour forms, the normaliser's seven
 computations and the argument contract) and once as a pipeline (one suite: the
 chain door against the real RoboHTML DOM, where the subject is what a child
-actually ends up with).
+actually ends up with). The 9.9 suite pins the colour in three groups, and the
+groups are the argument: the **record** (kinds, predicates, kind-aware equality,
+the outcome vocabulary, serialization), the **syntaxes** (the named table walked
+whole, all four hex lengths, both argument styles of both functions, the clamping
+and the hue normalisation, the deferred spaces, and the malformed shapes), and the
+**integration** (colours through the value layer and the computed style, including
+the two `currentColor` rules and the `var()` boundary). The syntaxes are driven
+through *declaration text* rather than hand-built component values wherever a
+declaration can say the same thing, because that is the path a stylesheet takes —
+a hand-built tree would prove the parser works on trees the real parser never
+produces, which is the half of the job that cannot break.
 
 ## 1. Suite map
 
@@ -96,8 +106,14 @@ actually ends up with).
 | Suite | Tests | Subject |
 |---|---|---|
 | `SuiteRoboCssComputedValue.c` | 14 | The typed value without a document: the unit table (which units convert and which are kept, `is_absolute` asked of the table rather than of the converter), the four hex lengths against every wrong length and every non-hex digit, the standard named set in full (every name in the table, so a truncated or misspelled entry fails here and not in a browser), case-insensitivity, `transparent` as a colour that is not a named one, `rgb()`/`rgba()` in both syntaxes with numeric and percentage channels and alpha, range handling (clamped, not wrapped), separator-style mixing refused, the value's lifecycle (copy is independent, move transfers, `equals` distinguishes kinds), the lifetime balance over repeated copies, the seven `computation` shapes (`normalize_*`: keywords lower-cased, absolute lengths converted and relative ones kept, percentages kept, colours normalised, font lists ordered, `PRESERVED` never invalid), and a table of hostile strings driven through the normaliser (`normalize_robust`) |
-| `SuiteRoboCssComputed.c` | 13 | The pipeline against the CSS-side element host: a declared property; an inherited one arriving as the **parent's computed value**; a default that an ancestor's inherited value then replaces; a non-inherited property not propagating; `inherit`/`initial`/`unset` through the chain; `var()`, `calc()` and `currentColor` carried and counted; `color: nonsense` marked invalid without dropping the property; custom properties preserved verbatim; inline styles participating; a three-level chain; a **cyclic** parent chain reported as truncated rather than followed; determinism across repeated computations; the argument contract; and an element with no stylesheets at all |
+| `SuiteRoboCssComputed.c` | 15 | The pipeline against the CSS-side element host: a declared property; an inherited one arriving as the **parent's computed value**; a default that an ancestor's inherited value then replaces; a non-inherited property not propagating; `inherit`/`initial`/`unset` through the chain; `var()`, `calc()` and `currentColor` carried and counted; `color: nonsense` marked invalid without dropping the property; custom properties preserved verbatim; inline styles participating; a three-level chain; a **cyclic** parent chain reported as truncated rather than followed; determinism across repeated computations; the argument contract; and an element with no stylesheets at all |
 | `SuiteRoboCssDomSelect.c` (`css.dom.computed.*`) | 2 | The same pipeline, all seven stages, over the **visual checkpoint's own document**: two selectors of different specificity producing different colours, a typed colour's channels, `font-size: inherit` landing on the length the body computed (and `width: inherit` on a property that does not inherit by default), a custom property travelling the whole path untouched, `color: nonsense` reported as invalid without corrupting the rest of the style, and a byte-for-byte proof that computing every element's style twice changes nothing the demo paints |
+
+### 9.9 — colours
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssColor.c` | 19 | The module (`css.color.*`): the four kinds and their name table, the kind-aware equality that keeps `currentColor` from comparing equal to a channel set, the cleared state, the six parse outcomes and their names, the standard set (five representative names, then **the whole 148-entry table** walked by index with every entry opaque and every repeated name agreeing, plus case-insensitivity, `transparent` as a colour that is not a *named* one, and an unknown identifier staying unknown), all four hex lengths against wrong lengths, non-hex digits and a space, both argument styles of `rgb()`/`rgba()` with numeric/percentage/mixed channels and numeric/percentage alpha, clamping rather than wrapping (`300`, `-5`, `200%`), one rounding at the end (`51%` → `130`), the mixing of separator styles refused, `hsl()`/`hsla()` with the four angle units, hue normalised (`-120`, `480`, `720`, `-360`, `1e300turn`) and saturation/lightness clamped, `currentColor` typed and the substitution's four cases, the eight deferred spaces reported as deferred rather than refused, `not_a_colour` drawing the line the other way (`sparkle(1)` refused, `10px` not a colour, `red blue` not a colour), 37 malformed declarations driven through the parser with two invariants asserted on every one, and serialization (one spelling per kind, alpha only when it is not opaque, a short buffer refused with the length it needed) — then the integration group (`css.color.computed.*`): twelve spellings of four syntaxes converging on one computed colour each, a typed colour inheriting through two levels with the intermediate override, `background-color` *not* inheriting, `initial`/`inherit`/`unset` on both kinds, the two `currentColor` rules separated by a parent whose colour differs from its child's, a root element whose `currentColor` stays contextual and stays flagged, a `var()` reference carried beside a misspelled colour and an untouched custom property, the whole selector pipeline over a three-level tree, and determinism |
 
 ### 9.7 — property metadata and inheritance
 
@@ -225,7 +241,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 452 css.* tests only
+scripts/robo test-css                     # the 471 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -241,7 +257,7 @@ The 9.4 surface is three filters, and they do not nest the way the names suggest
 suites **plus** the eight `css.selector.*` model tests, because `css.select` is a
 prefix of `css.selector`. The precise counts are
 `--filter=css.select.parse` (51), `--filter=css.select.match` (34),
-`--filter=css.select.levels` (14), and `--filter=css.dom` (18) for the suites
+`--filter=css.select.levels` (14), and `--filter=css.dom` (19) for the suites
 that run against the real RoboHTML tree — the last two of which are 9.8's, so
 that filter is also where the **whole** pipeline runs over the checkpoint's own
 document.
@@ -261,10 +277,19 @@ resolver together, and `--filter=css.registry` (11) for the property metadata.
 resolver, and `css.inherit` picks both up plus the model's six.
 
 The 9.8 surface is two filters that do **not** nest: `--filter=css.computed.`
-(13) is the pipeline, and `--filter=css.computedvalue.` (14) is the typed value.
+(15) is the pipeline plus the 9.1 container's two boundary cases, and
+`--filter=css.computedvalue.` (14) is the typed value.
 The trailing dot matters, because `css.computed` is a prefix of
 `css.computedvalue` — but `css.computed.` is not, which is why the documented
 form carries it.
+
+The 9.9 surface is `--filter=css.color` (19), the whole suite, plus
+`--filter=css.color.computed.` (7) for the integration half. The remaining twelve
+have **no single prefix of their own**, and that is worth stating rather than
+leaving as a puzzle: the integration names are `css.color.computed.*`, so
+`css.color.` is a prefix of them as well and catches all nineteen. The module's
+twelve are reached by their own names (`css.color.named_table`, `css.color.hsl`,
+and so on), or by running the suite and reading the twelve that come first.
 
 `--list` prints every registered name, which is how a documented test name can be
 checked against the binary instead of trusted.
@@ -280,9 +305,11 @@ UndefinedBehaviorSanitizer for the host test binary; it is documented in
 `docs/Build.md`. The result for this phase:
 
 * **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** Zero sanitizer
-  findings across the whole runtime suite — 1859/1859 — and `--filter=css.` is
-  452/452 under the sanitized binary. Phase 9.8 introduced no memory-safety or
-  undefined-behaviour defect.
+  findings, and `--filter=css.color` is 19/19 under the sanitized binary. Phase 9.9
+  introduced no memory-safety or undefined-behaviour defect — which is not a
+  coincidence: the whole module owns nothing, so the only lifetime question it can
+  raise is whether a *copied* colour record stayed valid across an inheritance
+  step, and that is what `css.color.computed.inheritance` asks.
 
 Run the whole suite rather than the `css.` subtree and the sanitized binary may
 report **one** failure that is not a sanitizer result and not this subsystem's: `window.host.keyboard` asserts `robo_window_request_focus(id) == ROBO_OK`, and
@@ -596,3 +623,44 @@ checking rather than bending the code to:
   belongs.** The compiler caught them once the suite was registered; they now test
   NULL arguments and the unknown-`computation` sentinel, which is what the header
   promises.
+
+## 13. What the 9.9 suites found
+
+One real product defect, and the one that would have been easiest to ship without
+noticing: the suites that would have caught it had to be *registered* first.
+
+> **A `var()` in a colour position was reported as a mistake.** `color:
+> var(--brand)` reached the colour parser, which called it non-colour syntax and
+> returned `INVALID` — so a legal reference to a colour produced the same computed
+> value as `color: nonsense`, and the diagnostic said `not a colour`. The colour
+> parser was right about the syntax and wrong about the author: the value is not a
+> colour *yet*, it is a reference to one. `computed_compute_color` now settles that
+> first, asking whether the value is a single unresolved function (`var`, `env`,
+> `calc`, `min`, `max`, `clamp`) and carrying it with its tokens and the
+> `UNRESOLVED` flag if it is — which is what every other value shape already did,
+> and what makes the two diagnostics genuinely different. Found by
+> `css.color.computed.reference_and_invalid`.
+
+Three expectations were wrong rather than the implementation, and each is worth
+writing down because all three are the kind of mistake a test is supposed to make
+*visible*:
+
+* **`#f00f` is `#ff0000`.** An opaque alpha nibble normalizes away, which is the
+  representation agreeing with the `#rrggbb` spelling of itself. The assertion
+  expected `#ff0000ff`; `css.color.hex` now pins `#ff0000` and the alpha channel
+  beside it.
+* **`rgb(51%, 40%, 60%)` is `#826699`.** The percentage case had the *numeric*
+  channels' expected value copied into it — `#336699` is `rgb(20%, 40%, 60%)`.
+  The corrected pair now proves the distinction: `20%` is exactly 51, and `51%` is
+  130.05 rounded to 130, which is `css.color.rgb`'s one-rounding rule.
+* **`hsl(210, 100%, 20%)` is `#003366`.** The case expected `rgb(0, 68, 102)`,
+  which is 20% *lightness* read as if the green channel were the sector's endpoint
+  rather than its intermediate: at 210° the blue channel is lightness plus half the
+  chroma (102) and the green is the intermediate (51). The suite now asserts the
+  same colour through three syntaxes — `hsl()`, `#rrggbb` and `rgb()`.
+
+One helper was broken in a way that made a *failure message* lie: `css_color_same`
+passed `NULL` for the serialization length, which `robo_css_color_write` refuses,
+so the two buffers it printed as "the colours that differ" were uninitialised
+stack. It now checks both writes and blanks a buffer that failed, because a
+diagnostic that names stack noise as a colour is worse than no diagnostic.

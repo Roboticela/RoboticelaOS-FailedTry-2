@@ -13,7 +13,7 @@
  *   NUMBER       a bare number: `line-height: 1.5`
  *   PERCENTAGE   a percentage, which stays one because only layout can resolve it
  *   LENGTH       a number and a unit: `10px`, `2rem`, `1em`
- *   COLOR        four 8-bit channels, including alpha
+ *   COLOR        a colour: four channels, or the contextual `currentColor`
  *   FAMILY_LIST  an ordered font family list
  *   PRESERVED    the specified tokens, carried intact
  *   INVALID      the value did not mean anything for this property
@@ -38,20 +38,26 @@
  * What is deliberately not here: used values. `50%` stays `50%`, `1em` stays
  * `1em`, `normal` stays `normal`, and nothing asks how wide anything is. The
  * conversion of a length percentage to a number is the layout phases' business,
- * and `currentColor` and the full colour syntax are 9.9's (see below).
+ * and a colour space this build does not represent stays carried (see below).
  *
  * Colours, and the 9.9 seam
  *
- * 9.8 normalises the colour forms the parser and this build can already
- * express — the standard named keywords, `transparent`, all four hex lengths,
- * and `rgb()`/`rgba()` in both the comma and the space syntax — into the
- * channel record here. It does **not** implement `hsl()`, `hwb()`, `lab()`,
- * `lch()`, `oklab()`, `oklch()`, `color()` or `color-mix()`: those are the
- * subject of the dedicated colour subsystem, and rejecting them cleanly is
- * better than producing a colour that is wrong. `currentColor` is recognised
- * and carried PRESERVED with the "unresolved" flag, because resolving it needs
- * the element's own computed `color` and that dance belongs to the colour
- * subsystem too.
+ * A colour is computed here and *parsed* elsewhere: `robo_css_color_from_value`
+ * (RoboCSSColor.h) owns every spelling — the standard named keywords,
+ * `transparent`, all four hex lengths, `rgb()`/`rgba()` and `hsl()`/`hsla()` in
+ * both the comma and the space syntax — and this layer turns its answer into the
+ * right computed value. That is the whole of the colour knowledge in this file,
+ * and it is deliberately almost nothing: a second colour parser here is how two
+ * spellings of the same colour come to disagree.
+ *
+ * `currentColor` arrives as a COLOR value whose colour is *contextual*: typed,
+ * and flagged unresolved, because the only thing that can resolve it is the
+ * element's own computed `color` — and its parent's, when the property being
+ * computed *is* `color`. That resolution happens in the computed-style layer
+ * (RoboCSSComputed.c), which is the first stage with a parent to read. Colours
+ * this build cannot represent (`oklch()`, `color()`, …) are carried PRESERVED and
+ * flagged unresolved rather than called invalid, because the author wrote legal
+ * CSS and saying otherwise would be a lie.
  *
  * Ownership
  *
@@ -65,6 +71,7 @@
 #define ROBO_CSS_COMPUTED_VALUE_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboCSS/RoboCSSColor.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSPropertyRegistry.h"
 #include "RoboCSS/RoboCSSValue.h"
@@ -138,78 +145,26 @@ robo_css_unit_t robo_css_unit_from_text(const char *name);
 double robo_css_unit_to_px(double value, robo_css_unit_t unit);
 
 /* ------------------------------------------------------------------ */
-/* Colours                                                             */
+/* Colours — moved to RoboCSSColor.h in 9.9                             */
 /* ------------------------------------------------------------------ */
 
-/**
- * One resolved colour: four channels, 8 bits each.
+/*
+ * 9.8 kept the colour model here, beside the value model it was one part of.
+ * 9.9 gave it a module of its own (RoboCSSColor.h, included above, so that this
+ * header and every caller of it can still reach `robo_css_color_t` through the
+ * one include they already had).
  *
- * 8 bits per channel is the representation, not a rounding of one: CSS's
- * ordinary colour syntax cannot express more (`rgb()` takes 0–255 or a
- * percentage), the framebuffer the runtime targets is 8-bit per channel, and a
- * float triple would invite equality comparisons that fail on values that are
- * the same colour. Alpha is included rather than kept apart so that
- * `rgb(255 0 0 / 0.5)` is one value and not a pair.
+ * The move is not a reorganisation: 9.8's colour section was a channel record, a
+ * named table, hex and `rgb()`. 9.9 adds `hsl()`/`hsla()`, makes `currentColor` a
+ * *kind* rather than a carried token tree, adds contextual resolution and
+ * serialization, and is the single place any of it lives. A second parse of
+ * `rgb()` in this file is how two spellings of the same colour come to disagree,
+ * which is why nothing colour-shaped is left here.
+ *
+ * `robo_css_computed_value_t.color` is that record, and it is a kind-aware one:
+ * a computed value can hold `currentColor` as a colour that has not been resolved
+ * yet, which is a state 9.8 could only express by carrying the tokens instead.
  */
-typedef struct robo_css_color {
-    uint8_t red;
-    uint8_t green;
-    uint8_t blue;
-    uint8_t alpha;
-} robo_css_color_t;
-
-/** An opaque colour: (0, 0, 0, 255) is black, and so is this with alpha 255. */
-robo_css_color_t robo_css_color_make(uint8_t red, uint8_t green, uint8_t blue,
-                                     uint8_t alpha);
-
-/** Non-zero when two colours have the same four channels. */
-int robo_css_color_equals(robo_css_color_t a, robo_css_color_t b);
-
-/**
- * The colour a `#…` hash token's *value* spells, or a sentinel.
- *
- * The token's value bytes carry no `#` (the tokenizer strips the delimiter), so
- * this takes the digits alone. A length of 3, 4, 6 or 8 is required — CSS's
- * four hex forms and nothing else — and every byte must be a hex digit. Any
- * other length or character is refused rather than truncated, because a
- * three-digit colour read as six would be a colour nobody wrote.
- *
- * @return 1 and writes @p out on success; 0 otherwise, leaving @p out alone.
- */
-int robo_css_color_from_hex(robo_css_slice_t digits, robo_css_color_t *out);
-
-/**
- * The colour a named keyword spells (`red`, `rebeccapurple`), or `transparent`.
- *
- * The comparison is ASCII case-insensitive and covers the full standard set:
- * the 16 CSS2.1 names, the 130 `X11`/SVG names and `rebeccapurple`, which is
- * what "the standard named colours" means and what keeps `rebeccapurple` from
- * being an unsupported spelling. `transparent` is the transparent black.
- *
- * @return 1 and writes @p out when @p name is one; 0 otherwise.
- */
-int robo_css_color_from_name(robo_css_slice_t name, robo_css_color_t *out);
-
-/**
- * The colour an `rgb()`/`rgba()` call spells.
- *
- * Both the legacy comma syntax (`rgb(255, 0, 0)`, `rgba(255, 0, 0, .5)`) and the
- * modern one (`rgb(255 0 0)`, `rgb(255 0 0 / 50%)`) are accepted, with numeric or
- * percentage channels and an optional alpha, because both are CSS and a build
- * that understood only one of them would reject valid authoring. Mixing the two
- * (`rgb(255, 0 0)`) is refused, which is CSS's own rule.
- *
- * Channels are clamped into range rather than wrapped: `rgb(300, 0, 0)` is red,
- * not a colour with a wrapped green channel, and clamping is what CSS says.
- *
- * @param function  a FUNCTION component value whose name is `rgb` or `rgba`.
- * @param out       receives the colour; untouched on failure.
- * @return 1 when the call parsed to a colour; 0 otherwise — including for a
- *         function of the wrong name, a missing or extra argument, a bad
- *         separator, or a non-numeric argument.
- */
-int robo_css_color_from_rgb_function(const robo_css_value_t *function,
-                                     robo_css_color_t *out);
 
 /* ------------------------------------------------------------------ */
 /* The computed value                                                  */
@@ -274,7 +229,10 @@ typedef struct robo_css_computed_value {
     robo_css_unit_t unit;
     /** NUMBER: non-zero when the value was written as an integer. */
     int is_integer;
-    /** COLOR: the channels; zeroed otherwise. */
+    /**
+     * COLOR: the colour (RoboCSSColor.h); NONE otherwise.
+     * Kind-aware, so a `currentColor` is distinguishable from a resolved one.
+     */
     robo_css_color_t color;
     /**
      * KEYWORD: the decoded identifier.
@@ -294,7 +252,8 @@ typedef struct robo_css_computed_value {
      * Non-zero when this value names something only a later stage can resolve.
      *
      * `var(--x)` is a reference, `calc(100% - 20px)` needs a containing block,
-     * and `currentColor` needs the element's own computed `color`. All three are
+     * and `currentColor` needs the element's own computed `color` — which is why
+     * it is a *contextual colour* rather than a channel set. All three are
      * legal, all three are carried intact, and none of them is a value *yet* —
      * which is a fact about the value that has to be recorded, because a
      * consumer that treated `var(--x)` as an ordinary preserved token list would
@@ -443,11 +402,15 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
  *
  * What each shape accepts, and what it does with anything else:
  *
- *   COLOUR       one ident (a named colour), `transparent`, one hash of 3/4/6/8
- *                digits, `rgb()`/`rgba()` in the comma or space syntax with
- *                numbers or percentages and an optional alpha. `currentcolor`
- *                is carried PRESERVED and flagged unresolved; anything else is
- *                INVALID.
+ *   COLOUR       anything `robo_css_color_from_value` (RoboCSSColor.h) reads as
+ *                a colour: an ident (a named colour or `transparent`), one hash
+ *                of 3/4/6/8 digits, `rgb()`/`rgba()` or `hsl()`/`hsla()` in the
+ *                comma or space syntax with numbers or percentages and an
+ *                optional alpha. `currentColor` becomes a contextual COLOR
+ *                value — typed, and flagged unresolved — and a colour function
+ *                this build cannot represent is carried PRESERVED the same way.
+ *                Anything else is INVALID, with the diagnostic saying whether it
+ *                was a malformed colour call or not a colour at all.
  *   LENGTH       one dimension with a known unit (absolute units converted to
  *                px), one bare `0`, one percentage, or one ident (`auto`,
  *                `normal`, `medium`). A negative value is accepted and kept:

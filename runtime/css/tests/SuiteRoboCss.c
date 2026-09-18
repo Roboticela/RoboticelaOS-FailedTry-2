@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 8);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 9);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 8);
+    ROBO_CHECK_EQ_INT(minor, 9);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -414,6 +414,13 @@ static void test_css_capabilities(void)
      * value shape. What it does not do is resolve: `50%` stays a percentage and
      * `var()` stays a reference, which is why nothing here claims a used value. */
     ROBO_CHECK_EQ_INT(caps.computed_values, 1);
+
+    /* 9.9 gave `color` values a real representation: the standard named set, the
+     * four hex forms, `rgb()`/`rgba()` and `hsl()`/`hsla()`, and `currentColor`
+     * as a contextual colour the computed style resolves. The spaces this build
+     * has no representation for are deferred rather than claimed, which is why
+     * this is a flag for colours and not for the whole CSS Color specification. */
+    ROBO_CHECK_EQ_INT(caps.colors, 1);
 
     /* ...and everything past that is still 0: no default stylesheet exists, and
      * nothing loads one. */

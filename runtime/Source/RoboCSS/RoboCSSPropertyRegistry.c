@@ -494,6 +494,15 @@ static const registry_standard_entry_t registry_standard_entries[] = {
     { "background",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "transparent",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    /* 9.9 added this row, and the reason is not backgrounds: it is the only
+     * second property whose value *is* a colour, and without one the rule that
+     * resolves `currentColor` against the element's own `color` — as opposed to
+     * the parent's, which is what it means on `color` itself — would be
+     * unreachable and therefore unprovable. A property fact is what this table
+     * holds; no background is painted, no shorthand is expanded, and `background`
+     * above keeps its own PRESERVE classification and is untouched. */
+    { "background-color", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_COLOR,      "transparent", 0 },
     { "border",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },

@@ -24,7 +24,9 @@
 #include "RoboCSS/RoboCSSComputed.h"
 #include "RoboCSS/RoboCSSStyle.h"
 #include "RoboCSS/RoboCSSStyleSheet.h"
+#include "RoboCSS/RoboCSSToken.h"
 #include "RoboCSS/RoboCSSTypes.h"
+#include "RoboCSS/RoboCSSValue.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -153,6 +155,98 @@ int robo_css_utf8_append(uint8_t *out, size_t capacity, size_t *length, uint32_t
  *         the move, exactly as robo_realloc does.
  */
 int robo_css_grow(void **items, size_t *capacity, size_t count, size_t element_size);
+
+/* ------------------------------------------------------------------ */
+/* Reading a component-value tree                                      */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The four questions more than one translation unit has to ask of a value
+ * tree.
+ *
+ * Phase 9.8 put these in RoboCSSComputedValue.c, because that file was the only
+ * reader. 9.9's colour subsystem reads component values too — an `rgb()` call's
+ * arguments, an identifier's decoded name, whether a component is trivia — and
+ * the alternative to putting them here was a second copy of each in
+ * RoboCSSColor.c. The rule this subsystem has followed since 9.1 is that
+ * anything two modules must agree about lives in exactly one place, so these
+ * four moved here rather than being duplicated.
+ *
+ * They are pure functions of a value tree: no context, no ownership, nothing
+ * kept. That is what makes them safe to share.
+ */
+
+/**
+ * Non-zero when @p value is trivia: whitespace or a comment.
+ *
+ * A declaration's value keeps its interior whitespace (the grammar trims the
+ * ends, not the middle), so every reader that walks children has to skip these
+ * rather than treat them as components. NULL is trivia: there is nothing there,
+ * which is the same thing to a walker.
+ */
+int robo_css_value_is_trivia(const robo_css_value_t *value);
+
+/**
+ * The one significant component of @p value, or NULL when it is not "one".
+ *
+ * A declaration's value arrives as a LIST whose ends are already trimmed, so
+ * `red` is a list of one ident; a hand-built value may be a bare token, which is
+ * accepted too. Anything else — nothing, or two or more significant components —
+ * answers NULL, and every normaliser that needs a single component turns that
+ * into INVALID rather than picking one of them.
+ */
+const robo_css_value_t *robo_css_value_single(const robo_css_value_t *value);
+
+/**
+ * Non-zero when @p value is a function whose name is @p name.
+ * ASCII case-insensitive, because CSS function names are: `RGB(...)` is `rgb()`.
+ */
+int robo_css_value_function_named(const robo_css_value_t *value, const char *name);
+
+/**
+ * A token's decoded text, lowercased, NUL-terminated in @p buffer.
+ *
+ * CSS keywords are ASCII case-insensitive and the canonical spelling is
+ * lowercase, so `AUTO` and `auto` are the same keyword — which is what lets a
+ * computed value be compared rather than read back the way it was typed.
+ *
+ * @return 1 and writes @p out_length on success; 0 when the token's value is
+ *         empty, does not fit in @p capacity (NUL included), or cannot be
+ *         copied.
+ */
+int robo_css_token_keyword_text(const robo_css_token_t *token,
+                                char *buffer,
+                                size_t capacity,
+                                size_t *out_length);
+
+/* ------------------------------------------------------------------ */
+/* Numbers                                                             */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Three numeric rules, in one place because four modules normalise numbers:
+ * the computed-value layer (lengths and font weights), the colour layer
+ * (channels and alpha), and whatever comes next. Each is a *decision* rather
+ * than arithmetic, which is why they are named functions and not inline
+ * expressions at their call sites.
+ */
+
+/**
+ * Non-zero when @p value is finite — neither NaN nor an infinity.
+ *
+ * The tokenizer can produce both (a huge numeric literal is an infinity, and a
+ * malformed one is where NaN comes from when a caller builds a token by hand),
+ * and no CSS value may carry either. The test allocates nothing and needs no
+ * math header: NaN is the only double not equal to itself, and an infinity is
+ * the only one whose difference from itself is not zero.
+ */
+int robo_css_number_is_finite(double value);
+
+/** @p value clamped into [@p low, @p high]. */
+double robo_css_number_clamp(double value, double low, double high);
+
+/** @p value rounded to the nearest integer, away from zero on a half. */
+int robo_css_number_round(double value);
 
 /* ------------------------------------------------------------------ */
 /* Module slot table                                                   */

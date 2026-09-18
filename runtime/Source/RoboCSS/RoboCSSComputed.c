@@ -550,6 +550,120 @@ static uint32_t computed_flags_of_source(robo_css_inherited_source_t source)
     }
 }
 
+/*
+ * Resolving `currentColor` (9.9)
+ *
+ * `currentColor` is a colour that is not a colour yet: it is whatever the
+ * element's `color` turns out to be, and *which* `color` that is depends on the
+ * property it was written on. That makes this the only layer that can resolve
+ * it — the value layer has no element and no parent — and the two rules are:
+ *
+ *   on `color` itself     the **parent's** computed `color`.
+ *                         `color: currentColor` means "the colour I would have
+ *                         inherited", which is CSS's own rule and the only
+ *                         reading that terminates: the element's own `color` is
+ *                         the thing being computed.
+ *   on anything else      the element's own computed `color`.
+ *                         `background-color: currentColor` is "my text colour",
+ *                         so it resolves against a value that must already be
+ *                         final — which is why `color` is resolved first.
+ *
+ * Both rules are applied in place, on a finished style: a `currentColor` becomes
+ * the channels it stands for, and the UNRESOLVED bit comes off, so a consumer
+ * reading the style sees a colour rather than a promise. When there is nothing to
+ * resolve it against — no parent computed style, which is what a root element and
+ * a caller that computed one style at a time both look like — the colour **stays**
+ * CURRENT and **stays** flagged unresolved. That is the honest answer, and
+ * inventing black would be exactly the mistake `currentColor` exists to prevent.
+ *
+ * Only the UNRESOLVED *bit* is cleared, never the whole flag set: an entry can be
+ * declared and unresolved and inherited all at once, and the other facts about it
+ * are still true after its colour is known. Clearing it is safe for a colour
+ * specifically because a COLOR value's own unresolved flag is set in exactly one
+ * place — the `currentColor` branch of the colour computation — and not by
+ * anything else that could leave the bit meaning something different.
+ */
+
+/** The property `currentColor` defers to. */
+#define COMPUTED_COLOR_PROPERTY "color"
+
+/**
+ * Replace one entry's contextual colour with @p color, when it resolves against
+ * it.
+ *
+ * A no-op for every entry that is not a `currentColor`, which is what makes the
+ * pass below read as one sentence.
+ */
+static void computed_resolve_entry_color(robo_css_computed_entry_t *entry,
+                                         robo_css_color_t color)
+{
+    robo_css_color_t resolved;
+
+    if (!entry || entry->computed.kind != ROBO_CSS_COMPUTED_VALUE_COLOR) {
+        return;
+    }
+    if (!robo_css_color_is_current(entry->computed.color)) {
+        return;
+    }
+    if (!robo_css_color_resolve_current(entry->computed.color, color, &resolved)) {
+        /* `color` is not a resolved colour here either: the colour stays
+         * contextual, and the flag keeps saying so rather than a default being
+         * filled in behind the author's back. */
+        return;
+    }
+    entry->computed.color = resolved;
+    entry->computed.unresolved = 0;
+    entry->flags &= ~(uint32_t)ROBO_CSS_COMPUTED_FLAG_UNRESOLVED;
+}
+
+/** The computed colour of the entry for @p name, or NONE when there is none. */
+static robo_css_color_t computed_color_of(const robo_css_computed_style_t *style,
+                                          const char *name)
+{
+    const robo_css_computed_value_t *value;
+
+    if (!style) {
+        return robo_css_color_none();
+    }
+    value = robo_css_computed_style_computed_by_name(style,
+                                                     robo_css_slice_from_text(name));
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_COLOR) {
+        return robo_css_color_none();
+    }
+    return value->color;
+}
+
+/**
+ * Resolve every `currentColor` in @p out against @p parent_computed.
+ *
+ * The order is the rule: `color` first, against the parent, so that the element
+ * has a final colour; then everything else, against that. Nothing here can read
+ * a value it has not settled, which is what makes two properties that both say
+ * `currentColor` agree no matter which was declared first.
+ */
+static void computed_resolve_current_colors(robo_css_computed_style_t *out,
+                                            const robo_css_computed_style_t *parent_computed)
+{
+    robo_css_computed_entry_t *color_entry;
+    robo_css_color_t element_color;
+    size_t index;
+
+    color_entry = computed_find_name(out, robo_css_slice_from_text(COMPUTED_COLOR_PROPERTY));
+    computed_resolve_entry_color(color_entry, computed_color_of(parent_computed,
+                                                               COMPUTED_COLOR_PROPERTY));
+    element_color = computed_color_of(out, COMPUTED_COLOR_PROPERTY);
+    if (!robo_css_color_is_resolved(element_color)) {
+        return;
+    }
+    for (index = 0u; index < out->count; index++) {
+        robo_css_computed_entry_t *entry = &out->entries[index];
+
+        if (entry != color_entry) {
+            computed_resolve_entry_color(entry, element_color);
+        }
+    }
+}
+
 /**
  * Compute the entries of @p resolved into @p out, one level of a tree.
  *
@@ -707,6 +821,10 @@ robo_result_t robo_css_style_context_compute_resolved_style(
                            "the computed style could not be built");
         return rc;
     }
+    /* Every value is computed, so the one thing a value cannot know about itself
+     * can now be settled: `currentColor` is the element's `color`, and on `color`
+     * it is the parent's — see the note above. */
+    computed_resolve_current_colors(out, parent_computed);
     return ROBO_OK;
 }
 

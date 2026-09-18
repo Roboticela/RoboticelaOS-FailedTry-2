@@ -327,3 +327,104 @@ int robo_css_grow(void **items, size_t *capacity, size_t count, size_t element_s
     *capacity = new_capacity;
     return 1;
 }
+
+/* ------------------------------------------------------------------ */
+/* Reading a component-value tree                                      */
+/* ------------------------------------------------------------------ */
+
+int robo_css_value_is_trivia(const robo_css_value_t *value)
+{
+    if (!value) {
+        return 1;
+    }
+    return value->kind == ROBO_CSS_VALUE_KIND_TOKEN &&
+           (value->token.type == ROBO_CSS_TOKEN_WHITESPACE ||
+            value->token.type == ROBO_CSS_TOKEN_COMMENT);
+}
+
+const robo_css_value_t *robo_css_value_single(const robo_css_value_t *value)
+{
+    const robo_css_value_t *found = NULL;
+    size_t index;
+
+    if (!value || value->kind == ROBO_CSS_VALUE_KIND_NONE) {
+        return NULL;
+    }
+    if (value->kind != ROBO_CSS_VALUE_KIND_LIST) {
+        return value;
+    }
+    for (index = 0u; index < value->children.count; index++) {
+        const robo_css_value_t *child = &value->children.items[index];
+
+        if (robo_css_value_is_trivia(child)) {
+            continue;
+        }
+        if (found) {
+            return NULL;
+        }
+        found = child;
+    }
+    return found;
+}
+
+int robo_css_value_function_named(const robo_css_value_t *value, const char *name)
+{
+    if (!value || !name || value->kind != ROBO_CSS_VALUE_KIND_FUNCTION) {
+        return 0;
+    }
+    return robo_css_bytes_equal_ascii_ci(value->name.bytes, value->name.length, name);
+}
+
+int robo_css_token_keyword_text(const robo_css_token_t *token,
+                                char *buffer,
+                                size_t capacity,
+                                size_t *out_length)
+{
+    size_t length;
+    size_t index;
+
+    if (!token || !buffer || capacity == 0u) {
+        return 0;
+    }
+    length = robo_css_token_value_length(token);
+    if (length == 0u || length >= capacity) {
+        return 0;
+    }
+    if (robo_css_token_value_copy(token, (uint8_t *)buffer, length, out_length,
+                                  NULL) != ROBO_OK) {
+        return 0;
+    }
+    for (index = 0u; index < length; index++) {
+        buffer[index] = (char)robo_css_ascii_lower((uint8_t)buffer[index]);
+    }
+    buffer[length] = '\0';
+    if (out_length) {
+        *out_length = length;
+    }
+    return 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* Numbers                                                             */
+/* ------------------------------------------------------------------ */
+
+int robo_css_number_is_finite(double value)
+{
+    return value == value && (value - value) == 0.0;
+}
+
+double robo_css_number_clamp(double value, double low, double high)
+{
+    if (value < low) {
+        return low;
+    }
+    if (value > high) {
+        return high;
+    }
+    return value;
+}
+
+int robo_css_number_round(double value)
+{
+    return (int)(value < 0.0 ? value - 0.5 : value + 0.5);
+}

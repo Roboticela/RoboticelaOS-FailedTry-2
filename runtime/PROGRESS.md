@@ -3025,6 +3025,164 @@ reject a non-length keyword; `not an identifier` is the right message for `k: 10
 call* enabled the tracker; and three argument-contract cases passed a computed
 value where a specified value belongs.
 
+## Goal 9.9 — CSS colours
+
+**Status: complete.** The colour module, the value layer's delegation to it, the
+contextual `currentColor` resolution in the computed style, the registry's second
+colour property, and 19 new tests are implemented and verified.
+
+### Delivered
+
+- [x] `Include/RoboCSS/RoboCSSColor.h` + `Source/RoboCSS/RoboCSSColor.c` — the
+      **eighth module**, and the first that is a *representation* rather than a
+      stage. A colour is the one CSS value whose meaning is arithmetic, and 9.8's
+      colour code lived inside the computed-value layer because that was its only
+      reader; 9.9 gives it a header, an implementation and every spelling
+- [x] `robo_css_color_t`: **four kinds, not one.** `NONE` (nothing, and what a
+      failed parse leaves), `RGBA` (four 8-bit channels in sRGB — the canonical
+      resolved colour), `CURRENT` (`currentColor`, contextual *by construction*)
+      and `INVALID` (a colour was meant and there is not one). The kind is what
+      makes `currentColor` expressible at all, and it is why equality is
+      kind-aware: a resolved red is never equal to `currentColor`, because they
+      are different answers
+- [x] **8 bits per channel, and it is a decision.** CSS's ordinary syntax cannot
+      express more, the framebuffer is 8-bit, and a float triple would invite
+      equality comparisons that fail on values which are the same colour. `hsl()`
+      converts once in doubles with a single rounding at the end, so
+      `hsl(120 100% 25%)` is *exactly* `#008000` — a property a test can hold
+- [x] The **148-name standard set** (the 16 CSS2.1 keywords, the 130 SVG/X11 names
+      with their duplicates, and `rebeccapurple`), ASCII case-insensitive,
+      reachable by name **and by index** so a suite walks the whole table rather
+      than the handful of names someone thought to type. `transparent` is
+      deliberately **not** a table entry: it is a colour but a *keyword*, handled
+      where the identifier is. An unknown identifier is never silently a colour
+- [x] All four hex lengths with nibble **expansion** (not zero-padding — the
+      classic three-digit mistake), every other length and every non-hex digit
+      refused rather than truncated, case-insensitive, and an opaque alpha nibble
+      normalised away (`#f00f` *is* `#ff0000`)
+- [x] `rgb()`/`rgba()` in **both** syntaxes — legacy comma and modern space, with
+      numeric, percentage or *mixed* channels and numeric or percentage alpha —
+      with `rgb` and `rgba` deliberately not distinguished, because CSS Color 4
+      made each accept both shapes. Channels **clamp rather than wrap**; the two
+      separator styles do not mix, which is what makes `rgb(255, 0 0)` malformed,
+      `rgb( 1 , 2 , 3 )` legal, and `rgb(1 2 3 4)` a call with an alpha separator
+      nobody wrote
+- [x] `hsl()`/`hsla()` with hue as an angle in the four units (`deg`, `grad`,
+      `rad`, `turn`), hue **normalised rather than clamped** (`-120` and `240` are
+      the same hue, `480` is `120`, `720` is `0`), saturation and lightness
+      clamped, percentages required in the legacy syntax and bare numbers read as
+      percentages in the modern one, and a hue too large to reduce saturating to
+      zero rather than producing an artefact
+- [x] **Six outcomes**, because "did it work" is not enough of an answer:
+      `RESOLVED`, `CURRENT`, `DEFERRED`, `MALFORMED`, `UNKNOWN_NAME`, `INVALID`.
+      `DEFERRED` is the one that keeps the build from lying — `hwb`, `lab`, `lch`,
+      `oklab`, `oklch`, `color()`, `color-mix()`, `device-cmyk()` are legal CSS
+      this build cannot represent, so the declaration is carried and flagged
+      unresolved rather than called invalid; a wrong colour is worse than a
+      deferred one. `MALFORMED`, `UNKNOWN_NAME` and `INVALID` all end as an
+      invalid computed value and stay separate because the *diagnostic* differs
+      and the diagnostic is the point
+- [x] The value layer now **consumes** the colour module instead of carrying its
+      own parser — one authoritative implementation, so two spellings of the same
+      colour cannot disagree. A **reference is settled before the colour parser is
+      asked**, which is the defect this phase found: `color: var(--brand)` is a
+      `var()` reference, not a mistake, and it is carried with its tokens and the
+      `UNRESOLVED` flag exactly as every other value shape is
+- [x] `currentColor` resolved by the **computed style**, at the only point that
+      has both the element and the parent, and by **two rules**: on `color` itself
+      it is the parent's computed `color` ("the colour I would have inherited",
+      the only reading that terminates), and everywhere else it is the element's
+      own ("my text colour"). `color` is therefore resolved first, in a pass of its
+      own, so nothing can read a value that has not been settled. With nothing to
+      resolve against — a root element — the colour **stays** `CURRENT` and
+      **stays** flagged, because inventing black is the mistake the keyword exists
+      to prevent. Only the `UNRESOLVED` bit is cleared, never the whole flag set
+- [x] **`background-color` joined the property registry.** The reason is not
+      backgrounds: it is the only *second* colour-shaped property, and without one
+      the rule that resolves `currentColor` against the element's own `color`
+      would be unreachable and therefore unprovable. A property fact is what that
+      table holds — no background is painted, no shorthand is expanded, and
+      `background` keeps its own `PRESERVE` classification. The registry suite's
+      count assertion (24 → 25 rows, 8 → 9 non-inherited) is updated with it, which
+      is exactly what that deliberate count exists for
+- [x] Serialization: one stable spelling per kind (`none`, `invalid`,
+      `currentColor`, lower-case hex with alpha only when it is not opaque). Named
+      colours are deliberately **not** written back as names, because two equal
+      colours must print the same and hex always can — which is what makes a
+      written colour usable as an assertion. A short buffer is refused with the
+      length it needed rather than truncated
+- [x] Numeric safety: channels clamp, a non-finite literal is clamped into range,
+      an underflow is a channel like any other, and a hue with no fractional part
+      left saturates. 37 malformed declarations are driven through the parser with
+      two invariants asserted on every one — the outcome is a defined enumerator,
+      and a colour that was not produced is `NONE` or `INVALID`, never a
+      plausible-looking channel set nobody wrote
+- [x] New suite `css/tests/SuiteRoboCssColor.c`, **19 tests**: `css.color.*` 12
+      (the record and its kind tables, the whole 148-entry table walked by index,
+      all four hex lengths against every wrong length and non-hex digit, both
+      argument styles of both functions with clamping and one-rounding, hue
+      normalisation, `currentColor` typed and the substitution's four cases, the
+      deferred spaces, the not-a-colour line, 37 malformed inputs, serialization)
+      and `css.color.computed.*` 7 (twelve spellings of four syntaxes converging on
+      one computed colour each, inheritance through two levels with an intermediate
+      override, `background-color` not inheriting, the CSS-wide keywords on both
+      kinds, the two `currentColor` rules separated by a parent whose colour
+      differs from its child's, a root whose `currentColor` stays contextual, the
+      `var()` boundary, the whole selector pipeline over a three-level tree, and
+      determinism)
+- [x] Capability flag `colors` flipped to 1; `default_styles` and
+      `stylesheet_loading` still 0. Version 0.9.0, `ROBO_CSS_API_FROZEN` still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer, **zero findings**;
+      `css.color` is 19/19 under the sanitized binary, the CSS surface is 471/471
+      and the whole suite is 1878/1878 run in the foreground
+- [x] `scripts/robo check` **PASS** with Chromium independence **CLEAN** (sources
+      + headers, build wiring); `build-runtime` **PASS**; `test-css` **PASS** (2/2);
+      `test-qemu-display` **PASS** (2/2, the booted QEMU display); the host visual
+      checkpoint **PASS** offscreen at **15/15 probes**; `validate-deployment`
+      **PASS**. `test-runtime` reports only the documented environmental
+      `window.host.keyboard` failure, which no RoboCSS code touches
+- [x] Phases 6–9.8 regression-tested: full suite green — up 19 tests from 9.8,
+      with no existing test weakened or removed
+- [x] `css/docs/Colors.md` added, and `css/README.md`, `css/docs/Tests.md`,
+      `css/docs/Architecture.md`, `css/docs/ComputedValues.md` and `ARCHITECTURE.md`
+      updated
+- [x] No Chromium dependency introduced
+- [x] No colour interpolation, no blending, no second space, no unit system beyond
+      the length forms a computed value carries (9.10), no box model, no layout, no
+      painting, no CSSOM, no animations
+- [x] Stop after 9.9
+
+### What 9.9 found
+
+**One real product defect, and it is the kind that hides in plain sight.**
+
+* A `var()` in a colour position was reported as a **mistake**. `color:
+  var(--brand)` reached the colour parser, which called it non-colour syntax and
+  returned `INVALID`, so a legal reference to a colour produced the same computed
+  value as `color: nonsense` and the diagnostic said `not a colour`. The parser
+  was right about the syntax and wrong about the author. `computed_compute_color`
+  now settles the reference first — a single unresolved function (`var`, `env`,
+  `calc`, `min`, `max`, `clamp`) is carried with its tokens and the `UNRESOLVED`
+  flag — which is what every other value shape already did.
+
+**Three expectations were wrong rather than the implementation**, and each was a
+real piece of CSS arithmetic rather than a typo:
+
+* `#f00f` is `#ff0000` — an opaque alpha nibble normalises away, which is the
+  representation agreeing with the `#rrggbb` spelling of itself;
+* `rgb(51%, 40%, 60%)` is `#826699`, not `#336699` — the percentage case had the
+  numeric channels' expected value copied into it, and the corrected pair now
+  proves 20% → 51 exactly and 51% → 130.05 rounded to 130;
+* `hsl(210, 100%, 20%)` is `#003366`, not `rgb(0, 68, 102)` — the green channel is
+  the sector's *intermediate* (51), not its endpoint, while the blue is lightness
+  plus half the chroma (102).
+
+One helper was broken in a way that made a **failure message lie**:
+`css_color_same` passed `NULL` for the serialization length, which the writer
+refuses, so the two buffers it printed as "the colours that differ" were
+uninitialised stack. It now checks both writes, because a diagnostic that names
+stack noise as a colour is worse than no diagnostic.
+
 ## Next
 
-- Goal 9.9 — CSS colours (do not start until requested)
+- Goal 9.10 — CSS units (do not start until requested)

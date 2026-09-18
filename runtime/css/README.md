@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.8,
-computed values**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.9,
+colours**).
 
-**Version:** 0.8.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.9.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -14,7 +14,8 @@ and consume it.
 ## Scope
 
 **9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors), 9.5 (the
-cascade), 9.6 (specificity), 9.7 (inheritance) and 9.8 (computed values).** 9.1
+cascade), 9.6 (specificity), 9.7 (inheritance), 9.8 (computed values) and 9.9
+(colours).** 9.1
 builds the model the rest of Phase 9 is written against; 9.2 builds the first
 machine that fills it; 9.3 builds the second — the grammar that consumes the token
 stream and produces that model out of real CSS; 9.4 builds the third, which turns a
@@ -24,7 +25,9 @@ element in cascade order; 9.6 supplies the third and last ordering key, so the
 cascade can answer every contest it can see; 9.7 answers the question underneath
 the cascade — what the element *has* for the properties nothing declared; 9.8 is
 the first that **changes** a value rather than locating one, turning that resolved
-token sequence into a length, a percentage, a colour or a keyword:
+token sequence into a length, a percentage, a colour or a keyword; 9.9 is the first
+that gives one of those shapes a *representation* of its own, because a colour is
+the one CSS value whose meaning is arithmetic and its arithmetic has to be shared:
 
 | Goal | What 9.1 delivers | What it does **not** do |
 |---|---|---|
@@ -55,6 +58,12 @@ token sequence into a length, a percentage, a colour or a keyword:
 | 9.8.3 computed style | The 9.1 container made richer: each entry now carries its name, its typed value and a provenance bitset (`DECLARED`/`INHERITED`/`DEFAULT`/`DEFERRED`/`CUSTOM`/`UNRESOLVED`/`INVALID`), plus the incomplete and truncated counters | Drop the specified value, or hide that a style is unsettled |
 | 9.8.4 chain door | `robo_css_style_context_compute_style`: resolve *and compute* each level top-down, so a child inherits the parent's **computed** value rather than a recomputation of what it specified | Compute a used value, or keep a cache |
 | 9.8.5 real-tree integration | `css.dom.computed.*` drives the whole pipeline — tokenize, parse, match, specificity, cascade, inherit, compute — over the **visual checkpoint's own document**, and proves the rendered frame is byte-identical afterwards | Change what the demo paints |
+| 9.9.1 colour record | **One colour, four kinds** — `NONE`, `RGBA` (8 bits per channel, sRGB), `CURRENT` (`currentColor`, contextual by construction) and `INVALID` — with kind-aware equality and no ownership at all | Interpolate, blend, or represent a space other than sRGB |
+| 9.9.2 named set | All **148** standard names, ASCII case-insensitive, reachable by name *and* by index so a suite walks the whole table | Treat an unknown identifier as a colour, or fold `transparent` in (it is a keyword, not a name) |
+| 9.9.3 syntaxes | `#rgb`/`#rgba`/`#rrggbb`/`#rrggbbaa`, `rgb()`/`rgba()` and `hsl()`/`hsla()` in both the legacy comma and modern space forms, with clamping rather than wrapping and hue normalised rather than clamped | Accept a mixed separator, or a six-digit spelling of a three-digit colour |
+| 9.9.4 outcomes | Six answers — `RESOLVED`, `CURRENT`, `DEFERRED`, `MALFORMED`, `UNKNOWN_NAME`, `INVALID` — because the diagnostics differ and the diagnostic is the point | Call legal-but-unrepresentable CSS (`oklch()`) invalid, or guess at a colour it cannot compute |
+| 9.9.5 resolution | `currentColor` resolved by the **computed style**, against the parent's `color` on `color` itself and the element's own `color` everywhere else, with the unresolved flag staying set when there is nothing to resolve against | Resolve `currentColor` to a default |
+| 9.9.6 serialization | One stable spelling per kind (`none`, `invalid`, `currentColor`, lower-case hex with alpha only when it is not opaque) | Write a colour back as the name it arrived as, so two equal colours print differently |
 
 ## The tokenizer (9.2)
 
@@ -241,9 +250,63 @@ value. **`UNRESOLVED`** is a flag that no kind can express: `var(--x)` and
 reference as an ordinary token list would be reading it as a colour.
 
 What is deliberately left to later phases: used values (`50%` stays `50%`), font
-resolution (`font-size: medium` stays the keyword), `hsl()` and the modern colour
-spaces (recognised and carried, 9.9's), `var()` substitution, shorthand expansion,
-and a default stylesheet. `docs/ComputedValues.md` has the full account.
+resolution (`font-size: medium` stays the keyword), `var()` substitution, shorthand
+expansion, and a default stylesheet. `docs/ComputedValues.md` has the full account.
+
+## Colours (9.9)
+
+A colour is the one CSS value whose *meaning* is arithmetic, so 9.9 gives it a
+module (`RoboCSSColor.h`) rather than letting the computed-value layer keep the
+parser it had to carry in 9.8. The value layer now consumes that one parser instead
+of holding its own — which is what keeps `rgb(255, 0, 0)` and `#ff0000` from ever
+disagreeing about what they are.
+
+The record is a **kind**, not just channels:
+
+```c
+typedef struct robo_css_color {
+    robo_css_color_kind_t kind;   /* NONE | RGBA | CURRENT | INVALID */
+    uint8_t red, green, blue, alpha;
+} robo_css_color_t;
+```
+
+and that kind is what makes `currentColor` expressible. It is not a colour: it is a
+reference to whatever `color` turns out to be, and CSS keeps it unresolved through
+the computed-value stage for exactly that reason. Resolving it early — to black, or
+to anything else — would make `color: currentColor` mean a fixed colour, which is
+the one thing it must never mean. So it survives the value layer as a `COLOR`
+value carrying the `UNRESOLVED` bit, and the computed style resolves it at the only
+point that has the answer, by **two rules**:
+
+- on `color` itself, `currentColor` is the **parent's** computed `color` — "the
+  colour I would have inherited", which is the only reading that terminates;
+- anywhere else, it is the element's **own** computed `color` — `background-color:
+  currentColor` is "my text colour".
+
+`color` is therefore resolved first, in a pass of its own, and everything else
+afterwards against the settled result, so nothing can read a value that has not
+been settled. When there is no parent computed style — a root element — the colour
+**stays** contextual and **stays** flagged, because inventing black is the mistake
+the keyword exists to prevent.
+
+The sixth answer is the one that keeps this build from lying. `DEFERRED` means
+"legal CSS this build has no representation for" — `hwb()`, `lab()`, `lch()`,
+`oklab()`, `oklch()`, `color()`, `color-mix()`, `device-cmyk()` — and such a
+declaration is carried with its tokens and flagged, not refused. `MALFORMED`,
+`UNKNOWN_NAME` and `INVALID` all end as an invalid computed value and are separate
+because a developer reading "rgb() arguments are out of range or malformed",
+"unknown colour name" or "not a colour" learns three different things.
+
+`var()` in a colour position is the fourth case, and it is settled *before* the
+colour parser is asked: a reference is not a colour yet, so `color: var(--brand)` is
+carried and flagged unresolved exactly as it is for every other shape. Nothing
+substitutes `--brand`, and nothing reads `--brand` as a colour — a custom property
+holding `#336699` keeps those five tokens.
+
+`background-color` joined the property registry in this phase. The reason is not
+backgrounds: it is the only *second* colour-shaped property, and without one the
+rule that resolves `currentColor` against the element's own `color` would be
+unreachable and therefore unprovable. `docs/Colors.md` has the full account.
 
 ## The one rule worth reading first
 
@@ -280,6 +343,7 @@ equivalence field by field.
 | `robo_css_inherited_style_t` | Every entry's name and value, both copied | The cascade, the parent style, the sheets the values' bytes come from |
 | `robo_css_computed_value_t` | Its `text` and its `preserved` tree, and every byte inside them | Slices *within* a preserved tree, which borrow the source that declared them |
 | `robo_css_computed_style_t` | Every entry's name, specified value, typed value and flags | The sheets, sources and parents those values were derived from |
+| `robo_css_color_t` | Nothing, ever — it is four bytes and a tag by value | — |
 
 `robo_css_slice_t` is a borrowed view. Every API that produces one documents who
 keeps those bytes alive; no slice is ever freed by RoboCSS.
@@ -295,7 +359,8 @@ a destroyed id stays dead.
 runtime/
 ├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h,
 │                             RoboCSSSpecificity.h, RoboCSSPropertyRegistry.h,
-│                             RoboCSSInherit.h and RoboCSSComputedValue.h)
+│                             RoboCSSInherit.h, RoboCSSComputedValue.h and
+│                             RoboCSSColor.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -313,7 +378,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 452 tests only
+scripts/robo test-css        # this subsystem's 471 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -335,5 +400,6 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Specificity.md` | The 9.6 specificity: the `(A,B,C)` representation and why it is a tuple, the comparison, the per-level rules (universal zero, `:not()` worth its argument, pseudo-elements vs pseudo-classes), selector-list behaviour, saturation and its bounds, the cascade integration, and how to run the suites |
 | `docs/Inheritance.md` | The 9.7 inheritance: the three sets and their order, the property registry and its precedence, the CSS-wide keywords and why `revert` is carried rather than obeyed, custom-property behaviour, provenance, ownership, the primitive and chain doors, the invalidation boundary, and the stylesheet-lifetime rule the suites follow |
 | `docs/ComputedValues.md` | The 9.8 computed values: specified / resolved / computed / used, the closed set of typed shapes and why `PRESERVED`, `INVALID` and `UNRESOLVED` each exist, the unit model, the colour forms and the 9.9 seam, the registry's new `computation` column, the computed style's flags and counters, the chain door, determinism and ownership, and the invalidation boundary |
+| `docs/Colors.md` | The 9.9 colours: the record and its four kinds, why 8 bits per channel, the 148-name table and why `transparent` is not in it, every syntax with its clamping and normalisation rules, the six outcomes and why each exists, the two `currentColor` rules, the `var()` boundary, the registry's second colour property, serialization, the deferred spaces as extension points, and the robustness set |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1–9.8 records and their definitions of done |
+| `../PROGRESS.md` | The Goal 9.1–9.9 records and their definitions of done |

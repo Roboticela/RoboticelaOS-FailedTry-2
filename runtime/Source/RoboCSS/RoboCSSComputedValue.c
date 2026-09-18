@@ -145,531 +145,22 @@ double robo_css_unit_to_px(double value, robo_css_unit_t unit)
 }
 
 /* ------------------------------------------------------------------ */
-/* Numbers                                                            */
-/* ------------------------------------------------------------------ */
-
-/**
- * Non-zero when @p value can be a computed number at all.
- *
- * NaN and the infinities are refused rather than clamped or dropped quietly: a
- * computed value is a *representation of a CSS value*, and there is no CSS
- * spelling for either. A caller that constructs one has a bug, and the
- * normaliser reports it as the invalid value it is.
- *
- * The test allocates nothing and needs no math header: NaN is the only double
- * not equal to itself, and an infinity is the only one whose difference from
- * itself is not zero.
- */
-static int computed_number_is_finite(double value)
-{
-    return value == value && (value - value) == 0.0;
-}
-
-/** @p value clamped into [@p low, @p high]. */
-static double computed_clamp(double value, double low, double high)
-{
-    if (value < low) {
-        return low;
-    }
-    if (value > high) {
-        return high;
-    }
-    return value;
-}
-
-/** @p value rounded to the nearest integer, away from zero on a half. */
-static int computed_round(double value)
-{
-    return (int)(value < 0.0 ? value - 0.5 : value + 0.5);
-}
-
-/** 0–255 channel for a 0–255 number, clamped and rounded. */
-static uint8_t computed_channel_255(double value)
-{
-    return (uint8_t)computed_round(computed_clamp(value, 0.0, 255.0));
-}
-
-/** 0–255 channel for a 0–100 percentage, clamped and rounded. */
-static uint8_t computed_channel_percent(double value)
-{
-    return (uint8_t)computed_round(computed_clamp(value, 0.0, 100.0) * 255.0 / 100.0);
-}
-
-/** 0–255 alpha for a 0–1 number, clamped and rounded. */
-static uint8_t computed_alpha_number(double value)
-{
-    return (uint8_t)computed_round(computed_clamp(value, 0.0, 1.0) * 255.0);
-}
-
-/** 0–255 alpha for a 0–100 percentage, clamped and rounded. */
-static uint8_t computed_alpha_percent(double value)
-{
-    return (uint8_t)computed_round(computed_clamp(value, 0.0, 100.0) * 255.0 / 100.0);
-}
-
-/* ------------------------------------------------------------------ */
-/* Colours                                                            */
-/* ------------------------------------------------------------------ */
-
-robo_css_color_t robo_css_color_make(uint8_t red, uint8_t green, uint8_t blue,
-                                     uint8_t alpha)
-{
-    robo_css_color_t color;
-
-    color.red = red;
-    color.green = green;
-    color.blue = blue;
-    color.alpha = alpha;
-    return color;
-}
-
-int robo_css_color_equals(robo_css_color_t a, robo_css_color_t b)
-{
-    return a.red == b.red && a.green == b.green && a.blue == b.blue && a.alpha == b.alpha;
-}
-
-/** One named colour, as a 24-bit RGB triple. */
-typedef struct computed_named_color {
-    const char *name;
-    uint32_t rgb;
-} computed_named_color_t;
-
-/*
- * The standard named colours.
- *
- * Every name CSS defines, which is the 16 CSS2.1 keywords, the 130 colour names
- * SVG shares with X11, and `rebeccapurple`. A table this size is the reason the
- * search is a linear scan rather than something cleverer: 148 case-insensitive
- * string comparisons happen once per declaration at compute time, and an index
- * that could disagree with the table it indexes is a worse trade than a loop.
- *
- * `transparent` is *not* here. It is a colour (transparent black) but not a
- * named one, and it is handled where the identifier is, so that a reader looking
- * for the keyword does not have to know it is spelled as a table entry.
- */
-static const computed_named_color_t computed_named_colors[] = {
-    { "aliceblue", 0xf0f8ffu }, { "antiquewhite", 0xfaebd7u },
-    { "aqua", 0x00ffffu }, { "aquamarine", 0x7fffd4u },
-    { "azure", 0xf0ffffu }, { "beige", 0xf5f5dcu },
-    { "bisque", 0xffe4c4u }, { "black", 0x000000u },
-    { "blanchedalmond", 0xffebcdu }, { "blue", 0x0000ffu },
-    { "blueviolet", 0x8a2be2u }, { "brown", 0xa52a2au },
-    { "burlywood", 0xdeb887u }, { "cadetblue", 0x5f9ea0u },
-    { "chartreuse", 0x7fff00u }, { "chocolate", 0xd2691eu },
-    { "coral", 0xff7f50u }, { "cornflowerblue", 0x6495edu },
-    { "cornsilk", 0xfff8dcu }, { "crimson", 0xdc143cu },
-    { "cyan", 0x00ffffu }, { "darkblue", 0x00008bu },
-    { "darkcyan", 0x008b8bu }, { "darkgoldenrod", 0xb8860bu },
-    { "darkgray", 0xa9a9a9u }, { "darkgreen", 0x006400u },
-    { "darkgrey", 0xa9a9a9u }, { "darkkhaki", 0xbdb76bu },
-    { "darkmagenta", 0x8b008bu }, { "darkolivegreen", 0x556b2fu },
-    { "darkorange", 0xff8c00u }, { "darkorchid", 0x9932ccu },
-    { "darkred", 0x8b0000u }, { "darksalmon", 0xe9967au },
-    { "darkseagreen", 0x8fbc8fu }, { "darkslateblue", 0x483d8bu },
-    { "darkslategray", 0x2f4f4fu }, { "darkslategrey", 0x2f4f4fu },
-    { "darkturquoise", 0x00ced1u }, { "darkviolet", 0x9400d3u },
-    { "deeppink", 0xff1493u }, { "deepskyblue", 0x00bfffu },
-    { "dimgray", 0x696969u }, { "dimgrey", 0x696969u },
-    { "dodgerblue", 0x1e90ffu }, { "firebrick", 0xb22222u },
-    { "floralwhite", 0xfffaf0u }, { "forestgreen", 0x228b22u },
-    { "fuchsia", 0xff00ffu }, { "gainsboro", 0xdcdcdcu },
-    { "ghostwhite", 0xf8f8ffu }, { "gold", 0xffd700u },
-    { "goldenrod", 0xdaa520u }, { "gray", 0x808080u },
-    { "green", 0x008000u }, { "greenyellow", 0xadff2fu },
-    { "grey", 0x808080u }, { "honeydew", 0xf0fff0u },
-    { "hotpink", 0xff69b4u }, { "indianred", 0xcd5c5cu },
-    { "indigo", 0x4b0082u }, { "ivory", 0xfffff0u },
-    { "khaki", 0xf0e68cu }, { "lavender", 0xe6e6fau },
-    { "lavenderblush", 0xfff0f5u }, { "lawngreen", 0x7cfc00u },
-    { "lemonchiffon", 0xfffacdu }, { "lightblue", 0xadd8e6u },
-    { "lightcoral", 0xf08080u }, { "lightcyan", 0xe0ffffu },
-    { "lightgoldenrodyellow", 0xfafad2u }, { "lightgray", 0xd3d3d3u },
-    { "lightgreen", 0x90ee90u }, { "lightgrey", 0xd3d3d3u },
-    { "lightpink", 0xffb6c1u }, { "lightsalmon", 0xffa07au },
-    { "lightseagreen", 0x20b2aau }, { "lightskyblue", 0x87cefau },
-    { "lightslategray", 0x778899u }, { "lightslategrey", 0x778899u },
-    { "lightsteelblue", 0xb0c4deu }, { "lightyellow", 0xffffe0u },
-    { "lime", 0x00ff00u }, { "limegreen", 0x32cd32u },
-    { "linen", 0xfaf0e6u }, { "magenta", 0xff00ffu },
-    { "maroon", 0x800000u }, { "mediumaquamarine", 0x66cdaau },
-    { "mediumblue", 0x0000cdu }, { "mediumorchid", 0xba55d3u },
-    { "mediumpurple", 0x9370dbu }, { "mediumseagreen", 0x3cb371u },
-    { "mediumslateblue", 0x7b68eeu }, { "mediumspringgreen", 0x00fa9au },
-    { "mediumturquoise", 0x48d1ccu }, { "mediumvioletred", 0xc71585u },
-    { "midnightblue", 0x191970u }, { "mintcream", 0xf5fffau },
-    { "mistyrose", 0xffe4e1u }, { "moccasin", 0xffe4b5u },
-    { "navajowhite", 0xffdeadu }, { "navy", 0x000080u },
-    { "oldlace", 0xfdf5e6u }, { "olive", 0x808000u },
-    { "olivedrab", 0x6b8e23u }, { "orange", 0xffa500u },
-    { "orangered", 0xff4500u }, { "orchid", 0xda70d6u },
-    { "palegoldenrod", 0xeee8aau }, { "palegreen", 0x98fb98u },
-    { "paleturquoise", 0xafeeeeu }, { "palevioletred", 0xdb7093u },
-    { "papayawhip", 0xffefd5u }, { "peachpuff", 0xffdab9u },
-    { "peru", 0xcd853fu }, { "pink", 0xffc0cbu },
-    { "plum", 0xdda0ddu }, { "powderblue", 0xb0e0e6u },
-    { "purple", 0x800080u }, { "rebeccapurple", 0x663399u },
-    { "red", 0xff0000u }, { "rosybrown", 0xbc8f8fu },
-    { "royalblue", 0x4169e1u }, { "saddlebrown", 0x8b4513u },
-    { "salmon", 0xfa8072u }, { "sandybrown", 0xf4a460u },
-    { "seagreen", 0x2e8b57u }, { "seashell", 0xfff5eeu },
-    { "sienna", 0xa0522du }, { "silver", 0xc0c0c0u },
-    { "skyblue", 0x87ceebu }, { "slateblue", 0x6a5acdu },
-    { "slategray", 0x708090u }, { "slategrey", 0x708090u },
-    { "snow", 0xfffafau }, { "springgreen", 0x00ff7fu },
-    { "steelblue", 0x4682b4u }, { "tan", 0xd2b48cu },
-    { "teal", 0x008080u }, { "thistle", 0xd8bfd8u },
-    { "tomato", 0xff6347u }, { "turquoise", 0x40e0d0u },
-    { "violet", 0xee82eeu }, { "wheat", 0xf5deb3u },
-    { "white", 0xffffffu }, { "whitesmoke", 0xf5f5f5u },
-    { "yellow", 0xffff00u }, { "yellowgreen", 0x9acd32u }
-};
-
-int robo_css_color_from_name(robo_css_slice_t name, robo_css_color_t *out)
-{
-    size_t index;
-
-    if (!out || robo_css_slice_is_absent(name) || name.length == 0u) {
-        return 0;
-    }
-    for (index = 0u;
-         index < sizeof(computed_named_colors) / sizeof(computed_named_colors[0]);
-         index++) {
-        if (!robo_css_bytes_equal_ascii_ci(name.bytes, name.length,
-                                           computed_named_colors[index].name)) {
-            continue;
-        }
-        *out = robo_css_color_make((uint8_t)((computed_named_colors[index].rgb >> 16) & 0xffu),
-                                   (uint8_t)((computed_named_colors[index].rgb >> 8) & 0xffu),
-                                   (uint8_t)(computed_named_colors[index].rgb & 0xffu),
-                                   255u);
-        return 1;
-    }
-    return 0;
-}
-
-/** The value a hex digit spells, or -1 when the byte is not one. */
-static int computed_hex_digit(uint8_t byte)
-{
-    if (byte >= (uint8_t)'0' && byte <= (uint8_t)'9') {
-        return (int)(byte - (uint8_t)'0');
-    }
-    if (byte >= (uint8_t)'a' && byte <= (uint8_t)'f') {
-        return (int)(byte - (uint8_t)'a') + 10;
-    }
-    if (byte >= (uint8_t)'A' && byte <= (uint8_t)'F') {
-        return (int)(byte - (uint8_t)'A') + 10;
-    }
-    return -1;
-}
-
-int robo_css_color_from_hex(robo_css_slice_t digits, robo_css_color_t *out)
-{
-    int high[8];
-    int low[8];
-    size_t index;
-
-    if (!out || robo_css_slice_is_absent(digits)) {
-        return 0;
-    }
-    if (digits.length != 3u && digits.length != 4u && digits.length != 6u &&
-        digits.length != 8u) {
-        return 0;
-    }
-    for (index = 0u; index < digits.length; index++) {
-        int value = computed_hex_digit(digits.bytes[index]);
-
-        if (value < 0) {
-            return 0;
-        }
-        high[index] = value;
-        low[index] = value;
-    }
-
-    switch (digits.length) {
-    case 3u:
-        /* `#rgb` is each nibble doubled, which is not the same as a zero-padded
-         * byte: `#f00` is (0xff, 0x00, 0x00), and reading it as (0x0f, 0x00,
-         * 0x00) is the classic three-digit mistake. */
-        *out = robo_css_color_make((uint8_t)(high[0] * 17), (uint8_t)(high[1] * 17),
-                                   (uint8_t)(high[2] * 17), 255u);
-        return 1;
-    case 4u:
-        *out = robo_css_color_make((uint8_t)(high[0] * 17), (uint8_t)(high[1] * 17),
-                                   (uint8_t)(high[2] * 17), (uint8_t)(high[3] * 17));
-        return 1;
-    case 6u:
-        *out = robo_css_color_make((uint8_t)((high[0] << 4) | low[1]),
-                                   (uint8_t)((high[2] << 4) | low[3]),
-                                   (uint8_t)((high[4] << 4) | low[5]), 255u);
-        return 1;
-    default:
-        *out = robo_css_color_make((uint8_t)((high[0] << 4) | low[1]),
-                                   (uint8_t)((high[2] << 4) | low[3]),
-                                   (uint8_t)((high[4] << 4) | low[5]),
-                                   (uint8_t)((high[6] << 4) | low[7]));
-        return 1;
-    }
-}
-
-/* ------------------------------------------------------------------ */
-/* rgb()/rgba()                                                       */
-/* ------------------------------------------------------------------ */
-
-/*
- * Two helpers from the component-value section below, declared here because
- * this section is the first to need them: "is this child trivia" and "is this
- * function named X". They are defined there because that is where reading a
- * component value lives, and moving them up would split that story in two.
- */
-static int computed_is_trivia(const robo_css_value_t *value);
-static int computed_function_named(const robo_css_value_t *value, const char *name);
-
-/** One rgb() argument as it was written: a number or a percentage. */
-typedef struct computed_rgb_argument {
-    double value;
-    int is_percentage;
-} computed_rgb_argument_t;
-
-/** Which of the two argument-list syntaxes a call used. */
-typedef enum computed_rgb_style {
-    COMPUTED_RGB_STYLE_NONE = 0,
-    COMPUTED_RGB_STYLE_COMMA,
-    COMPUTED_RGB_STYLE_SPACE
-} computed_rgb_style_t;
-
-/**
- * Split an rgb() call's children into arguments and the separator style.
- *
- * The children arrive with their whitespace tokens intact (the grammar trims a
- * value's ends, not its interior), so this walks the significant components and
- * reads what stands between the arguments. CSS has two argument-list syntaxes
- * and they do not mix, so a call that uses commas between one pair and nothing
- * but space between the next is malformed rather than "close enough": the
- * separators are tracked as a *style*, and a second style is refused.
- *
- * Whitespace touching a comma is not a separator, which is what makes
- * `rgb(1 , 2 , 3)` legal: the comma is the separator and the space around it is
- * decoration. That is why the comma clears whatever whitespace preceded it
- * instead of the whitespace being remembered across it.
- *
- * `/` is the modern syntax's alpha separator and is only reachable from the
- * space style, so `rgb(1, 2, 3 / 4)` never gets past its slash.
- *
- * @return non-zero when the list is well formed. The argument count and whether
- *         a slash was seen are what tell the caller which shape it is; the count
- *         and the style are not checked against what the *function name* means
- *         here, because both spellings accept both shapes.
- */
-static int computed_rgb_split(const robo_css_value_t *function,
-                              computed_rgb_argument_t *arguments,
-                              size_t argument_capacity,
-                              size_t *out_count,
-                              int *out_saw_comma,
-                              int *out_saw_slash)
-{
-    computed_rgb_style_t style = COMPUTED_RGB_STYLE_NONE;
-    size_t count = 0u;
-    int saw_slash = 0;
-    int pending_comma = 0;
-    int pending_space = 0;
-    int after_slash = 0;
-    int last_was_argument = 0;
-    size_t index;
-
-    *out_count = 0u;
-    *out_saw_comma = 0;
-    *out_saw_slash = 0;
-    for (index = 0u; index < function->children.count; index++) {
-        const robo_css_value_t *child = &function->children.items[index];
-
-        if (computed_is_trivia(child)) {
-            /* Only whitespace *between* arguments separates them; a comment is
-             * trivia too and is treated the same way. */
-            if (last_was_argument) {
-                pending_space = 1;
-            }
-            continue;
-        }
-        if (child->kind != ROBO_CSS_VALUE_KIND_TOKEN) {
-            return 0;
-        }
-        switch (child->token.type) {
-        case ROBO_CSS_TOKEN_COMMA:
-            /* A comma with no argument before it, or two in a row, is not a
-             * separator. */
-            if (!last_was_argument) {
-                return 0;
-            }
-            pending_comma = 1;
-            pending_space = 0;
-            last_was_argument = 0;
-            continue;
-        case ROBO_CSS_TOKEN_DELIM:
-            if (!robo_css_token_equals_ascii(&child->token, "/")) {
-                return 0;
-            }
-            if (!last_was_argument || saw_slash || style == COMPUTED_RGB_STYLE_COMMA) {
-                return 0;
-            }
-            style = COMPUTED_RGB_STYLE_SPACE;
-            saw_slash = 1;
-            after_slash = 1;
-            pending_comma = 0;
-            pending_space = 0;
-            last_was_argument = 0;
-            continue;
-        case ROBO_CSS_TOKEN_NUMBER:
-        case ROBO_CSS_TOKEN_PERCENTAGE:
-            break;
-        default:
-            return 0;
-        }
-        if (count > 0u && !after_slash) {
-            /* Every argument after the first needs a separator, and it has to
-             * be the same one the call started with. */
-            computed_rgb_style_t separator = pending_comma ? COMPUTED_RGB_STYLE_COMMA
-                                                           : COMPUTED_RGB_STYLE_SPACE;
-
-            if (!pending_comma && !pending_space) {
-                return 0;
-            }
-            if (style == COMPUTED_RGB_STYLE_NONE) {
-                style = separator;
-            } else if (style != separator) {
-                return 0;
-            }
-        }
-        after_slash = 0;
-        if (count >= argument_capacity) {
-            return 0;
-        }
-        if (!computed_number_is_finite(child->token.number)) {
-            return 0;
-        }
-        arguments[count].value = child->token.number;
-        arguments[count].is_percentage =
-            child->token.type == ROBO_CSS_TOKEN_PERCENTAGE;
-        count++;
-        last_was_argument = 1;
-        pending_comma = 0;
-        pending_space = 0;
-    }
-    /* A trailing separator is a missing argument. */
-    if (!last_was_argument) {
-        return 0;
-    }
-    *out_count = count;
-    *out_saw_comma = style == COMPUTED_RGB_STYLE_COMMA;
-    *out_saw_slash = saw_slash;
-    return 1;
-}
-
-/** One channel value in 0–255, from a number or a percentage. */
-static uint8_t computed_rgb_channel(computed_rgb_argument_t argument)
-{
-    return argument.is_percentage ? computed_channel_percent(argument.value)
-                                  : computed_channel_255(argument.value);
-}
-
-/** One alpha value in 0–255, from a number or a percentage. */
-static uint8_t computed_rgb_alpha(computed_rgb_argument_t argument)
-{
-    return argument.is_percentage ? computed_alpha_percent(argument.value)
-                                  : computed_alpha_number(argument.value);
-}
-
-int robo_css_color_from_rgb_function(const robo_css_value_t *function,
-                                     robo_css_color_t *out)
-{
-    computed_rgb_argument_t arguments[4];
-    size_t count = 0u;
-    int saw_comma = 0;
-    int saw_slash = 0;
-
-    if (!function || !out || function->kind != ROBO_CSS_VALUE_KIND_FUNCTION) {
-        return 0;
-    }
-    if (!computed_function_named(function, "rgb") &&
-        !computed_function_named(function, "rgba")) {
-        return 0;
-    }
-    if (!computed_rgb_split(function, arguments, 4u, &count, &saw_comma, &saw_slash)) {
-        return 0;
-    }
-    if (count != 3u && count != 4u) {
-        return 0;
-    }
-    /* A fourth argument is always the alpha, and it is only written one of two
-     * ways: after the legacy comma, or after the modern slash. Four numbers
-     * separated by nothing but spaces — `rgb(1 2 3 4)` — has neither, and is a
-     * malformed call rather than an opaque one. */
-    if (count == 4u && !saw_slash && !saw_comma) {
-        return 0;
-    }
-    if (saw_slash && count != 4u) {
-        return 0;
-    }
-    /* A four-argument comma call is the legacy `rgba()`, and a three-argument
-     * one is fully opaque. Both spellings of the function name accept both
-     * shapes in CSS Color 4, so nothing here distinguishes `rgb` from `rgba`. */
-    *out = robo_css_color_make(computed_rgb_channel(arguments[0]),
-                               computed_rgb_channel(arguments[1]),
-                               computed_rgb_channel(arguments[2]),
-                               count == 4u ? computed_rgb_alpha(arguments[3]) : 255u);
-    return 1;
-}
-
-/* ------------------------------------------------------------------ */
 /* Reading a component value                                          */
 /* ------------------------------------------------------------------ */
 
-/** Non-zero when @p value is trivia: whitespace or a comment. */
-static int computed_is_trivia(const robo_css_value_t *value)
-{
-    return value->kind == ROBO_CSS_VALUE_KIND_TOKEN &&
-           (value->token.type == ROBO_CSS_TOKEN_WHITESPACE ||
-            value->token.type == ROBO_CSS_TOKEN_COMMENT);
-}
-
-/**
- * The one significant component of @p value, or NULL when it is not "one".
- *
- * A declaration's value arrives as a LIST (the grammar builds every one that
- * way) whose ends are already trimmed, so `red` is a list of one ident. A
- * hand-built value may be a bare token, which is accepted too. Anything else —
- * nothing, or two or more significant components — answers NULL, and every
- * normaliser that needs a single component turns that into INVALID rather than
- * picking one of them.
+/*
+ * Four readers used to be defined here — trivia, "the one significant
+ * component", "is this function named X", and "a token's decoded keyword text".
+ * Phase 9.9's colour subsystem needs all four (an `rgb()` call's arguments are
+ * component values like any other), so they moved to RoboCSSInternal.h rather
+ * than being written twice. What is left here is the one wrapper the length and
+ * keyword normalisers want.
  */
-static const robo_css_value_t *computed_single(const robo_css_value_t *value)
-{
-    const robo_css_value_t *found = NULL;
-    size_t index;
-
-    if (!value || value->kind == ROBO_CSS_VALUE_KIND_NONE) {
-        return NULL;
-    }
-    if (value->kind != ROBO_CSS_VALUE_KIND_LIST) {
-        return value;
-    }
-    for (index = 0u; index < value->children.count; index++) {
-        const robo_css_value_t *child = &value->children.items[index];
-
-        if (computed_is_trivia(child)) {
-            continue;
-        }
-        if (found) {
-            return NULL;
-        }
-        found = child;
-    }
-    return found;
-}
 
 /** The token of a single non-trivia component, or NULL. */
 static const robo_css_token_t *computed_single_token(const robo_css_value_t *value)
 {
-    const robo_css_value_t *single = computed_single(value);
+    const robo_css_value_t *single = robo_css_value_single(value);
 
     if (!single || single->kind != ROBO_CSS_VALUE_KIND_TOKEN) {
         return NULL;
@@ -679,18 +170,6 @@ static const robo_css_token_t *computed_single_token(const robo_css_value_t *val
         return NULL;
     }
     return &single->token;
-}
-
-/**
- * Non-zero when @p value is a function whose name is @p name, considering only
- * the functions this build understands by name.
- */
-static int computed_function_named(const robo_css_value_t *value, const char *name)
-{
-    if (!value || value->kind != ROBO_CSS_VALUE_KIND_FUNCTION) {
-        return 0;
-    }
-    return robo_css_bytes_equal_ascii_ci(value->name.bytes, value->name.length, name);
 }
 
 /**
@@ -940,6 +419,15 @@ robo_result_t robo_css_computed_value_make_color(robo_css_computed_value_t *valu
     if (!value) {
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
                              "value is NULL");
+    }
+    if (!robo_css_color_is_valid(color)) {
+        /* A COLOR value that is not a colour (NONE or INVALID) is a bug in the
+         * caller, not a value: the honest way to say "there is no colour here"
+         * is a computed value that is not a COLOR at all. `currentColor` is
+         * accepted, because it *is* a colour and its whole point is that it is
+         * not resolved yet. */
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "a colour value needs a colour, or currentColor");
     }
     robo_css_computed_value_dispose(value);
     value->kind = ROBO_CSS_COMPUTED_VALUE_COLOR;
@@ -1383,15 +871,11 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
         }
         break;
     case ROBO_CSS_COMPUTED_VALUE_COLOR:
-        if (capacity <= 10u) {
-            ok = 0;
-            break;
-        }
-        used = (size_t)snprintf(buffer, capacity,
-                                value->color.alpha == 255u ? "#%02x%02x%02x" : "#%02x%02x%02x%02x",
-                                (unsigned)value->color.red, (unsigned)value->color.green,
-                                (unsigned)value->color.blue, (unsigned)value->color.alpha);
-        ok = used < capacity;
+        /* One spelling per colour, and it is the colour subsystem's: this layer
+         * formats lengths, numbers and token trees, and a colour is none of
+         * those. `currentColor` therefore prints as `currentColor` because that
+         * is what the colour module says it prints as. */
+        ok = robo_css_color_write(value->color, buffer, capacity, &used, NULL) == ROBO_OK;
         break;
     case ROBO_CSS_COMPUTED_VALUE_PRESERVED:
         if (value->preserved.kind == ROBO_CSS_VALUE_KIND_TOKEN) {
@@ -1448,126 +932,113 @@ static robo_result_t computed_keep(robo_css_computed_value_t *out,
 }
 
 /**
- * A declared identifier's decoded text, lowercased.
+ * The reason an INVALID colour carries, naming the function it was written as.
  *
- * CSS keywords are ASCII case-insensitive and the canonical spelling is
- * lowercase, so `AUTO` and `auto` compute to the *same* computed value — which
- * is what makes `equals` usable as a test's expectation rather than as a
- * comparison of how the author typed it.
+ * `rgb()` and `hsl()` fail for the same set of reasons — a channel out of range,
+ * the wrong separator, the wrong number of arguments — and an author who wrote
+ * `hsl(0, 100%)` is better served by a message that says which call was wrong.
+ * The name is quoted from the value itself rather than reconstructed from the
+ * property, so a message cannot disagree with the declaration it describes.
  */
-static int computed_keyword_text(const robo_css_token_t *token,
-                                 char *buffer, size_t capacity, size_t *out_length)
+static void computed_color_reason(const robo_css_value_t *specified, char *buffer,
+                                  size_t capacity)
 {
-    size_t length = robo_css_token_value_length(token);
-    size_t index;
+    const robo_css_value_t *single = robo_css_value_single(specified);
+    size_t length;
 
-    if (length == 0u || length >= capacity) {
-        return 0;
+    if (!single || single->kind != ROBO_CSS_VALUE_KIND_FUNCTION ||
+        robo_css_slice_is_absent(single->name) || single->name.length == 0u) {
+        (void)snprintf(buffer, capacity, "a colour function written wrong");
+        return;
     }
-    if (robo_css_token_value_copy(token, (uint8_t *)buffer, length, out_length,
-                                  NULL) != ROBO_OK) {
-        return 0;
+    length = single->name.length;
+    if (length > 32u) {
+        length = 32u;
     }
-    for (index = 0u; index < length; index++) {
-        buffer[index] = (char)robo_css_ascii_lower((uint8_t)buffer[index]);
-    }
-    buffer[length] = '\0';
-    *out_length = length;
-    return 1;
+    (void)snprintf(buffer, capacity, "%.*s() arguments are out of range or malformed",
+                   (int)length, (const char *)single->name.bytes);
 }
 
-/** Compute a colour: one ident, one hash, or `rgb()`/`rgba()`. */
+/**
+ * Compute a colour, by handing it to the colour subsystem.
+ *
+ * The whole of this layer's colour knowledge, and it is deliberately almost
+ * nothing: `robo_css_color_from_value` (RoboCSSColor.h) owns every spelling — the
+ * named set, `transparent`, all four hex lengths, `rgb()`/`rgba()` and
+ * `hsl()`/`hsla()` — and this function's only job is to turn its answer into the
+ * right computed value. There is one colour parser in this subsystem and it is
+ * that one; a second copy here is how two spellings of `rgb()` come to disagree.
+ *
+ * The five outcomes, and why each maps where it does:
+ *
+ *   RESOLVED    the channels, as a COLOR value
+ *   CURRENT     a COLOR value whose colour is the CURRENT kind, flagged
+ *               unresolved. It is *typed* rather than carried as tokens, and it
+ *               stays unresolved because the only context that can resolve it —
+ *               the element's own `color`, and its parent's — is one the computed
+ *               style has and this function does not (see RoboCSSComputed.c).
+ *   DEFERRED    a colour function this build does not represent, carried with
+ *               its tokens and flagged unresolved. The author wrote legal CSS;
+ *               refusing it would be a lie, and approximating it would be worse.
+ *   MALFORMED   a colour function written wrong, reported INVALID with *why*.
+ *   INVALID     not a colour at all.
+ *
+ * One case is settled before any of that, because the colour parser is the wrong
+ * authority for it: a **reference** — `var()`, `env()`, `calc()` — is not a
+ * colour *yet*, so `color: var(--brand)` is carried with its tokens and flagged
+ * unresolved rather than reported invalid. The colour module would call it
+ * non-colour syntax, and it would be right about the syntax and wrong about the
+ * author, who wrote a legal reference to a colour. Custom properties are still
+ * never *interpreted* here (see RoboCSSValue.h): nothing substitutes `--brand`,
+ * and nothing reads it as a colour until a later phase resolves the reference.
+ */
 static robo_result_t computed_compute_color(robo_css_computed_value_t *out,
                                             const robo_css_value_t *specified,
                                             robo_css_diag_t *diag)
 {
-    const robo_css_value_t *single = computed_single(specified);
-    robo_css_color_t color;
+    robo_css_color_t color = robo_css_color_none();
+    robo_css_color_parse_t outcome = robo_css_color_from_value(specified, &color);
 
-    if (!single) {
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
-                               "not a single colour component", diag);
+    if (outcome == ROBO_CSS_COLOR_PARSE_INVALID) {
+        const robo_css_value_t *single = robo_css_value_single(specified);
+
+        if (single && single->kind == ROBO_CSS_VALUE_KIND_FUNCTION &&
+            computed_function_is_unresolved(single)) {
+            return computed_keep(out, specified, 1, diag);
+        }
     }
-    if (single->kind == ROBO_CSS_VALUE_KIND_FUNCTION) {
-        int is_rgb = computed_function_named(single, "rgb") ||
-                     computed_function_named(single, "rgba");
-        int is_modern = computed_function_named(single, "hsl") ||
-                        computed_function_named(single, "hsla") ||
-                        computed_function_named(single, "hwb") ||
-                        computed_function_named(single, "lab") ||
-                        computed_function_named(single, "lch") ||
-                        computed_function_named(single, "oklab") ||
-                        computed_function_named(single, "oklch") ||
-                        computed_function_named(single, "color") ||
-                        computed_function_named(single, "color-mix");
 
-        if (is_rgb) {
-            if (robo_css_color_from_rgb_function(single, &color)) {
-                return robo_css_computed_value_make_color(out, color, diag);
+    switch (outcome) {
+    case ROBO_CSS_COLOR_PARSE_RESOLVED:
+    case ROBO_CSS_COLOR_PARSE_CURRENT:
+        if (outcome == ROBO_CSS_COLOR_PARSE_CURRENT) {
+            /* The one thing this layer can say about `currentColor`: the value
+             * is a colour, and it is not resolved. */
+            robo_result_t rc = robo_css_computed_value_make_color(out, color, diag);
+
+            if (rc == ROBO_OK) {
+                out->unresolved = 1;
             }
-            return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
-                                   "rgb() arguments are out of range or malformed", diag);
+            return rc;
         }
-        if (is_modern) {
-            /* Recognised and deliberately not computed: the colour subsystem
-             * owns these, and a wrong colour is worse than a deferred one. */
-            return computed_keep(out, specified, 1, diag);
-        }
-        if (computed_function_is_unresolved(single)) {
-            return computed_keep(out, specified, 1, diag);
-        }
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
-                               "unsupported colour function", diag);
+        return robo_css_computed_value_make_color(out, color, diag);
+    case ROBO_CSS_COLOR_PARSE_DEFERRED:
+        /* Recognised and deliberately not computed: the colour subsystem owns
+         * these spaces, and a wrong colour is worse than a deferred one. */
+        return computed_keep(out, specified, 1, diag);
+    case ROBO_CSS_COLOR_PARSE_MALFORMED: {
+        char reason[128];
+
+        computed_color_reason(specified, reason, sizeof(reason));
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR, reason, diag);
     }
-    if (single->kind != ROBO_CSS_VALUE_KIND_TOKEN) {
+    case ROBO_CSS_COLOR_PARSE_UNKNOWN_NAME:
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
+                               "unknown colour name", diag);
+    default:
         return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
                                "not a colour", diag);
     }
-    if (single->token.type == ROBO_CSS_TOKEN_HASH) {
-        uint8_t digits[16];
-        size_t length = 0u;
-
-        if (robo_css_token_value_length(&single->token) > sizeof(digits) ||
-            robo_css_token_value_copy(&single->token, digits, sizeof(digits), &length,
-                                      NULL) != ROBO_OK) {
-            return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
-                                   "not a hex colour", diag);
-        }
-        if (robo_css_color_from_hex(robo_css_slice_from_bytes(digits, length), &color)) {
-            return robo_css_computed_value_make_color(out, color, diag);
-        }
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
-                               "not a hex colour", diag);
-    }
-    if (single->token.type == ROBO_CSS_TOKEN_IDENT) {
-        char keyword[64];
-        size_t length = 0u;
-        robo_css_slice_t name;
-
-        if (!computed_keyword_text(&single->token, keyword, sizeof(keyword), &length)) {
-            return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
-                                   "not a colour name", diag);
-        }
-        name = robo_css_slice_from_bytes((const uint8_t *)keyword, length);
-        if (robo_css_color_from_name(name, &color)) {
-            return robo_css_computed_value_make_color(out, color, diag);
-        }
-        if (robo_css_slice_equals_ascii(name, "transparent")) {
-            return robo_css_computed_value_make_color(
-                out, robo_css_color_make(0u, 0u, 0u, 0u), diag);
-        }
-        if (robo_css_slice_equals_ascii(name, "currentcolor")) {
-            /* Recognised, carried, and *not* resolved: its value is the
-             * element's own computed `color`, which is the colour subsystem's
-             * job. Unresolved rather than invalid, because the author wrote
-             * something legal. */
-            return computed_keep(out, specified, 1, diag);
-        }
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
-                               "unknown colour name", diag);
-    }
-    return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "not a colour",
-                           diag);
 }
 
 /**
@@ -1614,19 +1085,19 @@ static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
     const robo_css_token_t *token = computed_single_token(specified);
 
     if (!token) {
-        const robo_css_value_t *single = computed_single(specified);
+        const robo_css_value_t *single = robo_css_value_single(specified);
 
         if (single && (computed_function_is_unresolved(single) ||
-                       computed_function_named(single, "calc") ||
-                       computed_function_named(single, "min") ||
-                       computed_function_named(single, "max") ||
-                       computed_function_named(single, "clamp"))) {
+                       robo_css_value_function_named(single, "calc") ||
+                       robo_css_value_function_named(single, "min") ||
+                       robo_css_value_function_named(single, "max") ||
+                       robo_css_value_function_named(single, "clamp"))) {
             return computed_keep(out, specified, 1, diag);
         }
         return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
                                "not a single length component", diag);
     }
-    if (!computed_number_is_finite(token->number)) {
+    if (!robo_css_number_is_finite(token->number)) {
         return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
                                "not a finite number", diag);
     }
@@ -1665,7 +1136,7 @@ static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
         char keyword[64];
         size_t length = 0u;
 
-        if (!computed_keyword_text(token, keyword, sizeof(keyword), &length) ||
+        if (!robo_css_token_keyword_text(token, keyword, sizeof(keyword), &length) ||
             !computed_length_keyword_is_known(keyword, length)) {
             return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
                                    "not a length keyword", diag);
@@ -1685,7 +1156,7 @@ static robo_result_t computed_compute_keyword(robo_css_computed_value_t *out,
                                               robo_css_diag_t *diag)
 {
     const robo_css_token_t *token = computed_single_token(specified);
-    const robo_css_value_t *single = computed_single(specified);
+    const robo_css_value_t *single = robo_css_value_single(specified);
     char keyword[64];
     size_t length = 0u;
 
@@ -1700,7 +1171,7 @@ static robo_result_t computed_compute_keyword(robo_css_computed_value_t *out,
         return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,
                                "not an identifier", diag);
     }
-    if (!computed_keyword_text(token, keyword, sizeof(keyword), &length)) {
+    if (!robo_css_token_keyword_text(token, keyword, sizeof(keyword), &length)) {
         return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,
                                "not an identifier", diag);
     }
@@ -1742,7 +1213,7 @@ static robo_result_t computed_compute_family(robo_css_computed_value_t *out,
         const robo_css_value_t *child = &specified->children.items[index];
         size_t length;
 
-        if (computed_is_trivia(child)) {
+        if (robo_css_value_is_trivia(child)) {
             continue;
         }
         if (child->kind != ROBO_CSS_VALUE_KIND_TOKEN) {
@@ -1797,7 +1268,7 @@ static robo_result_t computed_compute_family(robo_css_computed_value_t *out,
         uint8_t scratch[256];
         uint8_t *bytes = scratch;
 
-        if (computed_is_trivia(child) || child->token.type == ROBO_CSS_TOKEN_COMMA) {
+        if (robo_css_value_is_trivia(child) || child->token.type == ROBO_CSS_TOKEN_COMMA) {
             if (child->kind == ROBO_CSS_VALUE_KIND_TOKEN &&
                 child->token.type == ROBO_CSS_TOKEN_COMMA) {
                 joined[position] = ',';
@@ -1845,7 +1316,7 @@ static robo_result_t computed_compute_font_weight(robo_css_computed_value_t *out
                                "not a font weight", diag);
     }
     if (token->type == ROBO_CSS_TOKEN_NUMBER) {
-        if (!computed_number_is_finite(token->number) || token->number < 1.0 ||
+        if (!robo_css_number_is_finite(token->number) || token->number < 1.0 ||
             token->number > 1000.0) {
             return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_FONT_WEIGHT,
                                    "a font weight number must be 1 to 1000", diag);
@@ -1881,7 +1352,7 @@ static robo_result_t computed_compute_line_height(robo_css_computed_value_t *out
                                                     diag);
     }
     if (token && token->type == ROBO_CSS_TOKEN_NUMBER) {
-        if (!computed_number_is_finite(token->number)) {
+        if (!robo_css_number_is_finite(token->number)) {
             return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT,
                                    "not a finite number", diag);
         }
@@ -1928,7 +1399,7 @@ robo_result_t robo_css_computed_value_compute(
         return computed_compute_line_height(out, specified, diag);
     default:
         return computed_keep(out, specified, computed_function_is_unresolved(
-                                             computed_single(specified)),
+                                             robo_css_value_single(specified)),
                              diag);
     }
 }

@@ -94,12 +94,14 @@ static void test_css_registry_standard_set(void)
     }
     /* The set is exactly the one the phase names: the nine common inherited
      * properties and the eight common non-inherited ones, plus the handful of
-     * font/text relatives that answer the same classification question. A count
-     * is asserted rather than a lower bound so that a row added later is a
-     * deliberate act rather than an accident. */
-    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 24);
+     * font/text relatives that answer the same classification question and, since
+     * 9.9, `background-color` — the second property whose value is a colour, added
+     * so that the contextual `currentColor` rule is reachable at all. A count is
+     * asserted rather than a lower bound so that a row added later is a deliberate
+     * act rather than an accident. */
+    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 25);
     ROBO_CHECK_EQ_INT((int)inherited, 16);
-    ROBO_CHECK_EQ_INT((int)non_inherited, 8);
+    ROBO_CHECK_EQ_INT((int)non_inherited, 9);
 
     robo_css_property_registry_destroy(registry);
 }
@@ -122,7 +124,7 @@ static void test_css_registry_inherited_classification(void)
     /* The eight the phase names as the things that must NOT propagate. */
     static const char *const non_inherited[] = {
         "width", "height", "margin", "padding", "border", "background",
-        "display", "position"
+        "display", "position", "background-color"
     };
     robo_css_property_registry_t *registry = NULL;
     size_t index;
@@ -187,6 +189,7 @@ static void test_css_registry_initial_values(void)
         {"margin", "0"},
         {"padding", "0"},
         {"background", "transparent"},
+        {"background-color", "transparent"},
         {"border", "medium,_,none,_,currentcolor"}
     };
     robo_css_property_registry_t *registry = NULL;

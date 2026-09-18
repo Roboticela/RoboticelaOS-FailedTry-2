@@ -125,37 +125,43 @@ defects the 9.8 suites found — see `Tests.md`.)
 
 ## Colours, and the 9.9 seam
 
-9.8 normalises the colour forms the parser and this build can already express:
+This layer does not parse colours. Since 9.9 there is exactly one colour parser in
+the subsystem — `RoboCSSColor.h` — and `computed_compute_color` is the translation
+from its verdict into the right typed value. That is the whole reason the module
+exists: two parsers is how two spellings of `rgb()` come to disagree.
 
-* the **standard named set**, case-insensitively, including `rebeccapurple` and
-  the `gray`/`grey` pairs;
-* `transparent`;
-* all four hex lengths — `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` — with nibble
-  doubling for the short forms and every other length refused rather than
-  truncated;
-* `rgb()` and `rgba()` in **both** syntaxes, comma and space, with numeric or
-  percentage channels and numeric or percentage alpha.
+| 9.9 outcome | What this layer produces |
+|---|---|
+| `RESOLVED` | a `COLOR` value holding the four channels |
+| `CURRENT` | a `COLOR` value whose colour is the `CURRENT` kind, flagged `unresolved` |
+| `DEFERRED` | the tokens, PRESERVED and flagged `unresolved` |
+| `MALFORMED` | `INVALID`, with a reason naming the function |
+| `UNKNOWN_NAME` | `INVALID`, with `unknown colour name` |
+| `INVALID` | `INVALID`, with `not a colour` |
 
-Two details are the kind that only look like details:
+The colour forms are therefore all of CSS's ordinary ones — the 148 standard
+names, `transparent`, all four hex lengths, `rgb()`/`rgba()` and `hsl()`/`hsla()`
+in **both** syntaxes, with clamping rather than wrapping and hue normalised rather
+than clamped. The per-syntax rules, the named table and the six outcomes are
+`docs/Colors.md`'s subject, not this document's.
 
-* **The two separator styles do not mix.** `rgb(255, 0 0)` is malformed, not
-  "close enough": the call starts as a comma list and the second separator is
-  not a comma. Whitespace *touching* a comma is decoration, which is what makes
-  `rgb( 1 , 2 , 3 )` legal. A `/` is only reachable from the space style, so
-  `rgb(1, 2, 3 / 4)` never gets past its slash.
-* **Channels clamp; they do not wrap.** `rgb(300, -10, 0)` is `#ff0000`, and
-  `rgb(0 0 0 / 5)` is opaque black — clamping is what CSS says and what keeps a
-  plausible-but-wrong channel from appearing.
+### A reference is settled before the colour parser is asked
 
-Not implemented, deliberately: `hsl()`, `hwb()`, `lab()`, `lch()`, `oklab()`,
-`oklch()`, `color()` and `color-mix()`. They are **recognised and carried**, still
-PRESERVED (and after 9.9 they will be computed) rather than rejected as unknown
-functions, and `hsl(0, 100%, 50%)` is a preserved value rather than a colour this
-build guessed at. A wrong colour is worse than a deferred one.
+`color: var(--brand)` is legal CSS that this build cannot resolve yet, and the
+colour parser is the wrong authority for it: the value is not a colour *yet*.
+So `computed_compute_color` asks one question first — is this value a single
+unresolved function (`var`, `env`, `calc`, `min`, `max`, `clamp`)? — and if so it
+carries the tokens and flags them `unresolved`, exactly as every other value shape
+does. Nothing substitutes `--brand`, and nothing reads a custom property as a
+colour: a `--brand: #336699` keeps those five tokens until a colour-shaped property
+consumes them.
 
-`currentColor` is carried PRESERVED with `unresolved` set. It is the element's own
-computed `color`, and this stage does not have the resolution order that makes
-that answerable.
+`currentColor` is carried as a `COLOR` value with the `UNRESOLVED` bit set —
+*typed*, not preserved as tokens — and **9.9's computed style resolves it**. The
+resolution belongs there because it is the only layer with both the element and the
+parent: on `color` itself `currentColor` is the parent's computed `color`, and
+everywhere else it is the element's own. `docs/Colors.md` §5 has the two rules and
+the reason `color` is resolved first.
 
 ## CSS-wide keywords
 
@@ -273,7 +279,11 @@ know when a DOM changed, and a module that does not own a DOM cannot know.
   and nothing asks how wide anything is.
 * **Font resolution.** `font-size: medium` is the keyword, not a pixel count, and
   `FAMILY_LIST` is an ordered list of names, not a matched font.
-* **`hsl()` and the modern colour spaces.** Recognised and preserved; 9.9's.
+* **The modern colour spaces.** `hwb()`, `lab()`, `lch()`, `oklab()`, `oklch()`,
+  `color()`, `color-mix()` and `device-cmyk()` are recognised and preserved rather
+  than computed; they are 9.9's declared *extension point* and not its
+  implementation, because a wrong colour is worse than a deferred one
+  (`docs/Colors.md` §8).
 * **`var()` substitution.** A reference is carried as a reference. No custom
   property is substituted anywhere.
 * **Shorthand expansion.** `margin: 10px` stays one preserved value.
@@ -318,11 +328,12 @@ The record is by value, so the rest of it is read as **fields**: `kind`,
 
 ## How the tests are run
 
-* `scripts/robo test-css` — the whole CSS subsystem (452 tests).
+* `scripts/robo test-css` — the whole CSS subsystem (471 tests).
 * `./Out/RoboTest.host.exe --filter "css.computedvalue."` — the value model, the
   unit table, the colour forms and the normaliser (14 tests).
 * `./Out/RoboTest.host.exe --filter "css.computed."` — the pipeline over the
-  CSS-side element host (13 tests).
+  CSS-side element host (15 tests — the 13 of this phase plus the two 9.1
+  container-boundary cases the container suite kept).
 * `./Out/RoboTest.host.exe --filter "css.dom.computed"` — the whole pipeline,
   ending in a computed style, over the **visual checkpoint's own document**
   (2 tests, in the same suite that drives 9.4's matching against the real tree).

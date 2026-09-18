@@ -1,6 +1,6 @@
-# RoboCSS Architecture (Phase 9.1–9.8)
+# RoboCSS Architecture (Phase 9.1–9.9)
 
-This is the design record for RoboCSS as it exists after Goal 9.7. It documents
+This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
 with tests behind it, and everything *not* described here is a boundary that
 answers `ROBO_NOT_SUPPORTED`. Where a phase can see that a question exists and
@@ -371,6 +371,29 @@ error, and `unresolved` is a flag no kind can express. The container it lands in
 entry now also carrying its name, its typed value and a provenance bitset.
 `docs/ComputedValues.md` has the full account.
 
+### Colour
+
+A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type
+of its own rather than a corner of the computed-value layer:
+
+```text
+Color                            one colour
+  ├── kind                       NONE / RGBA / CURRENT / INVALID
+  └── red, green, blue, alpha    live only when the kind is RGBA
+```
+
+Four kinds, and `CURRENT` is load-bearing: `currentColor` is not a colour but a
+reference to whatever `color` turns out to be, so it is *typed* and carried rather
+than approximated, and `RoboCSSComputed.c` resolves it at the only point that has
+the answer — against the parent's computed `color` when the property *is* `color`,
+and against the element's own everywhere else. `robo_css_color_t` owns nothing: it
+is four bytes and a tag by value, so it crosses every boundary — the value layer,
+the cascade, inheritance, the computed style — without a lifetime rule. The six
+outcomes (`RESOLVED`/`CURRENT`/`DEFERRED`/`MALFORMED`/`UNKNOWN_NAME`/`INVALID`)
+exist so that "legal CSS this build cannot represent" stays distinguishable from "a
+mistake", because refusing the first would be a lie and accepting the second would
+be a wrong colour. `docs/Colors.md` has the full account.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -575,31 +598,37 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Colours (9.9), units (9.10), the box
+Units (9.10), the box
 model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
 cascade itself, evaluating at-rules, expanding shorthands and the animation and
-transition origins. **Reading bytes is not interpreting them,
+transition origins, and within colours the modern spaces (`hwb`, `lab`, `lch`,
+`oklab`, `oklch`, `color()`, `color-mix()`) and interpolation between colours.
+**Reading bytes is not interpreting them,
 building a tree is not interpreting it either, answering a question about one
 element is not applying a style to it, and computing a value is not using one**:
 the tokenizer knows `10px` is a dimension with the unit `px`, the grammar knows a
 prelude is component values up to `{`, the matcher knows whether an element
 satisfies a selector, the cascade knows which declaration beat which, inheritance
-knows *where each value it reports came from*, and computation knows what that
-value *is* — a length of ten pixels, a colour, a keyword. None of them knows how
+knows *where each value it reports came from*, computation knows what that
+value *is* — a length of ten pixels, a colour, a keyword — and 9.9 knows what that
+colour *is* in the only sense that matters: which space, at what precision, and
+what `currentColor` would have to resolve against. None of them knows how
 wide anything is.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
-(9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade
-(9.5), specificity (9.6) and inheritance (9.7) flipped to 1 for exactly that
-reason, and no other flag did. Each flipped only when its whole job worked end to
-end: `cascade` waited for `specificity` rather than claiming an ordering it could
+(9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade(9.5), specificity (9.6), inheritance (9.7), computed values (9.8) and colours
+(9.9) flipped to 1 for exactly that
+reason, and no other flag did. Each flipped only when its whole job worked end
+to end: `cascade` waited for `specificity` rather than claiming an ordering it could
 not complete, `inheritance` waited while `computed_values` was 0 because a
-*resolved* value is a different thing from a computed one, and `computed_values`
-flipped as 9.8 landed — while `default_styles` and `stylesheet_loading` stay 0,
-because the `RUNTIME` origin slot is still empty and nothing fetches a sheet.
+*resolved* value is a different thing from a computed one, `computed_values`
+flipped as 9.8 landed, and `colors` waited for the colour *module* rather than
+riding on the parser 9.8 had to keep inside the value layer — while
+`default_styles` and `stylesheet_loading` stay 0, because the `RUNTIME` origin slot
+is still empty and nothing fetches a sheet.
 
 Two boundaries are permanent features of the phases that introduced them rather
 than gaps in them, and they are why "is selector matching done?" has a nuanced

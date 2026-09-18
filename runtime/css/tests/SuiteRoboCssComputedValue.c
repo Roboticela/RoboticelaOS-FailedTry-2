@@ -718,29 +718,48 @@ static void test_css_computedvalue_normalize_color(void)
     ROBO_CHECK_STR_EQ(css_compute_kind(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: 42"),
                       "invalid");
 
-    /* `currentColor` is *not* resolved against a default: it is the element's
-     * own computed `color`, which this phase does not have. Carried, flagged. */
+    /* `currentColor` is a *typed* colour that is not resolved yet, and both
+     * halves of that matter. Typed, so a consumer can see it is a colour rather
+     * than three letters; unresolved, because the only context that can resolve
+     * it is the element's own computed `color`, which the value layer has no way
+     * to reach — RoboCSSComputed.c resolves it, against the parent's `color` when
+     * the property *is* `color` and against the element's own otherwise. */
     css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: currentColor",
                        "currentColor");
     ROBO_CHECK_STR_EQ(css_compute_kind(ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
                                        "c: currentColor"),
-                      "preserved");
+                      "colour");
     css_compute_text(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: currentColor", NULL, 0u,
                      &unresolved);
     ROBO_CHECK_EQ_INT((int)unresolved, 1);
+    /* One keyword, one computed value: how it was typed is not part of it. */
+    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: CURRENTCOLOR",
+                       "currentColor");
+    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: currentcolor",
+                       "currentColor");
 
-    /* A modern colour function is recognised and carried, not guessed at: a
-     * wrong colour is worse than a deferred one. */
+    /* `hsl()` is a colour now, converted rather than carried: the modern
+     * function used to be deferred and lands on the channels the hex spelling of
+     * the same colour has. */
+    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: hsl(0, 100%, 50%)",
+                       "#ff0000");
     ROBO_CHECK_STR_EQ(css_compute_kind(ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
                                        "c: hsl(0, 100%, 50%)"),
-                      "preserved");
+                      "colour");
+    css_compute_text(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: hsl(0, 100%, 50%)", NULL, 0u,
+                     &unresolved);
+    ROBO_CHECK_EQ_INT((int)unresolved, 0);
+
+    /* A colour space this build has no representation for is recognised and
+     * carried, not guessed at: a wrong colour is worse than a deferred one, and
+     * calling legal CSS invalid would be a lie about the author's stylesheet. */
     ROBO_CHECK_STR_EQ(css_compute_kind(ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
                                        "c: oklch(0.5 0.1 200)"),
                       "preserved");
     ROBO_CHECK_STR_EQ(css_compute_kind(ROBO_CSS_PROPERTY_COMPUTATION_COLOR,
                                        "c: color(display-p3 1 0 0)"),
                       "preserved");
-    css_compute_text(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: hsl(0, 100%, 50%)", NULL, 0u,
+    css_compute_text(ROBO_CSS_PROPERTY_COMPUTATION_COLOR, "c: oklch(0.5 0.1 200)", NULL, 0u,
                      &unresolved);
     ROBO_CHECK_EQ_INT((int)unresolved, 1);
     /* An *unknown* function is not a colour function, so it is invalid. */
