@@ -195,6 +195,24 @@ typedef struct robo_css_capabilities {
      */
     int display;
     /**
+     * Positioning (9.13): the closed `position` vocabulary — `static`,
+     * `relative`, `absolute`, `fixed`, `sticky` — as a typed value carrying
+     * whether its box stays in flow and whether it is a positioned box, with the
+     * classifications a later phase dispatches on; the four inset properties
+     * `top`, `right`, `bottom` and `left` as values (a length, a percentage, or
+     * `auto`); and `z-index` as `auto` or a whole number.
+     *
+     * What it does not claim is geometry. No containing block is resolved, no
+     * offset is applied, no stacking order exists, and `position: sticky` is
+     * represented and classified but not *behaved* on — what a sticky box does
+     * relative to a scrollport belongs to the phase that has one. `top: 20%`
+     * stays a percentage because only layout knows what it is a percentage of,
+     * and an `auto` inset stays the keyword: it is not zero, and turning it into
+     * zero would place every absolutely positioned box against the top-left
+     * corner of its containing block.
+     */
+    int positioning;
+    /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
      */

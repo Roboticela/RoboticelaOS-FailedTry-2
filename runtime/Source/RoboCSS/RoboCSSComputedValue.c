@@ -232,6 +232,8 @@ const char *robo_css_computed_value_kind_name(robo_css_computed_value_kind_t kin
         return "invalid";
     case ROBO_CSS_COMPUTED_VALUE_DISPLAY:
         return "display";
+    case ROBO_CSS_COMPUTED_VALUE_POSITION:
+        return "position";
     default:
         return "unknown";
     }
@@ -382,6 +384,20 @@ robo_result_t robo_css_computed_value_make_display(robo_css_computed_value_t *va
     return ROBO_OK;
 }
 
+robo_result_t robo_css_computed_value_make_position(robo_css_computed_value_t *value,
+                                                    robo_css_positioning_t position,
+                                                    robo_css_diag_t *diag)
+{
+    if (!value || !robo_css_positioning_is_known(position)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "output is NULL or not a position value");
+    }
+    robo_css_computed_value_dispose(value);
+    value->kind = ROBO_CSS_COMPUTED_VALUE_POSITION;
+    value->position = position;
+    return ROBO_OK;
+}
+
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
                                                      robo_css_diag_t *diag)
@@ -461,6 +477,14 @@ robo_css_display_t robo_css_computed_value_display(const robo_css_computed_value
         return ROBO_CSS_DISPLAY_NONE;
     }
     return value->display;
+}
+
+robo_css_positioning_t robo_css_computed_value_position(const robo_css_computed_value_t *value)
+{
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_POSITION) {
+        return ROBO_CSS_POSITIONING_STATIC;
+    }
+    return value->position;
 }
 
 /* ------------------------------------------------------------------ */
@@ -589,6 +613,12 @@ int robo_css_computed_value_equals(const robo_css_computed_value_t *a,
         /* Two enumerators, so equality is the enumerator: `inline-block` and
          * `inline` are different displays however similar they read. */
         return a->display == b->display;
+    case ROBO_CSS_COMPUTED_VALUE_POSITION:
+        /* The same, and here it is the difference that matters rather than the
+         * similarity: `relative` and `sticky` share both of their classifications
+         * and are still two different positions, which is exactly why the
+         * comparison is the enumerator and not the columns. */
+        return a->position == b->position;
     default:
         return computed_trees_equal(&a->preserved, &b->preserved);
     }
@@ -831,6 +861,13 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
         ok = robo_css_display_write(value->display, buffer, capacity, &used, NULL) ==
              ROBO_OK;
         break;
+    case ROBO_CSS_COMPUTED_VALUE_POSITION:
+        /* And the same for a position value, whose keyword is the positioning
+         * module's: `static`, `relative`, `absolute`, `fixed`, `sticky`, spelled
+         * as CSS spells them. */
+        ok = robo_css_positioning_write(value->position, buffer, capacity, &used, NULL) ==
+             ROBO_OK;
+        break;
     case ROBO_CSS_COMPUTED_VALUE_PRESERVED:
         if (value->preserved.kind == ROBO_CSS_VALUE_KIND_TOKEN) {
             ok = computed_write_token_text(&value->preserved, buffer, capacity, &used);
@@ -1022,7 +1059,17 @@ static const char *const computed_length_keywords[] = {
     "xxx-large"
 };
 
-/** `margin-*`: a length, a percentage, or `auto` — a box edge that can be distributed. */
+/**
+ * A length, a percentage, or `auto` — an edge whose own size decides, which is
+ * what `margin-*` and the four inset properties `top`/`right`/`bottom`/`left`
+ * have in common.
+ *
+ * The sentence below names neither family, and that is deliberate rather than
+ * vague: the same list serves both, so a sentence naming one would be *wrong* for
+ * the other — `top: normal` is not a margin, and telling its author about margins
+ * would send them looking in the wrong place. What the diagnostic does say is
+ * which property it was, because `computed_reject` prefixes the shape's name.
+ */
 static const char *const computed_box_offset_keywords[] = { "auto" };
 
 /** `border-*-width`: a length, or one of the three width keywords. */
@@ -1054,7 +1101,7 @@ static const computed_length_grammar_t computed_length_grammars[] = {
       "not a length keyword" },
     { ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, computed_box_offset_keywords,
       sizeof(computed_box_offset_keywords) / sizeof(computed_box_offset_keywords[0]),
-      "not a margin length or auto" },
+      "not a length, a percentage or auto" },
     /* An empty vocabulary is the value, not an omission: a padding has nothing
      * to distribute, so there is no keyword it accepts and every identifier is a
      * mistake — which is what makes `padding: auto` INVALID rather than a
@@ -1251,64 +1298,240 @@ static robo_result_t computed_compute_keyword(robo_css_computed_value_t *out,
         out, robo_css_slice_from_bytes((const uint8_t *)keyword, length), diag);
 }
 
-/**
- * Compute a display value: one identifier from a closed vocabulary (9.12).
+/*
+ * The closed vocabularies.
  *
- * The difference from the KEYWORD shape above is one branch, and it is the whole
- * point of the phase: KEYWORD accepts any identifier and hands it on, while this
- * asks the vocabulary whether the identifier is one of the four and refuses it if
- * not. That is why `display: bogus` is now an invalid value with a diagnostic
- * rather than a computed keyword carrying the text `bogus` — a keyword shape is
- * right for a property whose meaning belongs to a phase that has not landed
- * (`cursor: grab`), and wrong for the one property every later phase reads.
+ * A shape whose whole content is "one identifier, and it must be one of these"
+ * has two readers per vocabulary — a predicate that says whether the identifier
+ * is one of them, and a constructor that turns it into the value — and nothing
+ * else. So a vocabulary is a row: the shape, those two doors, and the two
+ * sentences its refusals need. 9.12 wrote `display`'s body out by hand because it
+ * was the only one; 9.13 adds `position` and the body became a table, which is
+ * the same move the box model's three length families made one phase earlier.
+ *
+ * The row carries three of the four refusal sentences and not the fourth,
+ * deliberately. "Not an identifier" is the *same* mistake for every vocabulary —
+ * `display: 20px` and `position: 20px` differ in nothing an author did — and the
+ * diagnostic already names the shape (`display: not an identifier`), so a row
+ * field for it would be a place to write a sentence that is wrong for one of its
+ * users. The two that *are* per-vocabulary stay per-vocabulary: what a display's
+ * identifier is allowed to be, and what a position's is.
+ */
+typedef int (*computed_vocabulary_known_fn)(robo_css_slice_t keyword);
+
+typedef robo_result_t (*computed_vocabulary_make_fn)(robo_css_computed_value_t *out,
+                                                     robo_css_slice_t keyword,
+                                                     robo_css_diag_t *diag);
+
+typedef struct computed_vocabulary_grammar {
+    robo_css_property_computation_t computation;
+    /** Non-zero when @p keyword spells one of this vocabulary, case-insensitively. */
+    computed_vocabulary_known_fn is_known;
+    /** The value @p keyword names; only called once @ref is_known said yes. */
+    computed_vocabulary_make_fn make;
+    /** What to say when the declaration is not one identifier at all. */
+    const char *not_single_reason;
+    /** What to say when the identifier is not in this vocabulary. */
+    const char *unknown_reason;
+} computed_vocabulary_grammar_t;
+
+static int computed_vocabulary_display_known(robo_css_slice_t keyword)
+{
+    return robo_css_display_slice_is_known(keyword);
+}
+
+static robo_result_t computed_vocabulary_display_make(robo_css_computed_value_t *out,
+                                                      robo_css_slice_t keyword,
+                                                      robo_css_diag_t *diag)
+{
+    return robo_css_computed_value_make_display(out,
+                                                robo_css_display_from_slice(keyword),
+                                                diag);
+}
+
+static int computed_vocabulary_position_known(robo_css_slice_t keyword)
+{
+    return robo_css_positioning_slice_is_known(keyword);
+}
+
+static robo_result_t computed_vocabulary_position_make(robo_css_computed_value_t *out,
+                                                       robo_css_slice_t keyword,
+                                                       robo_css_diag_t *diag)
+{
+    return robo_css_computed_value_make_position(out,
+                                                 robo_css_positioning_from_slice(keyword),
+                                                 diag);
+}
+
+static const computed_vocabulary_grammar_t computed_vocabulary_grammars[] = {
+    { ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY, computed_vocabulary_display_known,
+      computed_vocabulary_display_make, "not a single display keyword",
+      "not a display value" },
+    { ROBO_CSS_PROPERTY_COMPUTATION_POSITION, computed_vocabulary_position_known,
+      computed_vocabulary_position_make, "not a single position keyword",
+      "not a position value" }
+};
+
+/** The vocabulary grammar for @p computation, or NULL when it is not one. */
+static const computed_vocabulary_grammar_t *computed_vocabulary_grammar_for(
+    robo_css_property_computation_t computation)
+{
+    size_t index;
+
+    for (index = 0u;
+         index < sizeof(computed_vocabulary_grammars) /
+                     sizeof(computed_vocabulary_grammars[0]);
+         index++) {
+        if (computed_vocabulary_grammars[index].computation == computation) {
+            return &computed_vocabulary_grammars[index];
+        }
+    }
+    return NULL;
+}
+
+/**
+ * Compute a closed-vocabulary value: one identifier that must be in the table.
+ *
+ * The difference from the KEYWORD shape is one branch, and it is the whole point
+ * of both vocabularies that have one: KEYWORD accepts any identifier and hands it
+ * on, while this asks whether the identifier is one of them and refuses it if not.
+ * That is why `display: bogus` and `position: banana` are invalid values with
+ * diagnostics rather than computed keywords carrying those letters — a keyword
+ * shape is right for a property whose meaning belongs to a phase that has not
+ * landed (`cursor: grab`), and wrong for the ones every later phase reads.
  *
  * Three refusals stay three, because they are three different mistakes: a value
  * the grammar produced as a function this build cannot reduce (`var(--d)`) is
  * legal CSS and is therefore *carried*, not refused; something that is not an
  * identifier at all (`20px`, `#fff`, `10%`) says so; and an identifier outside the
  * vocabulary says that instead, which is the sentence an author who wrote
- * `display: flex` needs, since `flex` is a value this build has not added rather
- * than a word it does not know.
+ * `display: flex` or `position: banana` needs, since the first is a value this
+ * build has not added and the second is a word it does not know.
  */
-static robo_result_t computed_compute_display(robo_css_computed_value_t *out,
-                                              const robo_css_value_t *specified,
-                                              robo_css_diag_t *diag)
+static robo_result_t computed_compute_vocabulary(
+    const computed_vocabulary_grammar_t *grammar,
+    robo_css_computed_value_t *out,
+    const robo_css_value_t *specified,
+    robo_css_diag_t *diag)
 {
     const robo_css_token_t *token = computed_single_token(specified);
     const robo_css_value_t *single = robo_css_value_single(specified);
     char keyword[64];
     size_t length = 0u;
-    robo_css_display_t display;
+    robo_css_slice_t text;
 
     if (!token) {
         /* A reference, and it is carried rather than refused: `display: var(--d)`
          * is a declaration whose value is decided where `--d` is, which is a
          * later stage's question and not a mistake here. The unresolved flag says
          * so, and a consumer that reads the flag will not mistake the tokens for a
-         * display value. */
+         * vocabulary value. */
         if (single && computed_function_is_unresolved(single)) {
             return computed_keep(out, specified, 1, diag);
         }
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
-                               "not a single display keyword", diag);
+        return computed_reject(out, grammar->computation, grammar->not_single_reason,
+                               diag);
     }
     if (token->type != ROBO_CSS_TOKEN_IDENT ||
         !robo_css_token_keyword_text(token, keyword, sizeof(keyword), &length)) {
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
-                               "not an identifier", diag);
+        return computed_reject(out, grammar->computation, "not an identifier", diag);
     }
-    /* The *identifier* is asked, not the result: `none` is both a display value
-     * and `from_slice`'s answer for "not one", so a check on the result would
-     * accept `display: bogus` as `display: none` — the single most damaging
-     * confusion this property has. */
-    if (!robo_css_display_slice_is_known(
-            robo_css_slice_from_bytes((const uint8_t *)keyword, length))) {
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
-                               "not a display value", diag);
+    text = robo_css_slice_from_bytes((const uint8_t *)keyword, length);
+    /* The *identifier* is asked, not the result — and this is the one place both
+     * vocabularies have the same trap. `none` is a display value *and*
+     * `robo_css_display_from_slice`'s answer for "not one"; `static` is a
+     * position value *and* `robo_css_positioning_from_slice`'s. A check on the
+     * result would therefore accept `display: bogus` as `display: none` and
+     * `position: banana` as `position: static`, which are the two most damaging
+     * confusions their properties have. */
+    if (!grammar->is_known(text)) {
+        return computed_reject(out, grammar->computation, grammar->unknown_reason,
+                               diag);
     }
-    display = robo_css_display_from_slice(
-        robo_css_slice_from_bytes((const uint8_t *)keyword, length));
-    return robo_css_computed_value_make_display(out, display, diag);
+    return grammar->make(out, text, diag);
+}
+
+/**
+ * Compute a `z-index`: `auto`, or a whole number (9.13).
+ *
+ * Two shapes in one property and no third: `auto` is the KEYWORD (which is not
+ * zero — it says the element takes no part in its parent's stacking decisions, a
+ * different statement from "at level zero"), and everything else is a NUMBER with
+ * `is_integer` set. The `<integer>` question is asked of the unit module rather
+ * than answered here, because CSS's `<integer>` is a *grammar* rather than a value
+ * that happens to be whole: `1.0` is a number token, and the module is the one
+ * place that distinction is made (`robo_css_numeric_integer_value`), including its
+ * representable-magnitude bound.
+ *
+ * The refusals are three rather than one because they tell an author three
+ * different things: `1.5` is not a whole number at all, `1.0` (and `1e2`) is a
+ * whole number written in a spelling `<integer>` does not accept — `z-index: 1` is
+ * what they meant — and `10px` is not a number of any kind. A percentage, a
+ * dimension and an unknown unit all land in the third, which is the truthful
+ * answer for a property whose grammar has no length in it.
+ */
+static robo_result_t computed_compute_z_index(robo_css_computed_value_t *out,
+                                              const robo_css_value_t *specified,
+                                              robo_css_diag_t *diag)
+{
+    static const char *const reason_not_number = "not a whole number or auto";
+    robo_css_property_computation_t computation = ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX;
+    const robo_css_token_t *token = computed_single_token(specified);
+    robo_css_numeric_t numeric = robo_css_numeric_none();
+    int64_t integer = 0;
+
+    if (token && token->type == ROBO_CSS_TOKEN_IDENT) {
+        char keyword[64];
+        size_t length = 0u;
+
+        if (!robo_css_token_keyword_text(token, keyword, sizeof(keyword), &length) ||
+            !robo_css_bytes_equal_ascii_ci((const uint8_t *)keyword, length, "auto")) {
+            return computed_reject(out, computation, reason_not_number, diag);
+        }
+        return robo_css_computed_value_make_keyword(
+            out, robo_css_slice_from_bytes((const uint8_t *)keyword, length), diag);
+    }
+
+    switch (robo_css_numeric_from_value(specified, &numeric)) {
+    case ROBO_CSS_NUMERIC_PARSE_RESOLVED:
+        break;
+    case ROBO_CSS_NUMERIC_PARSE_DEFERRED:
+        return computed_keep(out, specified, 1, diag);
+    case ROBO_CSS_NUMERIC_PARSE_NON_FINITE:
+        return computed_reject(out, computation, "not a finite number", diag);
+    default:
+        return computed_reject(out, computation,
+                               token ? reason_not_number
+                                     : "not a single z-index component",
+                               diag);
+    }
+
+    if (numeric.kind != ROBO_CSS_NUMERIC_INTEGER) {
+        /* A NUMBER that happens to be whole is separated from one that is not,
+         * because an author who wrote `1.0` has a near miss and an author who
+         * wrote `1.5` has a different one. Everything else — a percentage, a
+         * dimension — is only ever "not a whole number or auto". */
+        const char *reason = reason_not_number;
+
+        if (numeric.kind == ROBO_CSS_NUMERIC_NUMBER) {
+            /* `1.0` and `1e2` are whole values and are still not integers: the
+             * tokenizer's integer flag is a fact about the *spelling*, and CSS's
+             * `<integer>` asks for that spelling. `1.5` is the case where the
+             * value itself is wrong, and it gets a sentence that says so. */
+            reason = robo_css_numeric_is_integral(numeric)
+                         ? "a whole number must be written as an integer"
+                         : "not a whole number";
+        }
+        return computed_reject(out, computation, reason, diag);
+    }
+    /* The bound is the module's, and it is asked even though the conversion's
+     * result is then discarded in favour of the number the token already carries:
+     * what is being asked for is the *refusal* of a magnitude no runtime can hold
+     * as an integer, and `(double)integer` is that same value exactly. */
+    if (!robo_css_numeric_integer_value(numeric, &integer)) {
+        return computed_reject(out, computation, "not a whole number", diag);
+    }
+    return robo_css_computed_value_make_number(out, (double)integer, 1, diag);
 }
 
 /**
@@ -1537,8 +1760,16 @@ robo_result_t robo_css_computed_value_compute(
     case ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH:
         return computed_compute_length_grammar(
             computed_length_grammar_for(computation), out, specified, diag);
+    /* The two closed vocabularies (9.12, 9.13) are also one case body for the
+     * same reason: the vocabulary, its two doors and its refusals are data in a
+     * row, so a third closed vocabulary is a row rather than a third copy of
+     * "ask the identifier, then ask the table". */
     case ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY:
-        return computed_compute_display(out, specified, diag);
+    case ROBO_CSS_PROPERTY_COMPUTATION_POSITION:
+        return computed_compute_vocabulary(
+            computed_vocabulary_grammar_for(computation), out, specified, diag);
+    case ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX:
+        return computed_compute_z_index(out, specified, diag);
     default:
         return computed_keep(out, specified, computed_function_is_unresolved(
                                              robo_css_value_single(specified)),

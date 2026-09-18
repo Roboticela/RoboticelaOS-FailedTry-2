@@ -16,8 +16,12 @@
  *   COLOR        a colour: four channels, or the contextual `currentColor`
  *   FAMILY_LIST  an ordered font family list
  *   DISPLAY      one of the closed display vocabulary (9.12)
+ *   POSITION     one of the closed positioning vocabulary (9.13)
  *   PRESERVED    the specified tokens, carried intact
  *   INVALID      the value did not mean anything for this property
+ *
+ * The last two of those are the ones a reader will question, and both are
+ * load-bearing — see below.
  *
  * The last two are the ones a reader will question, and both are load-bearing.
  *
@@ -75,6 +79,7 @@
 #include "RoboCSS/RoboCSSColor.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSDisplay.h"
+#include "RoboCSS/RoboCSSPosition.h"
 #include "RoboCSS/RoboCSSPropertyRegistry.h"
 #include "RoboCSS/RoboCSSUnit.h"
 #include "RoboCSS/RoboCSSValue.h"
@@ -156,11 +161,13 @@ typedef enum robo_css_computed_value_kind {
     /** The value means nothing for this property. */
     ROBO_CSS_COMPUTED_VALUE_INVALID = 8,
     /** One of the closed display vocabulary (9.12). */
-    ROBO_CSS_COMPUTED_VALUE_DISPLAY = 9
+    ROBO_CSS_COMPUTED_VALUE_DISPLAY = 9,
+    /** One of the closed positioning vocabulary (9.13). */
+    ROBO_CSS_COMPUTED_VALUE_POSITION = 10
 } robo_css_computed_value_kind_t;
 
 /** Number of defined kinds. */
-#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 10u
+#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 11u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int robo_css_computed_value_kind_is_known(robo_css_computed_value_kind_t kind);
@@ -210,6 +217,17 @@ typedef struct robo_css_computed_value {
      * `display: none` and would be a dangerous default to read by accident.
      */
     robo_css_display_t display;
+    /**
+     * POSITION: the position value (RoboCSSPosition.h); STATIC otherwise.
+     *
+     * A typed enumerator rather than the keyword's text, for the same reason
+     * @ref display is one. Meaningful only when @ref kind is POSITION: a cleared
+     * record holds STATIC, which is the property's *initial* value and therefore
+     * the safest thing a cleared record could hold — and still not something to
+     * read without the kind check, because "this element does not declare a
+     * position" and "this element is static" are different answers.
+     */
+    robo_css_positioning_t position;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -305,6 +323,11 @@ robo_result_t robo_css_computed_value_make_display(robo_css_computed_value_t *va
                                                    robo_css_display_t display,
                                                    robo_css_diag_t *diag);
 
+/** Make @p value a POSITION holding @p position. */
+robo_result_t robo_css_computed_value_make_position(robo_css_computed_value_t *value,
+                                                    robo_css_positioning_t position,
+                                                    robo_css_diag_t *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
@@ -336,6 +359,18 @@ robo_css_color_t robo_css_computed_value_color(const robo_css_computed_value_t *
  * them would lay an out-of-scope property out as a removed box.
  */
 robo_css_display_t robo_css_computed_value_display(const robo_css_computed_value_t *value);
+
+/**
+ * The position of a POSITION value.
+ *
+ * Answers STATIC for any other kind, which is why it is read together with a
+ * kind check rather than on its own — see the field's own note. `position:
+ * static` and "this is not a position value" are different facts, and STATIC is
+ * the answer that would do the least damage if they were conflated, which is
+ * exactly why it is worth saying that they must not be.
+ */
+robo_css_positioning_t robo_css_computed_value_position(
+    const robo_css_computed_value_t *value);
 
 /**
  * Non-zero when @p a and @p b are the same computed value.
@@ -422,6 +457,20 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
  *                unresolved, and the multi-keyword syntax is refused rather than
  *                carried, because a display value nothing can read is worse than
  *                one CSS's own recovery rule drops.
+ *   POSITION     the same shape over a different vocabulary
+ *                (RoboCSSPosition.h): `static`, `relative`, `absolute`, `fixed`
+ *                or `sticky`, case-insensitively, with the same three refusals
+ *                and the same treatment of a reference. It shares the DISPLAY
+ *                body rather than restating it, because a second copy of "ask the
+ *                identifier, then the vocabulary" is how two closed vocabularies
+ *                come to disagree about which of the two they asked.
+ *   Z_INDEX      `auto`, or a whole number: `z-index: -1` and `z-index: 0` are
+ *                NUMBER values (with `is_integer` set), `z-index: auto` is the
+ *                KEYWORD. `1.5` and `1.0` are both INVALID — CSS's `<integer>` is
+ *                a grammar, not a value that happens to be whole — and the reason
+ *                names which of the two the author wrote. A very large magnitude
+ *                is refused too, by the unit module's own representable-integer
+ *                bound rather than by a limit invented here.
  *   PRESERVE     the tree, copied. Never invalid: a property whose shape is not
  *                claimed cannot have a value that is wrong for it.
  *

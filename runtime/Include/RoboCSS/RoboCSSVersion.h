@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.11 box-model milestone.
+ * RoboCSS version pin — Phase 9.13 positioning milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -128,6 +128,11 @@
  *                 three shorthands and the longhand each side of each stands for,
  *                 and the 1/2/3/4 component mapping — with expansion and 
  *                 resolution kept deliberately apart
+ *   position      the positioning vocabulary: the five values, each with whether
+ *                 its box stays in flow and whether it is a positioned box, and
+ *                 the classifications a layout pass dispatches on — with the four
+ *                 inset properties named by the side vocabulary and shaped by the
+ *                 box model's EDGE_OFFSET
  *
  * What the grammar is: the CSS Syntax structure rules — a stylesheet, a list of
  * rules, an at-rule, a qualified rule, a block's declarations, a declaration,
@@ -273,6 +278,48 @@
  * a computed `display: none` is a fact a later layout phase acts on, not an action
  * this one takes.
  *
+ * 0.13.0 is the twelfth, and it adds the second closed vocabulary plus the first
+ * shape whose value is a *number* rather than an enumerator or a length:
+ * positioning (RoboCSSPosition.h).
+ *
+ * `position` gets a vocabulary of its own for the reason `display` did, and the
+ * shape of that reasoning is worth stating once because it now holds twice: a
+ * property every later phase *dispatches on* cannot be the generic KEYWORD, which
+ * carries any identifier through and leaves the discovery of a mistake to
+ * whichever phase first reads the value. `position: banana` is therefore a
+ * mistake with a diagnostic, and `position: sticky` is a row — a value this build
+ * represents and classifies but cannot *behave* on, because what a sticky box does
+ * relative to a scrollport is a scrolling question and refusing the value outright
+ * would drop the legal declaration and its offsets with it.
+ *
+ * Each row carries two facts rather than one, and they are asked by different
+ * phases: whether the box stays **in flow** (`static`, `relative`, `sticky`), and
+ * whether it is **positioned** (everything but `static`). The second is the one
+ * that does two jobs — it is what makes an offset apply at all, `top` on a `static`
+ * element being ignored rather than honoured, and it is what makes a box a
+ * containing block for an absolutely positioned descendant. `relative` and
+ * `sticky` answer yes to both, which reads as a contradiction until you notice
+ * they are two questions.
+ *
+ * The four inset properties are rows and not a vocabulary, and that is a decision
+ * rather than an omission: `top`, `right`, `bottom` and `left` take
+ * `<length-percentage> | auto`, which is exactly the box model's EDGE_OFFSET
+ * grammar, so they reuse that shape instead of getting a second one with the same
+ * vocabulary — which is how `top: 20%` and `margin-top: 20%` would come to be
+ * normalised differently. Their names are the side vocabulary's, in CSS's own
+ * order. `z-index` joins them with the phase's third shape, `auto` or a whole
+ * number, and the whole-number question is asked of the unit module rather than
+ * answered in the value layer: `<integer>` is a grammar, so `1.0` is a number token
+ * and is refused beside `1.5`, each with its own diagnostic because each is a
+ * different near miss.
+ *
+ * Six non-inherited registry rows, and no geometry. Nothing here computes a
+ * containing block, an offset, a stacking order or a scroll position; a percentage
+ * inset stays a percentage, an `auto` inset stays `auto` — which is not a
+ * placeholder, since turning it into `0` would place every absolutely positioned
+ * box against the top-left corner of its containing block — and `z-index: auto`
+ * stays a keyword because it says something `0` does not.
+ *
  * Everything past that — layout, used values, `calc()` evaluation — is still a
  * declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
@@ -296,9 +343,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 12
+#define ROBO_CSS_VERSION_MINOR 13
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.12.0"
+#define ROBO_CSS_VERSION_STRING "0.13.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

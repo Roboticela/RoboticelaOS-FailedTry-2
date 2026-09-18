@@ -374,9 +374,9 @@ static void test_box_shapes(void)
     css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: 0", "0px");
     css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: -10px", "-10px");
     /* Not the family's vocabulary. */
-    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: normal", "not a margin length or auto");
-    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: min-content", "not a margin length or auto");
-    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: red", "not a margin length or auto");
+    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: normal", "not a length, a percentage or auto");
+    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: min-content", "not a length, a percentage or auto");
+    css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: red", "not a length, a percentage or auto");
     css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: 1foo", "unknown length unit");
     css_compute_equals(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "m: 10px 20px", "not a single length component");
     ROBO_CHECK_STR_EQ(css_compute_kind(ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET,

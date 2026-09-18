@@ -103,11 +103,17 @@ static void test_css_registry_standard_set(void)
      * whose value model exists so a declaration survives to the phase that has a
      * layout rather than being dropped by the phase that does not.
      *
+     * 9.13 adds five: the four inset properties (`top`, `right`, `bottom`, `left`),
+     * which are the four sides under the names the side vocabulary already gives
+     * them, and `z-index`. `position` was already a row — 9.13 moved it onto a
+     * shape of its own the way 9.12 moved `display`, and a shape change is not a
+     * new property. None of the five inherits.
+     *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 39);
+    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 44);
     ROBO_CHECK_EQ_INT((int)inherited, 16);
-    ROBO_CHECK_EQ_INT((int)non_inherited, 23);
+    ROBO_CHECK_EQ_INT((int)non_inherited, 28);
 
     robo_css_property_registry_destroy(registry);
 }
@@ -219,7 +225,16 @@ static void test_css_registry_initial_values(void)
         {"border-bottom-width", "medium"},
         {"border-left-width", "medium"},
         {"border-width", "medium"},
-        {"box-sizing", "content-box"}
+        {"box-sizing", "content-box"},
+        /* 9.13's positioning family. An inset starts at `auto` and not at zero —
+         * the one initial value in this table whose wrong answer would look
+         * plausible: `0` would pin every absolutely positioned box to the corner
+         * of its containing block. `z-index: auto` is likewise not `0`. */
+        {"top", "auto"},
+        {"right", "auto"},
+        {"bottom", "auto"},
+        {"left", "auto"},
+        {"z-index", "auto"}
     };
     robo_css_property_registry_t *registry = NULL;
     size_t index;

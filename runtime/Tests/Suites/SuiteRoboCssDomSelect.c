@@ -2281,6 +2281,181 @@ static void test_css_dom_display_pipeline(void)
     css_dom_cascade_end(&fixture);
 }
 
+/**
+ * `css.dom.position.pipeline` — the positioning family over the real tree.
+ *
+ * The CSS-side suite proves the vocabulary, the four insets and `z-index` as
+ * values; this proves the family survives a document, which is where three facts
+ * have to hold at once. A declared `position` arrives as a typed enumerator on the
+ * elements the sheet names. The four offsets and the level arrive *beside* it —
+ * a percentage which stays a percentage, an `auto` that stays a keyword, a whole
+ * number — which is the whole reason the insets reuse the box model's shape
+ * instead of getting one of their own. And an element the sheet does **not** name
+ * has no entry for any of the six, because none of them inherits, so the query
+ * door is what answers, with the property's own initial value and `from_initial`
+ * set.
+ *
+ * That last pair is the interface a layout phase consumes, and the assertion on
+ * it is deliberately the same shape as the display pipeline's: `static` and `auto`
+ * are *values* and not failures, and the difference between "the author said
+ * static" and "the author said nothing" is the flag, not the value.
+ */
+static void test_css_dom_position_pipeline(void)
+{
+    css_dom_cascade_t fixture;
+    robo_css_computed_style_t *body_style = NULL;
+    robo_css_computed_style_t *heading = NULL;
+    robo_css_computed_style_t *button = NULL;
+    robo_css_computed_style_t *paragraph = NULL;
+    robo_css_computed_value_t queried = ROBO_CSS_CLEARED;
+    robo_css_stylesheet_id_t sheet;
+    int from_initial = -1;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "body { position: relative; z-index: 0 }\n"
+                                  "h1 { position: absolute; top: 25%; left: -8px;"
+                                  " z-index: -1 }\n"
+                                  "button { position: sticky; top: 0; right: 2em;"
+                                  " bottom: auto }\n");
+
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "body") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "button") != ROBO_CSS_ELEMENT_REF_NONE);
+
+    /* `relative` is in flow *and* positioned, which is the pair that reads as a
+     * contradiction until the two columns are read separately — and the reason the
+     * row carries both. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "body"), &body_style);
+    css_computed_is(body_style, "position", "relative");
+    css_computed_is(body_style, "z-index", "0");
+    {
+        const robo_css_computed_value_t *value =
+            robo_css_computed_style_computed_by_name(
+                body_style, robo_css_slice_from_text("position"));
+        robo_css_positioning_t positioning;
+
+        ROBO_CHECK_EQ_INT(value->kind, (int)ROBO_CSS_COMPUTED_VALUE_POSITION);
+        positioning = robo_css_computed_value_position(value);
+        ROBO_CHECK_EQ_INT(robo_css_positioning_is_in_flow(positioning), 1);
+        ROBO_CHECK_EQ_INT(robo_css_positioning_is_positioned(positioning), 1);
+        ROBO_CHECK_EQ_INT(robo_css_positioning_is_out_of_flow(positioning), 0);
+    }
+
+    /* `absolute` with a percentage, a negative length and a negative level, all
+     * read beside the enumerator that gives them meaning. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "h1"), &heading);
+    css_computed_is(heading, "position", "absolute");
+    css_computed_flags_are(heading, "position", "declared");
+    css_computed_is(heading, "top", "25%");
+    css_computed_is(heading, "left", "-8px");
+    css_computed_is(heading, "z-index", "-1");
+    ROBO_CHECK_EQ_INT(robo_css_positioning_is_out_of_flow(
+                          robo_css_computed_value_position(
+                              robo_css_computed_style_computed_by_name(
+                                  heading, robo_css_slice_from_text("position")))),
+                      1);
+    /* The percentage is a *percentage* and the `auto` below is a *keyword* —
+     * different kinds, which is what stops a later phase reading `auto` as a
+     * zero-length offset. */
+    {
+        const robo_css_computed_value_t *value =
+            robo_css_computed_style_computed_by_name(
+                heading, robo_css_slice_from_text("top"));
+
+        ROBO_CHECK_EQ_INT(value->kind, (int)ROBO_CSS_COMPUTED_VALUE_PERCENTAGE);
+    }
+
+    /* `sticky` is represented and classified like any other value, and it is
+     * *not* behaved on: the offsets beside it are offsets, and nothing here
+     * scrolls. That is the phase's documented boundary, asserted rather than
+     * assumed. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "button"), &button);
+    css_computed_is(button, "position", "sticky");
+    ROBO_CHECK_EQ_INT(robo_css_computed_value_position(
+                          robo_css_computed_style_computed_by_name(
+                              button, robo_css_slice_from_text("position"))),
+                      (int)ROBO_CSS_POSITIONING_STICKY);
+    ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(button), 0);
+    css_computed_is(button, "top", "0px");
+    css_computed_is(button, "right", "2em");
+    css_computed_is(button, "bottom", "auto");
+    {
+        const robo_css_computed_value_t *value =
+            robo_css_computed_style_computed_by_name(
+                button, robo_css_slice_from_text("bottom"));
+
+        ROBO_CHECK_EQ_INT(value->kind, (int)ROBO_CSS_COMPUTED_VALUE_KEYWORD);
+    }
+
+    /* An element the sheet does not name has no entry for any of the six — none
+     * of them inherits, so the `body` above handed nothing down — and the query
+     * door answers each with the property's own initial value, marked as such. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "p"), &paragraph);
+    css_computed_is(paragraph, "position", "<absent>");
+    css_computed_is(paragraph, "z-index", "<absent>");
+    ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                          fixture.context, paragraph,
+                          robo_css_slice_from_text("position"), &queried,
+                          &from_initial, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(from_initial, 1);
+    ROBO_CHECK_EQ_INT(queried.kind, (int)ROBO_CSS_COMPUTED_VALUE_POSITION);
+    ROBO_CHECK_EQ_INT(robo_css_computed_value_position(&queried),
+                      (int)ROBO_CSS_POSITIONING_STATIC);
+    /* Static is a *value* here and not an absence: the box is in flow and not
+     * positioned, so an offset on it would not apply. */
+    ROBO_CHECK_EQ_INT(robo_css_positioning_is_positioned(
+                          robo_css_computed_value_position(&queried)),
+                      0);
+    ROBO_CHECK_EQ_INT(robo_css_positioning_is_in_flow(
+                          robo_css_computed_value_position(&queried)),
+                      1);
+    robo_css_computed_value_dispose(&queried);
+
+    {
+        static const char *const names[] = { "top", "right", "bottom", "left" };
+        size_t index;
+
+        for (index = 0u; index < sizeof(names) / sizeof(names[0]); index++) {
+            css_computed_is(paragraph, names[index], "<absent>");
+            ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                                  fixture.context, paragraph,
+                                  robo_css_slice_from_text(names[index]), &queried,
+                                  &from_initial, NULL),
+                              ROBO_OK);
+            ROBO_CHECK_EQ_INT(from_initial, 1);
+            /* An `auto` inset is not a zero-length offset: it is the keyword, and
+             * the kind is what says so. */
+            ROBO_CHECK_EQ_INT(queried.kind, (int)ROBO_CSS_COMPUTED_VALUE_KEYWORD);
+            robo_css_computed_value_dispose(&queried);
+        }
+    }
+
+    /* And an invalid value on a real element is reported rather than replaced. */
+    {
+        robo_css_computed_style_t *odd = NULL;
+        robo_css_stylesheet_id_t bad = css_dom_cascade_sheet(
+            &fixture,
+            "select { position: banana; top: nope; z-index: 1.5 }");
+
+        css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "select"), &odd);
+        css_computed_is(odd, "position", "not a position value");
+        css_computed_is(odd, "top", "not a length, a percentage or auto");
+        css_computed_is(odd, "z-index", "not a whole number");
+        css_computed_flags_are(odd, "position", "declared+invalid");
+        ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(odd), 1);
+        robo_css_computed_style_destroy(odd);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(bad, NULL), ROBO_OK);
+    }
+
+    robo_css_computed_style_destroy(paragraph);
+    robo_css_computed_style_destroy(button);
+    robo_css_computed_style_destroy(heading);
+    robo_css_computed_style_destroy(body_style);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -2323,4 +2498,5 @@ void robo_test_register_css_dom_select(void)
     robo_test_register("css.dom.unit.pipeline", test_css_dom_unit_pipeline);
     robo_test_register("css.dom.box.pipeline", test_css_dom_box_pipeline);
     robo_test_register("css.dom.display.pipeline", test_css_dom_display_pipeline);
+    robo_test_register("css.dom.position.pipeline", test_css_dom_position_pipeline);
 }

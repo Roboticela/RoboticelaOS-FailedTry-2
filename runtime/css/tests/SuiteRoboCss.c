@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 12);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 13);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 12);
+    ROBO_CHECK_EQ_INT(minor, 13);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -446,6 +446,14 @@ static void test_css_capabilities(void)
      * claims a value family and not layout — nothing here removes an element from
      * a tree that does not exist yet. */
     ROBO_CHECK_EQ_INT(caps.display, 1);
+
+    /* 9.13 gave positioning a vocabulary and a family (RoboCSSPosition.h): the
+     * five `position` values, each a row carrying whether its box stays in flow
+     * and whether it is a positioned box, the four inset properties on the box
+     * model's EDGE_OFFSET shape, and `z-index` as `auto` or a whole number. No
+     * containing block is computed and no offset is applied, which is why this
+     * claims values and their classifications rather than geometry. */
+    ROBO_CHECK_EQ_INT(caps.positioning, 1);
 
     /* ...and everything past that is still 0: no default stylesheet exists, and
      * nothing loads one. */

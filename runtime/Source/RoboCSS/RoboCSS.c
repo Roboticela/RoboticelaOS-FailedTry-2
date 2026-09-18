@@ -302,6 +302,16 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * a value family and not layout: nothing here removes an element from a tree
      * that does not exist yet. */
     out->display = 1;
+     /* 9.13 gave positioning a vocabulary too (RoboCSSPosition.h): the five
+     * `position` values, each a row carrying whether its box stays in flow and
+     * whether it is a positioned box, plus the four inset properties and
+     * `z-index`. The insets reuse the box model's EDGE_OFFSET shape because
+     * `<length-percentage> | auto` is the grammar CSS gives both families, and
+     * `z-index` is `auto` or a whole number. What it claims is a value and its
+     * classifications; what it does not claim is geometry — no containing block
+     * is computed, `top: 20%` stays a percentage, `auto` stays a keyword rather
+     * than becoming zero, and `z-index` orders nothing. */
+    out->positioning = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

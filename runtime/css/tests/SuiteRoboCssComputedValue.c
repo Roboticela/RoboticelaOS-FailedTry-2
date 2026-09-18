@@ -969,6 +969,13 @@ static void test_css_computedvalue_normalize_robust(void)
              * a closed vocabulary is fuzzed for its *refusals*: what must not
              * happen is a value outside the four arriving as a DISPLAY value. */
             ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
+            /* 9.13 adds the second closed vocabulary and the first shape whose
+             * value is a whole number, and both are driven by the same strings
+             * for the same reason: `position: banana` must not arrive as a
+             * POSITION value, and nothing may arrive as a NUMBER out of
+             * `z-index` without `is_integer` set. */
+            ROBO_CSS_PROPERTY_COMPUTATION_POSITION,
+            ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX,
             ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE
         };
         size_t shape;

@@ -134,13 +134,21 @@ typedef enum robo_css_property_computation {
     ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT = 6,
     /**
      * A length, a percentage, or `auto` (9.11) — a box edge that may be sized
-     * by its container: `margin-top` and its three relatives.
+     * by its container: `margin-top` and its three relatives, and since 9.13 the
+     * four inset properties `top`, `right`, `bottom` and `left`.
      *
      * A shape of its own rather than the LENGTH above, and the difference is the
      * *vocabulary* rather than the syntax: `margin-top: normal` is not a margin,
      * and `margin-top: min-content` is not one either, where both are legal for
      * `width`. A shape that accepted every length-family keyword everywhere
      * would make `padding: auto` computable, and CSS says it is a mistake.
+     *
+     * The inset properties share this shape rather than getting one of their own
+     * because `<length-percentage> | auto` *is* the grammar of both families —
+     * CSS writes it the same way for `margin-top` and for `top`, and a second
+     * shape with the same vocabulary is how the two come to be normalised
+     * differently. What differs between them is which property the value belongs
+     * to, and that is the registry's question, not the shape's.
      */
     ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET = 7,
     /**
@@ -180,11 +188,46 @@ typedef enum robo_css_property_computation {
      * rejecting them is the honest answer until the phases that lay them out
      * exist (RoboCSSDisplay.h).
      */
-    ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY = 10
+    ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY = 10,
+    /**
+     * One of the closed positioning vocabulary (9.13) — `position`.
+     *
+     * The same decision the DISPLAY shape above records, for the same reason and
+     * a different property: `position` is what every later phase reads to know
+     * what a box is positioned *against*, so `position: banana` has to be a
+     * mistake rather than a keyword carrying the text `banana`. A keyword shape
+     * would carry it through and leave the discovery to whichever phase first
+     * dispatches on the value, which is exactly the silent failure the closed
+     * vocabularies exist to move forward in time.
+     *
+     * `position: sticky` is a row here and is *not* a scrolling implementation:
+     * the value and its two classifications (in flow, positioned) are what this
+     * build can honestly say about it, and what it does relative to a scrollport
+     * is the phase that has one.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_POSITION = 11,
+    /**
+     * `auto`, or a whole number (9.13) — `z-index`.
+     *
+     * Named for its property rather than called INTEGER, because the two halves
+     * are the point: `z-index: auto` and `z-index: 0` are *different answers*
+     * (one says "this element does not participate in stacking decisions", the
+     * other says "at level zero"), so a shape that accepted only integers could
+     * not represent the property at all, and a shape that accepted any number
+     * would make `z-index: 1.5` computable, which CSS refuses.
+     *
+     * `1.5` and `1.0` are both refused, and the second is the one worth stating:
+     * CSS's `<integer>` is a *grammar* rather than a value that happens to be
+     * whole, so a number token is a number token however it is written. The unit
+     * module already answers that question exactly once
+     * (robo_css_numeric_integer_value), and this shape asks it rather than
+     * restating it.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX = 12
 } robo_css_property_computation_t;
 
 /** Number of defined computations. */
-#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 11u
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 13u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int robo_css_property_computation_is_known(robo_css_property_computation_t computation);

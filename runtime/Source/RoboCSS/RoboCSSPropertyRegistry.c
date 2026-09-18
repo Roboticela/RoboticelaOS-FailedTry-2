@@ -169,6 +169,10 @@ const char *robo_css_property_computation_name(
         return "line width";
     case ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY:
         return "display";
+    case ROBO_CSS_PROPERTY_COMPUTATION_POSITION:
+        return "position";
+    case ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX:
+        return "z-index";
     default:
         return "unknown";
     }
@@ -549,6 +553,36 @@ static const registry_standard_entry_t registry_standard_entries[] = {
     { "border-width",  ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+
+    /*
+     * --- positioning (9.13) ---
+     *
+     * Six rows, and they sit in alphabetical order with the rest of the table
+     * rather than gathered into a block, because their names fall across the
+     * whole of it — `bottom` here, `left` after `height`, `right` and `top`
+     * around `position`, `z-index` last. The family is stated once, here, so a
+     * reader meeting any of the six knows what the other five are.
+     *
+     * The four insets use the box model's EDGE_OFFSET shape, because
+     * `<length-percentage> | auto` is the grammar CSS gives both `margin-top`
+     * and `top`; what makes `top: 20%` a *positioning* value is which property
+     * it was written on, and that is this table's answer rather than the
+     * shape's. Their initial value is `auto`, which is not a placeholder: an
+     * `auto` inset is what makes a box's own size and its containing block
+     * decide where it goes, and turning it into `0` would place every
+     * absolutely positioned box against the top-left corner of its containing
+     * block. It is also why the shape refuses `min-content` and `normal` here —
+     * there is no offset either keyword could mean.
+     *
+     * None of the six inherits, and `position` and `z-index` are the ones where
+     * that matters most: a `<span>` inside an `absolute` paragraph is not itself
+     * absolute, and a child does not join its parent's stacking level. Both are
+     * shaped rather than left as keywords, so `position: banana` and
+     * `z-index: 1.5` are reported mistakes instead of values a layout pass
+     * would meet and have to fail on.
+     */
+    { "bottom",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "auto",      0 },
     { "box-sizing",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "content-box", 0 },
     /*
@@ -566,6 +600,8 @@ static const registry_standard_entry_t registry_standard_entries[] = {
       ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,    "inline",     0 },
     { "height",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "auto",       0 },
+    { "left",          ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "auto",      0 },
     { "margin",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "0",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
@@ -588,10 +624,28 @@ static const registry_standard_entry_t registry_standard_entries[] = {
       ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET,  "0",         0 },
     { "padding-top",   ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET,  "0",         0 },
+    /*
+     * 9.13 moves `position` off the generic KEYWORD shape and onto one of its
+     * own, exactly as 9.12 moved `display`.
+     *
+     * The row was here before, with this classification and this initial value,
+     * and nothing about *this table* had to be re-decided. What changed is that
+     * the value is now a closed vocabulary with a diagnostic for an identifier
+     * it does not know, because `position` is what a layout pass dispatches on
+     * and a keyword carrying the text `banana` is a value that can only fail
+     * later. The KEYWORD shape stays for the properties whose vocabulary belongs
+     * to a phase that has not landed.
+     */
     { "position",      ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
-      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "static",     0 },
+      ROBO_CSS_PROPERTY_COMPUTATION_POSITION,   "static",     0 },
+    { "right",         ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "auto",      0 },
+    { "top",           ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "auto",      0 },
     { "width",         ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
-      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "auto",       0 }
+      ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "auto",       0 },
+    { "z-index",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX,    "auto",       0 }
 };
 
 robo_result_t robo_css_property_registry_create_standard(

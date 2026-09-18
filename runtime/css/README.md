@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.11,
-the box model**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.13,
+positioning**).
 
-**Version:** 0.9.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.13.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -14,8 +14,9 @@ and consume it.
 ## Scope
 
 **9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors), 9.5 (the
-cascade), 9.6 (specificity), 9.7 (inheritance), 9.8 (computed values) and 9.9
-(colours).** 9.1
+cascade), 9.6 (specificity), 9.7 (inheritance), 9.8 (computed values), 9.9
+(colours), 9.10 (units and numbers), 9.11 (the box model), 9.12 (display) and 9.13
+(positioning).** 9.1
 builds the model the rest of Phase 9 is written against; 9.2 builds the first
 machine that fills it; 9.3 builds the second — the grammar that consumes the token
 stream and produces that model out of real CSS; 9.4 builds the third, which turns a
@@ -467,6 +468,53 @@ tree, because there is no tree yet.
 
 `docs/Display.md` has the full account.
 
+## Positioning (9.13)
+
+`position` decides what an element's box is positioned *relative to*, and its five
+answers are not five sizes of one behaviour. `static` is not positioned at all —
+its `top` is ignored — `relative` is in flow and shifted from where flow put it,
+`absolute` and `fixed` are lifted out of flow and placed against an ancestor or the
+viewport, and `sticky` is in flow until a scroll constraint moves it. Modelling
+that as one identifier in one field is how `top: 10px` comes to move a `static`
+element.
+
+So the vocabulary is a table with one row per value, and each row carries the two
+facts the value *is*: whether the box stays in **flow** (the layout question — does
+it take up room in its parent) and whether it is **positioned** (the containment
+question — what does an offset inside it resolve against). The two are not each
+other's opposite. `relative` and `sticky` are both in flow *and* positioned, which
+reads as a contradiction until you notice they are two questions, and they are two
+columns rather than one three-valued kind because they are asked separately and by
+different stages.
+
+The phase's second subject is the four insets, and its decision is that they have
+**no grammar of their own**. `top`, `right`, `bottom` and `left` are
+`<length-percentage> | auto` — the box model's `EDGE_OFFSET` shape exactly — so they
+join that family and reuse its normalisation, which is what keeps `top: 20%` and
+`margin-top: 20%` from ever disagreeing. Their *names* come from the side
+vocabulary, and the phase's suite walks the family over `robo_css_box_side_count()`
+rather than hand-listing the four, so a row written against the wrong side cannot
+pass.
+
+`z-index` is the first property whose value must be an **integer**, and it refuses
+`0.0` even though the magnitude is whole — `0.0` and `0` are the same number and
+different tokens, and CSS's `<integer>` grammar is about the token. Accepting it
+would be a silent success in the one place the distinction exists to catch. `auto`
+stays `auto`, because "takes no part in its parent's stacking decisions" is a
+different statement from "at level zero".
+
+The two closed vocabularies share one case body: the vocabulary, its two doors and
+its refusals are data in a row, so a third closed vocabulary is a row in that table
+rather than a third copy of "ask the identifier, then ask the table". The same
+discipline made 9.12's `display` and this phase's `position` arrive as two rows of
+the same shape.
+
+Nothing here is layout: no containing block is found, no offset is resolved, no
+rectangle exists, and no stacking order is computed. `position: sticky` is a value
+and not a behaviour — refusing it would lose the offset values beside it, and
+carrying it is exactly what it is before anything scrolls. `docs/Positioning.md`
+has the full account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -520,7 +568,8 @@ runtime/
 ├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h,
 │                             RoboCSSSpecificity.h, RoboCSSPropertyRegistry.h,
 │                             RoboCSSInherit.h, RoboCSSComputedValue.h,
-│                             RoboCSSColor.h and RoboCSSUnit.h)
+│                             RoboCSSColor.h, RoboCSSUnit.h, RoboCSSBox.h,
+│                             RoboCSSDisplay.h and RoboCSSPosition.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -538,7 +587,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 521 cases only (`--filter css.`)
+scripts/robo test-css        # this subsystem's 541 cases only (`--filter css.`)
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -565,4 +614,5 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
 | `docs/BoxModel.md` | The 9.11 box model: the four sides and why their order is load-bearing, the three shorthands (and why `border` is not one of them), the 1/2/3/4 mapping as a table, the two refusals and why a `var()` is not a five-value shorthand, the three value shapes that differ by vocabulary, the fourteen registry rows, why expansion is not resolution, where the pass runs, what happens when a shorthand cannot be distributed, and the layout boundary |
 | `docs/Display.md` | The 9.12 display: the four values and why the set is closed, the outer/inner halves and why `inline-block` is not "inline with a flag", the two classification questions and how `contents` will separate them, reading an identifier and the `none`-vs-unknown ambiguity, the shape's four refusals, the multi-keyword syntax and HTML defaults as drawn boundaries, the registry row and why its initial value is checked as vocabulary text, non-inheritance and the hole it leaves, and the query door a consumer uses |
-| `../PROGRESS.md` | The Goal 9.1–9.12 records and their definitions of done |
+| `docs/Positioning.md` | The 9.13 positioning: the five values, flow and positioned as two separate questions, the three classification doors and why an unknown enumerator answers 0 to all of them, reading an identifier and the `static`-vs-unknown ambiguity, the shape's three refusals and the reference boundary, why the four insets reuse the box model's `EDGE_OFFSET` and take their names from the side vocabulary, `z-index` and why `0.0` is refused, the six registry rows, non-inheritance and the hole it leaves, sticky as a value rather than a behaviour, and the layout/stacking boundary |
+| `../PROGRESS.md` | The Goal 9.1–9.13 records and their definitions of done |
