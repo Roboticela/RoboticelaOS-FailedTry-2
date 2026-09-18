@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.9 colour milestone.
+ * RoboCSS version pin — Phase 9.10 unit and number milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -117,6 +117,13 @@
  *                 four channels, every CSS spelling that produces one, the
  *                 substitution `currentColor` stands for, and one stable text
  *                 per kind
+ *   unit          the closed unit vocabulary: each unit's spelling, family and
+ *                 fixed factor to px, and which viewport a viewport unit
+ *                 measures — rebuilt in 9.10 with a resolution context and a
+ *                 resolver that can answer "not enough context"
+ *   numeric       one typed number: a kind (number, integer, percentage,
+ *                 length), its magnitude and — for a length — its unit, with
+ *                 kind-aware equality and one canonical spelling
  *
  * What the grammar is: the CSS Syntax structure rules — a stylesheet, a list of
  * rules, an at-rule, a qualified rule, a block's declarations, a declaration,
@@ -154,9 +161,46 @@
  * message from "not a colour" and a different message from "unknown colour
  * name" — three diagnostics, because they tell a developer three things.
  *
- * Everything past that — the unit system beyond the length forms a computed value
- * carries, the box model and layout — is still a declared boundary with no
- * implementation behind it, and
+ * 0.10.0 adds the ninth, and it is the second *representation* rather than a
+ * stage: units and numbers (RoboCSSUnit.h). A CSS value is mostly a number with
+ * something attached, and this is the something — the closed unit vocabulary with
+ * each unit's family and its fixed factor, exact conversion of the absolute units
+ * to the reference pixel, and `robo_css_numeric_t`: a number, an integer, a
+ * percentage or a dimension, owning nothing, with kind-aware and unit-aware
+ * equality and one canonical spelling.
+ *
+ * The move is the same one 9.9 made and for the same reason: 9.8 kept the unit
+ * table inside the computed-value layer because that was its only reader, and a
+ * second reader — whatever has a font size, or a viewport — is what turns a table
+ * a module's callers reach for into a module. The vocabulary grew with it: `lh`
+ * and `rlh` beside `em` and `rem`, `vi`/`vb` for the two axes, and the small,
+ * large and dynamic viewport families that `sv*`, `lv*` and `dv*` name.
+ *
+ * The decision the phase is built around is that resolving a length is a
+ * *question* rather than a multiplication. `1in` is 96px by definition, so
+ * `robo_css_unit_to_px` converts it and never consults a display; `2em` is not a
+ * length until something says what the font size is, so
+ * `robo_css_unit_resolve_px` takes a context and answers RESOLVED, NEEDS_CONTEXT,
+ * NOT_A_LENGTH or INVALID. NEEDS_CONTEXT is the answer that matters: a unit this
+ * build understands and a context that does not carry the fact is a value that
+ * cannot be resolved *yet*, and inventing a font size or a viewport would produce
+ * a number that looks computed and is wrong. The context is an argument and never
+ * a global, with a `has_` flag on every fact so that "the font size is 16" and "I
+ * do not know the font size" stay two different answers.
+ *
+ * A numeric value has four kinds and no fifth: NUMBER, INTEGER, PERCENTAGE and
+ * LENGTH. They are separate because CSS's grammar separates them — a property
+ * demanding an `<integer>` must refuse `1.5`, and `1.0` is a number token and must
+ * be refused too, which is exactly the silent coercion a single "numeric" kind
+ * would invite. Equality is kind-aware and unit-aware in the same spirit: `0` is
+ * not `0%` and `0px` is not `0em`. A value that is none of the four is not a
+ * numeric value, so it is a parse outcome rather than a kind — and the outcomes
+ * stay apart because they tell a developer different things: an unknown unit is
+ * `10furlongs`, a non-finite magnitude is `1e999`, a deferred value is `calc()`,
+ * and a value that is not numeric at all is `red blue`.
+ *
+ * Everything past that — the box model, layout, `calc()` evaluation — is still a
+ * declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
  * never has to guess. Three boundaries are deliberately not crossed rather than
  * merely unfinished, and each is a decision: `:hover` and its state-dependent
@@ -178,9 +222,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 9
+#define ROBO_CSS_VERSION_MINOR 10
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.9.0"
+#define ROBO_CSS_VERSION_STRING "0.10.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

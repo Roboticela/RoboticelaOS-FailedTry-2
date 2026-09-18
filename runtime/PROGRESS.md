@@ -3183,6 +3183,81 @@ refuses, so the two buffers it printed as "the colours that differ" were
 uninitialised stack. It now checks both writes, because a diagnostic that names
 stack noise as a colour is worse than no diagnostic.
 
+## Goal 9.10 — CSS units
+
+**Status: complete.** The CSS numeric-and-unit subsystem: a closed unit
+vocabulary, a resolution context, a typed numeric value, and the computed-value
+integration that consumes them.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The unit vocabulary | `Include/RoboCSS/RoboCSSUnit.h`, `Source/RoboCSS/RoboCSSUnit.c` — 31 units plus `NONE`, four families, one table row each: spelling, family, fixed factor, viewport family and dimension |
+| The resolution context | `robo_css_unit_context_t` and six `_set_*` setters — a `has_` flag per fact, so "the font size is 16" and "I do not know the font size" stay different answers. An argument, never a global |
+| Resolution | `robo_css_unit_resolve_px` — four outcomes (`RESOLVED` / `NEEDS_CONTEXT` / `NOT_A_LENGTH` / `INVALID`), with `out_px` written only on success |
+| Absolute conversion | The reference-pixel relationships (`1in` = 96px, `1cm` = 96/2.54px, `1pt` = 4/3px, `1Q` = 1/40cm), exact and context-free — no DPI anywhere |
+| The typed value | `robo_css_numeric_t` — `NUMBER` / `INTEGER` / `PERCENTAGE` / `LENGTH`, a tag plus a double plus an enumerator by value, owning nothing |
+| The parse | Five outcomes: `RESOLVED`, `DEFERRED` (`calc`/`min`/`max`/`clamp`/`var`/`env`), `UNKNOWN_UNIT`, `NON_FINITE`, `INVALID` |
+| Serialization | `robo_css_numeric_write` — one canonical spelling, a short buffer refused rather than truncated |
+| Computed-value integration | `RoboCSSComputedValue.c` now *consumes* the module: absolute units convert to `px`, contextual ones carry their unit and number, percentages stay percentages |
+| Version | `RoboCSSVersion.h` 0.10.0; capability `units` = 1 |
+| Documentation | `css/docs/Units.md` (new, the design record), plus `README.md`, `docs/Architecture.md`, `docs/Tests.md`, `docs/ComputedValues.md` and `docs/Colors.md` |
+
+### Definition of done
+
+- [x] A typed numeric/unit subsystem exists as a module of its own, and the
+      computed-value layer holds no second unit table.
+- [x] Tokens the tokenizer produces read as one of four kinds, and nothing reads
+      a number's text.
+- [x] Absolute CSS lengths convert deterministically and exactly, and nothing
+      consults a display.
+- [x] Relative and viewport lengths have a contextual representation and a
+      resolver that can answer `NEEDS_CONTEXT` rather than inventing a font size
+      or a viewport.
+- [x] Percentages are a kind, not a unit, and stay distinguishable from lengths.
+- [x] Unknown units fail safely and are reported apart from a value that is not
+      numeric at all.
+- [x] Numeric overflow, underflow and non-finite input are refused, and the
+      integer conversion checks its range *before* casting.
+- [x] `calc()` and the other reference functions are carried, not claimed.
+- [x] The computed-value integration keeps 9.8's rule: absolute converts, contextual
+      is carried, percentage is kept.
+- [x] Cascade, inheritance, colour and selector behaviour are unchanged, and the
+      visual vertical slice is verified rather than assumed.
+- [x] Tests are comprehensive: 18 in `SuiteRoboCssUnit.c` and one real-DOM pipeline
+      test, covering valid, invalid, boundary, conversion, precision, safety and
+      regression cases.
+- [x] Host and QEMU runtimes still work; no Chromium dependency was introduced.
+
+### What 9.10 found
+
+**One defect the delegation introduced, and one the serializer had all along.**
+
+* **A length-shaped property rejected every keyword.** Moving the keyword handling
+  inside the branch guarded by "there is no single token" meant `auto` never
+  reached it: an IDENT *is* one token, so the identifier fell through to the
+  numeric parse — which is right to call an identifier not a number — and the
+  developer was told `not a length` when the property's grammar simply did not
+  accept the keyword. Seven 9.8 tests failed on it, all the same defect wearing a
+  different property's clothes (`l: auto`, `h: auto`, `font-size: medium`,
+  `width: auto`). The fix asks the property's keyword list before the numeric
+  vocabulary, and the ordering is now commented as load-bearing.
+* **A whole `-0` printed as `-0`.** The negative-zero rule lived in the
+  *fractional* branch, and `-0.0` has no fraction to strip — `%.0f` renders it
+  whole — so the sign survived on a value that is zero, against the header's own
+  documented rule. It now runs after both branches, which is where a rule about the
+  rendered digits belongs.
+
+Four expectations were wrong rather than the implementation: `40Q` is `37.795px`
+and not `9.6px` (a factor of four applied twice — and the suite now asserts the
+relationship in both directions, `40Q` = `1cm` *and* `4Q` = `1mm`); `1e300in` does
+*not* overflow, so the overflow case proves nothing until it uses `1e308` (and now
+asserts that `1e300` resolves, pinning the boundary from both sides); there are 18
+viewport units and not 16 (six in the default family, four in each overridable
+one); and the malformed-input sweep used the runtime's own finiteness predicate,
+which would have agreed with the code under test by construction.
+
 ## Next
 
-- Goal 9.10 — CSS units (do not start until requested)
+- Goal 9.11 — do not start until requested

@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 9);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 10);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 9);
+    ROBO_CHECK_EQ_INT(minor, 10);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -421,6 +421,14 @@ static void test_css_capabilities(void)
      * has no representation for are deferred rather than claimed, which is why
      * this is a flag for colours and not for the whole CSS Color specification. */
     ROBO_CHECK_EQ_INT(caps.colors, 1);
+
+    /* 9.10 gave numbers and units a vocabulary of their own: a closed unit set
+     * across absolute, font-relative and viewport families, exact conversion of
+     * the absolute ones to the reference pixel, and a typed numeric value whose
+     * equality distinguishes `0` from `0%` from `0px`. Contextual units are
+     * carried rather than resolved, which is why this claims the value system
+     * and not the resolution of one. */
+    ROBO_CHECK_EQ_INT(caps.units, 1);
 
     /* ...and everything past that is still 0: no default stylesheet exists, and
      * nothing loads one. */

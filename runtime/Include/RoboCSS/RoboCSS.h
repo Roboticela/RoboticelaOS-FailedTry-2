@@ -148,6 +148,19 @@ typedef struct robo_css_capabilities {
      */
     int colors;
     /**
+     * Units and numbers (9.10): the closed unit vocabulary across its four
+     * families (absolute, font-relative, viewport, and the small/large/dynamic
+     * viewport variants), absolute conversion to the reference pixel, and a
+     * typed numeric value — number, integer, percentage or dimension — with
+     * deterministic equality and one canonical spelling.
+     *
+     * What it does not claim is resolution: `2em` and `50vh` are carried with
+     * their unit and their number, and `robo_css_unit_resolve_px` answers
+     * "needs context" rather than inventing a font size or a viewport. `calc()`
+     * is likewise deferred, not evaluated.
+     */
+    int units;
+    /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
      */

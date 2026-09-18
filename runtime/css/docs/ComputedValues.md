@@ -90,11 +90,21 @@ fact about the value that the kind cannot express.
 
 ## The unit model
 
+> **The vocabulary moved in 9.10.** `robo_css_unit_t`, its accessors and the
+> conversion factors now live in `RoboCSSUnit.h`/`.c` and this document summarises
+> them; `docs/Units.md` is the authoritative account. This header still includes
+> `RoboCSSUnit.h`, so a caller of this one reaches them through the include it
+> already had. The *rule* below is unchanged — that is the point of the move: 9.10
+> added units and a resolution context, and did not change what a computed length
+> means.
+
 A length is a number and a unit, and the units split into two groups:
 
 ```text
 fixed factor → px      px  cm  mm  q  in  pt  pc
-kept as written        em  rem  ex  ch  vw  vh  vmin  vmax
+kept as written        em  rem  ex  ch  lh  rlh  vi  vb
+                       vw  vh  vmin  vmax
+                       svw svh svmin svmax  lvw lvh lvmin lvmax  dvw dvh dvmin dvmax
 ```
 
 The first group converts **here**, exactly: `1in` and `96px` are the same length,
@@ -104,6 +114,13 @@ comparison of spelling. The second group is kept: converting `2em` in this stage
 would produce a number that looks resolved and is wrong on every element with a
 different font size. There is no host-display DPI anywhere in the conversion,
 because the factors are the CSS-defined ones.
+
+Resolving one of those kept units is `robo_css_unit_resolve_px`'s job, and it is a
+*question* with four answers rather than a multiplication: it answers
+`NEEDS_CONTEXT` when the context does not carry what the unit needs, which is what
+keeps a caller from substituting a default it invented. This layer never calls it —
+resolving `2em` needs a font size this stage does not have — and that is why the
+unit stays live on the computed record.
 
 `0` with no unit at all is a length (`0px`), which is CSS's one exception; any
 other bare number is not, and is INVALID rather than read as a number of nothing.
@@ -286,6 +303,12 @@ know when a DOM changed, and a module that does not own a DOM cannot know.
   (`docs/Colors.md` §8).
 * **`var()` substitution.** A reference is carried as a reference. No custom
   property is substituted anywhere.
+* **Resolving a relative length.** `2em`, `50vh` and `1rem` are carried with their
+  unit and their number. `robo_css_unit_resolve_px` (9.10) answers *given a
+  context*; this layer never supplies one, because computing a style has no font
+  metrics and no viewport.
+* **`calc()` and `min()`/`max()`/`clamp()` evaluation.** Carried as references, as
+  they were in 9.8; `docs/Units.md` §6 is where the deferred set is enumerated.
 * **Shorthand expansion.** `margin: 10px` stays one preserved value.
 * **A default stylesheet.** The `RUNTIME` origin slot is still empty, and
   `default_styles` is still 0.
@@ -302,10 +325,22 @@ know when a DOM changed, and a module that does not own a DOM cannot know.
   / `_color` / `_family_list` / `_preserved` / `_invalid`.
 * `robo_css_computed_value_kind_is_known` / `_kind_name` / `_text` /
   `_color` / `_preserved`.
-* `robo_css_unit_is_known` / `_is_absolute` / `_name` / `_from_slice` /
-  `_from_text` / `_to_px`.
 * `robo_css_color_make` / `_equals` / `_from_name` / `_from_hex` /
   `_from_rgb_function`.
+
+`RoboCSSUnit.h` — the vocabulary and the typed number (9.10; reached through this
+header's include, listed here because a reader of *this* document meets them here):
+
+* `robo_css_numeric_none` / `_make_number` / `_make_percentage` / `_make_length` /
+  `_is_present` / `_is_integral` / `_integer_value` / `_equals` / `_write`.
+* `robo_css_numeric_kind_is_known` / `_kind_name`,
+  `robo_css_numeric_parse_is_known` / `_parse_name`,
+  `robo_css_numeric_from_value` / `_from_token`.
+* `robo_css_unit_is_known` / `_class` / `_class_name` / `_is_absolute` /
+  `_is_viewport` / `_viewport_family` / `_name` / `_from_slice` / `_from_text` /
+  `_to_px`.
+* `robo_css_unit_context_init` and the six `_set_*` setters;
+  `robo_css_unit_resolve_px`; `robo_css_length_resolution_is_known` / `_name`.
 
 The record is by value, so the rest of it is read as **fields**: `kind`,
 `number`, `unit`, `is_integer`, `color`, `preserved`, and `unresolved`.

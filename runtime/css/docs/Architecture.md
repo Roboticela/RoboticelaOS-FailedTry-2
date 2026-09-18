@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.9)
+# RoboCSS Architecture (Phase 9.1–9.10)
 
 This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -393,6 +393,36 @@ outcomes (`RESOLVED`/`CURRENT`/`DEFERRED`/`MALFORMED`/`UNKNOWN_NAME`/`INVALID`)
 exist so that "legal CSS this build cannot represent" stays distinguishable from "a
 mistake", because refusing the first would be a lie and accepting the second would
 be a wrong colour. `docs/Colors.md` has the full account.
+
+### Unit
+
+A *unit* is a closed vocabulary rather than a string suffix, so since 9.10 it is a
+type of its own rather than a corner of the computed-value layer:
+
+```text
+Unit                             one unit
+  ├── name                       the canonical spelling
+  ├── class                      NONE / ABSOLUTE / FONT_RELATIVE / VIEWPORT
+  ├── to_px                      the fixed factor, 0.0 when there is none
+  └── family + measure           which viewport, and which dimension of it
+```
+
+One table row per unit, and every accessor is a lookup in it, so adding `dvw` is
+adding a row rather than adding a branch to four functions. The set is 31 units plus
+`NONE`, and the enumerator values are append-only because a stored enumerator is a
+contract: 9.8's units keep the numbers they had and 9.10 appends `lh`, `rlh`, `vi`,
+`vb` and the twelve `sv*`/`lv*`/`dv*` units.
+
+`robo_css_unit_context_t` is what a *relative* unit needs in order to mean anything
+— the element's font metrics, the root's, and up to four viewport sizes — and it is
+an argument rather than a global, with a `has_` flag per fact so that "the font size
+is 16" and "I do not know the font size" stay two different answers. That is what
+makes `robo_css_unit_resolve_px` a *question* with four answers rather than a
+multiplication: `RESOLVED`, `NEEDS_CONTEXT`, `NOT_A_LENGTH` or `INVALID`. Absolute
+conversion needs none of it and is exact by definition, so nothing in this module
+knows about DPI. `robo_css_numeric_t` is the typed number that carries a unit —
+four kinds, kind-aware equality, and one canonical spelling. `docs/Units.md` has the
+full account.
 
 ### Rule
 

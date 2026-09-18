@@ -308,6 +308,73 @@ backgrounds: it is the only *second* colour-shaped property, and without one the
 rule that resolves `currentColor` against the element's own `color` would be
 unreachable and therefore unprovable. `docs/Colors.md` has the full account.
 
+## Units and numbers (9.10)
+
+Most of what a declaration says is a number with something attached to it, and this
+phase is the something. It is a module (`RoboCSSUnit.h`) for the same reason
+colours got one: 9.8's unit table lived inside the computed-value layer because that
+was its only reader, and a second reader — whatever has a font size, or a viewport —
+is what turns a table into a module. The value layer now consumes that vocabulary
+rather than keeping its own.
+
+The unit set is a **closed vocabulary**, not strings. `10px` is not `10` plus the
+text `px`: the unit is an enumerator, and one table row says everything about it —
+its spelling, its family, its fixed factor, and which viewport and dimension it
+measures. Adding `dvw` is adding a row rather than adding a branch to four
+functions. `10PX` is `10px`; `10pixels` is not.
+
+The decision the phase is built around is that resolving a length is a **question**
+rather than a multiplication:
+
+```c
+ROBO_CSS_LENGTH_RESOLVED         *out_px holds the length
+ROBO_CSS_LENGTH_NEEDS_CONTEXT    the unit is fine; the context is not
+ROBO_CSS_LENGTH_NOT_A_LENGTH     NONE, unknown, or not a length
+ROBO_CSS_LENGTH_INVALID          a magnitude or context input that is not finite
+```
+
+`1in` is 96px *by definition*, so absolute conversion is exact and consults no
+display — nothing here knows about DPI, because only a used value may. `2em` is not a
+length until something says what the font size is, and a module that guessed would
+produce a number that looked computed and was wrong. So `robo_css_unit_resolve_px`
+takes a **context** — an argument, never a global, with a `has_` flag per fact, so
+that "the font size is 16" and "I do not know the font size" stay two different
+answers — and answers `NEEDS_CONTEXT` when the context does not say enough.
+
+`NEEDS_CONTEXT` is the answer that matters. Collapsing it into "failed" is how a
+caller ends up substituting a default it invented, which is the mistake this module
+exists to prevent. `0em` with no context is still `NEEDS_CONTEXT`: what is missing is
+the context, not the magnitude.
+
+The type is four kinds and no fifth:
+
+```c
+typedef struct robo_css_numeric {
+    robo_css_numeric_kind_t kind;   /* NONE | NUMBER | INTEGER | PERCENTAGE | LENGTH */
+    double number;
+    robo_css_unit_t unit;           /* LENGTH only */
+} robo_css_numeric_t;
+```
+
+Separate because CSS's grammar separates them: a property whose grammar says
+`<integer>` must refuse `1.5`, and must refuse `1.0` too — because `1.0` is a number
+token, and accepting it would be the silent coercion the distinction exists to
+catch. There is no `INVALID` kind: a value that is none of the four is not a numeric
+value, which is a fact about the parse rather than about the value.
+
+The parse has five outcomes, and `DEFERRED` is the one that keeps the phase honest.
+`calc(100% - 20px)` and `var(--w)` are legal CSS that is not a number yet, so they
+are carried with their tokens rather than called mistakes or half-evaluated.
+`UNKNOWN_UNIT` (`10furlongs`) and `NON_FINITE` (`1e999`) are separate from `INVALID`
+(`red blue`) because a developer learns three different things.
+
+One canonical spelling, so two equal values cannot print differently: `10` not
+`10.000000`, `1.5` not `1.500000`, `-0` → `0`, `10PX` → `10px`, and a magnitude
+below the fixed-point precision rendered compactly rather than as `0` — because
+printing a value that is not zero as zero is a lie a layout would act on.
+
+`docs/Units.md` has the full account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -359,8 +426,8 @@ a destroyed id stays dead.
 runtime/
 ├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h,
 │                             RoboCSSSpecificity.h, RoboCSSPropertyRegistry.h,
-│                             RoboCSSInherit.h, RoboCSSComputedValue.h and
-│                             RoboCSSColor.h)
+│                             RoboCSSInherit.h, RoboCSSComputedValue.h,
+│                             RoboCSSColor.h and RoboCSSUnit.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -378,7 +445,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 471 tests only
+scripts/robo test-css        # this subsystem's 490 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -401,5 +468,6 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Inheritance.md` | The 9.7 inheritance: the three sets and their order, the property registry and its precedence, the CSS-wide keywords and why `revert` is carried rather than obeyed, custom-property behaviour, provenance, ownership, the primitive and chain doors, the invalidation boundary, and the stylesheet-lifetime rule the suites follow |
 | `docs/ComputedValues.md` | The 9.8 computed values: specified / resolved / computed / used, the closed set of typed shapes and why `PRESERVED`, `INVALID` and `UNRESOLVED` each exist, the unit model, the colour forms and the 9.9 seam, the registry's new `computation` column, the computed style's flags and counters, the chain door, determinism and ownership, and the invalidation boundary |
 | `docs/Colors.md` | The 9.9 colours: the record and its four kinds, why 8 bits per channel, the 148-name table and why `transparent` is not in it, every syntax with its clamping and normalisation rules, the six outcomes and why each exists, the two `currentColor` rules, the `var()` boundary, the registry's second colour property, serialization, the deferred spaces as extension points, and the robustness set |
+| `docs/Units.md` | The 9.10 units and numbers: the closed vocabulary and its four families, why `is_absolute` is asked of the table, the reference-pixel relationships, the context and its flags, why the small/large/dynamic viewport is a fallback chain, the four resolutions, the four numeric kinds and the two integer questions, the five parse outcomes and why there is no `MALFORMED`, the canonical spelling, the deferred `calc()`/`var()` boundary, the computed-value integration, ownership, and numeric safety |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1–9.9 records and their definitions of done |
+| `../PROGRESS.md` | The Goal 9.1–9.10 records and their definitions of done |

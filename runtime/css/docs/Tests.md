@@ -115,6 +115,13 @@ produces, which is the half of the job that cannot break.
 |---|---|---|
 | `SuiteRoboCssColor.c` | 19 | The module (`css.color.*`): the four kinds and their name table, the kind-aware equality that keeps `currentColor` from comparing equal to a channel set, the cleared state, the six parse outcomes and their names, the standard set (five representative names, then **the whole 148-entry table** walked by index with every entry opaque and every repeated name agreeing, plus case-insensitivity, `transparent` as a colour that is not a *named* one, and an unknown identifier staying unknown), all four hex lengths against wrong lengths, non-hex digits and a space, both argument styles of `rgb()`/`rgba()` with numeric/percentage/mixed channels and numeric/percentage alpha, clamping rather than wrapping (`300`, `-5`, `200%`), one rounding at the end (`51%` → `130`), the mixing of separator styles refused, `hsl()`/`hsla()` with the four angle units, hue normalised (`-120`, `480`, `720`, `-360`, `1e300turn`) and saturation/lightness clamped, `currentColor` typed and the substitution's four cases, the eight deferred spaces reported as deferred rather than refused, `not_a_colour` drawing the line the other way (`sparkle(1)` refused, `10px` not a colour, `red blue` not a colour), 37 malformed declarations driven through the parser with two invariants asserted on every one, and serialization (one spelling per kind, alpha only when it is not opaque, a short buffer refused with the length it needed) — then the integration group (`css.color.computed.*`): twelve spellings of four syntaxes converging on one computed colour each, a typed colour inheriting through two levels with the intermediate override, `background-color` *not* inheriting, `initial`/`inherit`/`unset` on both kinds, the two `currentColor` rules separated by a parent whose colour differs from its child's, a root element whose `currentColor` stays contextual and stays flagged, a `var()` reference carried beside a misspelled colour and an untouched custom property, the whole selector pipeline over a three-level tree, and determinism |
 
+### 9.10 — units and numbers
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssUnit.c` | 18 | The module (`css.unit.*`, `css.numeric.*`): the vocabulary (every enumerator's spelling resolving back to it, the count of 31 real units and 18 viewport units pinned, one representative per family, the whole-set sweep that no relative unit reports itself absolute, unknown enumerators answering nothing rather than the first row, case-insensitivity, `pixels` not being `px`), absolute conversion (every definitional pair, `40Q` = `1cm` *and* `4Q` = `1mm`, zero and negative, `to_px` returning its input for a unit with no factor), resolution (the whole contextual set answering `NEEDS_CONTEXT` with no context *and* with an empty one, font-relative resolved against element metrics and root metrics separately and each refusing without the other, viewport families and the fallback chain with and without overrides, `vmin`/`vmax` picking a dimension, `vi`/`vb` swapping with the writing mode, non-finite magnitudes and non-finite context inputs as `INVALID`, `1e308in` overflow, `NOT_A_LENGTH` for `NONE`, an unwritten `out_px` on every refusal, and a NULL output), the context (a cleared one knows nothing, the setters set their flags, re-init clears, every setter tolerates NULL), the four kinds and their name tables, the two integer questions and the 2^53 bound, kind-aware and unit-aware equality, the constructors (non-finite refused, a length with no unit refused, a failing constructor leaving its output alone), the five outcomes with `DEFERRED` for all six reference functions, `1e999` as `NON_FINITE`, an untouched record on refusal, the token door agreeing with the value door, serialization (whole/fractional/trailing-zero/negative-zero/percentage/unit-canonical/tiny-magnitude, a short buffer refused with the length it needed, a cleared record writing nothing, NULL arguments), 32 malformed declarations driven through with two invariants asserted on every one, and the computed-value integration (every unit family through a real element, `font-size: inherit` landing on the parent's contextual length, `initial`/`unset` on a length-shaped property landing on `auto`, a sheet holding colours and numbers at once, and determinism over a document plus the vocabulary walked in reverse) |
+| `SuiteRoboCssDomSelect.c` (`css.dom.unit.pipeline`) | 1 | Every family over the **visual checkpoint's own document**: a contextual unit carried with its unit live on the record (`30em`, `1.25rem`, `50vh`), an absolute length converted wherever it was written (`2.54cm` and `6pc` both landing on `96px`), a non-inherited property nobody declared having no entry, `40q` and the two axes and the dynamic family, `1e2px`, a percentage staying a percentage beside a converted length, an unknown unit reported with the rest of the style unharmed, and the same element computed twice giving the same typed unit and magnitude |
+
 ### 9.7 — property metadata and inheritance
 
 | Suite | Tests | Subject |
@@ -664,3 +671,54 @@ passed `NULL` for the serialization length, which `robo_css_color_write` refuses
 so the two buffers it printed as "the colours that differ" were uninitialised
 stack. It now checks both writes and blanks a buffer that failed, because a
 diagnostic that names stack noise as a colour is worse than no diagnostic.
+
+## 14. What the 9.10 suites found
+
+One real product defect, and one defect the *delegation* introduced — which is the
+more interesting of the two, because it was invisible until the suites ran.
+
+> **A length-shaped property rejected every keyword.** The computed-value layer's
+> length path moved its keyword handling inside the branch guarded by "there is no
+> single token". `auto` is one IDENT *token*, so it never entered that branch: the
+> identifier fell through to the numeric parse, which is right to call an identifier
+> not a number, and the developer was told `not a length` when the property's grammar
+> simply did not accept the keyword they wrote. Seven 9.8 tests failed on it —
+> `l: auto`, `h: auto`, `font-size: medium`, `width: auto` — and every one was the
+> same defect wearing a different property's clothes. The fix asks the property's
+> keyword list **before** the numeric vocabulary, and the comment saying why is now
+> load-bearing rather than decorative.
+
+> **A whole `-0` printed as `-0`.** The serializer normalized negative zero inside
+> the *fractional* branch, and `-0.0` has no fraction to strip — `%.0f` renders it
+> whole — so the sign survived on a value that is zero. The header documents "a
+> negative zero is `0`, because it is zero", so the rule was right and its placement
+> was wrong. It now runs after both branches, which is where a rule about the
+> *rendered digits* belongs. Found by `css.numeric.write`.
+
+Four expectations were wrong rather than the implementation, and all four are the
+kind of mistake worth recording:
+
+* **`40Q` is `37.795px`, not `9.6px`.** `Q` is a quarter of a *millimetre*, so
+  forty of them are a centimetre. The assertion had a factor of four applied twice.
+  The suite now asserts the relationship both ways round — `40Q` is `1cm` and `4Q`
+  is `1mm` — precisely because one direction alone would not have caught it.
+* **`1e300in` does not overflow.** 9.6e301 is a finite `double`; the case was chosen
+  to prove that a product which overflows is reported `INVALID` rather than as
+  infinity, and the magnitude did not overflow, so it proved nothing. It now uses
+  `1e308` and asserts that `1e300` *resolves*, so the boundary is pinned from both
+  sides.
+* **There are 18 viewport units, not 16.** Six in the default family — `vw`, `vh`,
+  `vmin`, `vmax`, `vi`, `vb` — and four in each of the three overridable ones. The
+  count is still pinned as a number, so a family added without its units fails here.
+* **A helper asserted the module with the module.** The malformed-input sweep
+  checked finiteness with the runtime's own predicate, so the assertion would have
+  agreed with the code under test by construction. It now spells the finiteness test
+  out, which is what makes it an assertion about the parser rather than about
+  itself.
+
+A note on what the phase *did* catch early, which is the reason it is worth
+writing down: `robo_css_numeric_from_value`'s contract — exactly one significant
+component — was already correct, and the reason `10 px` and `1.2.3` are `INVALID`
+rather than a silently-halved number is that the tokenizer is lossless and the
+component check happens before any numeric reading. The malformed sweep exists to
+keep that true rather than to establish it.

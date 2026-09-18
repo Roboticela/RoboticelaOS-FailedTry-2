@@ -1860,6 +1860,155 @@ static void test_css_dom_computed_does_not_disturb_the_picture(void)
     css_dom_cascade_end(&fixture);
 }
 
+/**
+ * `css.dom.unit.pipeline` — the unit and number vocabulary over the real tree.
+ *
+ * The CSS-side suite proves the vocabulary; this proves it survives a document.
+ * Every family is declared somewhere on the checkpoint's own tree, and the two
+ * halves of the phase's contract are asserted through the *computed style* rather
+ * than through the parser: an absolute length lands converted, a contextual one
+ * lands with its unit still live, and a percentage is still a percentage. The
+ * unit is read off the typed record as well as off the text, because a value that
+ * printed `3.5rem` while carrying `px` would pass a text-only test.
+ */
+static void test_css_dom_unit_pipeline(void)
+{
+    css_dom_cascade_t fixture;
+    robo_css_computed_style_t *body_style = NULL;
+    robo_css_computed_style_t *paragraph = NULL;
+    robo_css_computed_style_t *field = NULL;
+    robo_css_computed_style_t *label = NULL;
+    robo_css_computed_style_t *area = NULL;
+    robo_css_computed_style_t *picker = NULL;
+    robo_css_computed_style_t *button = NULL;
+    const robo_css_computed_value_t *value;
+    robo_css_stylesheet_id_t sheet;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "body { width: 30em; font-size: 1.25rem; height: 50vh }\n"
+                                  "p { width: 2.54cm }\n"
+                                  "form { width: 6pc }\n"
+                                  "input { width: 3.5rem; height: 2vi }\n"
+                                  "label { width: 40q; font-size: inherit }\n"
+                                  "textarea { width: 1e2px; height: 75% }\n"
+                                  "select { width: 12dvmax }\n"
+                                  "button { width: 10furlongs }");
+
+    /* Every element this test reads really exists in the document, so an
+     * assertion below is about a computed style rather than about a missing
+     * element answering nothing. */
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "body") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "label") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "textarea") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "select") != ROBO_CSS_ELEMENT_REF_NONE);
+
+    /* Contextual units stay contextual, with the unit still live on the record —
+     * which is what a later phase resolves and what converting here would
+     * destroy. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "body"), &body_style);
+    css_computed_is(body_style, "width", "30em");
+    css_computed_is(body_style, "font-size", "1.25rem");
+    css_computed_is(body_style, "height", "50vh");
+    value = robo_css_computed_style_computed_by_name(body_style,
+                                                     robo_css_slice_from_text("height"));
+    ROBO_CHECK(value != NULL);
+    ROBO_CHECK_EQ_INT(value ? (int)value->kind : -1, ROBO_CSS_COMPUTED_VALUE_LENGTH);
+    ROBO_CHECK_EQ_INT(value ? (int)value->unit : -1, (int)ROBO_CSS_UNIT_VH);
+    ROBO_CHECK_EQ_INT(value ? (int)value->number : -1, 50);
+
+    /* An absolute length is converted to the reference pixel wherever it was
+     * written: `2.54cm` and `6pc` are 96px, which is the same number the wheel
+     * of absolute units gives a metre. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "p"), &paragraph);
+    css_computed_is(paragraph, "width", "96px");
+    value = robo_css_computed_style_computed_by_name(paragraph,
+                                                     robo_css_slice_from_text("width"));
+    ROBO_CHECK_EQ_INT(value ? (int)value->unit : -1, (int)ROBO_CSS_UNIT_PX);
+    /* And a non-inherited property nobody declared has no entry at all, which is
+     * a different answer from a wrong one. */
+    css_computed_is(paragraph, "height", "<absent>");
+    {
+        robo_css_computed_style_t *form_style = NULL;
+
+        css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "form"), &form_style);
+        css_computed_is(form_style, "width", "96px");
+        robo_css_computed_style_destroy(form_style);
+    }
+
+    /* The unit that is a quarter of a millimetre, and the axes and the dynamic
+     * family: three of the forms 9.10 added, each carried rather than guessed. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "label"), &label);
+    css_computed_is(label, "width", "37.795276px");
+    /* `font-size: inherit` takes the body's *computed* contextual length two
+     * levels up, which is inheritance and the unit vocabulary meeting: the label
+     * gets `1.25rem`, not a re-parse of `1.25rem` and not a pixel count. */
+    css_computed_is(label, "font-size", "1.25rem");
+    css_computed_flags_are(label, "font-size", "inherited");
+
+    css_dom_compute(&fixture, css_dom_ref_by_id(&fixture.dom, "DisplayName"), &field);
+    css_computed_is(field, "width", "3.5rem");
+    css_computed_is(field, "height", "2vi");
+
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "textarea"), &area);
+    css_computed_is(area, "width", "100px");
+    /* A percentage stays a percentage beside a converted length, because only
+     * layout knows what it is a percentage *of*. */
+    css_computed_is(area, "height", "75%");
+    value = robo_css_computed_style_computed_by_name(area,
+                                                     robo_css_slice_from_text("height"));
+    ROBO_CHECK_EQ_INT(value ? (int)value->kind : -1,
+                      (int)ROBO_CSS_COMPUTED_VALUE_PERCENTAGE);
+
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "select"), &picker);
+    css_computed_is(picker, "width", "12dvmax");
+
+    /* An unknown unit is *reported* rather than read as a bare number, and the
+     * rest of the element's style is unharmed. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "button"), &button);
+    css_computed_is(button, "width", "unknown length unit");
+    css_computed_flags_are(button, "width", "declared+invalid");
+    /* The inherited half is present: the button declares no font size, so it has
+     * the body's contextual length. */
+    css_computed_is(button, "font-size", "1.25rem");
+    css_computed_flags_are(button, "font-size", "inherited");
+
+    /* Deterministic over the real tree: the same element computed twice yields
+     * the same typed unit and the same magnitude. The comparison is on the
+     * *record* rather than on the text, so a value that printed the same while
+     * carrying a different unit would still fail. */
+    {
+        robo_css_computed_style_t *again = NULL;
+        const robo_css_computed_value_t *first = NULL;
+        const robo_css_computed_value_t *second = NULL;
+
+        css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "body"), &again);
+        first = robo_css_computed_style_computed_by_name(body_style,
+                                                        robo_css_slice_from_text("font-size"));
+        second = robo_css_computed_style_computed_by_name(again,
+                                                          robo_css_slice_from_text("font-size"));
+        ROBO_CHECK(first != NULL && second != NULL);
+        if (first && second) {
+            ROBO_CHECK_EQ_INT((int)second->kind, (int)first->kind);
+            ROBO_CHECK_EQ_INT((int)second->unit, (int)first->unit);
+            ROBO_CHECK_EQ_INT((int)second->number, (int)first->number);
+        }
+        ROBO_CHECK_EQ_INT((int)second->unit, (int)ROBO_CSS_UNIT_REM);
+        ROBO_CHECK_EQ_INT((int)second->number, 1);
+        robo_css_computed_style_destroy(again);
+    }
+
+    robo_css_computed_style_destroy(button);
+    robo_css_computed_style_destroy(picker);
+    robo_css_computed_style_destroy(area);
+    robo_css_computed_style_destroy(field);
+    robo_css_computed_style_destroy(label);
+    robo_css_computed_style_destroy(paragraph);
+    robo_css_computed_style_destroy(body_style);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -1899,4 +2048,5 @@ void robo_test_register_css_dom_select(void)
     robo_test_register("css.dom.computed.pipeline", test_css_dom_computed_pipeline);
     robo_test_register("css.dom.computed.does_not_disturb_the_picture",
                        test_css_dom_computed_does_not_disturb_the_picture);
+    robo_test_register("css.dom.unit.pipeline", test_css_dom_unit_pipeline);
 }

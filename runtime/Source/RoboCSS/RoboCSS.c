@@ -275,6 +275,14 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * colour spaces this build cannot represent are carried and *reported* as
      * deferred rather than approximated. */
     out->colors = 1;
+    /* 9.10 gave numbers and units a module of their own (RoboCSSUnit.h): the
+     * closed unit vocabulary with its families and its fixed factors, a typed
+     * numeric value with deterministic equality, and one canonical spelling that
+     * the value layer consumes rather than reformatting. Resolution is a
+     * *question* — `robo_css_unit_resolve_px` answers "needs context" for `2em`
+     * with no font and `50vh` with no viewport — which is why this is a flag for
+     * the value system and not for resolving anything against a layout. */
+    out->units = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

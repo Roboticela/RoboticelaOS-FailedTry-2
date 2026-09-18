@@ -1,15 +1,20 @@
 /*
  * RoboCSS computed values (Phase 9.8) — see RoboCSSComputedValue.h.
  *
- * Three things live here and nothing else:
+ * Two things live here and nothing else:
  *
- *   units      the closed set, which of them have a fixed px factor, and the
- *              identifier -> unit mapping
- *   colours    the standard named set, the four hex lengths, and rgb()/rgba()
- *              in both syntaxes — everything the COLOUR kind needs, with the
- *              modern spaces and `currentColor` left to 9.9
  *   compute    the one dispatch from "what shape is this property" to a typed
  *              value, which is the whole of this phase's normalisation
+ *   preserve   the token-tree readers and writer a PRESERVED value needs, and
+ *              the numeric writer, which are the parts nothing else owns
+ *
+ * It used to be four. 9.9 took the colour model out to RoboCSSColor.c and 9.10 took
+ * the unit vocabulary and the numeric parse out to RoboCSSUnit.c, and in both cases
+ * the reason was the same: this file was their only reader until a second one
+ * arrived, and a subsystem with two readers needs a name and a header rather than a
+ * second copy. This layer now owns the *dispatch* — which shape is this property,
+ * and what does a value of that shape become — and delegates the shapes it does not
+ * own to the modules that do.
  *
  * Two habits are worth naming because they are what keeps the file honest.
  *
@@ -35,114 +40,23 @@
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
-/* Units                                                              */
+/* Units — moved to RoboCSSUnit.c in 9.10                               */
 /* ------------------------------------------------------------------ */
 
-/** One unit: its spelling, and its factor to px (0 when it has none). */
-typedef struct computed_unit_entry {
-    const char *name;
-    robo_css_unit_t unit;
-    double to_px;
-} computed_unit_entry_t;
-
 /*
- * The closed set.
+ * 9.8 kept the unit table and its six accessors here, because this file was their
+ * only reader. 9.10 gave them a module (RoboCSSUnit.h/.c, reached through this
+ * header's include of it), and this file now *consumes* that vocabulary instead of
+ * defining it: `robo_css_unit_from_slice` turns a dimension's unit into an
+ * enumerator exactly as before, and the difference is that it is the one place
+ * that does so rather than the first of two.
  *
- * The px factors are CSS's own, and they are exact by definition rather than by
- * measurement: 1in is 96px, 1cm is 96/2.54px, and the rest follow. Nothing here
- * consults a display's DPI, which is the point — an absolute length means the
- * same thing everywhere, and only a *used* value (a later phase's) may care
- * about the device.
+ * What changed for this layer, and it is one thing: `computed_compute_length` no
+ * longer opens a token and decides what it is. It asks `robo_css_numeric_from_value`
+ * — the module's parse door — and translates the answer. The five outcomes are not
+ * five new branches here; four of them are "this is not a length, and the reason
+ * is the diagnostic".
  */
-static const computed_unit_entry_t computed_units[] = {
-    { "px",   ROBO_CSS_UNIT_PX,   1.0 },
-    { "cm",   ROBO_CSS_UNIT_CM,   96.0 / 2.54 },
-    { "mm",   ROBO_CSS_UNIT_MM,   96.0 / 25.4 },
-    { "q",    ROBO_CSS_UNIT_Q,    96.0 / 101.6 },
-    { "in",   ROBO_CSS_UNIT_IN,   96.0 },
-    { "pt",   ROBO_CSS_UNIT_PT,   96.0 / 72.0 },
-    { "pc",   ROBO_CSS_UNIT_PC,   16.0 },
-    { "em",   ROBO_CSS_UNIT_EM,   0.0 },
-    { "rem",  ROBO_CSS_UNIT_REM,  0.0 },
-    { "ex",   ROBO_CSS_UNIT_EX,   0.0 },
-    { "ch",   ROBO_CSS_UNIT_CH,   0.0 },
-    { "vw",   ROBO_CSS_UNIT_VW,   0.0 },
-    { "vh",   ROBO_CSS_UNIT_VH,   0.0 },
-    { "vmin", ROBO_CSS_UNIT_VMIN, 0.0 },
-    { "vmax", ROBO_CSS_UNIT_VMAX, 0.0 }
-};
-
-int robo_css_unit_is_known(robo_css_unit_t unit)
-{
-    return unit >= ROBO_CSS_UNIT_NONE && unit < (robo_css_unit_t)ROBO_CSS_UNIT_COUNT;
-}
-
-int robo_css_unit_is_absolute(robo_css_unit_t unit)
-{
-    size_t index;
-
-    /* Asked of the table, not of `to_px`: that function answers with the value
-     * it was given when the unit has no fixed factor, so a relative unit and an
-     * undeclared one both come back looking convertible. The factor being
-     * present is the fact this predicate is about. */
-    for (index = 0u; index < sizeof(computed_units) / sizeof(computed_units[0]); index++) {
-        if (computed_units[index].unit == unit) {
-            return computed_units[index].to_px != 0.0;
-        }
-    }
-    return 0;
-}
-
-const char *robo_css_unit_name(robo_css_unit_t unit)
-{
-    size_t index;
-
-    if (unit == ROBO_CSS_UNIT_NONE) {
-        return "";
-    }
-    for (index = 0u; index < sizeof(computed_units) / sizeof(computed_units[0]); index++) {
-        if (computed_units[index].unit == unit) {
-            return computed_units[index].name;
-        }
-    }
-    return "";
-}
-
-robo_css_unit_t robo_css_unit_from_slice(robo_css_slice_t name)
-{
-    size_t index;
-
-    if (robo_css_slice_is_absent(name) || name.length == 0u) {
-        return ROBO_CSS_UNIT_NONE;
-    }
-    for (index = 0u; index < sizeof(computed_units) / sizeof(computed_units[0]); index++) {
-        if (robo_css_bytes_equal_ascii_ci(name.bytes, name.length,
-                                         computed_units[index].name)) {
-            return computed_units[index].unit;
-        }
-    }
-    return ROBO_CSS_UNIT_NONE;
-}
-
-robo_css_unit_t robo_css_unit_from_text(const char *name)
-{
-    if (!name) {
-        return ROBO_CSS_UNIT_NONE;
-    }
-    return robo_css_unit_from_slice(robo_css_slice_from_text(name));
-}
-
-double robo_css_unit_to_px(double value, robo_css_unit_t unit)
-{
-    size_t index;
-
-    for (index = 0u; index < sizeof(computed_units) / sizeof(computed_units[0]); index++) {
-        if (computed_units[index].unit == unit && computed_units[index].to_px != 0.0) {
-            return value * computed_units[index].to_px;
-        }
-    }
-    return value;
-}
 
 /* ------------------------------------------------------------------ */
 /* Reading a component value                                          */
@@ -690,42 +604,64 @@ static char computed_bracket_close(robo_css_token_type_t type)
  * decimals — enough that every length and colour channel this build produces
  * round-trips, and few enough that `0.1 + 0.2` does not print seventeen digits.
  */
-static int computed_write_number(double value, int is_integer,
-                                 char *buffer, size_t capacity, size_t *used)
+/**
+ * Append @p numeric's canonical text to the buffer at @p used.
+ *
+ * The spelling is the unit module's (RoboCSSUnit.h), and that is the point: a
+ * number formatted one way here and another way there is the same class of defect
+ * as two colour parsers, and `10px`, `10%` and `10` have to agree about how ten is
+ * written. The module owns that rule; this layer owns deciding *which* numeric a
+ * computed value is.
+ */
+static int computed_append_numeric(const robo_css_numeric_t *numeric,
+                                   char *buffer, size_t capacity, size_t *used)
 {
-    char digits[64];
-    int written;
-    size_t length;
+    char text[ROBO_CSS_NUMERIC_TEXT_MAX];
+    size_t length = 0u;
 
-    if (capacity <= *used + 1u) {
+    if (robo_css_numeric_write(*numeric, text, sizeof(text), &length, NULL) != ROBO_OK) {
         return 0;
-    }
-    written = snprintf(digits, sizeof(digits),
-                       is_integer ? "%.0f" : "%.6f", value);
-    if (written < 0 || (size_t)written >= sizeof(digits)) {
-        return 0;
-    }
-    length = (size_t)written;
-    if (!is_integer) {
-        while (length > 0u && digits[length - 1u] == '0') {
-            length--;
-        }
-        if (length > 0u && digits[length - 1u] == '.') {
-            length--;
-        }
-        if (length == 0u) {
-            /* `-0.000000` is zero, and zero renders as `0`. */
-            digits[0] = '0';
-            length = 1u;
-        }
     }
     if (capacity <= *used + length) {
         return 0;
     }
-    memcpy(buffer + *used, digits, length);
+    memcpy(buffer + *used, text, length);
     *used += length;
     buffer[*used] = '\0';
     return 1;
+}
+
+/**
+ * Write the numeric a NUMBER, PERCENTAGE or LENGTH computed value carries.
+ *
+ * The computed value's own `is_integer` is deliberately *not* handed over: the
+ * module formats by value, so `10`, `10.0` and `1e1` all write as `10` and the
+ * field stays what it has always been — the tokenizer's record that the author
+ * wrote a whole number, which is the `<integer>` question rather than a formatting
+ * hint.
+ */
+static int computed_write_numeric_kind(const robo_css_computed_value_t *value,
+                                       char *buffer, size_t capacity, size_t *used)
+{
+    robo_css_numeric_t numeric = robo_css_numeric_none();
+    robo_result_t rc;
+
+    switch (value->kind) {
+    case ROBO_CSS_COMPUTED_VALUE_PERCENTAGE:
+        rc = robo_css_numeric_make_percentage(&numeric, value->number, NULL);
+        break;
+    case ROBO_CSS_COMPUTED_VALUE_LENGTH:
+        rc = robo_css_numeric_make_length(&numeric, value->number, value->unit, NULL);
+        break;
+    default:
+        rc = robo_css_numeric_make_number(&numeric, value->number, value->is_integer,
+                                          NULL);
+        break;
+    }
+    if (rc != ROBO_OK) {
+        return 0;
+    }
+    return computed_append_numeric(&numeric, buffer, capacity, used);
 }
 
 static int computed_write_into(const robo_css_value_t *value, char *buffer,
@@ -846,29 +782,11 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
         used = value->text_length;
         break;
     case ROBO_CSS_COMPUTED_VALUE_NUMBER:
-        ok = computed_write_number(value->number, value->is_integer, buffer, capacity,
-                                   &used);
-        break;
     case ROBO_CSS_COMPUTED_VALUE_PERCENTAGE:
-        ok = computed_write_number(value->number, value->is_integer, buffer, capacity,
-                                   &used) &&
-             computed_append_char(buffer, capacity, &used, '%');
-        break;
     case ROBO_CSS_COMPUTED_VALUE_LENGTH:
-        ok = computed_write_number(value->number, value->is_integer, buffer, capacity,
-                                   &used);
-        if (ok) {
-            const char *unit = robo_css_unit_name(value->unit);
-            size_t length = strlen(unit);
-
-            if (length >= capacity - used) {
-                ok = 0;
-            } else {
-                memcpy(buffer + used, unit, length);
-                used += length;
-                buffer[used] = '\0';
-            }
-        }
+        /* One writer for the three numeric kinds, because the difference between
+         * them is a suffix the module already knows how to add. */
+        ok = computed_write_numeric_kind(value, buffer, capacity, &used);
         break;
     case ROBO_CSS_COMPUTED_VALUE_COLOR:
         /* One spelling per colour, and it is the colour subsystem's: this layer
@@ -1077,62 +995,41 @@ static int computed_length_keyword_is_known(const char *keyword, size_t length)
     return 0;
 }
 
-/** Compute a length-family value: dimension, percentage, zero, or keyword. */
+/**
+ * Compute a length-family value: dimension, percentage, zero, or keyword.
+ *
+ * The numeric shapes come from the module (RoboCSSUnit.h) and the keyword shape is
+ * this layer's, and the split is the phase boundary: a unit's meaning belongs to
+ * the unit vocabulary, and a property's accepted keyword list belongs to the
+ * property. So this function asks the module what the value *is* and then decides
+ * whether that is something a length-shaped property may hold.
+ *
+ * The four non-RESOLVED outcomes map to four different diagnostics, and they stay
+ * four because a developer reading "unknown length unit", "a bare number is not a
+ * length" or "not a finite number" learns three different things about the
+ * declaration they wrote.
+ *
+ * The keyword is asked first, and that ordering is load-bearing — see the comment
+ * inside.
+ */
 static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
                                              const robo_css_value_t *specified,
                                              robo_css_diag_t *diag)
 {
     const robo_css_token_t *token = computed_single_token(specified);
+    robo_css_numeric_t numeric = robo_css_numeric_none();
 
-    if (!token) {
-        const robo_css_value_t *single = robo_css_value_single(specified);
-
-        if (single && (computed_function_is_unresolved(single) ||
-                       robo_css_value_function_named(single, "calc") ||
-                       robo_css_value_function_named(single, "min") ||
-                       robo_css_value_function_named(single, "max") ||
-                       robo_css_value_function_named(single, "clamp"))) {
-            return computed_keep(out, specified, 1, diag);
-        }
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                               "not a single length component", diag);
-    }
-    if (!robo_css_number_is_finite(token->number)) {
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                               "not a finite number", diag);
-    }
-    switch (token->type) {
-    case ROBO_CSS_TOKEN_DIMENSION: {
-        robo_css_unit_t unit = robo_css_unit_from_slice(token->unit);
-
-        if (unit == ROBO_CSS_UNIT_NONE) {
-            return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                                   "unknown length unit", diag);
-        }
-        if (robo_css_unit_is_absolute(unit)) {
-            /* `1in` and `96px` are the same length, so a computed value has one
-             * of them. Converting here is exact, not an approximation. */
-            return robo_css_computed_value_make_length(
-                out, robo_css_unit_to_px(token->number, unit), ROBO_CSS_UNIT_PX,
-                token->is_integer, diag);
-        }
-        return robo_css_computed_value_make_length(out, token->number, unit,
-                                                   token->is_integer, diag);
-    }
-    case ROBO_CSS_TOKEN_PERCENTAGE:
-        /* Stays a percentage: only layout knows what it is a percentage *of*. */
-        return robo_css_computed_value_make_percentage(out, token->number,
-                                                       token->is_integer, diag);
-    case ROBO_CSS_TOKEN_NUMBER:
-        if (token->number == 0.0) {
-            /* CSS's one exception: a bare `0` is a length, because there is no
-             * unit that changes what zero means. */
-            return robo_css_computed_value_make_length(out, 0.0, ROBO_CSS_UNIT_PX, 1,
-                                                       diag);
-        }
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                               "a bare number is not a length", diag);
-    case ROBO_CSS_TOKEN_IDENT: {
+    /*
+     * A keyword first, and it has to be first.
+     *
+     * `auto` is one IDENT *token*, so a branch guarded by "there is no single
+     * token" would never reach it — the identifier would fall through to the
+     * numeric parse, which is right to call an identifier not a number, and the
+     * developer would be told "not a length" when the property's grammar simply
+     * does not accept the keyword they wrote. Asking the property's keyword list
+     * before asking the numeric vocabulary keeps those two diagnostics apart.
+     */
+    if (token && token->type == ROBO_CSS_TOKEN_IDENT) {
         char keyword[64];
         size_t length = 0u;
 
@@ -1144,6 +1041,59 @@ static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
         return robo_css_computed_value_make_keyword(
             out, robo_css_slice_from_bytes((const uint8_t *)keyword, length), diag);
     }
+
+    switch (robo_css_numeric_from_value(specified, &numeric)) {
+    case ROBO_CSS_NUMERIC_PARSE_RESOLVED:
+        break;
+    case ROBO_CSS_NUMERIC_PARSE_DEFERRED:
+        return computed_keep(out, specified, 1, diag);
+    case ROBO_CSS_NUMERIC_PARSE_UNKNOWN_UNIT:
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
+                               "unknown length unit", diag);
+    case ROBO_CSS_NUMERIC_PARSE_NON_FINITE:
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
+                               "not a finite number", diag);
+    default:
+        /* INVALID. With a token in hand the value *is* a component and simply is
+         * not a length — a string, a block, a function like `rgb()`. Without one,
+         * the declaration was not one component at all, which is a different thing
+         * to tell a developer and the reason `computed_single_token` is asked
+         * again here rather than the outcome being trusted alone. */
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
+                               token ? "not a length"
+                                     : "not a single length component",
+                               diag);
+    }
+
+    switch (numeric.kind) {
+    case ROBO_CSS_NUMERIC_LENGTH:
+        if (robo_css_unit_is_absolute(numeric.unit)) {
+            /* `1in` and `96px` are the same length, so a computed value has one
+             * of them. Converting here is exact, not an approximation — and the
+             * unit's *family* is the module's answer, not a fact restated here. */
+            return robo_css_computed_value_make_length(
+                out, robo_css_unit_to_px(numeric.number, numeric.unit), ROBO_CSS_UNIT_PX,
+                token->is_integer, diag);
+        }
+        /* A relative or viewport unit keeps its unit and its number: resolving it
+         * needs a font or a viewport, and neither exists at this stage. */
+        return robo_css_computed_value_make_length(out, numeric.number, numeric.unit,
+                                                   token->is_integer, diag);
+    case ROBO_CSS_NUMERIC_PERCENTAGE:
+        /* Stays a percentage: only layout knows what it is a percentage *of*. */
+        return robo_css_computed_value_make_percentage(out, numeric.number,
+                                                       token->is_integer, diag);
+    case ROBO_CSS_NUMERIC_NUMBER:
+    case ROBO_CSS_NUMERIC_INTEGER:
+        if (numeric.number == 0.0) {
+            /* CSS's one exception: a bare `0` is a length, because there is no
+             * unit that changes what zero means. It is the *only* number a
+             * length-shaped property accepts. */
+            return robo_css_computed_value_make_length(out, 0.0, ROBO_CSS_UNIT_PX, 1,
+                                                       diag);
+        }
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
+                               "a bare number is not a length", diag);
     default:
         return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
                                "not a length", diag);

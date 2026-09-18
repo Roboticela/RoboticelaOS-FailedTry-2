@@ -74,6 +74,7 @@
 #include "RoboCSS/RoboCSSColor.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSPropertyRegistry.h"
+#include "RoboCSS/RoboCSSUnit.h"
 #include "RoboCSS/RoboCSSValue.h"
 
 #ifdef __cplusplus
@@ -81,68 +82,30 @@ extern "C" {
 #endif
 
 /* ------------------------------------------------------------------ */
-/* Length units                                                        */
+/* Length units — moved to RoboCSSUnit.h in 9.10                        */
 /* ------------------------------------------------------------------ */
 
-/**
- * A CSS length unit, as a computed value carries it.
+/*
+ * 9.8 defined `robo_css_unit_t` and its accessors here, beside the value model
+ * they were one part of, and this header includes RoboCSSUnit.h (above) so that
+ * every caller of this one still reaches them through the include it already had.
  *
- * Absolute units are normalised to `px` when the value is computed — the
- * conversion factors are fixed by CSS (`1in = 96px`, `1pt = 4/3 px`) and do not
- * depend on the display, so doing it here is exact rather than a guess. Relative
- * units are **not** converted: `2em` needs a parent font size and `50vh` needs a
- * viewport, and neither exists at this stage. They keep their unit and their
- * number, which is what makes the value usable by whoever has the context.
+ * The move is not a reorganisation. 9.8's unit set was seven absolute units, four
+ * font-relative ones and four viewport ones, and its only question was "does this
+ * unit have a fixed factor to px". 9.10 adds the rest of the set — `lh` and `rlh`,
+ * `vi` and `vb`, and the small, large and dynamic viewport families — and, more to
+ * the point, a *context* and a resolver: the question "what is `2em` in pixels" is
+ * a different kind of question from "is `in` convertible", and it needs an answer
+ * that can be "I do not know yet". A second reader arrived, so the vocabulary got
+ * a module, exactly as the colour model did in 9.9.
  *
- * PERCENTAGE is not a unit here because it is a separate *kind*: `50%` of a
- * width and `50%` of a line height are different computations, so a single
- * kind that only means "a proportion" is the right amount of information.
+ * The one habit this header keeps is the *computed* contract: a computed LENGTH
+ * normalises an absolute unit to `px` (9.8's rule, unchanged, because CSS's
+ * absolute factors are definitions and the conversion is exact), and carries a
+ * relative unit unconverted with its number, because only whoever has the font or
+ * the viewport can resolve it. @ref robo_css_unit_resolve_px is where that
+ * happens, and it is a question with four answers rather than a multiplication.
  */
-typedef enum robo_css_unit {
-    /** No unit: the value is not a length. */
-    ROBO_CSS_UNIT_NONE = 0,
-    /* absolute, resolved to px when computed */
-    ROBO_CSS_UNIT_PX = 1,
-    ROBO_CSS_UNIT_CM = 2,
-    ROBO_CSS_UNIT_MM = 3,
-    ROBO_CSS_UNIT_Q = 4,
-    ROBO_CSS_UNIT_IN = 5,
-    ROBO_CSS_UNIT_PT = 6,
-    ROBO_CSS_UNIT_PC = 7,
-    /* relative, carried unconverted */
-    ROBO_CSS_UNIT_EM = 8,
-    ROBO_CSS_UNIT_REM = 9,
-    ROBO_CSS_UNIT_EX = 10,
-    ROBO_CSS_UNIT_CH = 11,
-    ROBO_CSS_UNIT_VW = 12,
-    ROBO_CSS_UNIT_VH = 13,
-    ROBO_CSS_UNIT_VMIN = 14,
-    ROBO_CSS_UNIT_VMAX = 15
-} robo_css_unit_t;
-
-/** Number of defined units. */
-#define ROBO_CSS_UNIT_COUNT 16u
-
-/** Non-zero when @p unit is a defined enumerator. */
-int robo_css_unit_is_known(robo_css_unit_t unit);
-
-/** Non-zero when @p unit converts to px with a fixed factor. */
-int robo_css_unit_is_absolute(robo_css_unit_t unit);
-
-/** The unit's canonical spelling (\"px\", \"rem\"); never NULL. */
-const char *robo_css_unit_name(robo_css_unit_t unit);
-
-/**
- * The unit an identifier spells, or NONE.
- * ASCII case-insensitive, as CSS spells units.
- */
-robo_css_unit_t robo_css_unit_from_slice(robo_css_slice_t name);
-
-/** NUL-terminated flavour of the above. */
-robo_css_unit_t robo_css_unit_from_text(const char *name);
-
-/** @p value in px for an absolute @p unit; @p value unchanged otherwise. */
-double robo_css_unit_to_px(double value, robo_css_unit_t unit);
 
 /* ------------------------------------------------------------------ */
 /* Colours — moved to RoboCSSColor.h in 9.9                             */

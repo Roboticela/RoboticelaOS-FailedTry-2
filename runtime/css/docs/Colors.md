@@ -387,6 +387,14 @@ Out/RoboTest.host.exe --filter css.color                     # this module only
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Test -Filter css.color -Sanitize
 ```
 
+> **The sibling module is `docs/Units.md` (9.10).** Colours and numbers are the two
+> CSS values whose *meaning* is arithmetic, and each got a module the same way and
+> for the same reason: the computed-value layer was their only reader until a second
+> one arrived. The two boundaries are asserted against each other in
+> `css.unit.computed.coexists_with_colours` — a numeric value is not a colour and a
+> colour is not a numeric value — because widening one vocabulary is exactly how a
+> value gets accepted by the wrong property.
+
 The suite is `css/tests/SuiteRoboCssColor.c`, 19 tests in three groups:
 
 - **the record** — kinds, predicates, kind-aware equality, the cleared state,
