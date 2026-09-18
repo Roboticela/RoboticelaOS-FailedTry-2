@@ -1,6 +1,6 @@
-# RoboCSS Test Organisation (Phase 9.1–9.15)
+# RoboCSS Test Organisation (Phase 9.1–9.16)
 
-Forty-one suites, 595 tests, one framework. These phases add no test runner,
+Forty-two suites, 609 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -156,6 +156,12 @@ produces, which is the half of the job that cannot break.
 |---|---|---|
 | `SuiteRoboCssBorder.c` | 21 | Five groups in the order the phase is built. The **vocabularies**: the ten styles walked in enumerator order with every keyword *read back* (the spelling is the assertion — a table whose rows and enumerators had drifted would still answer `is_known` for all ten), the count pinned, an out-of-range enumerator answering nothing, the ASCII case-insensitivity asserted by *read-back* rather than by knowness, `generates_border` asserted per row so `none` and `hidden` are the two that draw nothing, the three kinds, and the twelve longhand names reached through `for side, for kind` rather than typed out. The **classifier**: all five outcomes walked, and the *order* of the questions asserted — `none` and `hidden` as styles, `thin`/`medium`/`thick` as widths, `red` settled by nothing else, `#fff` and a colour function as colours, a percentage as a width, `var()` deferred, and a nested block invalid. The **expansion**: one `border:` value split into three parts, the `KIND_NONE` a kind the author did not name takes, and each of the three refusals in its own wording. The **shorthands**: the three positional rows through the box table's 1/2/3/4 mapping and the five composites through the registry. **Integration**: a real element — initial values through the query door (including `currentcolor` resolving against the element's own colour), non-inheritance proved from both sides, `inherit`/`initial`/`unset`, and one longhand set by **four different declarers at four different keys** so the cascade is shown to decide rather than a pass order |
 | `SuiteRoboCssDomSelect.c` (`css.dom.border.pipeline`) | 1 | The family over the **visual checkpoint's own document**: the twelve longhands on real elements read as typed values rather than as letters, a `border-top-width: thin` staying a keyword while a pixel width stays a length, a `none` style staying distinct from the absence of a style, `currentcolor` resolved against each element's own colour, and `border`, `border-width` and a side shorthand competing for the same longhand — which is what makes the ownership move a fact about the product rather than about the module |
+
+### 9.16 — conformance
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssConformance.c` | 14 | The questions no family suite can ask. The **registry**: all 63 registered properties' *initial values* run through the normaliser their own row declares (with the table's length asserted against `robo_css_property_registry_count`, so a property added later cannot go uncovered), each row carrying the kind, the canonical text and the name so a drifted row fails as a named mismatch rather than a count that happened to agree; the four `currentColor` border colours and the control that is not one; and every row's `computation` checked to be a *named* enumerator rather than an unnamed `"unknown"` that a diagnostic would have printed. The **matrix**: 66 representative declarations, one per property, each with its exact computed value *and kind* — first through `robo_css_computed_value_compute` directly, then on a real element through tokenizer, parser, matcher, cascade, inheritance and computation. The **document**: one realistic sheet with every family asserted on one element and on its child; the three ordering keys (specificity, source order, importance) and the inline level across *families*; both shorthand/longhand orders for all five distributing families; and one longhand set by three declarations at three keys, so the single owner is a fact about the product. The **chain**: one document walked stage by stage with each stage's product asserted; a 42-document malformed corpus through the whole chain for crash safety; determinism asserted over whole *styles* compared by `robo_css_computed_value_equals` rather than by text; and the allocator balance across repeated rounds. The **capabilities**: every field of the capability struct asserted *by name* against a table that names all of them, plus the two flags (`caps.backgrounds`, `caps.borders`) that were asserted nowhere in the build before this suite |
 
 ### 9.7 — property metadata and inheritance
 
@@ -969,3 +975,29 @@ which asserts `robo_window_request_focus(id) == ROBO_OK` and gets `ROBO_NOT_SUPP
 `SetForegroundWindow` is declined. It is intermittent (it passed 3/3 standalone and in both
 of the plain and sanitized full runs of this phase) and no `window.host.*` case reaches any
 RoboCSS code. See `docs/Build.md` §6.
+
+## 20. What the 9.16 suite found
+
+Two things, and both are the kind only a whole-product question finds:
+
+* **Two capability flags were documented and asserted nowhere.** 9.14 and 9.15 each recorded
+  that their flag had flipped to 1. `css.capabilities` stopped at `positioning` and then
+  tested the two flags that are 0 (`colors`'s siblings aside), so `caps.backgrounds` and
+  `caps.borders` could each have been 0 in the shipped build while every family suite stayed
+  green — because a capability flag is a promise about the *build*, and a family suite tests
+  its family. The fix is a table naming every field of the struct, walked field by field, so
+  a field added later is a compile-time omission rather than a silently untested flag.
+* **A row can compute `INVALID` for every element of every document and nothing would say so.**
+  This is the invariant the 63-row initial table exists to state: `css.registry.initial_values`
+  asserts the initial value's *shape* — a 9.1 fact about a value tree — and says nothing about
+  what that shape computes to under the row's own `computation`. A drifted pair produces an
+  `INVALID` on every element, declared or not, and the only other place that would show is a
+  render, which does not exist yet.
+
+The suite found two bugs in **itself** as well, which is worth recording because both are the
+failure mode a conformance suite is most prone to: a cascade case whose selector names a class
+no element had, so all three declarations it compared were absent rather than competing, and a
+per-context inline stub that answered every element instead of the one under test, so an
+assertion about a child was really an assertion about the root. A conformance suite that uses
+the same plumbing as the families can fail the same way the families can; the difference is
+that here the assertion is cheap enough to add the element that makes it mean something.

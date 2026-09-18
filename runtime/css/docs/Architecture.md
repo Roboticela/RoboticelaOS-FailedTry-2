@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.15)
+# RoboCSS Architecture (Phase 9.1–9.16)
 
 This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -787,11 +787,24 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
-transitions, external stylesheet fetching and networking — plus, within the
-cascade itself, evaluating at-rules and the animation and
-transition origins, and within colours the modern spaces (`hwb`, `lab`, `lch`,
-`oklab`, `oklch`, `color()`, `color-mix()`) and interpolation between colours.
+Layout, painting, rendering, CSSOM, animations, transitions, external stylesheet
+fetching and networking — plus, within the cascade itself, evaluating at-rules and
+the animation and transition origins, and within colours the modern spaces (`hwb`,
+`lab`, `lch`, `oklab`, `oklch`, `color()`, `color-mix()`) and interpolation between
+colours.
+
+Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
+adds no production code at all, which is why it is the only entry in this list that
+could be written before the phase ran. What it adds is the four questions no
+per-family suite can ask — that every registered initial value computes under the
+row's own `computation` (a drifted row computes `INVALID` on every element of every
+document and only a whole-registry walk would say so), that one representative
+declaration per property produces one exact value *and kind*, that one realistic
+document's every family agrees on the same element, and that malformed, identical
+and repeated bytes all behave. It is also the phase that found two capability flags
+(`backgrounds`, `borders`) documented by their own phases and asserted nowhere in
+the build, which is the general form of the rule this section is about: a flag is a
+promise about the build, and only a build-level question tests it.
 
 The box model (9.11) is *partly* behind us and the boundary is exact: the four
 edges are a typed value family and the three shorthands are distributed, while no
@@ -860,7 +873,9 @@ Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 (9.9), units (9.10), the box model (9.11), `display` (9.12), `positioning`
 (9.13), `backgrounds` (9.14) and `borders` (9.15) flipped to 1 for
 exactly that
-reason, and no other flag did. Each flipped only when its whole job worked end
+reason, and no other flag did. 9.16 flipped none: it is a promise that
+*every* flag is what its phase said, so it is asserted by walking the whole struct
+field by field rather than by adding a field to it. Each flipped only when its whole job worked end
 to end: `cascade` waited for `specificity` rather than claiming an ordering it could
 not complete, `inheritance` waited while `computed_values` was 0 because a
 *resolved* value is a different thing from a computed one, `computed_values`

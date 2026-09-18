@@ -623,9 +623,28 @@ The record is by value, so the rest of it is read as **fields**: `kind`,
 
 * `robo_css_style_context_compute_style`.
 
+## What 9.16 pins about this vocabulary
+
+The conformance suite (`css.conformance.registry.*`) is the only place the *whole*
+vocabulary is walked at once, and it pins three things this document states in
+prose. Every shape here is reachable from a registry row, so the 63 rows' initial
+values are run through the normaliser each row's own `computation` names — a row
+whose shape and whose initial had drifted apart computes `INVALID` for every element
+of every document and would otherwise be silent. Every name in
+`robo_css_property_computation_is_known`'s table is asserted to be a *named*
+enumerator, because an unnamed one prints as `"unknown"` in a diagnostic and nothing
+else in the build reads that function. And the two spellings a value can have *by
+design* are asserted side by side: a **preserved** value keeps the source tokens, so
+`border`'s initial prints `currentcolor`, while a **colour** value is the colour
+module's canonical rendering, so it prints `currentColor`. Five rows use one
+spelling and six the other; a build that normalised a shorthand's tokens, or
+preserved a colour's, shows up as exactly that diff.
+
 ## How the tests are run
 
-* `scripts/robo test-css` — the whole CSS subsystem (595 tests).
+* `scripts/robo test-css` — the whole CSS subsystem (609 tests).
+* `./Out/RoboTest.host.exe --filter "css.conformance"` — the whole-product
+  questions no family suite can ask (14 tests).
 * `./Out/RoboTest.host.exe --filter "css.computedvalue."` — the value model, the
   unit table, the colour forms and the normaliser (14 tests).
 * `./Out/RoboTest.host.exe --filter "css.computed."` — the pipeline over the

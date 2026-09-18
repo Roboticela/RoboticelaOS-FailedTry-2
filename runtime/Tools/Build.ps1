@@ -420,6 +420,10 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssPosition.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssBackground.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssBorder.c"),
+    # The conformance suite (9.16) is the only one that spans the whole registry
+    # and the whole pipeline rather than one family, so it sits last in the list
+    # for the same reason it runs over everything the ones above it built.
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssConformance.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

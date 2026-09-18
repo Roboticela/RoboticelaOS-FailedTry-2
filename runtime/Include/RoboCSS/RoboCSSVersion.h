@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.14 backgrounds milestone.
+ * RoboCSS version pin — Phase 9.16 conformance milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -420,6 +420,27 @@
  * inheritance is total in the same sense, because every property an element
  * does not declare has an answer: the parent's, or its own initial value.
  *
+ * 0.16.0 is the fifteenth, and it is the only one that adds no surface at all:
+ * it is the *conformance* phase (`css/tests/SuiteRoboCssConformance.c`), and the
+ * version moves because the build's *promises* did rather than because a header
+ * did. Phase 9's forty per-family suites each know one family, and none of them
+ * can ask the questions that are only true of the product: that every one of the
+ * 63 registered properties' initial values computes through the normaliser the
+ * registry declares (a row whose shape and whose initial had drifted apart
+ * computes INVALID on every element of every document, and
+ * `css.registry.initial_values` asserts the initial *shape*, which is a 9.1 fact
+ * and would not notice); that one representative declaration per property
+ * produces one exact computed value *and kind*; that one realistic document's
+ * every family agrees on the same element; and that malformed CSS, identical
+ * bytes and a repeated pipeline all behave. Two of its assertions are findings
+ * rather than summaries: `caps.backgrounds` and `caps.borders` were each
+ * documented by their phase as having flipped to 1 and were **asserted nowhere in
+ * the build** — `css.capabilities` stops at `positioning` and then tests the two
+ * flags that are 0 — so the capability struct is now walked field by field. The
+ * other is that the determinism test compares whole *styles* by
+ * `robo_css_computed_value_equals` rather than by text, so a difference in
+ * formatting cannot hide one in value or the reverse.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (ROBO_CSS_API_FROZEN=0).
  */
@@ -428,9 +449,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 15
+#define ROBO_CSS_VERSION_MINOR 16
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.15.0"
+#define ROBO_CSS_VERSION_STRING "0.16.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

@@ -3703,6 +3703,71 @@ asserts `robo_window_request_focus(id) == ROBO_OK` and gets `ROBO_NOT_SUPPORTED`
 sanitized full suite runs of this phase, and no `window.host.*` case reaches any RoboCSS code.
 See `docs/Build.md`.
 
+## Goal 9.16 — CSS conformance tests
+
+**Status: complete.** The only phase of Phase 9 that adds **no production code at all** — one
+suite and a version bump, because a promise about the *build* is part of the build. The
+forty-one suites before it are each trustworthy for the same reason they were writable: the
+question fits inside one module. The questions that are only true of the *product* are the four
+this phase asks, and `css/docs/Conformance.md` is their design record.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| Every initial value computes | `css.conformance.registry.every_initial_computes` — the registry's own 63 rows in its own order, each initial run through the normaliser the row's own `computation` names, with the table's length asserted against `robo_css_property_registry_count` so a property added later cannot go uncovered, and each row carrying its kind, its canonical text *and* its name so a drifted row fails as a named mismatch rather than as a count that still agreed |
+| The reference initial | `css.conformance.registry.reference_initial` — the four `currentColor` border colours, plus the control that is a value and not a reference |
+| The computation vocabulary | `css.conformance.registry.computations_are_known` — every row's `computation` is a *named* enumerator, because an unnamed one prints as `"unknown"` in a diagnostic and nothing else in the build reads that function |
+| The matrix | `css.conformance.matrix.declarations` — 66 representative declarations, one per property, each with its exact computed value **and kind** |
+| The matrix through the pipeline | `css.conformance.matrix.through_the_pipeline` — the same 66, on real elements, through tokenizer, parser, matcher, cascade, inheritance and computation |
+| One document, every family | `css.conformance.document.every_family` — a realistic sheet with every family asserted on one element *and* on its child |
+| The ordering keys across families | `css.conformance.document.cascade_across_families` — specificity, source order, importance and the inline level |
+| Shorthand and longhand | `css.conformance.document.shorthand_and_longhand` — both orders, for all five distributing families |
+| The three declarers | `css.conformance.document.three_declarers` — one longhand, three declarations at three keys, one owner |
+| The whole chain, stage by stage | `css.conformance.pipeline.tokenizer_to_computed` |
+| The malformed corpus | `css.conformance.pipeline.malformed_corpus` — 42 hostile documents through the whole chain, for crash safety |
+| Determinism | `css.conformance.pipeline.determinism` — whole *styles* compared by `robo_css_computed_value_equals` rather than by text, so a difference in formatting cannot hide one in value or the reverse |
+| Lifetime | `css.conformance.pipeline.lifetime` — the allocator returned, every round |
+| The capability flags | `css.conformance.capabilities.every_flag` — every field of the struct asserted *by name* against a table that names all of them |
+| Version | `RoboCSSVersion.h` 0.16.0 — no new capability, because 9.16 promises that every *other* flag is what its phase said |
+| Documentation | `css/docs/Conformance.md` (new, the design record), plus `README.md`, `docs/Architecture.md`, `docs/Tests.md`, `docs/ComputedValues.md` |
+
+### Definition of done
+
+- [x] The tokenizer, parser, selectors, cascade, specificity, inheritance, computed values,
+      colours, units, box model, display, positioning, backgrounds and borders are each covered
+      by the Phase 9 suites that already existed (42 suites, 609 cases).
+- [x] Full-pipeline integration is asserted end to end on real elements and on one realistic
+      document, not only per module.
+- [x] Invalid CSS is verified to fail safely — a 42-document malformed corpus through the whole
+      chain, plus the crash-safety cases inside each family suite.
+- [x] No existing Phase 9 test was weakened or deleted; no new CSS feature was added to make a
+      test pass; no implementation defect was papered over.
+- [x] No Phase 10 or later functionality was started.
+
+### What 9.16 found
+
+**Two whole-product facts, and neither was reachable from inside a family suite:**
+
+* **Two capability flags were documented and asserted nowhere.** 9.14 and 9.15 each recorded
+  that their flag had flipped to 1. `css.capabilities` stopped at `positioning` and then tested
+  the two flags that are 0, so `caps.backgrounds` and `caps.borders` could each have been 0 in
+  the shipped build while every family suite stayed green — because a capability flag is a
+  promise about the *build* and a family suite tests its family. The fix is a table naming every
+  field of the struct, walked field by field, so a field added later is a visible omission
+  rather than a silently untested flag.
+* **A registry row can compute `INVALID` on every element of every document and nothing would
+  say so.** `css.registry.initial_values` asserts the initial value's *shape* — a 9.1 fact about
+  a value tree — and says nothing about what that shape computes to under the row's own
+  `computation` column. A drifted pair produces an `INVALID` for every element, declared or not,
+  and the only other place it would show is a render, which does not exist yet.
+
+Two further findings were bugs in **the suite itself**, recorded because they are the failure
+mode a conformance suite is most prone to: a cascade case whose selector named a class no
+element had, so the declarations it compared were all absent rather than competing; and a
+per-context inline stub that answered every element instead of the one under test, so an
+assertion about a child was really an assertion about the root.
+
 ## Next
 
-- Goal 9.16 — CSS conformance tests — do not start until requested
+- Phase 10 — layout — do not start until requested
