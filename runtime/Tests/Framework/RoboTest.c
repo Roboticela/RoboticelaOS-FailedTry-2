@@ -11,12 +11,15 @@
 
 /*
  * Static table size for the registry. Raised from 1536 in Phase 9.2, when the
- * RoboCSS tokenizer suites took the registry past it; `robo_test_register`
+ * RoboCSS tokenizer suites took the registry past it, and from 2048 in Phase
+ * 10.1, when the RoboLayout suites took it past that; `robo_test_register`
  * refuses past the end rather than overflowing, so a full table loses tests
  * silently apart from a line on stderr. Keep this comfortably ahead of the
- * count the suites actually register.
+ * count the suites actually register -- and note that the refusal is *silent* to
+ * a run that does not read stderr, which is why BUILD reports registrations that
+ * fail rather than only a run that fails.
  */
-#define ROBO_TEST_MAX 2048
+#define ROBO_TEST_MAX 4096
 #define ROBO_TEST_NAME_MAX 96
 
 typedef struct robo_test_case {

@@ -250,7 +250,18 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSPosition.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSBackground.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSBorder.c"),
-    (Join-Path $SourceDir "RoboCSS\RoboCSSComputedValue.c")
+    (Join-Path $SourceDir "RoboCSS\RoboCSSComputedValue.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutConstraints.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutResult.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutObject.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutTree.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutContext.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutStyle.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutBuilder.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutDom.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -428,6 +439,13 @@ $SuiteSrcs = @(
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.
     (Join-Path $SuitesDir "SuiteRoboCssDomSelect.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayout.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutTree.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutConstraints.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutContext.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutBuild.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutDom.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutConformance.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -655,6 +673,34 @@ function Assert-RoboCSSChromiumIndependence {
     Write-Host "RoboCSS Chromium-independence source scan: OK"
 }
 
+function Assert-RoboLayoutBoundaries {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboLayout"),
+        (Join-Path $RuntimeRoot "Source\RoboLayout"),
+        (Join-Path $RuntimeRoot "layout")
+    )
+    # RoboLayout is the first module that may depend on BOTH RoboHTML and RoboCSS
+    # (DEPENDENCIES.md: the two are peers, so whoever needs both sits above both),
+    # and it may use RoboGraphics for its geometry. What it must never reach for is
+    # anything above itself -- paint, rendering, compositing, JS, the shell -- nor
+    # a window or display layer, which are below it in the graph but have no
+    # business in a layout pass, nor Chromium.
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboPaint|RoboRender|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|not a dependency|does not depend on|has no business'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboLayout boundary leak (Chromium or a higher layer):`n$sample"
+        }
+    }
+    Write-Host "RoboLayout boundary source scan: OK"
+}
+
 function Assert-RoboDisplayChromiumIndependence {
     $roots = @(
         (Join-Path $RuntimeRoot "Include\RoboDisplay"),
@@ -751,6 +797,11 @@ $hostFlags = @(
     # fixture header. A suite in its own directory resolves that relatively; a
     # suite outside one needs the path here.
     "-I", (Join-Path $RuntimeRoot "css\tests"),
+    # layout/tests has the same shape as css/tests: its own fixture header, and
+    # suites that resolve it relatively. The suites live there because RoboLayout
+    # is the first module allowed to see both RoboHTML and RoboCSS, so its
+    # integration suites belong beside it rather than in Tests/Suites.
+    "-I", (Join-Path $RuntimeRoot "layout\tests"),
     "-I", (Join-Path $SourceDir "RoboWindow\platform\win32"),
     "-I", (Join-Path $SourceDir "RoboDisplay\platform\win32"),
     "-D_CRT_SECURE_NO_WARNINGS",
@@ -908,6 +959,7 @@ if ($Verify) {
     Assert-RoboDisplayChromiumIndependence
     Assert-RoboHTMLChromiumIndependence
     Assert-RoboCSSChromiumIndependence
+    Assert-RoboLayoutBoundaries
     Assert-RoboDemoIsolation
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }

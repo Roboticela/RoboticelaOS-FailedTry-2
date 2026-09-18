@@ -608,7 +608,13 @@ static void test_css_cascade_collect_replaces_and_releases(void)
         /* And one last collection, disposed by the caller below, proves the
          * inline declaration list is released with the rest. */
         css_cascade_collect(&fixture, 1u, &cascade, NULL);
+#if ROBO_MEM_DEBUG
+        /* Strictly greater than the baseline is only observable where the
+         * allocator accounts for its live blocks; a Release build has no
+         * tracker, so this is asserted in Debug and the collection above still
+         * runs in both. */
         ROBO_CHECK_EQ_INT((int)robo_mem_debug_live_count() > (int)baseline, 1);
+#endif
         robo_css_cascade_dispose(&cascade);
     }
     ROBO_CHECK_EQ_INT((int)robo_mem_debug_live_count(), (int)baseline);

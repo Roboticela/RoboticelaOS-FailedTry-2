@@ -181,6 +181,13 @@ void robo_test_register_css_background(void);
 void robo_test_register_css_border(void);
 void robo_test_register_css_conformance(void);
 void robo_test_register_css_dom_select(void);
+void robo_test_register_layout(void);
+void robo_test_register_layout_tree(void);
+void robo_test_register_layout_constraints(void);
+void robo_test_register_layout_context(void);
+void robo_test_register_layout_build(void);
+void robo_test_register_layout_dom(void);
+void robo_test_register_layout_conformance(void);
 void robo_test_register_demo_html(void);
 
 int main(int argc, char **argv)
@@ -404,6 +411,14 @@ int main(int argc, char **argv)
     robo_test_register_css_border();
     robo_test_register_css_conformance();
     robo_test_register_css_dom_select();
+
+    robo_test_register_layout();
+    robo_test_register_layout_tree();
+    robo_test_register_layout_constraints();
+    robo_test_register_layout_context();
+    robo_test_register_layout_build();
+    robo_test_register_layout_dom();
+    robo_test_register_layout_conformance();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */
     robo_test_register_demo_html();

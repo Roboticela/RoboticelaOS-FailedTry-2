@@ -3768,6 +3768,91 @@ element had, so the declarations it compared were all absent rather than competi
 per-context inline stub that answered every element instead of the one under test, so an
 assertion about a child was really an assertion about the root.
 
+## Goal 10.1 — Layout architecture
+
+**Status: complete.** The first goal of Phase 10, and deliberately the whole of it: 10.1 builds
+the *shape* of a layout pass and states the boundaries the following fourteen goals fill in. It
+computes **no coordinate** — `robo_layout_get_capabilities().geometry` is 0,
+`robo_layout_geometry_is_implemented()` answers 0, and a pass leaves every box `UNRESOLVED`,
+which is a statement about this build rather than a placeholder for one. `layout/README.md` and
+`layout/docs/` are the design record.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The layout tree, distinct from the DOM | `RoboLayoutTree.h`, `RoboLayoutObject.h` — an owned arena, dense tree-scoped ids, parent/child/sibling links by id, a reverse lookup from element to box, and `add_object` validating every rule a later goal would otherwise re-check |
+| The box | `RoboLayoutObject.h` — an inert DOM handle, a **borrowed** computed style, the one CSS value that is copied (`display`, because the box would not exist without it), its links, its depth, its flags and its result |
+| Constraints that can say "unset" | `RoboLayoutConstraints.h` — available/minimum/maximum, each with an explicit flag, plus `is_valid` and `clamp`, which is the module's only bounds arithmetic. `available` is deliberately **not** an implicit maximum: filling it is 10.3's decision |
+| A result with a state, not a rectangle | `RoboLayoutResult.h` — `NONE` / `UNRESOLVED` / `COMPUTED`, two overflow flags for 10.13, a stated coordinate space (containing block, border-box) and refusals for impossible geometry |
+| The pass | `RoboLayoutContext.h` — one context per pass, the viewport as *available space only*, the stats, the outcome, and the user-data seam a later formatting context hangs scratch state on |
+| The builder's one rule | `RoboLayoutBuilder.h` — an element generates a box unless its computed `display` says otherwise; children are **elements** (so `+` and `:first-child` mean the same thing here as in the matcher), the root is the document element, and an empty build is an answer rather than a failure |
+| The CSS seam | `RoboLayoutStyle.h` — a callback, so the builder is testable **without CSS**; a source that answers nothing yields `STYLE_MISSING`, which is a fact a formatting context checks rather than an accident |
+| The bridge | `RoboLayoutDom.h` — the first module in the runtime that depends on RoboHTML *and* RoboCSS (DEPENDENCIES.md: whoever needs both sits above both); the element reference is the DOM node id; element facts are captured before any style is computed, because RoboCSS borrows them; and the bridge owns one computed style per element so the tree can borrow it |
+| Borrowed geometry | `RoboLayoutGeometry.h` — aliases of RoboGraphics' canonical pixel geometry. A second point/size/rectangle would be two types that agree today and differ in a year, with paint converting between them at the one boundary where a mistake is a visible artifact |
+| The module surface | `RoboLayout.h`, `RoboLayoutTypes.h`, `RoboLayoutDiagnostics.h` — lifecycle, version, the nine-field capability struct, one object kind, eleven diagnostic domains, and the same optional caller-owned diagnostic record RoboHTML and RoboCSS use |
+| Seven suites, 71 cases | `layout/tests/` — module surface, tree, constraints, context/pass, builder, DOM bridge, and conformance; plus `layout/docs/Tests.md` |
+| Version | `RoboLayoutVersion.h` 0.1.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole of Phase 10) and `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=0` |
+| Documentation | `layout/README.md`, `layout/docs/Architecture.md` (17 sections), `layout/docs/Tests.md`, plus root `ARCHITECTURE.md`, `DEPENDENCIES.md` and the plan tracker |
+
+### Two decisions worth naming
+
+* **Why not walk the DOM.** The two trees do not have the same members: a `display: none` element
+  is a DOM node and generates no box, a text node is a DOM node and will generate something in
+  10.5 that is not an element box, a future `::before` is a box with no element behind it. A pass
+  that walked the DOM would re-decide which nodes it may look at at every step, and each of the
+  fourteen goals that follows would add another such decision somewhere else. The tree is built
+  **once**, so a pass walks boxes and only boxes.
+* **Why a callback and not a style pointer.** So the structural suites can exist: a test that
+  proves "`display: none` generates no box" has no business standing up a style context, a
+  property table, a registry and a sheet. Five of the seven suites never instantiate a style
+  context, and the two that do are exactly the two whose subject is the joining.
+
+### Definition of done
+
+- [x] A layout tree distinct from the DOM exists, with parent/child/sibling relationships,
+      DOM-node association and computed-style association.
+- [x] Layout objects represent DOM nodes and computed styles without copying either, and the one
+      exception (`display`) is argued rather than incidental.
+- [x] A layout context, a foundational constraints representation and a minimal result
+      representation exist and are tested.
+- [x] DOM → layout-tree construction works, including `display: none` and an empty document.
+- [x] RoboCSS computed styles are consumed and no CSS is parsed inside RoboLayout; the one
+      property it reads is read through 9.12's own accessor.
+- [x] No Chromium dependency; `Tools/Build.ps1 -Verify` grew a RoboLayout arm asserting it, and
+      also asserting that nothing below it in the graph (window, display) is reached.
+- [x] All Phase 9 suites (609 CSS cases) and all DOM, graphics and window suites still pass.
+- [x] No Phase 10.2 or later functionality was started.
+
+### What 10.1 found
+
+**Five things, two of them production bugs — both found by tests, not by reading:**
+
+* **A dangling parent when the arena grows.** `robo_layout_tree_add_object` resolved the borrowed
+  `parent` pointer *before* the reserve that can move the arena, so a tree that outgrew its
+  initial capacity linked a new box to a freed address: invisible below the growth boundary,
+  a segfault above it. Fixed by resolving the parent after the reserve. `layout.tree.growth` is
+  the only case whose stated purpose is to push a container past a boundary, and the only one
+  that could have found it.
+* **`passes` was not cumulative.** It reported the last pass's count while its own header
+  documented a total. Every single-pass case passed; the case that found it exists to ask the
+  question (`layout.context.run.repeated`), and its other half now also pins that a second pass
+  re-unresolves geometry a previous pass had computed.
+* **The test registry had a fixed cap.** Seven new suites overflowed a fixed-size array in
+  `runtime/Tests/Framework/RoboTest.c`. It failed loudly, which is the right behaviour — a suite
+  that is silently not registered is a suite that is silently not run — and it now fails loudly
+  by design rather than by luck.
+* **Two Release-only test defects, pre-existing.** `SuiteRoboHTMLDom.c` had a debug-only variable
+  whose only use is inside `#if ROBO_MEM_DEBUG`, and two CSS suites asserted the Debug
+  allocator's bookkeeping unconditionally. The project's default configuration is Debug, so
+  Release `-Test` had never been exercised across the whole suite; both configurations are now
+  green. 10.1 is the first thing to run all 2087 tests in Release, and it found three defects
+  that have nothing to do with layout.
+* **The `-Verify` boundary scan needed a RoboLayout arm.** RoboLayout is the first module whose
+  forbidden set includes layers *below* it (RoboWindow, RoboDisplay) for a reason that is not
+  layering — a pass that consulted a window could not be tested without one — so its scan is the
+  first that is not purely "no upward edges".
+
 ## Next
 
-- Phase 10 — layout — do not start until requested
+- Goal 10.2 — formatting contexts — do not start until requested

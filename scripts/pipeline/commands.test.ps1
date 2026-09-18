@@ -33,6 +33,11 @@ $script:RoboRuntimeComponents = [ordered]@{
     "display"     = @("display.")
     "html"        = @("html.")
     "css"         = @("css.")
+    # RoboLayout's own suites live in runtime/layout/tests, and report under
+    # `layout.` -- which the demo layout cases also carry as a substring
+    # (`demo.layout.*`), so this group is a superset of two cases by design
+    # rather than by accident.
+    "layout"      = @("layout.")
     "demo"        = @("demo.")
     "infra"       = @("infra.")
 }

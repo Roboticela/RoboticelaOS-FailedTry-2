@@ -215,9 +215,10 @@ API names below are **planned boundaries**, not implemented headers yet (except 
 | | |
 |---|---|
 | **Responsibility** | DOM + computed style → box geometry (block, inline, flex, absolute, later grid). |
-| **May depend on** | RoboBase … RoboDOM, RoboCSS (computed style), optionally RoboFont when text metrics exist. |
-| **Must NOT depend on it** | RoboHTML parser (layout consumes DOM+style, not source text); paint, render, JS. |
-| **Public C API boundary** | Planned: `Include/RoboLayout/RoboLayout.h` — layout tree build, box queries. |
+| **May depend on** | RoboBase, RoboMem, RoboGraphics (geometry only), RoboHTML, RoboCSS. It is the first module allowed to see **both** peers — DEPENDENCIES.md: the two must not know each other, so whoever needs both sits above both. |
+| **Must NOT depend on it** | RoboWindow / RoboDisplay (below it in the graph, but a pass must be testable without one — the viewport is an argument); paint, render, compositor, JS, shell; Chromium. Asserted by `Tools/Build.ps1 -Verify`. |
+| **Public C API boundary** | `Include/RoboLayout/RoboLayout.h` — module lifecycle, version, capabilities; the layout tree and its objects (`RoboLayoutTree.h`, `RoboLayoutObject.h`, `RoboLayoutTypes.h`), which reference DOM elements and computed styles rather than copying either; the constraints record and its bounds arithmetic (`RoboLayoutConstraints.h`); the result record with its explicit state (`RoboLayoutResult.h`); the pass context (`RoboLayoutContext.h`); the style-source seam (`RoboLayoutStyle.h`) that keeps the builder testable without CSS; the DOM→tree builder (`RoboLayoutBuilder.h`); the RoboHTML + RoboCSS bridge (`RoboLayoutDom.h`) that provides the computed styles; borrowed RoboGraphics geometry aliases (`RoboLayoutGeometry.h`). **10.1 is architecture and computes nothing**: `robo_layout_geometry_is_implemented()` answers 0, a pass leaves every box `UNRESOLVED`, there are no formatting contexts, no sizing, no positioning resolution and no painting. |
+| **Status** | Goal **10.1** complete (`layout/README.md`, `layout/docs/`): the tree, the object, the constraints, the result, the context, the builder and the DOM+CSS bridge, with seven suites over 71 cases. **Version 0.1.0**, `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole of Phase 10), `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=0`. Next: 10.2 formatting contexts. |
 
 ---
 

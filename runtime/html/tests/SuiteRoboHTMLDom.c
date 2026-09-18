@@ -1585,7 +1585,9 @@ static void test_dom_lifecycle_churn(void)
         "</form></div>";
     size_t docs_before = robo_html_live_document_count();
     int debug_was_enabled = robo_mem_debug_is_enabled();
+#if ROBO_MEM_DEBUG
     size_t baseline = 0u;
+#endif
     size_t i;
 
     if (!debug_was_enabled) {
@@ -1604,7 +1606,11 @@ static void test_dom_lifecycle_churn(void)
         ROBO_CHECK_EQ_INT(robo_html_document_destroy(warm, NULL), ROBO_OK);
     }
 
+#if ROBO_MEM_DEBUG
+    /* Measured only where the allocator accounts for it: in a Release build
+     * robo_mem_debug_live_count() is a stub and the comparison below is gone. */
     baseline = robo_mem_debug_live_count();
+#endif
 
     for (i = 0u; i < DOM_CHURN_CYCLES; i++) {
         robo_html_document_id_t id = dom_document_of(k_markup);

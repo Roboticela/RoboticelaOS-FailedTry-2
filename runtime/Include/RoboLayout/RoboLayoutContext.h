@@ -1,0 +1,191 @@
+/*
+ * RoboLayout context (Phase 10.1).
+ *
+ * One layout pass: the tree it ran on, the constraints it ran with, what it saw,
+ * and where a later goal hangs the temporary data it needs.
+ *
+ * A context exists as an object rather than as arguments to a call because a pass
+ * *accumulates*: constraints are refined as the walk descends, a formatting
+ * context needs scratch space that lives for the whole pass, and the counters are
+ * read after it ends. Passing all of that down a call stack would be passing a
+ * struct through every function anyway, and the struct would have to be allocated
+ * somewhere -- so it is allocated once, here, and owned by the caller.
+ *
+ * It owns **nothing borrowed**: the tree, the constraints (a record by value,
+ * copied in), and the caller's temporary data are all references. Destroying a
+ * context frees the context and nothing else, which is what makes it safe to
+ * destroy in any order relative to the tree it ran on.
+ *
+ * What a pass does in 10.1, stated plainly because the honesty of this phase
+ * depends on it:
+ *
+ *   walks the tree, in creation order -- which is document order, because the
+ *   builder adds parents before children and children left to right;
+ *
+ *   marks every box UNRESOLVED, so that a consumer reading a result is told
+ *   nobody has computed it rather than handed a zeroed rectangle;
+ *
+ *   counts what it saw into `robo_layout_stats_t`, including how many boxes have
+ *   no computed style at all;
+ *
+ *   and computes no coordinate. `robo_layout_stats_t.boxes_computed` is 0 after a
+ *   10.1 pass and `robo_layout_geometry_is_implemented()` answers 0, so a caller
+ *   cannot mistake "the pass ran" for "the boxes were laid out".
+ */
+
+#ifndef ROBO_LAYOUT_CONTEXT_H
+#define ROBO_LAYOUT_CONTEXT_H
+
+#include "RoboBase/RoboError.h"
+
+#include "RoboLayout/RoboLayoutConstraints.h"
+#include "RoboLayout/RoboLayoutDiagnostics.h"
+#include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutTree.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** What the last pass did. */
+typedef enum robo_layout_pass_outcome {
+    /** No pass has run in this context yet. */
+    ROBO_LAYOUT_PASS_NONE = 0,
+    /** The tree was walked; every result was left UNRESOLVED. */
+    ROBO_LAYOUT_PASS_WALKED = 1,
+    /** The pass could not complete (a NULL or unusable tree). */
+    ROBO_LAYOUT_PASS_FAILED = 2
+} robo_layout_pass_outcome_t;
+
+/** Number of defined pass outcomes. */
+#define ROBO_LAYOUT_PASS_OUTCOME_COUNT 3u
+
+/** Non-zero if @p outcome is a defined outcome. */
+int robo_layout_pass_outcome_is_known(robo_layout_pass_outcome_t outcome);
+
+/** Human-readable outcome name; never NULL; "unknown" when undefined. */
+const char *robo_layout_pass_outcome_name(robo_layout_pass_outcome_t outcome);
+
+/** What one pass saw. A record by value, owned by nobody. */
+typedef struct robo_layout_stats {
+    /** Boxes in the tree. */
+    size_t objects;
+    /** Boxes the pass reached (every box, in 10.1). */
+    size_t visited;
+    /** Boxes whose geometry is final. Always 0 in 10.1. */
+    size_t boxes_computed;
+    /** Boxes the pass deliberately left without geometry. */
+    size_t boxes_unresolved;
+    /** Boxes carrying STYLE_MISSING: a fact about the build, not a failure. */
+    size_t without_style;
+    /** Deepest box seen. */
+    uint32_t depth_max;
+    /** Passes this context has completed, including this one. */
+    size_t passes;
+} robo_layout_stats_t;
+
+/** An opaque, caller-owned pass. */
+typedef struct robo_layout_context robo_layout_context_t;
+
+/** Create an empty context: no constraints, no viewport, no tree, no pass.
+ *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL output; ROBO_OUT_OF_MEMORY. */
+robo_result_t robo_layout_context_create(robo_layout_context_t **out_context,
+                                         robo_layout_diag_t *diag);
+
+/** Destroy @p context. The tree, the styles and the caller's user data are not
+ *  touched. Safe on NULL. */
+void robo_layout_context_destroy(robo_layout_context_t *context);
+
+/** Return @p context to its just-created state: constraints cleared, viewport
+ *  forgotten, counters zeroed, outcome NONE, last tree forgotten. The pass count
+ *  goes to 0 with it -- "this context has run nothing" is the state it restores,
+ *  not "this context has run something else". Safe on NULL. */
+void robo_layout_context_reset(robo_layout_context_t *context);
+
+/**
+ * Record the viewport -- the initial containing block -- in CSS pixels.
+ *
+ * It is recorded as the *available* space and as nothing else. Whether a box
+ * fills it is a formatting-context decision (10.2), so a context that also
+ * treated it as a maximum would be answering a question that belongs to a later
+ * goal. The window and display layers already know this number (RoboDisplay /
+ * RoboWindow); RoboLayout takes it as an argument and hardcodes nothing.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL context or a negative size.
+ */
+robo_result_t robo_layout_context_set_viewport(robo_layout_context_t *context,
+                                               robo_layout_size_t size,
+                                               robo_layout_diag_t *diag);
+
+/** The recorded viewport.
+ *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments; ROBO_NOT_FOUND
+ *          when no viewport has been recorded -- the caller is told rather than
+ *          handed an invented screen size. */
+robo_result_t robo_layout_context_viewport(const robo_layout_context_t *context,
+                                           robo_layout_size_t *out);
+
+/** Replace the constraints wholesale (a record, copied in). Setting the viewport
+ *  and setting the constraints are independent: a pass may be run with bounds
+ *  that come from somewhere other than a viewport. */
+robo_result_t robo_layout_context_set_constraints(robo_layout_context_t *context,
+                                                  const robo_layout_constraints_t *constraints,
+                                                  robo_layout_diag_t *diag);
+
+/** The constraints, by value. Answers the cleared record when none were set, so
+ *  a caller can tell "nothing is known" from a failure. */
+robo_result_t robo_layout_context_constraints(const robo_layout_context_t *context,
+                                              robo_layout_constraints_t *out);
+
+/**
+ * Install the caller's temporary pass data.
+ *
+ * The extension point a later goal uses instead of growing this struct: 10.3's
+ * block pass, 10.4's inline pass and 10.5's text pass each need their own scratch
+ * state, and the alternative -- a field per formatting context -- would make this
+ * header depend on every goal that follows it. RoboLayout never dereferences it,
+ * so what it points at is entirely the caller's business.
+ */
+void robo_layout_context_set_user_data(robo_layout_context_t *context, void *user_data);
+
+/** The installed user data, or NULL. */
+void *robo_layout_context_user_data(const robo_layout_context_t *context);
+
+/**
+ * Run a pass over @p tree.
+ *
+ * Walks every box, leaves each one's result UNRESOLVED, and fills the counters.
+ * It is *not* a placeholder for a real pass: it is the pass 10.1 has, and its
+ * whole output is a truthful statement about what has not been computed yet.
+ *
+ * **@p tree is taken mutable, and that is deliberate.** A pass *writes*: it is
+ * the one component in the module that does, because a box's result is where a
+ * pass puts what it concluded. Taking a `const` tree and casting the qualifier
+ * away inside would compile, would read as "this changes nothing", and would be
+ * undefined behaviour the first time a caller passed an object that really was
+ * const. The structure is not editable -- there is no add, remove or reorder here
+ * -- but the results are, and the signature says so.
+ *
+ * An empty tree is a legitimate pass (a document whose root element is
+ * `display: none` builds no boxes) and reports zero objects rather than an error.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL context or tree.
+ */
+robo_result_t robo_layout_context_run(robo_layout_context_t *context,
+                                      robo_layout_tree_t *tree,
+                                      robo_layout_diag_t *diag);
+
+/** What the last pass saw, by value. Zeros for a NULL context. */
+void robo_layout_context_stats(const robo_layout_context_t *context,
+                               robo_layout_stats_t *out);
+
+/** The last pass's outcome; ROBO_LAYOUT_PASS_NONE for a NULL context. */
+robo_layout_pass_outcome_t robo_layout_context_outcome(const robo_layout_context_t *context);
+
+/** Borrowed tree of the last pass, or NULL when none has run. */
+const robo_layout_tree_t *robo_layout_context_tree(const robo_layout_context_t *context);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ROBO_LAYOUT_CONTEXT_H */

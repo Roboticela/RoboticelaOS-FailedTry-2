@@ -398,8 +398,12 @@ static void test_css_computedvalue_lifetime_balances(void)
     enabled = css_allocator_ensure_enabled();
     /* The live count is only a leak detector while the tracker is on, so the
      * fixture's job is to guarantee that rather than to report who turned it
-     * on: this test reports `enabled` back to `restore` instead. */
+     * on: this test reports `enabled` back to `restore` instead. A Release
+     * build has no tracker to be on, so the guarantee is asserted where it can
+     * hold and the rest of the test runs in both. */
+#if ROBO_MEM_DEBUG
     ROBO_CHECK_EQ_INT(robo_mem_debug_is_enabled(), 1);
+#endif
     robo_css_source_init(&source);
 
     for (index = 0u; index < 64u; index++) {

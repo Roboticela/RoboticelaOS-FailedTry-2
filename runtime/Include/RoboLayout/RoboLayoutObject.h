@@ -1,0 +1,238 @@
+/*
+ * RoboLayout objects (Phase 10.1).
+ *
+ * One box: the thing a layout pass positions. It is *distinct from the DOM* and
+ * does not copy it:
+ *
+ *   the DOM owns elements      a tree owns boxes
+ *   a DOM node has children    a box has children *that generate boxes*
+ *   an element has a style     a box *references* one
+ *
+ * Two references and no copies:
+ *
+ *   `dom_node`  the inert RoboHTML handle of the element this box came from.
+ *               A handle is a token (document id, node id, generation), so
+ *               asking "which element is this box?" is a comparison and asking
+ *               "which box is this element?" is a lookup in the tree.
+ *   `style`     a **borrowed** computed style (RoboCSS's 9.8 container), owned
+ *               by whoever supplied it -- for the DOM bridge in RoboLayoutDom.h,
+ *               the bridge itself. The tree never disposes a style it does not
+ *               own, and RoboLayout never parses CSS, never normalises a value
+ *               and never resolves one.
+ *
+ * One CSS value *is* copied, and only one: `display`. The reason is that the box
+ * would not exist without it -- the builder creates a box exactly when the
+ * computed `display` generates one -- and that the very first question a
+ * formatting context asks is what kind of box it has, before it has any reason
+ * to go looking through a style it may not have. Everything else about the
+ * element (`position`, the box edges, `background`, the borders, the insets) is
+ * read from the borrowed style when a later goal needs it, so there is exactly
+ * one copy of each fact and no second place for it to go stale.
+ *
+ * The links are **ids, not pointers**, for the same reason RoboHTML's node
+ * registry uses ids: tree storage moves when it grows, and an id that names a
+ * dead box is indistinguishable from an id that names nothing -- both are
+ * refused by the lookup. A caller that must keep a box keeps its id.
+ *
+ * The object is written once, by the builder, and is read-only to everybody
+ * else. Nothing in this header takes the tree by non-const pointer except
+ * robo_layout_tree_add_object (RoboLayoutTree.h), which is why the links cannot
+ * be edited behind a pass's back.
+ */
+
+#ifndef ROBO_LAYOUT_OBJECT_H
+#define ROBO_LAYOUT_OBJECT_H
+
+#include "RoboBase/RoboError.h"
+#include "RoboCSS/RoboCSSComputed.h"
+#include "RoboCSS/RoboCSSDisplay.h"
+#include "RoboHTML/RoboHTMLNode.h"
+
+#include "RoboLayout/RoboLayoutDiagnostics.h"
+#include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutResult.h"
+#include "RoboLayout/RoboLayoutTypes.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/** Forward declaration: a box is always reached through the tree that owns it. */
+typedef struct robo_layout_tree robo_layout_tree_t;
+
+/*
+ * Object flags. One bit, and it is the one a consumer must check before reading
+ * a property off a box's style:
+ *
+ *   STYLE_MISSING  the builder had no computed style for this element (no style
+ *                  source was supplied, or the source answered nothing), so the
+ *                  box exists with the CSS *initial* values only. A formatting
+ *                  context that read `width` off such a box would be reading a
+ *                  value nobody computed, which is why the fact is a flag rather
+ *                  than an inference from `style == NULL`: the absence is a
+ *                  property of the build, not an accident.
+ */
+#define ROBO_LAYOUT_OBJECT_FLAG_STYLE_MISSING (1u << 0)
+/** Every defined object flag. */
+#define ROBO_LAYOUT_OBJECT_FLAG_ALL (ROBO_LAYOUT_OBJECT_FLAG_STYLE_MISSING)
+
+/**
+ * One box.
+ *
+ * Stored in the tree's arena and reached by id. The struct is public so that a
+ * reader needs no accessor for every field, and the accessors below exist for the
+ * two cases where a plain field read is not enough: an id that must be validated,
+ * and a link that must be distinguished from "absent".
+ *
+ * A borrowed pointer to one of these is valid **until the next mutation of the
+ * tree** -- adding an object may move the arena. A caller that keeps a box across
+ * an add keeps its id.
+ */
+typedef struct robo_layout_object {
+    /** Tree-scoped identity; never NONE for a live box. */
+    robo_layout_node_id_t id;
+    robo_layout_object_kind_t kind;
+    /** The element this box came from. Always well formed for a live box. */
+    robo_html_node_handle_t dom_node;
+    /** Borrowed computed style, or NULL when none was supplied (see the flag). */
+    const robo_css_computed_style_t *style;
+    /** The computed `display` the box was created under. */
+    robo_css_display_t display;
+
+    /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
+    robo_layout_node_id_t parent;
+    robo_layout_node_id_t first_child;
+    robo_layout_node_id_t last_child;
+    robo_layout_node_id_t prev_sibling;
+    robo_layout_node_id_t next_sibling;
+    size_t child_count;
+
+    /** Distance from the root box, which is 0. */
+    uint32_t depth;
+    /** ROBO_LAYOUT_OBJECT_FLAG_* bits. */
+    uint32_t flags;
+    /** What the pass concluded about this box. */
+    robo_layout_result_t result;
+} robo_layout_object_t;
+
+/*
+ * Read side. Every function takes the tree and an id, and answers ROBO_NOT_FOUND
+ * for an id that names no box -- so a stale id is a reported miss rather than a
+ * read of whatever now occupies that slot.
+ */
+
+/** The object, by value. @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL args or
+ *  a NONE id; ROBO_NOT_FOUND for an id that names no box in @p tree. @p out is
+ *  cleared first, so a failure never leaves a half-filled copy. */
+robo_result_t robo_layout_object_get(const robo_layout_tree_t *tree,
+                                     robo_layout_node_id_t id,
+                                     robo_layout_object_t *out,
+                                     robo_layout_diag_t *diag);
+
+/** Kind of @p id; ROBO_LAYOUT_OBJECT_NONE when the id names no box. */
+robo_layout_object_kind_t robo_layout_object_kind(const robo_layout_tree_t *tree,
+                                                  robo_layout_node_id_t id);
+
+/** The element @p id came from.
+ *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL args or a NONE id;
+ *  ROBO_NOT_FOUND for an id that names no box. */
+robo_result_t robo_layout_object_dom_node(const robo_layout_tree_t *tree,
+                                          robo_layout_node_id_t id,
+                                          robo_html_node_handle_t *out);
+
+/** Borrowed computed style of @p id, or NULL when the box has none (or the id
+ *  names no box -- check the id first if the difference matters). */
+const robo_css_computed_style_t *robo_layout_object_style(
+    const robo_layout_tree_t *tree,
+    robo_layout_node_id_t id);
+
+/** Computed display of @p id, or the display of no box (NONE) when the id names
+ *  none. */
+robo_css_display_t robo_layout_object_display(const robo_layout_tree_t *tree,
+                                              robo_layout_node_id_t id);
+
+/**
+ * The parent.
+ * @return ROBO_OK and the id; ROBO_INVALID_ARGUMENT for NULL args or a NONE id;
+ *         ROBO_NOT_FOUND for an id that names no box, *and* for the root box,
+ *         which has no parent. The two are distinguishable through
+ *         robo_layout_object_is_root.
+ */
+robo_result_t robo_layout_object_parent(const robo_layout_tree_t *tree,
+                                       robo_layout_node_id_t id,
+                                       robo_layout_node_id_t *out);
+
+/** First child of @p id, or ROBO_NOT_FOUND when it has none. */
+robo_result_t robo_layout_object_first_child(const robo_layout_tree_t *tree,
+                                            robo_layout_node_id_t id,
+                                            robo_layout_node_id_t *out);
+
+/** Last child of @p id, or ROBO_NOT_FOUND when it has none. */
+robo_result_t robo_layout_object_last_child(const robo_layout_tree_t *tree,
+                                           robo_layout_node_id_t id,
+                                           robo_layout_node_id_t *out);
+
+/** Previous sibling of @p id (the box before it *as a box*, not as a node). */
+robo_result_t robo_layout_object_previous_sibling(const robo_layout_tree_t *tree,
+                                                 robo_layout_node_id_t id,
+                                                 robo_layout_node_id_t *out);
+
+/** Next sibling of @p id. */
+robo_result_t robo_layout_object_next_sibling(const robo_layout_tree_t *tree,
+                                             robo_layout_node_id_t id,
+                                             robo_layout_node_id_t *out);
+
+/** Number of direct children; ROBO_NOT_FOUND for an id that names no box. */
+robo_result_t robo_layout_object_child_count(const robo_layout_tree_t *tree,
+                                            robo_layout_node_id_t id,
+                                            size_t *out);
+
+/** Distance from the root box (0 for the root). ROBO_NOT_FOUND for a miss. */
+robo_result_t robo_layout_object_depth(const robo_layout_tree_t *tree,
+                                      robo_layout_node_id_t id,
+                                      uint32_t *out);
+
+/** Non-zero when @p id names the tree's root box. */
+int robo_layout_object_is_root(const robo_layout_tree_t *tree,
+                               robo_layout_node_id_t id);
+
+/** Non-zero when @p id names a box with at least one child. */
+int robo_layout_object_has_children(const robo_layout_tree_t *tree,
+                                    robo_layout_node_id_t id);
+
+/** Non-zero when @p id names a box (any live kind). */
+int robo_layout_object_is_live(const robo_layout_tree_t *tree,
+                               robo_layout_node_id_t id);
+
+/** Flag bits of @p id; 0 when the id names no box or carries no flag. */
+uint32_t robo_layout_object_flags(const robo_layout_tree_t *tree,
+                                  robo_layout_node_id_t id);
+
+/** Non-zero when @p id names a box carrying @p flag. */
+int robo_layout_object_has_flag(const robo_layout_tree_t *tree,
+                                robo_layout_node_id_t id,
+                                uint32_t flag);
+
+/**
+ * The box's result, by value.
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL args or a NONE id;
+ *         ROBO_NOT_FOUND for an id that names no box. A box that exists always
+ *         has a result *record*; what varies is its state, so a caller that gets
+ *         ROBO_OK still has to read the state to learn whether any geometry is
+ *         known.
+ */
+robo_result_t robo_layout_object_result(const robo_layout_tree_t *tree,
+                                       robo_layout_node_id_t id,
+                                       robo_layout_result_t *out);
+
+/** Borrowed result of @p id, or NULL when the id names no box. Valid until the
+ *  next mutation of the tree, like every borrowed pointer here. */
+const robo_layout_result_t *robo_layout_object_result_ref(
+    const robo_layout_tree_t *tree,
+    robo_layout_node_id_t id);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ROBO_LAYOUT_OBJECT_H */
