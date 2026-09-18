@@ -283,6 +283,15 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * with no font and `50vh` with no viewport — which is why this is a flag for
      * the value system and not for resolving anything against a layout. */
     out->units = 1;
+    /* 9.11 gave the box model a vocabulary module of its own (RoboCSSBox.h):
+     * the four sides in CSS's order, the three shorthands and their longhands,
+     * and the component mapping — with expansion and *resolution* kept apart, so
+     * which declaration wins an edge is still the cascade's answer and not a
+     * second opinion held here. What it does not claim is layout: a box at this
+     * phase is a set of values with a shape, `50%` stays a percentage and `auto`
+     * stays the keyword, which is why this is a flag for a value family and not
+     * for measuring anything. */
+    out->box_model = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

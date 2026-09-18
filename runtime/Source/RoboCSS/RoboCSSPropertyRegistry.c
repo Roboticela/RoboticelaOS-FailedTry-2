@@ -161,6 +161,12 @@ const char *robo_css_property_computation_name(
         return "font-weight";
     case ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT:
         return "line-height";
+    case ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET:
+        return "edge offset";
+    case ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET:
+        return "edge inset";
+    case ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH:
+        return "line width";
     default:
         return "unknown";
     }
@@ -506,6 +512,43 @@ static const registry_standard_entry_t registry_standard_entries[] = {
     { "border",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+
+    /*
+     * --- the box model (9.11) ---
+     *
+     * Twelve longhands and two more shorthands, and the reason they are rows
+     * here rather than rules in the inheritance pass is that every one of them
+     * is a *property fact*: which longhands `border-width` stands for is
+     * vocabulary (RoboCSSBox.h), but that each of them starts at zero, that a
+     * border starts at `medium`, and that none of them inherits is what a
+     * registry is for. A phase that wrote those into a resolution path would be
+     * one hard-coded name comparison away from the defect this table exists to
+     * prevent.
+     *
+     * `border-width` is a shorthand with PRESERVE for the same reason `margin`
+     * is: its value is a *declaration about four properties* and the distribution
+     * is expansion's job, while the shorthand's own entry carries what the author
+     * wrote. Its initial `medium` is what the four longhands each start at.
+     *
+     * `box-sizing` is registered and computes to a keyword, and that is the whole
+     * of it: which box a width applies to is a layout question, and this build
+     * has no layout. Its value model exists so that a declaration survives to
+     * the phase that does, rather than being dropped on the floor by the phase
+     * that does not.
+     */
+    { "border-bottom-width", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH, "medium",     0 },
+    { "border-left-width", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH, "medium",     0 },
+    { "border-right-width", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH, "medium",     0 },
+    { "border-top-width", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH, "medium",     0 },
+    { "border-width",  ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "box-sizing",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "content-box", 0 },
     { "display",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "inline",     0 },
     { "height",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
@@ -513,9 +556,25 @@ static const registry_standard_entry_t registry_standard_entries[] = {
     { "margin",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "0",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "margin-bottom", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
+    { "margin-left",   ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
+    { "margin-right",  ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
+    { "margin-top",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
     { "padding",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "0",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "padding-bottom", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET,  "0",         0 },
+    { "padding-left",  ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET,  "0",         0 },
+    { "padding-right", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET,  "0",         0 },
+    { "padding-top",   ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET,  "0",         0 },
     { "position",      ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "static",     0 },
     { "width",         ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,

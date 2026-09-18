@@ -245,6 +245,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSInherit.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSColor.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSUnit.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSBox.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSComputedValue.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
@@ -410,6 +411,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssComputed.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssColor.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssUnit.c"),
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssBox.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

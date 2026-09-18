@@ -313,6 +313,17 @@ typedef struct robo_css_inherited_style {
      */
     size_t unresolved_count;
     /**
+     * Shorthands met whose value could not be distributed over their longhands
+     * (9.11) — `margin: 10px 20px 30px 40px 5px`, or `margin: var(--edges)`.
+     *
+     * Counted rather than hidden, because the two failures are silent ones: the
+     * shorthand's own entry is still there with the author's text intact, so a
+     * consumer reading the style would otherwise see a declaration and no
+     * longhands and have no way to tell that anything was left undone. Sets
+     * `unsupported`, since the four edges are then unanswerable.
+     */
+    size_t shorthands_unexpanded;
+    /**
      * Non-zero when this resolution met something it could not settle: an
      * unknown property default, a `revert` carried unresolved, an ancestor walk
      * that hit its depth bound, or a cascade that was itself incomplete.
@@ -365,6 +376,18 @@ int robo_css_inherited_style_has(const robo_css_inherited_style_t *style,
 
 /** Non-zero when @p style met nothing it could not settle (0 for NULL). */
 int robo_css_inherited_style_is_complete(const robo_css_inherited_style_t *style);
+
+/**
+ * Number of box-model shorthands whose value could not be distributed (0 for
+ * NULL).
+ *
+ * Read rather than inferred from the counter's absence in the struct, because
+ * "how many declarations did this build meet that it could not fully obey" is the
+ * question a caller asks about a resolution, and a field is not an answer a
+ * caller can rely on not to move.
+ */
+size_t robo_css_inherited_style_shorthands_unexpanded(
+    const robo_css_inherited_style_t *style);
 
 /** The element @p style was resolved for; NONE for NULL. */
 robo_css_element_ref_t robo_css_inherited_style_element(

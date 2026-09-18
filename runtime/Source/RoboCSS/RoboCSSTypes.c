@@ -390,6 +390,8 @@ const char *robo_css_diagnostic_domain_name(robo_css_diagnostic_domain_t domain)
         return "property registry";
     case ROBO_CSS_DOMAIN_INHERIT:
         return "inherit";
+    case ROBO_CSS_DOMAIN_BOX:
+        return "box";
     default:
         return "unknown";
     }

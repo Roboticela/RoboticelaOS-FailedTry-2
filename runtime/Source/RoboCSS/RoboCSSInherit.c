@@ -8,12 +8,13 @@
  * module testable one element at a time and what makes its invalidation story
  * "re-resolve" rather than "remember to invalidate".
  *
- * Three sets meet in robo_css_inherit_resolve, and the order they are walked in
+ * Four sets meet in robo_css_inherit_resolve, and the order they are walked in
  * is the order they are reported in:
  *
  *   1. the properties the element's own cascade declares — one entry each,
  *      taking the *winner* through the cascade's own resolver rather than
  *      re-deciding precedence here;
+ *   1b. the box model's longhands, distributed out of their shorthands (9.11);
  *   2. the properties that inherit by default and that the parent carries;
  *   3. the properties that inherit by default that neither of the above
  *      supplied, resolved to their initial value.
@@ -23,12 +24,22 @@
  * materialising `width: auto` on every element because nobody declared it would
  * put a value in a resolution that no input produced, and 9.8 can reach the
  * registry's initial value for that.
+ *
+ * Set 1b sits where it does because a box-model longhand is a *declaration* — it
+ * is resolved exactly like one, keywords and all — and because one shorthand and
+ * one longhand can both speak for the same edge, so the two have to be weighed
+ * against each other rather than materialised independently. Settling that here,
+ * before "what does the parent carry" is asked, keeps a resolved style looking
+ * the way every other resolved style looks: one entry per property, each one
+ * with its own provenance.
  */
 
 #include "RoboCSS/RoboCSSInherit.h"
 
+#include "RoboCSS/RoboCSSBox.h"
 #include "RoboCSS/RoboCSSError.h"
 #include "RoboCSSInternal.h"
+#include "RoboBase/RoboLog.h"
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
@@ -295,6 +306,12 @@ int robo_css_inherited_style_has_parent(const robo_css_inherited_style_t *style)
     return style ? style->has_parent : 0;
 }
 
+size_t robo_css_inherited_style_shorthands_unexpanded(
+    const robo_css_inherited_style_t *style)
+{
+    return style ? style->shorthands_unexpanded : 0u;
+}
+
 /* ------------------------------------------------------------------ */
 /* Resolution                                                          */
 /* ------------------------------------------------------------------ */
@@ -465,21 +482,27 @@ static const robo_css_inherited_property_t *inherit_parent_entry(
 }
 
 /**
- * Resolve one property that the element's cascade declares.
+ * Resolve one property from a value the element declared, obeying the CSS-wide
+ * keyword that value may carry.
  *
- * `declared` is the winner the *cascade* chose, so nothing here re-decides
- * precedence: this function only obeys the CSS-wide keyword the winner carried,
- * or copies the value.
+ * Precedence is already decided when this is called — the winner is whatever the
+ * cascade chose — so nothing here re-decides it: the function only obeys the
+ * keyword or copies the value.
+ *
+ * It takes a *value* rather than the candidate that carried it, because 9.11
+ * gave it a second caller: a longhand distributed out of a shorthand is declared
+ * like any other, and it has to go through exactly this keyword handling. `margin:
+ * inherit` and `margin-left: inherit` mean the same thing to the four edges, and a
+ * second copy of the keyword logic is how the two would come to disagree.
  */
-static int inherit_declared(robo_css_inherited_style_t *out,
-                            const robo_css_style_context_t *context,
-                            const robo_css_cascade_candidate_t *declared,
-                            const robo_css_inherited_style_t *parent,
-                            robo_css_slice_t name,
-                            int inherited_by_default)
+static int inherit_value(robo_css_inherited_style_t *out,
+                         const robo_css_style_context_t *context,
+                         robo_css_property_id_t property,
+                         robo_css_slice_t name,
+                         const robo_css_value_t *value,
+                         const robo_css_inherited_style_t *parent,
+                         int inherited_by_default)
 {
-    const robo_css_value_t *value =
-        robo_css_declaration_value(declared->declaration);
     robo_css_wide_keyword_t keyword = robo_css_wide_keyword_of(value);
     const robo_css_inherited_property_t *from_parent;
 
@@ -487,7 +510,7 @@ static int inherit_declared(robo_css_inherited_style_t *out,
         /* Recognised, and deliberately not obeyed: see the header. The keyword
          * is carried as the value so nothing is lost, and the entry is counted
          * and marked deferred so nothing reads it as an answer. */
-        if (!inherit_append(out, declared->property, name,
+        if (!inherit_append(out, property, name,
                             ROBO_CSS_INHERITED_SOURCE_DEFERRED, keyword, value)) {
             return 0;
         }
@@ -500,7 +523,7 @@ static int inherit_declared(robo_css_inherited_style_t *out,
         (keyword == ROBO_CSS_WIDE_KEYWORD_UNSET && inherited_by_default)) {
         from_parent = inherit_parent_entry(parent, name);
         if (from_parent &&
-            inherit_append(out, declared->property, name,
+            inherit_append(out, property, name,
                            ROBO_CSS_INHERITED_SOURCE_PARENT, keyword,
                            &from_parent->value)) {
             inherit_tally(out, ROBO_CSS_INHERITED_SOURCE_PARENT);
@@ -509,7 +532,7 @@ static int inherit_declared(robo_css_inherited_style_t *out,
         /* `inherit` with no parent value is the parent's *computed* value, and
          * an undeclared non-inherited property's computed value is its initial
          * one — so the default is the right answer, not a failure. */
-        if (!inherit_append(out, declared->property, name,
+        if (!inherit_append(out, property, name,
                             ROBO_CSS_INHERITED_SOURCE_DEFAULT, keyword,
                             inherit_default_value(context, name))) {
             return 0;
@@ -520,7 +543,7 @@ static int inherit_declared(robo_css_inherited_style_t *out,
 
     if (keyword == ROBO_CSS_WIDE_KEYWORD_INITIAL ||
         (keyword == ROBO_CSS_WIDE_KEYWORD_UNSET && !inherited_by_default)) {
-        if (!inherit_append(out, declared->property, name,
+        if (!inherit_append(out, property, name,
                             ROBO_CSS_INHERITED_SOURCE_DEFAULT, keyword,
                             inherit_default_value(context, name))) {
             return 0;
@@ -529,13 +552,31 @@ static int inherit_declared(robo_css_inherited_style_t *out,
         return 1;
     }
 
-    if (!inherit_append(out, declared->property, name,
+    if (!inherit_append(out, property, name,
                         ROBO_CSS_INHERITED_SOURCE_DECLARED,
                         ROBO_CSS_WIDE_KEYWORD_NONE, value)) {
         return 0;
     }
     inherit_tally(out, ROBO_CSS_INHERITED_SOURCE_DECLARED);
     return 1;
+}
+
+/**
+ * Resolve one property whose winning declaration the cascade already chose.
+ *
+ * The one-candidate spelling of the above, kept because that is how every
+ * property that is not a box-model longhand arrives.
+ */
+static int inherit_declared(robo_css_inherited_style_t *out,
+                            const robo_css_style_context_t *context,
+                            const robo_css_cascade_candidate_t *declared,
+                            const robo_css_inherited_style_t *parent,
+                            robo_css_slice_t name,
+                            int inherited_by_default)
+{
+    return inherit_value(out, context, declared->property, name,
+                         robo_css_declaration_value(declared->declaration), parent,
+                         inherited_by_default);
 }
 
 /**
@@ -573,6 +614,138 @@ static int inherit_from_parent(robo_css_inherited_style_t *out,
     return appended;
 }
 
+/**
+ * Distribute the box model's shorthands over their longhands (9.11).
+ *
+ * A shorthand is one declaration that speaks for four properties, and an edge
+ * can be spoken for twice:
+ *
+ *   .box { margin: 10px; margin-left: 20px; }   the longhand is later, so it wins
+ *   .box { margin-left: 20px; margin: 10px; }   the shorthand is later, so it wins
+ *
+ * Both are the *same* question the cascade already answers for one property —
+ * level, then specificity, then document order — asked across two property names
+ * instead of within one, which is why it is asked of the cascade
+ * (`robo_css_cascade_candidate_compare`) rather than answered here. Nothing in
+ * this function weighs a level or compares a specificity.
+ *
+ * The three outcomes per edge, in the order they are decided:
+ *
+ *   the longhand's own declaration wins   materialise it, exactly as the
+ *                                         declared pass would have;
+ *   the shorthand wins, carrying a        obey the keyword — `inherit` on a
+ *   CSS-wide keyword                      shorthand means the same four times;
+ *   the shorthand wins, with a value      copy that side's component out of it.
+ *
+ * A shorthand whose value cannot be distributed — five components, or a `var()`
+ * that substitution would expand into four — is counted and reported rather than
+ * guessed at; the author's text stays on the shorthand's own entry either way.
+ *
+ * The longhands of a shorthand are skipped by the declared pass and materialised
+ * here and *only* here, which is what keeps an edge from getting two entries: one
+ * from its own declaration and one from the shorthand it lost to.
+ */
+static int inherit_expand_box_shorthands(robo_css_inherited_style_t *out,
+                                        const robo_css_style_context_t *context,
+                                        const robo_css_cascade_t *cascade,
+                                        const robo_css_inherited_style_t *parent)
+{
+    const robo_css_property_table_t *table;
+    size_t row_index;
+
+    if (!cascade) {
+        return 1;
+    }
+    table = robo_css_style_context_property_table(context);
+    for (row_index = 0u; row_index < robo_css_box_shorthand_count(); row_index++) {
+        const robo_css_box_shorthand_t *shorthand =
+            robo_css_box_shorthand_at(row_index);
+        const robo_css_cascade_candidate_t *shorthand_winner = NULL;
+        const robo_css_value_t *shorthand_value = NULL;
+        robo_css_wide_keyword_t shorthand_keyword = ROBO_CSS_WIDE_KEYWORD_NONE;
+        size_t component_count = 0u;
+        int expandable = 0;
+        size_t side_index;
+
+        (void)robo_css_cascade_resolve_name(
+            cascade, robo_css_slice_from_text(shorthand->name), &shorthand_winner);
+        if (shorthand_winner) {
+            shorthand_value =
+                robo_css_declaration_value(shorthand_winner->declaration);
+            shorthand_keyword = robo_css_wide_keyword_of(shorthand_value);
+            if (shorthand_keyword == ROBO_CSS_WIDE_KEYWORD_NONE) {
+                expandable = robo_css_box_is_expandable(shorthand_value,
+                                                        &component_count);
+                if (!expandable) {
+                    /* Counted once for the shorthand rather than once per side,
+                     * because it is one declaration that went undistributed. */
+                    out->shorthands_unexpanded++;
+                    out->unsupported = 1;
+                }
+            }
+        }
+
+        for (side_index = 0u; side_index < (size_t)ROBO_CSS_BOX_SIDE_COUNT; side_index++) {
+            robo_css_box_side_t side = (robo_css_box_side_t)side_index;
+            const char *longhand_name = robo_css_box_shorthand_longhand(shorthand, side);
+            robo_css_slice_t name = robo_css_slice_from_text(longhand_name);
+            const robo_css_cascade_candidate_t *longhand_winner = NULL;
+            robo_css_property_id_t property;
+            int inherited_by_default;
+            int longhand_wins;
+
+            (void)robo_css_cascade_resolve_name(cascade, name, &longhand_winner);
+            longhand_wins = longhand_winner != NULL &&
+                            (!shorthand_winner ||
+                             robo_css_cascade_candidate_compare(cascade,
+                                                                shorthand_winner,
+                                                                longhand_winner) > 0);
+            if (!longhand_wins && !shorthand_winner) {
+                /* Neither spoke for this edge: it has no entry, and it is not
+                 * supposed to — see set 3 in the header comment. */
+                continue;
+            }
+            property = table ? robo_css_property_table_lookup_slice(table, name)
+                             : ROBO_CSS_PROPERTY_ID_NONE;
+            inherited_by_default = inherit_classify(context, name);
+
+            if (longhand_wins) {
+                if (!inherit_value(out, context, longhand_winner->property, name,
+                                   robo_css_declaration_value(longhand_winner->declaration),
+                                   parent, inherited_by_default)) {
+                    return 0;
+                }
+                continue;
+            }
+            if (shorthand_keyword != ROBO_CSS_WIDE_KEYWORD_NONE) {
+                /* The keyword itself, distributed: `inherit` means the parent's
+                 * value for the edge, which is the same sentence `inherit_value`
+                 * already knows how to obey. */
+                if (!inherit_value(out, context, property, name, shorthand_value,
+                                   parent, inherited_by_default)) {
+                    return 0;
+                }
+                continue;
+            }
+            if (expandable) {
+                robo_css_value_t component = ROBO_CSS_CLEARED;
+
+                if (robo_css_box_expand_side(shorthand_value, component_count, side,
+                                             &component, NULL) != ROBO_OK) {
+                    return 0;
+                }
+                if (!inherit_value(out, context, property, name, &component, parent,
+                                   inherited_by_default)) {
+                    robo_css_value_dispose(&component);
+                    return 0;
+                }
+                robo_css_value_dispose(&component);
+            }
+        }
+    }
+    return 1;
+}
+
 robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
                                        const robo_css_cascade_t *cascade,
                                        const robo_css_inherited_style_t *parent,
@@ -606,6 +779,13 @@ robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
         if (robo_css_slice_is_absent(name)) {
             continue;
         }
+        if (robo_css_box_shorthand_of_longhand(name, NULL) != NULL) {
+            /* A box-model longhand is distributed out of its shorthand rather
+             * than resolved one name at a time — it and the shorthand compete
+             * for the same edge, and the pass below is where that is settled.
+             * Materialising it here as well would give the edge two entries. */
+            continue;
+        }
         /* Only the winner is materialised, and the cascade decides who that is:
          * asking it rather than comparing levels here is what keeps precedence
          * in one place. A declaration whose *name* is unknown has no id, so the
@@ -634,6 +814,23 @@ robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
             return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_INHERIT, ROBO_OUT_OF_MEMORY,
                                  "the resolved style could not be built");
         }
+    }
+
+    /* The box model's longhands, over the shorthands that stand for them. */
+    if (!inherit_expand_box_shorthands(out, context, cascade, parent)) {
+        robo_css_inherited_style_dispose(out);
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_INHERIT, ROBO_OUT_OF_MEMORY,
+                             "the resolved style could not be built");
+    }
+    if (out->shorthands_unexpanded > 0u) {
+        /* Reported rather than silent, because this is the phase's one quiet
+         * failure: the shorthand's own entry is intact, so a caller reading the
+         * style sees a declaration and no longhands and has no way to tell that
+         * four edges went unanswered. One line per resolution that met such a
+         * declaration, in the same spirit as the tokenizer's error line. */
+        robo_log_debug("robo_css: inherit: %llu shorthand(s) met that this build "
+                       "cannot distribute over their longhands",
+                       (unsigned long long)out->shorthands_unexpanded);
     }
 
     /* What the parent carries, for the properties that inherit by default. */

@@ -1,7 +1,7 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.9,
-colours**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.11,
+the box model**).
 
 **Version:** 0.9.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
@@ -375,6 +375,58 @@ printing a value that is not zero as zero is a lie a layout would act on.
 
 `docs/Units.md` has the full account.
 
+## The box model (9.11)
+
+A box is four edges, and CSS writes them twice — four longhands, or one shorthand —
+so something has to turn the second into the first. Everything downstream is written
+against the longhands, which is why `margin: 10px 20px` has to *become* four values
+rather than stay one declaration nothing can consume.
+
+This phase is the first whose subject is a **property family** rather than a
+representation, and its module (`RoboCSSBox.h`) owns only the vocabulary: the four
+sides in CSS's own order, the three shorthands this build distributes (`margin`,
+`padding`, `border-width`) with the longhand each side stands for, and the 1/2/3/4
+component mapping as a table with one row per arity. `border-width` is distributed
+although nothing paints a border, because the four widths are the four values;
+`border` is *not*, because it stands for four widths, four styles and four colours and
+this build represents one of three.
+
+The order of the sides is load-bearing rather than conventional. `1px 2px 3px` means
+"top, then both horizontal, then bottom", which is a statement *about the order*, and
+a set that listed the sides differently would transpose every three-value shorthand.
+
+Two values refuse to expand, and they refuse for different reasons. Five components is
+an *invalid declaration* the grammar accepted because validity is not syntax. A
+`var()`/`env()` reference is a legal declaration whose component count is not known
+until substitution — which happens *before* expansion in CSS — so splitting it now
+would assign the whole reference to every side. `calc()` needs no such care, and the
+suite pins both halves of that distinction.
+
+The decision the phase is built around is that **expansion is not resolution**. Which
+declaration wins an edge is the cascade's answer, including when the two carry
+different property names — `margin: 10px; margin-left: 20px` is level, then
+specificity, then document order, asked across two names instead of within one. That is
+why it is asked of the cascade (`robo_css_cascade_candidate_compare`) and why nothing in
+the box model weighs a level or compares a specificity. A distributed longhand is then
+resolved like any other declaration, so `margin: inherit` and `margin-left: inherit`
+mean the same thing to all four edges *by construction* rather than by two
+implementations agreeing.
+
+Three value shapes join the computed layer, and they differ by **vocabulary**:
+`auto` is a margin and is not a padding, `medium` is a border width and is not a
+margin. Sharing one body and differing only in the grammar they are handed is what
+makes `padding: auto` an INVALID computed value rather than a keyword a later phase
+would have to interpret. Fourteen properties join the registry — the twelve longhands,
+`border-width` and `box-sizing` — and none of them inherits.
+
+A shorthand that cannot be distributed is *reported* rather than guessed at: the
+author's text stays on the shorthand's own entry, the count is on the resolved style,
+and the resolution is marked incomplete. That is the phase's one quiet failure, and a
+consumer that could not see it would read a declaration and find nothing underneath it.
+
+Nothing here is layout: no edge is measured, no margin collapses, `50%` stays a
+percentage and `auto` stays the keyword. `docs/BoxModel.md` has the full account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -411,6 +463,7 @@ equivalence field by field.
 | `robo_css_computed_value_t` | Its `text` and its `preserved` tree, and every byte inside them | Slices *within* a preserved tree, which borrow the source that declared them |
 | `robo_css_computed_style_t` | Every entry's name, specified value, typed value and flags | The sheets, sources and parents those values were derived from |
 | `robo_css_color_t` | Nothing, ever — it is four bytes and a tag by value | — |
+| `robo_css_box_shorthand_t` | Nothing, ever — the three rows are `static const` | — |
 
 `robo_css_slice_t` is a borrowed view. Every API that produces one documents who
 keeps those bytes alive; no slice is ever freed by RoboCSS.
@@ -470,4 +523,5 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Colors.md` | The 9.9 colours: the record and its four kinds, why 8 bits per channel, the 148-name table and why `transparent` is not in it, every syntax with its clamping and normalisation rules, the six outcomes and why each exists, the two `currentColor` rules, the `var()` boundary, the registry's second colour property, serialization, the deferred spaces as extension points, and the robustness set |
 | `docs/Units.md` | The 9.10 units and numbers: the closed vocabulary and its four families, why `is_absolute` is asked of the table, the reference-pixel relationships, the context and its flags, why the small/large/dynamic viewport is a fallback chain, the four resolutions, the four numeric kinds and the two integer questions, the five parse outcomes and why there is no `MALFORMED`, the canonical spelling, the deferred `calc()`/`var()` boundary, the computed-value integration, ownership, and numeric safety |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1–9.10 records and their definitions of done |
+| `docs/BoxModel.md` | The 9.11 box model: the four sides and why their order is load-bearing, the three shorthands (and why `border` is not one of them), the 1/2/3/4 mapping as a table, the two refusals and why a `var()` is not a five-value shorthand, the three value shapes that differ by vocabulary, the fourteen registry rows, why expansion is not resolution, where the pass runs, what happens when a shorthand cannot be distributed, and the layout boundary |
+| `../PROGRESS.md` | The Goal 9.1–9.11 records and their definitions of done |

@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 10);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 11);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 10);
+    ROBO_CHECK_EQ_INT(minor, 11);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -429,6 +429,15 @@ static void test_css_capabilities(void)
      * carried rather than resolved, which is why this claims the value system
      * and not the resolution of one. */
     ROBO_CHECK_EQ_INT(caps.units, 1);
+
+    /* 9.11 gave the box model a vocabulary of its own: the four sides in CSS's
+     * order, the three shorthands this build distributes and the longhand each
+     * side of each stands for, and typed values for the twelve longhands. What
+     * it claims is the *value family*, not the geometry — no edge is measured,
+     * `50%` stays a percentage and `auto` stays the keyword — and `border-width`
+     * is distributed although nothing paints a border, because the four widths
+     * are the four values. */
+    ROBO_CHECK_EQ_INT(caps.box_model, 1);
 
     /* ...and everything past that is still 0: no default stylesheet exists, and
      * nothing loads one. */

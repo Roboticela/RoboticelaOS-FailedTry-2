@@ -131,11 +131,45 @@ typedef enum robo_css_property_computation {
     /** `normal`, `bold`, or 100–900 (`font-weight`). */
     ROBO_CSS_PROPERTY_COMPUTATION_FONT_WEIGHT = 5,
     /** `normal`, a number, a length or a percentage (`line-height`). */
-    ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT = 6
+    ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT = 6,
+    /**
+     * A length, a percentage, or `auto` (9.11) — a box edge that may be sized
+     * by its container: `margin-top` and its three relatives.
+     *
+     * A shape of its own rather than the LENGTH above, and the difference is the
+     * *vocabulary* rather than the syntax: `margin-top: normal` is not a margin,
+     * and `margin-top: min-content` is not one either, where both are legal for
+     * `width`. A shape that accepted every length-family keyword everywhere
+     * would make `padding: auto` computable, and CSS says it is a mistake.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET = 7,
+    /**
+     * A length or a percentage, and **never** `auto` (9.11) — `padding-top` and
+     * its three relatives.
+     *
+     * The negative of EDGE_OFFSET, and the two exist separately because that is
+     * the whole difference between the two families: a padding has nothing to
+     * distribute, so there is no `auto` for it to mean. Rejecting it here rather
+     * than in a branch at the call site is what makes `padding: auto` an INVALID
+     * computed value instead of a keyword that later phases would have to
+     * interpret.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET = 8,
+    /**
+     * A length, or one of the three width keywords (9.11) — the four
+     * `border-*-width` longhands.
+     *
+     * `thin`, `medium` and `thick` are kept as the keywords they are rather than
+     * resolved to the lengths they stand for, because their lengths are *used*
+     * values: what `medium` is depends on the border style and the device, and a
+     * computed value that had already picked a pixel count would be claiming a
+     * decision it does not have the context to make.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH = 9
 } robo_css_property_computation_t;
 
 /** Number of defined computations. */
-#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 7u
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 10u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int robo_css_property_computation_is_known(robo_css_property_computation_t computation);

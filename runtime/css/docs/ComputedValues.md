@@ -200,15 +200,20 @@ the property's declared value — and it is what makes the normaliser a function
 rather than a lookup table keyed by property name:
 
 ```text
-PRESERVE       carry the tokens                    background, border, margin, custom
-COLOR          named / hex / rgb() / transparent   color
+PRESERVE       carry the tokens                    background, border, margin,
+                                                   padding, border-width, custom
+COLOR          named / hex / rgb() / transparent   color, background-color
 LENGTH         dimension, percentage, zero, keyword
                                                    width, height, font-size,
                                                    letter-spacing, word-spacing, text-indent
-KEYWORD        one identifier                      display, position, text-align, visibility
+KEYWORD        one identifier                      display, position, text-align,
+                                                   visibility, box-sizing
 FONT_FAMILY    identifiers and strings, comma-separated
 FONT_WEIGHT    a number 1–1000 or `normal`/`bold`
 LINE_HEIGHT    `normal`, a number, a length or a percentage
+EDGE_OFFSET    a length, a percentage or `auto`     margin-*      (9.11)
+EDGE_INSET     a length or a percentage            padding-*     (9.11)
+LINE_WIDTH     a length or thin/medium/thick       border-*-width (9.11)
 ```
 
 `FONT_WEIGHT` refuses `5000` rather than clamping it — 5000 is not a heavier
@@ -219,6 +224,46 @@ difference.
 Adding the column did not change the registry's data: every initial value was
 already text, and the registry already parsed each into a component-value tree at
 registration time. One field, one switch, seven shapes.
+
+### Why 9.11 added three more
+
+`auto` is a margin and is not a padding. `medium` is a border width and is not a
+margin. `min-content` is a width and is neither. The three box-model shapes differ
+from each other, and from `LENGTH`, by **vocabulary** rather than by syntax — which
+is the same reason `FONT_WEIGHT` and `LINE_HEIGHT` have always been separate shapes
+rather than one "a number or a keyword" shape.
+
+The three share one body (`computed_compute_length_grammar`) and differ only in the
+grammar they are handed: a keyword list, its length, and the sentence to use when an
+identifier is not in it. That is what makes `padding: auto` an **INVALID** computed
+value rather than a keyword a later phase would have to interpret, and the suite
+asserts it from both ends — `auto` is a keyword under `EDGE_OFFSET` and INVALID under
+`EDGE_INSET`.
+
+```text
+                   length  percentage  auto  thin/medium/thick  min-content
+EDGE_OFFSET          yes       yes      yes         no               no
+EDGE_INSET           yes       yes      no          no               no
+LINE_WIDTH           yes        no      no         yes               no
+LENGTH (9.8)         yes       yes      yes*        yes*             yes
+```
+
+`*` — `LENGTH`'s list is a **union**, and deliberately: the properties it serves
+(`width`, `height`, `font-size`, `letter-spacing`, `text-indent`, `word-spacing`)
+genuinely share it, and no box-model family needed a narrower cut of it. Making it
+exact per property is a change with a real cost and no reader yet; the three 9.11
+shapes are exact because there the difference *is* the property family.
+
+The box longhands are also where the two halves of a phase meet. A distributed
+longhand is an *ordinary declaration* by the time this layer sees it — the expansion
+happened in inheritance and went through the same keyword handling a written
+declaration does — so `margin: inherit` and `margin-left: inherit` compute identically
+without the value layer knowing either was a shorthand. Expanding later would have
+meant expanding *computed* values, which is the one thing this layer must not do: a
+computed `padding: 8px 12px 4px` is a `PRESERVED` value, and splitting it here would
+be interpreting a value the property never asked it to.
+
+`docs/BoxModel.md` has the full account of the family itself.
 
 ## The computed style
 

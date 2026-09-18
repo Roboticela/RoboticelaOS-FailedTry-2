@@ -122,6 +122,13 @@ produces, which is the half of the job that cannot break.
 | `SuiteRoboCssUnit.c` | 18 | The module (`css.unit.*`, `css.numeric.*`): the vocabulary (every enumerator's spelling resolving back to it, the count of 31 real units and 18 viewport units pinned, one representative per family, the whole-set sweep that no relative unit reports itself absolute, unknown enumerators answering nothing rather than the first row, case-insensitivity, `pixels` not being `px`), absolute conversion (every definitional pair, `40Q` = `1cm` *and* `4Q` = `1mm`, zero and negative, `to_px` returning its input for a unit with no factor), resolution (the whole contextual set answering `NEEDS_CONTEXT` with no context *and* with an empty one, font-relative resolved against element metrics and root metrics separately and each refusing without the other, viewport families and the fallback chain with and without overrides, `vmin`/`vmax` picking a dimension, `vi`/`vb` swapping with the writing mode, non-finite magnitudes and non-finite context inputs as `INVALID`, `1e308in` overflow, `NOT_A_LENGTH` for `NONE`, an unwritten `out_px` on every refusal, and a NULL output), the context (a cleared one knows nothing, the setters set their flags, re-init clears, every setter tolerates NULL), the four kinds and their name tables, the two integer questions and the 2^53 bound, kind-aware and unit-aware equality, the constructors (non-finite refused, a length with no unit refused, a failing constructor leaving its output alone), the five outcomes with `DEFERRED` for all six reference functions, `1e999` as `NON_FINITE`, an untouched record on refusal, the token door agreeing with the value door, serialization (whole/fractional/trailing-zero/negative-zero/percentage/unit-canonical/tiny-magnitude, a short buffer refused with the length it needed, a cleared record writing nothing, NULL arguments), 32 malformed declarations driven through with two invariants asserted on every one, and the computed-value integration (every unit family through a real element, `font-size: inherit` landing on the parent's contextual length, `initial`/`unset` on a length-shaped property landing on `auto`, a sheet holding colours and numbers at once, and determinism over a document plus the vocabulary walked in reverse) |
 | `SuiteRoboCssDomSelect.c` (`css.dom.unit.pipeline`) | 1 | Every family over the **visual checkpoint's own document**: a contextual unit carried with its unit live on the record (`30em`, `1.25rem`, `50vh`), an absolute length converted wherever it was written (`2.54cm` and `6pc` both landing on `96px`), a non-inherited property nobody declared having no entry, `40q` and the two axes and the dynamic family, `1e2px`, a percentage staying a percentage beside a converted length, an unknown unit reported with the rest of the style unharmed, and the same element computed twice giving the same typed unit and magnitude |
 
+### 9.11 — the box model
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssBox.c` | 13 | The module (`css.box.*`): the side vocabulary with the order walked in sequence and the names read back (a transposed pair would otherwise be invisible), the shorthand table walked **both ways** — every row's four longhands, and each longhand resolving back to its row and its side — plus `border` and `border-top-style` deliberately absent from it, the component mapping for all four arities with a distinct value per side so a wrong answer is visible, trivia skipped so `1px   2px` is two components, the two refusals (five and six components refused as an invalid declaration; `var()`/`env()` refused because substitution would change the count) with `calc()` beside them proving the refusal is about the reference and not the arity, every refusal leaving its output empty, the three value shapes through declaration text (`auto` accepted by `EDGE_OFFSET` and *refused* by `EDGE_INSET`, the three width keywords kept as keywords, `1foo` an unknown unit, `red`/`normal`/`min-content` not in the family's vocabulary), the four longhands arriving from a three- and a two-component shorthand on a real element, the shorthand's own entry surviving beside them, `box-sizing` as a value with no layout, `margin: 0 auto` keeping `auto`, the shorthand-versus-longhand contest in **both orders** plus a shorthand reset that only erases what came before it, specificity and `!important` across two property names, `margin: inherit` and `padding: initial` and `border-width: unset` on a child, non-inheritance proven from both sides (the parent's edges present, the child's absent, an inherited property beside them arriving), a shorthand that cannot be distributed counted and reported while a clean one leaves the counter at zero, fifteen malformed declarations driven through all three shapes with invariants asserted on each, and determinism over a document plus the vocabulary walked backwards |
+| `SuiteRoboCssDomSelect.c` (`css.dom.box.pipeline`) | 1 | The box model over the **visual checkpoint's own document**: every arity declared on a real element (two components → vertical zero and horizontal `auto` with `auto` surviving as a keyword, three → the row where `left` borrows `right`, one → all four), the shorthand's own entry present with the author's text, border widths keeping their keywords, `box-sizing: border-box` on a form, `10%` and `2em` staying what they are on a textarea, `padding: inherit` landing on the longhand's own initial because there is no ancestor padding to take, a shorthand and a longhand competing for the same edge on one element decided by document order, and the phase's own acceptance rule last — one sheet declaring `width`, `height`, both shorthands, `border-width` and `color: #336699` on a textarea, adding second so it is the cross-sheet source-order case too, which proves a dimension and a colour are read in the same pass |
+
 ### 9.7 — property metadata and inheritance
 
 | Suite | Tests | Subject |
@@ -722,3 +729,42 @@ component — was already correct, and the reason `10 px` and `1.2.3` are `INVAL
 rather than a silently-halved number is that the tokenizer is lossless and the
 component check happens before any numeric reading. The malformed sweep exists to
 keep that true rather than to establish it.
+
+## 15. What the 9.11 suites found
+
+No product defect, and the reason is worth recording as plainly as a bug would be:
+the phase's risky part — deciding which of a shorthand and a longhand wins an edge —
+was built by *asking the cascade* rather than by re-deriving its three keys, so the
+four directions the suite pins (document order both ways, specificity, importance) all
+went through code that was already correct and already tested. Building the second
+implementation is what would have produced a finding here.
+
+Five expectations were wrong rather than the implementation, and three of the five
+are the same shape of mistake:
+
+* **A computed `PRESERVED` value renders with spaces, not commas.** The assertions
+expected `8px,_,12px,_,4px` — the *declaration shape* helper's spelling — where the
+computed serializer writes `8px 12px 4px`. The two helpers format the same tree
+differently and on purpose, and reaching for the wrong one is easy enough that it is
+worth knowing which is which.
+* **An id selector does not match a class.** `css_host_add(host, "div", "panel",
+  "box")` gives the element `id=panel` and `class=box`, so `#box { margin: 10px }`
+  never matched and the *type* selector's `margin-left: 20px` won — which looked like
+a precedence bug and was a fixture bug. The test now uses `#panel` and asserts the
+same contest for real.
+* **An absent entry's provenance is `<absent>`, not `<none>`.** `css_inherit_source`
+  reports the absence rather than inventing a source, and `<none>` belongs to
+  `SOURCE_NONE`, which is a *present* entry with no provenance — the same distinction
+the value helper draws, and one that has to be got right or "the child has no margin"
+reads as "the child has a margin from nowhere".
+* **An inherited default is inherited from the parent, not defaulted again.** A
+  child's `color` took the parent's value, and the parent's value *was* the registry's
+default — so the child's provenance is `parent`, not `default`. The unit suite gives
+  the same property `default`, because there the child has no parent style at all;
+  both are right and the difference is exactly the parent's presence.
+* **A context's sheets are shared by every element in it.** The "and a shorthand that
+  *does* distribute leaves the counter at zero" half of the unexpanded-shorthand test
+  re-used the fixture whose sheet already held the two undeployable declarations, so
+  the counter legitimately stayed at one. It now uses a fixture of its own, which is
+the correct fix — the alternative would have been asserting the counter was zero on
+input that should set it.

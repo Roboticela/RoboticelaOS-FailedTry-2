@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.10)
+# RoboCSS Architecture (Phase 9.1–9.11)
 
 This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -407,6 +407,43 @@ Unit                             one unit
   └── family + measure           which viewport, and which dimension of it
 ```
 
+### Box
+
+The box model's *vocabulary* is a table, and since 9.11 it is a type of its own:
+
+```text
+Side                             one edge
+  └── top / right / bottom / left, in CSS's order
+
+Shorthand                        one declaration that stands for four
+  ├── name                       `margin`, `padding`, `border-width`
+  └── longhands[4]               indexed by side
+
+map[arity][side]                 the 1/2/3/4 distribution
+```
+
+Three rows and a 4×4 table of integers, `static const`, owning nothing. The order of
+the sides is the thing the table is *for*: `1px 2px 3px` is a statement about it.
+
+What makes this a module rather than a corner of the inheritance pass is that
+expansion and *resolution* are different questions. Which declaration wins an edge is
+the cascade's, and 9.11 added exactly one door to say so:
+`robo_css_cascade_candidate_compare` weighs two candidates from one cascade by level,
+then specificity, then document order — the cascade's own three keys, restated
+nowhere. The box model therefore contains no level arithmetic and no specificity
+comparison, and an edge spoken for twice (`margin: 10px` and `margin-left: 20px`) is
+decided by the same rules that decide an edge spoken for once.
+
+The expansion pass runs inside `robo_css_inherit_resolve`, between "what the element
+declares" and "what the parent carries", and it is where a distributed longhand becomes
+an ordinary declared property: it goes through the same `inherit_value` a written
+declaration goes through, so the CSS-wide keywords mean the same thing on a shorthand as
+on a longhand *by construction*. The declared pass skips box-model longhands, which is
+what keeps an edge from getting two entries. A shorthand that cannot be distributed —
+five components, or a `var()` whose substitution would change the count — leaves its own
+entry intact, increments a counter on the resolved style and sets `unsupported`, because
+that is the phase's one quiet failure and a consumer must be able to see it.
+
 One table row per unit, and every accessor is a lookup in it, so adding `dvw` is
 adding a row rather than adding a branch to four functions. The set is 31 units plus
 `NONE`, and the enumerator values are append-only because a stored enumerator is a
@@ -628,13 +665,20 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Units (9.10), the box
-model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
+Display (9.12), positioning (9.13), backgrounds (9.14), borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
-cascade itself, evaluating at-rules, expanding shorthands and the animation and
+cascade itself, evaluating at-rules and the animation and
 transition origins, and within colours the modern spaces (`hwb`, `lab`, `lch`,
 `oklab`, `oklch`, `color()`, `color-mix()`) and interpolation between colours.
+
+The box model (9.11) is *partly* behind us and the boundary is exact: the four
+edges are a typed value family and the three shorthands are distributed, while no
+edge is measured, no margin collapses, `50%` stays a percentage, `auto` stays the
+keyword and `border-width: medium` stays a keyword rather than becoming a used
+length. `border` is still not expanded even though `border-width` now is, because
+it stands for four widths, four styles and four colours and this build represents
+one of the three.
 **Reading bytes is not interpreting them,
 building a tree is not interpreting it either, answering a question about one
 element is not applying a style to it, and computing a value is not using one**:

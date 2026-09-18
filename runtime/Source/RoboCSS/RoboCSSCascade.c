@@ -286,6 +286,52 @@ static robo_css_cascade_verdict_t cascade_resolve(
     return verdict;
 }
 
+int robo_css_cascade_candidate_compare(const robo_css_cascade_t *cascade,
+                                       const robo_css_cascade_candidate_t *a,
+                                       const robo_css_cascade_candidate_t *b)
+{
+    int level_order;
+    int specificity_order;
+    size_t index;
+    size_t a_index = (size_t)-1;
+    size_t b_index = (size_t)-1;
+
+    if (a == b) {
+        return 0;
+    }
+    if (!a || !b) {
+        /* A missing candidate is not a weaker one; there is nothing to order. */
+        return 0;
+    }
+    level_order = robo_css_cascade_level_compare(a->level, b->level);
+    if (level_order != 0) {
+        return level_order > 0 ? -1 : 1;
+    }
+    /* Same level, so specificity decides — through the one implementation. */
+    specificity_order = robo_css_specificity_compare(&b->specificity, &a->specificity);
+    if (specificity_order != 0) {
+        return specificity_order > 0 ? 1 : -1;
+    }
+    if (!cascade || !cascade->items) {
+        return 0;
+    }
+    for (index = 0u; index < cascade->count; index++) {
+        if (&cascade->items[index] == a) {
+            a_index = index;
+        }
+        if (&cascade->items[index] == b) {
+            b_index = index;
+        }
+    }
+    if (a_index == (size_t)-1 || b_index == (size_t)-1) {
+        return 0;
+    }
+    /* Equal level and equal specificity: the array is in document order within
+     * a level, so the later position is the later declaration and it wins — the
+     * same tie-break the resolution pass applies by walking forward. */
+    return a_index > b_index ? -1 : 1;
+}
+
 robo_css_cascade_verdict_t robo_css_cascade_resolve_property(
     const robo_css_cascade_t *cascade,
     robo_css_property_id_t property,

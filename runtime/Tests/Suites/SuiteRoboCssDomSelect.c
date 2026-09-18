@@ -2009,6 +2009,155 @@ static void test_css_dom_unit_pipeline(void)
     css_dom_cascade_end(&fixture);
 }
 
+/**
+ * `css.dom.box.pipeline` — the box model over the real tree.
+ *
+ * The CSS-side suite proves the vocabulary and the expansion; this proves they
+ * survive a document, which is where the one thing that could go wrong at scale
+ * would show: a shorthand is *one* declaration standing for *four* properties, and
+ * the four have to arrive on elements the author never named individually. Every
+ * arity is declared somewhere on the checkpoint's own tree, and the competition
+ * between a shorthand and a longhand is settled on a real element rather than on a
+ * hand-built cascade. It closes on the phase's acceptance sheet — one rule holding
+ * a width, a height, both shorthands, a border width and a colour — because that is
+ * the shape that proves the value layer reads dimensions and colours in the same
+ * pass, and because a colour is the one family this phase must not have broken.
+ */
+static void test_css_dom_box_pipeline(void)
+{
+    css_dom_cascade_t fixture;
+    robo_css_computed_style_t *body_style = NULL;
+    robo_css_computed_style_t *paragraph = NULL;
+    robo_css_computed_style_t *label = NULL;
+    robo_css_computed_style_t *form_style = NULL;
+    robo_css_computed_style_t *area = NULL;
+    robo_css_computed_style_t *field = NULL;
+    robo_css_computed_style_t *picker = NULL;
+    robo_css_computed_style_t *button = NULL;
+    robo_css_computed_style_t *acceptance = NULL;
+    robo_css_stylesheet_id_t sheet;
+    robo_css_stylesheet_id_t acceptance_sheet;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "body { margin: 0 auto }\n"
+                                  "p { padding: 8px 12px 4px }\n"
+                                  "label { border-width: thin medium thick }\n"
+                                  "form { box-sizing: border-box }\n"
+                                  "textarea { margin: 10%; padding: 2em }\n"
+                                  "input { margin: 1px }\n"
+                                  "select { padding: inherit }\n"
+                                  "button { padding: 1px 2px; padding-left: 9px }");
+
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "body") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "label") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "textarea") != ROBO_CSS_ELEMENT_REF_NONE);
+
+    /* Two components: vertical zero, horizontal `auto` — and `auto` survives as
+     * the keyword it is rather than becoming a number. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "body"), &body_style);
+    css_computed_is(body_style, "margin-top", "0px");
+    css_computed_is(body_style, "margin-right", "auto");
+    css_computed_is(body_style, "margin-left", "auto");
+    css_computed_flags_are(body_style, "margin-left", "declared");
+    /* The shorthand's own entry is there too, with the author's text. */
+    css_computed_is(body_style, "margin", "0 auto");
+
+    /* Three components: the arity where top and bottom differ and left borrows
+     * right, which is the row a hand-written branch gets wrong. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "p"), &paragraph);
+    css_computed_is(paragraph, "padding-top", "8px");
+    css_computed_is(paragraph, "padding-right", "12px");
+    css_computed_is(paragraph, "padding-bottom", "4px");
+    css_computed_is(paragraph, "padding-left", "12px");
+
+    /* Border widths keep their keywords, because what `medium` is in pixels is a
+     * used value and this phase computes no used value. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "label"), &label);
+    css_computed_is(label, "border-top-width", "thin");
+    css_computed_is(label, "border-right-width", "medium");
+    css_computed_is(label, "border-bottom-width", "thick");
+    css_computed_is(label, "border-left-width", "medium");
+
+    /* `box-sizing` is a value model with no layout behind it: the keyword is what
+     * a declaration means here, and which box a width applies to is a later
+     * phase's question. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "form"), &form_style);
+    css_computed_is(form_style, "box-sizing", "border-box");
+
+    /* A percentage and a contextual length are box edges like any other, and they
+     * stay what they are: only layout knows what `10%` is a percentage of, and
+     * only a font knows what `2em` is. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "textarea"), &area);
+    css_computed_is(area, "margin-top", "10%");
+    css_computed_is(area, "margin-left", "10%");
+    css_computed_is(area, "padding-top", "2em");
+
+    /* The uniform spelling, on an element the sheet names by type. */
+    css_dom_compute(&fixture, css_dom_ref_by_id(&fixture.dom, "DisplayName"), &field);
+    css_computed_is(field, "margin-top", "1px");
+    css_computed_is(field, "margin-bottom", "1px");
+
+    /* `padding: inherit` on a property that does not inherit, with no padding on
+     * the ancestor chain: the longhand's own initial value, which is zero — and
+     * not the parent's box, because there is no such thing to take. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "select"), &picker);
+    css_computed_is(picker, "padding-top", "0px");
+    css_computed_flags_are(picker, "padding-top", "default");
+
+    /* A shorthand and a longhand for the same edge, on one element, decided by
+     * document order: `padding-left: 9px` comes later than `padding: 1px 2px`, so
+     * the left edge is the longhand's and the other three are the shorthand's. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "button"), &button);
+    css_computed_is(button, "padding-top", "1px");
+    css_computed_is(button, "padding-right", "2px");
+    css_computed_is(button, "padding-bottom", "1px");
+    css_computed_is(button, "padding-left", "9px");
+
+    /* The phase's own acceptance sheet, in one rule on one element: a width, a
+     * height, both shorthands, a border width and a colour. The colour is here
+     * because it is the one value family this phase did not add and must not
+     * have broken — and because one rule holding a dimension, a percentage, two
+     * keywords and a colour is the shape that exposes a value layer which reads
+     * only one kind. This sheet is added second, so it is also the cross-sheet
+     * source-order case: it outranks the `textarea` rule above it. */
+    acceptance_sheet = css_dom_cascade_sheet(&fixture,
+                                             "textarea { width: 200px; "
+                                             "height: 100px; margin: 10px 20px; "
+                                             "padding: 8px 12px; "
+                                             "border-width: 2px; "
+                                             "color: #336699 }");
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "textarea"),
+                    &acceptance);
+    css_computed_is(acceptance, "width", "200px");
+    css_computed_is(acceptance, "height", "100px");
+    css_computed_is(acceptance, "margin-top", "10px");
+    css_computed_is(acceptance, "margin-right", "20px");
+    css_computed_is(acceptance, "margin-bottom", "10px");
+    css_computed_is(acceptance, "margin-left", "20px");
+    css_computed_is(acceptance, "padding-top", "8px");
+    css_computed_is(acceptance, "padding-right", "12px");
+    css_computed_is(acceptance, "padding-bottom", "8px");
+    css_computed_is(acceptance, "padding-left", "12px");
+    css_computed_is(acceptance, "border-top-width", "2px");
+    css_computed_is(acceptance, "border-right-width", "2px");
+    css_computed_is(acceptance, "color", "#336699");
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(acceptance_sheet, NULL),
+                      ROBO_OK);
+
+    robo_css_computed_style_destroy(acceptance);
+    robo_css_computed_style_destroy(button);
+    robo_css_computed_style_destroy(picker);
+    robo_css_computed_style_destroy(field);
+    robo_css_computed_style_destroy(area);
+    robo_css_computed_style_destroy(form_style);
+    robo_css_computed_style_destroy(label);
+    robo_css_computed_style_destroy(paragraph);
+    robo_css_computed_style_destroy(body_style);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -2049,4 +2198,5 @@ void robo_test_register_css_dom_select(void)
     robo_test_register("css.dom.computed.does_not_disturb_the_picture",
                        test_css_dom_computed_does_not_disturb_the_picture);
     robo_test_register("css.dom.unit.pipeline", test_css_dom_unit_pipeline);
+    robo_test_register("css.dom.box.pipeline", test_css_dom_box_pipeline);
 }

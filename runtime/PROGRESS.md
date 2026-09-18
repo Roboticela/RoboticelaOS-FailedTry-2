@@ -3258,6 +3258,94 @@ viewport units and not 16 (six in the default family, four in each overridable
 one); and the malformed-input sweep used the runtime's own finiteness predicate,
 which would have agreed with the code under test by construction.
 
+## Goal 9.11 — CSS box model
+
+**Status: complete.** The box-model property and value foundation: the four sides,
+the three shorthands this build distributes, a typed value family for the twelve
+longhands, and the resolution rule that decides an edge two declarations speak for.
+Layout is not implemented and is not claimed.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The side vocabulary | `Include/RoboCSS/RoboCSSBox.h` — the four edges as an ordered, closed set, in CSS's own order because the component mapping depends on it |
+| The shorthand table | `robo_css_box_shorthand_t` — `margin`, `padding`, `border-width` with the longhand each side stands for, walkable both ways (`_find`, `_shorthand_of_longhand`) |
+| The mapping | The 1/2/3/4 distribution as a 4×4 table, with `robo_css_box_component_count` and `robo_css_box_is_expandable` separating "how many components" from "may they be distributed" |
+| Expansion | `robo_css_box_expand_side` and `robo_css_box_expand` — a component copied out as a one-item list, all-or-nothing |
+| The value shapes | `EDGE_OFFSET`, `EDGE_INSET`, `LINE_WIDTH` — three shapes sharing one body and differing by vocabulary, so `padding: auto` is INVALID and `thin` is a keyword |
+| The cascade door | `robo_css_cascade_candidate_compare` — two candidates of one cascade weighed by level, specificity, then document order, which is the answer expansion must not re-derive |
+| The registry rows | Fourteen: the twelve longhands, `border-width`, and `box-sizing`. None inherits |
+| The pass | `inherit_expand_box_shorthands` inside `robo_css_inherit_resolve` — longhands skipped by the declared pass, materialised here exactly once, through the same `inherit_value` a written declaration uses |
+| Reportable failure | `robo_css_inherited_style_shorthands_unexpanded` — a shorthand that cannot be distributed leaves its own entry intact, counts, sets `unsupported`, and logs one line |
+| Version | `RoboCSSVersion.h` 0.11.0; capability `box_model` = 1 |
+| Documentation | `css/docs/BoxModel.md` (new, the design record), plus `README.md`, `docs/Architecture.md`, `docs/Tests.md`, `docs/ComputedValues.md` |
+
+### Definition of done
+
+- [x] A typed box-model value family exists, and no property's value is a string.
+- [x] `width` and `height` are supported at the value and computed-style level,
+      with `auto`, lengths and percentages distinguishable and `auto` not a number.
+- [x] All four margin longhands and the `margin` shorthand, with the standard
+      1/2/3/4 expansion.
+- [x] All four padding longhands and the `padding` shorthand — and `padding: auto`
+      is refused rather than accepted.
+- [x] All four border-width longhands and the `border-width` shorthand, with
+      `thin`/`medium`/`thick` kept as keywords.
+- [x] Percentages stay percentages: nothing converts one without a containing block.
+- [x] `auto` is a typed representation and is never zero.
+- [x] Initial values are standards-compatible (`0` for the edges, `medium` for a
+      border width, `content-box` for `box-sizing`), held in the registry rather
+      than scattered through a resolution path.
+- [x] None of the fourteen inherits, and an explicit `inherit` still works through
+      the existing mechanism.
+- [x] `initial`, `inherit` and `unset` resolve correctly for every one of them,
+      through the computed-style pipeline and with no duplicated keyword logic.
+- [x] Shorthand/longhand cascade interaction is correct in both directions, with
+      specificity and `!important`, and decided by the cascade rather than by a
+      second opinion here.
+- [x] Invalid declarations fail safely: `padding: auto`, `width: red`,
+      `border-width: 1foo` and a five-value shorthand all produce an explicit
+      answer rather than a plausible one.
+- [x] `box-sizing`'s value model exists and no layout behaviour is claimed for it.
+- [x] Cascade, inheritance, colour, unit, selector and DOM behaviour are unchanged,
+      and the visual vertical slice is verified rather than assumed.
+- [x] Tests are comprehensive: 13 in `SuiteRoboCssBox.c` and one real-DOM pipeline
+      test, covering valid, invalid, shorthand, cascade, keyword, non-inheritance,
+      robustness and regression cases.
+- [x] Host and QEMU runtimes still work; no Chromium dependency was introduced;
+      no layout was implemented prematurely.
+
+### What 9.11 found
+
+**No product defect, and the reason is the phase's one architectural decision.**
+Deciding which of a shorthand and a longhand wins an edge was built by *asking the
+cascade* (`robo_css_cascade_candidate_compare`) rather than by re-deriving its three
+keys in the box model. The four directions the suite pins — document order both ways,
+specificity, importance — therefore all ran through code that was already correct,
+and the failure mode a second implementation would have produced (a shorthand
+ownerwriting a more specific longhand, or vice versa) never existed to be found.
+
+Five expectations were wrong rather than the implementation, and three are the same
+shape of mistake:
+
+* A computed `PRESERVED` value renders with spaces, not commas — the assertion
+expected the *declaration-shape* helper's `8px,_,12px,_,4px` where the computed
+  serializer writes `8px 12px 4px`.
+* An id selector does not match a class. `css_host_add(host, "div", "panel", "box")`
+  gives `id=panel` and `class=box`, so `#box { margin: 10px }` never matched and the
+  *type* selector's `margin-left: 20px` won — which read as a precedence bug and was
+  a fixture bug.
+* An absent entry's provenance is `<absent>`, not `<none>`: `<none>` belongs to
+  `SOURCE_NONE`, a *present* entry with no provenance.
+* An inherited default is inherited *from the parent*, not defaulted again — a
+  child's `color` whose parent's value was the registry's default has provenance
+  `parent`.
+* A context's sheets are shared by every element in it, so the "a shorthand that
+  distributes leaves the counter at zero" half of the unexpanded-shorthand test had
+  to move to a fixture of its own rather than assert zero on input that should set
+  the counter.
+
 ## Next
 
-- Goal 9.11 — do not start until requested
+- Goal 9.12 — do not start until requested

@@ -959,18 +959,25 @@ static robo_result_t computed_compute_color(robo_css_computed_value_t *out,
     }
 }
 
-/**
- * The identifiers a length-shaped property may be written with, as one set.
+/*
+ * The identifiers each length family may be written with.
  *
- * The shape is shared by several properties whose keyword lists differ, so this
- * is their union: `font-size` has `medium` and the size keywords, `letter-spacing`
- * has `normal`, `width` has `auto` and the intrinsic sizes. Which of them belongs
- * to *which* property is the property registry's business; what this layer knows
- * is a value's shape.
+ * Four lists, and the reason there are four rather than one union is that this
+ * is the line where a value *shape* meets a property's *grammar*. `medium` is a
+ * `font-size`; it is also a `border-width` and means a different thing there.
+ * `auto` is a width, a height and a margin, and is neither a padding nor a
+ * border. A single union would make every one of those computable everywhere,
+ * which is exactly how `padding: auto` comes to look like a value.
  *
- * What it will not do is call every identifier a length keyword. `width: red`
- * is a mistake an author wants told about, and carrying it as a computed keyword
- * would hand a later phase a value it can only fail on.
+ * The first list is unchanged from 9.8 and is a union on purpose: the properties
+ * it serves (`width`, `height`, `font-size`, `letter-spacing`, `text-indent`,
+ * `word-spacing`) genuinely share it, and no box-model family needed from it is
+ * narrower than the whole. The three 9.11 lists are exact, because there the
+ * difference *is* the property family.
+ *
+ * What none of them will do is call every identifier a length. `width: red` and
+ * `margin-top: min-content` are mistakes an author wants told about, and carrying
+ * one as a computed keyword would hand a later phase a value it can only fail on.
  */
 static const char *const computed_length_keywords[] = {
     "auto",     "none",       "normal",   "medium",   "min-content",
@@ -979,16 +986,80 @@ static const char *const computed_length_keywords[] = {
     "xxx-large"
 };
 
-/** Non-zero when @p keyword (already lowercased) names a length keyword. */
-static int computed_length_keyword_is_known(const char *keyword, size_t length)
+/** `margin-*`: a length, a percentage, or `auto` — a box edge that can be distributed. */
+static const char *const computed_box_offset_keywords[] = { "auto" };
+
+/** `border-*-width`: a length, or one of the three width keywords. */
+static const char *const computed_box_line_width_keywords[] = {
+    "thin", "medium", "thick"
+};
+
+/**
+ * One length family: which shape it is, what it may be written as, and what to
+ * say when an identifier is not in that vocabulary.
+ *
+ * The reason is carried *here* rather than composed at the reject site because
+ * the vocabulary and the sentence that explains it are the same fact stated twice,
+ * and the four families need four different sentences: an author who wrote
+ * `margin-top: normal` and one who wrote `padding: auto` are owed different
+ * explanations, and both are owed one that names the family rather than the
+ * layer.
+ */
+typedef struct computed_length_grammar {
+    robo_css_property_computation_t computation;
+    const char *const *keywords;
+    size_t keyword_count;
+    const char *keyword_reason;
+} computed_length_grammar_t;
+
+static const computed_length_grammar_t computed_length_grammars[] = {
+    { ROBO_CSS_PROPERTY_COMPUTATION_LENGTH, computed_length_keywords,
+      sizeof(computed_length_keywords) / sizeof(computed_length_keywords[0]),
+      "not a length keyword" },
+    { ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, computed_box_offset_keywords,
+      sizeof(computed_box_offset_keywords) / sizeof(computed_box_offset_keywords[0]),
+      "not a margin length or auto" },
+    /* An empty vocabulary is the value, not an omission: a padding has nothing
+     * to distribute, so there is no keyword it accepts and every identifier is a
+     * mistake — which is what makes `padding: auto` INVALID rather than a
+     * keyword a later phase would have to interpret. */
+    { ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET, NULL, 0u,
+      "not a padding length" },
+    { ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH, computed_box_line_width_keywords,
+      sizeof(computed_box_line_width_keywords) /
+          sizeof(computed_box_line_width_keywords[0]),
+      "not a border width keyword" }
+};
+
+/** The grammar for @p computation, or NULL when it is not a length family. */
+static const computed_length_grammar_t *computed_length_grammar_for(
+    robo_css_property_computation_t computation)
 {
     size_t index;
 
     for (index = 0u;
-         index < sizeof(computed_length_keywords) / sizeof(computed_length_keywords[0]);
+         index < sizeof(computed_length_grammars) / sizeof(computed_length_grammars[0]);
          index++) {
+        if (computed_length_grammars[index].computation == computation) {
+            return &computed_length_grammars[index];
+        }
+    }
+    return NULL;
+}
+
+/** Non-zero when @p keyword (already lowercased) is in @p grammar's vocabulary. */
+static int computed_length_keyword_is_known(const computed_length_grammar_t *grammar,
+                                            const char *keyword,
+                                            size_t length)
+{
+    size_t index;
+
+    if (!grammar) {
+        return 0;
+    }
+    for (index = 0u; index < grammar->keyword_count; index++) {
         if (robo_css_bytes_equal_ascii_ci((const uint8_t *)keyword, length,
-                                          computed_length_keywords[index])) {
+                                          grammar->keywords[index])) {
             return 1;
         }
     }
@@ -1012,10 +1083,13 @@ static int computed_length_keyword_is_known(const char *keyword, size_t length)
  * The keyword is asked first, and that ordering is load-bearing — see the comment
  * inside.
  */
-static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
-                                             const robo_css_value_t *specified,
-                                             robo_css_diag_t *diag)
+static robo_result_t computed_compute_length_grammar(
+    const computed_length_grammar_t *grammar,
+    robo_css_computed_value_t *out,
+    const robo_css_value_t *specified,
+    robo_css_diag_t *diag)
 {
+    robo_css_property_computation_t computation = grammar->computation;
     const robo_css_token_t *token = computed_single_token(specified);
     robo_css_numeric_t numeric = robo_css_numeric_none();
 
@@ -1034,9 +1108,8 @@ static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
         size_t length = 0u;
 
         if (!robo_css_token_keyword_text(token, keyword, sizeof(keyword), &length) ||
-            !computed_length_keyword_is_known(keyword, length)) {
-            return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                                   "not a length keyword", diag);
+            !computed_length_keyword_is_known(grammar, keyword, length)) {
+            return computed_reject(out, computation, grammar->keyword_reason, diag);
         }
         return robo_css_computed_value_make_keyword(
             out, robo_css_slice_from_bytes((const uint8_t *)keyword, length), diag);
@@ -1048,18 +1121,16 @@ static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
     case ROBO_CSS_NUMERIC_PARSE_DEFERRED:
         return computed_keep(out, specified, 1, diag);
     case ROBO_CSS_NUMERIC_PARSE_UNKNOWN_UNIT:
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                               "unknown length unit", diag);
+        return computed_reject(out, computation, "unknown length unit", diag);
     case ROBO_CSS_NUMERIC_PARSE_NON_FINITE:
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                               "not a finite number", diag);
+        return computed_reject(out, computation, "not a finite number", diag);
     default:
         /* INVALID. With a token in hand the value *is* a component and simply is
          * not a length — a string, a block, a function like `rgb()`. Without one,
          * the declaration was not one component at all, which is a different thing
          * to tell a developer and the reason `computed_single_token` is asked
          * again here rather than the outcome being trusted alone. */
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
+        return computed_reject(out, computation,
                                token ? "not a length"
                                      : "not a single length component",
                                diag);
@@ -1092,12 +1163,27 @@ static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
             return robo_css_computed_value_make_length(out, 0.0, ROBO_CSS_UNIT_PX, 1,
                                                        diag);
         }
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
+        return computed_reject(out, computation,
                                "a bare number is not a length", diag);
     default:
-        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,
-                               "not a length", diag);
+        return computed_reject(out, computation, "not a length", diag);
     }
+}
+
+/**
+ * Compute a length-family value for the LENGTH shape (9.8's, unchanged).
+ *
+ * Thin on purpose: 9.11 gave the family a grammar parameter so that the box
+ * model's three narrower vocabularies could share this body rather than restate
+ * it, and this is the one caller that wants the whole union.
+ */
+static robo_result_t computed_compute_length(robo_css_computed_value_t *out,
+                                             const robo_css_value_t *specified,
+                                             robo_css_diag_t *diag)
+{
+    return computed_compute_length_grammar(
+        computed_length_grammar_for(ROBO_CSS_PROPERTY_COMPUTATION_LENGTH), out,
+        specified, diag);
 }
 
 /** Compute a single-identifier keyword. */
@@ -1347,6 +1433,14 @@ robo_result_t robo_css_computed_value_compute(
         return computed_compute_font_weight(out, specified, diag);
     case ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT:
         return computed_compute_line_height(out, specified, diag);
+    /* The box model's three length families (9.11) share the length body and
+     * differ only in the vocabulary their grammar carries, so they are one case
+     * body rather than three — the difference is data, not code. */
+    case ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET:
+    case ROBO_CSS_PROPERTY_COMPUTATION_EDGE_INSET:
+    case ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH:
+        return computed_compute_length_grammar(
+            computed_length_grammar_for(computation), out, specified, diag);
     default:
         return computed_keep(out, specified, computed_function_is_unresolved(
                                              robo_css_value_single(specified)),

@@ -23,6 +23,7 @@
 
 #include "RoboBase/RoboBase.h"
 #include "RoboCSS/RoboCSS.h"
+#include "RoboCSS/RoboCSSBox.h"
 #include "RoboCSS/RoboCSSCascade.h"
 #include "RoboCSS/RoboCSSComputed.h"
 #include "RoboCSS/RoboCSSComputedValue.h"

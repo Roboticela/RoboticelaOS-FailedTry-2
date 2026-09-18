@@ -428,6 +428,27 @@ robo_css_cascade_verdict_t robo_css_cascade_resolve_name(
     robo_css_slice_t name,
     const robo_css_cascade_candidate_t **out_winner);
 
+/**
+ * Compare two candidates *from one cascade* by the cascade's own order.
+ *
+ * The two resolve doors above answer "who wins for this property", which is one
+ * identity at a time. A shorthand is where one declaration speaks for several
+ * identities at once: `margin: 10px` and `margin-left: 20px` are two candidates
+ * for the same edge, and which of them the edge is comes down to the same three
+ * keys — level, specificity, document order — applied across two property names
+ * rather than within one. That is a fact about the cascade, so it is answered
+ * here, by the same level table and the same specificity comparison the
+ * resolution uses, rather than by arithmetic at the call site.
+ *
+ * @return -1 when @p a wins, 1 when @p b wins, 0 when they are the same
+ *         candidate. Two candidates the cascade does not hold are unorderable
+ *         and answer 0: there is no document order to compare, and guessing one
+ *         would be inventing a tie-break.
+ */
+int robo_css_cascade_candidate_compare(const robo_css_cascade_t *cascade,
+                                       const robo_css_cascade_candidate_t *a,
+                                       const robo_css_cascade_candidate_t *b);
+
 /** Number of candidates declaring @p property (0 for NULL or NONE). */
 size_t robo_css_cascade_count_of(const robo_css_cascade_t *cascade,
                                  robo_css_property_id_t property);

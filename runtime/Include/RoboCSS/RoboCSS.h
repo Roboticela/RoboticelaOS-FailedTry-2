@@ -161,6 +161,20 @@ typedef struct robo_css_capabilities {
      */
     int units;
     /**
+     * The box model (9.11): the four sides in CSS's order, the three shorthands
+     * this build distributes (`margin`, `padding`, `border-width`) and the
+     * longhand each side of each stands for, and typed computed values for the
+     * twelve box longhands — a length, a percentage, `auto` for an edge offset,
+     * the three width keywords for a border.
+     *
+     * What it does not claim is layout. A box here is a set of *values* with a
+     * shape: no edge is measured, no margin collapses, `50%` stays a percentage
+     * and `auto` stays the keyword it is. `border-width` is distributed although
+     * nothing paints a border, because the four widths are the four values and a
+     * shorthand no longhand ever saw is a declaration no later phase can consume.
+     */
+    int box_model;
+    /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
      */

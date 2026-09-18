@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.10 unit and number milestone.
+ * RoboCSS version pin — Phase 9.11 box-model milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -124,6 +124,10 @@
  *   numeric       one typed number: a kind (number, integer, percentage,
  *                 length), its magnitude and — for a length — its unit, with
  *                 kind-aware equality and one canonical spelling
+ *   box           the box model's vocabulary: the four sides in CSS's order, the
+ *                 three shorthands and the longhand each side of each stands for,
+ *                 and the 1/2/3/4 component mapping — with expansion and 
+ *                 resolution kept deliberately apart
  *
  * What the grammar is: the CSS Syntax structure rules — a stylesheet, a list of
  * rules, an at-rule, a qualified rule, a block's declarations, a declaration,
@@ -199,7 +203,45 @@
  * `10furlongs`, a non-finite magnitude is `1e999`, a deferred value is `calc()`,
  * and a value that is not numeric at all is `red blue`.
  *
- * Everything past that — the box model, layout, `calc()` evaluation — is still a
+ * 0.11.0 adds the tenth, and it is the first that is a *property family* rather
+ * than a representation: the box model (RoboCSSBox.h). A box is four edges, and
+ * CSS writes them twice — four longhands, or one shorthand — so something has to
+ * turn the second into the first. The vocabulary module owns that and nothing
+ * else: the four sides in CSS's own order, the three shorthands this build
+ * distributes (`margin`, `padding`, `border-width`), and the 1/2/3/4 component
+ * mapping as a table with one row per arity rather than four branches per
+ * shorthand.
+ *
+ * The decision the phase is built around is that *expansion is not resolution*.
+ * Which declaration wins is the cascade's answer and stays the cascade's answer,
+ * including when the two declarations carry different property names — `margin:
+ * 10px; margin-left: 20px` is level, then specificity, then document order, asked
+ * across two names instead of within one, which is why it is asked of the cascade
+ * (`robo_css_cascade_candidate_compare`) and why nothing in the box model weighs
+ * a level or compares a specificity. A distributed longhand is then resolved like
+ * any other declaration, keywords and all: `margin: inherit` and `margin-left:
+ * inherit` mean the same thing to all four edges because they go through the same
+ * code, not because two implementations agree.
+ *
+ * Three shapes join the value layer, and they differ by *vocabulary* rather than
+ * by syntax, which is the whole reason there are three: `auto` is a margin and is
+ * not a padding, `medium` is a border width and is not a margin. Fourteen rows
+ * join the registry — the twelve longhands, `border-width` as their third
+ * shorthand and `box-sizing`, whose value model exists so a declaration survives
+ * to the phase that has a layout rather than being dropped by the phase that does
+ * not. None of them inherits, and none of them is painted: `border-width: 1px 2px`
+ * becomes four values because everything downstream is written against the
+ * longhands, not because this phase draws a border.
+ *
+ * A shorthand that cannot be distributed is *reported* rather than guessed at:
+ * five components is an invalid declaration the grammar accepted, and
+ * `margin: var(--edges)` is a legal declaration whose component count is not
+ * known until substitution, which happens *before* expansion in CSS. Both leave
+ * the author's text on the shorthand's own entry and count themselves as
+ * unresolved, so a consumer can see that four edges are unanswerable instead of
+ * reading a declaration and finding nothing underneath it.
+ *
+ * Everything past that — layout, used values, `calc()` evaluation — is still a
  * declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
  * never has to guess. Three boundaries are deliberately not crossed rather than
@@ -222,9 +264,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 10
+#define ROBO_CSS_VERSION_MINOR 11
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.10.0"
+#define ROBO_CSS_VERSION_STRING "0.11.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0
