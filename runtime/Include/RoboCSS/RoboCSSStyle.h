@@ -54,9 +54,12 @@
  * cascade order. robo_css_style_context_resolve_inherited_style is **real as of
  * 9.7**: it collects a cascade per ancestor and resolves the chain top down,
  * handing back a robo_css_inherited_style_t (RoboCSSInherit.h).
- * robo_css_style_context_compute_style is still 9.8 and still answers
- * ROBO_NOT_SUPPORTED, because computing a value needs colours and units as well
- * as a cascade and an inheritance behind it.
+ * robo_css_style_context_compute_style is **real as of 9.8**: it resolves the
+ * chain top-down and computes each level before handing it to the level below,
+ * so an inherited value is the parent's *computed* value rather than a
+ * recomputation of what it specified, and it hands back a
+ * robo_css_computed_style_t (RoboCSSComputed.h) whose entries carry the
+ * specified value alongside its typed computed value.
  */
 
 #ifndef ROBO_CSS_STYLE_H

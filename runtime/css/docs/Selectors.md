@@ -235,7 +235,7 @@ represented, not rendered.
 | `:hover`, `:focus`, `:active`, `:lang()`, `:nth-of-type()`, … | parses, matches nothing, `unsupported = 1`, `condition` names it | needs input state or a subject this build does not have; reported rather than assumed |
 | `::before`, `::after`, … | **decided false**, not unsupported | the question *was* answered: this element is the `div`, not the content before it |
 | the `\|\|` column combinator | parses, represented, `unsupported = 1` | needs a table model the DOM does not have |
-| applying a style | collected, not applied | 9.5's cascade gathers what matches an element and orders it (`docs/Cascade.md`); turning it into a value is 9.8 |
+| applying a style | collected, not applied | 9.5's cascade gathers what matches an element and orders it (`docs/Cascade.md`), and 9.8 turns the winner into a typed value (`docs/ComputedValues.md`) — but nothing here writes a pixel |
 | specificity | **computed, by 9.6** — `docs/Specificity.md` | a property of the selector records this file defines, so the two share one representation and matching and specificity can never disagree about what a selector is |
 
 There is no selector index, no bloom filter and no per-document cache. The

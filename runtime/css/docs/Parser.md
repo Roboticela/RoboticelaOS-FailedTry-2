@@ -266,8 +266,9 @@ are included.
   declaration on that basis, which is why 9.3 had to keep it rather than fold it
   into a value. Specificity is not this phase's either: it is a property of the
   9.4 selector records and is computed in 9.6 (`docs/Specificity.md`).
-- No property semantics. A property name is a slice; `robo_css_declaration_resolve_property`
-  is the hook 9.8 will use, and nothing calls it from the parse.
+- No property semantics. A property name is a slice;
+  `robo_css_declaration_resolve_property` is the hook the later stages use to turn
+  it into an identity, and nothing calls it from the parse.
 - No at-rule semantics: no `@media` evaluation, no `@import`, no `@font-face`
   loading, no `@keyframes` interpretation.
 - No stylesheet loading, no networking, no CSS Nesting, no CSSOM.

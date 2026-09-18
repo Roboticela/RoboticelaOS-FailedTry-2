@@ -1218,6 +1218,12 @@ static robo_result_t css_dom_inline_style(void *userdata,
 typedef struct css_dom_cascade {
     css_dom_host_t dom;
     robo_css_style_context_t *context;
+    /* 9.8's two halves, so the fixture is a complete host: identity for property
+     * names, and CSS's own facts about them (does it inherit by default, what is
+     * its initial value). A context without them can match and resolve; only a
+     * context with them can *compute*. */
+    robo_css_property_table_t *table;
+    robo_css_property_registry_t *registry;
 } css_dom_cascade_t;
 
 /** Build @p html, then a context over the real document and its own attributes. */
@@ -1225,6 +1231,8 @@ static void css_dom_cascade_begin(css_dom_cascade_t *fixture, const char *html)
 {
     css_dom_build(&fixture->dom, html);
     fixture->context = NULL;
+    fixture->table = NULL;
+    fixture->registry = NULL;
     ROBO_CHECK_EQ_INT(robo_css_style_context_create(&fixture->context, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_css_style_context_set_element_host(fixture->context,
                                                              &fixture->dom.host, NULL),
@@ -1232,12 +1240,28 @@ static void css_dom_cascade_begin(css_dom_cascade_t *fixture, const char *html)
     ROBO_CHECK_EQ_INT(robo_css_style_context_set_inline_style(
                           fixture->context, css_dom_inline_style, &fixture->dom, NULL),
                       ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_property_table_create(&fixture->table, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_property_registry_create_standard(&fixture->registry, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_property_registry_apply_to_table(fixture->registry,
+                                                               fixture->table, NULL, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_set_property_table(fixture->context,
+                                                               fixture->table, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_set_property_registry(fixture->context,
+                                                                  fixture->registry, NULL),
+                      ROBO_OK);
 }
 
 static void css_dom_cascade_end(css_dom_cascade_t *fixture)
 {
     robo_css_style_context_destroy(fixture->context);
     fixture->context = NULL;
+    robo_css_property_registry_destroy(fixture->registry);
+    fixture->registry = NULL;
+    robo_css_property_table_destroy(fixture->table);
+    fixture->table = NULL;
     css_dom_destroy(&fixture->dom);
 }
 
@@ -1276,6 +1300,20 @@ static void css_dom_cascade_collect(css_dom_cascade_t *fixture,
     ROBO_CHECK_EQ_INT(robo_css_style_context_match_declarations(
                           fixture->context, ref, out, &error, NULL),
                       ROBO_OK);
+}
+
+/** Compute @p ref's style through the chain door, asserting the call succeeded. */
+static void css_dom_compute(css_dom_cascade_t *fixture,
+                            robo_css_element_ref_t ref,
+                            robo_css_computed_style_t **out_style)
+{
+    robo_css_error_t error = ROBO_CSS_CLEARED;
+
+    ROBO_CHECK_EQ_INT(robo_css_computed_style_create(out_style, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_compute_style(fixture->context, ref, *out_style,
+                                                          &error, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_css_error_is_error(&error), 0);
 }
 
 /** The winning value's first token, as a NUL-terminated string. */
@@ -1577,6 +1615,251 @@ static void test_css_dom_specificity_picks_the_winner(void)
     css_dom_cascade_end(&fixture);
 }
 
+/* ------------------------------------------------------------------ */
+/* The whole pipeline, over the visual checkpoint's document (9.8)     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `css.dom.computed.pipeline` — tokenize → parse → match → specificity →
+ * cascade → inherit → compute, over the document the visual checkpoint paints.
+ *
+ * The CSS-side suite drives the same stages over a host test double, where an
+ * element, its parent and its siblings are whatever the fixture says. This one
+ * runs them over the real tree: the parent links come from RoboHTML, the
+ * `style` attribute comes from the DOM's own attribute storage, the rules match
+ * through real selectors, and the values that come out are the ones the
+ * checkpoint document's styles really produce. A stage that only worked against
+ * a hand-shaped fixture would pass that suite and fail here.
+ *
+ * Four things are worth proving, and all four need a *typed* value to say:
+ * two selectors of different specificity produce different colours, a child
+ * inherits its parent's **computed** length rather than a second reading of what
+ * the parent specified, a value that means nothing for its property is reported
+ * rather than dropped, and a custom property travels the whole path untouched.
+ */
+static void test_css_dom_computed_pipeline(void)
+{
+    css_dom_cascade_t fixture;
+    robo_css_computed_style_t *overview = NULL;
+    robo_css_computed_style_t *label = NULL;
+    robo_css_computed_style_t *field = NULL;
+    robo_css_computed_style_t *button = NULL;
+    robo_css_element_ref_t paragraph;
+    const robo_css_computed_value_t *value;
+    robo_css_stylesheet_id_t sheet;
+    robo_css_color_t color;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "body { color: green; font-size: 20px; --theme: #0E7AFF }\n"
+                                  "p { color: blue }\n"
+                                  "#Overview { color: red }\n"
+                                  "form { width: 300px }\n"
+                                  "label { font-size: inherit; width: inherit; display: inline }\n"
+                                  "input { width: 12px }\n"
+                                  "button { color: nonsense }");
+
+    /* The document really has the elements every assertion below is about, and
+     * `#Overview` is the paragraph the id selector is aimed at. */
+    ROBO_CHECK(css_dom_ref_by_id(&fixture.dom, "Overview") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "label") != ROBO_CSS_ELEMENT_REF_NONE);
+
+    /* Specificity decided which declaration applies, and the value that came out
+     * is a colour: four channels, not the three letters `red`. */
+    css_dom_compute(&fixture, css_dom_ref_by_id(&fixture.dom, "Overview"), &overview);
+    css_computed_is(overview, "color", "#ff0000");
+    css_computed_flags_are(overview, "color", "declared");
+    value = robo_css_computed_style_computed_by_name(overview,
+                                                     robo_css_slice_from_text("color"));
+    ROBO_CHECK(value != NULL);
+    ROBO_CHECK_EQ_INT(value ? (int)value->kind : -1, ROBO_CSS_COMPUTED_VALUE_COLOR);
+    color = robo_css_computed_value_color(value);
+    ROBO_CHECK_EQ_INT(color.red, 255u);
+    ROBO_CHECK_EQ_INT(color.green, 0u);
+    ROBO_CHECK_EQ_INT(color.blue, 0u);
+    ROBO_CHECK_EQ_INT(color.alpha, 255u);
+
+    /* The other paragraph has no id, so the type selector beats the inherited
+     * body colour — and the element that carries it is a different one. */
+    paragraph = css_dom_ref_by_tag(&fixture.dom, "p");
+    ROBO_CHECK(paragraph != css_dom_ref_by_id(&fixture.dom, "Overview"));
+    {
+        robo_css_computed_style_t *other = NULL;
+
+        css_dom_compute(&fixture, paragraph, &other);
+        css_computed_is(other, "color", "#0000ff");
+        css_computed_flags_are(other, "color", "declared");
+        robo_css_computed_style_destroy(other);
+    }
+
+    /* An inherited value is the parent's *computed* value: `font-size: inherit`
+     * on the label lands on the 20px the body computed, as a typed length, and
+     * the length travelled through two levels that declare nothing. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "label"), &label);
+    css_computed_is(label, "font-size", "20px");
+    /* The provenance is the parent, not the declaration: what the label asked
+     * for was *inheritance*, and the value it got is the body's, two levels up,
+     * already computed. */
+    css_computed_flags_are(label, "font-size", "inherited");
+    /* `inherit` on a property that does **not** inherit by default still pulls
+     * the parent's computed value — the keyword is what makes it happen, and
+     * without it the label would have no `width` entry at all. */
+    css_computed_is(label, "width", "300px");
+    css_computed_flags_are(label, "width", "inherited");
+    value = robo_css_computed_style_computed_by_name(label,
+                                                     robo_css_slice_from_text("font-size"));
+    ROBO_CHECK_EQ_INT(value ? (int)value->kind : -1, ROBO_CSS_COMPUTED_VALUE_LENGTH);
+    ROBO_CHECK_EQ_INT(value ? (int)value->unit : -1, (int)ROBO_CSS_UNIT_PX);
+    ROBO_CHECK_EQ_INT(value ? (int)value->number : -1, 20);
+    css_computed_is(label, "display", "inline");
+    /* Nothing declared a colour on the label, so it has the body's, inherited
+     * and then computed. */
+    css_computed_is(label, "color", "#008000");
+    css_computed_flags_are(label, "color", "inherited");
+    /* A custom property is an opaque token sequence, and inheriting one does not
+     * interpret it. */
+    css_computed_is(label, "--theme", "#0E7AFF");
+    css_computed_flags_are(label, "--theme", "inherited+custom");
+
+    /* A dimension is a length with a unit, not the four characters of `12px`. */
+    css_dom_compute(&fixture, css_dom_ref_by_id(&fixture.dom, "DisplayName"), &field);
+    css_computed_is(field, "width", "12px");
+
+    /* `color: nonsense` is a *wrong* value, and the style says so instead of
+     * hiding the declaration or inventing a colour for it. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "button"), &button);
+    css_computed_is(button, "color", "unknown colour name");
+    css_computed_flags_are(button, "color", "declared+invalid");
+    ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(button), 1);
+    ROBO_CHECK(robo_css_computed_style_incomplete_count(button) >= 1u);
+    /* One wrong value does not corrupt the rest of the style. `display` is
+     * non-inherited and nothing declared it, so it has no *entry* — which is a
+     * different answer from a wrong one, and the query door is where a
+     * non-inherited property's "nothing declared it" answer lives. */
+    css_computed_is(button, "display", "<absent>");
+    {
+        robo_css_computed_value_t initial = ROBO_CSS_CLEARED;
+        int from_initial = 0;
+
+        ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                              fixture.context, button, robo_css_slice_from_text("display"),
+                              &initial, &from_initial, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(from_initial, 1);
+        ROBO_CHECK_STR_EQ(robo_css_computed_value_kind_name(initial.kind), "keyword");
+        robo_css_computed_value_dispose(&initial);
+    }
+    /* The inherited half of the style is present and unharmed. */
+    css_computed_is(button, "font-size", "20px");
+    css_computed_flags_are(button, "font-size", "inherited");
+
+    robo_css_computed_style_destroy(button);
+    robo_css_computed_style_destroy(field);
+    robo_css_computed_style_destroy(label);
+    robo_css_computed_style_destroy(overview);
+    robo_css_computed_style_destroy(NULL);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
+/**
+ * `css.dom.computed.does_not_disturb_the_picture` — the visual vertical slice
+ * with the whole CSS pipeline inserted into the middle of it.
+ *
+ * The checkpoint document is built once, painted, put through every stage 9.8
+ * adds (a stylesheet covering most of its elements, matched, cascaded,
+ * inherited and *computed* for every element in the tree), and painted again
+ * from the same document. The two frames must be byte-identical.
+ *
+ * This is the strongest form of "computing a style does not change what you
+ * see", because the comparison is the pixels the demo adapter produces rather
+ * than a claim about the tree it reads. A stage that mutated an attribute,
+ * reordered a child, borrowed a slice past its source's life or left an
+ * inherited value aliasing its parent's would fail here and nowhere else.
+ */
+static void test_css_dom_computed_does_not_disturb_the_picture(void)
+{
+    css_dom_cascade_t fixture;
+    robo_demo_page_t *before = NULL;
+    robo_demo_page_t *after = NULL;
+    robo_gfx_surface_t *first = NULL;
+    robo_gfx_surface_t *second = NULL;
+    robo_css_stylesheet_id_t sheet;
+    robo_css_element_ref_t ref;
+    size_t stride;
+    uint32_t row;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "* { color: blue }\n"
+                                  "html > body { font-size: 18px; line-height: 1.4 }\n"
+                                  "body > * + * { margin: 4px }\n"
+                                  "p { color: #336699 }\n"
+                                  "#Overview { color: red !important }\n"
+                                  "form > label { font-size: inherit; display: inline }\n"
+                                  "input, textarea, select { width: calc(100% - 2px) }\n"
+                                  "button { color: nonsense }\n"
+                                  "body { --theme: blue }");
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(fixture.dom.document, &before, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(before != NULL);
+    first = css_dom_surface(900, 800);
+    second = css_dom_surface(900, 800);
+    ROBO_CHECK(first != NULL && second != NULL);
+    if (!before || !first || !second) {
+        robo_demo_page_destroy(before);
+        robo_gfx_surface_release(first);
+        robo_gfx_surface_release(second);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+        css_dom_cascade_end(&fixture);
+        return;
+    }
+    ROBO_CHECK_EQ_INT(robo_demo_page_paint(before, first, NULL, NULL), ROBO_OK);
+
+    /* Every element, through all seven stages, twice over. */
+    for (ref = 1u; ref <= fixture.dom.count; ref++) {
+        robo_css_computed_style_t *style = NULL;
+        size_t pass;
+
+        for (pass = 0u; pass < 2u; pass++) {
+            css_dom_compute(&fixture, ref, &style);
+            ROBO_CHECK(robo_css_computed_style_count(style) > 0u);
+            robo_css_computed_style_destroy(style);
+            style = NULL;
+        }
+    }
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(fixture.dom.document, &after, NULL),
+                      ROBO_OK);
+    ROBO_CHECK(after != NULL);
+    ROBO_CHECK_EQ_INT(robo_demo_page_paint(after, second, NULL, NULL), ROBO_OK);
+
+    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(after),
+                      robo_demo_page_block_count(before));
+    ROBO_CHECK_STR_EQ(robo_demo_page_title(after), robo_demo_page_title(before));
+    stride = robo_gfx_surface_stride(first);
+    ROBO_CHECK_EQ_INT(stride, robo_gfx_surface_stride(second));
+    for (row = 0u; row < 800u; row++) {
+        const uint8_t *left =
+            robo_gfx_surface_pixels_const(first) + (size_t)row * stride;
+        const uint8_t *right =
+            robo_gfx_surface_pixels_const(second) + (size_t)row * stride;
+
+        if (memcmp(left, right, stride) != 0) {
+            ROBO_CHECK_MSG(0, "computing a style changed the rendered frame");
+            break;
+        }
+    }
+
+    robo_demo_page_destroy(before);
+    robo_demo_page_destroy(after);
+    robo_gfx_surface_release(first);
+    robo_gfx_surface_release(second);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -1613,4 +1896,7 @@ void robo_test_register_css_dom_select(void)
                        test_css_dom_cascade_does_not_disturb_the_picture);
     robo_test_register("css.dom.specificity.picks_the_winner",
                        test_css_dom_specificity_picks_the_winner);
+    robo_test_register("css.dom.computed.pipeline", test_css_dom_computed_pipeline);
+    robo_test_register("css.dom.computed.does_not_disturb_the_picture",
+                       test_css_dom_computed_does_not_disturb_the_picture);
 }

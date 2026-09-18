@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.7,
-inheritance**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.8,
+computed values**).
 
-**Version:** 0.7.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.8.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -14,15 +14,17 @@ and consume it.
 ## Scope
 
 **9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors), 9.5 (the
-cascade), 9.6 (specificity) and 9.7 (inheritance).** 9.1 builds the model the rest
-of Phase 9 is written against; 9.2 builds the first machine that fills it; 9.3
-builds the second — the grammar that consumes the token stream and produces that
-model out of real CSS; 9.4 builds the third, which turns a rule's prelude into real
-selectors and answers whether an element satisfies one; 9.5 is the first thing that
-*applies* anything, by collecting what matches an element in cascade order; 9.6
-supplies the third and last ordering key, so the cascade can answer every contest
-it can see; 9.7 answers the question underneath the cascade — what the element
-*has* for the properties nothing declared:
+cascade), 9.6 (specificity), 9.7 (inheritance) and 9.8 (computed values).** 9.1
+builds the model the rest of Phase 9 is written against; 9.2 builds the first
+machine that fills it; 9.3 builds the second — the grammar that consumes the token
+stream and produces that model out of real CSS; 9.4 builds the third, which turns a
+rule's prelude into real selectors and answers whether an element satisfies one;
+9.5 is the first thing that *applies* anything, by collecting what matches an
+element in cascade order; 9.6 supplies the third and last ordering key, so the
+cascade can answer every contest it can see; 9.7 answers the question underneath
+the cascade — what the element *has* for the properties nothing declared; 9.8 is
+the first that **changes** a value rather than locating one, turning that resolved
+token sequence into a length, a percentage, a colour or a keyword:
 
 | Goal | What 9.1 delivers | What it does **not** do |
 |---|---|---|
@@ -48,6 +50,11 @@ it can see; 9.7 answers the question underneath the cascade — what the element
 | 9.7.3 resolution | The three sets walked in order — the element's cascade winners, then the inherited-by-default properties the parent carries, then the registry's initial values | Inherit across a DOM (the parent is an argument) |
 | 9.7.4 CSS-wide keywords | `inherit`, `initial` and `unset` obeyed on the parsed value; `revert` recognised, carried unresolved and **reported** | Treat a keyword as a string, or half-obey `revert` |
 | 9.7.5 chain door | `robo_css_style_context_resolve_inherited_style`: walk up through the host's `parent`, resolve top down so the parent is the *immediate* resolved parent, bounded and reported | Walk a tree this module does not own, or cache between calls |
+| 9.8.1 typed value | **The closed set of shapes** — `KEYWORD`, `NUMBER`, `PERCENTAGE`, `LENGTH`, `COLOR`, `FAMILY_LIST`, `PRESERVED`, `INVALID` — with the unit table (fixed factors convert, relative units are kept) and the colour forms this build can already express (the named set, `transparent`, all four hex lengths, `rgb()`/`rgba()` in both syntaxes) | Resolve against a containing block, a font or the element itself |
+| 9.8.2 normaliser | `robo_css_computed_value_compute`: shape plus value in, typed value out. A value that means nothing for its property is an **answer** (`INVALID` with a recorded reason), not a failure code | Reparse a declaration, or key off a property *name* |
+| 9.8.3 computed style | The 9.1 container made richer: each entry now carries its name, its typed value and a provenance bitset (`DECLARED`/`INHERITED`/`DEFAULT`/`DEFERRED`/`CUSTOM`/`UNRESOLVED`/`INVALID`), plus the incomplete and truncated counters | Drop the specified value, or hide that a style is unsettled |
+| 9.8.4 chain door | `robo_css_style_context_compute_style`: resolve *and compute* each level top-down, so a child inherits the parent's **computed** value rather than a recomputation of what it specified | Compute a used value, or keep a cache |
+| 9.8.5 real-tree integration | `css.dom.computed.*` drives the whole pipeline — tokenize, parse, match, specificity, cascade, inherit, compute — over the **visual checkpoint's own document**, and proves the rendered frame is byte-identical afterwards | Change what the demo paints |
 
 ## The tokenizer (9.2)
 
@@ -206,6 +213,38 @@ reported through `unsupported` — never quietly resolved into something that lo
 like an answer. Custom properties inherit always and have **no** initial value, so
 an unset one simply has no entry. `docs/Inheritance.md` has the full account.
 
+## Computed values (9.8)
+
+Inheritance answers "what does the element *have*"; computation answers "what
+*is* that". `robo_css_style_context_compute_style` resolves the ancestor chain and
+computes each level before handing it to the level below, so an inherited value is
+the parent's **computed** value — a length, a colour, a keyword — and a child of
+`div { font-size: 16px }` holding `font-size: inherit` lands on `16px` as a typed
+length rather than on the token sequence `16px`.
+
+The normaliser is a function of **the value's shape and the value**, never of a
+property name: the property registry supplies a `computation` column
+(`PRESERVE`, `COLOR`, `LENGTH`, `KEYWORD`, `FONT_FAMILY`, `FONT_WEIGHT`,
+`LINE_HEIGHT`) and the same seven shapes serve every property. That is what keeps
+this stage free of context — no containing block, no font metrics, no parent — and
+free of the caches a context-dependent stage would need.
+
+Three kinds carry the decisions worth knowing about. **`PRESERVED`** is not
+"unimplemented": `calc(100% - 20px)` *is* a computed value here, structurally
+intact, because `%` needs a containing block that this stage does not have, and a
+reduced number would be a lie. **`INVALID`** is an answer rather than an error
+return — `color: nonsense` means nothing for `color`, so the call succeeds, the
+value says INVALID, a diagnostic carries the reason and the style counts it —
+because a failure code would force a caller to drop the property or invent a
+value. **`UNRESOLVED`** is a flag that no kind can express: `var(--x)` and
+`currentColor` are carried preserved *and* flagged, since a consumer reading a
+reference as an ordinary token list would be reading it as a colour.
+
+What is deliberately left to later phases: used values (`50%` stays `50%`), font
+resolution (`font-size: medium` stays the keyword), `hsl()` and the modern colour
+spaces (recognised and carried, 9.9's), `var()` substitution, shorthand expansion,
+and a default stylesheet. `docs/ComputedValues.md` has the full account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -239,6 +278,8 @@ equivalence field by field.
 | `robo_css_specificity_t` | Nothing, ever — it is three counts by value | — |
 | `robo_css_property_registry_t` | Its definitions, their names, their initial-value text *and* the parsed tree | Property ids (it issues none) |
 | `robo_css_inherited_style_t` | Every entry's name and value, both copied | The cascade, the parent style, the sheets the values' bytes come from |
+| `robo_css_computed_value_t` | Its `text` and its `preserved` tree, and every byte inside them | Slices *within* a preserved tree, which borrow the source that declared them |
+| `robo_css_computed_style_t` | Every entry's name, specified value, typed value and flags | The sheets, sources and parents those values were derived from |
 
 `robo_css_slice_t` is a borrowed view. Every API that produces one documents who
 keeps those bytes alive; no slice is ever freed by RoboCSS.
@@ -253,8 +294,8 @@ a destroyed id stays dead.
 ```text
 runtime/
 ├── Include/RoboCSS/          public headers (one per model, plus RoboCSSTokenizer.h,
-│                             RoboCSSSpecificity.h, RoboCSSPropertyRegistry.h and
-│                             RoboCSSInherit.h)
+│                             RoboCSSSpecificity.h, RoboCSSPropertyRegistry.h,
+│                             RoboCSSInherit.h and RoboCSSComputedValue.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -272,7 +313,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 423 tests only
+scripts/robo test-css        # this subsystem's 452 tests only
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -293,5 +334,6 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Cascade.md` | The 9.5 cascade: the level table and the two decisions it encodes, the collection walk and what every counter means, cascade order and the stable sort that maintains it, resolution by the three keys, the inline boundary's three answers, what 9.5 deliberately does not do, lifetime, and how to run the suites |
 | `docs/Specificity.md` | The 9.6 specificity: the `(A,B,C)` representation and why it is a tuple, the comparison, the per-level rules (universal zero, `:not()` worth its argument, pseudo-elements vs pseudo-classes), selector-list behaviour, saturation and its bounds, the cascade integration, and how to run the suites |
 | `docs/Inheritance.md` | The 9.7 inheritance: the three sets and their order, the property registry and its precedence, the CSS-wide keywords and why `revert` is carried rather than obeyed, custom-property behaviour, provenance, ownership, the primitive and chain doors, the invalidation boundary, and the stylesheet-lifetime rule the suites follow |
+| `docs/ComputedValues.md` | The 9.8 computed values: specified / resolved / computed / used, the closed set of typed shapes and why `PRESERVED`, `INVALID` and `UNRESOLVED` each exist, the unit model, the colour forms and the 9.9 seam, the registry's new `computation` column, the computed style's flags and counters, the chain door, determinism and ownership, and the invalidation boundary |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
-| `../PROGRESS.md` | The Goal 9.1–9.7 records and their definitions of done |
+| `../PROGRESS.md` | The Goal 9.1–9.8 records and their definitions of done |

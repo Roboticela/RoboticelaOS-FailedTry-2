@@ -1,6 +1,6 @@
-# RoboCSS Test Organisation (Phase 9.1–9.6)
+# RoboCSS Test Organisation (Phase 9.1–9.8)
 
-Thirty-two suites, 423 tests, one framework. These phases add no test runner,
+Thirty-four suites, 452 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -22,7 +22,12 @@ whose subject is the three keys and when one decides). The 9.6 suites pin the
 third key twice over: once against the selector records (one suite, a table of
 selectors and their counts, including saturation and malformed input that must
 never reach a calculation) and once against the cascade (one suite, whose subject
-is that specificity now decides contests the 9.5 resolver had to report).
+is that specificity now decides contests the 9.5 resolver had to report). The
+9.8 suites pin the typed value twice over: once as a model (one suite: the
+closed set of shapes, the unit table, the colour forms, the normaliser's seven
+computations and the argument contract) and once as a pipeline (one suite: the
+chain door against the real RoboHTML DOM, where the subject is what a child
+actually ends up with).
 
 ## 1. Suite map
 
@@ -69,7 +74,7 @@ is that specificity now decides contests the 9.5 resolver had to report).
 | `SuiteRoboCssMatchCombinator.c` | 14 | The four combinators, the `>`/`+`/`~` boundaries, selector-list index and range reporting, and that a relation the host cannot answer is *undecided* rather than false |
 | `SuiteRoboCssMatchStructural.c` | 7 | `:root`, `:first-child`, `:last-child`, `:only-child`, `:nth-child()`/`:nth-last-child()` incl. negatives and out-of-range forms, and `:not()` including its unevaluatable-argument path |
 | `SuiteRoboCssMatchLevels.c` | 14 | The matcher's four structural doors: each driven directly, the argument contract of the lower ones, that a complex selector of one compound *is* that compound, that an incoherent record is refused by the complex door and skipped by the list door, that `>` is strictly narrower than a space, that an unavailable relation is undecided, that a cyclic host is bounded, and that the three levels agree over a wide selector table |
-| `SuiteRoboCssDomSelect.c` | 17 | The same selectors against the **real** RoboHTML tree: the visual checkpoint's own document, text/comment nodes not counting as siblings, deep trees, rebuilding after mutation, determinism, matching not mutating the DOM, and that running the selectors over the checkpoint leaves the rendered picture unchanged — plus the 9.5 cascade over the same tree (`css.dom.cascade.*`): the document's own `style` attribute read through the seam, a collection that has to use real parent and sibling links to find the right rules, importance beating inline, a byte-for-byte proof that collecting a cascade changes nothing the demo paints, and (`css.dom.specificity.picks_the_winner`) a real `id`/`class`/`type` contest resolved by specificity over the checkpoint's own tree |
+| `SuiteRoboCssDomSelect.c` | 19 | The same selectors against the **real** RoboHTML tree: the visual checkpoint's own document, text/comment nodes not counting as siblings, deep trees, rebuilding after mutation, determinism, matching not mutating the DOM, and that running the selectors over the checkpoint leaves the rendered picture unchanged — plus the 9.5 cascade over the same tree (`css.dom.cascade.*`): the document's own `style` attribute read through the seam, a collection that has to use real parent and sibling links to find the right rules, importance beating inline, a byte-for-byte proof that collecting a cascade changes nothing the demo paints, (`css.dom.specificity.picks_the_winner`) a real `id`/`class`/`type` contest resolved by specificity over the checkpoint's own tree, and (`css.dom.computed.*`, 9.8) the whole pipeline ending in a computed style over the same document |
 
 ### 9.5 — the cascade
 
@@ -85,6 +90,14 @@ is that specificity now decides contests the 9.5 resolver had to report).
 |---|---|---|
 | `SuiteRoboCssSpecificity.c` | 20 | The three counts and their comparison: the spelled-out matrix (`*`, `div`, `.card`, `#main`, `[disabled]`, `:root`, `::before`, and the compound and complex forms), every simple-selector kind, all six attribute operators, the pseudo-class set and the pseudo-elements that must *not* count as them, `:not()` worth its argument (including nesting and an empty argument), compound and complex accumulation, combinators contributing zero, per-member selector-list values and the most-specific member, escaped identifiers, saturation at the represented maximum, a stress selector that must not wrap, agreement across the four model levels, malformed input that the parser refuses before a calculation can see it, and the API's argument contract |
 | `SuiteRoboCssSpecificityCascade.c` | 10 | The key reaching the cascade: a specificity gap deciding a contest, order-independence of that decision, document order still deciding an exact tie, a stronger level outranking specificity, importance at the right stage, a rule whose selector list matched through one member, `:not()` deciding by its argument, a pseudo-element winning nothing, inline still above author, and repeated resolution producing identical results |
+
+### 9.8 — computed values
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssComputedValue.c` | 14 | The typed value without a document: the unit table (which units convert and which are kept, `is_absolute` asked of the table rather than of the converter), the four hex lengths against every wrong length and every non-hex digit, the standard named set in full (every name in the table, so a truncated or misspelled entry fails here and not in a browser), case-insensitivity, `transparent` as a colour that is not a named one, `rgb()`/`rgba()` in both syntaxes with numeric and percentage channels and alpha, range handling (clamped, not wrapped), separator-style mixing refused, the value's lifecycle (copy is independent, move transfers, `equals` distinguishes kinds), the lifetime balance over repeated copies, the seven `computation` shapes (`normalize_*`: keywords lower-cased, absolute lengths converted and relative ones kept, percentages kept, colours normalised, font lists ordered, `PRESERVED` never invalid), and a table of hostile strings driven through the normaliser (`normalize_robust`) |
+| `SuiteRoboCssComputed.c` | 13 | The pipeline against the CSS-side element host: a declared property; an inherited one arriving as the **parent's computed value**; a default that an ancestor's inherited value then replaces; a non-inherited property not propagating; `inherit`/`initial`/`unset` through the chain; `var()`, `calc()` and `currentColor` carried and counted; `color: nonsense` marked invalid without dropping the property; custom properties preserved verbatim; inline styles participating; a three-level chain; a **cyclic** parent chain reported as truncated rather than followed; determinism across repeated computations; the argument contract; and an element with no stylesheets at all |
+| `SuiteRoboCssDomSelect.c` (`css.dom.computed.*`) | 2 | The same pipeline, all seven stages, over the **visual checkpoint's own document**: two selectors of different specificity producing different colours, a typed colour's channels, `font-size: inherit` landing on the length the body computed (and `width: inherit` on a property that does not inherit by default), a custom property travelling the whole path untouched, `color: nonsense` reported as invalid without corrupting the rest of the style, and a byte-for-byte proof that computing every element's style twice changes nothing the demo paints |
 
 ### 9.7 — property metadata and inheritance
 
@@ -212,7 +225,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 423 css.* tests only
+scripts/robo test-css                     # the 452 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -228,8 +241,10 @@ The 9.4 surface is three filters, and they do not nest the way the names suggest
 suites **plus** the eight `css.selector.*` model tests, because `css.select` is a
 prefix of `css.selector`. The precise counts are
 `--filter=css.select.parse` (51), `--filter=css.select.match` (34),
-`--filter=css.select.levels` (14), and `--filter=css.dom` (16) for the suites
-that run against the real RoboHTML tree.
+`--filter=css.select.levels` (14), and `--filter=css.dom` (18) for the suites
+that run against the real RoboHTML tree — the last two of which are 9.8's, so
+that filter is also where the **whole** pipeline runs over the checkpoint's own
+document.
 
 The 9.5 surface is `--filter=css.cascade` (32) for the three cascade suites —
 levels, collection and resolution — and `--filter=css.dom.cascade` (4) for the
@@ -245,6 +260,12 @@ resolver together, and `--filter=css.registry` (11) for the property metadata.
 `css.inherit.resolve` (17) and `css.inherit.chain` (3) are the two halves of the
 resolver, and `css.inherit` picks both up plus the model's six.
 
+The 9.8 surface is two filters that do **not** nest: `--filter=css.computed.`
+(13) is the pipeline, and `--filter=css.computedvalue.` (14) is the typed value.
+The trailing dot matters, because `css.computed` is a prefix of
+`css.computedvalue` — but `css.computed.` is not, which is why the documented
+form carries it.
+
 `--list` prints every registered name, which is how a documented test name can be
 checked against the binary instead of trusted.
 
@@ -259,8 +280,8 @@ UndefinedBehaviorSanitizer for the host test binary; it is documented in
 `docs/Build.md`. The result for this phase:
 
 * **AddressSanitizer + UndefinedBehaviorSanitizer: clean.** Zero sanitizer
-  findings across the whole runtime suite — 1832/1832 — and `--filter=css.` is
-  423/423 under the sanitized binary. Phase 9.7 introduced no memory-safety or
+  findings across the whole runtime suite — 1859/1859 — and `--filter=css.` is
+  452/452 under the sanitized binary. Phase 9.8 introduced no memory-safety or
   undefined-behaviour defect.
 
 Run the whole suite rather than the `css.` subtree and the sanitized binary may
@@ -516,3 +537,62 @@ fixtures that a combined run exposed.
 > style domain records argument failures with kind `NONE` and reports them through
 > the return code and the record's `code` (the cascade door does the same), so the
 > test now asserts the code.
+
+## 12. What the 9.8 suites found
+
+Three real product defects. Two of them had survived a green `--filter=css.`
+build in a state where the new suites were compiled but **not registered** — the
+build script's source list and `Tests/Main.c`'s registrations are two places, and
+a new suite file has to be in both. Until it was, 9.8's assertions were files on
+disk and nothing more.
+
+> **`robo_css_computed_value_copy` copied the bytes but not their length.** The
+> pointer was reassigned and `text_length` was explicitly zeroed before the
+> allocation, and only the allocation branch memcpy'd — so a copied value had a
+> text pointer with a length of zero, which reads as *empty*. `equals` said two
+> identical values differed, and `text` returned a zero-length slice for `auto`.
+> In the pipeline that is how a keyword would reach a child as no keyword at all:
+> inheritance copies the parent's computed value, so `div { color: red }` handing
+> `red` to a child went through this function. The suite that found it is
+> `css.computedvalue.lifecycle`.
+
+> **`robo_css_unit_is_absolute` asked the converter a question it cannot answer.**
+> It was written as `robo_css_unit_to_px(1.0, unit) != 0.0`, and `unit_to_px`
+> returns *the value it was given* for a unit with no fixed factor — so `em`, `vh`
+> and the empty unit all reported themselves absolute. `em` and `vh` would have
+> been silently converted to pixels in the computed value, which is the exact
+> thing 9.8 exists not to do. The predicate now asks the table whether the factor
+> is present.
+
+> **`rgb()` could not parse the space syntax at all.** The argument splitter
+> tracked "the last component was an argument" to enforce separators, and skipped
+> whitespace — so two space-separated numbers looked adjacent, and `rgb(255 0 0)`
+> was refused while `rgb(255, 0, 0)` was accepted. The fix is not a special case:
+> whitespace *is* a separator in CSS's modern syntax, and the splitter now records
+> which of the two styles a call started with and refuses a second one. That is
+> what makes `rgb(255, 0 0)` malformed, `rgb( 1 , 2 , 3 )` legal, and
+> `rgb(1 2 3 4)` — four numbers and no slash — a call with an alpha separator it
+> never wrote.
+
+Five expectations were wrong rather than the implementation, and each was worth
+checking rather than bending the code to:
+
+* **`#ff00` is a colour.** Four digits is `#rgba`, so the case meant to prove a
+  malformed hex was refused was proving a *valid* one was. It now asserts
+  `#ffff0000` and the malformed case is `#ff`.
+* **A length-shaped property may only be given a length keyword.** The
+  implementation accepted *any* identifier, so `width: red` produced a keyword the
+  layout phases could only fail on. It now tests a closed set — the union of the
+  keyword lists of the properties that share the shape — and the keyword test's
+  `10` expectation was corrected to the message that says which of the two
+  problems it is (`not an identifier`, not `not a single identifier`: `10` *is* one
+  component).
+* **`css_allocator_ensure_enabled` returns whether *this call* turned the tracker
+  on**, not whether it is on. The lifetime-balance test asserted `1` where a
+  different suite may already have enabled it; it now asserts the invariant it
+  actually needs (`robo_mem_debug_is_enabled()`), and reports the return value to
+  `css_allocator_restore` where the helper's contract puts it.
+* **Three argument-contract cases passed a computed value where a specified value
+  belongs.** The compiler caught them once the suite was registered; they now test
+  NULL arguments and the unknown-`computation` sentinel, which is what the header
+  promises.

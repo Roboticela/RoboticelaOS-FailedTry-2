@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.7)
+# RoboCSS Architecture (Phase 9.1–9.8)
 
 This is the design record for RoboCSS as it exists after Goal 9.7. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -344,6 +344,33 @@ about one element's parent — never RoboHTML. The registry is borrowed by the s
 context exactly as the property table is, because which properties exist and how
 they are classified is *policy* and policy belongs to the caller.
 
+### Computed value
+
+A *computed* value is the typed answer for one property, and it is a closed set
+of shapes rather than "a string, but typed":
+
+```text
+ComputedValue                    what one property's value is
+  ├── kind                       KEYWORD / NUMBER / PERCENTAGE / LENGTH / COLOR /
+  │                              FAMILY_LIST / PRESERVED / INVALID
+  ├── number, unit, is_integer   NUMBER, PERCENTAGE and LENGTH
+  ├── color                      four 8-bit channels
+  ├── text                       the keyword, the family list, or the reason
+  ├── preserved                  the specified tokens, owned (a deep copy)
+  └── unresolved                 a reference only a later stage can settle
+```
+
+It is produced by `robo_css_computed_value_compute`, which is a function of **the
+value's shape and the value** — the shape coming from the registry's `computation`
+column — and never of a property *name*. That is what keeps it context-free:
+no containing block, no font metrics, no parent, no element. `PRESERVED` is a real
+computed value (a `calc()`, a `var()` reference, a custom property's opaque token
+sequence), `INVALID` is an *answer* the call reports successfully rather than an
+error, and `unresolved` is a flag no kind can express. The container it lands in is
+`robo_css_computed_style_t` — the 9.1 container, unchanged in shape, with each
+entry now also carrying its name, its typed value and a provenance bitset.
+`docs/ComputedValues.md` has the full account.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -419,18 +446,21 @@ DOM Element  →  style resolution  →  computed style
 * The **style context** (`RoboCSSStyle.h`) holds the property table, the
   stylesheets in scope with their origins, the element host and the inline-style
   callback. `robo_css_style_context_match_declarations` is real as of 9.5 — it
-  collects what applies to one element in cascade order (`docs/Cascade.md`) —
-  while `robo_css_style_context_compute_style` still answers
-  `ROBO_NOT_SUPPORTED`, because turning a cascade into values is 9.8.
+  collects what applies to one element in cascade order (`docs/Cascade.md`) — and
+  as of 9.8 `robo_css_style_context_compute_style` is real too: it resolves the
+  ancestor chain and computes each level top-down, so the level below inherits a
+  value that has already been through the same normalisation
+  (`docs/ComputedValues.md`).
 
 The DOM stays authoritative for elements, attributes, tree relationships and text
 nodes. RoboCSS is authoritative for CSS source, stylesheets, rules, declarations
 and — later — resolution. **RoboCSS does not duplicate the DOM tree**, holds no
 node registry, and caches no view across a call.
 
-The host constructs the view, which means the boundary can be driven today
-exactly the way 9.4 and 9.8 will drive it, and `css.style.context_borrows` does
-exactly that: it asserts the contract a host has to satisfy.
+The host constructs the view, which means the boundary is driven today exactly
+the way 9.4's matching, 9.5's collection, 9.7's chain walk and 9.8's computation
+drive it, and `css.style.context_borrows` asserts the contract a host has to
+satisfy.
 
 ## 7. The inline-style boundary
 
@@ -545,18 +575,20 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Computed values (9.8), colours (9.9), units (9.10), the box
+Colours (9.9), units (9.10), the box
 model (9.11), display (9.12), positioning (9.13), backgrounds (9.14), borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
 cascade itself, evaluating at-rules, expanding shorthands and the animation and
 transition origins. **Reading bytes is not interpreting them,
-building a tree is not interpreting it either, and answering a question about one
-element is not applying a style to it**: the tokenizer knows `10px` is a dimension
-with the unit `px`, the grammar knows a prelude is component values up to `{`,
-the matcher knows whether an element satisfies a selector, the cascade knows
-which declaration beat which, and inheritance knows *where each value it reports
-came from*. None of them knows what a length *means*.
+building a tree is not interpreting it either, answering a question about one
+element is not applying a style to it, and computing a value is not using one**:
+the tokenizer knows `10px` is a dimension with the unit `px`, the grammar knows a
+prelude is component values up to `{`, the matcher knows whether an element
+satisfies a selector, the cascade knows which declaration beat which, inheritance
+knows *where each value it reports came from*, and computation knows what that
+value *is* — a length of ten pixels, a colour, a keyword. None of them knows how
+wide anything is.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
@@ -564,8 +596,10 @@ Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 (9.5), specificity (9.6) and inheritance (9.7) flipped to 1 for exactly that
 reason, and no other flag did. Each flipped only when its whole job worked end to
 end: `cascade` waited for `specificity` rather than claiming an ordering it could
-not complete, and `inheritance` is 1 while `computed_values` stays 0 because a
-*resolved* value is a different thing from a computed one.
+not complete, `inheritance` waited while `computed_values` was 0 because a
+*resolved* value is a different thing from a computed one, and `computed_values`
+flipped as 9.8 landed — while `default_styles` and `stylesheet_loading` stay 0,
+because the `RUNTIME` origin slot is still empty and nothing fetches a sheet.
 
 Two boundaries are permanent features of the phases that introduced them rather
 than gaps in them, and they are why "is selector matching done?" has a nuanced

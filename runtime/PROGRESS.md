@@ -2906,6 +2906,125 @@ the without-a-host case cleared the whole element host — taking matching away 
 then asserted the sheet still matched; it now installs a host with the view but no
 `parent` callback, which is the case the header describes.
 
+## Goal 9.8 — CSS computed values
+
+**Status: complete.** The typed value model, the property registry's
+`computation` column, the normaliser, the computed-style container and the chain
+door are implemented, tested against the real RoboHTML DOM, and verified under
+sanitizers.
+
+### Delivered
+
+- [x] `Include/RoboCSS/RoboCSSComputedValue.h` + `Source/RoboCSS/RoboCSSComputedValue.c`
+      — the typed value, and it is a **closed set of shapes** rather than "a
+      string, but typed": `KEYWORD`, `NUMBER`, `PERCENTAGE`, `LENGTH`, `COLOR`,
+      `FAMILY_LIST`, `PRESERVED`, `INVALID`. Three of those carry decisions:
+      `PRESERVED` is a real computed value (`calc(100% - 20px)` *is* the
+      expression, and reducing it would be a lie because `%` needs a containing
+      block), `INVALID` is an **answer** the call reports successfully with a
+      reason rather than an error return that forces a caller to drop the
+      property, and `unresolved` is a flag no kind can express (`var()`, `calc()`
+      and `currentColor` are references, not values)
+- [x] The unit model: the seven units with a fixed factor (`px cm mm q in pt pc`)
+      convert **exactly** (so `1in` and `96px` compare equal), the eight relative
+      units are kept as written (converting `2em` here would produce a number that
+      looks resolved and is wrong wherever the font size differs), and a bare `0`
+      is a length because CSS's one exception says so
+- [x] The colour forms this build can already express: the **standard named set**
+      in full, `transparent`, all four hex lengths (nibble doubling included;
+      every other length refused rather than truncated), and `rgb()`/`rgba()` in
+      **both** syntaxes with numeric or percentage channels and alpha. Channels
+      clamp rather than wrap; the two separator styles do not mix
+- [x] `robo_css_computed_value_compute` — the normaliser, and a function of **the
+      value's shape and the value**, never of a property name. That is what keeps
+      it free of context (no containing block, no font metrics, no parent) and
+      free of the caches a context-dependent stage would need
+- [x] `computation`, a new column on the property registry's definition:
+      `PRESERVE`, `COLOR`, `LENGTH`, `KEYWORD`, `FONT_FAMILY`, `FONT_WEIGHT`,
+      `LINE_HEIGHT`. Seven shapes serve every property; a length-shaped property
+      accepts a closed keyword set (the union of the lists of the properties that
+      share the shape), so `width: red` is INVALID rather than a keyword no later
+      phase can use
+- [x] The computed style — the 9.1 container **made richer rather than changed**:
+      each entry still holds the specified value a 9.1 caller put there, and now
+      also its name, its typed value and a provenance bitset (`DECLARED`,
+      `INHERITED`, `DEFAULT`, `DEFERRED`, `CUSTOM`, `UNRESOLVED`, `INVALID`),
+      plus `_incomplete_count` and `_is_truncated` so a style cannot be read as
+      more settled than it is
+- [x] `robo_css_style_context_compute_style` — the chain door: resolve **and
+      compute** each level top-down, so a child inherits its parent's *computed*
+      value rather than a recomputation of what the parent specified. The
+      intermediate styles are the walk's own and are disposed as it descends
+- [x] CSS-wide keywords are consumed by 9.7 on the parsed value, so computation
+      never sees one; `revert` stays deferred and reported. Custom properties
+      remain opaque token sequences, never eagerly interpreted as colours
+- [x] Numeric safety: NaN and the infinities are refused rather than clamped or
+      dropped (there is no CSS spelling for either), channels clamp, and a
+      malformed colour cannot crash the runtime — the robust suite drives a table
+      of hostile strings through the normaliser to prove it
+- [x] Two new suites, 27 tests: `css.computedvalue.*` 14 (the unit table, the hex
+      forms against every wrong length, the whole named set, `rgb()` in both
+      syntaxes and its range handling, the value's lifecycle and copy/move
+      contract, the lifetime balance, the seven `computation` shapes, and hostile
+      input) and `css.computed.*` 13 (the pipeline: declared,
+      inherited-as-computed, default-then-replaced, non-inherited, the CSS-wide
+      keywords, `var()`/`calc()`/`currentColor` carried and counted, an invalid
+      value, custom properties, inline, a three-level chain, a cyclic chain
+      reported as truncated, determinism, the argument contract, and no
+      stylesheets at all)
+- [x] `css.dom.computed.*` 2 — the whole pipeline, all seven stages, over the
+      **visual checkpoint's own document**: specificity picking between two
+      colours, a typed colour's channels, `font-size: inherit` landing on the
+      length the body computed, `width: inherit` pulling a value for a property
+      that does not inherit by default, a custom property travelling the path
+      untouched, `color: nonsense` reported as invalid without corrupting the
+      rest of the style, and a byte-for-byte proof that computing every
+      element's style twice changes nothing the demo paints
+- [x] Capability flag `computed_values` flipped to 1; `default_styles` and
+      `stylesheet_loading` still 0. Version 0.8.0, `ROBO_CSS_API_FROZEN` still 0
+- [x] Sanitizers: AddressSanitizer + UndefinedBehaviorSanitizer over the whole
+      suite, **zero findings**; the plain build is 1859/1859 and `css.` is 452/452
+- [x] `scripts/robo check`, `build-runtime`, `test-css`, `test-qemu-display` all
+      pass; `test-runtime` reports only the documented environmental
+      `window.host.keyboard` failure, which no RoboCSS code touches
+- [x] Phases 6–9.7 regression-tested: full suite green — up 29 CSS tests from 9.7,
+      with no existing test weakened or removed
+- [x] `css/docs/ComputedValues.md` added, and `css/README.md`, `css/docs/Tests.md`,
+      `css/docs/Architecture.md`, `css/docs/Inheritance.md`, `css/docs/Cascade.md`,
+      `css/docs/Parser.md`, `css/docs/Selectors.md` and `ARCHITECTURE.md` updated
+- [x] No Chromium dependency introduced
+- [x] No used values, no colours beyond the forms the parser already expressed
+      (9.9), no units beyond the length forms a computed value carries (9.10), no
+      box model, no layout, no painting, no CSSOM, no animations
+- [x] Stop after 9.8
+
+### What 9.8 found
+
+**Three real product defects.** Two of them had survived a green `--filter=css.`
+build because the new suite files were compiled but **not registered** — the build
+script's source list and `Tests/Main.c` are two places, and a suite has to be in
+both. Until it was, 1846 lines of assertions were files on disk and nothing more.
+
+* `robo_css_computed_value_copy` set the text pointer but not its length, so a
+  copied value read as *empty*. Inheritance copies the parent's computed value, so
+  this is how a keyword would reach a child as no keyword at all.
+* `robo_css_unit_is_absolute` was written as `unit_to_px(1.0, unit) != 0.0`, and
+  the converter returns the value it was given for a unit with no fixed factor — so
+  `em`, `vh` and the empty unit all reported themselves absolute, and `em` and `vh`
+  would have been silently converted to pixels in the computed value.
+* `rgb()` could not parse the space syntax at all: the splitter skipped whitespace
+  and enforced separators with a "last component was an argument" flag, so two
+  space-separated numbers looked adjacent. The fix records which of the two
+  separator styles a call started with and refuses a second one, which is also
+  what makes `rgb(255, 0 0)` malformed and `rgb( 1 , 2 , 3 )` legal.
+
+**Five expectations were wrong rather than the implementation**: `#ff00` is a
+valid `#rgba` colour (the malformed case is `#ff`); a length-shaped property must
+reject a non-length keyword; `not an identifier` is the right message for `k: 10`
+(`10` *is* one component); `css_allocator_ensure_enabled` reports whether *this
+call* enabled the tracker; and three argument-contract cases passed a computed
+value where a specified value belongs.
+
 ## Next
 
-- Goal 9.8 — CSS computed values (do not start until requested)
+- Goal 9.9 — CSS colours (do not start until requested)

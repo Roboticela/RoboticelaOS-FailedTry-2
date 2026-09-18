@@ -191,8 +191,11 @@ problem is not an incomplete answer.
   file: a cascade of declarations is not a style, so `robo_css_inherit_resolve`
   turns one element's cascade (plus an explicit parent) into a *resolved* style.
   The cascade itself still does not inherit anything.
-* **Computed values (9.8).** A resolved style is not a computed one.
-  `robo_css_style_context_compute_style` is still `ROBO_NOT_SUPPORTED`.
+* **Computed values** were 9.5's other gap, and **9.8 closed them**: a resolved
+  style is a token sequence, not a value, so
+  `robo_css_computed_value_compute` turns one into a length, a percentage, a
+  colour or a keyword (`docs/ComputedValues.md`). The cascade still decides *which*
+  declaration wins and nothing else — it neither inherits nor computes.
 * **Evaluating at-rules.** No `@media` is tested, no `@import` is fetched, no
   `@supports` is checked, no layer is created — and none of them is *named* in a
   table, which is the 9.3 decision this phase keeps.

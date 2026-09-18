@@ -40,9 +40,9 @@ the order it reports them in:
 
 Set 3 is deliberately **only** the inherited-by-default properties.
 Materialising `width: auto` on every element because nobody declared it would put
-a value in a resolution that no input produced; 9.8 can reach the registry's
-initial value for that. An element with no declarations at all therefore still
-resolves to a complete style — defaults are answers, not gaps.
+a value in a resolution that no input produced; a later stage can reach the
+registry's initial value for that. An element with no declarations at all
+therefore still resolves to a complete style — defaults are answers, not gaps.
 
 A property that does **not** inherit and that nothing declares has **no entry**.
 The entry appears the moment something asks for it: a declaration, `initial`,
@@ -197,14 +197,15 @@ the one thing it needs to know.
 There is no invalidation engine in this phase, and the boundary is explicit:
 because nothing is cached, the rule is **re-resolve**. Changes to a parent's
 cascaded style, a parent's inherited properties, or a child's declarations may
-change descendants, and the caller re-resolves. 9.8 and the layout phases will
-want more than that; they will want it on top of this, not instead of it.
+change descendants, and the caller re-resolves. 9.8 kept that shape exactly: it
+computes a resolved style per level as it walks down, and caches nothing, so its
+invalidation boundary is the same sentence.
 
 ## What is deliberately absent
 
 * **No computed values.** `10px` is still `10px` and `red` is still `red`.
-  Percentages, relative lengths, `calc()`, colour normalisation and the box model
-  are 9.8.
+  Percentages, relative lengths, `calc()` and colour normalisation are the next
+  stage's (`docs/ComputedValues.md`); the box model is later still.
 * **No `var()` substitution.** Custom properties cascade and inherit as values;
   their contents are not substituted.
 * **No `revert` semantics.** Carried and reported, not obeyed.
