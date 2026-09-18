@@ -14,7 +14,7 @@ static void test_css_version(void)
 
     ROBO_CHECK_STR_EQ(robo_css_version_string(), ROBO_CSS_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 11);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 12);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_PATCH, 0);
     /* Architecture milestone: the surface grows all through Phase 9. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
@@ -27,7 +27,7 @@ static void test_css_version(void)
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(robo_css_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, 0);
-    ROBO_CHECK_EQ_INT(minor, 11);
+    ROBO_CHECK_EQ_INT(minor, 12);
     ROBO_CHECK_EQ_INT(patch, 0);
 }
 
@@ -438,6 +438,14 @@ static void test_css_capabilities(void)
      * is distributed although nothing paints a border, because the four widths
      * are the four values. */
     ROBO_CHECK_EQ_INT(caps.box_model, 1);
+
+    /* 9.12 gave `display` a vocabulary of its own: a closed set of four values,
+     * each a row carrying its keyword and what CSS Display 3 calls its outer and
+     * inner halves, with the classifications a layout pass asks. `display: none`
+     * is the *absence of a box* rather than zero geometry, which is why this
+     * claims a value family and not layout — nothing here removes an element from
+     * a tree that does not exist yet. */
+    ROBO_CHECK_EQ_INT(caps.display, 1);
 
     /* ...and everything past that is still 0: no default stylesheet exists, and
      * nothing loads one. */

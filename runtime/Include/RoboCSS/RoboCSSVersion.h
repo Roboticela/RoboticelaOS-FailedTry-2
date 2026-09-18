@@ -241,6 +241,38 @@
  * unresolved, so a consumer can see that four edges are unanswerable instead of
  * reading a declaration and finding nothing underneath it.
  *
+ * 0.12.0 is the eleventh and the first that is a *value* rather than a family or
+ * a representation: `display` (RoboCSSDisplay.h). It is one property, and the
+ * reason it is a shape rather than the generic KEYWORD every other identifier-
+ * valued property uses is that `display` is the one thing every later phase reads
+ * on every element. A keyword shape carries any identifier through, which is
+ * right for `cursor: grab` — a value whose meaning belongs to a phase that has not
+ * landed — and wrong here, because `display: bogus` would reach a layout pass as
+ * a value it can only fail on. So the vocabulary is closed, and closed means an
+ * unknown identifier is a mistake with a diagnostic rather than a keyword.
+ *
+ * The value carries three facts and not one, which is CSS Display 3's own model:
+ * what box-level the element is (the *outer* display), what lays its contents out
+ * (the *inner* display), and whether a box is generated at all. `display: none` is
+ * therefore the absence of a box rather than zero geometry — the single confusion
+ * the property invites, and the reason the classification is `generates_box`
+ * asked of the table rather than a comparison against a keyword. `inline-block`
+ * is not "inline, but flagged": it is an inline outer with a `flow-root` inner,
+ * which is what CSS says when it defines it as `inline flow-root`, and the two
+ * columns mean the next values are rows — `flex` an outer block with a flex
+ * inner, `grid` likewise, `contents` a value that generates no box and is still
+ * not `none`.
+ *
+ * Three boundaries are drawn rather than crossed, and each is a decision. HTML's
+ * defaults (`div` block, `span` inline) are *not* here: they are a user-agent
+ * stylesheet, and a vocabulary is not a stylesheet, so a `div` with no
+ * declaration computes the property's initial value like anything else. The
+ * multi-keyword syntax (`display: inline flex`) is refused, because it is a
+ * grammar this build does not parse and a display value nothing can read is worse
+ * than one CSS's own recovery rule drops. And no element is removed from any tree:
+ * a computed `display: none` is a fact a later layout phase acts on, not an action
+ * this one takes.
+ *
  * Everything past that — layout, used values, `calc()` evaluation — is still a
  * declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
@@ -264,9 +296,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 11
+#define ROBO_CSS_VERSION_MINOR 12
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.11.0"
+#define ROBO_CSS_VERSION_STRING "0.12.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

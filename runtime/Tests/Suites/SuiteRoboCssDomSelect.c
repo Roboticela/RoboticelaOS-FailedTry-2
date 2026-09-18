@@ -1746,7 +1746,12 @@ static void test_css_dom_computed_pipeline(void)
                               &initial, &from_initial, NULL),
                           ROBO_OK);
         ROBO_CHECK_EQ_INT(from_initial, 1);
-        ROBO_CHECK_STR_EQ(robo_css_computed_value_kind_name(initial.kind), "keyword");
+        /* The initial value arrives *typed*, through the property's own value
+         * shape: since 9.12 that is the display vocabulary, so the door answers
+         * with an enumerator rather than with the keyword's letters. */
+        ROBO_CHECK_STR_EQ(robo_css_computed_value_kind_name(initial.kind), "display");
+        ROBO_CHECK_EQ_INT(robo_css_computed_value_display(&initial),
+                          (int)ROBO_CSS_DISPLAY_INLINE);
         robo_css_computed_value_dispose(&initial);
     }
     /* The inherited half of the style is present and unharmed. */
@@ -2158,6 +2163,124 @@ static void test_css_dom_box_pipeline(void)
     css_dom_cascade_end(&fixture);
 }
 
+/**
+ * `css.dom.display.pipeline` — the display vocabulary over the real tree.
+ *
+ * The CSS-side suite proves the vocabulary and the value shape; this proves they
+ * survive a document, which is where the two facts the phase is built on have to
+ * hold at once: a declared `display` arrives as a typed value on elements the
+ * sheet names, and an element the sheet does *not* name has **no entry at all**
+ * because `display` is non-inherited and 9.7 materialises initial values for the
+ * inherited-by-default set only. The query door is what answers that second case,
+ * with the property's own initial value and `from_initial` set — so the pair of
+ * assertions below is the whole interface a layout phase consumes.
+ */
+static void test_css_dom_display_pipeline(void)
+{
+    css_dom_cascade_t fixture;
+    robo_css_computed_style_t *body_style = NULL;
+    robo_css_computed_style_t *link = NULL;
+    robo_css_computed_style_t *caption = NULL;
+    robo_css_computed_style_t *notes = NULL;
+    robo_css_computed_style_t *heading = NULL;
+    robo_css_computed_value_t queried = ROBO_CSS_CLEARED;
+    robo_css_stylesheet_id_t sheet;
+    int from_initial = -1;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "body { display: block }\n"
+                                  "a { display: inline }\n"
+                                  "label { display: inline-block }\n"
+                                  "#Notes { display: none }\n");
+
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "body") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_id(&fixture.dom, "Notes") != ROBO_CSS_ELEMENT_REF_NONE);
+
+    /* One value per level of the box model's own vocabulary, each read as a
+     * typed enumerator rather than as the keyword's letters. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "body"), &body_style);
+    css_computed_is(body_style, "display", "block");
+    {
+        const robo_css_computed_value_t *value =
+            robo_css_computed_style_computed_by_name(body_style,
+                                                    robo_css_slice_from_text("display"));
+
+        robo_css_display_t display;
+
+        ROBO_CHECK_EQ_INT(value->kind, (int)ROBO_CSS_COMPUTED_VALUE_DISPLAY);
+        display = robo_css_computed_value_display(value);
+        ROBO_CHECK_EQ_INT(robo_css_display_is_block_level(display), 1);
+        ROBO_CHECK_EQ_INT(robo_css_display_generates_box(display), 1);
+    }
+
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "a"), &link);
+    css_computed_is(link, "display", "inline");
+    ROBO_CHECK_EQ_INT(robo_css_display_is_inline_level(
+                          robo_css_computed_value_display(
+                              robo_css_computed_style_computed_by_name(
+                                  link, robo_css_slice_from_text("display")))),
+                      1);
+
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "label"), &caption);
+    css_computed_is(caption, "display", "inline-block");
+    ROBO_CHECK_EQ_INT(robo_css_display_is_inline_block(
+                          robo_css_computed_value_display(
+                              robo_css_computed_style_computed_by_name(
+                                  caption, robo_css_slice_from_text("display")))),
+                      1);
+
+    /* `display: none` on a real element: a decided value, not a missing one, and
+     * not a geometry — the element's own `textarea` box is untouched beside it. */
+    css_dom_compute(&fixture, css_dom_ref_by_id(&fixture.dom, "Notes"), &notes);
+    css_computed_is(notes, "display", "none");
+    css_computed_flags_are(notes, "display", "declared");
+    ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(notes), 0);
+    ROBO_CHECK_EQ_INT(robo_css_display_is_none(
+                          robo_css_computed_value_display(
+                              robo_css_computed_style_computed_by_name(
+                                  notes, robo_css_slice_from_text("display")))),
+                      1);
+
+    /* An element the sheet does not name has no entry — `display` does not
+     * inherit, so the `body` above handed nothing down — and the query door
+     * answers with the property's initial value, marked as such. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "h1"), &heading);
+    css_computed_is(heading, "display", "<absent>");
+    ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                          fixture.context, heading,
+                          robo_css_slice_from_text("display"), &queried,
+                          &from_initial, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(from_initial, 1);
+    ROBO_CHECK_EQ_INT(queried.kind, (int)ROBO_CSS_COMPUTED_VALUE_DISPLAY);
+    ROBO_CHECK_EQ_INT(robo_css_computed_value_display(&queried),
+                      (int)ROBO_CSS_DISPLAY_INLINE);
+    robo_css_computed_value_dispose(&queried);
+
+    /* And an invalid value on a real element is reported rather than replaced. */
+    {
+        robo_css_computed_style_t *odd = NULL;
+        robo_css_stylesheet_id_t bad = css_dom_cascade_sheet(
+            &fixture, "select { display: bogus }");
+
+        css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "select"), &odd);
+        css_computed_is(odd, "display", "not a display value");
+        css_computed_flags_are(odd, "display", "declared+invalid");
+        ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(odd), 1);
+        robo_css_computed_style_destroy(odd);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(bad, NULL), ROBO_OK);
+    }
+
+    robo_css_computed_style_destroy(heading);
+    robo_css_computed_style_destroy(notes);
+    robo_css_computed_style_destroy(caption);
+    robo_css_computed_style_destroy(link);
+    robo_css_computed_style_destroy(body_style);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -2199,4 +2322,5 @@ void robo_test_register_css_dom_select(void)
                        test_css_dom_computed_does_not_disturb_the_picture);
     robo_test_register("css.dom.unit.pipeline", test_css_dom_unit_pipeline);
     robo_test_register("css.dom.box.pipeline", test_css_dom_box_pipeline);
+    robo_test_register("css.dom.display.pipeline", test_css_dom_display_pipeline);
 }

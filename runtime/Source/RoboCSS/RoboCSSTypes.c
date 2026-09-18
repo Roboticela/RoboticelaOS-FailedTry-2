@@ -392,6 +392,8 @@ const char *robo_css_diagnostic_domain_name(robo_css_diagnostic_domain_t domain)
         return "inherit";
     case ROBO_CSS_DOMAIN_BOX:
         return "box";
+    case ROBO_CSS_DOMAIN_DISPLAY:
+        return "display";
     default:
         return "unknown";
     }

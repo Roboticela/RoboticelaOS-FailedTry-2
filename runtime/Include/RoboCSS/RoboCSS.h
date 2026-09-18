@@ -175,6 +175,26 @@ typedef struct robo_css_capabilities {
      */
     int box_model;
     /**
+     * `display` (9.12): the closed vocabulary — `none`, `block`, `inline`,
+     * `inline-block` — as a typed value carrying what CSS Display 3 calls its
+     * outer and inner halves, with the classifications a layout pass asks
+     * (`generates_box`, `is_block_level`, `is_inline_level`, `is_inline_block`)
+     * and a typed accessor on the computed value. Reading it for an element is
+     * the style context's query door rather than an accessor on the style
+     * object, because `display` does not inherit and an element that declares
+     * nothing therefore has no entry: only the query door can answer the
+     * property's initial value and say that is what it answered.
+     *
+     * What it does not claim is layout, and `display: none` is the boundary that
+     * matters: it is represented as the *absence of a box* rather than as zero
+     * geometry, so nothing here removes an element from a tree that does not
+     * exist yet. The multi-keyword syntax (`display: inline flex`) and the values
+     * this build has not added (`flex`, `grid`, `table`, `contents`) are refused
+     * rather than approximated — the vocabulary's outer/inner columns are where
+     * they will arrive.
+     */
+    int display;
+    /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
      */

@@ -379,11 +379,13 @@ typedef enum robo_css_diagnostic_domain {
     /** Inheritance: the resolved-style representation and its resolution (9.7). */
     ROBO_CSS_DOMAIN_INHERIT = 14,
     /** The box model: sides, shorthands and their expansion (9.11). */
-    ROBO_CSS_DOMAIN_BOX = 15
+    ROBO_CSS_DOMAIN_BOX = 15,
+    /** The display vocabulary: the closed set and its classifications (9.12). */
+    ROBO_CSS_DOMAIN_DISPLAY = 16
 } robo_css_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_CSS_DOMAIN_COUNT 16u
+#define ROBO_CSS_DOMAIN_COUNT 17u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_css_diagnostic_domain_is_known(robo_css_diagnostic_domain_t domain);

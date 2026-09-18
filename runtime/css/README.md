@@ -427,6 +427,46 @@ consumer that could not see it would read a declaration and find nothing underne
 Nothing here is layout: no edge is measured, no margin collapses, `50%` stays a
 percentage and `auto` stays the keyword. `docs/BoxModel.md` has the full account.
 
+## Display (9.12)
+
+`display` is the one property every later phase reads on every element, and it is not a
+word. `display: block` says three things at once — a box is generated, it is block-level,
+and its contents are in flow — while `display: none` says the first of those is *false*.
+A build that modelled `none` as zero geometry would be wrong in a way no test of a
+rectangle would catch, so the value carries the three facts separately, as the three CSS
+Display 3 names for them: the value, its **outer** display and its **inner** display.
+
+`inline-block` is the row that earns the second column. CSS defines it as
+`inline flow-root`, and this table says the same thing — an inline outer with a
+formatting context of its own — so `is_inline_block` is derived from two columns rather
+than kept as a flag beside them. The columns are also where the *next* values arrive:
+`flex` is a block outer with a flex inner, `inline-grid` an inline outer with a grid one,
+and `contents` a value that generates no box while being emphatically not `none`.
+
+The phase's decision is that the vocabulary is **closed**. `display` moved off the
+generic `KEYWORD` shape — which accepts any identifier, right for `cursor: grab` and
+wrong here — onto one of its own, and the difference is a single branch: ask the
+vocabulary. So `display: bogus` is a mistake with a diagnostic rather than a keyword
+carrying the text `bogus`, and the four refusals stay four sentences because `flex`
+deserves a better answer than `bogus`.
+
+`display` does not inherit, and that leaves a hole a consumer has to know about: 9.7
+materialises initial values for the inherited-by-default properties only, so an element
+that declares nothing has *no entry* for `display`. The answer still exists — the
+property's initial value — and the door that holds it is the style context's
+`robo_css_style_context_query_computed_value`, which returns the value beside a
+`from_initial` flag. That is why this phase adds no accessor to the computed-style
+object: the container cannot answer the common case, and a door that answers less than
+one beside it is worse than no door.
+
+The multi-keyword syntax and the values this build has not added are **refused** rather
+than approximated. HTML's own defaults are not here either: a `div` is not block, because
+that is a user-agent *stylesheet* and this is a vocabulary. And a computed `display: none`
+is a fact a later phase acts on rather than an action this one takes — no element leaves a
+tree, because there is no tree yet.
+
+`docs/Display.md` has the full account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -498,7 +538,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 490 tests only
+scripts/robo test-css        # this subsystem's 521 cases only (`--filter css.`)
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -524,4 +564,5 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Units.md` | The 9.10 units and numbers: the closed vocabulary and its four families, why `is_absolute` is asked of the table, the reference-pixel relationships, the context and its flags, why the small/large/dynamic viewport is a fallback chain, the four resolutions, the four numeric kinds and the two integer questions, the five parse outcomes and why there is no `MALFORMED`, the canonical spelling, the deferred `calc()`/`var()` boundary, the computed-value integration, ownership, and numeric safety |
 | `docs/Tests.md` | Suite map, what the cleared-record contract test exists for, the fixture rule, and how to run a focused suite |
 | `docs/BoxModel.md` | The 9.11 box model: the four sides and why their order is load-bearing, the three shorthands (and why `border` is not one of them), the 1/2/3/4 mapping as a table, the two refusals and why a `var()` is not a five-value shorthand, the three value shapes that differ by vocabulary, the fourteen registry rows, why expansion is not resolution, where the pass runs, what happens when a shorthand cannot be distributed, and the layout boundary |
-| `../PROGRESS.md` | The Goal 9.1–9.11 records and their definitions of done |
+| `docs/Display.md` | The 9.12 display: the four values and why the set is closed, the outer/inner halves and why `inline-block` is not "inline with a flag", the two classification questions and how `contents` will separate them, reading an identifier and the `none`-vs-unknown ambiguity, the shape's four refusals, the multi-keyword syntax and HTML defaults as drawn boundaries, the registry row and why its initial value is checked as vocabulary text, non-inheritance and the hole it leaves, and the query door a consumer uses |
+| `../PROGRESS.md` | The Goal 9.1–9.12 records and their definitions of done |

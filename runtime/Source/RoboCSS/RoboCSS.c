@@ -292,6 +292,16 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * stays the keyword, which is why this is a flag for a value family and not
      * for measuring anything. */
     out->box_model = 1;
+    /* 9.12 gave `display` a vocabulary of its own (RoboCSSDisplay.h): a closed set
+     * of four values, each a row carrying the keyword it is spelled by and what
+     * CSS Display 3 calls its outer and inner halves. The property was already a
+     * registry row; what changed is that its value now has a shape that refuses an
+     * identifier it does not know, so `display: bogus` is a mistake with a
+     * diagnostic instead of a keyword carrying the text `bogus`. `display: none`
+     * is the absence of a box rather than zero geometry, which is why this claims
+     * a value family and not layout: nothing here removes an element from a tree
+     * that does not exist yet. */
+    out->display = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

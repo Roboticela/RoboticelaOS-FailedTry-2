@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.11)
+# RoboCSS Architecture (Phase 9.1–9.12)
 
 This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -461,6 +461,43 @@ knows about DPI. `robo_css_numeric_t` is the typed number that carries a unit �
 four kinds, kind-aware equality, and one canonical spelling. `docs/Units.md` has the
 full account.
 
+### Display
+
+A *display value* is a closed vocabulary, and since 9.12 it is a type of its own:
+
+```text
+DisplayValue                     one display value
+  ├── name                       the canonical spelling
+  ├── outer                      NONE / BLOCK / INLINE
+  ├── inner                      FLOW / FLOW_ROOT, and the modes a later phase adds
+  ├── legacy                     the single-keyword values, kept whole
+  └── level                      the classification a layout phase reads
+```
+
+Four values, four rows. The row carries the *two halves* of the value rather than
+one enumerator, because CSS Display's model is a pair — an outer display type and an
+inner display type — and `inline-block` is really `inline flow-root`. `display: none`
+is the degenerate pair with neither half present, which is why it is a decided value
+and not the absence of one: an element with `display: none` has an answer, and the
+answer is that it generates no box.
+
+Keeping the halves separate is the whole reason the row exists. A future `flex` is a
+row, not a branch: `outer: BLOCK, inner: FLEX, legacy: false`. The *legacy* single-keyword
+spellings (`inline-block`, `inline-table`, …) are stored whole rather than decomposed
+into their halves, because they are what the author wrote and what serialization has to
+reproduce; the halves are how the *classification* is answered. `level` is the
+one-word summary a layout phase dispatches on — `BLOCK`, `INLINE`, `INLINE_BLOCK`,
+`NONE` — and it is derived in the table so two readers cannot disagree about whether
+`inline-block` is inline-level (it is, for layout) and block-level (it is, for
+containment).
+
+The property is *not* inferred from the element's tag. An `<h1>` is `inline` until a
+sheet says otherwise, because the CSS initial value belongs to the property and the
+mapping from tag to display belongs to a UA origin that does not exist yet. Nothing in
+this module reads an element name.
+
+`docs/Display.md` has the full account.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -665,7 +702,7 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Display (9.12), positioning (9.13), backgrounds (9.14), borders
+Positioning (9.13), backgrounds (9.14), borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
 cascade itself, evaluating at-rules and the animation and
@@ -679,6 +716,15 @@ keyword and `border-width: medium` stays a keyword rather than becoming a used
 length. `border` is still not expanded even though `border-width` now is, because
 it stands for four widths, four styles and four colours and this build represents
 one of the three.
+
+Display (9.12) is behind us in the same limited sense, and the boundary is just as
+exact: `none`, `block`, `inline` and `inline-block` are typed values that travel the
+whole pipeline, `display: none` is a decided answer rather than a geometry, and the
+row's outer/inner pair is what a later phase extends. What does not exist is any
+*consequence* of the value — nothing builds a box tree, nothing removes a box tree,
+nothing lays a box out, and no element is given a display by its tag. `display: inline
+flex` and the other multi-keyword spellings are rejected rather than half-read, since
+reading them would claim an inner mode this phase does not represent.
 **Reading bytes is not interpreting them,
 building a tree is not interpreting it either, answering a question about one
 element is not applying a style to it, and computing a value is not using one**:
@@ -693,14 +739,21 @@ wide anything is.
 
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
-(9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade(9.5), specificity (9.6), inheritance (9.7), computed values (9.8) and colours
-(9.9) flipped to 1 for exactly that
+(9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade(9.5), specificity (9.6), inheritance (9.7), computed values (9.8), colours
+(9.9), units (9.10), the box model (9.11) and `display` (9.12) flipped to 1 for
+exactly that
 reason, and no other flag did. Each flipped only when its whole job worked end
 to end: `cascade` waited for `specificity` rather than claiming an ordering it could
 not complete, `inheritance` waited while `computed_values` was 0 because a
 *resolved* value is a different thing from a computed one, `computed_values`
 flipped as 9.8 landed, and `colors` waited for the colour *module* rather than
-riding on the parser 9.8 had to keep inside the value layer — while
+riding on the parser 9.8 had to keep inside the value layer. The same rule held
+three times after that: `units` waited for the *unit table* rather than for lengths
+to parse, `box_model` waited for the cascade's comparison door rather than for an
+edge to resolve, and `display` waited for the row rather than for a box. All three
+of those flags are about a *value* and none of them claims layout — that is why
+`box_model` and `display` are separate flags from each other and from anything a
+layout phase will add — while
 `default_styles` and `stylesheet_loading` stay 0, because the `RUNTIME` origin slot
 is still empty and nothing fetches a sheet.
 

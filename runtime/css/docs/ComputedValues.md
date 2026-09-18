@@ -50,6 +50,7 @@ PERCENTAGE   a percentage, which stays one because only layout can resolve it
 LENGTH       a number and a unit: `10px`, `2em`, `1rem`
 COLOR        four 8-bit channels, alpha included
 FAMILY_LIST  an ordered font family list
+DISPLAY      one of four display values (9.12)
 PRESERVED    the specified tokens, carried intact
 INVALID      the value did not mean anything for this property
 ```
@@ -264,6 +265,24 @@ computed `padding: 8px 12px 4px` is a `PRESERVED` value, and splitting it here w
 be interpreting a value the property never asked it to.
 
 `docs/BoxModel.md` has the full account of the family itself.
+
+### Why 9.12 added one more, to a row that already existed
+
+`display` was a registry row before 9.12 — non-inherited, initial `inline` — and it
+carried the **generic `KEYWORD` shape**, which passes any identifier through:
+`display: bogus` computed to a keyword whose text was `bogus`. That is the right
+shape for a property whose vocabulary belongs to a phase that has not landed
+(`cursor`, `position`), and it is the wrong shape for this one. `display` is the
+property *every* later phase reads on *every* element, so a value that means nothing
+has to be a mistake rather than an identifier somebody downstream fails to
+interpret — and the failure mode of the generic shape is silent: it is discovered in
+whatever phase first dispatches on the value.
+
+The row therefore kept its classification and its initial value and gained a shape.
+That is what the shape is *for*: the registry did not have to re-decide anything, the
+column did. `display: flex` is now `INVALID` with a reason rather than a keyword
+named `flex`, which is the same trade `padding: auto` makes — refusing is the honest
+answer until the phase that implements it exists.
 
 ## The computed style
 

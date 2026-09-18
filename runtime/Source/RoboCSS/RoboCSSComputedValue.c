@@ -230,6 +230,8 @@ const char *robo_css_computed_value_kind_name(robo_css_computed_value_kind_t kin
         return "preserved";
     case ROBO_CSS_COMPUTED_VALUE_INVALID:
         return "invalid";
+    case ROBO_CSS_COMPUTED_VALUE_DISPLAY:
+        return "display";
     default:
         return "unknown";
     }
@@ -366,6 +368,20 @@ robo_result_t robo_css_computed_value_make_family_list(robo_css_computed_value_t
     return ROBO_OK;
 }
 
+robo_result_t robo_css_computed_value_make_display(robo_css_computed_value_t *value,
+                                                   robo_css_display_t display,
+                                                   robo_css_diag_t *diag)
+{
+    if (!value || !robo_css_display_is_known(display)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "output is NULL or not a display value");
+    }
+    robo_css_computed_value_dispose(value);
+    value->kind = ROBO_CSS_COMPUTED_VALUE_DISPLAY;
+    value->display = display;
+    return ROBO_OK;
+}
+
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
                                                      robo_css_diag_t *diag)
@@ -437,6 +453,14 @@ robo_css_color_t robo_css_computed_value_color(const robo_css_computed_value_t *
         return robo_css_color_make(0u, 0u, 0u, 0u);
     }
     return value->color;
+}
+
+robo_css_display_t robo_css_computed_value_display(const robo_css_computed_value_t *value)
+{
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_DISPLAY) {
+        return ROBO_CSS_DISPLAY_NONE;
+    }
+    return value->display;
 }
 
 /* ------------------------------------------------------------------ */
@@ -561,6 +585,10 @@ int robo_css_computed_value_equals(const robo_css_computed_value_t *a,
                a->number == b->number;
     case ROBO_CSS_COMPUTED_VALUE_COLOR:
         return robo_css_color_equals(a->color, b->color);
+    case ROBO_CSS_COMPUTED_VALUE_DISPLAY:
+        /* Two enumerators, so equality is the enumerator: `inline-block` and
+         * `inline` are different displays however similar they read. */
+        return a->display == b->display;
     default:
         return computed_trees_equal(&a->preserved, &b->preserved);
     }
@@ -794,6 +822,14 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
          * those. `currentColor` therefore prints as `currentColor` because that
          * is what the colour module says it prints as. */
         ok = robo_css_color_write(value->color, buffer, capacity, &used, NULL) == ROBO_OK;
+        break;
+    case ROBO_CSS_COMPUTED_VALUE_DISPLAY:
+        /* The keyword is the display module's, for the same reason a colour's
+         * spelling is the colour module's: this layer formats lengths, numbers
+         * and token trees, and a display value is none of those. `inline-block`
+         * prints with its hyphen because that is what CSS writes. */
+        ok = robo_css_display_write(value->display, buffer, capacity, &used, NULL) ==
+             ROBO_OK;
         break;
     case ROBO_CSS_COMPUTED_VALUE_PRESERVED:
         if (value->preserved.kind == ROBO_CSS_VALUE_KIND_TOKEN) {
@@ -1216,6 +1252,66 @@ static robo_result_t computed_compute_keyword(robo_css_computed_value_t *out,
 }
 
 /**
+ * Compute a display value: one identifier from a closed vocabulary (9.12).
+ *
+ * The difference from the KEYWORD shape above is one branch, and it is the whole
+ * point of the phase: KEYWORD accepts any identifier and hands it on, while this
+ * asks the vocabulary whether the identifier is one of the four and refuses it if
+ * not. That is why `display: bogus` is now an invalid value with a diagnostic
+ * rather than a computed keyword carrying the text `bogus` — a keyword shape is
+ * right for a property whose meaning belongs to a phase that has not landed
+ * (`cursor: grab`), and wrong for the one property every later phase reads.
+ *
+ * Three refusals stay three, because they are three different mistakes: a value
+ * the grammar produced as a function this build cannot reduce (`var(--d)`) is
+ * legal CSS and is therefore *carried*, not refused; something that is not an
+ * identifier at all (`20px`, `#fff`, `10%`) says so; and an identifier outside the
+ * vocabulary says that instead, which is the sentence an author who wrote
+ * `display: flex` needs, since `flex` is a value this build has not added rather
+ * than a word it does not know.
+ */
+static robo_result_t computed_compute_display(robo_css_computed_value_t *out,
+                                              const robo_css_value_t *specified,
+                                              robo_css_diag_t *diag)
+{
+    const robo_css_token_t *token = computed_single_token(specified);
+    const robo_css_value_t *single = robo_css_value_single(specified);
+    char keyword[64];
+    size_t length = 0u;
+    robo_css_display_t display;
+
+    if (!token) {
+        /* A reference, and it is carried rather than refused: `display: var(--d)`
+         * is a declaration whose value is decided where `--d` is, which is a
+         * later stage's question and not a mistake here. The unresolved flag says
+         * so, and a consumer that reads the flag will not mistake the tokens for a
+         * display value. */
+        if (single && computed_function_is_unresolved(single)) {
+            return computed_keep(out, specified, 1, diag);
+        }
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
+                               "not a single display keyword", diag);
+    }
+    if (token->type != ROBO_CSS_TOKEN_IDENT ||
+        !robo_css_token_keyword_text(token, keyword, sizeof(keyword), &length)) {
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
+                               "not an identifier", diag);
+    }
+    /* The *identifier* is asked, not the result: `none` is both a display value
+     * and `from_slice`'s answer for "not one", so a check on the result would
+     * accept `display: bogus` as `display: none` — the single most damaging
+     * confusion this property has. */
+    if (!robo_css_display_slice_is_known(
+            robo_css_slice_from_bytes((const uint8_t *)keyword, length))) {
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
+                               "not a display value", diag);
+    }
+    display = robo_css_display_from_slice(
+        robo_css_slice_from_bytes((const uint8_t *)keyword, length));
+    return robo_css_computed_value_make_display(out, display, diag);
+}
+
+/**
  * Compute a font family list: identifiers and strings, comma separated.
  *
  * Two passes over the children, and the reason is the shape check. A family
@@ -1441,6 +1537,8 @@ robo_result_t robo_css_computed_value_compute(
     case ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH:
         return computed_compute_length_grammar(
             computed_length_grammar_for(computation), out, specified, diag);
+    case ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY:
+        return computed_compute_display(out, specified, diag);
     default:
         return computed_keep(out, specified, computed_function_is_unresolved(
                                              robo_css_value_single(specified)),

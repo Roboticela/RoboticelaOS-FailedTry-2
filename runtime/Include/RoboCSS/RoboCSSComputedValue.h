@@ -15,6 +15,7 @@
  *   LENGTH       a number and a unit: `10px`, `2rem`, `1em`
  *   COLOR        a colour: four channels, or the contextual `currentColor`
  *   FAMILY_LIST  an ordered font family list
+ *   DISPLAY      one of the closed display vocabulary (9.12)
  *   PRESERVED    the specified tokens, carried intact
  *   INVALID      the value did not mean anything for this property
  *
@@ -73,6 +74,7 @@
 #include "RoboBase/RoboError.h"
 #include "RoboCSS/RoboCSSColor.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
+#include "RoboCSS/RoboCSSDisplay.h"
 #include "RoboCSS/RoboCSSPropertyRegistry.h"
 #include "RoboCSS/RoboCSSUnit.h"
 #include "RoboCSS/RoboCSSValue.h"
@@ -152,11 +154,13 @@ typedef enum robo_css_computed_value_kind {
     /** The specified tokens, intact. */
     ROBO_CSS_COMPUTED_VALUE_PRESERVED = 7,
     /** The value means nothing for this property. */
-    ROBO_CSS_COMPUTED_VALUE_INVALID = 8
+    ROBO_CSS_COMPUTED_VALUE_INVALID = 8,
+    /** One of the closed display vocabulary (9.12). */
+    ROBO_CSS_COMPUTED_VALUE_DISPLAY = 9
 } robo_css_computed_value_kind_t;
 
 /** Number of defined kinds. */
-#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 9u
+#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 10u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int robo_css_computed_value_kind_is_known(robo_css_computed_value_kind_t kind);
@@ -197,6 +201,15 @@ typedef struct robo_css_computed_value {
      * Kind-aware, so a `currentColor` is distinguishable from a resolved one.
      */
     robo_css_color_t color;
+    /**
+     * DISPLAY: the display value (RoboCSSDisplay.h); NONE otherwise.
+     *
+     * A typed enumerator rather than the keyword's text, so a consumer reads the
+     * display *value* instead of comparing a spelling. Meaningful only when
+     * @ref kind is DISPLAY: a cleared record holds NONE, which is the value
+     * `display: none` and would be a dangerous default to read by accident.
+     */
+    robo_css_display_t display;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -287,6 +300,11 @@ robo_result_t robo_css_computed_value_make_family_list(robo_css_computed_value_t
                                                        robo_css_slice_t families,
                                                        robo_css_diag_t *diag);
 
+/** Make @p value a DISPLAY holding @p display. */
+robo_result_t robo_css_computed_value_make_display(robo_css_computed_value_t *value,
+                                                   robo_css_display_t display,
+                                                   robo_css_diag_t *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
@@ -308,6 +326,16 @@ const robo_css_value_t *robo_css_computed_value_preserved(
 
 /** The colour of a COLOR value; black-transparent for any other kind. */
 robo_css_color_t robo_css_computed_value_color(const robo_css_computed_value_t *value);
+
+/**
+ * The display of a DISPLAY value.
+ *
+ * Answers NONE for any other kind, which is why it is read together with a kind
+ * check rather than on its own — see the field's own note. `display: none` and
+ * "this is not a display value" are different facts, and a caller that conflated
+ * them would lay an out-of-scope property out as a removed box.
+ */
+robo_css_display_t robo_css_computed_value_display(const robo_css_computed_value_t *value);
 
 /**
  * Non-zero when @p a and @p b are the same computed value.
@@ -385,6 +413,15 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
  *                not a coincidence of token order.
  *   FONT_WEIGHT  `normal`, `bold`, `lighter`, `bolder`, or a number.
  *   LINE_HEIGHT  `normal`, a number, a dimension or a percentage.
+ *   DISPLAY      exactly one identifier, and it must be one of the vocabulary
+ *                (RoboCSSDisplay.h): `none`, `block`, `inline` or `inline-block`,
+ *                case-insensitively. Anything else is INVALID with the reason
+ *                saying whether it was not an identifier or not a display value —
+ *                `display: 20px` and `display: bogus` are different mistakes. A
+ *                reference (`display: var(--d)`) is carried PRESERVED and flagged
+ *                unresolved, and the multi-keyword syntax is refused rather than
+ *                carried, because a display value nothing can read is worse than
+ *                one CSS's own recovery rule drops.
  *   PRESERVE     the tree, copied. Never invalid: a property whose shape is not
  *                claimed cannot have a value that is wrong for it.
  *

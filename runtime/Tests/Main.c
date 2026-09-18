@@ -175,6 +175,7 @@ void robo_test_register_css_computed(void);
 void robo_test_register_css_color(void);
 void robo_test_register_css_unit(void);
 void robo_test_register_css_box(void);
+void robo_test_register_css_display(void);
 void robo_test_register_css_dom_select(void);
 void robo_test_register_demo_html(void);
 
@@ -393,6 +394,7 @@ int main(int argc, char **argv)
     robo_test_register_css_color();
     robo_test_register_css_unit();
     robo_test_register_css_box();
+    robo_test_register_css_display();
     robo_test_register_css_dom_select();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */

@@ -1,4 +1,4 @@
-# RoboCSS Test Organisation (Phase 9.1–9.9)
+# RoboCSS Test Organisation (Phase 9.1–9.12)
 
 Thirty-five suites, 471 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
@@ -128,6 +128,13 @@ produces, which is the half of the job that cannot break.
 |---|---|---|
 | `SuiteRoboCssBox.c` | 13 | The module (`css.box.*`): the side vocabulary with the order walked in sequence and the names read back (a transposed pair would otherwise be invisible), the shorthand table walked **both ways** — every row's four longhands, and each longhand resolving back to its row and its side — plus `border` and `border-top-style` deliberately absent from it, the component mapping for all four arities with a distinct value per side so a wrong answer is visible, trivia skipped so `1px   2px` is two components, the two refusals (five and six components refused as an invalid declaration; `var()`/`env()` refused because substitution would change the count) with `calc()` beside them proving the refusal is about the reference and not the arity, every refusal leaving its output empty, the three value shapes through declaration text (`auto` accepted by `EDGE_OFFSET` and *refused* by `EDGE_INSET`, the three width keywords kept as keywords, `1foo` an unknown unit, `red`/`normal`/`min-content` not in the family's vocabulary), the four longhands arriving from a three- and a two-component shorthand on a real element, the shorthand's own entry surviving beside them, `box-sizing` as a value with no layout, `margin: 0 auto` keeping `auto`, the shorthand-versus-longhand contest in **both orders** plus a shorthand reset that only erases what came before it, specificity and `!important` across two property names, `margin: inherit` and `padding: initial` and `border-width: unset` on a child, non-inheritance proven from both sides (the parent's edges present, the child's absent, an inherited property beside them arriving), a shorthand that cannot be distributed counted and reported while a clean one leaves the counter at zero, fifteen malformed declarations driven through all three shapes with invariants asserted on each, and determinism over a document plus the vocabulary walked backwards |
 | `SuiteRoboCssDomSelect.c` (`css.dom.box.pipeline`) | 1 | The box model over the **visual checkpoint's own document**: every arity declared on a real element (two components → vertical zero and horizontal `auto` with `auto` surviving as a keyword, three → the row where `left` borrows `right`, one → all four), the shorthand's own entry present with the author's text, border widths keeping their keywords, `box-sizing: border-box` on a form, `10%` and `2em` staying what they are on a textarea, `padding: inherit` landing on the longhand's own initial because there is no ancestor padding to take, a shorthand and a longhand competing for the same edge on one element decided by document order, and the phase's own acceptance rule last — one sheet declaring `width`, `height`, both shorthands, `border-width` and `color: #336699` on a textarea, adding second so it is the cross-sheet source-order case too, which proves a dimension and a colour are read in the same pass |
+
+### 9.12 — the display vocabulary
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssDisplay.c` | 16 | The module (`css.display.*`) and what the pipeline makes of it: the four values walked in enumerator order with every keyword read back (a table whose rows and enumerators had drifted would only ever show up as a value printing as another one's keyword), the count pinned at four, an out-of-range enumerator answering *nothing* rather than the first row, the outer/inner halves read from the same rows — including `inline-block` being inline-level **and** atomic at once, which is the pair that earns the two columns, and `none`'s inner being NONE because a value with no box has no contents rather than because it is unwritten — the classifications asserted for every value and **cross-checked** so two values cannot both claim the same level, declaration text through the real tokenizer, serialization in the author's own spelling, the four refusals told apart (`flex` is an identifier this build has not added; `20px`, `#fff` and `10%` are not identifiers; `inline block` is two keywords; `rgb(0, 0, 0)` is a reference) each with its own diagnostic, the reference settled *before* the vocabulary is asked, the initial value arriving typed through the style query door, `display: none` as a decided value rather than an absent one, non-inheritance proven from both sides, `initial`/`inherit`/`unset` on a non-inherited property, the cascade's three keys including an inline style, a refused declaration staying *reported* rather than silently becoming `inline`, a malformed sweep with invariants on every case, and determinism over a document plus the vocabulary walked backwards |
+| `SuiteRoboCssDomSelect.c` (`css.dom.display.pipeline`) | 1 | The vocabulary over the **visual checkpoint's own document**: one value per level declared on real elements (`body` block, `a` inline, `label` inline-block, `#Notes` none) each read back as a typed enumerator rather than as the keyword's letters, `display: none` on a real element marked `declared` with the style still clean, an element the sheet does not name having **no entry at all** because `display` does not inherit — with the query door answering the property's *own* initial value and marking it as such, and an invalid value on a real element reported rather than replaced |
 
 ### 9.7 — property metadata and inheritance
 
@@ -768,3 +775,36 @@ default — so the child's provenance is `parent`, not `default`. The unit suite
   the counter legitimately stayed at one. It now uses a fixture of its own, which is
 the correct fix — the alternative would have been asserting the counter was zero on
 input that should set it.
+
+## 16. What the 9.12 suite found
+
+No product defect again, and here the reason is structural rather than lucky: every
+question the module answers is a lookup in one four-row table, so there is no place a
+keyword spelling can be compared wrongly and no branch that can disagree with a
+sibling. The failure the phase *was* exposed to — a value outside the vocabulary
+slipping through as valid — is the thing the table cannot do, which is why the refusal
+cases are the largest group in the suite (`flex`, `grid`, `table`, `contents`,
+`inline-flex`, `inline_block`, `20px`, `#fff`, `10%`, `inline block`, `rgb(0, 0, 0)`) and
+why each asserts its own diagnostic rather than a shared "invalid".
+
+Three expectations moved instead, and the first is the one worth recording:
+
+* **The registry suite did not have to change at all.** 9.12 gave a row that already
+existed a new shape and added an eleventh shape to the column. The 9.11 table tests
+went green untouched because they *derive* — every row classified one way or the other,
+every initial value parseable — instead of pinning a shape per property name or a count
+of shapes. That is a property of how they were written, not an accident, and it is the
+only way a table suite can survive its table growing.
+* **A property's initial value arrives typed on that property's own shape.**
+  `css.dom.computed.pipeline` served a rule through the real tree and asserted that the
+  property's initial value came back as the kind `keyword`. It did, and correctly: that
+  is what an initial value *is* until its property has a shape. The property that test
+  happens to read is `display`, so the moment the row gained a shape the same door began
+  answering a `DISPLAY` value holding an enumerator. The assertion was right about the
+  pipeline and wrong about the property; the suite now asserts the enumerator, which is
+  strictly more than it asserted before — and it is a small illustration of why the
+  *pipeline* and the *row* are separate things a reader should keep apart.
+* **A closed vocabulary is fuzzed for its refusals.** The computed-value malformed sweep
+  gained the display shape so it is driven by the same hostile strings as the other
+  shapes, with the invariant that matters here stated explicitly: no string may produce
+  a display value that is not one of the four.

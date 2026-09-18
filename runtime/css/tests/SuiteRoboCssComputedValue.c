@@ -965,6 +965,10 @@ static void test_css_computedvalue_normalize_robust(void)
             ROBO_CSS_PROPERTY_COMPUTATION_FONT_FAMILY,
             ROBO_CSS_PROPERTY_COMPUTATION_FONT_WEIGHT,
             ROBO_CSS_PROPERTY_COMPUTATION_LINE_HEIGHT,
+            /* 9.12's shape is driven by the same hostile strings as the rest, so
+             * a closed vocabulary is fuzzed for its *refusals*: what must not
+             * happen is a value outside the four arriving as a DISPLAY value. */
+            ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,
             ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE
         };
         size_t shape;

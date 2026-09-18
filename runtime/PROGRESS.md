@@ -3346,6 +3346,87 @@ expected the *declaration-shape* helper's `8px,_,12px,_,4px` where the computed
   to move to a fixture of its own rather than assert zero on input that should set
   the counter.
 
+## Goal 9.12 — CSS display
+
+**Status: complete.** The `display` property and its value system: a closed four-value
+vocabulary carrying what CSS Display 3 calls each value's outer and inner halves, the
+classifications a layout pass asks, and a typed value on the computed style. Layout is
+not implemented and is not claimed.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The vocabulary | `Include/RoboCSS/RoboCSSDisplay.h` — four values as an ordered, closed set: `none`, `block`, `inline`, `inline-block` |
+| The outer/inner model | `robo_css_display_outer_t` / `_inner_t` and `robo_css_display_outer()` / `_inner()`, so `inline-block` is `inline` plus `flow-root` rather than a flag beside a flag |
+| The classifications | `robo_css_display_generates_box`, `_is_block_level`, `_is_inline_level`, `_is_inline_block`, `_is_none` — derived in the table so two readers cannot disagree |
+| Parsing and serialization | `robo_css_display_from_text` (ASCII case-insensitive against the rows and nothing else) and `robo_css_display_write` (the author's own spelling) |
+| The shape | `ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY` — one new value shape, with its own field, accessor, equality and serializer in the computed-value layer |
+| The registry row | `display` moved off the generic `KEYWORD` shape onto the new one; classification and `inline` initial value unchanged |
+| The value accessor | `robo_css_computed_value_display` on the typed record. There is deliberately no accessor on the *style* object: `display` does not inherit, so an element that declares nothing has no entry, and only the style context's `robo_css_style_context_query_computed_value` can answer the property's initial value and say that is what it answered |
+| Version | `RoboCSSVersion.h` 0.12.0; capability `display` = 1 |
+| Documentation | `css/docs/Display.md` (new, the design record), plus `README.md`, `docs/Architecture.md`, `docs/Tests.md`, `docs/ComputedValues.md` |
+
+### Definition of done
+
+- [x] `display` is a typed property; no value is a string after it is parsed.
+- [x] `none`, `block`, `inline` and `inline-block` are all supported.
+- [x] The representation is the outer/inner pair rather than one enumerator, so
+      `flex`, `grid`, `table`, `flow-root`, `contents` and the rest arrive as rows.
+- [x] The initial value is `inline`, independent of the element's tag: nothing in the
+      module reads an element name, and no UA stylesheet is invented.
+- [x] `display` is non-inherited, proven from both sides, and an explicit `inherit`
+      still works through the existing mechanism.
+- [x] `initial`, `inherit` and `unset` resolve correctly with no duplicated
+      CSS-wide keyword handling.
+- [x] The cascade is unchanged and uncopied; specificity, source order, `!important`
+      and an inline style all decide a display the same way they decide anything else.
+- [x] Invalid values fail safely: `bogus`, `flex`, `20px`, `10%`, `#fff`,
+      `inline block` and `rgb(0, 0, 0)` each get their own diagnostic rather than a
+      silent `inline`.
+- [x] `display: none` is a decided value rather than zero geometry, a transparent
+      colour, a hidden visibility or an invalid value.
+- [x] A computed display is readable as a typed value: from a style the element
+      declares for, through the record's accessor, and for an element that declares
+      nothing through the style context's query door, which answers the property's
+      initial value and marks it as such.
+- [x] Tests are comprehensive: 16 in `SuiteRoboCssDisplay.c` and one real-DOM
+      pipeline test, covering the vocabulary, classification, parsing, cascade,
+      inheritance, keywords, invalid values, robustness and determinism.
+- [x] Host and QEMU runtimes still work; no Chromium dependency was introduced; no
+      layout was implemented prematurely.
+
+### What 9.12 found
+
+**No product defect, and here the reason is structural rather than lucky.** Every
+question the module answers is a lookup in one four-row table, so there is no place a
+keyword spelling can be compared wrongly and no branch that can disagree with a
+sibling. The failure this phase was exposed to is the one a table cannot make: a value
+outside the vocabulary slipping through as valid. That is why the refusals are the
+largest group in the suite and why each asserts its own diagnostic instead of a shared
+"invalid".
+
+Three expectations moved, and the first is the one worth recording:
+
+* The 9.11 property-registry suite went green **untouched** even though this phase moved
+a row onto a new shape and added an eleventh shape to the column. It derives — every row
+classified one way or the other, every initial value parseable — rather than pinning a
+shape per property name or a count of shapes, which is the only way a table suite
+survives its table growing.
+* A property's initial value arrives typed on *that property's own shape*.
+  `css.dom.computed.pipeline` asserted that the property's initial value came back as
+the kind `keyword`. It did, and correctly: that is what an initial value is until its
+property has a shape. The property that test reads is `display`, so once the row gained
+a shape the same door began answering a `DISPLAY` value holding an enumerator. The
+assertion was right about the pipeline and wrong about the row; it now asserts the
+enumerator, which is strictly more than before.
+* The computed-value malformed sweep gained the display shape so a closed vocabulary is
+  fuzzed for its *refusals* too, with the invariant stated explicitly: no string may
+  produce a display value that is not one of the four.
+
+One compile-time fix was needed and no more: the new module had to reach the internal
+header for the missing-symbol path it shares with every other value family.
+
 ## Next
 
-- Goal 9.12 — do not start until requested
+- Goal 9.13 — do not start until requested

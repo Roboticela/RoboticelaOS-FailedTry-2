@@ -167,6 +167,8 @@ const char *robo_css_property_computation_name(
         return "edge inset";
     case ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH:
         return "line width";
+    case ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY:
+        return "display";
     default:
         return "unknown";
     }
@@ -549,8 +551,19 @@ static const registry_standard_entry_t registry_standard_entries[] = {
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
     { "box-sizing",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "content-box", 0 },
+    /*
+     * 9.12 moves `display` off the generic KEYWORD shape and onto one of its own.
+     *
+     * The row was here before — its classification and its `inline` initial value
+     * are unchanged, and nothing about *this table* had to be re-decided. What
+     * changed is that the value now has a shape that refuses an identifier it does
+     * not know: `display: bogus` was a computed keyword with the text `bogus`, and
+     * it is now an invalid value with a diagnostic. That is the whole point of
+     * giving a property a shape, and it is why the KEYWORD shape stays for the
+     * properties whose vocabulary belongs to a phase that has not landed.
+     */
     { "display",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
-      ROBO_CSS_PROPERTY_COMPUTATION_KEYWORD,    "inline",     0 },
+      ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY,    "inline",     0 },
     { "height",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_LENGTH,     "auto",       0 },
     { "margin",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,

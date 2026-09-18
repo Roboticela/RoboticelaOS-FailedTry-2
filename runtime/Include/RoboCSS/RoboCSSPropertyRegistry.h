@@ -165,11 +165,26 @@ typedef enum robo_css_property_computation {
      * computed value that had already picked a pixel count would be claiming a
      * decision it does not have the context to make.
      */
-    ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH = 9
+    ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH = 9,
+    /**
+     * One of the closed display vocabulary (9.12) — `display`.
+     *
+     * A shape of its own rather than the KEYWORD above, and the difference is
+     * what `display` is *for*: a keyword shape carries any identifier through
+     * (`cursor: grab`, `position: sticky` — values whose meaning belongs to a
+     * phase that has not arrived), while `display` is the property every later
+     * phase reads on every element, so `display: bogus` has to be a mistake
+     * rather than a keyword somebody downstream will fail to interpret. The
+     * vocabulary is closed because the property is closed: `flex` and `grid` are
+     * rows this build has not added, not identifiers it has not heard of, and
+     * rejecting them is the honest answer until the phases that lay them out
+     * exist (RoboCSSDisplay.h).
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY = 10
 } robo_css_property_computation_t;
 
 /** Number of defined computations. */
-#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 10u
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 11u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int robo_css_property_computation_is_known(robo_css_property_computation_t computation);
