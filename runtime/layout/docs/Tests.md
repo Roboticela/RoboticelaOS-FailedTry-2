@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (Phase 10.1)
+# RoboLayout Test Organisation (through Phase 10.2)
 
-Seven suites, 71 tests, one framework. The phase adds no test runner, no reporter
+Eight suites, 84 tests, one framework. The phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -28,6 +28,7 @@ no glob: a suite that is not on the list is not built, which is the same
 | `SuiteRoboLayoutContext.c` | `layout.context.*` | 11 | does a pass do exactly what §10 of the design record says? |
 | `SuiteRoboLayoutBuild.c` | `layout.build.*` | 10 | does the builder apply its one rule, and only it? |
 | `SuiteRoboLayoutDom.c` | `layout.dom.*` | 9 | does the bridge join the two peers, and own what it says it owns? |
+| `SuiteRoboLayoutFormattingContext.c` | `layout.fc.*` | 13 | is the classification a table, and is the context tree the shape the rules imply? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -168,13 +169,46 @@ context:
 is the DOM node id, and an implementation that had built a private index would have
 to keep a second table in step to pass it.
 
+### 10.8 — formatting contexts (`layout.fc.*`)
+
+Thirteen cases, and the phase has one idea to defend: **a box has two relationships
+to formatting contexts, and the classification is a pure function of three facts.**
+Every case below is one of those claims.
+
+| Case | Subject |
+|---|---|
+| `kinds` | the four kinds walked, their names, and `is_block_container` for each — including an undefined enumerator |
+| `classify.establishes` | **the classification table, in full**: every combination of display × block-level child × root |
+| `classify.display` | the two predicates that are not the classifier: `is_block_container` and `can_establish`, per display value |
+| `record` | a context record's fields, and field-by-field equality that includes identity |
+| `tree.root` | the root box owns the initial context **and participates in it**; its kind, owner, parent, depth and participant count |
+| `tree.transparent` | a block container holding a block-level child establishes nothing, and its child reaches the context above it |
+| `tree.inline_boxes` | an inline box establishes nothing and participates in its parent's context |
+| `tree.display_none` | a box that generates no box establishes nothing, and `establishes` answers `NONE` for the display |
+| `tree.root_variants` | a root that computes to `inline` still establishes `ROOT` |
+| `tree.add_invalidates` | **adding a box to a classified tree invalidates the classification**, and a context id read across it answers `ROBO_NOT_FOUND` |
+| `lifecycle` | a pass on a tree with no root box, and classification released and rebuilt cleanly |
+| `validation` | NULL arguments, a NONE id, an index past the count, and an unclassified tree |
+| `allocator_balance` | the suite leaks nothing |
+
+`classify.establishes` is the case the phase was built around. It walks the table
+in §4 of the design record rather than a representative of each shape, because the
+function's *order of questions* is the logic: a build that asked about children
+before the root flag would classify a root with a block-level child as transparent,
+and a build that asked about `flow-root` after the child question would replace a
+CSS fact with a structural one. Both produce a context tree that looks plausible
+and is wrong about one row, which is exactly what a table finds and a spot check
+does not.
+
+`tree.add_invalidates` found a production bug (§6.1).
+
 ### 10.7 — conformance (`layout.conformance.*`)
 
 Seven cases, and the shape is 9.16's: ask the questions no single-module suite can.
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — and `formatting_contexts` flipped to 1 with the phase |
 | `statement` | the module's central claim, asserted three ways: `geometry == 0`, the function answers 0, and a pass leaves `boxes_computed == 0` |
 | `no_geometry` | after a real pass over a real document, **every** box is `UNRESOLVED` and reading a position is `ROBO_NOT_FOUND` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
@@ -185,7 +219,8 @@ Seven cases, and the shape is 9.16's: ask the questions no single-module suite c
 `capabilities` is a copy of the 9.16 finding applied one level up. In 9.16, two
 CSS capability flags had flipped to 1 with no assertion anywhere in the build;
 this suite walks all nine RoboLayout fields, so the same omission cannot happen
-here. `no_geometry` is the case a future phase must *delete*, not weaken: the day
+here — and 10.2 is the first phase to *use* it, flipping `formatting_contexts` from
+0 to 1 with the walk already in place. `no_geometry` is the case a future phase must *delete*, not weaken: the day
 10.8 computes a coordinate it fails, and its replacement is a case that asserts the
 numbers — which is the correct way for a claim like this to die.
 
@@ -202,9 +237,12 @@ numbers — which is the correct way for a claim like this to die.
 | a real-DOM style fixture | stand up a style context and its bridge, for §10.6–10.7 only |
 | equality helpers | compare two trees box by box, for `determinism` |
 
-The second row is the design record's §6.1 argument made concrete: five of the
-seven suites never instantiate a style context, and the two that do are exactly the
-two whose subject is the joining.
+The second row is the design record's §6.1 argument made concrete: six of the
+eight suites never instantiate a style context, and the two that do are exactly the
+two whose subject is the joining. `layout.fc.*` is one of the six, which is what
+makes §10.8 able to assert the classification table as a table — a rule that could
+only be observed by standing up a stylesheet and walking a document is a rule whose
+table cannot be written down.
 
 The per-context stub source answers **only the elements it was told about**, and
 this is not a detail. An early version answered every element, which made
@@ -237,6 +275,10 @@ A suite that asserted a coordinate in this phase would be asserting a number the
 module does not produce. `no_geometry` asserts the *absence* instead, which is the
 thing that is actually true.
 
+They **do** assert, since 10.2, the context topology: a parent link, a depth, a
+participant count and a kind — because those are facts this build produces, and the
+counts alone do not distinguish a correctly nested context tree from a flat one.
+
 ---
 
 ## 4. Running
@@ -252,16 +294,18 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 73 — this module's 71, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 75 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 86 — this module's 84, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 88 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
 | `layout.context` | 11 |
 | `layout.build` | 10 |
 | `layout.dom` | 9 |
+| `layout.fc` | 13 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2087** tests, green in both configurations.
+Whole suite: **2100** tests, green in both configurations.
 
 ---
 
@@ -271,12 +315,21 @@ Whole suite: **2087** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2087 cases. RoboLayout's own suites are clean under
-both. The one red case in a sanitized run is `window.host.keyboard`, which
-`docs/Build.md` §6 records as a host-desktop flake (`SetForegroundWindow` declining
-with `err=0`, so `win32_focus` reports `ROBO_NOT_SUPPORTED` rather than faking
-success) and which passes 3/3 standalone and in both unsanitized configurations.
-No `layout.*` case touches it.
+ASan and UBSan run the same 2100 cases. In 10.2's run the sanitized suite was
+**2100/2100** — no sanitizer diagnostic, and no red case.
+
+That is worth stating precisely, because an earlier phase's sanitized run
+reported `window.host.keyboard` and `window.host.mouse` and both are
+environment-dependent rather than sanitizer findings: `docs/Build.md` §6 records
+them as a host-desktop flake (`SetForegroundWindow` declining with `err=0`, so
+`win32_focus` reports `ROBO_NOT_SUPPORTED` rather than faking success). The same
+flake turned up in one unsanitized `robo test-runtime` run during 10.2 — 2099 of
+2100, with `window.host.keyboard` the only red case — while the direct suite runs,
+both unsanitized configurations and the sanitized run were all fully green. It
+passes standalone every time, so it is desktop focus contention and not a
+defect in the case.
+
+No `layout.*` case touches it, and no `window.host.*` case touches RoboLayout.
 
 ---
 
@@ -326,3 +379,40 @@ reason that is not layering: a layout pass that consulted a window could not be
 tested without one. Its scan is therefore the first that is not purely "no upward
 edges", and the reason the viewport is an argument rather than a query is now
 enforced rather than merely documented.
+
+---
+
+## 7. What the 10.2 suites found
+
+Three things, and the third is the reason the first two are worth the space.
+
+**1. A stale context id read across an invalidation** (`layout.fc.tree.add_invalidates`).
+A box's context id kept its value after the classification was released, so a read
+*after* a re-classification resolved the old id against the new context array —
+answering with a context that is not the one the caller asked about, and answering
+`ROBO_OK` while doing it. `tree.add_invalidates` is the only case whose stated
+purpose is to add a box to an already-classified tree. Fixed by having both context
+doors report `ROBO_NOT_FOUND` for a box in an unclassified tree, which is the
+truth; the headers now say which door distinguishes "no pass has run" from
+"classified and since released".
+
+**2. A `const` tree in a signature that mutated through it** (`RoboLayoutContext.c`).
+One internal helper took the tree `const` while writing every box's result, and the
+compiler had nothing to say because the write went through a `const`-stripped
+pointer one level down. Corrected rather than cast away: §10.2 of the design record
+already argues that a pass takes its tree mutable, so the signature now says so at
+every level in the call graph.
+
+**3. Two wrong expectations in the phase's own suite, both about nesting**
+(`layout.dom.pipeline`). The case first asserted that the deepest context in the
+pipeline document sat at depth 1 and that the root context had six participants.
+The tree says 2 and 5, and the tree is right: `<p>` sits inside the atomic inline,
+so its inline context nests inside the panel's block context; and the root's
+participants are its own owner plus the three boxes that reach it through a
+transparent `<body>`.
+
+The expectations were replaced rather than merely corrected. The case now asserts
+the **parent link and the depth** of the nested pair as well as the counts, and
+that is the assertion a flat-but-correctly-counted context tree fails. A phase that
+had only counted contexts would have shipped with both facts wrong and found out in
+10.12.

@@ -1,11 +1,15 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.1, architecture**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.2, formatting
+contexts**).
 
-**Version:** 0.1.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.2.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=0` — this build computes no coordinate.
+
+`ROBO_LAYOUT_FORMATTING_CONTEXTS_IMPLEMENTED=1` — this build classifies every box
+into the context it participates in and the context, if any, it establishes.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -15,9 +19,15 @@ so whoever needs both sits above both.
 
 ## Scope
 
-**10.1 (layout architecture).** The whole of this build, and deliberately the
-whole of it: the phase exists to build the *shape* of a layout pass and to state
-the boundaries the following fourteen goals fill in.
+**10.1 (layout architecture).** The phase exists to build the *shape* of a layout
+pass and to state the boundaries the following fourteen goals fill in.
+
+**10.2 (formatting contexts).** Which boxes lay each other out, and in which
+direction. A box now carries two context ids — where it *participates* and what it
+*establishes* — and the pass that walks the tree answers both, so that 10.3 and
+10.4 each start with a question answered rather than a question to re-derive. Still
+no coordinate: a context is a grouping, and this build computes none of its
+members' geometry.
 
 | Layer | What 10.1 delivers | What it does **not** do |
 |---|---|---|
@@ -28,6 +38,7 @@ the boundaries the following fourteen goals fill in.
 | context | One pass: the constraints it ran with, the viewport, the counters, the outcome, and the user-data seam a later goal hangs scratch state on | Lay anything out |
 | builder | DOM tree in, layout tree out, with `display: none` elements generating no box and every other element generating one | Handle text, anonymous boxes, or fragments |
 | bridge | The RoboHTML + RoboCSS adapter: RoboCSS's four element-host callbacks, one computed style per element, and the style source the builder reads through | Own a style context, a stylesheet, or a parser |
+| formatting context | The four kinds, the record, and the classification as a **pure function of a display value**, a child composition and a root flag; the per-tree arena of contexts; the two ids on each box | Lay anything out, measure anything, or create an anonymous box |
 
 ## The one structural decision
 
@@ -42,6 +53,34 @@ anonymous blocks, fragments) would add another such decision in another place.
 
 So the tree is built **once**, by the builder, and the pass walks boxes and only
 boxes. The DOM stays the DOM; RoboLayout references it.
+
+## The second structural decision: two context ids, not one flag
+
+The tempting model is one fact per box — "this box *is* a block formatting
+context" — and it is wrong in a way that costs a later phase a rewrite. A box has
+two independent relationships to formatting contexts:
+
+```text
+box.panel   display: inline-block
+   │
+   ├── participates in   the root context        (where its own layout happens)
+   └── establishes       a block context         (how its *contents* are laid out)
+
+box.body    display: block, holds a block child
+   │
+   ├── participates in   the root context
+   └── establishes       nothing — it is *transparent*
+```
+
+Talking about transparency takes three cases (establishes, transparent, inline),
+and a single boolean on the box can hold two. So `robo_layout_object_t` carries
+`context` and `context_owned`, and a child resolves its own participation with one
+expression: *the parent's owned context if it has one, otherwise the parent's own*.
+
+Transparency is the case worth getting right early. A plain block box whose
+children are all block-level establishes nothing, which is what makes a margin
+collapse *through* it and a float escape it. A build that made every block box a
+barrier would pass every test this phase writes and make 10.9 and 10.13 impossible.
 
 ## The one rule the builder applies
 
@@ -118,6 +157,7 @@ so the tree can borrow them.
 | `RoboLayoutConstraints.h` | Available/minimum/maximum, each known or unset; `clamp` |
 | `RoboLayoutResult.h` | Position, size, flags, and the state that says which are real |
 | `RoboLayoutContext.h` | One pass, its stats and its outcome |
+| `RoboLayoutFormattingContext.h` | The four kinds, the record, and the pure classifier |
 | `RoboLayoutStyle.h` | The style-source seam |
 | `RoboLayoutBuilder.h` | DOM document in, layout tree out |
 | `RoboLayoutDom.h` | The RoboHTML + RoboCSS bridge that supplies the styles |
@@ -143,6 +183,11 @@ robo_layout_init()
        ├── robo_layout_context_create()
        │        ├── robo_layout_context_set_viewport(size)
        │        └── robo_layout_context_run(context, tree, diag)
+       │                 │  builds the context tree, classifies every box, and
+       │                 │  leaves every result UNRESOLVED
+       │                 │
+       │                 └── robo_layout_tree_root_context(tree, &id, diag)
+       │                     robo_layout_tree_context(tree, id, &fc, diag)
        │
        └── destroy in any order, except that the tree goes before the bridge
 robo_layout_shutdown()
@@ -166,7 +211,8 @@ module.
 | Document | Covers |
 |---|---|
 | `docs/Architecture.md` | Why the tree is separate, the builder's rule, the pass contract, the seams, and the ownership model |
-| `docs/Tests.md` | The seven suites, what each asks, and what the phase found |
+| `docs/FormattingContexts.md` | The two-context model, the classification rules, ownership and depth, invalidation, and what 10.3–10.13 will consume |
+| `docs/Tests.md` | The eight suites, what each asks, and what the phase found |
 
 ## Building and testing
 
@@ -174,7 +220,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 71 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 84 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -193,5 +239,10 @@ module, which sits below layout in the graph but has no business in a layout pas
   block. Those values are readable from the borrowed style; resolving them is
   10.3 onwards.
 - No paint, no rendering, no windowing, no display.
-- No formatting contexts. `ROBO_LAYOUT_OBJECT_BOX` is the only object kind this
-  build can produce, because it is the only distinction the tree can make today.
+- No **anonymous** box, and therefore no block-direction or inline-direction
+  algorithm. A container with mixed content is classified transparent rather than
+  wrapped, because the anonymous boxes that would wrap it are 10.3's machinery and
+  a box with no element and no style is not something this build can lay out.
+- No `flex`, `grid`, `table`, `ruby` or `multicol` context, and no enumerator for
+  any of them. `ROBO_LAYOUT_OBJECT_BOX` is still the only object kind, and
+  `ROBO_LAYOUT_FC_KIND_COUNT` is four.

@@ -3853,6 +3853,89 @@ which is a statement about this build rather than a placeholder for one. `layout
   layering — a pass that consulted a window could not be tested without one — so its scan is the
   first that is not purely "no upward edges".
 
+## Goal 10.2 — Formatting contexts
+
+**Status: complete.** The phase that answers the question every layout algorithm starts with:
+*which boxes' layout am I coordinating, and in which direction?* It adds no coordinate — geometry
+is still 0 — and it adds no algorithm. What it adds is the classification, the context tree, and
+the two ids a box now carries.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The four kinds | `RoboLayoutFormattingContext.h` — `NONE`, `ROOT`, `BLOCK`, `INLINE`, with `is_known`, `kind_name`, and `is_block_container` (true for `ROOT` and `BLOCK`), which is the one fact a later block pass and a later inline pass each ask first |
+| The record | the same header — id, kind, owner, parent, participant count and depth, by value and owned by nobody, so reading one copies it and the tree is unaffected |
+| **The classification, as a pure function** | `robo_layout_fc_establishes(display, has_block_level_child, is_root)` — three facts, no tree, no pass, no allocation, so the rules are a table the suites can walk rather than a behaviour that can only be observed by building a document |
+| Two predicates that are not the classifier | `robo_layout_fc_display_is_block_container` and `robo_layout_fc_display_can_establish` — because "could this box ever establish one?" and "does it, given this child composition?" are different questions, and a caller diagnosing "why did nothing establish a context here?" needs both |
+| Two ids on every box | `RoboLayoutObject.h` — `context` (where it participates) and `context_owned` (what it establishes, `NONE` for most boxes), read through `robo_layout_object_context`, `robo_layout_object_context_owned` and `robo_layout_object_establishes_context` |
+| A second arena on the tree | `RoboLayoutTree.h` — `context_count`, `is_classified`, `context_at`, `context`, `root_context`, and `invalidate_contexts`; dense 1-based ids, `id == index + 1`, the same discipline box ids follow |
+| Classification in the pass | `RoboLayoutContext.h` / `RoboLayoutContext.c` — the same walk that marks every box `UNRESOLVED` now resolves the context tree, and the stats gained `contexts`, `contexts_by_kind`, `boxes_establishing`, `boxes_participating_only` and `context_depth_max` |
+| A build or an add invalidates | `robo_layout_tree_invalidate_contexts` — a box arriving changes the child composition one of the classification's three inputs is made of, so the classification is released rather than left describing a tree that has moved |
+| Eight suites, 84 cases | `layout/tests/SuiteRoboLayoutFormattingContext.c` plus five extended suites; `layout/docs/Tests.md` |
+| Version | `RoboLayoutVersion.h` 0.2.0 — `ROBO_LAYOUT_FORMATTING_CONTEXTS_IMPLEMENTED=1`, the first capability flag this module flips |
+| Documentation | `layout/docs/FormattingContexts.md` (new, 10 sections), plus `layout/README.md`, `layout/docs/Architecture.md`, `layout/docs/Tests.md`, root `ARCHITECTURE.md`, `DEPENDENCIES.md` and the plan tracker |
+
+### Three decisions worth naming
+
+* **A box has two relationships to formatting contexts, not one.** A box *participates* in one
+  (where its own layout decisions happen) and *establishes* one for its contents (usually none).
+  The tempting single flag — "this box is a block formatting context" — holds two of the three
+  states a box can be in, and the third is the one that matters: a plain block box whose children
+  are all block-level establishes **nothing** and is *transparent*, which is what makes a margin
+  collapse through it and a float escape it. A build that made every block box a barrier would
+  pass every test this phase writes and make 10.9 and 10.13 impossible.
+* **`inline-block` establishes `BLOCK` because its inner display is `flow-root`.** The phase never
+  names `inline-block`. 9.12 records the outer/inner pair precisely so that this module reads *one*
+  inner value and is right about every future value that shares it.
+* **The classification lives on the tree, not on the pass.** A later phase needs to ask *after* the
+  pass that produced the answer — 10.12 resolves a containing block, 10.13 decides what a scroll
+  container is — and neither should have to hold a pass object to ask which context a box is in.
+  The pass is a thing that runs; the classification is a fact about the tree.
+
+### Definition of done
+
+- [x] Formatting-context architecture exists, with root, block and inline contexts established and
+      identified, and a strongly typed vocabulary — with **no enumerator** for flex, grid, table,
+      ruby or multicol, for the same reason 9.12 shipped no `display: flex`.
+- [x] Classification is deterministic and consumes **computed** CSS: the only thing read out of a
+      style is the outer/inner display pair, through 9.12's own accessors. No CSS is parsed here.
+- [x] Contexts integrate with the 10.1 layout tree by referencing existing boxes; nothing about the
+      DOM is duplicated, mutated, or re-derived.
+- [x] Ownership, lifetime and nesting are explicit: one context per establishing box per pass, a
+      new context's parent is the one its *owner* participates in, `depth` is the parent's plus one,
+      and `ROOT` is depth 0 with no parent.
+- [x] Rebuild/invalidation foundation exists: a build and an `add_object` release the classification,
+      `invalidate_contexts` releases it explicitly and idempotently, and a context id read across
+      one answers `ROBO_NOT_FOUND` rather than resolving against the new classification.
+- [x] Focused tests cover the classification table, the two predicates, the record, ownership,
+      transparency, inline boxes, `display: none`, nested depth, invalidation, lifecycle, validation
+      and allocator balance.
+- [x] All 2100 tests pass in Debug and Release, and under ASan + UBSan.
+- [x] No Chromium dependency; `Tools/Build.ps1 -Verify` still scans this module for one.
+- [x] No block or inline layout algorithm was implemented, and `geometry` is still 0.
+
+### What 10.2 found
+
+**Three things, one of them a production bug — found by a test, not by reading:**
+
+* **A stale context id read across an invalidation.** A box's context id kept its value after the
+  classification was released, so a read *after* a re-classification resolved the old id against
+  the new context array — answering with a context that is not the one the caller asked about, and
+  answering `ROBO_OK` while doing it. `layout.fc.tree.add_invalidates` is the only case whose stated
+  purpose is to add a box to an already-classified tree. Both context doors now report
+  `ROBO_NOT_FOUND` for a box in an unclassified tree, which is the truth.
+* **A `const` tree in a signature that mutated through it.** One internal helper took the tree
+  `const` while writing every box's result, and the compiler had nothing to say because the write
+  went through a `const`-stripped pointer one level down. Corrected rather than cast away.
+* **Two wrong expectations in the phase's own suite, both about nesting.** `layout.dom.pipeline`
+  first asserted the deepest context sat at depth 1 with six root participants. The tree says 2 and
+  5, and the tree is right: `<p>` is inside the atomic inline, so its inline context nests inside
+  the panel's block context, and the root's participants are its owner plus the three boxes that
+  reach it through a transparent `<body>`. The expectations were **replaced**, not merely
+  corrected — the case now asserts the parent link and the depth of the nested pair, which is the
+  assertion a flat-but-correctly-counted context tree fails.
+
 ## Next
 
-- Goal 10.2 — formatting contexts — do not start until requested
+- Goal 10.3 — block layout — do not start until requested

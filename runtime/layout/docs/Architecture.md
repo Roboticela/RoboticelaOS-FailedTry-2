@@ -1,11 +1,15 @@
-# RoboLayout — architecture (Phase 10.1)
+# RoboLayout — architecture (through Phase 10.2)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
-Phase 10.2 onwards may not cross without changing this document.
+Phase 10.3 onwards may not cross without changing this document.
 
 It is not a tutorial. It is the thing a reviewer reads to answer "why is it like
 this", and the thing a later goal reads to find out what it is allowed to assume.
+
+For the one thing 10.2 added, this document describes the *frame* — where a
+context lives, what owns it, how a pass classifies — and `FormattingContexts.md`
+is the record for the classification itself.
 
 ---
 
@@ -32,8 +36,8 @@ RoboHTML document                          RoboCSS style context
 ```
 
 What that buys the phases that follow: **every model they extend already exists**.
-10.2 adds formatting contexts to an object kind that is already typed. 10.3 fills a
-result that already has a state. 10.8 clamps through a constraints record that
+10.2 added formatting contexts to an object kind that was already typed. 10.3 fills
+a result that already has a state. 10.8 clamps through a constraints record that
 already exists. 10.11 paints an edge whose width already came from 9.15.
 
 What it does **not** buy is a single coordinate, and the module says so in three
@@ -591,10 +595,10 @@ visible omission rather than a silent gap.
 
 ## 13. The capability model
 
-`robo_layout_capabilities_t` is nine `int` fields in declaration order, and two of
-them are deliberately 0:
+`robo_layout_capabilities_t` is nine `int` fields in declaration order, and one of
+them is deliberately 0:
 
-| Field | 10.1 | Filled by |
+| Field | this build | Filled by |
 |---|---|---|
 | `object_model` | 1 | — |
 | `constraints` | 1 | — |
@@ -602,12 +606,16 @@ them are deliberately 0:
 | `context` | 1 | — |
 | `dom_build` | 1 | — |
 | `computed_style_link` | 1 | — |
+| `formatting_contexts` | 1 | — (10.2) |
 | `geometry` | **0** | 10.8 |
-| `formatting_contexts` | **0** | 10.2 |
 | `painting` | **0** | Phase 11 |
 
-A caller that checked only the version string would conclude that 0.1.0 lays boxes
-out. `geometry` is the field that says it does not.
+The table is in declaration order rather than in the order fields landed, so the
+positional walk below stays a walk of the struct and not of a history.
+
+A caller that checked only the version string would conclude that 0.2.0 lays boxes
+out. `geometry` is the field that says it does not, and the three doors §1 lists
+still all answer the same way.
 
 `layout.conformance.capabilities` walks the struct **positionally** against a list
 of names written out by hand, and pins the struct's size against the list's length.
@@ -645,14 +653,14 @@ the next fourteen goals, and each absence is deliberate:
 
 | Absent | Belongs to | What exists instead |
 |---|---|---|
-| formatting contexts, block/inline boxes | 10.2–10.4 | one object kind, `BOX` |
+| anonymous boxes, and the block/inline *algorithms* | 10.3–10.4 | every box knows which context it participates in and which it establishes (10.2) |
 | line boxes, text runs, baselines | 10.5–10.7 | text nodes are not boxes |
 | width/height resolution, `auto`, percentages | 10.8 | typed constraints that can say "unset" |
-| margin collapsing, padding, border geometry | 10.9–10.11 | the values are readable from the borrowed style |
-| positioning, containing blocks, offsets | 10.12 | `display` and `position` are readable; nothing resolves |
+| margin collapsing, padding, border geometry | 10.9–10.11 | the values are readable from the borrowed style; collapsing has the transparency rule it needs |
+| positioning, containing blocks, offsets | 10.12 | `display` and `position` are readable; the context tree is there to hang a containing block on |
 | overflow, damage, invalidation | 10.13–10.14 | two result flags that stay 0 |
 | painting anything | Phase 11 | `painting` capability = 0 |
-| a containing block for the root | 10.2 | the viewport is an *argument*; the context records it |
+| a containing block for the root | 10.12 | the viewport is an *argument*; the context records it |
 | reading a property other than `display` | 10.3+ | the borrowed style is there; the read is the later goal's |
 
 Two of these are worth a sentence more.
@@ -714,7 +722,7 @@ a window" decision in §2 enforced rather than merely documented.
 
 ---
 
-## 17. What 10.2 onwards may assume
+## 17. What 10.3 onwards may assume
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -731,3 +739,18 @@ a window" decision in §2 enforced rather than merely documented.
 8. `robo_layout_geometry_is_implemented()` is the single question a caller asks
    before reading geometry, and flipping it is a phase's *last* act — after the
    numbers it promises exist.
+9. **Every live box participates in exactly one formatting context** once a pass
+   has run, and `robo_layout_tree_is_classified` is how a caller knows a pass has.
+   `robo_layout_object_context` answers where a box participates;
+   `robo_layout_object_context_owned` answers what it establishes, which is `NONE`
+   for most boxes and is not a failure.
+10. **A context's parent is the one its owner participates in**, so the context
+    tree's shape is a subsequence of the box tree's, and `depth` is real.
+11. **`robo_layout_tree_invalidate_contexts` is how a classification is released**,
+    and a build or an `add_object` releases it implicitly. A box's context id read
+    across an invalidation answers `ROBO_NOT_FOUND` rather than resolving against
+    the new classification.
+12. **A transparent box establishes nothing**, and that is a fact 10.9 and 10.13
+    depend on: a margin collapses *through* it and a float escapes it. A later goal
+    that needs it to be a barrier is asking for an anonymous box, which is 10.3's
+    machinery rather than a change here.
