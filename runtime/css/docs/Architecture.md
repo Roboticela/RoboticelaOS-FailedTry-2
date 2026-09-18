@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.12)
+# RoboCSS Architecture (Phase 9.1–9.13)
 
 This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -498,6 +498,49 @@ this module reads an element name.
 
 `docs/Display.md` has the full account.
 
+### Positioning
+
+A *position value* is the second closed vocabulary, and since 9.13 it is a type of
+its own:
+
+```text
+robo_css_positioning_t           one position value
+  ├── the value                  STATIC / RELATIVE / ABSOLUTE / FIXED / STICKY
+  ├── in_flow                    does the box take up room in its parent
+  └── positioned                 is it a containing block for an absolute descendant
+```
+
+Five values, five rows. The row carries **two flags rather than one three-valued
+kind**, because the two questions are asked by different stages: `in_flow` is the
+layout question (does this box take up room), and `positioned` is the containment
+question (what does an offset inside it resolve against). They are not each other's
+opposite — `relative` and `sticky` answer yes to both — and folding them into one
+kind would make every reader compare against a spelling. `is_positioned` is asked of
+the table rather than written as `!= STATIC`, so that `position: running()` can
+answer for itself on the day it is a row.
+
+The four insets (`top`, `right`, `bottom`, `left`) are deliberately **not** part of
+this model. Their grammar — `<length-percentage> | auto` — is the box model's
+`EDGE_OFFSET` shape exactly, so they join that family and reuse its normalisation,
+and their names come from the side vocabulary in `RoboCSSBox.h`. A second shape with
+the same grammar is how `top: 20%` and `margin-top: 20%` would come to disagree.
+
+`z-index` is the first property whose value must be an **integer**, and it is a
+shape of its own for that reason: `auto` is a keyword (not zero — "takes no part in
+its parent's stacking decisions" is a different statement from "at level zero"),
+and everything else is a NUMBER that must carry `is_integer`. `1.5` and `0.0` are
+both refused, because CSS's `<integer>` grammar is about the *token* and `0.0` is a
+number token even though its magnitude is whole. Nothing in this module compares two
+z-indices or computes an order: a stacking context belongs to a later phase.
+
+Nothing about `position` is a behaviour here. `sticky` is a value with the same two
+facts as any other, and what a sticky box does relative to a scrollport is a
+scrolling question the build has no scrollport for. Refusing the value would be the
+other wrong answer, since `position: sticky` is legal CSS an author has written and
+dropping the declaration would lose the offsets beside it.
+
+`docs/Positioning.md` has the full account.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -702,7 +745,7 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Positioning (9.13), backgrounds (9.14), borders
+Backgrounds (9.14), borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
 cascade itself, evaluating at-rules and the animation and
@@ -725,6 +768,15 @@ row's outer/inner pair is what a later phase extends. What does not exist is any
 nothing lays a box out, and no element is given a display by its tag. `display: inline
 flex` and the other multi-keyword spellings are rejected rather than half-read, since
 reading them would claim an inner mode this phase does not represent.
+
+Positioning (9.13) is behind us in exactly the same limited sense: the five
+`position` values are typed rows on the whole pipeline, the four insets reuse the
+box model's `EDGE_OFFSET` shape so a percentage stays a percentage and `auto` stays
+the keyword, and `z-index` is an integer refused a fraction. What does not exist is
+anything a position value *does* — no containing block is found, no offset is
+resolved, no rectangle exists, and no stacking order is computed, so `z-index` is
+a typed number nothing compares. `sticky` is a value and not a behaviour, and
+`inset` and the `inset-block`/`inset-inline` shorthands are not distributed.
 **Reading bytes is not interpreting them,
 building a tree is not interpreting it either, answering a question about one
 element is not applying a style to it, and computing a value is not using one**:
@@ -740,20 +792,22 @@ wide anything is.
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
 (9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade(9.5), specificity (9.6), inheritance (9.7), computed values (9.8), colours
-(9.9), units (9.10), the box model (9.11) and `display` (9.12) flipped to 1 for
+(9.9), units (9.10), the box model (9.11), `display` (9.12) and `positioning`
+(9.13) flipped to 1 for
 exactly that
 reason, and no other flag did. Each flipped only when its whole job worked end
 to end: `cascade` waited for `specificity` rather than claiming an ordering it could
 not complete, `inheritance` waited while `computed_values` was 0 because a
 *resolved* value is a different thing from a computed one, `computed_values`
 flipped as 9.8 landed, and `colors` waited for the colour *module* rather than
-riding on the parser 9.8 had to keep inside the value layer. The same rule held
-three times after that: `units` waited for the *unit table* rather than for lengths
+riding on the parser 9.8 had to keep inside the value layer. The same rule held four
+times after that: `units` waited for the *unit table* rather than for lengths
 to parse, `box_model` waited for the cascade's comparison door rather than for an
-edge to resolve, and `display` waited for the row rather than for a box. All three
-of those flags are about a *value* and none of them claims layout — that is why
-`box_model` and `display` are separate flags from each other and from anything a
-layout phase will add — while
+edge to resolve, `display` waited for the row rather than for a box, and
+`positioning` waited for the vocabulary rather than for a coordinate. All of those
+flags are about a *value* and none of them claims layout — that is why
+`box_model`, `display` and `positioning` are separate flags from each other and
+from anything a layout phase will add — while
 `default_styles` and `stylesheet_loading` stay 0, because the `RUNTIME` origin slot
 is still empty and nothing fetches a sheet.
 

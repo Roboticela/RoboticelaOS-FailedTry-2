@@ -1,6 +1,6 @@
-# RoboCSS Test Organisation (Phase 9.1–9.12)
+# RoboCSS Test Organisation (Phase 9.1–9.13)
 
-Thirty-five suites, 471 tests, one framework. These phases add no test runner,
+Thirty-nine suites, 541 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -136,6 +136,13 @@ produces, which is the half of the job that cannot break.
 | `SuiteRoboCssDisplay.c` | 16 | The module (`css.display.*`) and what the pipeline makes of it: the four values walked in enumerator order with every keyword read back (a table whose rows and enumerators had drifted would only ever show up as a value printing as another one's keyword), the count pinned at four, an out-of-range enumerator answering *nothing* rather than the first row, the outer/inner halves read from the same rows — including `inline-block` being inline-level **and** atomic at once, which is the pair that earns the two columns, and `none`'s inner being NONE because a value with no box has no contents rather than because it is unwritten — the classifications asserted for every value and **cross-checked** so two values cannot both claim the same level, declaration text through the real tokenizer, serialization in the author's own spelling, the four refusals told apart (`flex` is an identifier this build has not added; `20px`, `#fff` and `10%` are not identifiers; `inline block` is two keywords; `rgb(0, 0, 0)` is a reference) each with its own diagnostic, the reference settled *before* the vocabulary is asked, the initial value arriving typed through the style query door, `display: none` as a decided value rather than an absent one, non-inheritance proven from both sides, `initial`/`inherit`/`unset` on a non-inherited property, the cascade's three keys including an inline style, a refused declaration staying *reported* rather than silently becoming `inline`, a malformed sweep with invariants on every case, and determinism over a document plus the vocabulary walked backwards |
 | `SuiteRoboCssDomSelect.c` (`css.dom.display.pipeline`) | 1 | The vocabulary over the **visual checkpoint's own document**: one value per level declared on real elements (`body` block, `a` inline, `label` inline-block, `#Notes` none) each read back as a typed enumerator rather than as the keyword's letters, `display: none` on a real element marked `declared` with the style still clean, an element the sheet does not name having **no entry at all** because `display` does not inherit — with the query door answering the property's *own* initial value and marking it as such, and an invalid value on a real element reported rather than replaced |
 
+### 9.13 — the positioning vocabulary
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssPosition.c` | 19 | The module (`css.position.*`) and what the pipeline makes of it: the five values walked in enumerator order with every keyword read back, the count pinned at five, an out-of-range enumerator answering *nothing* rather than the first row, the two flags asserted per row (`relative` and `sticky` being in flow **and** positioned at once, which is the pair that earns two columns), the three classification doors cross-checked so no two values can disagree and an unknown enumerator refused by **all three** — the assertion a shorter implementation that wrote `!in_flow` would fail — declaration text through the real tokenizer, serialization in the author's own spelling plus a buffer one byte short reporting the length it needed, the three refusals told apart (`running()` is an identifier this build has not added; `20px`, `#fff` and `10%` are not identifiers; `absolute fixed` and `rgb(0, 0, 0)` are not a single keyword) each with its own diagnostic, `var()`/`env()` carried and flagged while `nonsense(--p)` is refused, the four insets walked over `robo_css_box_side_count()` with each name read from `robo_css_box_side_name` so a row written against the wrong side cannot pass, `top: 25%` staying a percentage and `top: auto` staying a keyword and `top: min-content` a mistake, `z-index` accepting `0`, `7`, `-3` and `+12` while refusing `1.5`, `0.0` and `1e2` (`0.0` is the refusal that matters: same magnitude, different token), the initial values arriving typed through the style query door, non-inheritance proven from both sides for all six, `initial`/`inherit`/`unset` on a non-inherited property, the cascade's three keys including an inline style, a refused declaration staying *reported*, a malformed sweep with invariants on every case, and determinism over a document plus the vocabulary walked backwards |
+| `SuiteRoboCssDomSelect.c` (`css.dom.position.pipeline`) | 1 | The family over the **visual checkpoint's own document**: `body` `relative`, `h1` `absolute` with `top: 25%`, `button` `sticky`, each read back as a typed enumerator rather than as the keyword's letters, the flags asked on a real element (the `relative` body being in flow **and** positioned at once, the `absolute` heading out of flow), the insets beside them keeping their own types, and the initial value for an element the sheet does not name reaching a consumer through the query door rather than through the container |
+
 ### 9.7 — property metadata and inheritance
 
 | Suite | Tests | Subject |
@@ -262,7 +269,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 471 css.* tests only
+scripts/robo test-css                     # the 541 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -808,3 +815,49 @@ only way a table suite can survive its table growing.
   gained the display shape so it is driven by the same hostile strings as the other
   shapes, with the invariant that matters here stated explicitly: no string may produce
   a display value that is not one of the four.
+
+## 17. What the 9.13 suites found
+
+One real defect, and it was in a **diagnostic** rather than in a value. The box model's
+`EDGE_OFFSET` shape had carried the message *"not a margin length or auto"* since 9.11,
+which was accurate while `margin` and its three relatives were its only row. 9.13 put the
+four insets on the same shape — deliberately, so the two families could not normalise a
+percentage differently — and at that moment the message began naming one of its two
+families. Because the shape is shared, the *identity* of the property is not available at
+the point the message is written, so the only honest fix was to describe the grammar:
+*"not a length, a percentage or auto"*. Three assertions in `SuiteRoboCssBox.c` moved with
+it. This is the shape of defect a shared shape invites, and it is worth recording for the
+reason that it is invisible in the suite that caught it: the box suite went red on the
+box's own message while the *product* was correct.
+
+The other expectation that moved is the one 9.12 predicted:
+
+* **The registry suite pins counts, and the counts moved.** It asserted 39 properties and
+  23 non-inherited; 9.13 adds five non-inherited rows (`top`, `right`, `bottom`, `left`,
+  `z-index`) and `position` keeps its row with a new shape, so the numbers became 44 and
+  28. The structural assertions beside them — every row classified, every initial value
+  parseable, every name usable — went green untouched, which is the part that means the
+  table is still coherent. A count is a fact about the phase, not about the table.
+
+Three things the suite could not have caught and were written to be caught:
+
+* **The name collision.** The module surface is `positioning_*` and not `position_*`,
+  because `robo_css_position_t` is already the **source position** type (offset, line,
+  column). The suite walks the vocabulary and reads every name back, so a stray `position`
+  spelling would have surfaced as a compile error rather than as a behaviour — which is the
+  good outcome, and it happened before any test ran.
+* **The insets are walked between the module and the registry.** The suite does not hand-list
+  `top`, `right`, `bottom` and `left`; it walks `robo_css_box_side_count()` and reads each
+  name from `robo_css_box_side_name`. A registry row written against the wrong side is
+  therefore a failure, and it is the kind of transposition that would otherwise look like a
+  passing test: `top: 10px` computing to `10px` is unremarkable, and computing to `right`
+  is what a hand-written list cannot see.
+* **`z-index: 0.0` is refused on purpose.** It is the one refusal in the phase that a
+  reasonable implementation gets wrong while every value it produces is *numerically*
+  correct. The suite asserts it beside `1.5` and `1e2` so the rule being tested is visibly
+  "the token, not the magnitude".
+
+The sanitizer run is the same in kind as every earlier phase: the whole suite under
+AddressSanitizer and UndefinedBehaviorSanitizer returns to the baseline allocator count,
+with no report from either, which is what makes the two-sheet and repeated-resolution
+scopes in the new suite meaningful rather than decorative.

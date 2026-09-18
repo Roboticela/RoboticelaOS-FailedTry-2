@@ -3427,6 +3427,101 @@ enumerator, which is strictly more than before.
 One compile-time fix was needed and no more: the new module had to reach the internal
 header for the missing-symbol path it shares with every other value family.
 
+## Goal 9.13 — CSS positioning
+
+**Status: complete.** The `position` property and its value system: a closed five-value
+vocabulary carrying the two facts a position value *is* (whether the box stays in flow
+and whether it is a positioned box), the four inset properties on the box model's
+`EDGE_OFFSET` shape, and `z-index` as `auto` or a whole number. No containing block,
+no offset, no rectangle and no stacking order is computed.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The vocabulary | `Include/RoboCSS/RoboCSSPosition.h` — five values as an ordered, closed set: `static`, `relative`, `absolute`, `fixed`, `sticky` |
+| The two facts | `in_flow` and `positioned` as two columns of the row table, asked through `robo_css_positioning_is_in_flow()` / `_is_out_of_flow()` / `_is_positioned()` — the two are not each other's opposite, since `relative` and `sticky` answer yes to both |
+| Parsing and serialization | `robo_css_positioning_from_text` (ASCII case-insensitive against the rows and nothing else) and `robo_css_positioning_write` (the author's own spelling) |
+| The unknown-identifier door | `robo_css_positioning_slice_is_known` — `static` is both a value and the answer for "not one of them", so the question is asked of the *identifier* |
+| The shape | `ROBO_CSS_PROPERTY_COMPUTATION_POSITION`, sharing one case body with `DISPLAY` because the vocabulary, its doors and its refusals are data in a row |
+| The four insets | `top`, `right`, `bottom`, `left` on the box model's `EDGE_OFFSET` shape, with their names read from `robo_css_box_side_name` — no second grammar for `<length-percentage> | auto` |
+| `z-index` | `ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX`: `auto` as the keyword (not zero) or a NUMBER that must carry `is_integer`, so `1.5`, `0.0` and `1e2` are refused |
+| The registry rows | Five new non-inherited rows plus `position` moved onto its own shape; initials `static` and `auto` |
+| The value accessors | `robo_css_computed_value_position` and the display accessor beside it on the typed record. No accessor on the *style* object, for the same reason as 9.12: none of the six inherits, so a declaring-nothing element has no entry and only the style context's `robo_css_style_context_query_computed_value` can answer the initial value |
+| The diagnostic domain | `ROBO_CSS_DOMAIN_POSITION` |
+| Version | `RoboCSSVersion.h` 0.13.0; capability `positioning` = 1 |
+| Documentation | `css/docs/Positioning.md` (new, the design record), plus `README.md`, `docs/Architecture.md`, `docs/Tests.md`, `docs/ComputedValues.md` |
+
+### Definition of done
+
+- [x] `position` is a typed property; no value is a string after it is parsed.
+- [x] `static`, `relative`, `absolute`, `fixed` and `sticky` are all supported.
+- [x] The representation carries the two facts separately, so `relative` and `sticky`
+      being in flow *and* positioned at once is expressible rather than a contradiction.
+- [x] `sticky` is a value and not a behaviour: it classifies as in flow and positioned,
+      which is what it is before anything scrolls, and no scrollport is invented.
+- [x] The initial values are `static` and `auto`, and `auto` is never read as zero —
+      `z-index: auto` is "takes no part in its parent's stacking decisions" and not
+      "at level zero".
+- [x] All six properties are non-inherited, proven from both sides, and an explicit
+      `inherit` still works through the existing mechanism.
+- [x] `initial`, `inherit` and `unset` resolve correctly with no duplicated CSS-wide
+      keyword handling; `unset` behaving as `initial` is asserted separately because it
+      is the assertion that would fail if one of the six were misclassified.
+- [x] The four insets reuse the existing `<length-percentage> | auto` family rather than
+      a second grammar, so `top: 25%` stays a percentage, `top: auto` stays the keyword
+      and `top: min-content` is a mistake.
+- [x] `z-index` accepts `auto`, `0`, positive and negative integers, and refuses a
+      fraction, `0.0` and an exponent — because CSS's `<integer>` grammar is about the
+      token and `0.0` is a number token.
+- [x] The cascade is unchanged and uncopied; specificity, source order, `!important`
+      and an inline style decide a position the same way they decide anything else.
+- [x] Invalid values fail safely, each with its own diagnostic: `running()` is an
+      identifier this build has not added, `20px`/`#fff`/`10%` are not identifiers,
+      `absolute fixed` and `rgb(0, 0, 0)` are not one keyword, and a reference
+      (`var()`, `env()`) is carried and flagged rather than refused.
+- [x] Tests are comprehensive: 19 in `SuiteRoboCssPosition.c` and one real-DOM pipeline
+      test, covering the vocabulary, classification, parsing, serialization, the inset
+      family walked over the side vocabulary, `z-index`, the cascade, inheritance,
+      keywords, invalid values, robustness and determinism.
+- [x] Host and QEMU runtimes still work; no Chromium dependency was introduced; no
+      layout, stacking or scrolling was implemented prematurely.
+
+### What 9.13 found
+
+**One real defect, and it was in a diagnostic rather than in a value.** The box model's
+`EDGE_OFFSET` shape had carried the message *"not a margin length or auto"* since 9.11,
+which was accurate while `margin` and its three relatives were its only row. This phase
+put the four insets on the same shape — deliberately, so the two families could not
+normalise a percentage differently — and at that moment the message began naming one of
+its two families while it was refusing the other. Because the shape is shared, the
+property's identity is not available where the message is written, so the honest fix was
+to describe the grammar: *"not a length, a percentage or auto"*. Three assertions in
+`SuiteRoboCssBox.c` moved with it.
+
+The other expectation that moved is the one 9.12 predicted, and the reason is the same:
+
+* The registry suite pins counts. It asserted 39 properties and 23 non-inherited; the
+  five new rows plus the shape change made the numbers 44 and 28. The structural
+  assertions beside them — every row classified, every initial value parseable — went
+  green untouched, which is the part that means the table is still coherent.
+
+Two things the suite was written to catch rather than to confirm:
+
+* The four insets are walked over `robo_css_box_side_count()` with each name read from
+  `robo_css_box_side_name`, so a registry row written against the wrong side fails. A
+  hand-listed `top, right, bottom, left` could not see that: `top: 10px` computing to
+  `10px` is unremarkable.
+* `z-index: 0.0` is asserted refused beside `1.5` and `1e2`, so the rule being tested is
+  visibly "the token, not the magnitude" — the one refusal in the phase that a
+  reasonable implementation gets wrong while every value it produces is numerically
+  correct.
+
+One compile-time fix was needed and no more: the module surface is `positioning_*` and
+not `position_*`, because `robo_css_position_t` is already the **source position** type
+(offset, line, column). The suite reads every name back, so a stray spelling would have
+surfaced as a compile error rather than as a behaviour — which is the good outcome.
+
 ## Next
 
-- Goal 9.13 — do not start until requested
+- Goal 9.14 — backgrounds — do not start until requested

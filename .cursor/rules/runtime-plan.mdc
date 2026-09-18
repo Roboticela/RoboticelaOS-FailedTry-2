@@ -111,7 +111,7 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 9.10 Units ✅
 9.11 Box model ✅
 9.12 Display ✅
-9.13 Positioning
+9.13 Positioning ✅
 9.14 Backgrounds
 9.15 Borders
 9.16 CSS tests

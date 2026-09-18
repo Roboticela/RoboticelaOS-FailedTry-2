@@ -51,6 +51,7 @@ LENGTH       a number and a unit: `10px`, `2em`, `1rem`
 COLOR        four 8-bit channels, alpha included
 FAMILY_LIST  an ordered font family list
 DISPLAY      one of four display values (9.12)
+POSITION     one of five position values (9.13)
 PRESERVED    the specified tokens, carried intact
 INVALID      the value did not mean anything for this property
 ```
@@ -207,14 +208,18 @@ COLOR          named / hex / rgb() / transparent   color, background-color
 LENGTH         dimension, percentage, zero, keyword
                                                    width, height, font-size,
                                                    letter-spacing, word-spacing, text-indent
-KEYWORD        one identifier                      display, position, text-align,
-                                                   visibility, box-sizing
+KEYWORD        one identifier                      text-align, visibility,
+                                                   cursor (9.7)
 FONT_FAMILY    identifiers and strings, comma-separated
 FONT_WEIGHT    a number 1–1000 or `normal`/`bold`
 LINE_HEIGHT    `normal`, a number, a length or a percentage
-EDGE_OFFSET    a length, a percentage or `auto`     margin-*      (9.11)
+EDGE_OFFSET    a length, a percentage or `auto`     margin-* (9.11), top/right/
+                                                   bottom/left (9.13)
 EDGE_INSET     a length or a percentage            padding-*     (9.11)
 LINE_WIDTH     a length or thin/medium/thick       border-*-width (9.11)
+DISPLAY        one of a closed vocabulary          display       (9.12)
+POSITION       one of a closed vocabulary          position      (9.13)
+Z_INDEX        `auto` or a whole number            z-index       (9.13)
 ```
 
 `FONT_WEIGHT` refuses `5000` rather than clamping it — 5000 is not a heavier
@@ -224,7 +229,7 @@ difference.
 
 Adding the column did not change the registry's data: every initial value was
 already text, and the registry already parsed each into a component-value tree at
-registration time. One field, one switch, seven shapes.
+registration time. One field, one switch, and — after 9.13 — thirteen shapes.
 
 ### Why 9.11 added three more
 
@@ -266,6 +271,20 @@ be interpreting a value the property never asked it to.
 
 `docs/BoxModel.md` has the full account of the family itself.
 
+### Why 9.11's shared shape changed its diagnostic in 9.13
+
+Not a shape that was added but a message that had to move. The box model's three
+length shapes differ only in the vocabulary their grammar carries, and since 9.11
+they have shared one case body. The `EDGE_OFFSET` refusal read *"not a margin length
+or auto"*, which was accurate while `margin` and its three relatives were its only
+row. 9.13 put `top`, `right`, `bottom` and `left` on the same shape — on purpose, so
+that the two families could not normalise a percentage differently — and from that
+moment the message named one of its two families while the other was being refused
+by it. Because the shape is shared, the property's identity is not available where
+the message is written, so the honest fix was to describe the grammar: *"not a
+length, a percentage or auto"*. This is the shape of defect a shared shape invites,
+and the suite caught it in the *box* suite while the box's own behaviour was correct.
+
 ### Why 9.12 added one more, to a row that already existed
 
 `display` was a registry row before 9.12 — non-inherited, initial `inline` — and it
@@ -283,6 +302,37 @@ That is what the shape is *for*: the registry did not have to re-decide anything
 column did. `display: flex` is now `INVALID` with a reason rather than a keyword
 named `flex`, which is the same trade `padding: auto` makes — refusing is the honest
 answer until the phase that implements it exists.
+
+### Why 9.13 added two, and one of them is the first numeric shape
+
+`POSITION` is the second closed vocabulary, and it joins `DISPLAY` as a **row in the
+same table** rather than a second copy of "ask the identifier, then ask the table":
+the vocabulary, its two doors and its refusals are data, so a third closed vocabulary
+— `float`, `overflow`, `visibility` — is a row. `position` was, like `display`, a
+`KEYWORD` row before this phase, and it moved for the same reason: `position: banana`
+was a keyword carrying the text `banana`, and `position` is a value a layout pass
+dispatches on before any other.
+
+`Z_INDEX` is different in kind, and it is the first share whose grammar is about a
+*number* rather than a keyword. Its vocabulary is two answers:
+
+```text
+auto              the KEYWORD — and not zero, since "takes no part in its parent's
+                  stacking decisions" is a different statement from "at level zero"
+an integer         a NUMBER with `is_integer` set
+```
+
+and everything else is `INVALID` with a reason. The refusal worth reading twice is
+`0.0`: it has the same magnitude as `0` and is a **different token**, and CSS's
+`<integer>` grammar is about the token. Accepting it would produce a numerically
+correct value from a build that could not tell a whole magnitude from a fractional
+one, which is the failure mode the `is_integer` flag exists to prevent — and it would
+be silent. `1.5`, `1e2`, `red`, `10px` and `10%` are refused beside it, each with the
+message that says which of those it is.
+
+Nothing here resolves anything: `top: 25%` stays a percentage because it needs a
+containing block, `z-index` is never compared because a stacking context is a later
+phase's, and `position: sticky` is a value rather than a behaviour.
 
 ## The computed style
 
@@ -373,7 +423,16 @@ know when a DOM changed, and a module that does not own a DOM cannot know.
   metrics and no viewport.
 * **`calc()` and `min()`/`max()`/`clamp()` evaluation.** Carried as references, as
   they were in 9.8; `docs/Units.md` §6 is where the deferred set is enumerated.
-* **Shorthand expansion.** `margin: 10px` stays one preserved value.
+* **Shorthand expansion of a computed value.** 9.11 distributes a shorthand's
+declaration *before* computation, so `margin: 10px` becomes four values that are
+computed individually — the author's text stays on the shorthand's own entry
+(`docs/BoxModel.md`). What this layer never does is expand a **computed** value:
+a computed `padding: 8px 12px 4px` is a `PRESERVED` value, and splitting it here
+would be interpreting a value the property never asked it to. `inset` and the
+other shorthands 9.13 does not distribute are not expanded at all.
+* **Positioning as geometry.** `position` is a typed value and `z-index` a typed
+number; no containing block is found, no offset is applied, and no stacking order
+is computed.
 * **A default stylesheet.** The `RUNTIME` origin slot is still empty, and
   `default_styles` is still 0.
 
@@ -386,9 +445,20 @@ know when a DOM changed, and a module that does not own a DOM cannot know.
 * `robo_css_computed_value_compute` — the normaliser: `(computation, specified,
   out, diag)`.
 * `robo_css_computed_value_make_keyword` / `_number` / `_percentage` / `_length`
-  / `_color` / `_family_list` / `_preserved` / `_invalid`.
+  / `_color` / `_family_list` / `_display` / `_position` / `_preserved` /
+  `_invalid`.
 * `robo_css_computed_value_kind_is_known` / `_kind_name` / `_text` /
-  `_color` / `_preserved`.
+  `_color` / `_display` / `_position` / `_preserved`.
+
+`RoboCSSDisplay.h` / `RoboCSSPosition.h` — the two closed vocabularies (9.12,
+9.13; reached through this header's include, listed here because a reader of *this*
+document meets them here):
+
+* `robo_css_display_from_slice` / `_slice_is_known` / `_write` / `_is_known` /
+  `_name` / `_count` / `_outer` / `_inner` / `_generates_box` / `_is_none` /
+  `_is_block_level` / `_is_inline_level` / `_is_inline_block`.
+* `robo_css_positioning_from_slice` / `_slice_is_known` / `_write` / `_is_known` /
+  `_name` / `_count` / `_is_positioned` / `_is_in_flow` / `_is_out_of_flow`.
 * `robo_css_color_make` / `_equals` / `_from_name` / `_from_hex` /
   `_from_rgb_function`.
 
@@ -407,7 +477,8 @@ header's include, listed here because a reader of *this* document meets them her
   `robo_css_unit_resolve_px`; `robo_css_length_resolution_is_known` / `_name`.
 
 The record is by value, so the rest of it is read as **fields**: `kind`,
-`number`, `unit`, `is_integer`, `color`, `preserved`, and `unresolved`.
+`number`, `unit`, `is_integer`, `color`, `display`, `position`, `preserved`, and
+`unresolved`.
 
 `RoboCSSComputed.h` — the style container's computed half:
 
@@ -427,7 +498,7 @@ The record is by value, so the rest of it is read as **fields**: `kind`,
 
 ## How the tests are run
 
-* `scripts/robo test-css` — the whole CSS subsystem (471 tests).
+* `scripts/robo test-css` — the whole CSS subsystem (541 tests).
 * `./Out/RoboTest.host.exe --filter "css.computedvalue."` — the value model, the
   unit table, the colour forms and the normaliser (14 tests).
 * `./Out/RoboTest.host.exe --filter "css.computed."` — the pipeline over the
