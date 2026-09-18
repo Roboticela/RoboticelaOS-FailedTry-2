@@ -3522,6 +3522,96 @@ not `position_*`, because `robo_css_position_t` is already the **source position
 (offset, line, column). The suite reads every name back, so a stray spelling would have
 surfaced as a compile error rather than as a behaviour — which is the good outcome.
 
+## Goal 9.14 — CSS backgrounds
+
+**Status: complete.** The six background longhands as typed values: five models rather
+than one because the six do not share a grammar — two closed vocabularies with rows read
+back by name, a colour reused from 9.9, an image reference kept as the tokens the grammar
+produced, and the phase's first two **pair** values. The `background` shorthand is
+distributed through the inheritance layer's existing pass, reset semantics included. No
+rectangle is painted, no `url(…)` is fetched, and no percentage is resolved against a box.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The repeat vocabulary | `robo_css_background_repeat_t` — `repeat`, `repeat-x`, `repeat-y`, `no-repeat`, with the two **axes** read from the same row the name comes from: `repeat-x` *is* `repeat no-repeat`, not a spelling that happens to produce it |
+| The attachment vocabulary | `robo_css_background_attachment_t` — `scroll`, `fixed` |
+| The component | `robo_css_background_component_t` — an edge keyword, a length or a percentage, each keeping its own kind, with kind-aware equality so `left` and `0px` stay different values however equal they look |
+| The pairs | `robo_css_background_position_t` and `robo_css_background_size_t` — the first values in the build that are two components, **folded at parse time** so `center` and `center center` are one computed value rather than two, plus `cover`/`contain` as size keywords that are not `auto` |
+| The image | `ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE` — `none` as the canonical keyword, and a `url(…)`, a gradient or a `var()` carried as the tokens it came from |
+| The colour | `background-color` keeps the 9.9 colour shape unchanged; the phase reuses the colour family rather than growing a second one |
+| The registry rows | Five new non-inherited longhands and their initials (`none`, `repeat`, `0% 0%`, `auto`, `scroll`). `background` and `background-color` were already rows — a shape change is not a new property, and the shorthand is *distributed*, not re-registered |
+| The shorthand | `robo_css_background_expand`, reached through the inheritance layer's existing distribution pass so it travels the same rules a declared longhand does, with the **reset** semantics a shorthand owes: a longhand the shorthand does not name goes back to its initial value rather than leaving an earlier declaration standing |
+| The diagnostic domain | `ROBO_CSS_DOMAIN_BACKGROUND` |
+| Version | `RoboCSSVersion.h` 0.14.0; capability `backgrounds` = 1 |
+| Documentation | `css/docs/Backgrounds.md` (new, the design record), plus `README.md`, `docs/Architecture.md`, `docs/Tests.md`, `docs/ComputedValues.md` |
+
+### Definition of done
+
+- [x] All six properties are recognized rows in the existing registry, on shapes of their own.
+- [x] Supported values parse and invalid values fail safely, each refusal with its own
+      diagnostic rather than one collapsed "invalid".
+- [x] Values participate in the existing cascade with no background-specific precedence logic.
+- [x] All six are non-inherited, proven from both sides, and an explicit `inherit` still works.
+- [x] The correct initial values are represented through the existing computed-style system.
+- [x] Computed styles expose typed background values, including the pairs.
+- [x] Lengths and percentages remain unresolved for later phases — `50%` is a percentage,
+      not a coordinate.
+- [x] The `background` shorthand works through the existing declaration/cascade
+      architecture, reset semantics included, and unsupported syntax is refused rather than
+      half-read.
+- [x] `background-color` reuses the existing colour parser and representation; no second
+      colour system exists.
+- [x] Tests are comprehensive: 31 in `SuiteRoboCssBackground.c` and one real-DOM pipeline
+      test over the visual checkpoint's own document.
+- [x] All Phase 9.1–9.13 tests still pass; host and QEMU runtimes still work; no Chromium
+      dependency was introduced; no painting, image fetching, layout or border work was
+      implemented prematurely.
+
+### What 9.14 found
+
+**Four things, and the first three were gaps rather than mistakes** — the phase's own tests
+are what surfaced them:
+
+* **Five computation shapes had no name.** `robo_css_property_computation_name` fell to
+  `"unknown"` for the five new shapes. A name is what a diagnostic prints, so an
+  unrecognised shape is a message nobody can act on, and nothing else in the build reads
+  that function — only a test walking the set can see it.
+* **The parse-outcome vocabulary had no doors.** `robo_css_background_parse_is_known` and
+  `_parse_name` were declared in the header and had no definition. That is a link error
+  rather than a silent one *because the suite walked the set*; a suite that had typed out
+  the one outcome it cared about would have left the other three undefined.
+* **A hex colour in the shorthand was refused.** `background: #fff` classified as belonging
+  to no longhand while `background: white` did not, because the classifier's HASH case fell
+  to the default. Four spellings of one colour reaching one longhand is now asserted directly.
+* **The suite caught a bug in itself.** `css.background.robust` compares two computations of
+  one malformed input and compared `b.kind` against `a.kind` *after* disposing `a`. Reading a
+  disposed record's kind is exactly the class of defect that suite exists to hunt.
+
+The one expectation that moved is the count 9.13 predicted would keep moving: the registry
+suite asserted 44 properties and 28 non-inherited, and the five new longhands made the
+numbers 49, 16 inherited and 33 non-inherited. `background` and `background-color` were
+already rows — the shorthand is distributed rather than re-registered, and a shape change is
+not a new property, so adding the family did not add the two rows a count of six would have
+suggested. The structural assertions beside the counts — every row classified, every initial
+value parseable, every name usable — went green untouched, which is the part that means the
+table is still coherent rather than merely the right size.
+
+Three things the suite was written to catch rather than to confirm:
+
+* **A pair has two spellings and only one is stored.** `center` and `center center` are
+  asserted to arrive *equal*, because the folding happens once at parse time. An
+  implementation that kept the source's arity would make two equal styles compare unequal,
+  and the failure would only surface at the phase that starts comparing computed styles.
+* **A component's kind is part of its identity.** `left` and `0px` are asserted *unequal*
+  on purpose. They are equal as offsets and different as values, and the phase that
+  resolves them against a box is entitled to two answers.
+* **The shorthand's reset is asserted, not implied.** `background: red` sets the longhands
+  it does not name back to their **initial** values. This is the one shorthand behaviour a
+  "populate what you can" implementation gets wrong while every value it writes is correct,
+  and it is only visible when an earlier declaration exists for the same longhand.
+
 ## Next
 
-- Goal 9.14 — backgrounds — do not start until requested
+- Goal 9.15 — borders — do not start until requested

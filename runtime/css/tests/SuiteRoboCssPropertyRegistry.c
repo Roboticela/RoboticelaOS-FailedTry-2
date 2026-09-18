@@ -109,11 +109,18 @@ static void test_css_registry_standard_set(void)
      * shape of its own the way 9.12 moved `display`, and a shape change is not a
      * new property. None of the five inherits.
      *
+     * 9.14 adds five: the background longhands `background-image`, `background-position`,
+     * `background-size`, `background-repeat` and `background-attachment`.
+     * `background` and `background-color` were already rows — 9.14 *distributes* the
+     * shorthand over its six longhands rather than registering it again, and
+     * `background-color` keeps the colour shape 9.9 gave it. None of the five
+     * inherits, because a background is painted per element.
+     *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 44);
+    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 49);
     ROBO_CHECK_EQ_INT((int)inherited, 16);
-    ROBO_CHECK_EQ_INT((int)non_inherited, 28);
+    ROBO_CHECK_EQ_INT((int)non_inherited, 33);
 
     robo_css_property_registry_destroy(registry);
 }
@@ -143,7 +150,9 @@ static void test_css_registry_inherited_classification(void)
         "margin-top", "margin-right", "margin-bottom", "margin-left",
         "padding-top", "padding-right", "padding-bottom", "padding-left",
         "border-top-width", "border-right-width", "border-bottom-width",
-        "border-left-width", "border-width", "box-sizing"
+        "border-left-width", "border-width", "box-sizing",
+        "background-image", "background-position", "background-size",
+        "background-repeat", "background-attachment"
     };
     robo_css_property_registry_t *registry = NULL;
     size_t index;
@@ -209,6 +218,15 @@ static void test_css_registry_initial_values(void)
         {"padding", "0"},
         {"background", "transparent"},
         {"background-color", "transparent"},
+        /* 9.14's five, in the registry's own order, and two of them are worth
+         * reading twice: `background-position` starts at `0% 0%` — the top-left as
+         * a *percentage*, so it stays relative to whatever box it lands on — and
+         * `background-size` at `auto`, which is not a length. */
+        {"background-image", "none"},
+        {"background-position", "0%,_,0%"},
+        {"background-size", "auto"},
+        {"background-repeat", "repeat"},
+        {"background-attachment", "scroll"},
         {"border", "medium,_,none,_,currentcolor"},
         /* 9.11's box model: each longhand's own initial, and `border-width`
          * starting where its four longhands start rather than at zero. */

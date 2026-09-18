@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.13,
-positioning**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.14,
+backgrounds**).
 
-**Version:** 0.13.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.14.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -15,8 +15,8 @@ and consume it.
 
 **9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors), 9.5 (the
 cascade), 9.6 (specificity), 9.7 (inheritance), 9.8 (computed values), 9.9
-(colours), 9.10 (units and numbers), 9.11 (the box model), 9.12 (display) and 9.13
-(positioning).** 9.1
+(colours), 9.10 (units and numbers), 9.11 (the box model), 9.12 (display), 9.13
+(positioning) and 9.14 (backgrounds).** 9.1
 builds the model the rest of Phase 9 is written against; 9.2 builds the first
 machine that fills it; 9.3 builds the second — the grammar that consumes the token
 stream and produces that model out of real CSS; 9.4 builds the third, which turns a
@@ -515,6 +515,49 @@ and not a behaviour — refusing it would lose the offset values beside it, and
 carrying it is exactly what it is before anything scrolls. `docs/Positioning.md`
 has the full account.
 
+## Backgrounds (9.14)
+
+A background is the first property *family* whose parts are not the same kind of
+thing. The box model's four edges are four of one value; `background` is one
+declaration that speaks for six properties of six different shapes — a colour, an
+image reference, a repeat style, a pair of positions, a pair of sizes and an
+attachment — and no two of those have the same grammar. So its shorthand is not a
+positional mapping: a component goes to whichever longhand its **kind** names, and
+that classifier is the module's centre.
+
+The two closed vocabularies join the shared grammar rather than growing their own.
+`background-repeat` (`repeat`, `repeat-x`, `repeat-y`, `no-repeat`) and
+`background-attachment` (`scroll`, `fixed`) are rows in the table `display` and
+`position` already use, so their three refusals come in the same three sentences and
+none of that code is written twice. `repeat-x` is not a fifth behaviour — it is
+"tiles horizontally, does not tile vertically" — so the row carries the two *axes*
+and `repeats_on_axis` is derived from it, exactly as the display row carries an
+outer and an inner display.
+
+The position pair is the first shape whose value is *two* components, and the pair
+is the value because CSS's single-component forms are folded into it: `center`
+computes to `center center` and `top` to `center top`, since a position keyword is
+spelled by its **axis** — `left` is the START edge horizontally and `top` is the
+START edge vertically. `left 10px` is the edge-relative form, a different grammar
+whose *order* carries the meaning, and it is refused rather than half-read.
+`background-size` is the same pair shape with three whole-value keywords beside it,
+and a pair of two `auto`s folds back to `auto` because they are one computed value
+with one spelling.
+
+What the shorthand does to a longhand it did not name is the phase's one
+behavioural decision, and it is the *opposite* of the box model's: a box edge the
+author did not write has no value, while a background longhand the author did not
+write is **reset to its initial value**, because the shorthand stands for all six.
+That is what makes `background: red` mean "just this" on an element an earlier rule
+gave an image.
+
+Nothing paints. No image is loaded, no percentage is resolved against a box, and
+multiple background *layers* are refused with a reason rather than half-read. What
+is converted is the one thing that is exact — an absolute length arrives as the
+reference pixel, so `background-position: 1in` and `margin-top: 1in` cannot come to
+disagree about what a computed length is. `docs/Backgrounds.md` has the full
+account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -552,6 +595,7 @@ equivalence field by field.
 | `robo_css_computed_style_t` | Every entry's name, specified value, typed value and flags | The sheets, sources and parents those values were derived from |
 | `robo_css_color_t` | Nothing, ever — it is four bytes and a tag by value | — |
 | `robo_css_box_shorthand_t` | Nothing, ever — the three rows are `static const` | — |
+| `robo_css_background_position_t` / `_size_t` | Nothing, ever — a pair holds two components by value | — |
 
 `robo_css_slice_t` is a borrowed view. Every API that produces one documents who
 keeps those bytes alive; no slice is ever freed by RoboCSS.
@@ -569,7 +613,8 @@ runtime/
 │                             RoboCSSSpecificity.h, RoboCSSPropertyRegistry.h,
 │                             RoboCSSInherit.h, RoboCSSComputedValue.h,
 │                             RoboCSSColor.h, RoboCSSUnit.h, RoboCSSBox.h,
-│                             RoboCSSDisplay.h and RoboCSSPosition.h)
+│                             RoboCSSDisplay.h, RoboCSSPosition.h and
+│                             RoboCSSBackground.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -587,7 +632,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 541 cases only (`--filter css.`)
+scripts/robo test-css        # this subsystem's 573 cases only (`--filter css.`)
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -615,4 +660,5 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/BoxModel.md` | The 9.11 box model: the four sides and why their order is load-bearing, the three shorthands (and why `border` is not one of them), the 1/2/3/4 mapping as a table, the two refusals and why a `var()` is not a five-value shorthand, the three value shapes that differ by vocabulary, the fourteen registry rows, why expansion is not resolution, where the pass runs, what happens when a shorthand cannot be distributed, and the layout boundary |
 | `docs/Display.md` | The 9.12 display: the four values and why the set is closed, the outer/inner halves and why `inline-block` is not "inline with a flag", the two classification questions and how `contents` will separate them, reading an identifier and the `none`-vs-unknown ambiguity, the shape's four refusals, the multi-keyword syntax and HTML defaults as drawn boundaries, the registry row and why its initial value is checked as vocabulary text, non-inheritance and the hole it leaves, and the query door a consumer uses |
 | `docs/Positioning.md` | The 9.13 positioning: the five values, flow and positioned as two separate questions, the three classification doors and why an unknown enumerator answers 0 to all of them, reading an identifier and the `static`-vs-unknown ambiguity, the shape's three refusals and the reference boundary, why the four insets reuse the box model's `EDGE_OFFSET` and take their names from the side vocabulary, `z-index` and why `0.0` is refused, the six registry rows, non-inheritance and the hole it leaves, sticky as a value rather than a behaviour, and the layout/stacking boundary |
-| `../PROGRESS.md` | The Goal 9.1–9.13 records and their definitions of done |
+| `docs/Backgrounds.md` | The 9.14 backgrounds: the six longhands and why their order is load-bearing, the repeat rows' two axes and the attachment set, the edge vocabulary a keyword is spelled by, the position pair and every folding rule with its refusals, the size pair and why `auto` is a flag, `background-image`'s carried references, the classifier and its eight refusals, why the distribution *resets* while the box model's does not, the registry rows, non-inheritance and the hole it leaves, the paint/layer boundary (including why a hex colour in the shorthand is classified), and what the phase found in its own tests |
+| `../PROGRESS.md` | The Goal 9.1–9.14 records and their definitions of done |

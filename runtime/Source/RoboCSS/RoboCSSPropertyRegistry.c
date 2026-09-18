@@ -173,6 +173,16 @@ const char *robo_css_property_computation_name(
         return "position";
     case ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX:
         return "z-index";
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_REPEAT:
+        return "background-repeat";
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT:
+        return "background-attachment";
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE:
+        return "background-image";
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_POSITION:
+        return "background-position";
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE:
+        return "background-size";
     default:
         return "unknown";
     }
@@ -510,11 +520,37 @@ static const registry_standard_entry_t registry_standard_entries[] = {
      * second property whose value *is* a colour, and without one the rule that
      * resolves `currentColor` against the element's own `color` — as opposed to
      * the parent's, which is what it means on `color` itself — would be
-     * unreachable and therefore unprovable. A property fact is what this table
-     * holds; no background is painted, no shorthand is expanded, and `background`
-     * above keeps its own PRESERVE classification and is untouched. */
+     * unreachable and therefore unprovable. */
     { "background-color", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_COLOR,      "transparent", 0 },
+
+    /*
+     * --- the background family (9.14) ---
+     *
+     * Five longhands, and the shorthand above stays where it was: its own
+     * classification is PRESERVE and its own initial value is what CSS says the
+     * shorthand starts at (all six longhands at theirs). What 9.14 added is that
+     * the six are *distributed* — the pass in RoboCSSInherit.c turns one
+     * `background:` declaration into six longhand declarations, so a consumer
+     * never has to read a shorthand.
+     *
+     * Every one of the six is non-inherited, and that is CSS's rule rather than a
+     * choice: a background is painted per element, so a child that inherited one
+     * would tile its parent's image over its own box. The initial values are the
+     * ones CSS names, and two of them are worth reading twice — `background-position`
+     * starts at `0% 0%` (the top-left, as a *percentage*, so it stays relative)
+     * and `background-size` at `auto`, which is not a length.
+     */
+    { "background-image",      ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE,      "none",    0 },
+    { "background-position",   ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_POSITION,   "0% 0%",   0 },
+    { "background-size",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE,       "auto",    0 },
+    { "background-repeat",     ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_REPEAT,     "repeat",  0 },
+    { "background-attachment", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT, "scroll",  0 },
     { "border",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },

@@ -223,11 +223,65 @@ typedef enum robo_css_property_computation {
      * (robo_css_numeric_integer_value), and this shape asks it rather than
      * restating it.
      */
-    ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX = 12
+    ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX = 12,
+    /**
+     * One of the closed background-repeat vocabulary (9.14) — `background-repeat`.
+     *
+     * A row in the shared closed-vocabulary table rather than a fourth copy of
+     * "ask the identifier, then ask the table": the vocabulary, its two doors and
+     * its refusals are data, so a third and fourth closed vocabulary are two more
+     * rows. The set is closed for the same reason `display`'s and `position`'s are
+     * — `background-repeat: banana` has to be a mistake rather than a keyword
+     * carrying the text `banana` — and `space` and `round`, CSS's other two values,
+     * are rows this build has not added rather than words it does not know.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_REPEAT = 13,
+    /**
+     * One of the closed background-attachment vocabulary (9.14) —
+     * `background-attachment`.
+     *
+     * Two values, and closed: `local` is a value this build has not added. Two is
+     * few enough that a table looks like ceremony and it is not — the alternative
+     * is a comparison against one of two spellings in the shape that reads it, and
+     * that is where `floating` would become computable.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT = 14,
+    /**
+     * `none`, or a reference this build carries (9.14) — `background-image`.
+     *
+     * A shape of its own rather than PRESERVE, because `none` is a *value* here
+     * and not a coincidence: it is the property's initial value and it is what a
+     * `background:` shorthand resets the image to, so it is typed. Everything else
+     * that can be an image — `url(...)`, `linear-gradient(...)`, a bare URL token
+     * — is deferred with its tokens intact, which is the answer 9.9 gives a colour
+     * space this build cannot represent and a different answer from "invalid":
+     * refusing legal CSS is worse than carrying it.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE = 15,
+    /**
+     * A pair of components, one per axis (9.14) — `background-position`.
+     *
+     * The first shape here whose value is neither one enumerator nor one length: a
+     * position is *two* components that are each a keyword, a length or a
+     * percentage, and the pair is the value because CSS's single-component forms
+     * are folded into it (`center` is `center center`). Percentages stay
+     * percentages, because 25% of what is a question only the phase with a
+     * containing block can answer.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_POSITION = 16,
+    /**
+     * A whole-value keyword, or a pair of components (9.14) — `background-size`.
+     *
+     * `cover` and `contain` are *whole values* rather than components, so unlike
+     * the position shape this one is not always a pair — and a pair of two `auto`s
+     * is folded back to the keyword, because `auto` and `auto auto` are one
+     * computed value with one spelling.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE = 17
 } robo_css_property_computation_t;
 
 /** Number of defined computations. */
-#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 13u
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 18u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int robo_css_property_computation_is_known(robo_css_property_computation_t computation);

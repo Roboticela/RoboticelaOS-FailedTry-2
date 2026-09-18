@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.13)
+# RoboCSS Architecture (Phase 9.1–9.14)
 
 This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -541,6 +541,48 @@ dropping the declaration would lose the offsets beside it.
 
 `docs/Positioning.md` has the full account.
 
+### Background
+
+Backgrounds are six longhands and therefore **five models**, not one, because the six
+do not share a grammar:
+
+```text
+robo_css_background_color_t        the colour family, reused from 9.9 unchanged
+robo_css_background_image_t        none / a URL reference the parser kept as tokens
+robo_css_background_repeat_t       repeat / repeat-x / repeat-y / no-repeat
+robo_css_background_attachment_t  scroll / fixed
+robo_css_background_position_t     two *components*, each edge-or-length-percentage
+robo_css_background_size_t         auto / cover / contain / two length-percentages
+```
+
+Two of the six are **closed vocabularies** built the same way as `display` and
+`position`: a row per value, walked rather than switched on. `background-repeat`
+threads its rows to the two *axes* it repeats on, so `repeat-x` is not a spelling
+that happens to produce `repeat no-repeat` — it **is** that pair, read from the row.
+
+`background-position` and `background-size` are the first properties whose value is a
+**pair**, and the pair is where the phase's one real design problem lives. CSS lets a
+single component stand for both halves (`center` means `center center`), so the model
+distinguishes a *component* — which knows its own kind: an edge keyword, a length, a
+percentage — from the *pair* a component was folded into. Folding happens once, at
+parse time, so the computed value never has two spellings for one meaning. Equality is
+kind-aware: `left` and `0px` are different components however equal they look, because
+`50%` must stay a percentage and `0px` must stay a length for the phase that has a box
+to resolve them against. `background-size` borrows the same pair and adds the two
+keywords `cover` and `contain`, which are *not* `auto`.
+
+`background-attachment: fixed` is a value and not a behaviour — there is no scrollport
+to fix against — and `background-image` keeps whatever `url(…)` the grammar produced
+without fetching it. `none` is a value rather than a missing image, and
+`background-color` reuses the colour family from 9.9 rather than growing a second one.
+
+The `background` shorthand is distributed by the **inheritance layer's** existing
+distribution pass, so it reaches the six longhands through the same rules a declared
+longhand does, including `initial`/`inherit`/`unset`; unsupported syntax is refused
+with a reason rather than half-read.
+
+`docs/Backgrounds.md` has the full account.
+
 ### Rule
 
 `robo_css_style_rule_t` holds a selector list plus a declaration list.
@@ -745,7 +787,7 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Backgrounds (9.14), borders
+Borders
 (9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
 cascade itself, evaluating at-rules and the animation and
@@ -777,6 +819,14 @@ anything a position value *does* — no containing block is found, no offset is
 resolved, no rectangle exists, and no stacking order is computed, so `z-index` is
 a typed number nothing compares. `sticky` is a value and not a behaviour, and
 `inset` and the `inset-block`/`inset-inline` shorthands are not distributed.
+
+Backgrounds (9.14) are behind us in the same limited sense: the six longhands are
+typed values on the whole pipeline, the `background` shorthand is distributed
+through the inheritance layer's own pass, and "this element's background is page
+white, 50% 25% of its box, not repeating" is a sentence the computed style can say.
+What does not exist is any *picture* — nothing paints a rectangle, nothing fetches a
+`url(…)`, nothing tiles an image, nothing resolves `50%` against a box, and
+`background-attachment: fixed` is a value with no scrollport to fix against.
 **Reading bytes is not interpreting them,
 building a tree is not interpreting it either, answering a question about one
 element is not applying a style to it, and computing a value is not using one**:
@@ -792,8 +842,8 @@ wide anything is.
 Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
 (9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade(9.5), specificity (9.6), inheritance (9.7), computed values (9.8), colours
-(9.9), units (9.10), the box model (9.11), `display` (9.12) and `positioning`
-(9.13) flipped to 1 for
+(9.9), units (9.10), the box model (9.11), `display` (9.12), `positioning`
+(9.13) and `backgrounds` (9.14) flipped to 1 for
 exactly that
 reason, and no other flag did. Each flipped only when its whole job worked end
 to end: `cascade` waited for `specificity` rather than claiming an ordering it could

@@ -312,6 +312,17 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * is computed, `top: 20%` stays a percentage, `auto` stays a keyword rather
      * than becoming zero, and `z-index` orders nothing. */
     out->positioning = 1;
+    /* 9.14 gave the background family its values (RoboCSSBackground.h): the six
+     * longhands, each with a shape of its own, plus `background` as a shorthand
+     * the resolution pass distributes over all six. The distribution is the part
+     * that is new in kind, because a component is assigned to a longhand by
+     * *kind* rather than by position — a colour goes to the colour, a repeat
+     * keyword to the repeat, `cover` after a `/` to the size. The two closed
+     * vocabularies (repeat and attachment) are rows in the same table the display
+     * and positioning shapes use. What it claims is a value and its distribution;
+     * what it does not claim is paint — no image is fetched, no percentage is
+     * resolved against a box, and no pixel is blended. */
+    out->backgrounds = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

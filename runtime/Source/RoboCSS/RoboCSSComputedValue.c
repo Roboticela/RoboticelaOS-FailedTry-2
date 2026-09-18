@@ -234,6 +234,10 @@ const char *robo_css_computed_value_kind_name(robo_css_computed_value_kind_t kin
         return "display";
     case ROBO_CSS_COMPUTED_VALUE_POSITION:
         return "position";
+    case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION:
+        return "background-position";
+    case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE:
+        return "background-size";
     default:
         return "unknown";
     }
@@ -398,6 +402,39 @@ robo_result_t robo_css_computed_value_make_position(robo_css_computed_value_t *v
     return ROBO_OK;
 }
 
+robo_result_t robo_css_computed_value_make_background_position(
+    robo_css_computed_value_t *value,
+    robo_css_background_position_t position,
+    robo_css_diag_t *diag)
+{
+    /* Both components, because a half-filled pair is a state the parsing layer
+     * holds and not one a *computed value* may: a consumer reading the pair would
+     * otherwise have to know which half the parser had defaulted. */
+    if (!value || !robo_css_background_position_is_present(position)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "output is NULL or the position is incomplete");
+    }
+    robo_css_computed_value_dispose(value);
+    value->kind = ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION;
+    value->background_position = position;
+    return ROBO_OK;
+}
+
+robo_result_t robo_css_computed_value_make_background_size(
+    robo_css_computed_value_t *value,
+    robo_css_background_size_t size,
+    robo_css_diag_t *diag)
+{
+    if (!value || !robo_css_background_size_is_present(size)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "output is NULL or not a background size");
+    }
+    robo_css_computed_value_dispose(value);
+    value->kind = ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE;
+    value->background_size = size;
+    return ROBO_OK;
+}
+
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
                                                      robo_css_diag_t *diag)
@@ -485,6 +522,24 @@ robo_css_positioning_t robo_css_computed_value_position(const robo_css_computed_
         return ROBO_CSS_POSITIONING_STATIC;
     }
     return value->position;
+}
+
+robo_css_background_position_t robo_css_computed_value_background_position(
+    const robo_css_computed_value_t *value)
+{
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION) {
+        return robo_css_background_position_none();
+    }
+    return value->background_position;
+}
+
+robo_css_background_size_t robo_css_computed_value_background_size(
+    const robo_css_computed_value_t *value)
+{
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE) {
+        return robo_css_background_size_none();
+    }
+    return value->background_size;
 }
 
 /* ------------------------------------------------------------------ */
@@ -619,6 +674,14 @@ int robo_css_computed_value_equals(const robo_css_computed_value_t *a,
          * and are still two different positions, which is exactly why the
          * comparison is the enumerator and not the columns. */
         return a->position == b->position;
+    case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION:
+        /* Component-wise, and kind-aware at the component level: `left top` and
+         * `0% 0%` are different positions however equal they look once something
+         * resolves them, and the pair's own module is where that is decided. */
+        return robo_css_background_position_equals(a->background_position,
+                                                   b->background_position);
+    case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE:
+        return robo_css_background_size_equals(a->background_size, b->background_size);
     default:
         return computed_trees_equal(&a->preserved, &b->preserved);
     }
@@ -867,6 +930,19 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
          * as CSS spells them. */
         ok = robo_css_positioning_write(value->position, buffer, capacity, &used, NULL) ==
              ROBO_OK;
+        break;
+    case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION:
+        /* The background module's spelling, and it is the *pair's* rather than the
+         * declaration's: `center` prints `center center`, so two equal positions
+         * cannot print differently because one was written in the short form. */
+        ok = robo_css_background_position_write(value->background_position, buffer,
+                                                capacity, &used, NULL) == ROBO_OK;
+        break;
+    case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE:
+        /* The same, and here the folding is visible in the other direction: a pair
+         * of two `auto`s is the value `auto`, and prints as it. */
+        ok = robo_css_background_size_write(value->background_size, buffer, capacity,
+                                            &used, NULL) == ROBO_OK;
         break;
     case ROBO_CSS_COMPUTED_VALUE_PRESERVED:
         if (value->preserved.kind == ROBO_CSS_VALUE_KIND_TOKEN) {
@@ -1363,13 +1439,49 @@ static robo_result_t computed_vocabulary_position_make(robo_css_computed_value_t
                                                  diag);
 }
 
+static int computed_vocabulary_background_repeat_known(robo_css_slice_t keyword)
+{
+    return robo_css_background_repeat_slice_is_known(keyword);
+}
+
+static int computed_vocabulary_background_attachment_known(robo_css_slice_t keyword)
+{
+    return robo_css_background_attachment_slice_is_known(keyword);
+}
+
+/**
+ * A closed vocabulary whose value *is* its keyword, carried as one.
+ *
+ * `background-repeat` and `background-attachment` have no representation beyond
+ * the word: unlike a display or a position there is nothing to *do* with
+ * `no-repeat` at this stage, so a typed enumerator here would be a second copy of
+ * a table for no reader. What the closed vocabulary buys is the refusal —
+ * `background-repeat: banana` is a mistake rather than a keyword carrying the text
+ * `banana` — and what arrives is already the canonical spelling, because the
+ * token's decoded text is lower-cased and `is_known` has just confirmed it is one
+ * of the rows.
+ */
+static robo_result_t computed_vocabulary_keyword_make(robo_css_computed_value_t *out,
+                                                      robo_css_slice_t keyword,
+                                                      robo_css_diag_t *diag)
+{
+    return robo_css_computed_value_make_keyword(out, keyword, diag);
+}
+
 static const computed_vocabulary_grammar_t computed_vocabulary_grammars[] = {
     { ROBO_CSS_PROPERTY_COMPUTATION_DISPLAY, computed_vocabulary_display_known,
       computed_vocabulary_display_make, "not a single display keyword",
       "not a display value" },
     { ROBO_CSS_PROPERTY_COMPUTATION_POSITION, computed_vocabulary_position_known,
       computed_vocabulary_position_make, "not a single position keyword",
-      "not a position value" }
+      "not a position value" },
+    { ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_REPEAT,
+      computed_vocabulary_background_repeat_known, computed_vocabulary_keyword_make,
+      "not a single background-repeat keyword", "not a background repeat value" },
+    { ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT,
+      computed_vocabulary_background_attachment_known, computed_vocabulary_keyword_make,
+      "not a single background-attachment keyword",
+      "not a background attachment value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -1449,6 +1561,117 @@ static robo_result_t computed_compute_vocabulary(
                                diag);
     }
     return grammar->make(out, text, diag);
+}
+
+/**
+ * Compute a `background-image`: `none`, or a reference this build carries (9.14).
+ *
+ * Two answers rather than one, and the second is deliberately not a refusal.
+ * `none` is a *value* — the property's initial value, and what the `background`
+ * shorthand resets the image to — so it is a typed KEYWORD. Everything else that
+ * can be an image is a reference: `url("a.png")` and a bare `url(a.png)` token are
+ * the same fact, `linear-gradient(...)` is another, and this build can hold every
+ * one of them and fetch none of them. So they are carried with the unresolved flag
+ * set, exactly as 9.9 carries `oklch()` — legal CSS this build has no
+ * representation *for*, which is a different answer from `banana`, and the one an
+ * author writing real CSS will meet.
+ *
+ * The refusal is what is left: an identifier that is not `none` (`banana`), a
+ * number, a dimension, a string, or a sequence of more than one component.
+ */
+static robo_result_t computed_compute_background_image(
+    robo_css_computed_value_t *out,
+    const robo_css_value_t *specified,
+    robo_css_diag_t *diag)
+{
+    static const char *const reason = "not a background image";
+    const robo_css_property_computation_t computation =
+        ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE;
+    const robo_css_value_t *single = robo_css_value_single(specified);
+
+    if (single && single->kind == ROBO_CSS_VALUE_KIND_FUNCTION) {
+        /* A `var()` is a reference to a reference; a `url()` is a reference to a
+         * file; a gradient is a reference to a description of pixels. None is a
+         * colour or a length this layer could compute, and all three are carried
+         * rather than refused. */
+        return computed_keep(out, specified, 1, diag);
+    }
+    if (single && single->kind == ROBO_CSS_VALUE_KIND_TOKEN) {
+        robo_css_token_t token = robo_css_value_token(single);
+
+        if (token.type == ROBO_CSS_TOKEN_URL) {
+            return computed_keep(out, specified, 1, diag);
+        }
+        if (token.type == ROBO_CSS_TOKEN_IDENT) {
+            char keyword[64];
+            size_t length = 0u;
+
+            if (robo_css_token_keyword_text(&token, keyword, sizeof(keyword), &length) &&
+                robo_css_bytes_equal_ascii((const uint8_t *)keyword, length, "none")) {
+                /* The canonical spelling, not the author's: `NONE` computes to
+                 * `none`, so two equal values cannot print differently. */
+                return robo_css_computed_value_make_keyword(
+                    out, robo_css_slice_from_text("none"), diag);
+            }
+        }
+    }
+    return computed_reject(out, computation, reason, diag);
+}
+
+/**
+ * Compute a `background-position`: a pair of components (9.14).
+ *
+ * The reading lives in the background module, because it is the one place the
+ * grammar of a *pair* is written down and a second copy here is how
+ * `background-position: 25% 50%` and `top: 25%` would come to disagree about what
+ * a percentage is. What this layer decides is only the outcome: a pair is a typed
+ * value, a reference is carried with its tokens and the flag, and anything else is
+ * an INVALID answer with the module's reason rather than a failure code.
+ */
+static robo_result_t computed_compute_background_position(
+    robo_css_computed_value_t *out,
+    const robo_css_value_t *specified,
+    robo_css_diag_t *diag)
+{
+    robo_css_background_position_t position = robo_css_background_position_none();
+
+    switch (robo_css_background_position_from_value(specified, &position)) {
+    case ROBO_CSS_BACKGROUND_PARSE_POSITION:
+        return robo_css_computed_value_make_background_position(out, position, diag);
+    case ROBO_CSS_BACKGROUND_PARSE_DEFERRED:
+        /* `calc()`, `var()`: legal CSS this build does not evaluate, carried with
+         * the flag so a consumer cannot read the tokens as a position. */
+        return computed_keep(out, specified, 1, diag);
+    default:
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_POSITION,
+                               "not a background position", diag);
+    }
+}
+
+/**
+ * Compute a `background-size`: a keyword or a pair (9.14).
+ *
+ * The same shape of answer as the position above, and the same division of labour.
+ * A percentage stays a percentage here for the reason that matters: `background-size:
+ * 50% 25%` is 50% *of a box*, and this layer has no box — the phase that lays one
+ * out is the phase that can say 50% of what.
+ */
+static robo_result_t computed_compute_background_size(
+    robo_css_computed_value_t *out,
+    const robo_css_value_t *specified,
+    robo_css_diag_t *diag)
+{
+    robo_css_background_size_t size = robo_css_background_size_none();
+
+    switch (robo_css_background_size_from_value(specified, &size)) {
+    case ROBO_CSS_BACKGROUND_PARSE_SIZE:
+        return robo_css_computed_value_make_background_size(out, size, diag);
+    case ROBO_CSS_BACKGROUND_PARSE_DEFERRED:
+        return computed_keep(out, specified, 1, diag);
+    default:
+        return computed_reject(out, ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE,
+                               "not a background size", diag);
+    }
 }
 
 /**
@@ -1768,6 +1991,18 @@ robo_result_t robo_css_computed_value_compute(
     case ROBO_CSS_PROPERTY_COMPUTATION_POSITION:
         return computed_compute_vocabulary(
             computed_vocabulary_grammar_for(computation), out, specified, diag);
+    /* The two further closed vocabularies (9.14) are rows in the same table as
+     * the two above, which is what 9.13's shared body was for. */
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_REPEAT:
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT:
+        return computed_compute_vocabulary(
+            computed_vocabulary_grammar_for(computation), out, specified, diag);
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE:
+        return computed_compute_background_image(out, specified, diag);
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_POSITION:
+        return computed_compute_background_position(out, specified, diag);
+    case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE:
+        return computed_compute_background_size(out, specified, diag);
     case ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX:
         return computed_compute_z_index(out, specified, diag);
     default:

@@ -1,6 +1,6 @@
-# RoboCSS Test Organisation (Phase 9.1–9.13)
+# RoboCSS Test Organisation (Phase 9.1–9.14)
 
-Thirty-nine suites, 541 tests, one framework. These phases add no test runner,
+Forty suites, 573 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -143,6 +143,13 @@ produces, which is the half of the job that cannot break.
 | `SuiteRoboCssPosition.c` | 19 | The module (`css.position.*`) and what the pipeline makes of it: the five values walked in enumerator order with every keyword read back, the count pinned at five, an out-of-range enumerator answering *nothing* rather than the first row, the two flags asserted per row (`relative` and `sticky` being in flow **and** positioned at once, which is the pair that earns two columns), the three classification doors cross-checked so no two values can disagree and an unknown enumerator refused by **all three** — the assertion a shorter implementation that wrote `!in_flow` would fail — declaration text through the real tokenizer, serialization in the author's own spelling plus a buffer one byte short reporting the length it needed, the three refusals told apart (`running()` is an identifier this build has not added; `20px`, `#fff` and `10%` are not identifiers; `absolute fixed` and `rgb(0, 0, 0)` are not a single keyword) each with its own diagnostic, `var()`/`env()` carried and flagged while `nonsense(--p)` is refused, the four insets walked over `robo_css_box_side_count()` with each name read from `robo_css_box_side_name` so a row written against the wrong side cannot pass, `top: 25%` staying a percentage and `top: auto` staying a keyword and `top: min-content` a mistake, `z-index` accepting `0`, `7`, `-3` and `+12` while refusing `1.5`, `0.0` and `1e2` (`0.0` is the refusal that matters: same magnitude, different token), the initial values arriving typed through the style query door, non-inheritance proven from both sides for all six, `initial`/`inherit`/`unset` on a non-inherited property, the cascade's three keys including an inline style, a refused declaration staying *reported*, a malformed sweep with invariants on every case, and determinism over a document plus the vocabulary walked backwards |
 | `SuiteRoboCssDomSelect.c` (`css.dom.position.pipeline`) | 1 | The family over the **visual checkpoint's own document**: `body` `relative`, `h1` `absolute` with `top: 25%`, `button` `sticky`, each read back as a typed enumerator rather than as the keyword's letters, the flags asked on a real element (the `relative` body being in flow **and** positioned at once, the `absolute` heading out of flow), the insets beside them keeping their own types, and the initial value for an element the sheet does not name reaching a consumer through the query door rather than through the container |
 
+### 9.14 — the background family
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssBackground.c` | 31 | Five groups in the order the phase is built. The **vocabularies**: repeat and attachment walked rather than a representative typed out, with each repeat row's two *axes* read from the same row its name comes from (so `repeat-x` being `repeat no-repeat` is asserted rather than assumed), and the count pinned for both. The **components**: an edge written as its axis, a pair as two of them, and equality kind-aware so `left` and `0px` stay different because they are different *values* however equal they look. The **pairs**: what parses, what is refused and why, and the *folding* that makes `center` and `center center` one computed value rather than two, plus `cover`/`contain` being keywords and not `auto`. The **longhands**: all six through the real grammar, every refusal in its own wording, and the registry row whose value is a pair. **Integration**: a real element — initial values through the query door, non-inheritance proved from both sides, `inherit`/`initial`/`unset`, the cascade's three keys, the `background` shorthand's distribution, its **reset** semantics (a longhand the shorthand omits going back to its initial rather than keeping an earlier declaration), and the case where it distributes nothing because the syntax is unsupported |
+| `SuiteRoboCssDomSelect.c` (`css.dom.background.pipeline`) | 1 | The family over the **visual checkpoint's own document**: `background-color` on real elements read as a typed colour rather than as letters, a `background-position` pair keeping both components' own kinds, `background-repeat` read back as an enumerator rather than as its keyword, a pixel and a percentage size staying pixel and percentage, and the shorthands distributed onto real elements — which is what makes the distribution pass a fact about the product rather than about the module |
+
 ### 9.7 — property metadata and inheritance
 
 | Suite | Tests | Subject |
@@ -269,7 +276,7 @@ UTF-8 samples carefully — `"\xC3\x9Cber"` is a single out-of-range escape
 ## 5. Running
 
 ```bash
-scripts/robo test-css                     # the 541 css.* tests only
+scripts/robo test-css                     # the 573 css.* tests only
 scripts/robo test-runtime                 # the whole runtime suite
 scripts/robo test-css -Verbose            # per-test lines
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test
@@ -861,3 +868,54 @@ The sanitizer run is the same in kind as every earlier phase: the whole suite un
 AddressSanitizer and UndefinedBehaviorSanitizer returns to the baseline allocator count,
 with no report from either, which is what makes the two-sheet and repeated-resolution
 scopes in the new suite meaningful rather than decorative.
+
+## 18. What the 9.14 suites found
+
+Four things, and the first three are **gaps** rather than mistakes — the phase's own tests
+are what surfaced them:
+
+* **Five computation shapes had no name.** `robo_css_property_computation_name` fell to
+  `"unknown"` for the five backgrounds shapes. A name is what a diagnostic prints, so an
+  unrecognised shape is a message nobody can act on — and nothing else in the build reads
+  that function, which is why only a test walking the set can see it.
+* **The parse-outcome vocabulary had no doors.** `robo_css_background_parse_is_known` and
+  `_parse_name` were declared in the header and had no definition. That is a link error
+  rather than a silent one *because the suite walked the set*; a suite that had typed out
+  the outcome it cared about would have left the other three undefined.
+* **A hex colour in the shorthand was refused.** `background: #fff` classified as belonging
+  to no longhand while `background: white` did not, because the classifier's HASH case fell
+  to the default. Four spellings of one colour reaching one longhand is now asserted directly.
+* **The suite caught a bug in itself.** `css.background.robust` compares two computations of
+  one malformed input and compared `b.kind` against `a.kind` *after* disposing `a`. Reading a
+  disposed record's kind is exactly the class of defect that suite exists to hunt, and it is
+  worth recording that it found one in its own author.
+
+One expectation moved, and it is the count 9.13 warned about:
+
+* **The registry suite pins counts, and the counts moved again.** It asserted 44 properties
+  and 28 non-inherited; 9.14 adds five non-inherited rows (`background-image`,
+  `background-repeat`, `background-position`, `background-size`,
+  `background-attachment`), so the numbers became 49, 16 inherited and 33 non-inherited.
+  `background` and `background-color` were already rows — the phase *distributes* the
+  shorthand rather than registering it again, and a shape change is not a new property. The
+  structural assertions beside them — every row classified, every initial value parseable,
+  every name usable — went green untouched, which is again the part that means the table is
+  still coherent rather than merely the right size.
+
+Three things the suite was written to catch:
+
+* **A pair has two spellings, and only one is stored.** `background-position: center` and
+  `background-position: center center` are the same computed value, so the *folding* happens
+  once at parse time and the suite asserts the two arrive equal rather than asserting the
+  folding is attempted twice. The failure this guards against is an implementation that
+  keeps the source's arity, which would make two equal styles compare unequal and would
+  only show up at the phase that starts comparing computed styles.
+* **A component's kind is part of its identity.** `left` and `0px` are equal as offsets and
+  *not* equal as values, and the suite asserts the inequality on purpose — the phase that
+  resolves them against a box is entitled to two different answers, and an equality that
+  said otherwise would erase the distinction before anyone could use it.
+* **The shorthand's reset is asserted, not implied.** `background: red` sets the five
+  longhands it does not name back to their **initial** values rather than leaving an
+  earlier declaration standing, so a later longhand and an earlier longhand are not the same
+  document. This is the one shorthand behaviour that a "populate what you can"
+  implementation gets wrong while every value it writes is correct.

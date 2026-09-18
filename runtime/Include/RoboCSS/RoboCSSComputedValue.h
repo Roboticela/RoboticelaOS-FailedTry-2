@@ -76,6 +76,7 @@
 #define ROBO_CSS_COMPUTED_VALUE_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboCSS/RoboCSSBackground.h"
 #include "RoboCSS/RoboCSSColor.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSDisplay.h"
@@ -163,11 +164,15 @@ typedef enum robo_css_computed_value_kind {
     /** One of the closed display vocabulary (9.12). */
     ROBO_CSS_COMPUTED_VALUE_DISPLAY = 9,
     /** One of the closed positioning vocabulary (9.13). */
-    ROBO_CSS_COMPUTED_VALUE_POSITION = 10
+    ROBO_CSS_COMPUTED_VALUE_POSITION = 10,
+    /** A pair of position components, one per axis (9.14). */
+    ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION = 11,
+    /** A whole-value size keyword, or a pair of size components (9.14). */
+    ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE = 12
 } robo_css_computed_value_kind_t;
 
 /** Number of defined kinds. */
-#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 11u
+#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 13u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int robo_css_computed_value_kind_is_known(robo_css_computed_value_kind_t kind);
@@ -228,6 +233,22 @@ typedef struct robo_css_computed_value {
      * position" and "this element is static" are different answers.
      */
     robo_css_positioning_t position;
+    /**
+     * BACKGROUND_POSITION: the pair (RoboCSSBackground.h); absent otherwise.
+     *
+     * A struct rather than one enumerator, because the value *is* two components
+     * and CSS folds its single-component forms into them: `background-position:
+     * center` and `background-position: center center` are one value here, which
+     * is what lets a consumer read the pair without re-deriving the folding rule.
+     * Both components are always present when the kind is this one.
+     */
+    robo_css_background_position_t background_position;
+    /**
+     * BACKGROUND_SIZE: the keyword or pair (RoboCSSBackground.h); `auto`
+     * otherwise — the property's initial value, and not a value to read without
+     * the kind check, exactly as for @ref display and @ref position.
+     */
+    robo_css_background_size_t background_size;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -328,6 +349,18 @@ robo_result_t robo_css_computed_value_make_position(robo_css_computed_value_t *v
                                                     robo_css_positioning_t position,
                                                     robo_css_diag_t *diag);
 
+/** Make @p value a BACKGROUND_POSITION holding @p position (copied by value). */
+robo_result_t robo_css_computed_value_make_background_position(
+    robo_css_computed_value_t *value,
+    robo_css_background_position_t position,
+    robo_css_diag_t *diag);
+
+/** Make @p value a BACKGROUND_SIZE holding @p size (copied by value). */
+robo_result_t robo_css_computed_value_make_background_size(
+    robo_css_computed_value_t *value,
+    robo_css_background_size_t size,
+    robo_css_diag_t *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
@@ -370,6 +403,27 @@ robo_css_display_t robo_css_computed_value_display(const robo_css_computed_value
  * exactly why it is worth saying that they must not be.
  */
 robo_css_positioning_t robo_css_computed_value_position(
+    const robo_css_computed_value_t *value);
+
+/**
+ * The pair of a BACKGROUND_POSITION value; an absent pair for any other kind.
+ *
+ * Read together with a kind check, for the same reason the two above are: an
+ * absent pair and `0% 0%` are different facts, and the second is a real position
+ * an element can have.
+ */
+robo_css_background_position_t robo_css_computed_value_background_position(
+    const robo_css_computed_value_t *value);
+
+/**
+ * The size of a BACKGROUND_SIZE value; `auto` for any other kind.
+ *
+ * Read together with a kind check. `background-size: auto` and "this is not a
+ * size value" are different facts, and `auto` is also the property's initial
+ * value — so it is the answer that would do the least damage if they were
+ * conflated, which is exactly why it is worth saying that they must not be.
+ */
+robo_css_background_size_t robo_css_computed_value_background_size(
     const robo_css_computed_value_t *value);
 
 /**

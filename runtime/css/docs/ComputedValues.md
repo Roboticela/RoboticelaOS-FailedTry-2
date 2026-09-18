@@ -52,6 +52,8 @@ COLOR        four 8-bit channels, alpha included
 FAMILY_LIST  an ordered font family list
 DISPLAY      one of four display values (9.12)
 POSITION     one of five position values (9.13)
+BACKGROUND_POSITION  a pair: two edges, or length-percentages (9.14)
+BACKGROUND_SIZE      two length-percentages, `auto`, `cover` or `contain` (9.14)
 PRESERVED    the specified tokens, carried intact
 INVALID      the value did not mean anything for this property
 ```
@@ -220,6 +222,11 @@ LINE_WIDTH     a length or thin/medium/thick       border-*-width (9.11)
 DISPLAY        one of a closed vocabulary          display       (9.12)
 POSITION       one of a closed vocabulary          position      (9.13)
 Z_INDEX        `auto` or a whole number            z-index       (9.13)
+BACKGROUND_REPEAT     one of a closed vocabulary  background-repeat     (9.14)
+BACKGROUND_ATTACHMENT one of a closed vocabulary  background-attachment (9.14)
+BACKGROUND_IMAGE      `none` or a kept reference  background-image      (9.14)
+BACKGROUND_POSITION   a pair of components        background-position   (9.14)
+BACKGROUND_SIZE       a pair, or cover/contain     background-size       (9.14)
 ```
 
 `FONT_WEIGHT` refuses `5000` rather than clamping it — 5000 is not a heavier
@@ -229,7 +236,7 @@ difference.
 
 Adding the column did not change the registry's data: every initial value was
 already text, and the registry already parsed each into a component-value tree at
-registration time. One field, one switch, and — after 9.13 — thirteen shapes.
+registration time. One field, one switch, and — after 9.14 — eighteen shapes.
 
 ### Why 9.11 added three more
 
@@ -334,6 +341,44 @@ Nothing here resolves anything: `top: 25%` stays a percentage because it needs a
 containing block, `z-index` is never compared because a stacking context is a later
 phase's, and `position: sticky` is a value rather than a behaviour.
 
+### Why 9.14 added five, and two of them are the first *pair* shapes
+
+The background family is six longhands and five shapes, because
+`background-color` already had one — the colour shape from 9.9, reused rather than
+re-derived — and the other five do not share a grammar:
+
+```text
+background-repeat      one of four values                BACKGROUND_REPEAT
+background-attachment  one of two values                 BACKGROUND_ATTACHMENT
+background-image       `none`, or whatever `url(…)` made  BACKGROUND_IMAGE
+background-position    two components                    BACKGROUND_POSITION
+background-size        two components, or cover/contain   BACKGROUND_SIZE
+```
+
+The two vocabularies are **rows in the same closed-vocabulary table** `DISPLAY` and
+`POSITION` use, so the machine that asks an identifier, then asks a table, is data
+rather than a third copy of itself. The two pair shapes are new in kind, and the
+decision they encode is that the pair is stored **folded**:
+
+```text
+background-position: center            two components — center, center
+background-position: center center     two components — center, center
+```
+
+One spelling arrives short and means the same thing. Folding happens once, at parse
+time, so the computed value has one representation rather than two, and the equality
+the style layer will eventually use does not have to know the shorthand had an arity.
+A component keeps its own kind — an edge keyword, a length, a percentage — and the
+comparison is kind-aware on purpose: `left` and `0px` are equal as offsets and
+**different as values**, because the phase that resolves them against a box is
+entitled to two answers. `cover` and `contain` are *not* `auto`: they size an image
+rather than describing a length, and they are refused a percentage beside them the
+way `EDGE_INSET` refuses `auto`.
+
+Nothing here paints: `50%` stays a percentage, `url(…)` is never fetched, `none` is a
+value rather than a missing image, and `background-attachment: fixed` is a keyword
+with no scrollport to fix against.
+
 ## The computed style
 
 `robo_css_computed_style_t` is the 9.1 container **made richer rather than
@@ -433,6 +478,9 @@ other shorthands 9.13 does not distribute are not expanded at all.
 * **Positioning as geometry.** `position` is a typed value and `z-index` a typed
 number; no containing block is found, no offset is applied, and no stacking order
 is computed.
+* **Backgrounds as a picture.** Six typed coordinates exist; no rectangle is
+painted, no `url(…)` is fetched, no image is sized or tiled, and `50%` is never
+resolved against a box.
 * **A default stylesheet.** The `RUNTIME` origin slot is still empty, and
   `default_styles` is still 0.
 
@@ -445,10 +493,11 @@ is computed.
 * `robo_css_computed_value_compute` — the normaliser: `(computation, specified,
   out, diag)`.
 * `robo_css_computed_value_make_keyword` / `_number` / `_percentage` / `_length`
-  / `_color` / `_family_list` / `_display` / `_position` / `_preserved` /
-  `_invalid`.
+  / `_color` / `_family_list` / `_display` / `_position` /
+  `_background_position` / `_background_size` / `_preserved` / `_invalid`.
 * `robo_css_computed_value_kind_is_known` / `_kind_name` / `_text` /
-  `_color` / `_display` / `_position` / `_preserved`.
+  `_color` / `_display` / `_position` / `_background_position` /
+  `_background_size` / `_preserved`.
 
 `RoboCSSDisplay.h` / `RoboCSSPosition.h` — the two closed vocabularies (9.12,
 9.13; reached through this header's include, listed here because a reader of *this*
@@ -476,9 +525,25 @@ header's include, listed here because a reader of *this* document meets them her
 * `robo_css_unit_context_init` and the six `_set_*` setters;
   `robo_css_unit_resolve_px`; `robo_css_length_resolution_is_known` / `_name`.
 
+`RoboCSSBackground.h` — the background family (9.14; reached through this header's
+include, listed here for the same reason):
+
+* `robo_css_background_repeat_from_slice` / `_from_text` / `_slice_is_known` /
+  `_write` / `_is_known` / `_name` / `_count`, and
+  `robo_css_background_repeat_repeats_on_axis` — the row read to answer whether it
+  repeats on an axis, so `repeat-x` is the pair rather than a spelling beside it.
+* `robo_css_background_attachment_from_slice` / `_from_text` / `_slice_is_known` /
+  `_write` / `_is_known` / `_name` / `_count`.
+* The two *pair* values: `robo_css_background_component_*` (a component, its kind
+  and its kind-aware `_equals`), `robo_css_background_position_*` and
+  `robo_css_background_size_*` (`_none` / `_is_present` / `_equals` / `_write`),
+  the parse door `robo_css_background_{position,size}_from_value`, and the six
+  longhand names plus `robo_css_background_expand`, which is what the `background`
+  shorthand reaches the longhands through.
+
 The record is by value, so the rest of it is read as **fields**: `kind`,
-`number`, `unit`, `is_integer`, `color`, `display`, `position`, `preserved`, and
-`unresolved`.
+`number`, `unit`, `is_integer`, `color`, `display`, `position`,
+`background_position`, `background_size`, `preserved`, and `unresolved`.
 
 `RoboCSSComputed.h` — the style container's computed half:
 
@@ -498,7 +563,7 @@ The record is by value, so the rest of it is read as **fields**: `kind`,
 
 ## How the tests are run
 
-* `scripts/robo test-css` — the whole CSS subsystem (541 tests).
+* `scripts/robo test-css` — the whole CSS subsystem (573 tests).
 * `./Out/RoboTest.host.exe --filter "css.computedvalue."` — the value model, the
   unit table, the colour forms and the normaliser (14 tests).
 * `./Out/RoboTest.host.exe --filter "css.computed."` — the pipeline over the

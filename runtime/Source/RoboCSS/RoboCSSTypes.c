@@ -396,6 +396,8 @@ const char *robo_css_diagnostic_domain_name(robo_css_diagnostic_domain_t domain)
         return "display";
     case ROBO_CSS_DOMAIN_POSITION:
         return "position";
+    case ROBO_CSS_DOMAIN_BACKGROUND:
+        return "background";
     default:
         return "unknown";
     }

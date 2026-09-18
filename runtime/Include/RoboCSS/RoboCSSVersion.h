@@ -1,5 +1,5 @@
 /*
- * RoboCSS version pin — Phase 9.13 positioning milestone.
+ * RoboCSS version pin — Phase 9.14 backgrounds milestone.
  *
  * 0.1.0 was the architecture-only surface: the data model the rest of Phase 9
  * is built on, with every interpretation site answering ROBO_NOT_SUPPORTED.
@@ -133,6 +133,11 @@
  *                 the classifications a layout pass dispatches on — with the four
  *                 inset properties named by the side vocabulary and shaped by the
  *                 box model's EDGE_OFFSET
+ *   background    the background vocabulary: `background-repeat` (four values,
+ *                 each a row carrying its two axes) and `background-attachment`
+ *                 (two), the edge vocabulary a position keyword is spelled by, the
+ *                 position and size *pairs*, and the classifier that distributes
+ *                 one `background:` layer over its six longhands
  *
  * What the grammar is: the CSS Syntax structure rules — a stylesheet, a list of
  * rules, an at-rule, a qualified rule, a block's declarations, a declaration,
@@ -320,6 +325,54 @@
  * box against the top-left corner of its containing block — and `z-index: auto`
  * stays a keyword because it says something `0` does not.
  *
+ * 0.14.0 is the thirteenth, and it adds the first property *family* whose parts
+ * are not the same kind of thing: backgrounds (RoboCSSBackground.h). The box
+ * model's four edges are four of one value; `background` is one declaration that
+ * speaks for six properties of six different shapes — a colour, an image
+ * reference, a repeat style, a pair of positions, a pair of sizes and an
+ * attachment — and that is the whole reason it is a module rather than another
+ * row in the box's. There is no positional mapping from component to longhand,
+ * because a component's *kind* is what decides where it goes, and the classifier
+ * is where that is written down.
+ *
+ * The two closed vocabularies join the shared grammar rather than growing their
+ * own: `background-repeat` (`repeat`, `repeat-x`, `repeat-y`, `no-repeat`) and
+ * `background-attachment` (`scroll`, `fixed`) are rows in the table `display` and
+ * `position` already use, so a third and fourth closed set are two more rows and
+ * none of the refusal code is written twice. `repeat-x` is not a fifth behaviour
+ * — it is "tiles horizontally, does not tile vertically" — so the row carries
+ * both *axes* and `repeats_on_axis` is derived from it, exactly as the display
+ * row carries an outer and an inner display. A value added later (`space`,
+ * `round`) answers for itself.
+ *
+ * The position pair is the first shape whose value is *two* components, and the
+ * pair is the value because CSS's single-component forms are folded into it:
+ * `center` computes to `center center`. Its components are per-*axis* rather than
+ * one shape with two optional halves, because a position keyword is spelled by
+ * its axis — `left` is the START edge horizontally and `top` is the START edge
+ * vertically — and `left 10px` is the edge-relative form, a different grammar
+ * whose *order* carries the meaning, refused rather than half-read. `background-size`
+ * is the same pair shape with three whole-value keywords beside it, and a pair of
+ * two `auto`s folds back to `auto` because they are one computed value with one
+ * spelling.
+ *
+ * Six longhands, none of which inherits — a background is painted per element,
+ * and a child that inherited one would tile its parent's image over its own box —
+ * and the shorthand is a *pass* rather than a table row, because its third
+ * outcome differs from the box model's in the way that matters: a box edge the
+ * author did not write has no value, while a background longhand the author did
+ * not write is **reset to its initial value**, since the shorthand stands for all
+ * six. That is what makes `background: red` mean "just this" on an element an
+ * earlier rule gave an image, and it is asserted from both sides.
+ *
+ * Nothing paints: no image is loaded, no percentage is resolved against a box, and
+ * multiple background *layers* (`url(a.png), url(b.png)`) are refused with a
+ * reason because the shorthand grammar for them is a list of layers and each
+ * layer is a whole set of longhands. What the phase converts is the one thing
+ * that is exact — an absolute length arrives as the reference pixel, so
+ * `background-position: 1in` and `margin-top: 1in` cannot come to disagree about
+ * what a computed length is.
+ *
  * Everything past that — layout, used values, `calc()` evaluation — is still a
  * declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
@@ -343,9 +396,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 13
+#define ROBO_CSS_VERSION_MINOR 14
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.13.0"
+#define ROBO_CSS_VERSION_STRING "0.14.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

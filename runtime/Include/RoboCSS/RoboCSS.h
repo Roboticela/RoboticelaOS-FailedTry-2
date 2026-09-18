@@ -213,6 +213,23 @@ typedef struct robo_css_capabilities {
      */
     int positioning;
     /**
+     * Backgrounds (9.14): the six longhands — `background-color` (a colour),
+     * `background-image` (`none`, or a reference this build carries),
+     * `background-position` (a pair of components, one per axis),
+     * `background-size` (`auto`, `cover`, `contain`, or a pair),
+     * `background-repeat` (a closed four-value vocabulary) and
+     * `background-attachment` (a closed two-value one) — plus the `background`
+     * shorthand, distributed over all six.
+     *
+     * What it does not claim is paint or layout. Nothing draws a background,
+     * nothing loads an image, and nothing resolves a `background-position`
+     * percentage against a box: `25% 50%` stays two percentages because only the
+     * phase with a box can say 25% of what. Multiple background *layers* are
+     * refused rather than half-read, since the shorthand grammar for them is a
+     * list of layers and each layer is a whole set of longhands.
+     */
+    int backgrounds;
+    /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
      */

@@ -2456,6 +2456,206 @@ static void test_css_dom_position_pipeline(void)
     css_dom_cascade_end(&fixture);
 }
 
+/*
+ * `css.dom.background.pipeline` — the background family over the real tree.
+ *
+ * The CSS-side suite proves the six longhands, the two closed vocabularies and
+ * the two pairs as values; this proves the family survives a *document*, which is
+ * where four facts have to hold at once. A declared longhand arrives as a typed
+ * value on the elements the sheet names — a colour on one, a preserved image
+ * reference on another, a pair of components on a third. The `background`
+ * shorthand *distributes* over all six, so an element that wrote one declaration
+ * has six entries. An element the sheet names for one property has **no entry**
+ * for the other five — none of them inherits — so the query door is what answers, 
+ * with the property's own initial value and `from_initial` set. And a percentage
+ * stays a percentage: `25% 50%` is a pair of percentages because only the phase
+ * with a box can say 25% of what.
+ *
+ * That last pair — the query door and `from_initial` — is the interface a paint
+ * phase consumes, and it is asserted in the same shape the display, box and
+ * positioning pipelines assert it.
+ */
+static void test_css_dom_background_pipeline(void)
+{
+    css_dom_cascade_t fixture;
+    robo_css_computed_style_t *body_style = NULL;
+    robo_css_computed_style_t *heading = NULL;
+    robo_css_computed_style_t *button = NULL;
+    robo_css_computed_style_t *paragraph = NULL;
+    robo_css_computed_value_t queried = ROBO_CSS_CLEARED;
+    robo_css_stylesheet_id_t sheet;
+    int from_initial = -1;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "body { background-color: #336699;"
+                                  " background-repeat: repeat-x }\n"
+                                  "h1 { background-color: #ff0000;"
+                                  " background-image: url(\"Heading.png\");"
+                                  " background-position: 25% 50%;"
+                                  " background-size: cover;"
+                                  " background-repeat: no-repeat;"
+                                  " background-attachment: fixed }\n"
+                                  "button { background: #ffffff no-repeat }\n"
+                                  "p { background-color: transparent }\n");
+
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "body") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "h1") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "button") != ROBO_CSS_ELEMENT_REF_NONE);
+
+    /* A colour and a repeat, and nothing else: the other four have no entry at
+     * all, which is the difference between "the author said nothing" and "the
+     * author said the initial value". */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "body"), &body_style);
+    css_computed_is(body_style, "background-color", "#336699");
+    css_computed_is(body_style, "background-repeat", "repeat-x");
+    css_computed_flags_are(body_style, "background-color", "declared");
+    css_computed_is(body_style, "background-image", "<absent>");
+    css_computed_is(body_style, "background-position", "<absent>");
+    css_computed_is(body_style, "background-size", "<absent>");
+    css_computed_is(body_style, "background-attachment", "<absent>");
+    ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                          fixture.context, body_style,
+                          robo_css_slice_from_text("background-image"), &queried,
+                          &from_initial, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(from_initial, 1);
+    ROBO_CHECK_EQ_INT(queried.kind, (int)ROBO_CSS_COMPUTED_VALUE_KEYWORD);
+    {
+        char text[ROBO_CSS_COMPUTED_VALUE_TEXT_MAX];
+        size_t length = 0u;
+
+        ROBO_CHECK_EQ_INT(robo_css_computed_value_write(&queried, text, sizeof(text),
+                                                       &length, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_STR_EQ(text, "none");
+    }
+    robo_css_computed_value_dispose(&queried);
+    /* The two shapes that are not words are answered by the query door as well:
+     * `0% 0%` is a *pair* and `auto` is not a length. */
+    ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                          fixture.context, body_style,
+                          robo_css_slice_from_text("background-position"), &queried,
+                          &from_initial, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(from_initial, 1);
+    ROBO_CHECK_EQ_INT(queried.kind,
+                      (int)ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION);
+    ROBO_CHECK_EQ_INT(
+        robo_css_computed_value_background_position(&queried).horizontal.kind,
+        ROBO_CSS_BACKGROUND_COMPONENT_PERCENTAGE);
+    robo_css_computed_value_dispose(&queried);
+    ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                          fixture.context, body_style,
+                          robo_css_slice_from_text("background-size"), &queried,
+                          &from_initial, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(from_initial, 1);
+    ROBO_CHECK_EQ_INT(queried.kind, (int)ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE);
+    ROBO_CHECK_EQ_INT(robo_css_computed_value_background_size(&queried).kind,
+                      ROBO_CSS_BACKGROUND_SIZE_AUTO);
+    robo_css_computed_value_dispose(&queried);
+
+    /* All six on one element, each typed: an image this build carries and
+     * *flags*, a pair of percentages, a whole-value size keyword, a closed-vocabulary
+     * repeat and attachment, and a colour. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "h1"), &heading);
+    css_computed_is(heading, "background-color", "#ff0000");
+    css_computed_is(heading, "background-image", "url(\"Heading.png\")");
+    css_computed_is(heading, "background-position", "25% 50%");
+    css_computed_is(heading, "background-size", "cover");
+    css_computed_is(heading, "background-repeat", "no-repeat");
+    css_computed_is(heading, "background-attachment", "fixed");
+    ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(heading), 0);
+    {
+        const robo_css_computed_value_t *value =
+            robo_css_computed_style_computed_by_name(
+                heading, robo_css_slice_from_text("background-image"));
+
+        ROBO_CHECK_EQ_INT(value->kind, (int)ROBO_CSS_COMPUTED_VALUE_PRESERVED);
+        /* Carried *and* flagged: a consumer that read the tokens without the flag
+         * would be reading a reference as if it were an image. */
+        ROBO_CHECK_EQ_INT(value->unresolved, 1u);
+    }
+    {
+        const robo_css_computed_value_t *value =
+            robo_css_computed_style_computed_by_name(
+                heading, robo_css_slice_from_text("background-position"));
+        robo_css_background_position_t position;
+
+        ROBO_CHECK_EQ_INT(value->kind,
+                          (int)ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION);
+        position = robo_css_computed_value_background_position(value);
+        /* Two percentages, and the *horizontal* one is the first the author
+         * wrote — the order is the grammar's, and it survives the document. */
+        ROBO_CHECK_EQ_INT(position.horizontal.kind,
+                          ROBO_CSS_BACKGROUND_COMPONENT_PERCENTAGE);
+        ROBO_CHECK_EQ_INT(position.vertical.kind,
+                          ROBO_CSS_BACKGROUND_COMPONENT_PERCENTAGE);
+    }
+    {
+        const robo_css_computed_value_t *value =
+            robo_css_computed_style_computed_by_name(
+                heading, robo_css_slice_from_text("background-size"));
+
+        ROBO_CHECK_EQ_INT(value->kind, (int)ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE);
+        ROBO_CHECK_EQ_INT(robo_css_computed_value_background_size(value).kind,
+                          ROBO_CSS_BACKGROUND_SIZE_COVER);
+    }
+
+    /* The shorthand: one declaration, six entries — and the ones it did not name
+     * are the properties' own initial values rather than absent, which is what
+     * makes `background: #ffffff no-repeat` mean "just this". */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "button"), &button);
+    css_computed_is(button, "background-color", "#ffffff");
+    css_computed_is(button, "background-repeat", "no-repeat");
+    css_computed_is(button, "background-image", "none");
+    css_computed_is(button, "background-position", "0% 0%");
+    css_computed_is(button, "background-size", "auto");
+    css_computed_is(button, "background-attachment", "scroll");
+    css_computed_flags_are(button, "background-image", "declared");
+    /* The shorthand's own entry is the author's text, preserved: nothing here
+     * rewrites a declaration the consumer might want to read back. */
+    css_computed_is(button, "background", "#ffffff no-repeat");
+
+    /* And nothing leaked: a `p` that declared only a colour has only a colour. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "p"), &paragraph);
+    css_computed_is(paragraph, "background-color", "#00000000");
+    css_computed_is(paragraph, "background-image", "<absent>");
+    css_computed_is(paragraph, "background-repeat", "<absent>");
+
+    /* An invalid value on a real element is reported rather than replaced, and
+     * the five refusals stay five sentences. */
+    {
+        robo_css_computed_style_t *odd = NULL;
+        robo_css_stylesheet_id_t bad = css_dom_cascade_sheet(
+            &fixture,
+            "select { background-image: banana; background-position: banana;"
+            " background-size: banana; background-repeat: space;"
+            " background-attachment: floating; background-color: banana }");
+
+        css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "select"), &odd);
+        css_computed_is(odd, "background-image", "not a background image");
+        css_computed_is(odd, "background-position", "not a background position");
+        css_computed_is(odd, "background-size", "not a background size");
+        css_computed_is(odd, "background-repeat", "not a background repeat value");
+        css_computed_is(odd, "background-attachment", "not a background attachment value");
+        /* The colour module's own sentence, which is 9.9's and not this phase's:
+         * `background-color` keeps the shape 9.9 gave it. */
+        css_computed_is(odd, "background-color", "unknown colour name");
+        ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(odd), 1);
+        robo_css_computed_style_destroy(odd);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(bad, NULL), ROBO_OK);
+    }
+
+    robo_css_computed_style_destroy(paragraph);
+    robo_css_computed_style_destroy(button);
+    robo_css_computed_style_destroy(heading);
+    robo_css_computed_style_destroy(body_style);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -2499,4 +2699,6 @@ void robo_test_register_css_dom_select(void)
     robo_test_register("css.dom.box.pipeline", test_css_dom_box_pipeline);
     robo_test_register("css.dom.display.pipeline", test_css_dom_display_pipeline);
     robo_test_register("css.dom.position.pipeline", test_css_dom_position_pipeline);
+    robo_test_register("css.dom.background.pipeline",
+                       test_css_dom_background_pipeline);
 }

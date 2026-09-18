@@ -746,6 +746,142 @@ static int inherit_expand_box_shorthands(robo_css_inherited_style_t *out,
     return 1;
 }
 
+/**
+ * Distribute the `background` shorthand over its six longhands (9.14).
+ *
+ * A second pass rather than rows in the box model's, because the *mechanism* is
+ * different: the box table maps components to sides by position, while
+ * `background`'s six longhands are six different shapes and a component goes to
+ * whichever one its *kind* names. The two share the part that must not be
+ * duplicated — which of a shorthand and a longhand wins is the cascade's answer,
+ * asked here through `robo_css_cascade_candidate_compare` exactly as the box pass
+ * asks it — and nothing here weighs a level or compares a specificity.
+ *
+ * The third outcome differs from the box pass's, and it is the whole reason this
+ * is not a table row. A box edge the author did not write has *no* value, because
+ * `margin: 10px` says nothing about a fifth edge. `background: red` does say
+ * something about `background-image`: the shorthand stands for every one of the
+ * six, so a longhand it did not mention is **reset to its initial value**. That is
+ * why an absent part materialises the registry's initial value rather than being
+ * skipped — and it is what makes `background: red` on an element an earlier rule
+ * gave `background-image: url(a.png)` clear the image, which is the behaviour an
+ * author relies on when they write the shorthand to mean "just this".
+ */
+static int inherit_expand_background_shorthand(robo_css_inherited_style_t *out,
+                                               const robo_css_style_context_t *context,
+                                               const robo_css_cascade_t *cascade,
+                                               const robo_css_inherited_style_t *parent)
+{
+    const robo_css_property_table_t *table;
+    const robo_css_cascade_candidate_t *shorthand_winner = NULL;
+    const robo_css_value_t *shorthand_value = NULL;
+    robo_css_wide_keyword_t shorthand_keyword = ROBO_CSS_WIDE_KEYWORD_NONE;
+    robo_css_value_t parts[ROBO_CSS_BACKGROUND_LONGHAND_COUNT];
+    int expandable = 0;
+    int failed = 0;
+    size_t index;
+
+    for (index = 0u; index < ROBO_CSS_BACKGROUND_LONGHAND_COUNT; index++) {
+        robo_css_value_init(&parts[index]);
+    }
+    if (!cascade) {
+        return 1;
+    }
+    table = robo_css_style_context_property_table(context);
+    (void)robo_css_cascade_resolve_name(
+        cascade, robo_css_slice_from_text(robo_css_background_shorthand_name()),
+        &shorthand_winner);
+    if (shorthand_winner) {
+        shorthand_value = robo_css_declaration_value(shorthand_winner->declaration);
+        shorthand_keyword = robo_css_wide_keyword_of(shorthand_value);
+        if (shorthand_keyword == ROBO_CSS_WIDE_KEYWORD_NONE) {
+            /* Distributed once for the whole shorthand rather than once per
+             * longhand, because the parts are shared by all six. */
+            expandable = robo_css_background_expand(shorthand_value, parts, NULL) ==
+                         ROBO_OK;
+            if (!expandable) {
+                out->shorthands_unexpanded++;
+                out->unsupported = 1;
+            }
+        }
+    }
+
+    for (index = 0u; index < ROBO_CSS_BACKGROUND_LONGHAND_COUNT; index++) {
+        robo_css_slice_t name = robo_css_slice_from_text(
+            robo_css_background_longhand_name(index));
+        const robo_css_cascade_candidate_t *longhand_winner = NULL;
+        robo_css_property_id_t property;
+        int inherited_by_default;
+        int longhand_wins;
+
+        (void)robo_css_cascade_resolve_name(cascade, name, &longhand_winner);
+        longhand_wins = longhand_winner != NULL &&
+                        (!shorthand_winner ||
+                         robo_css_cascade_candidate_compare(cascade, shorthand_winner,
+                                                            longhand_winner) > 0);
+        if (!longhand_wins && !shorthand_winner) {
+            /* Neither spoke for this longhand: it has no entry and is not
+             * supposed to have one. */
+            continue;
+        }
+        property = table ? robo_css_property_table_lookup_slice(table, name)
+                         : ROBO_CSS_PROPERTY_ID_NONE;
+        inherited_by_default = inherit_classify(context, name);
+
+        if (longhand_wins) {
+            if (!inherit_value(out, context, longhand_winner->property, name,
+                               robo_css_declaration_value(longhand_winner->declaration),
+                               parent, inherited_by_default)) {
+                failed = 1;
+                break;
+            }
+            continue;
+        }
+        if (shorthand_keyword != ROBO_CSS_WIDE_KEYWORD_NONE) {
+            /* The keyword itself, distributed: `background: inherit` means the
+             * same sentence six times, which is what `inherit_value` already
+             * knows how to obey. */
+            if (!inherit_value(out, context, property, name, shorthand_value, parent,
+                               inherited_by_default)) {
+                failed = 1;
+                break;
+            }
+            continue;
+        }
+        if (!expandable) {
+            /* The shorthand spoke and could not be distributed. The author's text
+             * stays on the shorthand's own entry and nothing is guessed at here. */
+            continue;
+        }
+        if (parts[index].kind == ROBO_CSS_VALUE_KIND_NONE) {
+            /* Present in the shorthand and absent from its components: the longhand
+             * is reset to the property's own initial value, and the registry is the
+             * one place that value is written down. */
+            const robo_css_value_t *initial = inherit_default_value(context, name);
+
+            if (!initial) {
+                continue;
+            }
+            if (!inherit_value(out, context, property, name, initial, parent,
+                               inherited_by_default)) {
+                failed = 1;
+                break;
+            }
+            continue;
+        }
+        if (!inherit_value(out, context, property, name, &parts[index], parent,
+                           inherited_by_default)) {
+            failed = 1;
+            break;
+        }
+    }
+
+    for (index = 0u; index < ROBO_CSS_BACKGROUND_LONGHAND_COUNT; index++) {
+        robo_css_value_dispose(&parts[index]);
+    }
+    return failed ? 0 : 1;
+}
+
 robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
                                        const robo_css_cascade_t *cascade,
                                        const robo_css_inherited_style_t *parent,
@@ -786,6 +922,12 @@ robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
              * Materialising it here as well would give the edge two entries. */
             continue;
         }
+        if (robo_css_background_is_longhand(name)) {
+            /* The same rule for the background family (9.14): the six longhands
+             * are materialised by the pass below, and only there, so a longhand
+             * cannot arrive twice — once as itself and once out of `background`. */
+            continue;
+        }
         /* Only the winner is materialised, and the cascade decides who that is:
          * asking it rather than comparing levels here is what keeps precedence
          * in one place. A declaration whose *name* is unknown has no id, so the
@@ -822,15 +964,27 @@ robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_INHERIT, ROBO_OUT_OF_MEMORY,
                              "the resolved style could not be built");
     }
+    /* And the background family's (9.14), which is a pass of its own because its
+     * shorthand's components map to longhands by kind rather than by position. */
+    if (!inherit_expand_background_shorthand(out, context, cascade, parent)) {
+        robo_css_inherited_style_dispose(out);
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_INHERIT, ROBO_OUT_OF_MEMORY,
+                             "the resolved style could not be built");
+    }
     if (out->shorthands_unexpanded > 0u) {
-        /* Reported rather than silent, because this is the phase's one quiet
-         * failure: the shorthand's own entry is intact, so a caller reading the
-         * style sees a declaration and no longhands and has no way to tell that
-         * four edges went unanswered. One line per resolution that met such a
-         * declaration, in the same spirit as the tokenizer's error line. */
+        /* Reported rather than silent, because this is the one quiet failure in
+         * the pass: the shorthand's own entry is intact, so a caller reading the
+         * style sees a declaration and no longhands and has no way to tell that a
+         * box's four edges or a background's six parts went unanswered. One line
+         * per resolution that met such a declaration, in the same spirit as the
+         * tokenizer's error line. */
         robo_log_debug("robo_css: inherit: %llu shorthand(s) met that this build "
                        "cannot distribute over their longhands",
                        (unsigned long long)out->shorthands_unexpanded);
+    } else {
+        robo_log_debug("robo_css: inherit: every shorthand distributed, %llu "
+                       "longhand(s) materialised",
+                       (unsigned long long)out->count);
     }
 
     /* What the parent carries, for the properties that inherit by default. */
