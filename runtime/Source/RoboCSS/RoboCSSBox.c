@@ -67,7 +67,13 @@ static const robo_css_box_shorthand_t box_shorthands[] = {
       { "padding-top", "padding-right", "padding-bottom", "padding-left" } },
     { "border-width", sizeof("border-width") - 1u,
       { "border-top-width", "border-right-width", "border-bottom-width",
-        "border-left-width" } }
+        "border-left-width" } },
+    { "border-style", sizeof("border-style") - 1u,
+      { "border-top-style", "border-right-style", "border-bottom-style",
+        "border-left-style" } },
+    { "border-color", sizeof("border-color") - 1u,
+      { "border-top-color", "border-right-color", "border-bottom-color",
+        "border-left-color" } }
 };
 
 size_t robo_css_box_shorthand_count(void)

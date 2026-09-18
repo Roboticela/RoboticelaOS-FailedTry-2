@@ -36,6 +36,7 @@
 
 #include "RoboCSS/RoboCSSInherit.h"
 
+#include "RoboCSS/RoboCSSBorder.h"
 #include "RoboCSS/RoboCSSBox.h"
 #include "RoboCSS/RoboCSSError.h"
 #include "RoboCSSInternal.h"
@@ -661,6 +662,17 @@ static int inherit_expand_box_shorthands(robo_css_inherited_style_t *out,
         const robo_css_box_shorthand_t *shorthand =
             robo_css_box_shorthand_at(row_index);
         const robo_css_cascade_candidate_t *shorthand_winner = NULL;
+
+        if (robo_css_border_distributes_shorthand(robo_css_slice_from_text(
+                shorthand->name))) {
+            /* The three border rows are table rows here and the border family's
+             * to distribute there (9.15): a border longhand can be set by a side
+             * shorthand and by `border` as well, and one longhand cannot be
+             * materialised by two passes. The table is the `margin`/`padding`
+             * half's and theirs together because the twelve longhand names are a
+             * vocabulary a single reader should be able to walk (RoboCSSBox.h). */
+            continue;
+        }
         const robo_css_value_t *shorthand_value = NULL;
         robo_css_wide_keyword_t shorthand_keyword = ROBO_CSS_WIDE_KEYWORD_NONE;
         size_t component_count = 0u;
@@ -882,6 +894,407 @@ static int inherit_expand_background_shorthand(robo_css_inherited_style_t *out,
     return failed ? 0 : 1;
 }
 
+/* ------------------------------------------------------------------ */
+/* The border family (9.15)                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One composite border shorthand, resolved and (if it can be) distributed.
+ *
+ * A record rather than five locals per side because a *composite* shorthand's
+ * distribution is the same for all the longhands it covers: `border: 1px solid
+ * red` splits into the same three parts whichever of the twelve longhands is
+ * being materialised, so the split happens once and the loop below reads it.
+ */
+typedef struct inherit_border_composite {
+    const robo_css_cascade_candidate_t *candidate;
+    const robo_css_value_t *value;
+    robo_css_wide_keyword_t keyword;
+    robo_css_value_t parts[ROBO_CSS_BORDER_KIND_COUNT];
+    int expandable;
+} inherit_border_composite_t;
+
+/**
+ * One positional border shorthand (`border-width` and its two siblings).
+ *
+ * Not a composite record with one kind filled in, because the *mechanism* is
+ * different: a positional row's components map to sides by position — one kind,
+ * four sides — so what is kept is how many components there were and the side's
+ * own component is copied out per longhand.
+ */
+typedef struct inherit_border_positional {
+    const robo_css_cascade_candidate_t *candidate;
+    const robo_css_value_t *value;
+    robo_css_wide_keyword_t keyword;
+    size_t component_count;
+    int expandable;
+} inherit_border_positional_t;
+
+static void inherit_border_composite_init(inherit_border_composite_t *record)
+{
+    size_t kind;
+
+    record->candidate = NULL;
+    record->value = NULL;
+    record->keyword = ROBO_CSS_WIDE_KEYWORD_NONE;
+    record->expandable = 0;
+    for (kind = 0u; kind < ROBO_CSS_BORDER_KIND_COUNT; kind++) {
+        robo_css_value_init(&record->parts[kind]);
+    }
+}
+
+static void inherit_border_composite_dispose(inherit_border_composite_t *record)
+{
+    size_t kind;
+
+    for (kind = 0u; kind < ROBO_CSS_BORDER_KIND_COUNT; kind++) {
+        robo_css_value_dispose(&record->parts[kind]);
+    }
+}
+
+/**
+ * Resolve one composite shorthand and try to distribute it.
+ *
+ * A shorthand that cannot be distributed is counted **once, here**, rather than
+ * once per longhand it would have covered — it is one declaration that went
+ * undistributed, and a counter that grew by twelve for one author mistake would
+ * be reporting the wrong thing.
+ */
+static void inherit_border_composite_read(inherit_border_composite_t *record,
+                                          const robo_css_cascade_t *cascade,
+                                          robo_css_slice_t name,
+                                          robo_css_inherited_style_t *out)
+{
+    (void)robo_css_cascade_resolve_name(cascade, name, &record->candidate);
+    if (!record->candidate) {
+        return;
+    }
+    record->value = robo_css_declaration_value(record->candidate->declaration);
+    record->keyword = robo_css_wide_keyword_of(record->value);
+    if (record->keyword != ROBO_CSS_WIDE_KEYWORD_NONE) {
+        return;
+    }
+    record->expandable =
+        robo_css_border_expand(record->value, record->parts, NULL) == ROBO_OK;
+    if (!record->expandable) {
+        /* `border: var(--rule)` is the case: the substitution has not happened, so
+         * how many components there are and which kind each is are both unknown.
+         * The author's text stays on the shorthand's own entry and nothing is
+         * guessed at here — see the header comment for why there is no fallback to
+         * a lower-priority declaration. */
+        out->shorthands_unexpanded++;
+        out->unsupported = 1;
+    }
+}
+
+static void inherit_border_positional_read(inherit_border_positional_t *record,
+                                           const robo_css_cascade_t *cascade,
+                                           robo_css_slice_t name,
+                                           robo_css_inherited_style_t *out)
+{
+    (void)robo_css_cascade_resolve_name(cascade, name, &record->candidate);
+    if (!record->candidate) {
+        return;
+    }
+    record->value = robo_css_declaration_value(record->candidate->declaration);
+    record->keyword = robo_css_wide_keyword_of(record->value);
+    if (record->keyword != ROBO_CSS_WIDE_KEYWORD_NONE) {
+        return;
+    }
+    record->expandable =
+        robo_css_box_is_expandable(record->value, &record->component_count);
+    if (!record->expandable) {
+        out->shorthands_unexpanded++;
+        out->unsupported = 1;
+    }
+}
+
+/** Keep whichever of @p candidate and *@p best the cascade would order first. */
+static void inherit_border_weigh(const robo_css_cascade_t *cascade,
+                                 const robo_css_cascade_candidate_t *candidate,
+                                 const robo_css_cascade_candidate_t **best)
+{
+    if (!candidate) {
+        return;
+    }
+    /* A zero answer means the same candidate or two the cascade does not hold;
+     * every candidate here comes from the cascade, so a zero is the first case and
+     * keeping what is already held is the right answer. */
+    if (!*best || robo_css_cascade_candidate_compare(cascade, candidate, *best) < 0) {
+        *best = candidate;
+    }
+}
+
+/**
+ * Distribute the border family over its twelve longhands (9.15).
+ *
+ * One pass rather than two, and that is the phase's central decision. A single
+ * border longhand can be set by as many as four declarations at once:
+ *
+ *     border-top-width: 5px;      the longhand itself
+ *     border-width: 1px;          its positional row  (four sides, one kind)
+ *     border-top: 1px solid red;  its side shorthand (one side, three kinds)
+ *     border: 2px dashed blue;    the whole shorthand (four sides, three kinds)
+ *
+ * and a longhand cannot be materialised by two independent passes. So the pass
+ * gathers every candidate that speaks for each longhand and takes the one the
+ * **cascade** orders first — asked through `robo_css_cascade_candidate_compare`,
+ * the same door the box and background passes ask, so nothing here weighs a level
+ * or compares a specificity.
+ *
+ * The eight style and colour longhands would have failed on their own terms
+ * anyway: `border-top-style` is covered by no box-table row before this phase, so
+ * without a pass that can see `border` and `border-top` together there would be
+ * no pass that could materialise it at all.
+ *
+ * Three outcomes per longhand, in the order they are decided:
+ *
+ *   nothing spoke              no entry, and there is not supposed to be one;
+ *   a shorthand won with a     obey the keyword — `border: inherit` means the
+ *   CSS-wide keyword           same sentence twelve times;
+ *   a shorthand won with       a composite's component for that kind, or the
+ *   a value                    positional row's component for that side.
+ *
+ * and one outcome that exists only for the composite shorthands: a kind the
+ * author did not write is **reset to its initial value**, because `border` stands
+ * for all three kinds on all four sides and `border: 1px solid` really does say
+ * that the border has no colour of its own. The positional rows have no such case
+ * — one to four components always cover all four sides, so nothing is left
+ * unnamed.
+ */
+static int inherit_expand_border_shorthands(robo_css_inherited_style_t *out,
+                                            const robo_css_style_context_t *context,
+                                            const robo_css_cascade_t *cascade,
+                                            const robo_css_inherited_style_t *parent)
+{
+    const robo_css_property_table_t *table;
+    inherit_border_composite_t whole;
+    inherit_border_composite_t sides[ROBO_CSS_BOX_SIDE_COUNT];
+    inherit_border_positional_t positional[ROBO_CSS_BORDER_KIND_COUNT];
+    size_t side_index;
+    size_t kind_index;
+    int failed = 0;
+
+    inherit_border_composite_init(&whole);
+    for (side_index = 0u; side_index < (size_t)ROBO_CSS_BOX_SIDE_COUNT; side_index++) {
+        inherit_border_composite_init(&sides[side_index]);
+    }
+    for (kind_index = 0u; kind_index < ROBO_CSS_BORDER_KIND_COUNT; kind_index++) {
+        positional[kind_index].candidate = NULL;
+        positional[kind_index].value = NULL;
+        positional[kind_index].keyword = ROBO_CSS_WIDE_KEYWORD_NONE;
+        positional[kind_index].component_count = 0u;
+        positional[kind_index].expandable = 0;
+    }
+    if (!cascade) {
+        return 1;
+    }
+    table = robo_css_style_context_property_table(context);
+
+    /* The eight shorthands are resolved once rather than once per longhand: a
+     * shorthand's candidate is the same one for all of the longhands it covers,
+     * and resolving it twelve times would be twelve chances to resolve it
+     * differently. */
+    inherit_border_composite_read(&whole, cascade,
+                                 robo_css_slice_from_text(
+                                     robo_css_border_composite_name(0u)),
+                                 out);
+    for (side_index = 0u; side_index < (size_t)ROBO_CSS_BOX_SIDE_COUNT; side_index++) {
+        inherit_border_composite_read(
+            &sides[side_index], cascade,
+            robo_css_slice_from_text(
+                robo_css_border_composite_name(side_index + 1u)),
+            out);
+    }
+    for (kind_index = 0u; kind_index < ROBO_CSS_BORDER_KIND_COUNT; kind_index++) {
+        inherit_border_positional_read(
+            &positional[kind_index], cascade,
+            robo_css_slice_from_text(
+                robo_css_border_positional_name(kind_index)),
+            out);
+    }
+
+    for (side_index = 0u; side_index < (size_t)ROBO_CSS_BOX_SIDE_COUNT; side_index++) {
+        robo_css_box_side_t side = (robo_css_box_side_t)side_index;
+
+        for (kind_index = 0u; kind_index < ROBO_CSS_BORDER_KIND_COUNT; kind_index++) {
+            robo_css_border_kind_t kind = (robo_css_border_kind_t)kind_index;
+            const char *longhand_name = robo_css_border_longhand_name(side, kind);
+            robo_css_slice_t name;
+            const robo_css_cascade_candidate_t *longhand_winner = NULL;
+            const robo_css_cascade_candidate_t *best = NULL;
+            robo_css_property_id_t property;
+            int inherited_by_default;
+
+            if (!longhand_name) {
+                continue;
+            }
+            name = robo_css_slice_from_text(longhand_name);
+            (void)robo_css_cascade_resolve_name(cascade, name, &longhand_winner);
+            best = longhand_winner;
+            inherit_border_weigh(cascade, positional[kind_index].candidate, &best);
+            inherit_border_weigh(cascade, sides[side_index].candidate, &best);
+            inherit_border_weigh(cascade, whole.candidate, &best);
+            if (!best) {
+                /* Nothing spoke for this longhand: it has no entry, and it is not
+                 * supposed to — an element that declares no border at all has no
+                 * border longhands, exactly as it has no margins. */
+                continue;
+            }
+            property = table ? robo_css_property_table_lookup_slice(table, name)
+                             : ROBO_CSS_PROPERTY_ID_NONE;
+            inherited_by_default = inherit_classify(context, name);
+
+            if (best == longhand_winner) {
+                if (!inherit_value(out, context, longhand_winner->property, name,
+                                   robo_css_declaration_value(
+                                       longhand_winner->declaration),
+                                   parent, inherited_by_default)) {
+                    failed = 1;
+                    break;
+                }
+                continue;
+            }
+            if (best == positional[kind_index].candidate) {
+                if (positional[kind_index].keyword != ROBO_CSS_WIDE_KEYWORD_NONE) {
+                    if (!inherit_value(out, context, property, name,
+                                       positional[kind_index].value, parent,
+                                       inherited_by_default)) {
+                        failed = 1;
+                        break;
+                    }
+                    continue;
+                }
+                if (!positional[kind_index].expandable) {
+                    /* Counted once when the shorthand was read; nothing guessed. */
+                    continue;
+                }
+                {
+                    robo_css_value_t component = ROBO_CSS_CLEARED;
+
+                    if (robo_css_box_expand_side(positional[kind_index].value,
+                                                 positional[kind_index].component_count,
+                                                 side, &component, NULL) != ROBO_OK) {
+                        failed = 1;
+                        break;
+                    }
+                    if (!inherit_value(out, context, property, name, &component,
+                                       parent, inherited_by_default)) {
+                        robo_css_value_dispose(&component);
+                        failed = 1;
+                        break;
+                    }
+                    robo_css_value_dispose(&component);
+                }
+                continue;
+            }
+            /* The winner is `border` or a side shorthand: both are composites, and
+             * the only difference is which record holds the split. */
+            {
+                const inherit_border_composite_t *source =
+                    best == whole.candidate ? &whole : &sides[side_index];
+
+                if (source->keyword != ROBO_CSS_WIDE_KEYWORD_NONE) {
+                    if (!inherit_value(out, context, property, name, source->value,
+                                       parent, inherited_by_default)) {
+                        failed = 1;
+                        break;
+                    }
+                    continue;
+                }
+                if (!source->expandable) {
+                    continue;
+                }
+                if (source->parts[kind_index].kind == ROBO_CSS_VALUE_KIND_NONE) {
+                    /* The shorthand stands for this kind and did not name it: the
+                     * longhand is reset to the property's own initial value, and
+                     * the registry is the one place that value is written down. */
+                    const robo_css_value_t *initial =
+                        inherit_default_value(context, name);
+
+                    if (!initial) {
+                        continue;
+                    }
+                    if (!inherit_value(out, context, property, name, initial, parent,
+                                       inherited_by_default)) {
+                        failed = 1;
+                        break;
+                    }
+                    continue;
+                }
+                if (!inherit_value(out, context, property, name,
+                                   &source->parts[kind_index], parent,
+                                   inherited_by_default)) {
+                    failed = 1;
+                    break;
+                }
+            }
+        }
+        if (failed) {
+            break;
+        }
+    }
+
+    inherit_border_composite_dispose(&whole);
+    for (side_index = 0u; side_index < (size_t)ROBO_CSS_BOX_SIDE_COUNT; side_index++) {
+        inherit_border_composite_dispose(&sides[side_index]);
+    }
+
+    /* One line for the family, because this is the only pass that distributes a
+     * *composite*: three kinds over four sides, arriving from as many as four
+     * declarations at once, and a caller holding the resolved style cannot tell a
+     * border longhand from a margin one. The refused half of the sentence is the
+     * rest of it — the shorthands that met an author's `var()` or a component count
+     * this grammar has no place for and were therefore not distributed, whose
+     * declarations are still intact on their own entries. */
+    {
+        size_t materialised = 0u;
+        size_t refused = 0u;
+
+        for (side_index = 0u; side_index < (size_t)ROBO_CSS_BOX_SIDE_COUNT;
+             side_index++) {
+            for (kind_index = 0u; kind_index < (size_t)ROBO_CSS_BORDER_KIND_COUNT;
+                 kind_index++) {
+                const char *name = robo_css_border_longhand_name(
+                    (robo_css_box_side_t)side_index,
+                    (robo_css_border_kind_t)kind_index);
+
+                if (name && robo_css_inherited_style_has(
+                                out, robo_css_slice_from_text(name))) {
+                    materialised++;
+                }
+            }
+        }
+        if (whole.candidate && whole.keyword == ROBO_CSS_WIDE_KEYWORD_NONE &&
+            !whole.expandable) {
+            refused++;
+        }
+        for (side_index = 0u; side_index < (size_t)ROBO_CSS_BOX_SIDE_COUNT;
+             side_index++) {
+            if (sides[side_index].candidate &&
+                sides[side_index].keyword == ROBO_CSS_WIDE_KEYWORD_NONE &&
+                !sides[side_index].expandable) {
+                refused++;
+            }
+        }
+        for (kind_index = 0u; kind_index < (size_t)ROBO_CSS_BORDER_KIND_COUNT;
+             kind_index++) {
+            if (positional[kind_index].candidate &&
+                positional[kind_index].keyword == ROBO_CSS_WIDE_KEYWORD_NONE &&
+                !positional[kind_index].expandable) {
+                refused++;
+            }
+        }
+        robo_log_debug("robo_css: inherit: border family: %llu of %llu longhand(s) "
+                       "materialised, %llu shorthand(s) not distributable",
+                       (unsigned long long)materialised,
+                       (unsigned long long)((size_t)ROBO_CSS_BOX_SIDE_COUNT *
+                                            (size_t)ROBO_CSS_BORDER_KIND_COUNT),
+                       (unsigned long long)refused);
+    }
+    return failed ? 0 : 1;
+}
+
 robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
                                        const robo_css_cascade_t *cascade,
                                        const robo_css_inherited_style_t *parent,
@@ -958,6 +1371,15 @@ robo_result_t robo_css_inherit_resolve(const robo_css_style_context_t *context,
         }
     }
 
+    /* The border family first, because it owns the twelve longhands the box table
+     * shares with it — the three rows it distributes are skipped by the box pass
+     * below, so the order is a fact about ownership rather than about precedence:
+     * neither pass can overwrite the other. */
+    if (!inherit_expand_border_shorthands(out, context, cascade, parent)) {
+        robo_css_inherited_style_dispose(out);
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_INHERIT, ROBO_OUT_OF_MEMORY,
+                             "the resolved style could not be built");
+    }
     /* The box model's longhands, over the shorthands that stand for them. */
     if (!inherit_expand_box_shorthands(out, context, cascade, parent)) {
         robo_css_inherited_style_dispose(out);

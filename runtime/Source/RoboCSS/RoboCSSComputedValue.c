@@ -238,6 +238,8 @@ const char *robo_css_computed_value_kind_name(robo_css_computed_value_kind_t kin
         return "background-position";
     case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE:
         return "background-size";
+    case ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE:
+        return "border-style";
     default:
         return "unknown";
     }
@@ -388,6 +390,20 @@ robo_result_t robo_css_computed_value_make_display(robo_css_computed_value_t *va
     return ROBO_OK;
 }
 
+robo_result_t robo_css_computed_value_make_border_style(robo_css_computed_value_t *value,
+                                                        robo_css_border_style_t style,
+                                                        robo_css_diag_t *diag)
+{
+    if (!value || !robo_css_border_style_is_known(style)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "output is NULL or not a border style");
+    }
+    robo_css_computed_value_dispose(value);
+    value->kind = ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE;
+    value->border_style = style;
+    return ROBO_OK;
+}
+
 robo_result_t robo_css_computed_value_make_position(robo_css_computed_value_t *value,
                                                     robo_css_positioning_t position,
                                                     robo_css_diag_t *diag)
@@ -522,6 +538,15 @@ robo_css_positioning_t robo_css_computed_value_position(const robo_css_computed_
         return ROBO_CSS_POSITIONING_STATIC;
     }
     return value->position;
+}
+
+robo_css_border_style_t robo_css_computed_value_border_style(
+    const robo_css_computed_value_t *value)
+{
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE) {
+        return ROBO_CSS_BORDER_STYLE_NONE;
+    }
+    return value->border_style;
 }
 
 robo_css_background_position_t robo_css_computed_value_background_position(
@@ -682,6 +707,11 @@ int robo_css_computed_value_equals(const robo_css_computed_value_t *a,
                                                    b->background_position);
     case ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE:
         return robo_css_background_size_equals(a->background_size, b->background_size);
+    case ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE:
+        /* The enumerator, for the same reason a display's and a position's are:
+         * `hidden` and `none` are different styles that both draw nothing, and a
+         * comparison on "draws nothing" would make them one value. */
+        return a->border_style == b->border_style;
     default:
         return computed_trees_equal(&a->preserved, &b->preserved);
     }
@@ -943,6 +973,12 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
          * of two `auto`s is the value `auto`, and prints as it. */
         ok = robo_css_background_size_write(value->background_size, buffer, capacity,
                                             &used, NULL) == ROBO_OK;
+        break;
+    case ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE:
+        /* The border module's spelling, so a style this build adds later prints
+         * its own keyword rather than falling to a default here. */
+        ok = robo_css_border_style_write(value->border_style, buffer, capacity, &used,
+                                        NULL) == ROBO_OK;
         break;
     case ROBO_CSS_COMPUTED_VALUE_PRESERVED:
         if (value->preserved.kind == ROBO_CSS_VALUE_KIND_TOKEN) {
@@ -1449,6 +1485,19 @@ static int computed_vocabulary_background_attachment_known(robo_css_slice_t keyw
     return robo_css_background_attachment_slice_is_known(keyword);
 }
 
+static int computed_vocabulary_border_style_known(robo_css_slice_t keyword)
+{
+    return robo_css_border_style_slice_is_known(keyword);
+}
+
+static robo_result_t computed_vocabulary_border_style_make(robo_css_computed_value_t *out,
+                                                           robo_css_slice_t keyword,
+                                                           robo_css_diag_t *diag)
+{
+    return robo_css_computed_value_make_border_style(
+        out, robo_css_border_style_from_slice(keyword), diag);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -1481,7 +1530,10 @@ static const computed_vocabulary_grammar_t computed_vocabulary_grammars[] = {
     { ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT,
       computed_vocabulary_background_attachment_known, computed_vocabulary_keyword_make,
       "not a single background-attachment keyword",
-      "not a background attachment value" }
+      "not a background attachment value" },
+    { ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE, computed_vocabulary_border_style_known,
+      computed_vocabulary_border_style_make, "not a single border style keyword",
+      "not a border style value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -1995,6 +2047,9 @@ robo_result_t robo_css_computed_value_compute(
      * the two above, which is what 9.13's shared body was for. */
     case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_REPEAT:
     case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT:
+    /* And the border style vocabulary (9.15) is a row in the same table for the
+     * same reason, which is now the fifth vocabulary to arrive that way. */
+    case ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE:
         return computed_compute_vocabulary(
             computed_vocabulary_grammar_for(computation), out, specified, diag);
     case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE:

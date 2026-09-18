@@ -116,11 +116,21 @@ static void test_css_registry_standard_set(void)
      * `background-color` keeps the colour shape 9.9 gave it. None of the five
      * inherits, because a background is painted per element.
      *
+     * 9.15 adds fourteen: the eight remaining border longhands five of which were
+     * already rows (`border-top-width` and its three siblings came with 9.11) — so
+     * the four `border-*-style`, the four `border-*-color` — and the six shorthands
+     * `border-style`, `border-color`, `border-top`, `border-right`, `border-bottom`
+     * and `border-left`. `border-width` and `border` were already rows, which is the
+     * same shape-change-not-new-property rule 9.13 recorded for `position`: a border
+     * family is a family of properties, and the ones this phase taught new values to
+     * were already in the table. None of the fourteen inherits, because a border is
+     * drawn per element.
+     *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 49);
+    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 63);
     ROBO_CHECK_EQ_INT((int)inherited, 16);
-    ROBO_CHECK_EQ_INT((int)non_inherited, 33);
+    ROBO_CHECK_EQ_INT((int)non_inherited, 47);
 
     robo_css_property_registry_destroy(registry);
 }
@@ -152,7 +162,16 @@ static void test_css_registry_inherited_classification(void)
         "border-top-width", "border-right-width", "border-bottom-width",
         "border-left-width", "border-width", "box-sizing",
         "background-image", "background-position", "background-size",
-        "background-repeat", "background-attachment"
+        "background-repeat", "background-attachment",
+        /* 9.15's eight longhands and five shorthands. `border-color` on a *parent*
+         * that a child inherited would be the colour of a border the child does not
+         * have — and it would not even be a wrong colour, it would be a reference to
+         * the wrong element's `color`. */
+        "border-top-style", "border-right-style", "border-bottom-style",
+        "border-left-style", "border-style",
+        "border-top-color", "border-right-color", "border-bottom-color",
+        "border-left-color", "border-color",
+        "border-top", "border-right", "border-bottom", "border-left"
     };
     robo_css_property_registry_t *registry = NULL;
     size_t index;
@@ -243,6 +262,26 @@ static void test_css_registry_initial_values(void)
         {"border-bottom-width", "medium"},
         {"border-left-width", "medium"},
         {"border-width", "medium"},
+        /* 9.15's border family. `border-style` and its four longhands start at
+         * `none` — a decided value, not an absent border. Every colour starts at
+         * `currentcolor`, the one initial in the table that is a *reference*: a
+         * border whose colour had been resolved at registration time would be a
+         * border nobody could see and no author could explain. The five composites
+         * carry the concatenation of what they distribute. */
+        {"border-style", "none"},
+        {"border-top-style", "none"},
+        {"border-right-style", "none"},
+        {"border-bottom-style", "none"},
+        {"border-left-style", "none"},
+        {"border-color", "currentcolor"},
+        {"border-top-color", "currentcolor"},
+        {"border-right-color", "currentcolor"},
+        {"border-bottom-color", "currentcolor"},
+        {"border-left-color", "currentcolor"},
+        {"border-top", "medium,_,none,_,currentcolor"},
+        {"border-right", "medium,_,none,_,currentcolor"},
+        {"border-bottom", "medium,_,none,_,currentcolor"},
+        {"border-left", "medium,_,none,_,currentcolor"},
         {"box-sizing", "content-box"},
         /* 9.13's positioning family. An inset starts at `auto` and not at zero —
          * the one initial value in this table whose wrong answer would look

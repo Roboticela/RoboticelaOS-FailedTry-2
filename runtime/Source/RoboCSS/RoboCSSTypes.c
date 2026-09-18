@@ -398,6 +398,8 @@ const char *robo_css_diagnostic_domain_name(robo_css_diagnostic_domain_t domain)
         return "position";
     case ROBO_CSS_DOMAIN_BACKGROUND:
         return "background";
+    case ROBO_CSS_DOMAIN_BORDER:
+        return "border";
     default:
         return "unknown";
     }

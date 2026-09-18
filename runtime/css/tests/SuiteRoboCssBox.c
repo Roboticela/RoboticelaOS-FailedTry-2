@@ -125,30 +125,38 @@ static void test_box_side_vocabulary(void)
 }
 
 /**
- * Three shorthands, each with four longhands, walked rather than sampled.
+ * Five shorthands, each with four longhands, walked rather than sampled.
  *
  * `border-width` is the row worth naming: it is a shorthand this build expands
  * while implementing no border *painting* at all, because a `border-width: 1px 2px`
  * that no longhand ever saw would be a declaration no later phase could consume.
+ * `border-style` and `border-color` joined it in 9.15 — the same 1/2/3/4 mapping
+ * over the same four sides, which is exactly why they reuse this table rather than
+ * getting a copy of it.
  */
 static void test_box_shorthand_table(void)
 {
     size_t index;
 
     css_fixture();
-    ROBO_CHECK_EQ_INT((int)robo_css_box_shorthand_count(), 3);
+    ROBO_CHECK_EQ_INT((int)robo_css_box_shorthand_count(), 5);
 
     {
         static const char *const expected[][4] = {
             { "margin-top", "margin-right", "margin-bottom", "margin-left" },
             { "padding-top", "padding-right", "padding-bottom", "padding-left" },
             { "border-top-width", "border-right-width", "border-bottom-width",
-              "border-left-width" }
+              "border-left-width" },
+            { "border-top-style", "border-right-style", "border-bottom-style",
+              "border-left-style" },
+            { "border-top-color", "border-right-color", "border-bottom-color",
+              "border-left-color" }
         };
-        static const char *const shorthand_names[] = { "margin", "padding",
-                                                       "border-width" };
+        static const char *const shorthand_names[] = {
+            "margin", "padding", "border-width", "border-style", "border-color"
+        };
 
-        for (index = 0u; index < 3u; index++) {
+        for (index = 0u; index < 5u; index++) {
             const robo_css_box_shorthand_t *row = robo_css_box_shorthand_at(index);
             size_t side_index;
 
@@ -176,7 +184,7 @@ static void test_box_shorthand_table(void)
     }
 
     /* Out of range, and past the end. */
-    ROBO_CHECK(robo_css_box_shorthand_at(3u) == NULL);
+    ROBO_CHECK(robo_css_box_shorthand_at(5u) == NULL);
     ROBO_CHECK(robo_css_box_shorthand_at((size_t)-1) == NULL);
 
     /* Found by name, case-insensitively — CSS compares property names that way. */
@@ -191,12 +199,15 @@ static void test_box_shorthand_table(void)
     ROBO_CHECK(robo_css_box_shorthand_find(robo_css_slice_from_text("")) == NULL);
     ROBO_CHECK(robo_css_box_shorthand_find(robo_css_slice_empty()) == NULL);
 
-    /* `border` is deliberately *not* expandable here: it is a shorthand for four
-     * widths, four styles and four colours, and this build has two of those. */
+    /* `border` is deliberately *not* a row here: it covers all four sides of all
+     * three kinds, and a longhand it sets can also be set by `border-top` and by
+     * `border-width` at once — which is a decision no positional row can take, so
+     * the border family owns that distribution (9.15). Its longhands are still
+     * reachable both ways. */
     ROBO_CHECK(robo_css_box_shorthand_of_longhand(
                    robo_css_slice_from_text("border-top-width"), NULL) != NULL);
     ROBO_CHECK(robo_css_box_shorthand_of_longhand(
-                   robo_css_slice_from_text("border-top-style"), NULL) == NULL);
+                   robo_css_slice_from_text("border-top-style"), NULL) != NULL);
     ROBO_CHECK(robo_css_box_shorthand_of_longhand(
                    robo_css_slice_from_text("margin-inline-start"), NULL) == NULL);
 

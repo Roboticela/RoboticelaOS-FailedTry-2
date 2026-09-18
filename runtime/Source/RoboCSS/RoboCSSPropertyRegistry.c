@@ -183,6 +183,8 @@ const char *robo_css_property_computation_name(
         return "background-position";
     case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE:
         return "background-size";
+    case ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE:
+        return "border-style";
     default:
         return "unknown";
     }
@@ -551,26 +553,22 @@ static const registry_standard_entry_t registry_standard_entries[] = {
       ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_REPEAT,     "repeat",  0 },
     { "background-attachment", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_ATTACHMENT, "scroll",  0 },
-    { "border",        ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
-      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
-      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
-
     /*
      * --- the box model (9.11) ---
      *
-     * Twelve longhands and two more shorthands, and the reason they are rows
-     * here rather than rules in the inheritance pass is that every one of them
-     * is a *property fact*: which longhands `border-width` stands for is
-     * vocabulary (RoboCSSBox.h), but that each of them starts at zero, that a
-     * border starts at `medium`, and that none of them inherits is what a
+     * Twelve rows: the eight edges and the four border widths. The four *styles*
+     * and four *colours* belong to 9.15's block below, and the three kinds are
+     * rows here rather than rules in the inheritance pass because every one of
+     * them is a *property fact*: which longhands a positional shorthand stands
+     * for is vocabulary (RoboCSSBox.h), but that a margin starts at zero, that a
+     * border width starts at `medium`, and that none of them inherits is what a
      * registry is for. A phase that wrote those into a resolution path would be
      * one hard-coded name comparison away from the defect this table exists to
      * prevent.
      *
-     * `border-width` is a shorthand with PRESERVE for the same reason `margin`
-     * is: its value is a *declaration about four properties* and the distribution
-     * is expansion's job, while the shorthand's own entry carries what the author
-     * wrote. Its initial `medium` is what the four longhands each start at.
+     * The two shorthands here are PRESERVE for the same reason `margin` is: a
+     * shorthand's value is a *declaration about four properties*, the distribution
+     * is expansion's job, and its own entry carries what the author wrote.
      *
      * `box-sizing` is registered and computes to a keyword, and that is the whole
      * of it: which box a width applies to is a layout question, and this build
@@ -586,7 +584,79 @@ static const registry_standard_entry_t registry_standard_entries[] = {
       ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH, "medium",     0 },
     { "border-top-width", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_LINE_WIDTH, "medium",     0 },
-    { "border-width",  ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+
+    /*
+     * --- the border family (9.15) ---
+     *
+     * Seventeen rows: twelve longhands and five distributing shorthands. Their
+     * names fall across the whole table — `border` here, `border-top` around the
+     * box-model block, the three kind shorthands after it — so they are gathered
+     * into a block rather than left where alphabetisation would put them, for the
+     * same reason 9.11's box rows are: a reader meeting any one of the seventeen
+     * should be able to see the other sixteen.
+     *
+     * `border` was a row before this phase, with the same initial value and the
+     * same PRESERVE shape; what it gained is a *meaning* — the twelve longhands it
+     * stands for are now distributed out of it (RoboCSSInherit.c), where before it
+     * was a carried declaration with nothing downstream of it.
+     *
+     * Three facts in the rows themselves are worth naming.
+     *
+     * The **three kinds take three different shapes**, because that is what they
+     * are: `border-width` reuses 9.11's `LINE_WIDTH`, `border-color` reuses 9.9's
+     * `COLOR` — so `border-top-color: currentColor` and `color: currentColor` are
+     * the same computation and are resolved by the same rule — and only
+     * `border-style` needed a shape of its own.
+     *
+     * The **colour initial is `currentcolor`**, which is CSS's own and is the one
+     * initial value in this table that is a *reference* rather than a value. It is
+     * also why the colour longhands cannot be `transparent` the way
+     * `background-color` is: `border-color` is `currentColor`, and a border whose
+     * colour had been resolved to `transparent` at registration time would be a
+     * border nobody could see and no author could explain.
+     *
+     * The **shorthands are PRESERVE**, exactly as `margin` and `background` are: a
+     * shorthand's own entry carries what the author wrote, and the distribution is
+     * expansion's job rather than computation's.
+     */
+    { "border",          ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "border-bottom",   ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "border-bottom-color", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_COLOR,      "currentcolor", 0 },
+    { "border-bottom-style", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE, "none",       0 },
+    { "border-color",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "currentcolor",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "border-left",     ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "border-left-color", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_COLOR,      "currentcolor", 0 },
+    { "border-left-style", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE, "none",       0 },
+    { "border-right",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "border-right-color", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_COLOR,      "currentcolor", 0 },
+    { "border-right-style", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE, "none",       0 },
+    { "border-style",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "none",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "border-top",      ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium none currentcolor",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "border-top-color", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_COLOR,      "currentcolor", 0 },
+    { "border-top-style", ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE, "none",       0 },
+    { "border-width",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "medium",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
 

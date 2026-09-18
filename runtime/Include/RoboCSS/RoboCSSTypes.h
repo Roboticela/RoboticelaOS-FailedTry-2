@@ -385,11 +385,13 @@ typedef enum robo_css_diagnostic_domain {
     /** The positioning vocabulary: the closed set and its classifications (9.13). */
     ROBO_CSS_DOMAIN_POSITION = 17,
     /** Background properties and the `background` shorthand (9.14). */
-    ROBO_CSS_DOMAIN_BACKGROUND = 18
+    ROBO_CSS_DOMAIN_BACKGROUND = 18,
+    /** Border properties and the five distributing shorthands (9.15). */
+    ROBO_CSS_DOMAIN_BORDER = 19
 } robo_css_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_CSS_DOMAIN_COUNT 19u
+#define ROBO_CSS_DOMAIN_COUNT 20u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_css_diagnostic_domain_is_known(robo_css_diagnostic_domain_t domain);

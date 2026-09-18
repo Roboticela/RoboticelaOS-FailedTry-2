@@ -323,6 +323,15 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * what it does not claim is paint — no image is fetched, no percentage is
      * resolved against a box, and no pixel is blended. */
     out->backgrounds = 1;
+    /* Borders (9.15): twelve longhands and the five declarations that can set
+     * them. The styles are a closed vocabulary read through a typed enumerator,
+     * the colours reuse 9.9's family — `border-top-color: currentColor` and
+     * `color: currentColor` are one computation — and one pass resolves each
+     * longhand against every declaration speaking for it, by the cascade's own
+     * ordering. What it claims is a value and its distribution; what it does not
+     * claim is geometry — nothing draws a border, nothing measures one, and `none`
+     * having a used width of zero is the phase-with-a-box's rule. */
+    out->borders = 1;
     out->default_styles = 0;
     out->stylesheet_loading = 0;
     return ROBO_OK;

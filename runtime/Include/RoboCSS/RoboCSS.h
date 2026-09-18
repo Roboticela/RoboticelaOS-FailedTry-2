@@ -230,6 +230,22 @@ typedef struct robo_css_capabilities {
      */
     int backgrounds;
     /**
+     * The border family (9.15): the four widths, four styles and four colours as
+     * typed computed values, plus the five declarations that can set them — the
+     * three positional rows (`border-width`, `border-style`, `border-color`), the
+     * four side shorthands and `border` — distributed by a pass that resolves each
+     * longhand against *every* declaration speaking for it through the cascade's
+     * own ordering.
+     *
+     * What it does not claim is paint or geometry. Nothing draws a border, nothing
+     * measures one, and `none` and `hidden` are typed values whose consequence —
+     * a used width of zero whatever `border-width` says — belongs to the phase
+     * with a box. `border-radius` is not a value this build has, and `border`
+     * covers the three kinds this build represents rather than the four styles and
+     * four colours a collapsing-table model would need.
+     */
+    int borders;
+    /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
      */

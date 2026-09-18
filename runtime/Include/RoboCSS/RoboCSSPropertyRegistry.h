@@ -277,11 +277,28 @@ typedef enum robo_css_property_computation {
      * is folded back to the keyword, because `auto` and `auto auto` are one
      * computed value with one spelling.
      */
-    ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE = 17
+    ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_SIZE = 17,
+    /**
+     * One of the closed border-style vocabulary (9.15) — the four
+     * `border-*-style` longhands.
+     *
+     * A shape of its own rather than the KEYWORD above, for the reason the display
+     * and position vocabularies record: `border-top-style` is a value a paint phase
+     * dispatches on (`none` and `hidden` draw nothing, and a border that draws
+     * nothing has a *used* width of zero whatever `border-width` says), so
+     * `border-top-style: banana` has to be a mistake rather than a keyword
+     * carrying the text `banana` that the next phase silently fails to interpret.
+     *
+     * The style's *colour* and *width* siblings need no shape of their own: a
+     * colour is the 9.9 `COLOR` shape and a width the 9.11 `LINE_WIDTH` one, and a
+     * second copy of either would be how `border-top-color: currentColor` and
+     * `color: currentColor` come to be resolved differently.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE = 18
 } robo_css_property_computation_t;
 
 /** Number of defined computations. */
-#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 18u
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 19u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int robo_css_property_computation_is_known(robo_css_property_computation_t computation);

@@ -839,6 +839,7 @@ robo_result_t robo_css_style_context_query_computed_value(
     const robo_css_computed_value_t *present;
     const robo_css_property_definition_t *definition;
     const robo_css_value_t *initial;
+    robo_result_t rc;
 
     if (!context || !out || robo_css_slice_is_absent(name)) {
         return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
@@ -868,5 +869,28 @@ robo_result_t robo_css_style_context_query_computed_value(
     if (out_from_initial) {
         *out_from_initial = 1;
     }
-    return robo_css_computed_value_compute(definition->computation, initial, out, diag);
+    rc = robo_css_computed_value_compute(definition->computation, initial, out, diag);
+    if (rc != ROBO_OK) {
+        return rc;
+    }
+    /* One initial value in the table is a *reference* rather than a value: every
+     * `border-*-color` is `currentcolor`, so a border nothing declared is the
+     * element's own colour. Nothing else can reach this: `background-color` is
+     * `transparent`, which is a colour and not a reference. Resolving it here, the
+     * way the pass above resolves what a style *holds*, is what keeps the two doors
+     * answering one question the same way — an element that declared no border
+     * colour and one whose shorthand reset it to the initial value have the same
+     * computed colour, because they do. */
+    if (out->kind == ROBO_CSS_COMPUTED_VALUE_COLOR &&
+        robo_css_color_is_current(out->color)) {
+        robo_css_color_t resolved;
+
+        if (robo_css_color_resolve_current(out->color,
+                                          computed_color_of(style, COMPUTED_COLOR_PROPERTY),
+                                          &resolved)) {
+            out->color = resolved;
+            out->unresolved = 0;
+        }
+    }
+    return ROBO_OK;
 }

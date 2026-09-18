@@ -19,8 +19,9 @@
  *   the sides          top, right, bottom, left — as an ordered, closed set,
  *                      because the shorthand's component order *is* that order
  *                      and four places would otherwise each restate it
- *   the shorthands     which longhands each of `margin`, `padding` and
- *                      `border-width` stands for, in side order
+ *   the shorthands     which longhands each positional shorthand stands for, in
+ *                      side order — `margin`, `padding`, and the three border
+ *                      kinds `border-width`, `border-style` and `border-color`
  *   the mapping        how one, two, three or four components distribute over
  *                      the four sides
  *
@@ -46,13 +47,31 @@
  *
  * Four rows, read by (component count, side). Written as a switch it would be
  * four branches restated per shorthand; written as a table it is one row per
- * count, and a fifth count is a value this module refuses.
+ * count, and a fifth count is a value this module refuses. The border family's
+ * three rows carry a fourth thing over the same mapping: a *kind*, so its
+ * longhand for a side is the kind's row at that side rather than the shorthand's
+ * own (§ the row table).
  *
- * `border-width` is a shorthand here for the same reason `margin` is, even
- * though this build implements no border *painting*: the four widths are the
- * four values, and a `border-width: 1px 2px` that no longhand ever saw would be
- * a declaration no later phase could consume. Nothing in this header knows what
- * a border looks like.
+ * The three border rows are here for the same reason `margin` is: the four
+ * widths, the four styles and the four colours are each four values over four
+ * sides, which is this table's shape exactly, and a `border-width: 1px 2px` that
+ * no longhand ever saw would be a declaration no later phase could consume.
+ * Nothing in this header knows what a border looks like.
+ *
+ * Vocabulary here, distribution elsewhere — and the split is not arbitrary
+ *
+ * 9.15 moved the *distribution* of the three border rows out of the box model's
+ * pass and into the border family's, because a border longhand can be set by more
+ * than one shorthand (`border-width`, a side shorthand, `border`) and a longhand
+ * two declarations can speak for cannot be materialised by two independent passes
+ * (RoboCSSBorder.h). What stayed is the table, and it is the half that has to
+ * stay: the twelve longhand names are the vocabulary, and a row is where the
+ * three-way relation between a shorthand, its four sides and those names is
+ * written down once, so `robo_css_border_longhand_name` can read it rather than
+ * spell it again. The box pass asks `robo_css_border_distributes_shorthand`
+ * before it distributes a row — the question is not "is this a positional
+ * shorthand" but "is this row mine or the border family's", and only the border
+ * module can answer it.
  *
  * Expansion and `var()`
  *

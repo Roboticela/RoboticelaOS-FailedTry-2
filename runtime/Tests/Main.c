@@ -178,6 +178,7 @@ void robo_test_register_css_box(void);
 void robo_test_register_css_display(void);
 void robo_test_register_css_position(void);
 void robo_test_register_css_background(void);
+void robo_test_register_css_border(void);
 void robo_test_register_css_dom_select(void);
 void robo_test_register_demo_html(void);
 
@@ -399,6 +400,7 @@ int main(int argc, char **argv)
     robo_test_register_css_display();
     robo_test_register_css_position();
     robo_test_register_css_background();
+    robo_test_register_css_border();
     robo_test_register_css_dom_select();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */

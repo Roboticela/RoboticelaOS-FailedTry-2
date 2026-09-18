@@ -77,6 +77,7 @@
 
 #include "RoboBase/RoboError.h"
 #include "RoboCSS/RoboCSSBackground.h"
+#include "RoboCSS/RoboCSSBorder.h"
 #include "RoboCSS/RoboCSSColor.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSDisplay.h"
@@ -168,11 +169,13 @@ typedef enum robo_css_computed_value_kind {
     /** A pair of position components, one per axis (9.14). */
     ROBO_CSS_COMPUTED_VALUE_BACKGROUND_POSITION = 11,
     /** A whole-value size keyword, or a pair of size components (9.14). */
-    ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE = 12
+    ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE = 12,
+    /** One of the closed border-style vocabulary (9.15). */
+    ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE = 13
 } robo_css_computed_value_kind_t;
 
 /** Number of defined kinds. */
-#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 13u
+#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 14u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int robo_css_computed_value_kind_is_known(robo_css_computed_value_kind_t kind);
@@ -249,6 +252,18 @@ typedef struct robo_css_computed_value {
      * the kind check, exactly as for @ref display and @ref position.
      */
     robo_css_background_size_t background_size;
+    /**
+     * BORDER_STYLE: the border style (RoboCSSBorder.h); NONE otherwise.
+     *
+     * A typed enumerator rather than the keyword's text, for the reason @ref
+     * display and @ref position are: `border-top-style` is what a paint phase
+     * dispatches on — `none` and `hidden` draw nothing, and a border that draws
+     * nothing has a *used* width of zero whatever `border-width` says. Meaningful
+     * only when @ref kind is BORDER_STYLE: a cleared record holds NONE, which is
+     * the property's initial value and still not something to read without the
+     * kind check, exactly as for @ref display.
+     */
+    robo_css_border_style_t border_style;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -361,6 +376,11 @@ robo_result_t robo_css_computed_value_make_background_size(
     robo_css_background_size_t size,
     robo_css_diag_t *diag);
 
+/** Make @p value a BORDER_STYLE holding @p style. */
+robo_result_t robo_css_computed_value_make_border_style(robo_css_computed_value_t *value,
+                                                        robo_css_border_style_t style,
+                                                        robo_css_diag_t *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
@@ -424,6 +444,19 @@ robo_css_background_position_t robo_css_computed_value_background_position(
  * conflated, which is exactly why it is worth saying that they must not be.
  */
 robo_css_background_size_t robo_css_computed_value_background_size(
+    const robo_css_computed_value_t *value);
+
+/**
+ * The style of a BORDER_STYLE value; `none` for any other kind.
+ *
+ * Read together with a kind check, for the reason the three above are: `none` is
+ * both a real border style and the property's initial value, so it is the answer
+ * that would do the least damage if the two were conflated — which is exactly why
+ * it is worth saying that they must not be. A consumer that read it without the
+ * kind check would see "this border did not draw" where the truth is "this is not
+ * a border style at all".
+ */
+robo_css_border_style_t robo_css_computed_value_border_style(
     const robo_css_computed_value_t *value);
 
 /**

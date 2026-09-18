@@ -373,6 +373,38 @@
  * `background-position: 1in` and `margin-top: 1in` cannot come to disagree about
  * what a computed length is.
  *
+ * 0.15.0 is the fourteenth, and it is the first phase whose subject is not one
+ * property or one family but a *grid*: borders (RoboCSSBorder.h) are three kinds
+ * over four sides, twelve longhands, and four different declarations can set any
+ * one of them — the longhand, its positional row (`border-width`), its side
+ * shorthand (`border-top`) and `border` itself. That is why this phase's central
+ * act is a *move*: the distribution of the three border rows left the box model's
+ * pass and joined a pass that can see all four declarers at once, because a
+ * longhand two passes materialise is a longhand with two entries. The box table
+ * kept the rows, and that half had to stay — the twelve names are a vocabulary one
+ * reader should be able to walk, and `border-top-width` appears in the build once.
+ *
+ * The style vocabulary is the fifth closed set and a row in the same table the
+ * other four use, so a sixth is a row. What is new is the *classifier*: a
+ * composite shorthand's components map to a kind rather than to a position or a
+ * longhand, and the order the questions are asked in is the whole logic — a style
+ * keyword before a width keyword before a colour *name*, because `none` and
+ * `hidden` are styles, `thin`/`medium`/`thick` are the only identifiers left that
+ * are certainly not colours, and `red` can be settled by nothing else. A `var()`
+ * is a fourth answer rather than a guess, for the reason it always is.
+ *
+ * Two behaviours differ from the two families beside it, and each is CSS's own.
+ * A kind a composite shorthand did not name is **reset to its initial value**,
+ * as a background longhand is — `border: 1px solid` really does say the border
+ * has no colour of its own. And a *positional* row has no such case at all: one to
+ * four components always cover all four sides, so nothing is ever left unnamed in
+ * a `border-width`. The colour initial is `currentcolor`, which is the one initial
+ * value in the registry that is a *reference*, and it is why the four colour
+ * longhands cannot be `transparent` the way `background-color` is: a border whose
+ * colour had been resolved at registration time would be a border nobody could
+ * see and no author could explain. Nothing paints, and no edge is measured —
+ * `border-radius` is not a value this build has.
+ *
  * Everything past that — layout, used values, `calc()` evaluation — is still a
  * declared boundary with no implementation behind it, and
  * `robo_css_capabilities_t` reports exactly what is and is not here so a caller
@@ -396,9 +428,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 14
+#define ROBO_CSS_VERSION_MINOR 15
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.14.0"
+#define ROBO_CSS_VERSION_STRING "0.15.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

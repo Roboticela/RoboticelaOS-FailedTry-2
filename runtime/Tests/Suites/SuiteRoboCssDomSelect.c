@@ -2656,6 +2656,175 @@ static void test_css_dom_background_pipeline(void)
     css_dom_cascade_end(&fixture);
 }
 
+/*
+ * `css.dom.border.pipeline` — the border family over the real tree.
+ *
+ * Four things have to hold at once over a document, and none of them is visible
+ * in the CSS-side suite alone. The `border` shorthand *distributes* over all
+ * twelve longhands of four sides, so one declaration leaves twelve entries. A
+ * declared value arrives **typed** — a style as a vocabulary row, a width as a
+ * length, a colour as a colour — on the elements the sheet names and on no
+ * others, because nothing in the family inherits. The positional rows
+ * (`border-width`, `border-style`, `border-color`) split one to four components
+ * over four sides by the box model's own mapping.
+ *
+ * And the one the phase turns on: a border colour is a **reference**. An element
+ * whose only border declaration is `border: 1px solid` does not get `transparent`,
+ * does not get the word `currentcolor`, and does not get its parent's colour — it
+ * gets *its own* colour, through both doors: the entry the shorthand materialised
+ * and the query a paint phase will actually call.
+ */
+static void test_css_dom_border_pipeline(void)
+{
+    css_dom_cascade_t fixture;
+    robo_css_computed_style_t *body_style = NULL;
+    robo_css_computed_style_t *heading = NULL;
+    robo_css_computed_style_t *button = NULL;
+    robo_css_computed_style_t *paragraph = NULL;
+    robo_css_computed_value_t queried = ROBO_CSS_CLEARED;
+    robo_css_stylesheet_id_t sheet;
+    int from_initial = -1;
+
+    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    sheet = css_dom_cascade_sheet(&fixture,
+                                  "body { color: #336699; border: 1px solid }\n"
+                                  "h1 { border: 3px double #ff0000;"
+                                  " border-left-color: transparent }\n"
+                                  "button { border-width: 1px 2px;"
+                                  " border-style: solid dashed;"
+                                  " border-color: red blue }\n"
+                                  "p { border-top-color: currentcolor }\n");
+
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "body") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "h1") != ROBO_CSS_ELEMENT_REF_NONE);
+    ROBO_CHECK(css_dom_ref_by_tag(&fixture.dom, "button") != ROBO_CSS_ELEMENT_REF_NONE);
+
+    /* One declaration, twelve longhands — and the colour it did not write is the
+     * element's own, which is what makes `border: 1px solid` a visible border
+     * rather than an invisible one. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "body"), &body_style);
+    css_computed_is(body_style, "border-top-width", "1px");
+    css_computed_is(body_style, "border-bottom-width", "1px");
+    css_computed_is(body_style, "border-left-style", "solid");
+    css_computed_is(body_style, "border-top-color", "#336699");
+    css_computed_is(body_style, "border-left-color", "#336699");
+    css_computed_flags_are(body_style, "border-top-width", "declared");
+    css_computed_is(body_style, "border", "1px solid");
+    ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(body_style), 0);
+
+    /* The width is a length and the style is a vocabulary row, not a word: the two
+     * shapes a layout phase dispatches on are typed values on a real element. */
+    {
+        const robo_css_computed_value_t *width =
+            robo_css_computed_style_computed_by_name(
+                body_style, robo_css_slice_from_text("border-top-width"));
+        const robo_css_computed_value_t *style =
+            robo_css_computed_style_computed_by_name(
+                body_style, robo_css_slice_from_text("border-top-style"));
+
+        ROBO_CHECK_EQ_INT(width->kind, (int)ROBO_CSS_COMPUTED_VALUE_LENGTH);
+        ROBO_CHECK_EQ_INT(style->kind, (int)ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE);
+        ROBO_CHECK_EQ_INT(robo_css_computed_value_border_style(style),
+                          ROBO_CSS_BORDER_STYLE_SOLID);
+    }
+
+    /* `transparent` is a colour and not an absence: the four longhands of one side
+     * can disagree, and `transparent` survives as the four-zero record. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "h1"), &heading);
+    css_computed_is(heading, "border-top-color", "#ff0000");
+    css_computed_is(heading, "border-left-color", "#00000000");
+    css_computed_is(heading, "border-top-style", "double");
+    css_computed_is(heading, "border-bottom-width", "3px");
+
+    /* The positional rows: one component, then two, over four sides by the box
+     * model's mapping — two widths, two styles, two colours on four sides each. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "button"), &button);
+    css_computed_is(button, "border-top-width", "1px");
+    css_computed_is(button, "border-right-width", "2px");
+    css_computed_is(button, "border-bottom-width", "1px");
+    css_computed_is(button, "border-left-width", "2px");
+    css_computed_is(button, "border-top-style", "solid");
+    css_computed_is(button, "border-right-style", "dashed");
+    css_computed_is(button, "border-left-color", "#0000ff");
+    css_computed_is(button, "border", "<absent>");
+
+    /* A declared `currentcolor` is the element's own colour, resolved once — and on
+     * a `p` that is not black and not the initial value: `color` *inherits* from the
+     * `body` rule above, so the reference resolves through inheritance rather than
+     * through a default. One assertion, three rules. */
+    css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "p"), &paragraph);
+    css_computed_is(paragraph, "border-top-color", "#336699");
+    css_computed_is(paragraph, "border-top-width", "<absent>");
+    /* ...and the door a paint phase calls answers the same thing for a longhand
+     * the author never mentioned: nothing inherits, so there is no entry, so the
+     * property's *initial value* is computed here — and its initial value is the
+     * reference, which resolves against this element's own colour. */
+    ROBO_CHECK_EQ_INT(robo_css_style_context_query_computed_value(
+                          fixture.context, paragraph,
+                          robo_css_slice_from_text("border-left-color"), &queried,
+                          &from_initial, NULL),
+                      ROBO_OK);
+    ROBO_CHECK_EQ_INT(from_initial, 1);
+    ROBO_CHECK_EQ_INT(queried.kind, (int)ROBO_CSS_COMPUTED_VALUE_COLOR);
+    ROBO_CHECK_EQ_INT(queried.unresolved, 0u);
+    {
+        char text[ROBO_CSS_COMPUTED_VALUE_TEXT_MAX];
+        size_t length = 0u;
+
+        ROBO_CHECK_EQ_INT(robo_css_computed_value_write(&queried, text, sizeof(text),
+                                                       &length, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_STR_EQ(text, "#336699");
+    }
+    robo_css_computed_value_dispose(&queried);
+
+    /* Every refusal is its own sentence rather than one fallback, and a bad border
+     * declaration never replaces a good one or crashes the walk. */
+    {
+        robo_css_computed_style_t *odd = NULL;
+        robo_css_stylesheet_id_t bad = css_dom_cascade_sheet(
+            &fixture,
+            "select { border-top-width: banana; border-top-style: banana;"
+            " border-top-color: banana }");
+
+        css_dom_compute(&fixture, css_dom_ref_by_tag(&fixture.dom, "select"), &odd);
+        css_computed_is(odd, "border-top-width", "not a border width keyword");
+        css_computed_is(odd, "border-top-style", "not a border style value");
+        css_computed_is(odd, "border-top-color", "unknown colour name");
+        ROBO_CHECK_EQ_INT(robo_css_computed_style_has_invalid(odd), 1);
+        robo_css_computed_style_destroy(odd);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(bad, NULL), ROBO_OK);
+    }
+
+    /* A shorthand that cannot be distributed contributes nothing and invents
+     * nothing — the rule the box model's own suite records, and it is deliberately
+     * the *shared* rule: five components is not a border width, so no longhand is
+     * materialised from it, and the earlier `border-top-width` does not come back
+     * either, because the shorthand is later and is therefore the winner. The
+     * author's declaration is preserved on the shorthand's own entry, so nothing he
+     * wrote is thrown away. */
+    {
+        robo_css_computed_style_t *five = NULL;
+        robo_css_stylesheet_id_t sheet_five = css_dom_cascade_sheet(
+            &fixture,
+            "input { border-top-width: 5px; border-width: 1px 2px 3px 4px 5px }");
+
+        css_dom_compute(&fixture, css_dom_ref_by_id(&fixture.dom, "DisplayName"), &five);
+        css_computed_is(five, "border-top-width", "<absent>");
+        css_computed_is(five, "border-width", "1px 2px 3px 4px 5px");
+        css_computed_flags_are(five, "border-width", "declared");
+        robo_css_computed_style_destroy(five);
+        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet_five, NULL), ROBO_OK);
+    }
+
+    robo_css_computed_style_destroy(paragraph);
+    robo_css_computed_style_destroy(button);
+    robo_css_computed_style_destroy(heading);
+    robo_css_computed_style_destroy(body_style);
+    ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
+    css_dom_cascade_end(&fixture);
+}
+
 void robo_test_register_css_dom_select(void);
 
 void robo_test_register_css_dom_select(void)
@@ -2701,4 +2870,5 @@ void robo_test_register_css_dom_select(void)
     robo_test_register("css.dom.position.pipeline", test_css_dom_position_pipeline);
     robo_test_register("css.dom.background.pipeline",
                        test_css_dom_background_pipeline);
+    robo_test_register("css.dom.border.pipeline", test_css_dom_border_pipeline);
 }
