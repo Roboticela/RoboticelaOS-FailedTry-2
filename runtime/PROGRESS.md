@@ -3612,6 +3612,97 @@ Three things the suite was written to catch rather than to confirm:
   "populate what you can" implementation gets wrong while every value it writes is correct,
   and it is only visible when an earlier declaration exists for the same longhand.
 
+## Goal 9.15 — CSS borders
+
+**Status: complete.** The twelve border longhands as typed values — three kinds over four
+sides — with the phase's central act a **move**: the distribution of the three border rows
+left the box model's pass for one owner that can see all four declarers at once, because a
+longhand two passes materialise is a longhand with two entries. The style vocabulary is the
+fifth closed set, the classifier's question *order* is the whole logic, and `currentcolor` is
+the one initial value in the registry that is a reference rather than a value. Nothing paints,
+no edge is measured, and `border-radius` is not a value this build has.
+
+### Delivered
+
+| Item | Where |
+|---|---|
+| The style vocabulary | `robo_css_border_style_t` — ten values as a closed set in the shared row table, each row carrying whether it `generates_border`, which is the fact that makes a `none` border's *used* width zero whatever `border-width` says |
+| The kinds | `robo_css_border_kind_t` — WIDTH / STYLE / COLOUR, in the order a serialisation writes a composite (`1px solid red`) |
+| The twelve longhands | `ROBO_CSS_BORDER_LONGHAND_COUNT` = 4 sides × 3 kinds, with `robo_css_border_longhand_name` reading the names from the box table's positional rows so `border-top-width` is spelled once in the build |
+| The positional rows | `border-width`, `border-style`, `border-color` on 9.11's 1/2/3/4 mapping — and the box table *grew* the two rows it never had, because nothing before this phase spread them over four sides |
+| The composites | `border` and the four side shorthands, each spanning more than one kind |
+| The classifier | `robo_css_border_classify` — five outcomes for three kinds, with the order of the questions (style, then width keyword, then colour name) as the logic, a percentage classified as a width because the registry admits it, and `var()` as a fourth answer rather than a guess |
+| The distribution | `robo_css_border_expand` splits one composite into three parts, leaving `KIND_NONE` for a kind the author did not name — which the composite *resets* to its initial value while a positional row has no such case at all |
+| The ownership move | `inherit_expand_border_shorthands` is the one pass that materialises the twelve, reading four declarers per longhand and weighing them with `robo_css_cascade_candidate_compare`; the box pass now asks `robo_css_border_distributes_shorthand` before it distributes a row |
+| `currentcolor` | The four colour longhands start at `currentcolor`, the registry's only *reference* initial, resolved at both doors — the resolve pass and `robo_css_style_context_query_computed_value` — so an element that declared no border colour and one whose shorthand reset it agree |
+| The computed shape | `ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE` — the fourteenth kind, the fifth closed vocabulary, and the one shape a style needed because a style is neither a keyword nor a length |
+| The registry rows | Fourteen new non-inherited rows and their initials (`medium`, `none`, `currentcolor`). `border-width` and `border` were already rows — a shape change is not a new property |
+| The diagnostic domain | `ROBO_CSS_DOMAIN_BORDER` |
+| Version | `RoboCSSVersion.h` 0.15.0; capability `borders` = 1 |
+| Documentation | `css/docs/Borders.md` (new, the design record), plus `README.md`, `docs/Architecture.md`, `docs/Tests.md`, `docs/ComputedValues.md` |
+
+### Definition of done
+
+- [x] All twelve longhands parse, on shapes that already existed for two of the three kinds
+      (`LINE_WIDTH` from 9.11, the 9.9 colour) and one new shape for the third.
+- [x] The four side shorthands parse and populate the corresponding width/style/colour
+      longhands through the existing declaration architecture.
+- [x] `border-width`, `border-style` and `border-color` work, on the same 1/2/3/4 mapping the
+      box model already had.
+- [x] `border` works for supported syntax, with a kind it does not name **reset** to that
+      longhand's initial value.
+- [x] Values participate in the existing cascade with no border-specific precedence logic.
+- [x] All fourteen rows are non-inherited, proven from both sides, and an explicit `inherit`
+      still works.
+- [x] Correct initial values are represented through the existing computed-style system,
+      including `currentcolor` resolving at both doors.
+- [x] Computed-style accessors expose typed border values — an enumerator for a style, never
+      the keyword's letters.
+- [x] Invalid declarations fail safely, each refusal with its own wording.
+- [x] Focused border tests pass (21 cases) plus a real-DOM pipeline test.
+- [x] All Phase 9.1–9.14 tests still pass; host and QEMU runtimes still work; no Chromium
+      dependency was introduced; no painting, border geometry or `border-radius` was
+      implemented prematurely.
+
+### What 9.15 found
+
+**Four things, and the first three were gaps rather than mistakes** — the phase's own tests
+are what surfaced them, which is the same pattern 9.13 and 9.14 recorded:
+
+* **The style set had no shape of its own.** `border-style` could reuse nothing: a style is
+  neither a keyword nor a length, so `BORDER_STYLE` became the fourteenth computed-value kind.
+  The *read-back* is the assertion that matters — a table whose rows and enumerators had
+  drifted would still answer `is_known` for all ten, and would only show as a value printing
+  as another row's keyword.
+* **`none` is both a value and an absence.** `robo_css_border_style_from_slice` answers `NONE`
+  for the keyword `none` and for "not one of the ten", because there is one enumerator for
+  "nothing". The suite asserts the trap directly rather than leaving the property layer to
+  rediscover it: a `border-style: banana` that computed to `none` would be a border that
+  vanished while every declaration looked like it worked.
+* **The box table had a row nothing distributed.** `border-style` and `border-color` were
+  absent as shorthand rows because nothing before this phase spread them over four sides.
+  Adding them is a two-line change *once the table exists*, which is the argument for having
+  the table rather than a per-family mapping.
+* **The distribution had two owners, and no test would have caught it.** 9.11's `border-width`
+  row was distributed by the box model's pass. That was right in isolation and wrong in a
+  build where `border` and a side shorthand cover the same longhands, and the failure mode is
+  not a crash or a wrong value — it is a *last-writer-wins* answer that depends on the order
+  the passes happen to run in. One owner and one predicate is the fix, and the fix is the
+  phase.
+
+The one expectation that moved is again the count: the registry suite asserted 49 properties,
+16 inherited and 33 non-inherited, and the fourteen new non-inherited rows made the numbers
+**63, 16 inherited and 47 non-inherited**. `border-width` and `border` were already rows — the
+phase distributes them rather than re-registering them, and a shape change is not a new
+property. The structural assertions beside the counts went green untouched.
+
+One documented flake, unchanged and not this subsystem's: running the whole suite from a
+shell Windows does not consider entitled to the foreground fails `window.host.keyboard`, which
+asserts `robo_window_request_focus(id) == ROBO_OK` and gets `ROBO_NOT_SUPPORTED` when
+`SetForegroundWindow` is declined. It passed 3/3 standalone and in both the plain and the
+sanitized full suite runs of this phase, and no `window.host.*` case reaches any RoboCSS code.
+See `docs/Build.md`.
+
 ## Next
 
-- Goal 9.15 — borders — do not start until requested
+- Goal 9.16 — CSS conformance tests — do not start until requested

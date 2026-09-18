@@ -1,6 +1,6 @@
-# RoboCSS Test Organisation (Phase 9.1–9.14)
+# RoboCSS Test Organisation (Phase 9.1–9.15)
 
-Forty suites, 573 tests, one framework. These phases add no test runner,
+Forty-one suites, 595 tests, one framework. These phases add no test runner,
 no reporter, and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -149,6 +149,13 @@ produces, which is the half of the job that cannot break.
 |---|---|---|
 | `SuiteRoboCssBackground.c` | 31 | Five groups in the order the phase is built. The **vocabularies**: repeat and attachment walked rather than a representative typed out, with each repeat row's two *axes* read from the same row its name comes from (so `repeat-x` being `repeat no-repeat` is asserted rather than assumed), and the count pinned for both. The **components**: an edge written as its axis, a pair as two of them, and equality kind-aware so `left` and `0px` stay different because they are different *values* however equal they look. The **pairs**: what parses, what is refused and why, and the *folding* that makes `center` and `center center` one computed value rather than two, plus `cover`/`contain` being keywords and not `auto`. The **longhands**: all six through the real grammar, every refusal in its own wording, and the registry row whose value is a pair. **Integration**: a real element — initial values through the query door, non-inheritance proved from both sides, `inherit`/`initial`/`unset`, the cascade's three keys, the `background` shorthand's distribution, its **reset** semantics (a longhand the shorthand omits going back to its initial rather than keeping an earlier declaration), and the case where it distributes nothing because the syntax is unsupported |
 | `SuiteRoboCssDomSelect.c` (`css.dom.background.pipeline`) | 1 | The family over the **visual checkpoint's own document**: `background-color` on real elements read as a typed colour rather than as letters, a `background-position` pair keeping both components' own kinds, `background-repeat` read back as an enumerator rather than as its keyword, a pixel and a percentage size staying pixel and percentage, and the shorthands distributed onto real elements — which is what makes the distribution pass a fact about the product rather than about the module |
+
+### 9.15 — the border family
+
+| Suite | Tests | Subject |
+|---|---|---|
+| `SuiteRoboCssBorder.c` | 21 | Five groups in the order the phase is built. The **vocabularies**: the ten styles walked in enumerator order with every keyword *read back* (the spelling is the assertion — a table whose rows and enumerators had drifted would still answer `is_known` for all ten), the count pinned, an out-of-range enumerator answering nothing, the ASCII case-insensitivity asserted by *read-back* rather than by knowness, `generates_border` asserted per row so `none` and `hidden` are the two that draw nothing, the three kinds, and the twelve longhand names reached through `for side, for kind` rather than typed out. The **classifier**: all five outcomes walked, and the *order* of the questions asserted — `none` and `hidden` as styles, `thin`/`medium`/`thick` as widths, `red` settled by nothing else, `#fff` and a colour function as colours, a percentage as a width, `var()` deferred, and a nested block invalid. The **expansion**: one `border:` value split into three parts, the `KIND_NONE` a kind the author did not name takes, and each of the three refusals in its own wording. The **shorthands**: the three positional rows through the box table's 1/2/3/4 mapping and the five composites through the registry. **Integration**: a real element — initial values through the query door (including `currentcolor` resolving against the element's own colour), non-inheritance proved from both sides, `inherit`/`initial`/`unset`, and one longhand set by **four different declarers at four different keys** so the cascade is shown to decide rather than a pass order |
+| `SuiteRoboCssDomSelect.c` (`css.dom.border.pipeline`) | 1 | The family over the **visual checkpoint's own document**: the twelve longhands on real elements read as typed values rather than as letters, a `border-top-width: thin` staying a keyword while a pixel width stays a length, a `none` style staying distinct from the absence of a style, `currentcolor` resolved against each element's own colour, and `border`, `border-width` and a side shorthand competing for the same longhand — which is what makes the ownership move a fact about the product rather than about the module |
 
 ### 9.7 — property metadata and inheritance
 
@@ -919,3 +926,46 @@ Three things the suite was written to catch:
   earlier declaration standing, so a later longhand and an earlier longhand are not the same
   document. This is the one shorthand behaviour that a "populate what you can"
   implementation gets wrong while every value it writes is correct.
+
+## 19. What the 9.15 suites found
+
+Four things, and the first three are **gaps** rather than mistakes:
+
+* **The style set had no shape until it was walked.** `border-style` needed a shape of its
+  own — a style is neither a keyword nor a length — so `BORDER_STYLE` became the fourteenth
+  computed-value kind. The *read-back* is what proves it: a table whose rows and enumerators
+  had drifted would still answer `is_known` for all ten, and would only show as a value that
+  printed as another one's keyword.
+* **`none` is both a value and an absence.** `robo_css_border_style_from_slice` answers
+  `NONE` for the keyword `none` *and* for "not one of the ten", because `none` is a real
+  value and there is one enumerator for "nothing". The suite asserts the trap directly
+  (`css.border.style.none_trap`) rather than leaving the property layer to rediscover it —
+  a `border-style: banana` that computed to `none` is a border that vanishes while every
+  declaration looks like it worked.
+* **The box table had a row nothing distributed.** `border-style` and `border-color` were
+  absent as rows because nothing before this phase spread them over four sides. Adding them
+  is a two-line change *once the table exists*, which is the argument for having the table.
+* **The distribution had two owners, and no test would have caught it.** 9.11's
+  `border-width` row was distributed by the box model's pass. That was correct in isolation
+  and wrong in a build where `border` and `border-top` cover the same longhands, and the
+  failure mode is not a crash — it is a *last-writer-wins* answer that depends on pass
+  order. The fix is the phase's architecture (one owner, and one predicate the box pass
+  asks), and `css.border.cascade` plus `css.dom.border.pipeline` are what now hold it.
+
+One expectation moved, and it is the count 9.14 warned would move again:
+
+* **The registry suite pins counts, and the counts moved again.** It asserted 49 properties,
+  16 inherited and 33 non-inherited; 9.15 adds fourteen non-inherited rows — the four
+  `border-*-style`, the four `border-*-color`, and the six shorthands `border-style`,
+  `border-color`, `border-top`, `border-right`, `border-bottom` and `border-left` — so the
+  numbers became **63, 16 inherited and 47 non-inherited**. `border-width` and `border` were
+  already rows: the phase *distributes* them rather than registering them again, and a shape
+  change is not a new property. The structural assertions beside them — every row classified,
+  every initial value parseable, every name usable — went green untouched.
+
+One documented flake, unchanged and not this subsystem's: running the whole suite from a
+shell Windows does not consider entitled to the foreground fails `window.host.keyboard`,
+which asserts `robo_window_request_focus(id) == ROBO_OK` and gets `ROBO_NOT_SUPPORTED` when
+`SetForegroundWindow` is declined. It is intermittent (it passed 3/3 standalone and in both
+of the plain and sanitized full runs of this phase) and no `window.host.*` case reaches any
+RoboCSS code. See `docs/Build.md` §6.

@@ -1,4 +1,4 @@
-# RoboCSS Architecture (Phase 9.1–9.14)
+# RoboCSS Architecture (Phase 9.1–9.15)
 
 This is the design record for RoboCSS as it exists after Goal 9.9. It documents
 boundaries and rules, not plans: everything described here is compilable code
@@ -787,8 +787,7 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Borders
-(9.15), conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
+Conformance tests (9.16), layout, painting, rendering, CSSOM, animations,
 transitions, external stylesheet fetching and networking — plus, within the
 cascade itself, evaluating at-rules and the animation and
 transition origins, and within colours the modern spaces (`hwb`, `lab`, `lch`,
@@ -798,9 +797,9 @@ The box model (9.11) is *partly* behind us and the boundary is exact: the four
 edges are a typed value family and the three shorthands are distributed, while no
 edge is measured, no margin collapses, `50%` stays a percentage, `auto` stays the
 keyword and `border-width: medium` stays a keyword rather than becoming a used
-length. `border` is still not expanded even though `border-width` now is, because
-it stands for four widths, four styles and four colours and this build represents
-one of the three.
+length. `border` is distributed by 9.15 rather than here, because it spans three
+kinds and this table describes one kind over four sides — see the border
+paragraph below.
 
 Display (9.12) is behind us in the same limited sense, and the boundary is just as
 exact: `none`, `block`, `inline` and `inline-block` are typed values that travel the
@@ -827,6 +826,22 @@ white, 50% 25% of its box, not repeating" is a sentence the computed style can s
 What does not exist is any *picture* — nothing paints a rectangle, nothing fetches a
 `url(…)`, nothing tiles an image, nothing resolves `50%` against a box, and
 `background-attachment: fixed` is a value with no scrollport to fix against.
+
+Borders (9.15) are behind us in the same limited sense, and this is the first phase
+whose subject is a *grid* rather than one property or one family: three kinds over
+four sides is twelve longhands, and four different declarations can set any one of
+them. The distribution of those twelve therefore left the box model's pass for one
+owner that can see all four declarers at once — a longhand two passes materialise is
+a longhand with two entries — while the box table kept the rows, because a row is
+where the relation between a shorthand, its four sides and the twelve names is
+written down once. What does not exist is any *edge*: nothing measures a border,
+nothing paints one, nothing combines `border-width` with the style's
+`generates_border` fact to produce a used width, `border-radius` is not a value this
+build has, and `border-width: 50%` computes because 9.8's contract is a value's
+*shape* and not a property's *range*. `currentcolor` is the one initial value in the
+registry that is a *reference*, and both doors that reach a computed value resolve
+it against the element's own colour.
+
 **Reading bytes is not interpreting them,
 building a tree is not interpreting it either, answering a question about one
 element is not applying a style to it, and computing a value is not using one**:
@@ -843,7 +858,7 @@ Each one exists here as a *declared seam* that answers `ROBO_NOT_SUPPORTED`, and
 `robo_css_get_capabilities` reports that it is absent. The flags for the tokenizer
 (9.2), the parser and inline styles (9.3), selector matching (9.4), the cascade(9.5), specificity (9.6), inheritance (9.7), computed values (9.8), colours
 (9.9), units (9.10), the box model (9.11), `display` (9.12), `positioning`
-(9.13) and `backgrounds` (9.14) flipped to 1 for
+(9.13), `backgrounds` (9.14) and `borders` (9.15) flipped to 1 for
 exactly that
 reason, and no other flag did. Each flipped only when its whole job worked end
 to end: `cascade` waited for `specificity` rather than claiming an ordering it could
@@ -854,7 +869,9 @@ riding on the parser 9.8 had to keep inside the value layer. The same rule held 
 times after that: `units` waited for the *unit table* rather than for lengths
 to parse, `box_model` waited for the cascade's comparison door rather than for an
 edge to resolve, `display` waited for the row rather than for a box, and
-`positioning` waited for the vocabulary rather than for a coordinate. All of those
+`positioning` waited for the vocabulary rather than for a coordinate, and `borders`
+waited for the twelve longhands to have one owner rather than for an edge to be
+drawn. All of those
 flags are about a *value* and none of them claims layout — that is why
 `box_model`, `display` and `positioning` are separate flags from each other and
 from anything a layout phase will add — while

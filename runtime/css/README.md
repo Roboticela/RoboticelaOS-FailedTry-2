@@ -1,9 +1,9 @@
 # RoboCSS
 
-Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.14,
-backgrounds**).
+Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.15,
+borders**).
 
-**Version:** 0.14.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.15.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -16,7 +16,7 @@ and consume it.
 **9.1 (architecture), 9.2 (tokenizer), 9.3 (parser), 9.4 (selectors), 9.5 (the
 cascade), 9.6 (specificity), 9.7 (inheritance), 9.8 (computed values), 9.9
 (colours), 9.10 (units and numbers), 9.11 (the box model), 9.12 (display), 9.13
-(positioning) and 9.14 (backgrounds).** 9.1
+(positioning), 9.14 (backgrounds) and 9.15 (borders).** 9.1
 builds the model the rest of Phase 9 is written against; 9.2 builds the first
 machine that fills it; 9.3 builds the second — the grammar that consumes the token
 stream and produces that model out of real CSS; 9.4 builds the third, which turns a
@@ -558,6 +558,46 @@ reference pixel, so `background-position: 1in` and `margin-top: 1in` cannot come
 disagree about what a computed length is. `docs/Backgrounds.md` has the full
 account.
 
+## Borders (9.15)
+
+A border is the first subject that is a **grid** rather than a property or a family. Three
+kinds — width, style, colour — over four sides is **twelve longhands**, and no fewer than
+**four** declarations can set any one of them: the longhand, its positional row
+(`border-width`), its side shorthand (`border-top`) and `border` itself. That single fact is the
+phase.
+
+A longhand two declarations can speak for cannot be materialised by two independent passes, and
+9.11 had put `border-width` on the box model's pass with a note that it was provisional. So the
+phase's central act is a **move**: the distribution of the three border rows leaves the box
+model's pass for one that can see all four declarers at once, and the box pass now asks
+`robo_css_border_distributes_shorthand` before it distributes a row — the question is not
+"is this a positional shorthand" but "is this row yours or mine". What stayed is the **table**,
+and it had to: a row is where the relation between a shorthand, its four sides and the twelve
+names is written down once, so `robo_css_border_longhand_name` reads it rather than spelling
+`border-top-width` a second time. The same move grew the table by two rows — `border-style` and
+`border-color` had no row because nothing before this phase spread them over four sides.
+
+The style vocabulary is the fifth closed set and a row in the table the other four use, so a
+sixth is a row. What is new is the **classifier**: a composite shorthand's components map to a
+*kind* rather than to a position, and the order the questions are asked in is the whole logic —
+a style keyword before a width keyword before a colour *name*, because `none` and `hidden` are
+styles, `thin`/`medium`/`thick` are the only identifiers left that are certainly not colours,
+and `red` can be settled by nothing else. A `var()` is a fourth answer rather than a guess.
+
+The one value that is a reference is the one worth remembering: `border-color`'s initial value
+is **`currentcolor`**, so it is *not* `transparent` the way `background-color` is. A border whose
+colour had been resolved at registration time would be a border nobody could see and no author
+could explain. The reference survives to the layer with an element, and the two doors that reach
+a computed value — the pass and the query — resolve it the same way, so an element that declared
+no border colour and one whose shorthand *reset* the colour agree, because they mean the same
+thing.
+
+Two behaviours differ from the two families beside it, and each is CSS's own: a kind a composite
+did not name is **reset to its initial value**, as a background longhand is, while a *positional*
+row has no such case because one to four components always cover all four sides. Nothing paints,
+no edge is measured and `border-radius` is not a value this build has. `docs/Borders.md` has the
+full account.
+
 ## The one rule worth reading first
 
 RoboCSS's syntax is modelled as **by-value records** (a value, a token, a
@@ -661,4 +701,5 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Display.md` | The 9.12 display: the four values and why the set is closed, the outer/inner halves and why `inline-block` is not "inline with a flag", the two classification questions and how `contents` will separate them, reading an identifier and the `none`-vs-unknown ambiguity, the shape's four refusals, the multi-keyword syntax and HTML defaults as drawn boundaries, the registry row and why its initial value is checked as vocabulary text, non-inheritance and the hole it leaves, and the query door a consumer uses |
 | `docs/Positioning.md` | The 9.13 positioning: the five values, flow and positioned as two separate questions, the three classification doors and why an unknown enumerator answers 0 to all of them, reading an identifier and the `static`-vs-unknown ambiguity, the shape's three refusals and the reference boundary, why the four insets reuse the box model's `EDGE_OFFSET` and take their names from the side vocabulary, `z-index` and why `0.0` is refused, the six registry rows, non-inheritance and the hole it leaves, sticky as a value rather than a behaviour, and the layout/stacking boundary |
 | `docs/Backgrounds.md` | The 9.14 backgrounds: the six longhands and why their order is load-bearing, the repeat rows' two axes and the attachment set, the edge vocabulary a keyword is spelled by, the position pair and every folding rule with its refusals, the size pair and why `auto` is a flag, `background-image`'s carried references, the classifier and its eight refusals, why the distribution *resets* while the box model's does not, the registry rows, non-inheritance and the hole it leaves, the paint/layer boundary (including why a hex colour in the shorthand is classified), and what the phase found in its own tests |
-| `../PROGRESS.md` | The Goal 9.1–9.14 records and their definitions of done |
+| `docs/Borders.md` | The 9.15 borders: the grid rather than a family, why the twelve longhands have one owner and the distribution had to *move*, what stayed in the box table and why, the ten-value style set and `none`'s trap, the three kinds, the classifier and why the order of its questions is the whole logic (including why a percentage is a width), the composite/positional split over reset semantics, the four declarers the cascade orders, `currentcolor` as the only initial value that is a reference and where the query door resolves it, the fourteen registry rows, the layout/paint boundary, ownership, and what the phase found in its own tests |
+| `../PROGRESS.md` | The Goal 9.1–9.15 records and their definitions of done |

@@ -54,6 +54,7 @@ DISPLAY      one of four display values (9.12)
 POSITION     one of five position values (9.13)
 BACKGROUND_POSITION  a pair: two edges, or length-percentages (9.14)
 BACKGROUND_SIZE      two length-percentages, `auto`, `cover` or `contain` (9.14)
+BORDER_STYLE one of ten border styles (9.15)
 PRESERVED    the specified tokens, carried intact
 INVALID      the value did not mean anything for this property
 ```
@@ -227,6 +228,7 @@ BACKGROUND_ATTACHMENT one of a closed vocabulary  background-attachment (9.14)
 BACKGROUND_IMAGE      `none` or a kept reference  background-image      (9.14)
 BACKGROUND_POSITION   a pair of components        background-position   (9.14)
 BACKGROUND_SIZE       a pair, or cover/contain     background-size       (9.14)
+BORDER_STYLE   one of a closed vocabulary          border-*-style (9.15)
 ```
 
 `FONT_WEIGHT` refuses `5000` rather than clamping it — 5000 is not a heavier
@@ -236,7 +238,7 @@ difference.
 
 Adding the column did not change the registry's data: every initial value was
 already text, and the registry already parsed each into a component-value tree at
-registration time. One field, one switch, and — after 9.14 — eighteen shapes.
+registration time. One field, one switch, and — after 9.15 — nineteen shapes.
 
 ### Why 9.11 added three more
 
@@ -378,6 +380,45 @@ way `EDGE_INSET` refuses `auto`.
 Nothing here paints: `50%` stays a percentage, `url(…)` is never fetched, `none` is a
 value rather than a missing image, and `background-attachment: fixed` is a keyword
 with no scrollport to fix against.
+
+### Why 9.15 added one, and it is a vocabulary
+
+A border is three kinds over four sides, and two of the three already had a shape:
+`border-*-width` has used `LINE_WIDTH` since 9.11 and `border-*-color` the 9.9 colour
+shape, so `border-top-color: currentColor` and `color: currentColor` are the same
+computation rather than two that agree. The third had none — a style is neither a
+keyword nor a length — so `BORDER_STYLE` is the fourteenth shape and the fifth
+**closed vocabulary**:
+
+```text
+border-*-style    one of ten values    BORDER_STYLE
+```
+
+It is a row in the table `DISPLAY`, `POSITION`, `BACKGROUND_REPEAT` and
+`BACKGROUND_ATTACHMENT` already use, which is why the shape cost one grammar entry
+and one kind, and why a sixth closed vocabulary will cost the same.
+
+The value it stores is an enumerator and not a keyword, and the difference is what
+makes `border-style: none` distinguishable from `border-style: banana` —
+`robo_css_border_style_from_slice` answers `NONE` for both, because `none` is a real
+value and there is one enumerator for "nothing", so the *check* goes through
+`robo_css_border_style_slice_is_known` and an unknown identifier becomes INVALID the
+way any other does. A `banana` that computed to `none` would be a border that
+vanished while every declaration looked like it worked.
+
+The one initial value in the registry that is a *reference* is here too:
+`border-*-color` starts at `currentcolor`, so it is **not** `transparent` the way
+`background-color` is. Resolving it at registration time would give the author a
+border nobody could see and no explanation; instead both doors that reach a computed
+value — the resolve pass and the query door (`robo_css_style_context_query_computed_value`)
+— resolve it against the element's own colour, so an element that declared no border
+colour and one whose shorthand *reset* the colour agree, because they mean the same
+thing.
+
+Nothing here draws: `border-width: 50%` computes to a percentage because 9.8's
+contract is a value's shape and not a property's range, `medium` stays a keyword
+rather than becoming a used length, and nothing combines a width with the style's
+`generates_border` fact to produce the zero a `none` border actually has.
 
 ## The computed style
 
@@ -541,9 +582,30 @@ include, listed here for the same reason):
   longhand names plus `robo_css_background_expand`, which is what the `background`
   shorthand reaches the longhands through.
 
+`RoboCSSBorder.h` — the border family (9.15; reached through the box header's
+include, listed here for the same reason):
+
+* `robo_css_border_style_from_slice` / `_from_text` / `_slice_is_known` / `_write` /
+  `_is_known` / `_name` / `_count`, and `robo_css_border_style_generates_border` —
+  the row read to answer whether a style draws anything, which is the fact that
+  makes a `none` border's used width zero whatever `border-width` says.
+* `robo_css_border_kind_is_known` / `_name` / `_count` / `_longhand_count`, and
+  `robo_css_border_longhand_name` / `_is_longhand`, which read the twelve names from
+  the box table's positional rows rather than spelling them.
+* The positional half: `robo_css_border_positional_count` / `_name` / `_kind` /
+  `_row` / `_row_of_kind`, and `robo_css_border_distributes_shorthand` — the one
+  predicate the box model's pass asks before it distributes a row.
+* The composite half: `robo_css_border_composite_count` / `_name` / `_side` /
+  `_is_whole` / `_is_composite`, and the classifier
+  `robo_css_border_class_is_known` / `_class_name` / `_class_count` /
+  `robo_css_border_classify`.
+* `robo_css_border_expand`, which is what `border` and the four side shorthands
+  reach the twelve longhands through.
+
 The record is by value, so the rest of it is read as **fields**: `kind`,
 `number`, `unit`, `is_integer`, `color`, `display`, `position`,
-`background_position`, `background_size`, `preserved`, and `unresolved`.
+`background_position`, `background_size`, `border_style`, `preserved`, and
+`unresolved`.
 
 `RoboCSSComputed.h` — the style container's computed half:
 
@@ -563,7 +625,7 @@ The record is by value, so the rest of it is read as **fields**: `kind`,
 
 ## How the tests are run
 
-* `scripts/robo test-css` — the whole CSS subsystem (573 tests).
+* `scripts/robo test-css` — the whole CSS subsystem (595 tests).
 * `./Out/RoboTest.host.exe --filter "css.computedvalue."` — the value model, the
   unit table, the colour forms and the normaliser (14 tests).
 * `./Out/RoboTest.host.exe --filter "css.computed."` — the pipeline over the
