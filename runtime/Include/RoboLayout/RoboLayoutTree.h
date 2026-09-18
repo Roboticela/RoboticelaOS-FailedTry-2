@@ -30,6 +30,27 @@
  * tree that could be edited while a pass walks it would need the pass to be told
  * about it, and nothing in 10.1 needs the capability: DOM mutation rebuilds the
  * tree, which is the honest model for a phase whose tree is derived state.
+ *
+ * The second arena (Phase 10.2)
+ *
+ * A tree owns *two* arrays: the boxes, and the formatting contexts a pass
+ * classified them into. The second is derived state exactly as a box's result is,
+ * and it lives here rather than in the pass for one reason: a formatting context
+ * is a fact about the *tree*, so a caller that has a tree must be able to ask
+ * about it without also holding the pass that produced it. A pass that owned its
+ * contexts would make "what context does this box participate in?" a question
+ * with a lifetime, and every later phase would have to be handed the pass.
+ *
+ * The arena is *invalidated*, not merged: adding an object releases it and marks
+ * the tree unclassified, because a participant count and a child-composition
+ * classification are both statements about a box set that has just changed. The
+ * alternative -- leaving a stale classification in place and hoping the caller
+ * re-runs a pass -- is the one failure mode that would be invisible until a paint
+ * phase drew the wrong thing.
+ *
+ * `robo_layout_tree_is_classified` is therefore the door that distinguishes "no
+ * pass has run" from "a pass ran over an empty tree", and it is why the two ids
+ * on a box (RoboLayoutObject.h) can stay NONE without being ambiguous.
  */
 
 #ifndef ROBO_LAYOUT_TREE_H
@@ -166,6 +187,78 @@ const robo_layout_object_t *robo_layout_object(const robo_layout_tree_t *tree,
 robo_layout_node_id_t robo_layout_object_id_for_dom_node(
     const robo_layout_tree_t *tree,
     const robo_html_node_handle_t *dom_node);
+
+/* ------------------------------------------------------------------ */
+/* Formatting contexts (Phase 10.2)                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Number of formatting contexts, or 0 when no pass has classified this tree.
+ *
+ * Zero is therefore also the answer for a classified but empty tree, which is why
+ * @ref robo_layout_tree_is_classified exists: "nothing to classify" and "not
+ * classified" are different statements, and a caller that conflated them would
+ * silently treat an unclassifiable document as one with no contexts.
+ */
+size_t robo_layout_tree_context_count(const robo_layout_tree_t *tree);
+
+/** Non-zero once a pass has classified this tree. A build, a clear and an add
+ *  all make it 0 again. */
+int robo_layout_tree_is_classified(const robo_layout_tree_t *tree);
+
+/**
+ * Release the classification, keeping every box.
+ *
+ * The door a caller reaches for when a box's *style* changed without the box set
+ * changing -- e.g. a stylesheet mutation followed by a style refresh
+ * (RoboLayoutDom.h) on a document whose element tree is unchanged. The tree keeps
+ * each box's `display` from the build, so a caller that changed what that display
+ * would be must rebuild the tree; what this door releases is the classification
+ * derived from the boxes as they were.
+ *
+ * Safe on NULL. Invalidating an unclassified tree is a no-op rather than an
+ * error, because "make sure nothing is classified" is a legitimate thing to want
+ * idempotently.
+ */
+void robo_layout_tree_invalidate_contexts(robo_layout_tree_t *tree);
+
+/**
+ * Context at @p index in creation order.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments; ROBO_NOT_FOUND for
+ *         an index at or past the count. Contexts are dense and 1-based, so the
+ *         context at @p index has id `index + 1`; this door exists so a walk needs
+ *         no arithmetic of its own, exactly as `robo_layout_object_id_at` does for
+ *         boxes.
+ */
+robo_result_t robo_layout_tree_context_at(const robo_layout_tree_t *tree,
+                                         size_t index,
+                                         robo_layout_formatting_context_t *out,
+                                         robo_layout_diag_t *diag);
+
+/**
+ * Context by id, by value.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments or a NONE id;
+ *         ROBO_NOT_FOUND for an id that names no context in @p tree. @p out is
+ *         cleared first, so a failure never leaves a half-filled copy.
+ */
+robo_result_t robo_layout_tree_context(const robo_layout_tree_t *tree,
+                                      robo_layout_fc_id_t id,
+                                      robo_layout_formatting_context_t *out,
+                                      robo_layout_diag_t *diag);
+
+/**
+ * The tree's initial formatting context.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments; ROBO_NOT_FOUND when
+ *         the tree has not been classified or has no root box -- a document that
+ *         generated nothing has no initial context, which is the truth rather
+ *         than a default to invent.
+ */
+robo_result_t robo_layout_tree_root_context(const robo_layout_tree_t *tree,
+                                           robo_layout_fc_id_t *out,
+                                           robo_layout_diag_t *diag);
 
 #ifdef __cplusplus
 }

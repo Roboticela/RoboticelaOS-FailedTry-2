@@ -1,11 +1,17 @@
 /*
  * RoboLayout context (Phase 10.1) — see RoboLayoutContext.h.
  *
- * A context is a struct with five fields and a walk. The walk is deliberately the
- * dumbest thing that can be written -- creation order, one memset per box -- for
- * the reason the phase exists: a walk that did anything clever here would be a
- * layout pass with no geometry algorithm behind it, which is the one outcome this
- * phase must not produce.
+ * A context is a struct, a walk, and a classification. The walk is deliberately
+ * the dumbest thing that can be written -- creation order, one memset per box,
+ * one classification per box -- for the reason Phase 10.1 exists: a walk that did
+ * anything clever here would be a layout pass with no geometry algorithm behind
+ * it, which is the one outcome those phases must not produce.
+ *
+ * The classification (Phase 10.2) rides the same walk because it is the same
+ * traversal. It needs three things per box -- the box's own display, its
+ * children's displays, and its parent's classification -- and the walk already
+ * has all three in hand. A second walk would be a second pass, and the module has
+ * exactly one.
  */
 
 #include "RoboLayout/RoboLayoutContext.h"
@@ -33,6 +39,133 @@ struct robo_layout_context {
     const robo_layout_tree_t *tree;
     void *user_data;
 };
+
+/* ------------------------------------------------------------------ */
+/* Classification (Phase 10.2)                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether @p object has any element child whose computed display is block-level.
+ *
+ * The one input the IFC rule needs that is not the box's own display. A text node
+ * is not a box (10.1), so a container holding only text answers 0 here -- which is
+ * what makes `<p>one</p>` establish an inline context, exactly as it should.
+ */
+static int layout_object_has_block_level_child(robo_layout_tree_t *tree,
+                                               const robo_layout_object_t *object)
+{
+    robo_layout_node_id_t child = object->first_child;
+
+    while (child != ROBO_LAYOUT_NODE_ID_NONE) {
+        const robo_layout_object_t *slot = robo_layout_object_slot_const(tree, child);
+
+        if (!slot) {
+            /* Unreachable while the tree is add-only and this walk is the only
+             * writer. Answering "no" rather than asserting keeps a future
+             * removal bug from becoming a crash *inside a classification*, where
+             * the stack trace would say nothing about the removal. */
+            break;
+        }
+        if (robo_css_display_is_block_level(slot->display)) {
+            return 1;
+        }
+        child = slot->next_sibling;
+    }
+    return 0;
+}
+
+/**
+ * Classify one box: resolve what it participates in, and establish its own
+ * context when the rules say it does.
+ *
+ * @p out_kind receives the kind it established, or NONE.
+ */
+static robo_result_t layout_classify_object(robo_layout_tree_t *tree,
+                                            robo_layout_object_t *object,
+                                            robo_layout_fc_kind_t *out_kind,
+                                            robo_layout_diag_t *diag)
+{
+    robo_layout_fc_kind_t kind;
+    robo_layout_fc_id_t owned = ROBO_LAYOUT_FC_ID_NONE;
+    robo_result_t result;
+
+    if (out_kind) {
+        *out_kind = ROBO_LAYOUT_FC_NONE;
+    }
+
+    if (object->parent == ROBO_LAYOUT_NODE_ID_NONE) {
+        /* The root box establishes the initial formatting context, and
+         * *participates* in it, because there is nothing above it to participate
+         * in instead. That is what makes "every live box has a context once the
+         * tree is classified" an invariant rather than a caveat. */
+        result = robo_layout_tree_context_add(tree, ROBO_LAYOUT_FC_ROOT, object->id,
+                                             ROBO_LAYOUT_FC_ID_NONE, 0u, &owned, diag);
+        if (result != ROBO_OK) {
+            return result;
+        }
+        object->context = owned;
+        object->context_owned = owned;
+        robo_layout_tree_context_add_participant(tree, owned);
+        if (out_kind) {
+            *out_kind = ROBO_LAYOUT_FC_ROOT;
+        }
+        return ROBO_OK;
+    }
+
+    {
+        const robo_layout_object_t *parent =
+            robo_layout_object_slot_const(tree, object->parent);
+        robo_layout_formatting_context_t parent_context;
+
+        if (!parent) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                    ROBO_ERROR,
+                                    "a box's parent link names no box in this tree");
+        }
+
+        /*
+         * A child participates in whatever its parent establishes -- or, when the
+         * parent is transparent, in whatever the parent participates in. That is
+         * the whole of the module's notion of transparency, in one expression,
+         * and it is why the two ids on a box have to be two ids.
+         */
+        object->context = (parent->context_owned != ROBO_LAYOUT_FC_ID_NONE)
+                              ? parent->context_owned
+                              : parent->context;
+        if (object->context == ROBO_LAYOUT_FC_ID_NONE) {
+            /* Unreachable, and reported rather than assumed: the root box
+             * establishes a context, so every descendant reaches one through the
+             * parent chain. If this ever fires, the parent links are wrong and
+             * saying so beats producing a box that belongs nowhere. */
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                    ROBO_ERROR,
+                                    "a box could not reach any formatting context");
+        }
+
+        kind = robo_layout_fc_establishes(
+            object->display, layout_object_has_block_level_child(tree, object), 0);
+        if (kind != ROBO_LAYOUT_FC_NONE) {
+            /* The new context's parent is the one the *owner* participates in, so
+             * contexts nest the way the boxes that establish them do. */
+            if (robo_layout_tree_context(tree, object->context, &parent_context, diag) !=
+                ROBO_OK) {
+                return diag ? diag->code : ROBO_ERROR;
+            }
+            result = robo_layout_tree_context_add(tree, kind, object->id, object->context,
+                                                  parent_context.depth + 1u, &owned, diag);
+            if (result != ROBO_OK) {
+                return result;
+            }
+            object->context_owned = owned;
+            if (out_kind) {
+                *out_kind = kind;
+            }
+        }
+
+        robo_layout_tree_context_add_participant(tree, object->context);
+    }
+    return ROBO_OK;
+}
 
 int robo_layout_pass_outcome_is_known(robo_layout_pass_outcome_t outcome)
 {
@@ -184,6 +317,7 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
 {
     size_t index;
     size_t count;
+    robo_result_t outcome;
 
     if (!context || !tree) {
         if (context) {
@@ -211,9 +345,20 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
     context->tree = tree;
     context->outcome = ROBO_LAYOUT_PASS_WALKED;
 
+    /*
+     * The previous classification is released before the walk, not after it. A
+     * pass *replaces* the contexts rather than refining them -- a participant
+     * count is a statement about a walk that is about to be redone -- so keeping
+     * the old arena alive while the new one is built would leave two generations
+     * of contexts for one tree, which is the one thing a reader could not tell
+     * apart from a correct answer.
+     */
+    robo_layout_tree_invalidate_contexts(tree);
+
     count = context->stats.objects;
     for (index = 0u; index < count; index++) {
         robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
+        robo_layout_fc_kind_t established = ROBO_LAYOUT_FC_NONE;
         robo_layout_object_t *object;
 
         if (robo_layout_object_id_at(tree, index, &id) != ROBO_OK) {
@@ -244,8 +389,46 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
         if (object->depth > context->stats.depth_max) {
             context->stats.depth_max = object->depth;
         }
+
+        /*
+         * The classification, on the same walk and in the same order. Creation
+         * order is document order, so a box's parent has already been classified
+         * by the time the box is reached -- which is what makes "which context do
+         * I participate in?" a read of the parent rather than a search up the
+         * tree.
+         */
+        outcome = layout_classify_object(tree, object, &established, diag);
+        if (outcome != ROBO_OK) {
+            context->outcome = ROBO_LAYOUT_PASS_FAILED;
+            return diag ? diag->code : outcome;
+        }
+        if (established != ROBO_LAYOUT_FC_NONE) {
+            context->stats.contexts++;
+            if (established < (robo_layout_fc_kind_t)ROBO_LAYOUT_FC_KIND_COUNT) {
+                context->stats.contexts_by_kind[established]++;
+            }
+            context->stats.boxes_establishing++;
+        } else {
+            context->stats.boxes_participating_only++;
+        }
+        if (object->context_owned != ROBO_LAYOUT_FC_ID_NONE) {
+            robo_layout_formatting_context_t owned_context;
+
+            if (robo_layout_tree_context(tree, object->context_owned, &owned_context,
+                                        NULL) == ROBO_OK &&
+                owned_context.depth > context->stats.context_depth_max) {
+                context->stats.context_depth_max = owned_context.depth;
+            }
+        }
     }
 
+    /*
+     * Marked only after every box has been classified, so "this tree is
+     * classified" is never true of a tree half of whose boxes hold a NONE id. An
+     * empty tree is classified too -- it has no boxes and no contexts, which is an
+     * answer rather than an absence.
+     */
+    robo_layout_tree_mark_classified(tree);
     context->stats.passes++;
     return ROBO_OK;
 }

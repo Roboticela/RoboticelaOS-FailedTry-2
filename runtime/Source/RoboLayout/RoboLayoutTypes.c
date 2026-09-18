@@ -71,6 +71,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "dom";
     case ROBO_LAYOUT_DOMAIN_GEOMETRY:
         return "geometry";
+    case ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT:
+        return "formatting-context";
     default:
         return "unknown";
     }

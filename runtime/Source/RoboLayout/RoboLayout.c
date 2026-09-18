@@ -1,5 +1,5 @@
 /*
- * RoboLayout module lifecycle, version and capabilities (Phase 10.1).
+ * RoboLayout module lifecycle, version and capabilities (Phase 10.1-10.2).
  *
  * The module owns *nothing*: every tree, context, bridge and record belongs to
  * the caller that created it. That is why init cannot fail for an allocation
@@ -41,10 +41,17 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
     out->dom_build = 1;
     out->computed_style_link = 1;
 
-    /* The three that are 0 are the point of the phase. Nothing computes a
-     * coordinate, nothing knows a formatting context, nothing paints. */
+    /* 10.2: the pass classifies every box into a formatting context, and that
+     * classification is a finished feature rather than a flag waiting to be
+     * flipped -- which is why it is 1 here while `geometry` is still 0. */
+    out->formatting_contexts = 1;
+
+    /* The two that are 0 are the point of the phases. Nothing computes a
+     * coordinate, and nothing lays a block or a line out: knowing *which* context
+     * a box belongs to is not knowing *where* it goes, and a build that conflated
+     * the two would report a laid-out document it does not have. */
     out->geometry = ROBO_LAYOUT_GEOMETRY_IMPLEMENTED;
-    out->formatting_contexts = 0;
+    out->block_and_inline_layout = 0;
     out->painting = 0;
     return ROBO_OK;
 }

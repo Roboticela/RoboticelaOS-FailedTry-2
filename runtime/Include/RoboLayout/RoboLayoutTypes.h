@@ -93,11 +93,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** The DOM + computed-style bridge. */
     ROBO_LAYOUT_DOMAIN_DOM = 9,
     /** The geometry vocabulary (borrowed from RoboGraphics). */
-    ROBO_LAYOUT_DOMAIN_GEOMETRY = 10
+    ROBO_LAYOUT_DOMAIN_GEOMETRY = 10,
+    /** Formatting contexts: classification, establishment, participation. */
+    ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT = 11
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 11u
+#define ROBO_LAYOUT_DOMAIN_COUNT 12u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

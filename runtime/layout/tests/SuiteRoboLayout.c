@@ -35,10 +35,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 2);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.1.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.1.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.2.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.2.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -100,7 +100,8 @@ static const struct {
     { "dom_build", 1 },
     { "computed_style_link", 1 },
     { "geometry", 0 },
-    { "formatting_contexts", 0 },
+    { "formatting_contexts", 1 },
+    { "block_and_inline_layout", 0 },
     { "painting", 0 }
 };
 
@@ -130,10 +131,14 @@ static void test_module_capabilities(void)
         ROBO_CHECK_EQ_INT(fields[index], layout_capability_flags[index].expected);
     }
 
-    /* The three that are 0 are also reachable one at a time, so a caller that
-     * asks a single question is not reading a union of nine. */
+    /* The two that are 0 are also reachable one at a time, so a caller that asks a
+     * single question is not reading a union of ten. And the one that *flipped* is
+     * asserted beside them rather than only in the table above, because the pair is
+     * the interesting fact: this build classifies every box into a formatting
+     * context *and* still computes no coordinate. */
     ROBO_CHECK_EQ_INT(caps.geometry, ROBO_LAYOUT_GEOMETRY_IMPLEMENTED);
-    ROBO_CHECK_EQ_INT(caps.formatting_contexts, 0);
+    ROBO_CHECK_EQ_INT(caps.formatting_contexts, 1);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
 }
 
@@ -188,9 +193,9 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 11);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 12);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)11), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)12), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -215,6 +220,13 @@ static void test_module_diagnostic_domains(void)
         }
     }
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_TREE), "tree");
+    /* The 10.2 domain, named rather than only walked: a diagnostic that said
+     * "domain 11" would be a message nobody could act on. */
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(
+                          ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT),
+                      "formatting-context");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                      (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name((robo_layout_diagnostic_domain_t)400),
                       "unknown");
 }
@@ -388,7 +400,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.1.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.2.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

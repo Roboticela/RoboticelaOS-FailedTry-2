@@ -59,7 +59,8 @@ static const struct {
     { "dom_build", 1 },
     { "computed_style_link", 1 },
     { "geometry", 0 },
-    { "formatting_contexts", 0 },
+    { "formatting_contexts", 1 },
+    { "block_and_inline_layout", 0 },
     { "painting", 0 }
 };
 
@@ -87,11 +88,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Six of nine. Asserted as a count as well as field by field, so a build that
+    /* Seven of ten. Asserted as a count as well as field by field, so a build that
      * turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
      * glance. */
-    ROBO_CHECK_EQ_INT(implemented, 6u);
+    ROBO_CHECK_EQ_INT(implemented, 7u);
 
     /* The capability that matters is the one that is 0, said three ways: the
      * field, the function and the macro. A build that flipped one of them would
@@ -338,6 +339,11 @@ static void layout_conformance_assert_same_tree(const robo_layout_tree_t *a,
         ROBO_CHECK_EQ_INT(object_a.child_count, object_b.child_count);
         ROBO_CHECK_EQ_INT(object_a.depth, object_b.depth);
         ROBO_CHECK_EQ_INT(object_a.flags, object_b.flags);
+        /* The classification travels with the box, so two builds of one document
+         * classify identically -- including the ids, which are tree-scoped and
+         * assigned in the same order by the same walk. */
+        ROBO_CHECK_EQ_INT((int)object_a.context, (int)object_b.context);
+        ROBO_CHECK_EQ_INT((int)object_a.context_owned, (int)object_b.context_owned);
         ROBO_CHECK_EQ_INT(object_a.dom_node.node_id, object_b.dom_node.node_id);
         ROBO_CHECK_EQ_INT(object_a.dom_node.document_id, object_b.dom_node.document_id);
         /* The borrowed style is the *same* style in both trees, because both
@@ -560,12 +566,50 @@ static void test_conformance_no_geometry(void)
 
     ROBO_CHECK_EQ_INT(robo_layout_get_capabilities(&caps), ROBO_OK);
     ROBO_CHECK_EQ_INT(caps.geometry, 0);
-    ROBO_CHECK_EQ_INT(caps.formatting_contexts, 0);
+    ROBO_CHECK_EQ_INT(caps.formatting_contexts, 1);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
 
+    /*
+     * The phase's two claims, side by side and both true of the same tree, which is
+     * the whole reason they are two capability fields: every box now takes part in
+     * a formatting context, and not one box has a coordinate. A build that had
+     * conflated "the pass classified this document" with "the pass laid it out"
+     * would have flipped `geometry` and failed here.
+     */
+    ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_context_count(fixture.tree) > 0u, 1);
+    {
+        robo_layout_fc_id_t root_context = ROBO_LAYOUT_FC_ID_NONE;
+        robo_layout_formatting_context_t context;
+        size_t box;
+
+        ROBO_CHECK_EQ_INT(robo_layout_tree_root_context(fixture.tree, &root_context, NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_layout_tree_context(fixture.tree, root_context, &context,
+                                                    NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)context.kind, (int)ROBO_LAYOUT_FC_ROOT);
+        ROBO_CHECK_EQ_INT((int)context.owner, (int)robo_layout_tree_root(fixture.tree));
+        /* Every box reached a context -- the hidden `<div>` never became a box, so
+         * it is absent rather than unclassified -- and every context owner is a
+         * live box. */
+        for (box = 0u; box < robo_layout_tree_object_count(fixture.tree); box++) {
+            robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
+            robo_layout_fc_id_t box_context = ROBO_LAYOUT_FC_ID_NONE;
+
+            ROBO_CHECK_EQ_INT(robo_layout_object_id_at(fixture.tree, box, &id), ROBO_OK);
+            ROBO_CHECK_EQ_INT(robo_layout_object_is_live(fixture.tree, id), 1);
+            ROBO_CHECK_EQ_INT(robo_layout_object_context(fixture.tree, id, &box_context,
+                                                         NULL),
+                              ROBO_OK);
+            ROBO_CHECK(box_context != ROBO_LAYOUT_FC_ID_NONE);
+        }
+    }
+
     /* Not one box has a coordinate, and not one of them answers as if it did.
-     * This is the assertion the whole phase rests on: a build that returned a
+     * This is the assertion the phases rest on: a build that returned a
      * zeroed rectangle would satisfy "the pass ran" and fail this. */
     for (index = 0u; index < robo_layout_tree_object_count(fixture.tree); index++) {
         robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
@@ -647,18 +691,37 @@ static void test_conformance_statement(void)
     layout_fixture();
 
     /*
-     * The four sentences the phase would be described by, each an assertion rather
-     * than a comment. If a later goal flips one of these it must also change this
-     * test, which is the point: a phase that computes geometry should not be able
-     * to leave the build claiming it does not.
+     * The sentences the module would be described by, each an assertion rather than
+     * a comment. If a later goal flips one of these it must also change this test,
+     * which is the point: a phase that computes geometry should not be able to leave
+     * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.1.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.2.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
+
+    /*
+     * One box kind, and this is where 10.1's prediction turned out to be wrong in a
+     * way worth recording. The 10.1 record expected formatting contexts to arrive as
+     * extra *object kinds*; they arrived instead as a vocabulary of their own
+     * (RoboLayoutFormattingContext.h). The reason is the one this module applies
+     * everywhere else: `display` already carries the outer/inner pair that would
+     * distinguish a block box from an inline one, and a second copy of those facts in
+     * `kind` would be two places for one answer -- which is exactly what 10.1 refused
+     * to do for every other property. `kind` therefore stays one entry wide, and
+     * 10.3 will add the row it needs when anonymous boxes are boxes that have no
+     * element -- and therefore no `display` -- to derive it from.
+     */
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_KIND_COUNT, 2);
-    /* One box kind, because a formatting context is what would distinguish two. */
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_BOX), 1);
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known((robo_layout_object_kind_t)2), 0);
+
+    /* And the vocabulary 10.2 added instead: three kinds of context plus the
+     * absence, of which ROOT is one and only one per tree. */
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_FC_KIND_COUNT, 4);
+    ROBO_CHECK_EQ_INT(robo_layout_fc_kind_is_block_container(ROBO_LAYOUT_FC_ROOT), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_fc_kind_is_block_container(ROBO_LAYOUT_FC_INLINE), 0);
+    ROBO_CHECK_STR_EQ(robo_layout_fc_kind_name(ROBO_LAYOUT_FC_BLOCK), "block");
 }
 
 /* ------------------------------------------------------------------ */

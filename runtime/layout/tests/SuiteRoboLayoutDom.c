@@ -502,6 +502,103 @@ static void test_dom_pipeline(void)
     ROBO_CHECK_EQ_INT(stats.without_style, 0u);
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
 
+    /*
+     * The same pass classifies, and it classifies from the *real* cascade rather
+     * than from a scripted answer: every display below came through a stylesheet,
+     * the matcher, the cascade and 9.8's normaliser before the builder read it.
+     *
+     * Four contexts. `<html>` establishes the initial one. `.panel` is
+     * `display: inline-block`, whose inner display 9.12 records as `flow-root` --
+     * so it establishes a *block* context while itself participating in the root's,
+     * which is the atomic-inline case arriving from a real sheet. `<p>` and
+     * `<span>` are block containers with no children, so each establishes an inline
+     * context. `<body>` is transparent because `span` computes to `display: block`,
+     * and `<head>` -- which nothing matched -- is inline and establishes nothing,
+     * because a non-inherited property nothing declared is the property's initial
+     * value.
+     */
+    ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(tree), 1);
+    ROBO_CHECK_EQ_INT(stats.contexts, 4u);
+    ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_ROOT], 1u);
+    ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_BLOCK], 1u);
+    ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_INLINE], 2u);
+    ROBO_CHECK_EQ_INT(stats.boxes_establishing, 4u);
+    ROBO_CHECK_EQ_INT(stats.boxes_participating_only, 2u);
+    /*
+     * Two levels, and the second one is the point: `<p>` lives inside the atomic
+     * inline, so its inline context nests in the panel's block context rather than
+     * beside it. A build that parented every context to the root would still
+     * report four contexts of the right three kinds, which is why the depth and
+     * the parent link below are asserted and not just the counts.
+     */
+    ROBO_CHECK_EQ_INT(stats.context_depth_max, 2u);
+    {
+        robo_layout_fc_id_t root_context = ROBO_LAYOUT_FC_ID_NONE;
+        robo_layout_formatting_context_t one;
+
+        ROBO_CHECK_EQ_INT(robo_layout_tree_root_context(tree, &root_context, NULL), ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_layout_tree_context(tree, root_context, &one, NULL), ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)one.owner, (int)robo_layout_tree_root(tree));
+        /* The owner and the three participants below: `<head>` (inline), `<body>`
+         * (transparent) and `<span>`, plus the atomic inline itself, which
+         * participates in the root's context *and* owns one of its own. `<p>` is
+         * not among them -- it participates in the panel's. */
+        ROBO_CHECK_EQ_INT(one.participants, 5u);
+        ROBO_CHECK_EQ_INT(one.depth, 0u);
+        ROBO_CHECK_EQ_INT((int)one.parent, (int)ROBO_LAYOUT_FC_ID_NONE);
+
+        /* The two transparent-or-inline boxes and the atomic inline, asked one at
+         * a time so a build that got the count right by accident would fail. */
+        {
+            robo_html_node_handle_t panel = layout_document_find(&fixture.doc, "div");
+            robo_layout_node_id_t panel_box =
+                robo_layout_object_id_for_dom_node(tree, &panel);
+            robo_layout_fc_id_t owned = ROBO_LAYOUT_FC_ID_NONE;
+
+            ROBO_CHECK_EQ_INT(robo_layout_object_context_owned(tree, panel_box, &owned,
+                                                               NULL),
+                              ROBO_OK);
+            ROBO_CHECK_EQ_INT(robo_layout_tree_context(tree, owned, &one, NULL), ROBO_OK);
+            ROBO_CHECK_EQ_INT((int)one.kind, (int)ROBO_LAYOUT_FC_BLOCK);
+            ROBO_CHECK_EQ_INT((int)one.parent, (int)root_context);
+            ROBO_CHECK_EQ_INT(one.depth, 1u);
+            ROBO_CHECK_EQ_INT(one.participants, 1u);
+
+            /* The box the panel contains is a *block container*, so what it
+             * establishes is an inline context -- and its parent is the panel's
+             * block context, not the root, which is the nesting claim. */
+            {
+                robo_html_node_handle_t paragraph = layout_document_find(&fixture.doc, "p");
+                robo_layout_node_id_t paragraph_box =
+                    robo_layout_object_id_for_dom_node(tree, &paragraph);
+                robo_layout_fc_id_t inner = ROBO_LAYOUT_FC_ID_NONE;
+
+                ROBO_CHECK_EQ_INT(robo_layout_object_context_owned(tree, paragraph_box,
+                                                                   &inner, NULL),
+                                  ROBO_OK);
+                ROBO_CHECK_EQ_INT((int)inner != (int)ROBO_LAYOUT_FC_ID_NONE, 1);
+                ROBO_CHECK_EQ_INT(robo_layout_tree_context(tree, inner, &one, NULL), ROBO_OK);
+                ROBO_CHECK_EQ_INT((int)one.kind, (int)ROBO_LAYOUT_FC_INLINE);
+                ROBO_CHECK_EQ_INT((int)one.parent, (int)owned);
+                ROBO_CHECK_EQ_INT(one.depth, 2u);
+            }
+        }
+        {
+            robo_html_node_handle_t head = layout_document_find(&fixture.doc, "head");
+            robo_layout_node_id_t head_box = robo_layout_object_id_for_dom_node(tree, &head);
+
+            /* Inline boxes establish nothing, which is the rule that keeps
+             * `inline` from being modelled as "a small block". */
+            ROBO_CHECK_EQ_INT(robo_layout_object_establishes_context(tree, head_box), 0);
+        }
+    }
+
+    /* And the DOM is untouched: seven elements before the build and seven after,
+     * with one of them generating no box. Classification reads the DOM and never
+     * writes it, and the box set is derived state rather than a second tree. */
+    ROBO_CHECK_EQ_INT(robo_layout_dom_element_count(fixture.dom), 7u);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 6u);
+
     /* The tree goes first: it borrows the bridge's styles. */
     robo_layout_context_destroy(context);
     robo_layout_tree_destroy(tree);

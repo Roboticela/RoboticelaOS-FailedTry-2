@@ -49,6 +49,7 @@
 #include "RoboHTML/RoboHTMLNode.h"
 
 #include "RoboLayout/RoboLayoutDiagnostics.h"
+#include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutTypes.h"
@@ -113,6 +114,23 @@ typedef struct robo_layout_object {
     uint32_t flags;
     /** What the pass concluded about this box. */
     robo_layout_result_t result;
+
+    /*
+     * Formatting contexts (10.2). Two ids, and the pair is the point: a box
+     * *participates* in the context its layout takes place in and may *establish*
+     * a different one for its contents, and most boxes do only the first.
+     * RoboLayoutFormattingContext.h argues why collapsing them into one fact is
+     * the most expensive mistake this phase could make.
+     *
+     * Both stay NONE until the first pass classifies the tree, and an add or a
+     * clear invalidates them (RoboLayoutTree.h) -- so a caller can always tell
+     * "not classified yet" (both NONE, `robo_layout_tree_is_classified` 0) from
+     * "classified and this box is transparent" (context set, owned NONE).
+     */
+    /** The context this box's own layout participates in. */
+    robo_layout_fc_id_t context;
+    /** The context this box establishes for its contents, or NONE. */
+    robo_layout_fc_id_t context_owned;
 } robo_layout_object_t;
 
 /*
@@ -230,6 +248,47 @@ robo_result_t robo_layout_object_result(const robo_layout_tree_t *tree,
 const robo_layout_result_t *robo_layout_object_result_ref(
     const robo_layout_tree_t *tree,
     robo_layout_node_id_t id);
+
+/**
+ * The formatting context @p id's own layout participates in.
+ *
+ * @return ROBO_OK and the id; ROBO_INVALID_ARGUMENT for NULL args or a NONE id;
+ *         ROBO_NOT_FOUND when there is no *live* context to read -- which covers
+ *         an id that names no box, a box in a tree no pass has classified, and a
+ *         box whose classification has been released by an add, a clear or an
+ *         explicit invalidation. All three are one statement to a caller, and
+ *         which one it was is a fact about the *tree*:
+ *         `robo_layout_tree_is_classified`.
+ *
+ *         The validation is why a released classification cannot be read back: a
+ *         box's id is a *cache* of a conclusion, and a cache that outlives what it
+ *         caches is exactly the half-truth this module refuses to hand out.
+ */
+robo_result_t robo_layout_object_context(const robo_layout_tree_t *tree,
+                                        robo_layout_node_id_t id,
+                                        robo_layout_fc_id_t *out,
+                                        robo_layout_diag_t *diag);
+
+/**
+ * The formatting context @p id establishes for its contents, or ROBO_NOT_FOUND
+ * when it establishes none.
+ *
+ * "Establishes none" is the common answer and is not a failure: it means the box
+ * is transparent to formatting context and its contents are formatted by an
+ * ancestor's. A caller that needs to distinguish it from "not classified yet", or
+ * from "classified and since released", asks `robo_layout_tree_is_classified`
+ * first -- the same rule the participating-context accessor above states.
+ */
+robo_result_t robo_layout_object_context_owned(const robo_layout_tree_t *tree,
+                                               robo_layout_node_id_t id,
+                                               robo_layout_fc_id_t *out,
+                                               robo_layout_diag_t *diag);
+
+/** Non-zero when @p id names a box that establishes a context of its own that a
+ *  caller can read back right now. 0 for an id that names no box, a box that
+ *  establishes none, and a box whose classification has been released. */
+int robo_layout_object_establishes_context(const robo_layout_tree_t *tree,
+                                           robo_layout_node_id_t id);
 
 #ifdef __cplusplus
 }

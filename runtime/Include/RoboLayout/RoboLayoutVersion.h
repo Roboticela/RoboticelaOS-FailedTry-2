@@ -1,10 +1,15 @@
 /*
- * RoboLayout version pin — Phase 10.1 layout architecture.
+ * RoboLayout version pin — Phase 10.2 formatting contexts.
  *
- * 0.1.0 is the architecture-only surface, and it is deliberately *shaped* like
- * 9.1 was for RoboCSS: every model the later layout goals will extend exists,
+ * 0.2.0 is 0.1.0's architecture plus the first thing a layout pass can actually
+ * decide: **formatting contexts**. The surface stays deliberately *shaped* the way
+ * 9.1 was for RoboCSS — every model the later layout goals will extend exists,
  * every door that would compute geometry is absent rather than faked, and
  * `robo_layout_get_capabilities` says so field by field.
+ *
+ * What 10.2 adds, in one line: a box now carries *two* formatting-context ids,
+ * because it participates in one and may establish a different one for its
+ * contents, and a pass fills both for every box.
  *
  * What exists here is the *shape* of a layout pass and nothing that resolves
  * anything:
@@ -28,12 +33,29 @@
  *                  callback, and one computed style per element, borrowed by the
  *                  tree for as long as the bridge lives
  *
- * 10.1 computes no coordinate, resolves no percentage, collapses no margin and
- * paints nothing. `robo_layout_context_run` walks the tree, counts what it saw
- * and leaves every result *UNRESOLVED* -- which is a statement about this build
- * rather than a placeholder for one: a caller that reads a result and finds
- * UNRESOLVED has been told the truth, and a phase that returns (0, 0) instead
- * has been told a lie.
+ * and, from 10.2:
+ *
+ *   the contexts   an arena of formatting contexts owned by the tree, built by
+ *                  the pass on the same walk that marks every box UNRESOLVED:
+ *                  ROOT, BLOCK and INLINE, each naming the box whose contents it
+ *                  formats, the context the owner participates in, how many boxes
+ *                  it coordinates and how deeply it nests
+ *
+ *   the classifier one pure function of a computed display, one boolean and one
+ *                  flag, so the rules can be asserted as a table rather than
+ *                  inferred from a built document
+ *
+ * Neither phase computes a coordinate, resolves a percentage, collapses a margin
+ * or paints anything. `robo_layout_context_run` walks the tree, counts what it
+ * saw, classifies every box and leaves every result *UNRESOLVED* -- which is a
+ * statement about this build rather than a placeholder for one: a caller that
+ * reads a result and finds UNRESOLVED has been told the truth, and a phase that
+ * returns (0, 0) instead has been told a lie.
+ *
+ * The two capability fields say the same thing from opposite ends:
+ * `formatting_contexts` is 1 because the pass really does decide what kind of
+ * context each box takes part in, and `geometry` is still 0 because not one of
+ * those decisions is a number.
  *
  * The surface will keep growing for the whole of Phase 10, so API freeze is NOT
  * claimed here (ROBO_LAYOUT_API_FROZEN=0). RoboLayout depends on RoboHTML and
@@ -45,9 +67,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 1
+#define ROBO_LAYOUT_VERSION_MINOR 2
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.1.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.2.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -58,7 +80,15 @@
  * A compiler constant rather than a runtime decision, because it is read by two
  * doors that must not disagree -- `robo_layout_get_capabilities().geometry` and
  * `robo_layout_geometry_is_implemented()` -- and by the suite that asserts both.
- * Phase 10.1 ships 0: no coordinate exists, so no caller may read one.
+ * Ships 0: no coordinate exists, so no caller may read one.
+ *
+ * It is deliberately *not* paired with a constant for formatting contexts, and
+ * that asymmetry is the point: 10.2's classification is a finished feature rather
+ * than a flag waiting to be flipped, so it is a capability field and nothing
+ * else. A second compiler constant here would invite a caller to test whether the
+ * *build* classifies boxes, when the question they mean to ask is whether a
+ * particular tree has been classified -- which
+ * `robo_layout_tree_is_classified` answers.
  */
 #define ROBO_LAYOUT_GEOMETRY_IMPLEMENTED 0
 

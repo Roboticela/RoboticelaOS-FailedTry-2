@@ -108,6 +108,13 @@ robo_result_t robo_layout_tree_create(robo_layout_tree_t **out_tree,
     tree->capacity = ROBO_LAYOUT_INITIAL_CAPACITY;
     tree->count = 0u;
     tree->next_id = 1u;
+    /* No context arena, and that is deliberate rather than an oversight: a tree
+     * that is built and never classified owns no contexts, so the second
+     * allocation waits for the pass that needs it (see the internal header). */
+    tree->contexts = NULL;
+    tree->context_count = 0u;
+    tree->context_capacity = 0u;
+    tree->classified = 0;
     *out_tree = tree;
     return ROBO_OK;
 }
@@ -117,14 +124,46 @@ void robo_layout_tree_destroy(robo_layout_tree_t *tree)
     if (!tree) {
         return;
     }
-    /* One free for the whole arena: no recursion, no per-node teardown to get
-     * wrong, and nothing borrowed is touched. */
+    /* One free per arena: no recursion, no per-node teardown to get wrong, and
+     * nothing borrowed is touched. */
+    robo_free(tree->contexts);
+    tree->contexts = NULL;
+    tree->context_count = 0u;
+    tree->context_capacity = 0u;
+    tree->classified = 0;
     robo_free(tree->objects);
     tree->objects = NULL;
     tree->count = 0u;
     tree->capacity = 0u;
     tree->next_id = 1u;
     robo_free(tree);
+}
+
+void robo_layout_tree_contexts_reset(robo_layout_tree_t *tree)
+{
+    if (!tree) {
+        return;
+    }
+    /* Released rather than zeroed: a classification is rebuilt wholesale by the
+     * next pass, so keeping a grown arena to overwrite would be holding memory
+     * for a shape nobody has asked for yet. */
+    robo_free(tree->contexts);
+    tree->contexts = NULL;
+    tree->context_count = 0u;
+    tree->context_capacity = 0u;
+    tree->classified = 0;
+}
+
+void robo_layout_tree_invalidate_contexts(robo_layout_tree_t *tree)
+{
+    robo_layout_tree_contexts_reset(tree);
+}
+
+void robo_layout_tree_mark_classified(robo_layout_tree_t *tree)
+{
+    if (tree) {
+        tree->classified = 1;
+    }
 }
 
 void robo_layout_tree_clear(robo_layout_tree_t *tree)
@@ -137,6 +176,10 @@ void robo_layout_tree_clear(robo_layout_tree_t *tree)
     }
     tree->count = 0u;
     tree->next_id = 1u;
+    /* A classification describes a box set, and the box set is gone. The ids on
+     * the boxes are zeroed with them, so no box can be left holding an id that
+     * names a context in an arena that no longer exists. */
+    robo_layout_tree_contexts_reset(tree);
 }
 
 size_t robo_layout_tree_object_count(const robo_layout_tree_t *tree)
@@ -286,6 +329,15 @@ robo_result_t robo_layout_tree_add_object(robo_layout_tree_t *tree,
      */
     parent = is_root ? NULL : robo_layout_object_slot(tree, info->parent);
 
+    /*
+     * The classification is released by the reserve above, which may have moved
+     * the context arena as well as the object one. Done here rather than at the
+     * top so a *refused* add -- a bad display, a second root, an unknown flag --
+     * leaves the tree exactly as it was: a classification is invalid only because
+     * the box set changed, and a refused add does not change it.
+     */
+    robo_layout_tree_contexts_reset(tree);
+
     id = tree->next_id++;
     index = tree->count;
     object = &tree->objects[index];
@@ -347,4 +399,256 @@ robo_layout_node_id_t robo_layout_object_id_for_dom_node(
         }
     }
     return ROBO_LAYOUT_NODE_ID_NONE;
+}
+
+/* ------------------------------------------------------------------ */
+/* The formatting-context arena (Phase 10.2)                           */
+/* ------------------------------------------------------------------ */
+
+const robo_layout_formatting_context_t *robo_layout_fc_slot_const(
+    const robo_layout_tree_t *tree,
+    robo_layout_fc_id_t id)
+{
+    size_t index;
+
+    if (!tree || id == ROBO_LAYOUT_FC_ID_NONE) {
+        return NULL;
+    }
+    /* Dense and 1-based, and the id is checked against the slot rather than only
+     * against the count -- the same discipline the object arena uses, so an id
+     * from a previous classification is a miss rather than an alias. */
+    index = (size_t)(id - 1u);
+    if (index >= tree->context_count) {
+        return NULL;
+    }
+    if (tree->contexts[index].id != id) {
+        return NULL;
+    }
+    return &tree->contexts[index];
+}
+
+robo_layout_formatting_context_t *robo_layout_fc_slot(robo_layout_tree_t *tree,
+                                                     robo_layout_fc_id_t id)
+{
+    size_t index;
+
+    if (!tree || id == ROBO_LAYOUT_FC_ID_NONE) {
+        return NULL;
+    }
+    index = (size_t)(id - 1u);
+    if (index >= tree->context_count) {
+        return NULL;
+    }
+    if (tree->contexts[index].id != id) {
+        return NULL;
+    }
+    return &tree->contexts[index];
+}
+
+/**
+ * Make room for one more context, doubling the arena.
+ * @return ROBO_OK, or ROBO_OUT_OF_MEMORY leaving the tree untouched.
+ */
+static robo_result_t layout_tree_context_reserve(robo_layout_tree_t *tree,
+                                                robo_layout_diag_t *diag)
+{
+    size_t wanted;
+    robo_layout_formatting_context_t *grown;
+
+    if (tree->contexts == NULL) {
+        tree->contexts = (robo_layout_formatting_context_t *)robo_calloc(
+            ROBO_LAYOUT_INITIAL_CONTEXT_CAPACITY,
+            sizeof(robo_layout_formatting_context_t));
+        if (!tree->contexts) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                    ROBO_OUT_OF_MEMORY,
+                                    "could not allocate the formatting-context arena");
+        }
+        tree->context_capacity = ROBO_LAYOUT_INITIAL_CONTEXT_CAPACITY;
+        return ROBO_OK;
+    }
+    if (tree->context_count < tree->context_capacity) {
+        return ROBO_OK;
+    }
+    wanted = tree->context_capacity * 2u;
+    if (wanted <= tree->context_capacity) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_OUT_OF_MEMORY,
+                                "formatting-context capacity overflowed");
+    }
+    grown = (robo_layout_formatting_context_t *)robo_realloc(
+        tree->contexts, wanted * sizeof(robo_layout_formatting_context_t));
+    if (!grown) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_OUT_OF_MEMORY,
+                                "could not grow the formatting-context arena");
+    }
+    memset(grown + tree->context_capacity, 0,
+           (wanted - tree->context_capacity) * sizeof(robo_layout_formatting_context_t));
+    tree->contexts = grown;
+    tree->context_capacity = wanted;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_tree_context_add(robo_layout_tree_t *tree,
+                                           robo_layout_fc_kind_t kind,
+                                           robo_layout_node_id_t owner,
+                                           robo_layout_fc_id_t parent,
+                                           uint32_t depth,
+                                           robo_layout_fc_id_t *out_id,
+                                           robo_layout_diag_t *diag)
+{
+    robo_layout_formatting_context_t *context;
+    robo_layout_fc_id_t id;
+
+    if (out_id) {
+        *out_id = ROBO_LAYOUT_FC_ID_NONE;
+    }
+    if (!tree || !out_id) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "tree or out_id is NULL");
+    }
+    if (!robo_layout_fc_kind_is_known(kind) || kind == ROBO_LAYOUT_FC_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "the kind is not a context kind");
+    }
+    if (owner == ROBO_LAYOUT_NODE_ID_NONE || !robo_layout_object_slot(tree, owner)) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND, "the owner id names no box in this tree");
+    }
+    /* ROOT is the only context with no enclosing one. Every other kind is
+     * established *inside* something, so a NONE parent would be a context floating
+     * outside the tree it describes. */
+    if (kind == ROBO_LAYOUT_FC_ROOT) {
+        if (parent != ROBO_LAYOUT_FC_ID_NONE) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                    ROBO_INVALID_ARGUMENT,
+                                    "the initial formatting context has no parent");
+        }
+    } else if (robo_layout_fc_slot(tree, parent) == NULL) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND,
+                                "the parent context id names no context in this tree");
+    }
+
+    if (layout_tree_context_reserve(tree, diag) != ROBO_OK) {
+        return diag ? diag->code : ROBO_OUT_OF_MEMORY;
+    }
+
+    id = (robo_layout_fc_id_t)(tree->context_count + 1u);
+    context = &tree->contexts[tree->context_count];
+    robo_layout_formatting_context_init(context);
+    context->id = id;
+    context->kind = kind;
+    context->owner = owner;
+    context->parent = (kind == ROBO_LAYOUT_FC_ROOT) ? ROBO_LAYOUT_FC_ID_NONE : parent;
+    context->participants = 0u;
+    context->depth = depth;
+    tree->context_count++;
+    *out_id = id;
+    return ROBO_OK;
+}
+
+void robo_layout_tree_context_add_participant(robo_layout_tree_t *tree,
+                                              robo_layout_fc_id_t id)
+{
+    robo_layout_formatting_context_t *context = robo_layout_fc_slot(tree, id);
+
+    if (context) {
+        context->participants++;
+    }
+}
+
+size_t robo_layout_tree_context_count(const robo_layout_tree_t *tree)
+{
+    return tree ? tree->context_count : 0u;
+}
+
+int robo_layout_tree_is_classified(const robo_layout_tree_t *tree)
+{
+    return tree && tree->classified;
+}
+
+robo_result_t robo_layout_tree_context_at(const robo_layout_tree_t *tree,
+                                         size_t index,
+                                         robo_layout_formatting_context_t *out,
+                                         robo_layout_diag_t *diag)
+{
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "out is NULL");
+    }
+    robo_layout_formatting_context_init(out);
+    if (!tree) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL");
+    }
+    if (index >= tree->context_count) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND, "the index is past the context count");
+    }
+    *out = tree->contexts[index];
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_tree_context(const robo_layout_tree_t *tree,
+                                      robo_layout_fc_id_t id,
+                                      robo_layout_formatting_context_t *out,
+                                      robo_layout_diag_t *diag)
+{
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "out is NULL");
+    }
+    robo_layout_formatting_context_init(out);
+    if (!tree || id == ROBO_LAYOUT_FC_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL or the id is NONE");
+    }
+    {
+        const robo_layout_formatting_context_t *context = robo_layout_fc_slot_const(tree, id);
+
+        if (!context) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                    ROBO_NOT_FOUND,
+                                    "the id names no context in this tree");
+        }
+        *out = *context;
+    }
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_tree_root_context(const robo_layout_tree_t *tree,
+                                           robo_layout_fc_id_t *out,
+                                           robo_layout_diag_t *diag)
+{
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "out is NULL");
+    }
+    *out = ROBO_LAYOUT_FC_ID_NONE;
+    if (!tree) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL");
+    }
+    if (!robo_layout_tree_is_classified(tree)) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND, "the tree has not been classified");
+    }
+    /* The initial context is the first one the pass establishes -- the root box is
+     * created first, so it is established first. Stated as a search rather than as
+     * "slot 0" because the ordering is a property of the pass and this door should
+     * keep answering correctly if a later goal establishes something before it. */
+    {
+        size_t index;
+
+        for (index = 0u; index < tree->context_count; index++) {
+            if (tree->contexts[index].kind == ROBO_LAYOUT_FC_ROOT) {
+                *out = tree->contexts[index].id;
+                return ROBO_OK;
+            }
+        }
+    }
+    return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT, ROBO_NOT_FOUND,
+                            "the tree has no root box, so it has no initial context");
 }

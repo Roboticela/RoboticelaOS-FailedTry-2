@@ -307,3 +307,101 @@ const robo_layout_result_t *robo_layout_object_result_ref(
 
     return object ? &object->result : NULL;
 }
+
+/**
+ * Whether @p id names a context that exists in @p tree *right now*.
+ *
+ * The ids on a box are a cache of a classification, and a classification is
+ * invalidated whenever the box set changes (RoboLayoutTree.h). So the box's own
+ * field is not enough to answer with: a box can hold an id from a classification
+ * that has since been released, and handing that id back would be a stale answer
+ * a caller could not tell from a live one.
+ *
+ * Validating here rather than zeroing every box's ids in the invalidation is a
+ * deliberate trade. Zeroing is O(boxes) per invalidation, and invalidation happens
+ * on *every add* -- so a build of a four-thousand-box document would be
+ * quadratic in a walk that exists only to write two zeroes into each box. This
+ * check is two comparisons, and it makes the property the module actually needs
+ * true: an id that names nothing is a reported miss, wherever it came from.
+ */
+static int layout_object_context_is_live(const robo_layout_tree_t *tree,
+                                        robo_layout_fc_id_t id)
+{
+    return id != ROBO_LAYOUT_FC_ID_NONE && robo_layout_fc_slot_const(tree, id) != NULL;
+}
+
+robo_result_t robo_layout_object_context(const robo_layout_tree_t *tree,
+                                        robo_layout_node_id_t id,
+                                        robo_layout_fc_id_t *out,
+                                        robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "out is NULL");
+    }
+    *out = ROBO_LAYOUT_FC_ID_NONE;
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL or the id is NONE");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND, "the id names no box in this tree");
+    }
+    /* NOT_FOUND covers both "nobody has classified this tree" and "the
+     * classification this box carries has been released", because they are the
+     * same statement to a caller: there is no context to read. Which one it was is
+     * a fact about the *tree*, answered by `robo_layout_tree_is_classified`. */
+    if (!layout_object_context_is_live(tree, object->context)) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND,
+                                "the box participates in no live formatting context");
+    }
+    *out = object->context;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_object_context_owned(const robo_layout_tree_t *tree,
+                                               robo_layout_node_id_t id,
+                                               robo_layout_fc_id_t *out,
+                                               robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "out is NULL");
+    }
+    *out = ROBO_LAYOUT_FC_ID_NONE;
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL or the id is NONE");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND, "the id names no box in this tree");
+    }
+    if (!layout_object_context_is_live(tree, object->context_owned)) {
+        /* The common answer, and not a failure: this box is transparent to
+         * formatting context, or it is an inline box, or the classification that
+         * gave it one has been released. Either way its contents are not formatted
+         * by a context of its own that a caller can inspect. */
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                                ROBO_NOT_FOUND,
+                                "the box establishes no live formatting context of its own");
+    }
+    *out = object->context_owned;
+    return ROBO_OK;
+}
+
+int robo_layout_object_establishes_context(const robo_layout_tree_t *tree,
+                                           robo_layout_node_id_t id)
+{
+    const robo_layout_object_t *object = robo_layout_object_slot_const(tree, id);
+
+    return object != NULL && layout_object_context_is_live(tree, object->context_owned);
+}

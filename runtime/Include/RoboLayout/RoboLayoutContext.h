@@ -31,6 +31,18 @@
  *   and computes no coordinate. `robo_layout_stats_t.boxes_computed` is 0 after a
  *   10.1 pass and `robo_layout_geometry_is_implemented()` answers 0, so a caller
  *   cannot mistake "the pass ran" for "the boxes were laid out".
+ *
+ * Phase 10.2 adds a second job to the same walk: **classify every box** into a
+ * formatting context (RoboLayoutFormattingContext.h), storing the result on the
+ * tree. It is the same loop because it is the same traversal -- the
+ * classification needs each box's children and its parent's classification, both
+ * of which the walk already has in hand, and a second walk of the same tree would
+ * be the second pass this module refuses to have.
+ *
+ * The order is load-bearing: boxes are visited in *creation* order, which is
+ * document order, which is parents before children. So when a box is reached, its
+ * parent has already been classified, and "which context do I participate in?" is
+ * a read rather than a search up the tree.
  */
 
 #ifndef ROBO_LAYOUT_CONTEXT_H
@@ -40,6 +52,7 @@
 
 #include "RoboLayout/RoboLayoutConstraints.h"
 #include "RoboLayout/RoboLayoutDiagnostics.h"
+#include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
@@ -82,6 +95,27 @@ typedef struct robo_layout_stats {
     uint32_t depth_max;
     /** Passes this context has completed, including this one. */
     size_t passes;
+
+    /*
+     * What the classification produced (Phase 10.2). Counters rather than a
+     * single total because the interesting fact is the *mix*: a document whose
+     * every box establishes a context and one that establishes a single root
+     * context have the same box count and completely different layout shapes, and
+     * a suite that could not tell them apart would not be testing the
+     * classification.
+     */
+    /** Formatting contexts established, of every kind. */
+    size_t contexts;
+    /** Contexts of each kind, indexed by robo_layout_fc_kind_t. Entry NONE is
+     *  always 0 -- a context has a kind or it is not a context. */
+    size_t contexts_by_kind[ROBO_LAYOUT_FC_KIND_COUNT];
+    /** Boxes that established a context of their own. */
+    size_t boxes_establishing;
+    /** Boxes that established none: transparent containers and inline boxes,
+     *  whose contents an ancestor's context formats. */
+    size_t boxes_participating_only;
+    /** Deepest context nesting seen: 0 for a tree whose only context is ROOT. */
+    uint32_t context_depth_max;
 } robo_layout_stats_t;
 
 /** An opaque, caller-owned pass. */
