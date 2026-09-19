@@ -142,6 +142,48 @@ robo_result_t robo_layout_object_text_run(const robo_layout_tree_t *tree,
     return ROBO_OK;
 }
 
+robo_result_t robo_layout_object_baseline(const robo_layout_tree_t *tree,
+                                          robo_layout_node_id_t id,
+                                          robo_layout_baseline_metrics_t *out,
+                                          robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading a baseline needs an out");
+    }
+    robo_layout_baseline_metrics_init(out);
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading a baseline needs a tree and an id");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+    /*
+     * One check here where the text-run door above needs two, and the difference is
+     * the placement fact itself: a baseline is written at the moment of placement and
+     * by nothing else, so "has a usable baseline" and "was placed" are the same
+     * statement. There is no object kind to refuse -- every object this build places
+     * gets a baseline, a text run's from its font and a box's from the fallback -- so
+     * the door does not ask what the object *is*, only whether it went onto a line.
+     *
+     * That makes a transparent inline box with contents a miss, which is the
+     * documented answer rather than an oversight: such a box is a participant of the
+     * context and a member of no line, so nothing placed it and there is no floor to
+     * report (RoboLayoutLineBox.h).
+     */
+    if (!robo_layout_baseline_metrics_is_valid(&object->baseline)) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "no pass has placed this object");
+    }
+    *out = object->baseline;
+    return ROBO_OK;
+}
+
 /** Which link a caller asked for. */
 typedef enum layout_link_pick {
     LAYOUT_LINK_PARENT = 0,

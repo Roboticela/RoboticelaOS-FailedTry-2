@@ -66,6 +66,7 @@ static const struct {
     { "block_and_inline_layout", 1 },
     { "text_layout", 1 },
     { "line_boxes", 1 },
+    { "baselines", 1 },
     { "painting", 0 }
 };
 
@@ -93,11 +94,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Thirteen of fourteen. Asserted as a count as well as field by field, so a build
+    /* Fourteen of fifteen. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
      * glance. */
-    ROBO_CHECK_EQ_INT(implemented, 13u);
+    ROBO_CHECK_EQ_INT(implemented, 14u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -148,6 +149,15 @@ static void test_conformance_capabilities(void)
      */
     ROBO_CHECK_EQ_INT(caps.line_boxes, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED, 1);
+
+    /*
+     * And `baselines`, read from its own macro like the two above it. It is the field
+     * 10.6's prose named as the thing `line_boxes` was *not* claiming -- a line had
+     * membership and an ordinal but no floor -- which is why it exists as a separate
+     * promise rather than as a widening of that one.
+     */
+    ROBO_CHECK_EQ_INT(caps.baselines, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BASELINES_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -980,7 +990,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.6.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.7.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*

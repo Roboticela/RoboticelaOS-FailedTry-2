@@ -166,6 +166,28 @@ typedef struct robo_layout_object {
      * as everywhere else in this module -- whether the object has a computed result.
      */
     robo_layout_line_id_t line;
+    /**
+     * The baseline this object was **placed** with (10.7), or NONE.
+     *
+     * Written by the inline pass at the same moment @ref line is decided -- the two
+     * are the same event, a participant going onto a line -- and cleared with the
+     * lines, because neither outlives the pass that concluded it.
+     *
+     * It is on the *object* rather than in @ref result, and that is a decision worth
+     * stating. A `robo_layout_result_t` is embedded in every object including every
+     * block box, and a block box has no baseline: it is not on a line and nothing
+     * aligns to it. A field in the shared result record would therefore be a field
+     * that is meaningless for most objects and whose zero would have to be
+     * distinguished from a real zero -- the same "a shape that reads as an answer"
+     * failure 10.5 refused to allow for a box's run and 10.6 refused for a line id. A
+     * baseline is a *placement* fact, and this is where this module keeps those.
+     *
+     * NONE means "not placed": either nothing has placed this object, or it is a
+     * transparent inline box with contents (which is a participant of the context and
+     * not a member of any line -- RoboLayoutLineBox.h). The two are told apart the
+     * same way @ref line's are, by whether the object has a computed result.
+     */
+    robo_layout_baseline_metrics_t baseline;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;
@@ -253,9 +275,33 @@ robo_css_display_t robo_layout_object_display(const robo_layout_tree_t *tree,
  *         zeroed run reads as a measurement.
  */
 robo_result_t robo_layout_object_text_run(const robo_layout_tree_t *tree,
-                                         robo_layout_node_id_t id,
-                                         robo_layout_text_run_t *out,
-                                         robo_layout_diag_t *diag);
+                                          robo_layout_node_id_t id,
+                                          robo_layout_text_run_t *out,
+                                          robo_layout_diag_t *diag);
+
+/**
+ * The baseline metrics @p id was **placed** with (Phase 10.7).
+ *
+ * The read side of the placement fact the inline pass writes, and the door a later
+ * phase uses to ask "what is this participant's floor?" without re-measuring. A text
+ * run's metrics came from its font (with the line gap split as half-leading);
+ * everything else took the documented **bottom-edge fallback** (RoboLayoutBaseline.h).
+ *
+ * @return ROBO_OK and the metrics; ROBO_INVALID_ARGUMENT for NULL arguments or a NONE
+ *         id; ROBO_NOT_FOUND when the id names no object, or names one that was never
+ *         placed -- including a transparent inline box with contents, which encloses
+ *         members without being one. @p out is cleared to NONE first, so a caller that
+ *         ignores the code has an unusable baseline rather than a leftover one.
+ *
+ *         A *declined* object is a miss rather than a zero, for the reason
+ *         `robo_layout_object_text_run` gives: a zeroed record reads as an answer, and
+ *         "this participant sits at the baseline with no extent" is a different
+ *         statement from "nothing placed this participant".
+ */
+robo_result_t robo_layout_object_baseline(const robo_layout_tree_t *tree,
+                                          robo_layout_node_id_t id,
+                                          robo_layout_baseline_metrics_t *out,
+                                          robo_layout_diag_t *diag);
 
 /**
  * The parent.

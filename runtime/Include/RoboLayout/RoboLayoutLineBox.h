@@ -47,12 +47,17 @@
  *   the members of the lines of one context are exactly the objects that advanced
  *   its cursor, so `robo_layout_line_box_t.members` over all lines, summed, is the
  *   number of placements -- and not the number of participants;
+ * *  `line.size.width` is the **sum of its members' widths**, which equals the
+ *  cursor the line ended at. That is the current build's rule and not CSS's final
+ *  word -- fragments and justification are later phases' -- and the header says so
+ *  where the field is declared rather than in a comment somewhere else.
  *
- *   `line.size.width` is the **sum of its members' widths**, which equals the
- *   cursor the line ended at, and `line.size.height` is the **tallest** member.
- *   Both are the current build's rule and neither is CSS's final word: a proper
- *   line height comes from the font and the baseline is 10.7's, and the header says
- *   so where the fields are declared rather than in a comment somewhere else.
+ *  `line.size.height` **was** "the tallest member" through 10.6 and is
+ *  `ascent + descent` since 10.7 (RoboLayoutBaseline.h). The two agree for a line
+ *  whose members share a font -- which is why the change moved no number in the
+ *  suites -- and differ exactly where a baseline model has something to say: a line
+ *  mixing `12px` and `24px` text is as tall as the two of them need to sit on one
+ *  floor, not as tall as the taller one alone.
  *
  * Geometry, and the space it is in
  *
@@ -99,6 +104,7 @@
 
 #include "RoboBase/RoboError.h"
 
+#include "RoboLayout/RoboLayoutBaseline.h"
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutTypes.h"
@@ -214,6 +220,27 @@ typedef struct robo_layout_line_box {
      */
     robo_layout_size_t size;
     /**
+     * Where the baseline sits in this line, and the extent it was derived from
+     * (Phase 10.7).
+     *
+     * `size.height` **is** `baseline.ascent + baseline.descent` by construction, so
+     * the three numbers cannot disagree: the line's height is not a fourth quantity
+     * that happens to match, it is the extent the baseline model spans. A caller
+     * comparing them is checking the pass's arithmetic, and the suite does exactly
+     * that over every line.
+     *
+     * The metrics are stated **relative to the baseline**, which is why they carry no
+     * coordinate: where the baseline *is* in space is `origin.y + ascent`, and the two
+     * doors below state that conversion in the two spaces a reader might be in
+     * (`baseline_offset` in the line's own, `baseline_y` in its owner's).
+     *
+     * `kind` is never NONE for a line read out of the tree, and that is a fact about
+     * what gets stored rather than a promise: a line exists only because something was
+     * placed on it, and every object this build places has a baseline (a text run's
+     * font metrics, or the BOX fallback -- RoboLayoutBaseline.h).
+     */
+    robo_layout_baseline_metrics_t baseline;
+    /**
      * The width the line had to fit into: its owner's content width.
      *
      * Recorded because "why did this line wrap?" is otherwise unanswerable from the
@@ -246,6 +273,45 @@ int robo_layout_line_box_equal(const robo_layout_line_box_t *a,
  *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL argument. */
 robo_result_t robo_layout_line_box_rect(const robo_layout_line_box_t *line,
                                        robo_layout_rect_t *out_rect);
+
+/**
+ * The line's baseline metrics, by value.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments. @p out is cleared to
+ *         NONE first, so a caller that ignores the code has an unusable baseline
+ *         rather than a leftover one.
+ */
+robo_result_t robo_layout_line_box_baseline(const robo_layout_line_box_t *line,
+                                           robo_layout_baseline_metrics_t *out);
+
+/**
+ * The baseline's distance from the **top of the line**, in px.
+ *
+ * The line-relative coordinate, which is what a caller holding a line and no other
+ * context wants: a renderer drawing downward from the line's top edge adds this and
+ * has the floor.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments; ROBO_NOT_FOUND when the
+ *         line carries no usable baseline -- which is a line row a caller built by
+ *         hand rather than one read out of a tree, because the pass never stores one.
+ */
+robo_result_t robo_layout_line_box_baseline_offset(const robo_layout_line_box_t *line,
+                                                   int32_t *out_offset);
+
+/**
+ * The baseline's **y in the space the line's own origin is in** -- its owner's
+ * content-box space.
+ *
+ * `origin.y + ascent`, and the same conversion as the door above stated one space
+ * out. Both exist because the two are different questions that a single accessor
+ * would have let a caller conflate: one is "how far down the line is the floor?" and
+ * the other is "where is the floor on the page?".
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments; ROBO_NOT_FOUND when the
+ *         line carries no usable baseline.
+ */
+robo_result_t robo_layout_line_box_baseline_y(const robo_layout_line_box_t *line,
+                                             int32_t *out_y);
 
 #ifdef __cplusplus
 }

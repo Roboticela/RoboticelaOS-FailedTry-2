@@ -379,9 +379,17 @@ robo_result_t robo_layout_line_members_append(robo_layout_tree_t *tree,
  * context: a line that names no context is a line nothing can attribute, and the pass
  * reads the id off the box that established the context rather than inventing one.
  *
+ * `baseline` is checked rather than trusted, because it is the one field of the record
+ * the arena can validate *absolutely*: 10.7 requires every stored line to have a usable
+ * baseline (`RoboLayoutLineBox.h`), so a NONE kind or a negative term is refused here
+ * instead of being stored and read thirty lines later by a renderer. `size.height` is
+ * deliberately **not** checked against the baseline's extent -- that identity is the
+ * pass's arithmetic rather than an invariant of the type, and a door that enforced it
+ * would hide the bug it is a symptom of.
+ *
  * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p tree or @p out_id, a NONE
- *         owner, an undefined state or a NONE context; ROBO_NOT_FOUND for a context
- *         that names none; ROBO_OUT_OF_MEMORY.
+ *         owner, an undefined state or a NONE context, or an unusable baseline;
+ *         ROBO_NOT_FOUND for a context that names none; ROBO_OUT_OF_MEMORY.
  */
 robo_result_t robo_layout_line_add(robo_layout_tree_t *tree,
                                    robo_layout_fc_id_t context,
@@ -389,6 +397,7 @@ robo_result_t robo_layout_line_add(robo_layout_tree_t *tree,
                                    size_t index,
                                    robo_layout_point_t origin,
                                    robo_layout_size_t size,
+                                   robo_layout_baseline_metrics_t baseline,
                                    int32_t available_width,
                                    layout_line_member_id_t first_member,
                                    size_t members,

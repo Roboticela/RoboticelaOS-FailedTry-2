@@ -1,8 +1,8 @@
-# RoboLayout — architecture (through Phase 10.6)
+# RoboLayout — architecture (through Phase 10.7)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
-Phase 10.6 onwards may not cross without changing this document.
+Phase 10.7 onwards may not cross without changing this document.
 
 It is not a tutorial. It is the thing a reviewer reads to answer "why is it like
 this", and the thing a later goal reads to find out what it is allowed to assume.
@@ -53,17 +53,18 @@ an edge whose width already came from 9.15.
 rather than leaving a caller to find out. 10.3 flipped all three, and the shape of
 that flip is the part worth keeping:
 
-| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | What it means now |
-|---|---|---|---|---|---|---|
-| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
-| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
-| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | the block direction |
-| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | the inline direction |
-| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | derived: their conjunction |
-| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
-| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | this build can **produce a line a caller reads** |
-| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
-| `robo_layout_result_state()` | — | — | — | — | — | *this box* has one — the per-box authority |
+| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | What it means now |
+|---|---|---|---|---|---|---|---|
+| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
+| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
+| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | `1` | the block direction |
+| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | the inline direction |
+| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | derived: their conjunction |
+| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
+| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | `1` | this build can **produce a line a caller reads** |
+| `robo_layout_capabilities_t.baselines` | — | — | — | — | — | `1` | this build gives a line a **floor** and places its members on it |
+| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
+| `robo_layout_result_state()` | — | — | — | — | — | — | *this box* has one — the per-box authority |
 
 Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
@@ -705,6 +706,7 @@ of them is deliberately 0:
 | `block_and_inline_layout` | 1 | derived: the two above |
 | `text_layout` | 1 | 10.5 |
 | `line_boxes` | 1 | 10.6 |
+| `baselines` | 1 | 10.7 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -767,7 +769,7 @@ rather than unfinished:
 | Absent | Belongs to | What exists instead |
 |---|---|---|
 | anonymous boxes | a later goal | every box knows which context it participates in and which it establishes (10.2); the pass counts the boxes it declined (`block.inline_level_skipped`, `inline.block_level_declined`) and the boxes nothing containing was placed for (`block.unreached`) |
-| **baselines**, `line-height`, a font-derived line extent, alignment, `text-align`, `vertical-align` | 10.7 | a text run carries the `ascent` and `descent` its measurer had for free, and nothing reads them yet; a line's height is its **tallest member** (10.6), which is the number this build can derive without a font's own line metrics |
+| ~~baselines~~ **done in 10.7**; still absent: `line-height` as a resolved used value, alignment, `text-align`, `vertical-align` | 10.7, and a later goal for the rest | every line carries an ascent, a descent and the kind they came from, its height **is** their sum, and every member is placed from them (`Baselines.md`); what is not claimed is a `line-height` computation, a resolved used value, or any of the alignment properties |
 | text **shaping** — glyph substitution, positioning, ligature, kerning, bidi reordering, Unicode line breaking, whitespace collapsing, fragmentation | Phase 14, and 10.6's successor for the last two | a run's width is the **sum of its glyphs' advances**, which is what an unshaped run is; a participant too wide for its line **overflows** rather than breaking, guarded by `cursor > 0`; `robo_layout_text_is_collapsible_whitespace` is the predicate the builder applies and the one a collapsing rule will have to agree with |
 | declared **width**, `min-width`, `max-width`, `box-sizing`; percentages and relative units for both axes; shrink-to-fit | 10.8 | a block box fills its containing block (10.3), an atomic inline is sized by its own declarations where they resolve and fills its containing block otherwise (10.4), and a declared height is honoured where it is a computed `px` length |
 | margin collapsing, padding, border geometry | 10.9–10.11 | the values are readable from the borrowed style; a box's content box *is* its border box until then, and collapsing has the transparency rule it needs in *both* directions — 10.3's transparent block container and 10.4's transparent inline box |
@@ -856,7 +858,12 @@ describes what is *stable*; a finding is a thing that changed.
 
 ---
 
-## 17. What 10.7 onwards may assume
+## 17. What 10.8 onwards may assume
+
+*(Written as "10.7 onwards" when 10.6 closed and re-headed by 10.7, which changed
+item 5 not at all and item 7 in one place: a line is now a rectangle, a baseline and
+a membership list, and the reader who follows item 7 into the arena should read
+`Baselines.md` next. Two guarantees join the list.)*
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -885,6 +892,17 @@ describes what is *stable*; a finding is a thing that changed.
    the tree** (`robo_layout_tree_line_count`, `_line_at`, `_line`, `_line_member`,
    and `robo_layout_object_line` the other way), so `lines` and `wraps` are counts a
    caller checks against the arena rather than the only way to learn anything.
+7a. **Every stored line has a usable baseline**, and every object the pass placed
+   carries the metrics it was placed with: read a line's floor with
+   `robo_layout_line_box_baseline` (and its position in either space with
+   `_baseline_offset` / `_baseline_y`), and a member's own with
+   `robo_layout_object_baseline`. A member's `y` is
+   `line.origin.y + (line.ascent - member.ascent)`, its two terms sum **exactly** to
+   the line's height, and the four invariants are written out in `Baselines.md` §12.
+7b. A reader comparing a **nested** member with its line must add the chain of boxes
+   between them: a participant's coordinates are relative to the box that contains it
+   (item 5), and a line's are relative to the context owner. For a direct child the
+   two spaces coincide.
 8. A box's content box *is* its border box, so its content origin is its top-left
    corner until 10.9–10.11 say otherwise; margins, padding and borders are readable
    and unapplied.

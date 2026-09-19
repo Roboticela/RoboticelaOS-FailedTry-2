@@ -4218,6 +4218,72 @@ broadened to bracket the whole fixture rather than only the passes. That is 10.1
 recurring two phases later and one level down, and the first time a phase made the mistake itself
 rather than inheriting it.
 
+## Goal 10.7 — Baselines
+
+**Status: complete.** Every line gets a **floor** — an ascent, a descent and the kind they came from
+— and every member is placed *on* it rather than at the line's top edge.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The three kinds, the metrics record, its arithmetic, and the two rules that produce it | `Include/RoboLayout/RoboLayoutBaseline.h`, `Source/RoboLayout/RoboLayoutBaseline.c` |
+| The line's floor, in three fields, plus the two baseline doors (`_baseline`, `_baseline_offset`, `_baseline_y`) | `RoboLayoutLineBox.h`, `RoboLayoutLineBox.c` |
+| The metrics an object was **placed** with, and the object door that reads them | `RoboLayoutObject.h`, `RoboLayoutObject.c` |
+| The accumulation, the finalization walk that writes each member's y, and the union moved after it | `Source/RoboLayout/RoboLayoutInline.c` |
+| The two counters that partition the lines | `RoboLayoutInline.h` |
+| Version `0.7.0`, `ROBO_LAYOUT_BASELINES_IMPLEMENTED`, the umbrella | `RoboLayoutVersion.h`, `RoboLayout.h` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A dedicated baseline representation exists | `layout.baseline.kind_vocabulary`, `layout.baseline.metrics_record` |
+| Text metrics and the fallback are two rules, each stated once | `layout.baseline.metrics_from_run`, `layout.baseline.metrics_from_extent` |
+| A line's baseline is its members' maxima, and its height is their sum | `layout.baseline.line_from_text`, `layout.baseline.mixed_size_is_not_top_aligned` |
+| Members of different sizes share one floor | `layout.baseline.shared_floor`, `layout.baseline.descent_deepens_the_line` |
+| Every member's own baseline lands on the line's | `layout.baseline.accounting` |
+| Empty content has three different answers, and none is invalid | `layout.baseline.empty_content` |
+| Re-layout recalculates baseline-dependent geometry | `layout.baseline.relayout`, `layout.baseline.determinism` |
+| The phase added no arena | `layout.baseline.allocator_balance` |
+
+### The two structural claims
+
+**One fact, two moments.** A participant's own metrics are recorded when it is *placed*, because that
+is when the measurement is in hand; its final `y` is written when the line is *finalized*, because the
+line's ascent is a maximum over members and is not final until the last of them has arrived. The
+correction is therefore a single walk of the member chain at the moment the line's geometry is written
+anyway — the same walk that fills each back-link, because "this member's baseline is the line's" and
+"this member is on this line" are one event.
+
+**And the union had to move with it.** A transparent inline box's rectangle bounds its contents'
+positions, so it can no longer be computed when the box closes: it is a post-order walk over the
+finished context, run *before* the rebase that subtracts the origin it just wrote. The rule is
+unchanged; only *when* it runs. `Baselines.md` §1 and §7 argue both, and
+`layout.baseline.accounting` asserts the resulting invariant over every line of a wrapped document.
+
+### What 10.7 found
+
+Three findings, and the first is a **defect in the implementation that the new suite caught**.
+
+1. **The half-leading rule clamped its terms in the wrong order.** `from_run` recovers a font's line
+   gap as `height - ascent - descent`; computing the gap *before* clamping the terms widens it by
+   exactly the amount about to be discarded, so a zero-height record with `ascent = descent = -4`
+   reported an extent of 8 — a floor spanning something that spans nothing. Clamping first makes it
+   fall back to the no-gap reading, which is what "the extent is the larger of the height and
+   `asc + desc`" asks for. `layout.baseline.metrics_from_run` is the row that holds the order down.
+2. **A rule array grew an entry while its call site kept the old count literal**, so the last rules
+   were silently dropped — and the symptom read as a *layout* bug (a box with the initial display, an
+   atomic with no declared size). The count is now derived from the array
+   (`LAYOUT_BASELINE_RULE_COUNT`), and the fixture reads each rule's display back out of the style it
+   just built, so a refused rule fails at the rule.
+3. **Two fixtures encoded assumptions that were true enough to pass and wrong enough to mislead** — a
+   nested member's stored `y` is relative to the box that contains it, not to the line, and an invented
+   tag name is a claim about the parser rather than about layout.
+
+Plus two 10.4 cases whose *numbers* the phase changed on purpose (the shorter of two atomics no longer
+starts at the line's top), with every width, count and membership left exactly as 10.4 wrote them.
+
 ## Next
 
-- Goal 10.7 — baselines — do not start until requested
+- Goal 10.8 — width and height resolution — do not start until requested

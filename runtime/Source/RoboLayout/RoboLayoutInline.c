@@ -68,8 +68,37 @@ typedef struct layout_inline_line {
     int32_t cursor;
     /** y of the current line, in the owner's content-box space. */
     robo_gfx_pixel_y_t top;
-    /** Tallest participant on the current line so far. */
-    robo_gfx_pixel_y_t height;
+    /**
+     * The baseline model, accumulated as members arrive (Phase 10.7).
+     *
+     * `ascent` is the **maximum** ascent of the members placed so far and `descent`
+     * the maximum descent, which is CSS's rule for a line: the line has to be tall
+     * enough for the tallest thing above its floor and the deepest thing below it.
+     * The line's height is their sum, which is what makes "the tallest member" (10.6)
+     * the same number whenever every member shares a font and a different one exactly
+     * where a baseline model has something to say.
+     *
+     * They are accumulated here rather than read off the finalized members at the end
+     * because a member's ascent is known at placement and the line's maximum must be
+     * monotonic for the placement rule to be statable at all.
+     */
+    int32_t ascent;
+    int32_t descent;
+    /**
+     * Which member's font determination the line's baseline is anchored on.
+     *
+     * The kind of **the first member to reach the line's final ascent** -- the one
+     * whose top edge is the line's top edge, and therefore whose baseline *is* the
+     * line's. A later member that merely ties does not take it over, so the answer is
+     * "the first, among the tallest", which is a fact about the document's order and
+     * not about the order a walk happened to visit -- and for a line whose members
+     * share one font it is simply that font's kind.
+     *
+     * Set by the first member unconditionally, so a line of unmeasured text reports
+     * TEXT with a zero ascent rather than NONE: the baseline is anchored on text, and
+     * its extent is zero because nothing measured it.
+     */
+    robo_layout_baseline_kind_t baseline_kind;
     /**
      * Sum of the placed members' widths -- the occupied width of the line.
      *
@@ -92,31 +121,16 @@ typedef struct layout_inline_line {
 } layout_inline_line_t;
 
 /**
- * One transparent inline box, open while its contents are being placed.
+ * One context's flow state, for the length of one call.
  *
- * The union that becomes the box's rectangle. `left`/`top` are taken from the
- * *first* placement rather than from where the box began, and that is a decision
- * rather than an oversight: a box whose contents all landed on a later line — a
- * box that wrapped immediately — begins above and to the right of everything it
- * contains, and a rectangle anchored on its start edge would not hold its own
- * contents. Anchoring on the first fragment that exists is what makes the
- * rectangle a bounding box.
- *
- * The chain is the recursion's own nesting (RoboLayoutInline.h argues why the
- * `span`-inside-`span` case must not be flattened), and it lives on the C stack:
- * no allocation, no fixed depth, and nothing to release when a call returns early.
+ * The scope chain 10.4 kept here is gone, and its absence is this phase's one
+ * structural change: a transparent box's rectangle is the union of what its contents
+ * reached, and since 10.7 a participant's position is not final until its line is
+ * finalized -- possibly long after the box that enclosed it closed. So the union is a
+ * post-order walk over the finished context (`layout_inline_union`) rather than an
+ * accumulator on the recursion's stack, and there is nothing left for a scope to hold.
+ * RoboLayoutInline.h §5 argues the two walks and why the rebase keeps the shape it has.
  */
-typedef struct layout_inline_scope {
-    struct layout_inline_scope *outer;
-    int32_t left;
-    int32_t right;
-    robo_gfx_pixel_y_t top;
-    robo_gfx_pixel_y_t bottom;
-    /** Non-zero once anything inside this box has been placed. */
-    int placed;
-} layout_inline_scope_t;
-
-/** One context's flow state, for the length of one call. */
 typedef struct layout_inline_flow {
     /** The owner's content width: the line's width, and the fallback a
      *  width-less atomic inline fills (see the header). */
@@ -137,8 +151,6 @@ typedef struct layout_inline_flow {
     size_t lines;
     size_t members_total;
     robo_layout_line_id_t last_line;
-    /** Innermost open inline box, or NULL at the context's own level. */
-    layout_inline_scope_t *scope;
 } layout_inline_flow_t;
 
 /* ------------------------------------------------------------------ */
@@ -177,6 +189,7 @@ static robo_result_t layout_inline_finalize_line(robo_layout_walk_t *walk,
 {
     robo_layout_point_t origin;
     robo_layout_size_t size;
+    robo_layout_baseline_metrics_t baseline;
     robo_layout_line_id_t id = ROBO_LAYOUT_LINE_ID_NONE;
     robo_result_t status;
 
@@ -184,22 +197,55 @@ static robo_result_t layout_inline_finalize_line(robo_layout_walk_t *walk,
         return ROBO_OK;
     }
 
+    /*
+     * The line's baseline, and the whole of 10.7's arithmetic in three assignments:
+     * the ascent is the members' maximum ascent, the descent their maximum descent,
+     * and the height is their sum -- so the line is exactly as tall as the tallest
+     * thing above its floor plus the deepest thing below it, and *no member is ever
+     * outside its line's rectangle* (a member's own height is its own ascent plus its
+     * own descent, and both terms are bounded by the maxima).
+     */
+    baseline.kind = flow->line.baseline_kind;
+    baseline.ascent = flow->line.ascent;
+    baseline.descent = flow->line.descent;
+
     origin.x = 0;
     origin.y = flow->line.top;
     size.width = flow->line.width;
-    size.height = (int32_t)flow->line.height;
+    size.height = robo_layout_baseline_metrics_extent(&baseline);
     status = robo_layout_line_add(walk->tree, flow->context, flow->owner, flow->line.index,
-                                  origin, size, flow->available_width,
+                                  origin, size, baseline, flow->available_width,
                                   flow->line.first_member, flow->line.members, &id, walk->diag);
     if (status != ROBO_OK) {
         return status;
     }
 
+    walk->inline_flow->lines_from_text_baseline +=
+        baseline.kind == ROBO_LAYOUT_BASELINE_TEXT ? 1u : 0u;
+    walk->inline_flow->lines_from_fallback_baseline +=
+        baseline.kind == ROBO_LAYOUT_BASELINE_BOX ? 1u : 0u;
+
     /*
-     * The back-link, in one walk: every member now knows the line it is on. Done here
-     * rather than at placement because this is the first moment the line has an id --
-     * an id the arena hands out, and one that other contexts' lines may be interleaved
-     * with (RoboLayoutInternal.h).
+     * The back-link and the vertical placement, in one walk. Two writes per member
+     * and they are the same walk because they are the same event: this is the moment
+     * the line's baseline is known, and a member is on the line precisely when its
+     * baseline *is* the line's.
+     *
+     * Why the y is written here rather than at placement, which is the one thing this
+     * phase changes about 10.4's structure: a member's y is
+     * `origin.y + (line_ascent - member_ascent)`, and the line's ascent is a maximum
+     * over members that is not final until the last of them has been placed. Placing
+     * the *first* member at its final y is therefore impossible -- a taller one that
+     * arrives later would have to move it, and that is exactly what this walk does.
+     * The alternative, placing every member at the line's top and never correcting it,
+     * is 10.6: it is right whenever the members share a font and wrong by the
+     * difference of their ascents whenever they do not.
+     *
+     * The subtraction never goes negative and the assertion says so, because a member
+     * whose ascent exceeded the line's would mean this walk disagrees with the
+     * accumulation in `layout_inline_place` about which maximum it is using -- a bug
+     * whose symptom, if it were allowed through, would be a participant drawn *above*
+     * its own line.
      */
     {
         layout_line_member_id_t member = flow->line.first_member;
@@ -214,7 +260,24 @@ static robo_result_t layout_inline_finalize_line(robo_layout_walk_t *walk,
             }
             placed = robo_layout_object_slot(walk->tree, record->node);
             if (placed) {
+                if (baseline.ascent < placed->baseline.ascent) {
+                    /*
+                     * Unreachable, and a *reported* failure rather than an assertion
+                     * because there is no assert machinery in this module and inventing
+                     * one for a single impossible branch would be a second answer to a
+                     * question the diagnostic record already answers. The condition is
+                     * an invariant between two functions in this file (the accumulation
+                     * and the maximum it is read back as), so a trip here is a bug, and
+                     * the two ways to be wrong about it -- clamp, or report -- differ in
+                     * whether the next reader learns.
+                     */
+                    return ROBO_LAYOUT_DIAG(
+                        walk->diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
+                        "a line's ascent is smaller than one of its members'");
+                }
                 placed->line = id;
+                placed->result.position.y =
+                    origin.y + (baseline.ascent - placed->baseline.ascent);
             }
             member = record->next;
         }
@@ -285,11 +348,18 @@ static int layout_inline_would_overflow(const layout_inline_flow_t *flow, int32_
 }
 
 /**
- * Write a participant's geometry and advance the line.
+ * Write a participant's geometry, its baseline, and advance the line.
  *
- * The one door a participant's result is written through, so the three things that
- * must happen together — the geometry, the enclosing boxes' unions, and the
- * cursor — cannot drift apart in one path and not another.
+ * The one door a participant's result is written through, so the four things that
+ * must happen together — the geometry, the baseline it was placed with, the line's
+ * baseline arithmetic, and the cursor — cannot drift apart in one path and not
+ * another.
+ *
+ * `y` is **provisional** (10.7): every member is written at its line's top here and
+ * moved to `line_top + (line_ascent - its own ascent)` at finalization, because the
+ * line's ascent is not known until the last member is placed. The parameter is kept
+ * rather than dropped so that the provisional value is the line's own top on every
+ * path, which is what makes the correction the only thing that ever moves a member.
  */
 static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
                                          layout_inline_flow_t *flow,
@@ -297,12 +367,13 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
                                          int32_t x,
                                          robo_gfx_pixel_y_t y,
                                          int32_t width,
-                                         int32_t height)
+                                         int32_t height,
+                                         robo_layout_baseline_metrics_t baseline)
 {
     robo_layout_point_t position;
     robo_layout_size_t size;
-    layout_inline_scope_t *scope;
     robo_result_t status;
+    int first_on_line = flow->line.members == 0u;
 
     position.x = x;
     position.y = y;
@@ -313,23 +384,36 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
         return status;
     }
 
-    /* Every enclosing transparent box grows to hold this; the outermost of them
-     * is the context's own level, whose scope pointer is NULL. */
-    for (scope = flow->scope; scope; scope = scope->outer) {
-        if (!scope->placed) {
-            scope->placed = 1;
-            scope->left = x;
-            scope->top = y;
-        }
-        if (x < scope->left) {
-            scope->left = x;
-        }
-        if (x + width > scope->right) {
-            scope->right = x + width;
-        }
-        if (y + height > scope->bottom) {
-            scope->bottom = y + height;
-        }
+    /*
+     * The baseline the object was placed with, kept on the object beside its line
+     * (RoboLayoutObject.h). Written here rather than at finalization because this is
+     * where the measurement is in hand -- and because the correction walk needs it
+     * *before* the line's own maximum is applied to it.
+     */
+    object->baseline = baseline;
+
+    /*
+     * And the line's own accumulating maximum, with the two rules 10.7 states:
+     *
+     *   the first member sets the line's ascent and kind unconditionally, so a line
+     *   of unmeasured text reports a TEXT baseline of zero extent rather than no
+     *   baseline at all -- the baseline is anchored on text and has no extent because
+     *   nothing measured it, which is a different statement from "no baseline";
+     *
+     *   a later member takes the ascent over only by *strictly* exceeding it, so the
+     *   kind belongs to the first member among the tallest. That makes the answer a
+     *   fact about document order rather than about the order a walk visited, and for
+     *   a line whose members share a font it is simply that font's kind.
+     *
+     * The descent takes no kind: it is a maximum like the ascent, but the *floor* is
+     * what a baseline is and only the ascent can determine where it goes.
+     */
+    if (first_on_line || baseline.ascent > flow->line.ascent) {
+        flow->line.ascent = baseline.ascent;
+        flow->line.baseline_kind = baseline.kind;
+    }
+    if (baseline.descent > flow->line.descent) {
+        flow->line.descent = baseline.descent;
     }
 
     /*
@@ -359,9 +443,6 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
 
     flow->line.cursor = x + width;
     flow->line.width += width;
-    if (height > flow->line.height) {
-        flow->line.height = height;
-    }
     layout_inline_count(walk, flow, object);
     return ROBO_OK;
 }
@@ -389,6 +470,7 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
                                               robo_layout_node_id_t id)
 {
     robo_layout_object_t *object = robo_layout_object_slot(walk->tree, id);
+    robo_layout_baseline_metrics_t baseline;
     int atomic;
     int32_t width = 0;
     int32_t height = 0;
@@ -437,6 +519,19 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         walk->inline_flow->non_atomic_placed++;
     }
 
+    /*
+     * And its baseline: the **bottom-edge fallback** (RoboLayoutBaseline.h), which is
+     * the whole of this build's rule for everything that is not a text run. An atomic
+     * inline whose height came from a declaration or from what it contained therefore
+     * sits on the line by its feet, and an empty inline box -- which is a leaf here,
+     * because a box with no children has no contents to walk -- sits on the baseline
+     * with no extent at all.
+     */
+    if (robo_layout_baseline_metrics_from_extent(height, &baseline) != ROBO_OK) {
+        return ROBO_LAYOUT_DIAG(walk->diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
+                                "a participant's baseline could not be derived");
+    }
+
     if (layout_inline_would_overflow(flow, width)) {
         robo_result_t wrapped = layout_inline_new_line(walk, flow, walk->inline_flow);
 
@@ -445,7 +540,7 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         }
     }
     return layout_inline_place(walk, flow, object, flow->line.cursor, flow->line.top, width,
-                               height);
+                               height, baseline);
 }
 
 static robo_result_t layout_inline_object(robo_layout_walk_t *walk,
@@ -468,20 +563,12 @@ static robo_result_t layout_inline_place_transparent(robo_layout_walk_t *walk,
                                                      layout_inline_flow_t *flow,
                                                      robo_layout_object_t *object)
 {
-    layout_inline_scope_t scope;
     robo_layout_point_t position;
     robo_layout_size_t size;
     robo_layout_node_id_t child = object->first_child;
     robo_result_t status;
+    int32_t cursor_at_open = flow->line.cursor;
 
-    scope.outer = flow->scope;
-    scope.left = flow->line.cursor;
-    scope.right = flow->line.cursor;
-    scope.top = flow->line.top;
-    scope.bottom = flow->line.top;
-    scope.placed = 0;
-
-    flow->scope = &scope;
     while (child != ROBO_LAYOUT_NODE_ID_NONE) {
         const robo_layout_object_t *child_object = robo_layout_object_slot_const(walk->tree,
                                                                                 child);
@@ -496,33 +583,37 @@ static robo_result_t layout_inline_place_transparent(robo_layout_walk_t *walk,
         }
         child = child_object->next_sibling;
     }
-    flow->scope = scope.outer;
-
-    if (scope.placed) {
-        position.x = scope.left;
-        position.y = scope.top;
-        size.width = scope.right - scope.left;
-        size.height = scope.bottom - scope.top;
-    } else {
-        position.x = flow->line.cursor;
-        position.y = flow->line.top;
-        size.width = 0;
-        size.height = 0;
-    }
-    if (size.width < 0) {
-        size.width = 0;
-    }
-    if (size.height < 0) {
-        size.height = 0;
-    }
 
     /*
-     * Written directly rather than through `layout_inline_place`, and both halves
-     * of that are deliberate: the cursor has already been advanced by the children
-     * (advancing it again would count this box's contents twice), and the enclosing
-     * scopes have already been updated by the very placements this union is made
-     * of. What is left is the box's own result and its own two counters.
+     * A **provisional** rectangle: zero size at the cursor, in the owner's space.
+     *
+     * This is what 10.4 wrote at the end of a scope, and 10.7 is the phase that had to
+     * stop doing the union here. The reason is the baseline: a box's rectangle is the
+     * union of what its contents *reached*, and since this phase a participant's
+     * position is not final until its line is finalized -- which may happen long after
+     * the box that enclosed it closed, at a wrap further down the document, or at the
+     * end of the context. A union computed here would therefore be a rectangle built
+     * from positions that are about to move, and the amount it was wrong by would
+     * depend on whether a later sibling happened to be taller.
+     *
+     * So the union moved to `layout_inline_union`, a post-order walk run once the
+     * context's last line is finalized and every position in it is final. What stays
+     * here is the answer for a box that placed *nothing* -- an empty `span`, or one
+     * whose only contents were blocks this phase declines: "it is here and it is
+     * empty", at the cursor, which is a fact only this moment knows (the union walk
+     * reasons from contents, and there are none to reason from).
+     *
+     * Written directly rather than through `layout_inline_place`, and both halves of
+     * that are deliberate: the cursor has already been advanced by the children
+     * (advancing it again would count this box's contents twice), and this box is a
+     * participant of the *context* rather than a member of any line, so there is no
+     * line arithmetic to do.
      */
+    position.x = cursor_at_open;
+    position.y = flow->line.top;
+    size.width = 0;
+    size.height = 0;
+
     status = robo_layout_result_set_geometry(&object->result, position, size, walk->diag);
     if (status != ROBO_OK) {
         return status;
@@ -567,6 +658,7 @@ static robo_result_t layout_inline_place_text(robo_layout_walk_t *walk,
                                               robo_layout_object_t *object)
 {
     robo_layout_text_run_t run;
+    robo_layout_baseline_metrics_t baseline;
     int usable = robo_layout_text_metrics_is_usable(walk->text_metrics);
     robo_result_t status;
 
@@ -607,6 +699,18 @@ static robo_result_t layout_inline_place_text(robo_layout_walk_t *walk,
         walk->text->depth_max = object->depth;
     }
 
+    /*
+     * And its baseline, from the font's own line metrics: ascent above, descent below,
+     * and the run's line gap split across the two as half-leading so that the metrics'
+     * extent equals the run's `height` to the pixel (RoboLayoutBaseline.h). Doing it
+     * here rather than inside the measurement seam is what keeps the seam's job one
+     * thing -- "how wide is this run?" -- and the *line* geometry this module's.
+     */
+    if (robo_layout_baseline_metrics_from_run(&run, &baseline) != ROBO_OK) {
+        return ROBO_LAYOUT_DIAG(walk->diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
+                                "a text run's baseline could not be derived");
+    }
+
     if (layout_inline_would_overflow(flow, run.width)) {
         robo_result_t wrapped = layout_inline_new_line(walk, flow, walk->inline_flow);
 
@@ -615,7 +719,7 @@ static robo_result_t layout_inline_place_text(robo_layout_walk_t *walk,
         }
     }
     return layout_inline_place(walk, flow, object, flow->line.cursor, flow->line.top, run.width,
-                               run.height);
+                               run.height, baseline);
 }
 
 /**
@@ -665,6 +769,131 @@ static robo_result_t layout_inline_object(robo_layout_walk_t *walk,
         return layout_inline_place_transparent(walk, flow, object);
     }
     return layout_inline_place_leaf(walk, flow, id);
+}
+
+/* ------------------------------------------------------------------ */
+/* The union a transparent box is                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Whether @p object's rectangle is a union of contents rather than a placed size.
+ *
+ * The same three facts `layout_inline_object` dispatches on, stated once so that the
+ * placement pass and the union walk cannot disagree about which boxes have contents:
+ * inline-level (so it is a participant rather than something the block pass owns),
+ * established no context of its own (so it is transparent rather than atomic -- an
+ * `inline-block`'s contents are laid out *inside* it and it is sized before it is
+ * placed), and has children at all.
+ */
+static int layout_inline_has_contents(const robo_layout_object_t *object)
+{
+    return robo_css_display_is_inline_level(object->display) &&
+           object->context_owned == ROBO_LAYOUT_FC_ID_NONE && object->child_count > 0u;
+}
+
+/**
+ * Write every transparent box's rectangle as the union of what its contents reached.
+ *
+ * **Post-order**, and both halves of that are load-bearing. Bottom-up, because an
+ * enclosing union is made of *final* rectangles: computing a parent from its
+ * children's provisional ones would union a set of locations that are about to move,
+ * and the parent would be wrong by however much the deepest member shifted. In the
+ * owner's space, because nothing has been rebased yet -- a position is absolute while
+ * the context runs and becomes relative to its containing block at the end
+ * (`layout_inline_rebase`, which this walk feeds).
+ *
+ * It unions **direct children** rather than descending to the leaves, and that is an
+ * equality rather than a shortcut: a child's own rectangle already encloses what it
+ * reached, so the union over children *is* the union over contents. An atomic inline's
+ * children are not visited at all -- `has_contents` excludes it -- because its
+ * rectangle is a size it was given and its contents were laid out inside it by the
+ * block pass in its own space.
+ *
+ * A box that placed nothing keeps the provisional rectangle the placement pass wrote
+ * for it (zero size at the cursor), which is why this walk does not have to know where
+ * the cursor was: it only ever *replaces* an answer, never invents one.
+ */
+static void layout_inline_union(robo_layout_walk_t *walk, robo_layout_node_id_t id)
+{
+    robo_layout_object_t *object = robo_layout_object_slot(walk->tree, id);
+    robo_layout_node_id_t child;
+    int have = 0;
+    int32_t left = 0;
+    int32_t top = 0;
+    int32_t right = 0;
+    int32_t bottom = 0;
+
+    if (!object || !robo_layout_result_is_computed(&object->result)) {
+        return;
+    }
+    if (!layout_inline_has_contents(object)) {
+        return;
+    }
+
+    /* Bottom-up: settle everything inside this box first. */
+    child = object->first_child;
+    while (child != ROBO_LAYOUT_NODE_ID_NONE) {
+        const robo_layout_object_t *child_object = robo_layout_object_slot_const(walk->tree,
+                                                                                child);
+
+        if (!child_object) {
+            break;
+        }
+        layout_inline_union(walk, child);
+        child = child_object->next_sibling;
+    }
+
+    /* Then this box's own rectangle, from children whose rectangles are now final. */
+    child = object->first_child;
+    while (child != ROBO_LAYOUT_NODE_ID_NONE) {
+        const robo_layout_object_t *child_object = robo_layout_object_slot_const(walk->tree,
+                                                                                child);
+        int32_t x;
+        int32_t y;
+        int32_t child_right;
+        int32_t child_bottom;
+
+        if (!child_object) {
+            break;
+        }
+        /* A declined child -- a block-level box in an inline context -- is UNRESOLVED
+         * and has no rectangle to union. It is counted by the placement pass rather
+         * than by this walk (RoboLayoutInline.h §8). */
+        if (robo_layout_result_is_computed(&child_object->result)) {
+            x = child_object->result.position.x;
+            y = child_object->result.position.y;
+            child_right = x + child_object->result.size.width;
+            child_bottom = y + child_object->result.size.height;
+            if (!have) {
+                left = x;
+                top = y;
+                right = child_right;
+                bottom = child_bottom;
+                have = 1;
+            } else {
+                if (x < left) {
+                    left = x;
+                }
+                if (y < top) {
+                    top = y;
+                }
+                if (child_right > right) {
+                    right = child_right;
+                }
+                if (child_bottom > bottom) {
+                    bottom = child_bottom;
+                }
+            }
+        }
+        child = child_object->next_sibling;
+    }
+
+    if (have) {
+        object->result.position.x = left;
+        object->result.position.y = top;
+        object->result.size.width = right - left;
+        object->result.size.height = bottom - top;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -754,6 +983,8 @@ int robo_layout_inline_stats_equal(const robo_layout_inline_stats_t *a,
            a->atomic_placed == b->atomic_placed &&
            a->non_atomic_placed == b->non_atomic_placed &&
            a->block_level_declined == b->block_level_declined && a->lines == b->lines &&
+           a->lines_from_text_baseline == b->lines_from_text_baseline &&
+           a->lines_from_fallback_baseline == b->lines_from_fallback_baseline &&
            a->line_members == b->line_members &&
            a->wraps == b->wraps && a->widths_declared == b->widths_declared &&
            a->widths_filled == b->widths_filled &&
@@ -851,7 +1082,30 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
     }
 
     /*
-     * Then the rebase, over the same participants. The owner's own children are
+     * Then the two walks that can only happen now, in this order because the second
+     * depends on the first.
+     *
+     * The **union** first: every transparent box's rectangle is the union of what its
+     * contents reached, and the contents' positions became final in the finalization
+     * above. Doing it here rather than at each box's close is what 10.7 changed and
+     * RoboLayoutInline.c's flow note argues; what has *not* changed is the rule -- a
+     * box whose contents all landed on a later line is still the bounding box of what
+     * they reached, and a box that placed nothing is still zero-size at the cursor.
+     */
+    child = object->first_child;
+    while (child != ROBO_LAYOUT_NODE_ID_NONE) {
+        const robo_layout_object_t *child_object = robo_layout_object_slot_const(walk->tree,
+                                                                                child);
+
+        if (!child_object) {
+            break;
+        }
+        layout_inline_union(walk, child);
+        child = child_object->next_sibling;
+    }
+
+    /*
+     * And then the rebase, over the same participants. The owner's own children are
      * placed relative to the owner, so they are rebased by nothing; a participant
      * further in is rebased by the transparent box it turned out to be inside.
      */

@@ -223,9 +223,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 6
+#define ROBO_LAYOUT_VERSION_MINOR 7
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.6.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.7.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -311,5 +311,28 @@
  * lying if it meant them.
  */
 #define ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED 1
+
+/**
+ * 1 once this build places participants **on a baseline**.
+ *
+ * A constant rather than a runtime decision for the same reason the other five are:
+ * it is read by `robo_layout_get_capabilities().baselines` and by the suite that
+ * asserts the flag against the code. What it claims, exactly:
+ *
+ *   every line a pass stores has a usable baseline (ascent, descent and the kind
+ *   they came from), its height is their sum, and every member of it holds a position
+ *   derived from that baseline rather than from the line's top edge;
+ *
+ *   every object the pass places carries the baseline metrics it was placed with, a
+ *   text run's from its font with the line gap split as half-leading, and everything
+ *   else's from the documented bottom-edge fallback.
+ *
+ * What it does **not** claim: CSS `vertical-align` in any of its forms, `line-height`
+ * as a resolved used value, an inline-block's baseline from its last in-flow line box
+ * rather than its bottom edge, a replaced element's baseline, or anything glyph-level.
+ * Each is a later phase's, and the header of `RoboLayoutBaseline.h` names the first
+ * three where they would otherwise be assumed.
+ */
+#define ROBO_LAYOUT_BASELINES_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

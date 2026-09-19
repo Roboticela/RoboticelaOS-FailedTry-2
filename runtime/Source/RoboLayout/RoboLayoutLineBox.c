@@ -37,6 +37,7 @@ void robo_layout_line_box_init(robo_layout_line_box_t *line)
     line->origin.y = 0;
     line->size.width = 0;
     line->size.height = 0;
+    robo_layout_baseline_metrics_init(&line->baseline);
     line->available_width = 0;
     line->members = 0u;
 }
@@ -51,6 +52,7 @@ int robo_layout_line_box_equal(const robo_layout_line_box_t *a,
            a->owner == b->owner && a->index == b->index && a->origin.x == b->origin.x &&
            a->origin.y == b->origin.y && a->size.width == b->size.width &&
            a->size.height == b->size.height &&
+           robo_layout_baseline_metrics_equal(&a->baseline, &b->baseline) &&
            a->available_width == b->available_width && a->members == b->members;
 }
 
@@ -89,4 +91,66 @@ robo_result_t robo_layout_line_box_rect(const robo_layout_line_box_t *line,
      * that decided what `width` means would be a second answer to it.
      */
     return robo_gfx_rect_from_point_size(line->origin, line->size, out_rect);
+}
+
+robo_result_t robo_layout_line_box_baseline(const robo_layout_line_box_t *line,
+                                           robo_layout_baseline_metrics_t *out)
+{
+    if (!line || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    *out = line->baseline;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_line_box_baseline_offset(const robo_layout_line_box_t *line,
+                                                   int32_t *out_offset)
+{
+    if (!line || !out_offset) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    /*
+     * Deferred to the metrics type rather than reading `line->baseline.ascent`
+     * directly, and the indirection earns its keep twice: the NONE refusal is the
+     * same one every other caller of the door gets, and the conversion from "ascent"
+     * to "offset from the top" is stated in one place.
+     */
+    return robo_layout_baseline_offset(&line->baseline, out_offset);
+}
+
+robo_result_t robo_layout_line_box_baseline_y(const robo_layout_line_box_t *line,
+                                             int32_t *out_y)
+{
+    int32_t offset = 0;
+    robo_result_t status;
+
+    if (!line || !out_y) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+
+    status = robo_layout_baseline_offset(&line->baseline, &offset);
+    if (status != ROBO_OK) {
+        *out_y = 0;
+        return status;
+    }
+
+    /*
+     * Summed in 64 bits and clamped, for the reason the metrics' own extent is: a line
+     * whose origin and ascent are both near the pixel range's top would otherwise wrap
+     * into a baseline *above* its own top edge, and a renderer would draw a floor in
+     * the wrong place rather than be told the number does not fit. A document cannot
+     * reach the clamp; the alternative is an invariant that is true by luck.
+     */
+    {
+        int64_t y = (int64_t)line->origin.y + (int64_t)offset;
+
+        if (y < 0) {
+            *out_y = 0;
+        } else if (y > (int64_t)INT32_MAX) {
+            *out_y = INT32_MAX;
+        } else {
+            *out_y = (int32_t)y;
+        }
+    }
+    return ROBO_OK;
 }

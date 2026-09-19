@@ -1,8 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.6, line boxes**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.7, baselines**).
 
-**Version:** 0.6.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.7.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -22,6 +22,10 @@ a font, and a text node is a participant of the line it was placed on.
 
 `ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED=1` — this build produces line boxes a caller
 can read back: identity, finalized geometry, and which objects went on them.
+
+`ROBO_LAYOUT_BASELINES_IMPLEMENTED=1` — this build gives every line a **floor** —
+an ascent, a descent and the kind they were derived from — and places each of its
+members on it rather than at the line's top edge.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -77,6 +81,18 @@ are the objects it placed**, which is not the same set as the context's
 participants: a transparent inline box *with* contents encloses members without
 being one, because its rectangle is a union and a union can span lines.
 
+**10.7 (baselines).** Where the line gets a floor, and where members stop sitting
+at its top edge. The structural claim is a **split of one fact across two
+moments**: a participant's own metrics are recorded when it is *placed*, because
+that is when the measurement is in hand, but its final y is written when the line
+is *finalized*, because a line's ascent is a maximum that is not final until the
+last member arrives — so the correction is one walk of the member chain at the
+moment the line's geometry is written anyway. The line gap a font reports becomes
+CSS half-leading here (the seam's one question stays "how wide is this run?"),
+everything that is not a text run takes a documented **bottom-edge fallback**, and
+the two coordinate spaces a baseline is read in — the line's own and its owner's —
+are named by two doors rather than left to a reader to infer.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -90,7 +106,7 @@ being one, because its rectangle is a union and a union can span lines.
 | block layout | A real position and size for every block-level box in a block-direction context: width filled from the containing block, children stacked from the content origin, height declared or content-derived, and a record of what was placed and what was not | Resolve a declared width, a percentage, a margin, a padding or a border; place an inline box, a line, or an unreached box; build an anonymous wrapper |
 | inline layout | A real position and size for every participant of an inline formatting context: a cursor that advances, a line that moves down when a participant does not fit, a union for a transparent box, and an atomic box's contents laid out inside it by the block pass | Collapse whitespace, break Unicode lines, fragment a participant across two lines, or build the anonymous wrapper a block-level box in an inline context needs |
 | text layout | A code-point range type, the style a font needs resolved from computed CSS, the **measurement seam**, a run record, and a RoboFont-backed measurer that sums advances in font units and scales once | Shape, kern, ligate, reorder for bidi, break lines, or rasterise a glyph |
-| line box | The record of one line — identity, ordinal within its context, finalized rectangle in its owner's content-box space, the width it had to fit, and the objects it placed — read back through the tree's arena | Align, baseline, fragment, or paint a line; derive its height from the font rather than from its tallest member |
+| line box | The record of one line — identity, ordinal within its context, finalized rectangle in its owner's content-box space, the width it had to fit, the **baseline** it was given (ascent, descent, kind), and the objects it placed — read back through the tree's arena | Align, fragment, or paint a line; derive its height from a resolved `line-height` or from an inline-block's last in-flow line box |
 
 ## The one structural decision
 
@@ -234,6 +250,41 @@ placements of one line interleave with another's, each member names the next mem
 of *its* line, and reading is O(index) — which the door's own note says rather than
 leaving a caller to infer an array.
 
+## The sixth structural decision: one fact, two moments
+
+10.7's, and it is the subtlest of the six because both halves of it look like an
+implementation detail for the same function. A member's **metrics** are recorded when
+it is placed, because that is when the measurement is in hand. A member's **final y**
+is written when the line is finalized, because the line's ascent is a *maximum* over
+members and is not final until the last of them has arrived:
+
+```text
+the tempting model
+   place a member at its final y
+     -> wrong the moment a taller sibling follows it
+
+the tempting fix
+   place every member at the line's top, forever
+     -> 10.6, and right only when the members share a font
+
+this build
+   place -> record the member's metrics and fold the line's maxima
+         -> at finalization, one walk of the member chain writes each y
+```
+
+The third row is only available because of the fifth decision: a line is written
+**once**, so there is exactly one moment at which its members' y can be corrected,
+and that moment already exists. The walk that fills each member's back-link is the
+same walk that writes its y, because "this member's baseline is the line's" and "this
+member is on this line" are one event.
+
+The same phase moved the **union** walk, and for the same reason: a transparent box's
+rectangle bounds its contents' positions, so it cannot be computed until those
+positions are final. The rule is unchanged — a box is the bounding box of what it
+contains — and only *when* it is computed moved, from each box's close to a post-order
+walk over the finished context, with the rebasing pass following it because the rebase
+subtracts the origin the union just wrote.
+
 ## What "the pass ran" is allowed to mean
 
 There are two passes now, and they answer different questions about the same tree.
@@ -313,7 +364,8 @@ so the tree can borrow them.
 | `RoboLayoutInline.h` | The inline direction: the record it leaves, and the doctrine of atomic versus transparent |
 | `RoboLayoutText.h` | Ranges in code points, direction, the resolved font inputs, the run record, the measurement seam, and the text counters |
 | `RoboLayoutTextFont.h` | The RoboFont-backed measurer — cmap + hmtx, summed in font units and scaled once |
-| `RoboLayoutLineBox.h` | One finalized line: the record, the state vocabulary, and the read side |
+| `RoboLayoutLineBox.h` | One finalized line: the record, the state vocabulary, the baseline it carries, and the read side |
+| `RoboLayoutBaseline.h` | The three baseline kinds, the metrics record, its arithmetic, and the two rules that produce it (a run's metrics; the bottom-edge fallback) |
 | `RoboLayoutStyle.h` | The style-source seam |
 | `RoboLayoutBuilder.h` | DOM document in, layout tree out |
 | `RoboLayoutDom.h` | The RoboHTML + RoboCSS bridge that supplies the styles |
@@ -384,7 +436,8 @@ module.
 | `docs/InlineLayout.md` | Atomic versus transparent, where a participant's width comes from, the wrapping rule and why a preliminary line is not a line box, rebasing, and why there is no second entry point |
 | `docs/TextLayout.md` | Text as an ordinary participant, ranges in code points, direction as metadata, the measurement seam and its three answers, the four facts a font needs, and the builder's second rule |
 | `docs/LineBoxes.md` | Construction state versus the record, members as placements, the space a line is in, the lifecycle the pass runs, and what the block pass gets from the lines |
-| `docs/Tests.md` | The twelve suites, what each asks, and what each phase found |
+| `docs/Baselines.md` | Where the member's metrics are written versus where the line's floor is final, half-leading from the run's gap, the bottom-edge fallback, the two coordinate spaces, and why the union walk had to move |
+| `docs/Tests.md` | The thirteen suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -392,7 +445,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 160 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 177 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -422,9 +475,14 @@ module, which sits below layout in the graph but has no business in a layout pas
   breaking and no whitespace collapsing. A run's width is the sum of its glyphs'
   advances, which is what an unshaped run is. A participant too wide for its line
   **overflows** rather than fragmenting.
-- No **baseline** and no `line-height`. A line's height is its tallest member — the
-  number this build can derive without a font's own line metrics. The runs carry
-  ascent and descent already, so 10.7 has its inputs and does not re-measure.
+- No `line-height` **as a resolved used value**, and no `vertical-align` in any of
+  its forms. 10.7 gave every line a floor and placed its members on it: the ascent is
+  the members' maximum ascent, the descent their maximum descent, the height their
+  sum, and a member's y is `origin.y + (line.ascent - member.ascent)`. What that is
+  *not* is a `line-height` computation — a line's extent is the extent its metrics
+  span — and the fallback for everything without font metrics is the documented
+  **bottom edge**, not an inline-block's last in-flow line box, which is a later
+  phase's rule and is named where it would otherwise be assumed.
 - No **text measurement of its own**. The seam is a callback and the RoboFont-backed
   measurer is one implementation beside it; a pass with no seam measures every run
   as zero and counts it (`robo_layout_text_stats_t.unmeasured`), which is a
@@ -440,5 +498,7 @@ module, which sits below layout in the graph but has no business in a layout pas
   any of them. `ROBO_LAYOUT_OBJECT_KIND_COUNT` is three — `NONE`, `BOX` and `TEXT`,
   and 10.5 is the phase that widened it, with the no-property-to-derive-from
   justification 10.1 wrote down — and `ROBO_LAYOUT_FC_KIND_COUNT` is four.
-- No **line-box** alignment, `text-align`, `vertical-align`, `line-height` or
-  painting. A line is a rectangle and a membership list.
+- No **line-box** alignment, `text-align` or painting. A line is a rectangle, a
+  baseline and a membership list; `ROBO_LAYOUT_BASELINE_KIND_COUNT` is three —
+  `NONE`, `TEXT` and `BOX` — and `NONE` is the one kind the validity predicate
+  refuses, which is what keeps "not placed" from reading as "placed with no extent".

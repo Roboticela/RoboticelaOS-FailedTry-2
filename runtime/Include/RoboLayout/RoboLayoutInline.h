@@ -221,6 +221,26 @@ typedef struct robo_layout_inline_stats {
      */
     size_t lines;
     /**
+     * Lines whose baseline came from **font line metrics** (10.7).
+     *
+     * Equals the number of lines whose baseline-defining member was a measured text
+     * run -- "baseline-defining" being the first member to reach the line's final
+     * ascent (RoboLayoutInline.c). A line of unmeasured text counts here, with a zero
+     * extent: its floor is anchored on text and there is nothing measured above it,
+     * which is a different statement from a line with no floor.
+     */
+    size_t lines_from_text_baseline;
+    /**
+     * Lines whose baseline came from the **bottom-edge fallback** (10.7).
+     *
+     * The kind of a line whose tallest member is not a text run: an atomic inline, or
+     * an empty inline box. The two counters partition `lines` -- every stored line has
+     * a baseline and this build produces exactly two kinds -- so
+     * `lines_from_text_baseline + lines_from_fallback_baseline == lines` is an
+     * identity a caller can check rather than a coincidence, and the suite does.
+     */
+    size_t lines_from_fallback_baseline;
+    /**
      * Objects placed **on** those lines, summed.
      *
      * Not the same number as `participants_placed`, and the difference is 10.6's

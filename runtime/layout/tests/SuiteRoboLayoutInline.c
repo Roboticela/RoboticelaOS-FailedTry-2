@@ -584,8 +584,14 @@ static void test_inline_non_atomic_union(void)
     /* The transparent box's two children are participants of the *same* context --
      * `<p>`'s -- so they carry the cursor forward just as if they were `<p>`'s own
      * children. That is what "transparent to the line" means, and the two positions
-     * are what it looks like. */
-    layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "b"), 0, 0, 70, 30);
+     * are what it looks like.
+     *
+     * Their *verticals* differ, and 10.7 is why: both boxes take the bottom-edge
+     * fallback, so both rest their feet on the line's floor -- 55 below the line's top,
+     * because the taller of the two set the ascent -- and the 30-tall box therefore sits
+     * at y = 25 rather than at the line's top. The x values are still the cursor's.
+     */
+    layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "b"), 0, 25, 70, 30);
     layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "i"), 70, 0, 40, 55);
 
     /* The box itself: from the first child's left edge to the second's right edge,
@@ -725,7 +731,9 @@ static void test_inline_wrapping(void)
      * what makes a viewport the way to ask for a wrap. */
     layout_inline_pass_with(&fixture, 250, &stats, NULL);
 
-    layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "b"), 0, 0, 100, 30);
+    /* Both rest on the first line's floor, which the 50-tall box sets: so the 30-tall
+     * one sits 20 down from the top and the 50-tall one starts there. */
+    layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "b"), 0, 20, 100, 30);
     layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "i"), 100, 0, 100, 50);
     /* The third box wrapped, and the line it left was 50 tall -- the tallest thing
      * on it -- so it sits at y = 50 rather than at 30 or 40. The *line height* is

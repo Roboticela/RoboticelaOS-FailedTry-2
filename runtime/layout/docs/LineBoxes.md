@@ -10,6 +10,7 @@ structural decision is that **the line being built is not a line box**.
 
 10.4 kept a line as four numbers and a cursor on the pass's stack and said so in
 its own header, naming the line's identity, alignment, baseline and font-derived
+(that baseline is 10.7's and is now a field; this record is about what 10.6 decided)
 height as 10.6's. This is that phase, and the way it could have gone wrong is worth
 stating first: the obvious implementation gives the line box a mutable record,
 opens one when a participant is placed, mutates it as more are placed, and closes it
@@ -86,11 +87,14 @@ Two consequences follow, and both are asserted by the suite rather than believed
   number of **placements** (`robo_layout_inline_stats_t.line_members`) and **not**
   the number of participants;
 - `line.size.width` is the **sum of its members' widths**, which equals the cursor
-  the line finished at, and `line.size.height` is the **tallest** member.
+  the line finished at, and `line.size.height` is the extent of the **baseline**.
 
-Both are this build's rule. Neither is CSS's final word — a real line height comes
-from the font and a real extent from the baseline — and the header says so where the
-fields are declared rather than in a comment somewhere else.
+Both are this build's rule, and the second was 10.6's "tallest member" until 10.7
+replaced it: the height is now `ascent + descent`, where the two are the members'
+maxima. The header says so where the fields are declared rather than in a comment
+somewhere else, and the two are **equal whenever the members share a font** — which
+is why the change is invisible in 10.6's own cases and why the phase that made it
+put a case in a document with two fonts in it.
 
 ## 3. Geometry, and the space it is in
 
@@ -187,16 +191,19 @@ would be a name with nothing behind it — the same argument 10.2 used to refuse
 
 ## 8. What is deliberately missing
 
-- **No baseline and no `line-height`.** The line's height is its tallest member,
-  which is a number this phase can derive without a font's own line metrics. The
-  runs carry ascent and descent already (10.5), so 10.7 has its inputs.
+- ~~No baseline and no `line-height`.~~ **10.7 supplied the baseline**, as this
+  bullet predicted it would: the line carries an ascent, a descent and the kind they
+  came from, and each member is placed from them rather than at the line's top. What
+  remains missing is `line-height` **as a resolved used value** and CSS
+  `vertical-align`, both of which are later phases' and are named in
+  `docs/Baselines.md` §11 rather than left to be discovered.
 - **No fragmentation.** A participant is never split across lines, so a run too
   wide for its line **overflows** rather than breaking. `cursor == 0` is the guard
   that keeps that from being an infinite loop.
 - **No Unicode line breaking and no whitespace collapsing.** The wrapping rule is
   "does it fit", and it is the same rule 10.4 wrote.
 - **No bidi reordering, alignment, `text-align`, `vertical-align`, or painting.**
-  A line is a rectangle and a membership list.
+  Since 10.7 a line is a rectangle, a baseline and a membership list.
 
 ## 9. The invariant the suite asserts over every tree
 

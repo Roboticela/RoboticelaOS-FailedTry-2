@@ -819,6 +819,15 @@ void robo_layout_tree_lines_reset(robo_layout_tree_t *tree)
      */
     for (index = 0u; index < tree->count; index++) {
         tree->objects[index].line = ROBO_LAYOUT_LINE_ID_NONE;
+        /*
+         * And the baseline with it (10.7), for the same reason and in the same sweep:
+         * a baseline is what a participant was *placed* with, so it is a conclusion of
+         * the pass that produced the lines and not a property of the object. Leaving it
+         * behind would be worse than leaving a line id behind -- a stale line id names a
+         * *different* line, which a caller can at least notice, while a stale baseline
+         * is a plausible-looking ascent for a document that is no longer laid out.
+         */
+        robo_layout_baseline_metrics_init(&tree->objects[index].baseline);
     }
 }
 
@@ -951,6 +960,7 @@ robo_result_t robo_layout_line_add(robo_layout_tree_t *tree,
                                    size_t index,
                                    robo_layout_point_t origin,
                                    robo_layout_size_t size,
+                                   robo_layout_baseline_metrics_t baseline,
                                    int32_t available_width,
                                    layout_line_member_id_t first_member,
                                    size_t members,
@@ -990,6 +1000,19 @@ robo_result_t robo_layout_line_add(robo_layout_tree_t *tree,
         return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
                                 "a finalized line has at least one member");
     }
+    /*
+     * Every stored line has a usable baseline (RoboLayoutLineBox.h), and this is the
+     * one place that can be enforced rather than asserted. It is worth enforcing here
+     * because the alternative failure is silent in a way the module's other refusals
+     * are not: a line stored with a NONE baseline is a perfectly-shaped record whose
+     * floor is *absent*, and a renderer that read it would place text at the line's
+     * top edge instead of on the baseline -- a wrong picture, not a crash, and one
+     * nobody would attribute to a missing enumerator.
+     */
+    if (!robo_layout_baseline_metrics_is_valid(&baseline)) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "a finalized line needs a usable baseline");
+    }
 
     if (layout_tree_line_reserve(tree, diag) != ROBO_OK) {
         return diag ? diag->code : ROBO_OUT_OF_MEMORY;
@@ -1005,6 +1028,7 @@ robo_result_t robo_layout_line_add(robo_layout_tree_t *tree,
     slot->box.index = index;
     slot->box.origin = origin;
     slot->box.size = size;
+    slot->box.baseline = baseline;
     slot->box.available_width = available_width;
     slot->box.members = members;
     slot->first_member = first_member;

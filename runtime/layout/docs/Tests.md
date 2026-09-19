@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.6)
+# RoboLayout Test Organisation (through Phase 10.7)
 
-Twelve suites, 160 tests, one framework. Each phase adds no test runner, no reporter
+Thirteen suites, 177 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -19,9 +19,9 @@ no glob: a suite that is not on the list is not built, which is the same
 §§10.1–10.6 below were written when the module computed nothing, and their text is
 kept as it stood rather than back-dated. Where a case has since changed meaning —
 `layout.conformance.statement` and the old `geometry == 0` claims, 10.4's
-re-pinning of the same two cases again, and 10.5's and 10.6's re-pinning of the
-version and the capability table — the change is recorded in §8–§11, under the phase
-that made it.
+re-pinning of the same two cases again, and 10.5's, 10.6's and 10.7's re-pinning of
+the version and the capability table — the change is recorded in §8–§12, under the
+phase that made it.
 
 ---
 
@@ -40,6 +40,7 @@ that made it.
 | `SuiteRoboLayoutInline.c` | `layout.inline.*` | 23 | does the inline pass advance a cursor, wrap when one does not fit, and write a transparent box as the union of its contents? |
 | `SuiteRoboLayoutText.c` | `layout.text.*` | 26 | does a text node become an object, does a real font measure it, and does a run placed on a line get the width the font said? |
 | `SuiteRoboLayoutLineBox.c` | `layout.line.*` | 12 | is the line being built not a line box, and are a line's members exactly the objects that advanced its cursor? |
+| `SuiteRoboLayoutBaseline.c` | `layout.baseline.*` | 16 | does every line get a floor, are its members placed on it, and is "not placed" a different answer from "placed with no extent"? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -380,14 +381,62 @@ it one would fail as soon as the capacity fitted. What the loop asserts is the
 *repeat*: four further passes over an unchanged tree leave the live count exactly
 where the settled one found it.
 
+### 10.13 — baselines (`layout.baseline.*`)
+
+Sixteen cases in four groups: the record and its arithmetic, the two rules that
+produce a metrics, the line and its members after a real pass, and the pass itself.
+They are the first cases in the directory that read a *placement* rather than a
+rectangle: what a member's y means is now a function of its own ascent, so most of
+them are about a relationship between two objects.
+
+**The vocabulary and the arithmetic** — `kind_vocabulary` (the three kinds walked,
+with `NONE` the one the validity predicate refuses), `metrics_record` (the record's
+fields, its equality, the extent, and the offset conversion), `metrics_from_run`
+(the half-leading rule: an even gap splits evenly, an **odd** gap puts its spare
+pixel below and still sums to the run's height, no gap leaves the terms alone, an
+unmeasured run is a TEXT baseline of zero extent rather than a NONE one, a height
+smaller than `ascent + descent` is read as no gap, and negative terms are clamped
+**before** the gap is recovered), and `metrics_from_extent` (the bottom-edge
+fallback, and the clamping of its extent).
+
+**A line, after a real pass** — `line_from_text` (one run, one line: the kind is
+TEXT, the two terms are the font's with the gap split, and the three numbers cannot
+disagree because the height *is* their sum), and `object_metrics` (a run's own
+metrics through the object door; a transparent box that placed nothing reported
+`ROBO_NOT_FOUND` rather than a zero floor — while *still* having geometry, which is
+what makes that a miss about membership and not about placement).
+
+| Case | Subject |
+|---|---|
+| `shared_floor` | two runs of **different fonts** — 20/5 against 8/2, from a measurer that answers per code point — whose own baselines land on one floor, read through `layout_baseline_y_in_owner` because a nested member's stored y is parent-relative |
+| `mixed_size_is_not_top_aligned` | two atomics of different declared heights share the floor, so their **feet coincide**; before this phase the shorter one's bottom edge was 30px above the taller one's, which is the failure the case names |
+| `descent_deepens_the_line` | a run whose descent is large and ascent small moves the line's **floor** down, and the member sits at the line's top because the line's ascent *is* its ascent — the check that the maximum is read the right way round |
+| `multiple_lines` | three lines from content that wraps, each with its own baseline, stacked by `ascent + descent`, and each counted as a text-baseline line |
+| `empty_content` | the three different empty answers: no inline content (no line at all), an empty inline box (a line, `BOX`, 0/0, one fallback line), and unmeasured text (a line, `TEXT`, 0/0) — then the same text **measured** as zero, so the difference is the measurement and not the numbers |
+| `relayout` | a second pass with different metrics moves the floor on the **same line id**, which pins that a baseline is replaced rather than accumulated; a narrower viewport then re-wraps to three lines with three baselines |
+| `determinism` | the same pass twice with unchanged input gives an equal line record and equal inline stats, and the line's kind is `BOX` because the 18px atomic out-reaches both text runs — the first-member-among-the-tallest rule, asserted so it cannot be quietly rewritten into "prefer text" |
+| `accounting` | the phase's invariant, over **every** line of a wrapped document (§12 of the design record) |
+| `validation` | NULL and NONE arguments on every door, and a hand-built line record refused by both baseline doors — because the arena would not have stored it |
+| `allocator_balance` | the phase added no arena: a settled pass's live count is unchanged by four more, and destroying the tree returns the allocator to where the fixture found it |
+
+The fixture carries a lesson of its own, and it is recorded here because it is the
+kind of mistake that reads as an implementation bug. A rule array grew an entry while
+the call site kept its old count literal, so the **last rules were silently
+dropped** — and a dropped rule shows up as a box with the initial display (or an
+atomic with no declared size), which looks exactly like a layout defect. The array
+size is now derived from the array (`LAYOUT_BASELINE_RULE_COUNT`), and
+`layout_baseline_style_add` reads each rule's display back out of the style it just
+built, so a rule the container refused fails at the rule rather than three assertions
+later in the geometry.
+
 ### 10.7 — conformance (`layout.conformance.*`)
 
 Seven cases, and the shape is 9.16's: ask the questions no single-module suite can.
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now fourteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout` and `line_boxes` at 1 and `painting` at 0 |
-| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.6.0`, API unfrozen, three object kinds and four context kinds |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now fifteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes` and `baselines` at 1 and `painting` at 0, and the count of implemented fields asserted as fourteen |
+| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.7.0`, API unfrozen, three object kinds and four context kinds |
 | `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no layout at all, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
 | `determinism` | two builds of the same document produce equal trees, compared box by box |
@@ -426,8 +475,10 @@ replaced rather than weakened, and the numbers took over `layout.block.*`.
 | a scripted text measurer | answer a width per code point, so a case about cursor arithmetic fails because the arithmetic is wrong and not because a font differed — `layout.text.*` and `layout.line.*` |
 | a synthetic SFNT face | cmap, hmtx, hhea, head, maxp, loca and glyf built in the suite, for the one case whose subject *is* the real RoboFont answer |
 
-The second row is the design record's §6.1 argument made concrete. Seven of the
-twelve suites never instantiate a style context at all, and the five that do reach
+The second row is the design record's §6.1 argument made concrete. Eight of the
+thirteen suites never instantiate a style context at all — `layout.baseline.*` is
+the newest of the eight, scripting its styles the way `layout.inline.*` does — and
+the five that do reach
 for one solely in the cases whose subject *is* the joining: `layout.dom.*` and
 `layout.conformance.*` throughout, and the single `pipeline` case in
 `layout.block.*`, `layout.inline.*` and `layout.text.*`. `layout.fc.*` is one of the six, which is
@@ -521,9 +572,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.inline` | 23 |
 | `layout.text` | 26 |
 | `layout.line` | 12 |
+| `layout.baseline` | 16 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2177** tests, green in both configurations.
+Whole suite: **2193** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -538,11 +590,12 @@ Whole suite: **2177** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2177 cases. In 10.6's run the sanitized suite was
-2177 with no sanitizer diagnostic and the two host-window cases below as its only
-red cases. 10.5's run was the same; in 10.4's run the sanitized suite was
-**2139/2139** — no sanitizer diagnostic, and no red case. 10.3's run was
-2116/2116 the same way.
+ASan and UBSan run the same 2193 cases. In 10.7's run the sanitized suite was
+**2193/2193** with no sanitizer diagnostic and **no red case**. 10.6's run was the
+same count; in 10.5's run the sanitized suite was 2177 with no sanitizer diagnostic
+and the two host-window cases below as its only red cases. In 10.4's run the
+sanitized suite was **2139/2139** — no sanitizer diagnostic, and no red case. 10.3's
+run was 2116/2116 the same way.
 
 That is worth stating precisely, because an earlier phase's sanitized run
 reported `window.host.keyboard` and `window.host.mouse` and both are
@@ -559,8 +612,8 @@ to get:
 
 | How the suite was run | Result |
 |---|---|
-| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6 |
-| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground |
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7 |
+| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7 |
 | `--filter=window.host` in isolation | **19/19** — three times in each phase |
 | the binary as a child of `pwsh` with its output captured | **passes** |
 
@@ -838,3 +891,54 @@ extent-from-lines change were all right on the first build — for the reason 10
 and 10.4 give, and with one more suite in the pile this time: twelve suites had
 pinned the inputs (the flow record, the union arithmetic, the placement counts) so
 the finalization arithmetic had nowhere to hide.
+
+---
+
+## 12. What the 10.7 suite found
+
+Three findings, and the first one is a **defect in the implementation that the
+suite caught** — which is the first time in this directory that a new case found a
+wrong number rather than a wrong assumption:
+
+**1. The half-leading rule clamped its two terms in the wrong order**
+(`RoboLayoutBaseline.c`). `from_run` recovers a font's line gap as
+`height - ascent - descent` and splits it across the terms. Written in the obvious
+order — gap first, then clamp the terms — a run carrying negative terminology widens
+the gap by exactly the amount about to be discarded, so a zero-height record with
+`ascent = descent = -4` reported an extent of 8: a floor spanning something that
+spans nothing. Clamping first makes it fall back to the no-gap reading, which is
+what "the extent is the larger of the height and `asc + desc`" asks for. The case is
+`metrics_from_run`'s negative-term row, and it is the one row of the four in that
+case that no amount of reading the other three would imply.
+
+**2. A rule array grew an entry while its call site kept the old count literal**, so
+the last rules were silently dropped — and the symptom was a *layout* symptom: the
+box whose rule went missing had the initial display, or an atomic had no declared
+size, which reads as a placement bug rather than as a truncated fixture. This cost
+the most time of anything in the phase. The array size is now derived from the array
+(`LAYOUT_BASELINE_RULE_COUNT`), and `layout_baseline_style_add` reads each rule's
+display back out of the style it just built, so a rule the container refused fails at
+the rule rather than in the geometry three assertions later.
+
+**3. Two fixtures encoded assumptions about the coordinate space and the document
+language** that were true enough to pass and wrong enough to mislead. A member inside
+a transparent inline box is stored relative to *that box* (10.4's rebase), so the
+suite now reads members through a helper that sums the chain to the context owner
+rather than comparing a parent-relative number against a line; and a fixture built on
+an invented tag name (`<tall>`) turned out to be a claim about the parser, not about
+layout, so the case uses real elements (`<i>`, `<u>`) and says why.
+
+**And two 10.4 cases changed their numbers on purpose.** `layout.inline`'s
+`non_atomic_union` and `wrapping` asserted that two atomics of different heights both
+start at the line's top edge. They no longer do — that is the phase — so the y of the
+shorter one moved (to 25 and to 20 respectively) while every width, count and
+membership stayed exactly as 10.4 wrote them. The 10.4 suite's own prose was wrong in
+one word after the change (`its position is where the first of them landed`, which was
+the union's top and is now the topmost child's), and the note beside the assertion now
+records the rule instead.
+
+**Nothing else needed re-pinning beyond the expected four.** `layout.module.version`,
+`layout.module.capabilities`, `layout.conformance.capabilities` and
+`layout.conformance.statement` moved for the version bump and the new `baselines`
+field — the same set of four 10.3, 10.4, 10.5 and 10.6 each moved, which is what
+those assertions exist for.

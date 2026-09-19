@@ -63,6 +63,7 @@
 
 #include "RoboBase/RoboError.h"
 
+#include "RoboLayout/RoboLayoutBaseline.h"
 #include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutBuilder.h"
 #include "RoboLayout/RoboLayoutConstraints.h"
@@ -169,6 +170,20 @@ typedef struct robo_layout_capabilities {
      * named for "text layout is finished".
      */
     int line_boxes;
+    /**
+     * Placing participants **on a baseline** (10.7). **1** since 10.7.
+     *
+     * A claim about the *build*, exactly as `geometry` and `text_layout` are: a
+     * document with no inline content produces no lines and therefore no baselines,
+     * so "where is the baseline of this line?" is `robo_layout_line_box_baseline_y`'s
+     * and this field only says the module can *produce* one. Kept narrow for the same
+     * reason `line_boxes` is: a baseline here is a line's floor and the placement rule
+     * that follows from it, and it is **not** CSS `vertical-align`, a resolved
+     * `line-height`, an inline-block baseline taken from its last in-flow line box, or
+     * anything glyph-level -- `baselines` would be claiming those if it were named for
+     * "text layout is finished".
+     */
+    int baselines;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

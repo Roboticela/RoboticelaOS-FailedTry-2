@@ -35,10 +35,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 6);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 7);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.6.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.6.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.7.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.7.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -106,6 +106,7 @@ static const struct {
     { "block_and_inline_layout", 1 },
     { "text_layout", 1 },
     { "line_boxes", 1 },
+    { "baselines", 1 },
     { "painting", 0 }
 };
 
@@ -136,8 +137,8 @@ static void test_module_capabilities(void)
     }
 
     /*
-     * The five this build moves are also reachable one at a time, so a caller that
-     * asks a single question is not reading a union of twelve. And they are asserted
+     * The fields this build moves are also reachable one at a time, so a caller that
+     * asks a single question is not reading a union of fifteen. And they are asserted
      * as a *group* rather than only in the table above, because the group is the
      * interesting fact: this build computes a coordinate, it computes it in *both*
      * directions, and the field that names both is the conjunction of the two -- still
@@ -159,6 +160,14 @@ static void test_module_capabilities(void)
      * second is the one this module was before 10.6.
      */
     ROBO_CHECK_EQ_INT(caps.line_boxes, ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED);
+    /*
+     * And `baselines`, its own field for the same reason: 10.7's claim is that a line
+     * has a floor and its members are placed on it, which is neither the line's
+     * *existence* (10.6) nor a run's *measurement* (10.5). A build that produced lines
+     * and placed every member at the line's top is exactly what this module was before
+     * this phase, and it satisfied both of those fields.
+     */
+    ROBO_CHECK_EQ_INT(caps.baselines, ROBO_LAYOUT_BASELINES_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -472,7 +481,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.6.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.7.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

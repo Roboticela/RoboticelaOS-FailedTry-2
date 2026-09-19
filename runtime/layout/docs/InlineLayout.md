@@ -318,6 +318,7 @@ the box owns through 10.2's own door.
 | 10.5 text layout | `empty_contexts` — *how often a document currently depends on the zero* |
 | 10.6 line boxes | `lines`, and the preliminary line it replaces (§4.1) |
 | 10.7 baselines | the line's `top` and its running height, which is a union of extents rather than a baseline |
+| 10.7 baselines (outcome) | the line's **top and the placement arithmetic**: a member's y is now `origin.y + (line.ascent - member.ascent)` rather than the line's top, written in one walk at finalization (§12) |
 | 10.8 sizing | the atomic inline's two fallbacks (§3) and the `widths_filled` count |
 | 10.9 margins | the union arithmetic (§5) that becomes the margin edge |
 | 10.12 positioning | the rebase (§5) — the coordinate convention surviving nesting |
@@ -337,6 +338,28 @@ baseline to the line that currently has neither.
 have since been settled. Neither phase needed the change §1 promised the inline
 model would not need.*
 
+**10.7 gave the line a floor, and the inline pass exactly two changes.** Neither is a
+new branch or a new door, which is what §1 promised this model would not need. The
+first is that `layout_inline_place` now *records* the baseline a participant was
+placed with and folds it into the line's own maxima — two assignments beside the
+cursor arithmetic that was already there. The second is that the y it writes is no
+longer final: `layout_inline_finalize_line` corrects each member's y once the line's
+maximum ascent is known, in the same walk that fills the back-link it already filled.
+
+The reason the correction cannot live at placement is §12 in `docs/Baselines.md`, and
+the one structural consequence here is that the **union moved**: a transparent box's
+rectangle bounds its contents' positions, so it moved from each box's close to a
+post-order walk over the finished context, immediately before the rebase that depends
+on it. The rule is the same rule; only *when* it runs changed. §5's rebasing survived
+untouched, and so did the coordinate convention §5 defines — which is why a member
+inside a transparent box is still read relative to that box, and why the baseline
+suite sums the chain rather than comparing two spaces.
+
+One case in the 10.4 suite changed its *numbers* and not its subject: two atomics on
+one line now share the line's floor, so the shorter one sits below the line's top edge
+instead of at it. The widths, the participants, the membership and the wrap count are
+all as 10.4 left them.
+
 **10.5 gave the participant that had none a measured width, and nothing else.** The
 zero §3.1 argues loudly for is still exactly what a text run gets from a pass with
 no measurement seam; what changed is that a seam can now be installed, and then a
@@ -351,10 +374,13 @@ introduced it rather than a case being deleted.
 **10.6 gave identity to the line, and this header's §4.1 was half right.** The line
 is now a record with an id, an ordinal, a finalized rectangle and its members — so
 the "identity" half of the prediction landed. The "alignment, baseline and height
-that comes from fonts" half did **not**: a line's height is its **tallest member**,
-and there is still no baseline in this module. So 10.6 was a smaller phase than
-§4.1 foresaw, deliberately, and the header of `RoboLayoutLineBox.h` says so where
-the field is declared rather than in a remark here.
+that comes from fonts" half did **not**: a line's height was its **tallest member**,
+and there was no baseline in the module. So 10.6 was a smaller phase than §4.1
+foresaw, deliberately, and the header of `RoboLayoutLineBox.h` says so where the
+field is declared. **10.7 settled that half** (§12 below): the height is the extent
+of the baseline, which is the two maxima summed — and it is the *same number* as
+"tallest member" whenever the members share a font, which is why 10.6 could defer it
+without any of its own cases noticing.
 
 The one thing the inline pass itself gained is that `lines` stopped being the only
 way to learn that anything was on a line. The counter is unchanged and still the
@@ -366,6 +392,34 @@ And the distinction §2 drew is what 10.6 turned into an assertion:
 `participants_placed` and the sum of the lines' member counts **differ** for a
 document that nests inline boxes, by exactly the transparent boxes that enclosed
 something. 10.6 made that difference visible instead of leaving it as a note.
+
+---
+
+## 12. What 10.7 turned out to be
+
+*Added after the fact, like §11. The prediction in §10's 10.7 row was that this phase
+would need "the line's top and its running height"; it needed the top and replaced the
+*arithmetic* that used it, and the running height turned out to be the wrong quantity
+to hand on.*
+
+A participant now carries the baseline metrics it was **placed** with, and the line
+carries the two maxima plus the kind they came from. The height §4.1 and 10.6 both
+deferred is no longer a separate quantity at all: it is `ascent + descent`, so a line's
+height cannot disagree with its own baseline, which is a stronger statement than "they
+happen to match".
+
+The inline pass's counters gained two fields that **partition** its lines —
+`lines_from_text_baseline` and `lines_from_fallback_baseline` sum to `lines` — and they
+exist because the phase's most interesting case is not a number but a *distinction*:
+a line whose text nothing measured and a line whose contents were an empty box are both
+zero-tall and both report a valid baseline, and only the kind tells them apart.
+
+What did **not** change is worth as much as what did. The atomic/transparent branch is
+untouched. The wrapping rule is untouched. The rebase is untouched — the phase had to
+*respect* it rather than revise it, which is why the baseline suite's member reads sum
+a parent chain instead of comparing a parent-relative number against a line. And
+`participants_placed` still counts participants while `line_members` still counts
+placements: the phase changed where a member goes, not which objects are members.
 
 ---
 

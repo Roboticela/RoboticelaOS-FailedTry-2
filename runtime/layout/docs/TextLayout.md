@@ -235,11 +235,16 @@ more for the thing that feeds the inline one.
 - **No shaping.** No glyph substitution, no positioning, no ligature, no kerning.
   A run's width is the sum of its glyphs' advances, which is what an unshaped run
   is; OpenType is Phase 14.
-- **No line boxes.** 10.5 measures a run; where the run goes and what the line
-  around it looks like is 10.6.
-- **No baselines and no `line-height`.** The run carries ascent and descent because
-  the measurer has them for free, and nothing in this phase uses them. They are
-  recorded so that 10.7 has what it needs and does not have to re-measure.
+- ~~**No line boxes.**~~ **10.6** made the line a record, and **10.7** gave it a floor.
+- ~~**No baselines and no `line-height`.**~~ **10.7 consumed them, and did not
+  re-measure — but it did add one thing, and the split is worth stating here because
+  it was this record's to state.** The run carries `ascent`, `descent` and a height
+  that includes the font's line **gap**; turning that gap into CSS half-leading is
+  10.7's (`robo_layout_baseline_metrics_from_run`), and the phase takes the gap as a
+  *difference* — `height - ascent - descent` — rather than adding a field here. The
+  reason is the seam's own scope: its one question is "how wide is this run?", and a
+  baseline is line geometry. `line-height` **as a resolved used value** is still
+  absent, and remains a later phase's.
 - **No Unicode line breaking**, no whitespace collapsing, no bidi reordering.
   Fragmentation is absent, so a run too wide for its line overflows.
 - **No text selection, editing, or painting.** A text object holds geometry, not a

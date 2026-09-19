@@ -96,6 +96,7 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      * font-derived extent are 10.7's and the field's own comment says so.
      */
     out->line_boxes = ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED;
+    out->baselines = ROBO_LAYOUT_BASELINES_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }
