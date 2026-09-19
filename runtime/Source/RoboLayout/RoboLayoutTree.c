@@ -841,6 +841,17 @@ void robo_layout_tree_lines_reset(robo_layout_tree_t *tree)
          * said anything" stay distinguishable through the result's state.
          */
         robo_layout_margin_edges_init(&tree->objects[index].margins, 0);
+        /*
+         * And the used padding (10.10), in the same sweep and for the same reason, with
+         * one difference worth stating: a margin is a conclusion *about a containing
+         * block*, while a padding is a conclusion about the box's own style -- so it is
+         * the steadiest of the three records to leave behind and still the wrong one to
+         * leave. Its four numbers come from declarations that do not change between
+         * passes, but "this box has padding" *is* a statement of a pass, and
+         * `robo_layout_object_padding` refuses an object that was never placed precisely
+         * so that the record's silence cannot be read as an answer.
+         */
+        robo_layout_padding_edges_init(&tree->objects[index].padding);
     }
 }
 

@@ -69,6 +69,7 @@ static const struct {
     { "baselines", 1 },
     { "sizing", 1 },
     { "margins", 1 },
+    { "padding", 1 },
     { "painting", 0 }
 };
 
@@ -96,11 +97,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Sixteen of seventeen. Asserted as a count as well as field by field, so a build
+    /* Seventeen of eighteen. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The seventeenth is `painting`, and it is the only one that is 0. */
-    ROBO_CHECK_EQ_INT(implemented, 16u);
+     * glance. The eighteenth is `painting`, and it is the only one that is 0. */
+    ROBO_CHECK_EQ_INT(implemented, 17u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -171,6 +172,29 @@ static void test_conformance_capabilities(void)
      */
     ROBO_CHECK_EQ_INT(caps.sizing, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_SIZING_IMPLEMENTED, 1);
+
+    /*
+     * And `margins`, the field 10.9 added, with its own boundary stated where a
+     * reader meets it: a margin reaches geometry -- a box is placed at its margin
+     * origin and a parent stacks by a child's margin box -- while collapsing is
+     * deliberately absent, so adjacent vertical margins *sum*. The macro is asserted
+     * from its own definition like the four above it, so a build that turned the
+     * behaviour on and left the report off would fail here rather than in a suite
+     * nobody ran.
+     */
+    ROBO_CHECK_EQ_INT(caps.margins, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_MARGINS_IMPLEMENTED, 1);
+
+    /*
+     * And `padding`, the field 10.10 added, with its boundary stated where a reader
+     * meets it: a padding reaches geometry -- a box's `size` is its **border** box and
+     * its contents begin `padding-left`/`padding-top` inside that -- while this build is
+     * `box-sizing: content-box` (a declared `width` is the *content* box), percentage
+     * padding is read and used as zero, and no padding applies to a transparent inline
+     * box. `padding` would be claiming those if it were named for "padding is finished".
+     */
+    ROBO_CHECK_EQ_INT(caps.padding, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_PADDING_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -379,6 +403,15 @@ static void test_conformance_pipeline(void)
     ROBO_CHECK_EQ_INT(stats.block.empty_containers, 1u);
     ROBO_CHECK_EQ_INT(stats.block.heights_explicit, 1u);
     ROBO_CHECK_EQ_INT(stats.block.depth_max, 3u);
+    /*
+     * And the padding's two (10.10), asserted where a reader can check them against the
+     * stylesheet above by hand: `.card` declares `padding: 5px`, which is *four*
+     * declarations one layer down and four sides of geometry here, while `<html>` and
+     * `<body>` declare none -- so the count is four and not twelve, which is the whole
+     * reason an `ABSENT` side is counted nowhere.
+     */
+    ROBO_CHECK_EQ_INT(stats.block.paddings_applied, 4u);
+    ROBO_CHECK_EQ_INT(stats.block.paddings_unresolved, 0u);
 
     /*
      * And the inline direction's record, for the one inline formatting context this
@@ -465,9 +498,12 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(rect.x, 0);
         ROBO_CHECK_EQ_INT(rect.y, 0);
         ROBO_CHECK_EQ_INT(rect.width, 1280);
-        /* `<body>` is the only block-level child that stacks, and it is 120 tall since
-         * 10.9: the extent the cursor reached is the card's **margin box**. */
-        ROBO_CHECK_EQ_INT(rect.height, 120);
+        /* `<body>` is the only block-level child that stacks, and it is 130 tall since
+         * 10.10: the extent the cursor reached is the card's **margin box**, which now
+         * spans all three of the card's boxes -- 10 (margin) + 110 (the border box,
+         * whose `height: 100px` is a *content* box plus 5px of padding on each axis) + 10
+         * (margin). */
+        ROBO_CHECK_EQ_INT(rect.height, 130);
 
         ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, body_box, &result),
                           ROBO_OK);
@@ -476,7 +512,7 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(rect.x, 0);
         ROBO_CHECK_EQ_INT(rect.y, 0);
         ROBO_CHECK_EQ_INT(rect.width, 1280);
-        ROBO_CHECK_EQ_INT(rect.height, 120);
+        ROBO_CHECK_EQ_INT(rect.height, 130);
 
         ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, card_box, &result),
                           ROBO_OK);
@@ -489,8 +525,16 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(position.x, 20);
         ROBO_CHECK_EQ_INT(position.y, 10);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
-        ROBO_CHECK_EQ_INT(size.width, 200);  /* the declared one, honoured since 10.8 */
-        ROBO_CHECK_EQ_INT(size.height, 100); /* and so is this -- a margin is not a size */
+        /*
+         * And since 10.10 the two numbers are the card's **border** box rather than the
+         * declared pair: `width: 200px` and `height: 100px` are the *content* box under
+         * this build's `content-box` model, and `padding: 5px` puts 5 on each of the four
+         * sides, so the box a reader sees is 200 + 5 + 5 by 100 + 5 + 5. That is the phase
+         * in one assertion: a padding changes a box's size and never its position, which
+         * is the same line a margin draws in the opposite direction.
+         */
+        ROBO_CHECK_EQ_INT(size.width, 210);
+        ROBO_CHECK_EQ_INT(size.height, 110);
 
         /* The title is a placed box with a *zero* extent, which is 10.3's honest
          * answer for a `<p>` whose only content is text: a text node is not a box,
@@ -500,9 +544,16 @@ static void test_conformance_pipeline(void)
                           ROBO_OK);
         ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_COMPUTED);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
-        /* The card's 200, not the viewport's -- the child's containing block is the
-         * box that declares the width, which is what makes the declaration *contain*
-         * something rather than only describe one box. */
+        /*
+         * The card's 200, not the viewport's -- the child's containing block is the box
+         * that declares the width, which is what makes the declaration *contain* something
+         * rather than only describe one box.
+         *
+         * Still 200 after 10.10, and that is the `content-box` model asserted one level
+         * down: the card's *border* box is 210, but its **content** box is the 200 its
+         * author declared, so the paragraph fills 200 -- not the 210 the card occupies and
+         * not the 190 a `border-box` reading of the declaration would give its child.
+         */
         ROBO_CHECK_EQ_INT(size.width, 200);
         ROBO_CHECK_EQ_INT(size.height, 0);
     }
@@ -1021,7 +1072,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.9.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.10.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*

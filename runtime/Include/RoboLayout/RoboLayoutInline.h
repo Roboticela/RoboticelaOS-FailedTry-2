@@ -69,25 +69,38 @@
  *   same rule 10.3 reads `height` with: a computed LENGTH in `px` is usable, and
  *   anything else — `auto`, a percentage, `em` — is not. A width this build cannot
  *   resolve falls back to the containing block's content width **less its horizontal
- *   margins** since 10.9, which is what 10.3 does for a block box and is CSS's
+ *   margins** since 10.9 and less its horizontal **padding** since 10.10, which is what
+ *   10.3 does for a block box and is CSS's
  *   `width: auto`; shrink-to-fit is intrinsic sizing and is 10.8's. A height it
- *   cannot resolve comes from what the box contained.
+ *   cannot resolve comes from what the box contained. Its declared `width` is its
+ *   **content** box, under 10.10's `content-box` model, so the padding is outside the
+ *   number the author wrote and inside the number the line advances by.
  *
  *   a **non-atomic** inline is sized by *nothing* it declares, and that is CSS
  *   rather than a shortcut: `width` and `height` do not apply to a non-replaced
  *   inline box, whose extent is the sum of its inline content. So its rectangle is
  *   the union of what its participants reached in the line's coordinate space —
  *   which is a real computation, not a placeholder — and it is **zero** when it
- *   contains no box at all. **10.9 extends the same rule to its margins**: no margin
- *   applies to a non-replaced inline box either, so its four used values are nothing
- *   even when the author declared some, and its union is unchanged.
+ *   contains no box at all. **10.9 extends the same rule to its margins**, and 10.10 to
+ *   its **padding**: no margin and no padding applies to a non-replaced inline box in
+ *   this build, so its used values are nothing even when the author declared some, and
+ *   its union is unchanged. CSS does grow such a box's inline advance by its horizontal
+ *   padding and its line box by its vertical padding; this build does neither, and the
+ *   reason is that a transparent inline box's rectangle is *derived* from its contents
+ *   rather than placed, so padding on it is a rule about fragmenting an inline box across
+ *   lines — the anonymous-box work this module has not done. It is stated in
+ *   `RoboLayoutPadding.h` and asserted as a value by the suite.
  *
  * and since 10.9 a box's **margins** are part of where it goes and not part of how
  * big it is. An atomic participant is placed `margin-left` in from the cursor and the
  * cursor then advances by its **margin box** — `left + width + right` — so a wrapped
  * line accounts for what each participant *occupies* rather than for its content box;
  * and its baseline is its **bottom margin edge**, which is what CSS specifies for an
- * `inline-block` with no in-flow line box of its own. Every `auto` margin is zero here
+ * `inline-block` with no in-flow line box of its own. **10.10 puts the padding inside
+ * that box**: the `width` this arithmetic advances by is the participant's **border** box
+ * — its content box plus its padding — so the same two terms now span three boxes, which
+ * is why the padding reaches the cursor, the result and the baseline's extent without any
+ * of them being told about the property. Every `auto` margin is zero here
  * whether the width is settled or not, because distribution is a block-level
  * normal-flow rule: an inline participant has no width constraint to be under- or
  * over-, and `robo_layout_margins_resolve_inline` is where that is stated
@@ -294,6 +307,15 @@ typedef struct robo_layout_inline_stats {
      *  a percentage, a relative unit (10.9). Used as zero, and counted so that a
      *  document spaced with `margin: 10%` is visible as one. */
     size_t margins_unresolved;
+    /** **Sides** of an atomic participant whose declared padding reached its advance
+     *  along the line and its border box (10.10), zero included. Summed over sides for
+     *  the reason the margin counters are, and counted from the *resolution* so that an
+     *  `ABSENT` side is counted nowhere. */
+    size_t paddings_applied;
+    /** Sides declared on an atomic participant with a padding this build cannot use -- a
+     *  percentage, a relative unit, a negative length, or `auto` (10.10). Their used value
+     *  is zero, which is why they are counted. */
+    size_t paddings_unresolved;
     /** Deepest participant placed. */
     uint32_t depth_max;
 } robo_layout_inline_stats_t;

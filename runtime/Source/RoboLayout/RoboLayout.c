@@ -116,6 +116,7 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      * margins at all, which is why `robo_layout_object_margins` refuses one.
      */
     out->margins = ROBO_LAYOUT_MARGINS_IMPLEMENTED;
+    out->padding = ROBO_LAYOUT_PADDING_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }

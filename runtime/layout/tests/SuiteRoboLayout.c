@@ -10,6 +10,11 @@
  * function that reads the macro -- because a build that flipped one and not the
  * other would have two answers to one question.
  *
+ * Since 10.10 the capability table has grown one row per phase, and each row is
+ * checked *positionally* against the struct beside it: the table is written out by
+ * hand in the struct's own order, so a phase that added a field and forgot a row
+ * moves every field after it and fails here rather than at a caller.
+ *
  * The geometry test is not decoration either. RoboLayout declares its point,
  * size and rectangle as *aliases* of RoboGraphics', and an alias is exactly the
  * kind of claim that survives a copy-paste: if somebody ever replaced the typedef
@@ -35,10 +40,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 9);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 10);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.9.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.9.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.10.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.10.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -109,6 +114,7 @@ static const struct {
     { "baselines", 1 },
     { "sizing", 1 },
     { "margins", 1 },
+    { "padding", 1 },
     { "painting", 0 }
 };
 
@@ -187,6 +193,14 @@ static void test_module_capabilities(void)
      * satisfied every field above it.
      */
     ROBO_CHECK_EQ_INT(caps.margins, ROBO_LAYOUT_MARGINS_IMPLEMENTED);
+    /*
+     * And `padding`, the field 10.10 added -- the mirror of the one above it, and its
+     * own field for the same reason: a padding reaches the geometry as *inside* the
+     * box, so it changes a box's size and where its contents begin without ever moving
+     * the box. A build with the margin vocabulary and no padding would have satisfied
+     * every field above it.
+     */
+    ROBO_CHECK_EQ_INT(caps.padding, ROBO_LAYOUT_PADDING_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -274,12 +288,13 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 17);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 18);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_SIZING), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_MARGINS), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)17), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_PADDING), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)18), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -324,12 +339,18 @@ static void test_module_diagnostic_domains(void)
     /* 10.8's domain, one behind the newest since 10.9. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_SIZING),
                       "sizing");
-    /* 10.9's, and it is the newest: a margin resolution that cannot produce a record a
-     * result can hold is reported in it, which is the one way this layer can fail. */
+    /* 10.9's, one behind the newest since 10.10. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_MARGINS),
                       "margins");
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_MARGINS,
+    /* 10.10's, and it is the newest: the two derived numbers below a padding are the
+     * only arithmetic in this layer that can be handed a record it cannot use, which is
+     * the one way a padding can fail. */
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_PADDING),
+                      "padding");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_PADDING,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_MARGINS,
+                      (int)ROBO_LAYOUT_DOMAIN_PADDING - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_SIZING,
                       (int)ROBO_LAYOUT_DOMAIN_MARGINS - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT,
@@ -513,7 +534,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.9.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.10.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

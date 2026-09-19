@@ -121,11 +121,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** Sizing: declared dimensions, availability, bounds, resolution. */
     ROBO_LAYOUT_DOMAIN_SIZING = 15,
     /** Margins: the four sides, the used values, the two policies. */
-    ROBO_LAYOUT_DOMAIN_MARGINS = 16
+    ROBO_LAYOUT_DOMAIN_MARGINS = 16,
+    /** Padding: the four sides, the used values, the border and content boxes. */
+    ROBO_LAYOUT_DOMAIN_PADDING = 17
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 17u
+#define ROBO_LAYOUT_DOMAIN_COUNT 18u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

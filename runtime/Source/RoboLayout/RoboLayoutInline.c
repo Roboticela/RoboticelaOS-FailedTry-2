@@ -507,8 +507,13 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
     if (atomic) {
         robo_layout_sizing_t sizing;
         robo_layout_size_t content;
+        robo_layout_size_t content_size;
+        robo_layout_size_t border_box;
         robo_layout_margins_t declared = robo_layout_margins_of(object->style);
         robo_layout_margin_edges_t edges;
+        robo_layout_paddings_t declared_padding;
+        robo_layout_padding_edges_t padding;
+        int32_t content_available = 0;
         robo_result_t sizing_status;
 
         /*
@@ -534,14 +539,33 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         margin_bottom = edges.bottom;
 
         /*
+         * And the padding (10.10), which for this box is the same one door the block pass
+         * calls: a padding has no `auto` and resolves against nothing, so an atomic inline
+         * and a block box read the same four declarations the same way. It is placed on the
+         * *inside* of the box, so it takes room from the participant's own contents rather
+         * than from the line.
+         */
+        declared_padding = robo_layout_paddings_of(object->style);
+        sizing_status = robo_layout_padding_resolve(&declared_padding, &padding, walk->diag);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+        sizing_status = robo_layout_padding_edges_content_width(&padding,
+                                                              edges.available_content_width,
+                                                              &content_available, walk->diag);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+
+        /*
          * The same sizing layer the block pass uses (10.8), and it is the same
          * *helper* too -- "what this box's declarations ask for, into this containing
-         * block" is one question and two implementations of it would be two answers.
-         * What differs is only the containing block: an atomic inline's is the inline
-         * context's content box with its margins taken out, which is what `auto` width
-         * and every `%` that is filled rather than resolved now fills.
+         * block" is one question and two implementations of it would be two answers -- and
+         * since 10.10 the same *input*, too: the inline context's content box less the
+         * margins **and the padding**, because CSS's constraint equation has both terms
+         * however the box participates.
          */
-        robo_layout_object_sizing(&sizing, object, edges.available_content_width);
+        robo_layout_object_sizing(&sizing, object, content_available);
 
         /*
          * The width, then the contents, then the height -- the two-phase shape the
@@ -589,7 +613,27 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         if (sizing_status != ROBO_OK) {
             return sizing_status;
         }
-        height = (int32_t)sizing.resolved.height;
+
+        /*
+         * And then the box a reader sees, which is where this path and the block pass
+         * agree in one call: the sizing layer's pair is this participant's **content** box
+         * (10.10's `content-box` model -- a declared `width: 40px` on an `inline-block` is
+         * 40 inside it), and the **border** box is that plus the padding on each axis. The
+         * two locals are then what the placement below writes and what the line advances
+         * by, so the padding reaches the cursor and the result without either of them
+         * knowing the property exists.
+         */
+        sizing_status = robo_layout_sizing_resolved(&sizing, &content_size);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+        sizing_status = robo_layout_padding_edges_border_box(&padding, content_size,
+                                                           &border_box, walk->diag);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+        width = (int32_t)border_box.width;
+        height = (int32_t)border_box.height;
 
         /* Counted from the sources, so the two pairs mean the same thing as the block
          * pass's: a width obeyed its author or filled what it was given, and a height
@@ -607,11 +651,16 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
          * the inline record's silence about `auto` a fact rather than a gap. */
         walk->inline_flow->margins_applied += edges.resolved;
         walk->inline_flow->margins_unresolved += edges.unresolved;
+        walk->inline_flow->paddings_applied += padding.resolved;
+        walk->inline_flow->paddings_unresolved += padding.unresolved;
 
-        /* And the used margins are kept on the box, exactly as the block pass keeps
-         * them: the record a later phase wants is the participant's margin box, and
-         * re-deriving one from the declaration would re-decide the `auto` question. */
+        /* And the used margins and padding are kept on the box, exactly as the block pass
+         * keeps them: the record a later phase wants is the participant's margin box, and
+         * re-deriving one from the declaration would re-decide the `auto` question -- while
+         * the padding record is the only way to recover this participant's content box from
+         * the border box its result carries. */
         object->margins = edges;
+        object->padding = padding;
     } else {
         walk->inline_flow->non_atomic_placed++;
     }
@@ -1104,6 +1153,8 @@ int robo_layout_inline_stats_equal(const robo_layout_inline_stats_t *a,
            a->heights_from_content == b->heights_from_content &&
            a->margins_applied == b->margins_applied &&
            a->margins_unresolved == b->margins_unresolved &&
+           a->paddings_applied == b->paddings_applied &&
+           a->paddings_unresolved == b->paddings_unresolved &&
            a->depth_max == b->depth_max;
 }
 

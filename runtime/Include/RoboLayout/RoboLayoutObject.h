@@ -53,6 +53,7 @@
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
+#include "RoboLayout/RoboLayoutPadding.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTypes.h"
@@ -210,6 +211,27 @@ typedef struct robo_layout_object {
      * there.
      */
     robo_layout_margin_edges_t margins;
+    /**
+     * The padding this box was **sized** with (10.10), or a cleared record.
+     *
+     * The used values, and for this property the used and the declared values are the
+     * same number -- there is no `auto` to distribute and no containing block to resolve
+     * against -- so what this field adds over the style is the *decision*: which sides
+     * reached geometry and which were declarations this build could not use.
+     *
+     * It is on the object, and this is the field a reader will need first, because it is
+     * the answer to the one question the result cannot answer: **where a box's contents
+     * begin**. A result's `position` is the box's border-box origin and its `size` is the
+     * border box, so the content origin is that origin plus `top`/`left` from here -- and
+     * the content box is that border box less the four numbers. A later phase that paints
+     * a background, clips a child or hit-tests an interior reaches for this record rather
+     * than re-reading a style and re-deciding which declarations it could use.
+     *
+     * Cleared with the geometry in the same sweep and for the same reason as @ref margins:
+     * a used padding that outlived the classification would be a plausible-looking number
+     * about a layout that no longer holds.
+     */
+    robo_layout_padding_edges_t padding;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;
@@ -356,6 +378,40 @@ robo_result_t robo_layout_object_baseline(const robo_layout_tree_t *tree,
 robo_result_t robo_layout_object_margins(const robo_layout_tree_t *tree,
                                          robo_layout_node_id_t id,
                                          robo_layout_margin_edges_t *out,
+                                         robo_layout_diag_t *diag);
+
+/**
+ * The **padding** @p id was sized with (Phase 10.10).
+ *
+ * The four used values, and the door a caller reads a box's **content box** through: a
+ * result carries the border box (`RoboLayoutResult.h`), so the content box is that rect
+ * inset by `top` and `left` from here and reduced by the four numbers -- which is the one
+ * derivation this module does not ask a caller to do from a style, because re-reading
+ * `padding-left` off a computed style means re-deciding whether the declaration was one
+ * this build could use.
+ *
+ * The door refuses the same three things `robo_layout_object_margins` refuses, and for
+ * the same reasons:
+ *
+ *   an id that names nothing                     -- `robo_layout_object_get`'s miss;
+ *   an object **nothing placed**, so no padding was applied -- a cleared padding record is
+ *   a legal value (no padding is CSS's initial state), so this door asks the result rather
+ *   than reading the record's silence;
+ *   a **text run**, and a **transparent inline box** with contents: no padding applies to
+ *   either. A text node is not a box at all, and a transparent inline box's rectangle is
+ *   the union of its contents rather than a placed size -- this build does not inflate
+ *   that union by the padding an author declared, and `RoboLayoutPadding.h` says so out
+ *   loud. Answering a zero with four resolved sides would tell a caller the author's
+ *   padding had been honoured and come to nothing.
+ *
+ * @return ROBO_OK and the used padding; ROBO_INVALID_ARGUMENT for NULL arguments or a
+ *         NONE id; ROBO_NOT_FOUND for the three cases above. @p out is cleared to no
+ *         padding first, so a caller that ignores the code reads a stated absence rather
+ *         than a leftover.
+ */
+robo_result_t robo_layout_object_padding(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_padding_edges_t *out,
                                          robo_layout_diag_t *diag);
 
 /**

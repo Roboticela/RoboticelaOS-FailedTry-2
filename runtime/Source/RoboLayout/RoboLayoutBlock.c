@@ -355,7 +355,10 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     robo_layout_object_t *object = robo_layout_object_slot(walk->tree, id);
     robo_layout_sizing_t sizing;
     robo_layout_margin_edges_t edges;
+    robo_layout_paddings_t declared_padding;
+    robo_layout_padding_edges_t padding;
     robo_layout_size_t content;
+    robo_layout_size_t content_size;
     robo_layout_size_t size;
     robo_layout_point_t margin_origin;
     robo_gfx_pixel_y_t content_extent = 0;
@@ -392,10 +395,44 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
         }
     }
 
-    status = robo_layout_sizing_set_available_width(&sizing, edges.available_content_width,
-                                                    walk->diag);
+    /*
+     * Then the box's own padding (10.10), and here it is *not* an ordering decision the
+     * way the margins were: a padding neither distributes nor resolves against the
+     * containing block, so it is read from the style and used, and the one door it has is
+     * the one policy. What it does change is the number the width is resolved against, and
+     * that is the next step rather than this one.
+     */
+    declared_padding = robo_layout_paddings_of(object->style);
+    status = robo_layout_padding_resolve(&declared_padding, &padding, walk->diag);
     if (status != ROBO_OK) {
         return status;
+    }
+
+    /*
+     * What the box's own box is resolved against, and the phase's first consequence: the
+     * containing block less the margins (10.9) **and** the padding, because CSS's
+     * constraint equation has a term for each. So a box with `padding: 10px` and no
+     * declared width is exactly as wide as its containing block rather than 20px wider,
+     * and the padding comes out of the contents' room instead of out of the parent.
+     *
+     * The subtraction is the padding layer's, and it happens *here* rather than inside the
+     * sizing layer, because the sizing layer does not know the property exists -- "how much
+     * room is there" is the caller's question and the answer is a number.
+     */
+    {
+        int32_t content_available = 0;
+
+        status = robo_layout_padding_edges_content_width(&padding,
+                                                        edges.available_content_width,
+                                                        &content_available, walk->diag);
+        if (status != ROBO_OK) {
+            return status;
+        }
+        status = robo_layout_sizing_set_available_width(&sizing, content_available,
+                                                       walk->diag);
+        if (status != ROBO_OK) {
+            return status;
+        }
     }
 
     /*
@@ -405,6 +442,14 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * for an `auto` width the two are the same number, because `auto` fills the
      * containing block, and every 10.3 expectation about a box that declares no width
      * is therefore untouched.
+     *
+     * And what the number *is* is 10.10's question, whose answer is one word:
+     * `content-box`. This build is CSS's initial `box-sizing` value, so a declared
+     * `width` is the **content** box and the resolved width is exactly what this box's
+     * children are laid out into -- unchanged from 10.8, and unchanged *because* of the
+     * model rather than in spite of it. The border box a result carries is that number
+     * plus the padding, derived below. A build that had read the declaration as a border
+     * box would subtract here and give the children less than their author asked for.
      */
     status = robo_layout_sizing_resolve_width(&sizing, walk->diag);
     if (status != ROBO_OK) {
@@ -437,7 +482,19 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     if (status != ROBO_OK) {
         return status;
     }
-    status = robo_layout_sizing_resolved(&sizing, &size);
+    /*
+     * And the resolved pair is the box's **content** box, which is what the sizing layer
+     * knows about; the box a reader sees is that plus the padding. That split is the phase
+     * in two lines, and it is why the two numbers are computed here rather than inside the
+     * layer: the layer answers "how big did this box's declarations ask it to be", and
+     * "how big is the box" is the padding layer's answer to a question the layer has no
+     * property for.
+     */
+    status = robo_layout_sizing_resolved(&sizing, &content_size);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    status = robo_layout_padding_edges_border_box(&padding, content_size, &size, walk->diag);
     if (status != ROBO_OK) {
         return status;
     }
@@ -469,14 +526,28 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     walk->block->margins_applied += edges.resolved;
     walk->block->margins_auto_used += edges.autos_used;
     walk->block->margins_unresolved += edges.unresolved;
+    /* And the padding's two, summed over sides for the same reason: a document's padding
+     * arrives four at a time and `padding: 5px` is four declarations one layer down. */
+    walk->block->paddings_applied += padding.resolved;
+    walk->block->paddings_unresolved += padding.unresolved;
 
     /*
      * And the box's own geometry is written at its **margin origin**, which is the
      * whole of what a margin does to a box: `origin` is where its containing block's
-     * content box starts, and the box starts `left` and `top` further in. The `size`
-     * written here is the *content* box -- a margin never changes how big a box is,
-     * only where it sits and how much room it takes -- which is why the two numbers are
-     * not added together anywhere.
+     * content box starts, and the box starts `left` and `top` further in.
+     *
+     * The `size` written here is the **border** box -- the content box the sizing layer
+     * resolved plus the padding (10.10) -- which is what `RoboLayoutResult.h` has said
+     * this field means since 10.1 and what makes it a number a renderer can draw without
+     * re-deriving anything. A margin still never changes it, which is why the two numbers
+     * the box's own box is placed by (`margin_origin`, and the margins' contribution to
+     * the parent's stacking) are not added into it anywhere.
+     *
+     * The **content origin** is this origin plus `padding-left`/`padding-top`, and it is
+     * deliberately not written anywhere: a child's position is already relative to its
+     * containing block's *content* origin (`RoboLayoutResult.h`), so the children below
+     * need no shift and a reader obtains the content origin from @ref
+     * robo_layout_object_padding rather than from a second copy of the same fact.
      */
     margin_origin.x = origin.x + edges.left;
     margin_origin.y = (robo_gfx_pixel_y_t)(origin.y + edges.top);
@@ -489,10 +560,17 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     /*
      * The used margins are kept on the box (RoboLayoutObject.h), because the record a
      * later phase wants is a *margin box* and the result cannot carry one: the result
-     * holds the content box by definition, and adding the four numbers back is exactly
-     * the arithmetic this phase exists to stop a caller from re-deriving.
+     * holds the border box by definition, and adding the four numbers back is exactly
+     * the arithmetic 10.9 exists to stop a caller from re-deriving.
      */
     object->margins = edges;
+    /*
+     * And the used padding, kept on the box for the reason the margins are and one more:
+     * it is the **only** way to recover the content box. A result carries the border box,
+     * so `padding-left`/`padding-top` are what turn one into the other, and re-reading them
+     * from the style would mean re-deciding which declarations this build could use.
+     */
+    object->padding = padding;
 
     walk->block->blocks_placed++;
     if (object->depth > walk->block->depth_max) {
@@ -506,6 +584,13 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * than as a size because that is all a containing block needs from a child in this
      * direction -- the parent never looks at where its child's content box ended, only
      * at where the next one may start.
+     *
+     * `size.height` is the **border** box since 10.10, so this one expression now spans
+     * all three of a box's boxes: the padding is already inside `size` (that is what the
+     * border-box door added), the margins are the two terms around it, and the content box
+     * is inside both and not needed. Which is worth stating, because it is the phase's
+     * cleanest consequence -- a padding changes this number without changing its formula,
+     * and a build that had added the padding here *again* would double it.
      *
      * No collapsing (the header says so): two adjacent margins add rather than
      * overlap, so a box with `margin-bottom: 20px` above one with `margin-top: 30px`
@@ -546,6 +631,8 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
            a->margins_applied == b->margins_applied &&
            a->margins_auto_used == b->margins_auto_used &&
            a->margins_unresolved == b->margins_unresolved &&
+           a->paddings_applied == b->paddings_applied &&
+           a->paddings_unresolved == b->paddings_unresolved &&
            a->empty_containers == b->empty_containers &&
            a->depth_max == b->depth_max;
 }

@@ -75,6 +75,7 @@
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
+#include "RoboLayout/RoboLayoutPadding.h"
 #include "RoboLayout/RoboLayoutObject.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutSizing.h"
@@ -221,6 +222,22 @@ typedef struct robo_layout_capabilities {
      * it were named for "margins are finished".
      */
     int margins;
+    /**
+     * Turning a box's **padding** into the size it occupies and the room its contents
+     * get (10.10). **1** since 10.10.
+     *
+     * A claim about the *build*, and one sentence short enough to be checked: four
+     * non-negative sides are read from a computed style, given used values by one stated
+     * policy, and the results are a box whose border box -- what a result's `size`
+     * carries -- is its content box plus the padding, whose content begins
+     * `padding-left`/`padding-top` inside its border edges, and whose `auto` width fills
+     * what the margins and the padding left. Kept narrow for the same reason the other
+     * flags are: **`box-sizing: border-box` does not exist** (this build is
+     * `content-box`, CSS's initial value), percentage padding is read and used as zero,
+     * and no padding applies to a transparent inline box. `padding` would be claiming
+     * those if it were named for "padding is finished".
+     */
+    int padding;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

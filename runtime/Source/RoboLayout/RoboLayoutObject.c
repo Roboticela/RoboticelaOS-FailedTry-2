@@ -243,6 +243,56 @@ robo_result_t robo_layout_object_margins(const robo_layout_tree_t *tree,
     return ROBO_OK;
 }
 
+robo_result_t robo_layout_object_padding(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_padding_edges_t *out,
+                                         robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading padding needs an out");
+    }
+    /* Cleared first, so the record a caller reads after a refusal is a *stated* absence
+     * rather than whatever its stack held. */
+    robo_layout_padding_edges_init(out);
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading padding needs a tree and an id");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+
+    /*
+     * The same three refusals the margin door makes, and each for its own reason -- the
+     * header argues them. The two doors are deliberately separate rather than one door with
+     * a record kind, because they answer two different questions about two different
+     * records and their refusals are about *the record* rather than about the box: an
+     * `inline-block` has both, a transparent inline box has neither, and a text run has
+     * neither while a *replaced* inline box in a later goal may have both.
+     */
+    if (object->kind != ROBO_LAYOUT_OBJECT_BOX) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a text run has no padding");
+    }
+    if (robo_layout_result_state(&object->result) != ROBO_LAYOUT_RESULT_COMPUTED) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "no pass has sized this box");
+    }
+    if (robo_css_display_is_inline_level(object->display) &&
+        object->context_owned == ROBO_LAYOUT_FC_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "padding does not apply to a transparent inline box");
+    }
+
+    *out = object->padding;
+    return ROBO_OK;
+}
+
 /** Which link a caller asked for. */
 typedef enum layout_link_pick {
     LAYOUT_LINK_PARENT = 0,

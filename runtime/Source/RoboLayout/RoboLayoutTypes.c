@@ -85,6 +85,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "sizing";
     case ROBO_LAYOUT_DOMAIN_MARGINS:
         return "margins";
+    case ROBO_LAYOUT_DOMAIN_PADDING:
+        return "padding";
     default:
         return "unknown";
     }

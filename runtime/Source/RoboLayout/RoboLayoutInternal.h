@@ -36,6 +36,7 @@
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
+#include "RoboLayout/RoboLayoutPadding.h"
 #include "RoboLayout/RoboLayoutSizing.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTree.h"
@@ -143,16 +144,20 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
  * 10.3 defined these in RoboLayoutBlock.c, "because that is where it was first
  * needed and where its rules are argued", and predicted that 10.8 would change the
  * rule. It did, and this is where the prediction landed: the four checks now live in
- * RoboLayoutSizing.c as one *classification* that three readers shape -- the dimension
+ * RoboLayoutSizing.c as one *classification* that four readers shape -- the dimension
  * reader below (three kinds), `robo_layout_style_px_length` (a px length or nothing),
- * and 10.9's margin reader (a **signed** px length or nothing). `font-size` needs the
- * second because a font size is not a box dimension and `12.5px` has to stay `12.5`,
- * and keeping one classification behind all three is what stops `auto` and `50%` from
- * being folded together at the seam.
+ * 10.9's margin reader (a **signed** px length or nothing), and 10.10's padding reader
+ * (a **non-negative** px length or nothing). `font-size` needs the second because a
+ * font size is not a box dimension and `12.5px` has to stay `12.5`, and keeping one
+ * classification behind all four is what stops `auto` and `50%` from being folded
+ * together at the seam.
  *
  * 10.9 opened the classification's one parameter rather than copying it, and the
  * parameter is the whole of the difference between a box dimension and a margin:
- * `width: -10px` is an invalid declaration and `margin: -10px` is a technique. The
+ * `width: -10px` is an invalid declaration and `margin: -10px` is a technique. 10.10
+ * is the parameter read the *other* way -- `padding: -10px` is invalid too, so the
+ * padding reader passes the same flag a dimension does and differs from the margin
+ * reader by nothing else at all. The
  * *rules* -- the entry must exist, the keyword is `auto` or unusable, a LENGTH in px
  * is usable when it is finite and inside the geometry's range, anything else is
  * unusable -- are one rule and stay in one place.

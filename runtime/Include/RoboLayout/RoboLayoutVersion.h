@@ -278,9 +278,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 9
+#define ROBO_LAYOUT_VERSION_MINOR 10
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.9.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.10.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -410,10 +410,16 @@
  *
  * What it does **not** claim: percentage resolution against a containing *dimension*
  * (there is none to resolve against), `min-content`/`max-content`/`fit-content`,
- * shrink-to-fit, `box-sizing`, or any contribution from margins, padding and borders
- * -- which is why every size here is still the border box the result documents. Each
+ * shrink-to-fit, `box-sizing`, or any contribution from borders. Each
  * is a later phase's, and `RoboLayoutSizing.h` names them where they would otherwise
  * be assumed.
+ *
+ * One thing 10.9 and 10.10 between them made precise rather than changed: the number
+ * this layer resolves is the box's **own box as its declarations determined it**, which
+ * under this build's `box-sizing: content-box` is the **content** box -- and the border
+ * box a result carries is that plus the padding, derived by the padding layer rather
+ * than resolved here. Margins change neither, which is why neither is an input to this
+ * layer.
  */
 #define ROBO_LAYOUT_SIZING_IMPLEMENTED 1
 
@@ -447,5 +453,40 @@
  * would otherwise be assumed.
  */
 #define ROBO_LAYOUT_MARGINS_IMPLEMENTED 1
+
+/**
+ * 1 once this build turns a box's **padding** into the size it occupies and the room
+ * its contents get.
+ *
+ * A constant rather than a runtime decision for the same reason the other nine are: it
+ * is read by `robo_layout_get_capabilities().padding` and by the suite that asserts the
+ * flag against the code. What it claims, exactly:
+ *
+ *   four sides, each of them a **non-negative** px length or a declaration this build
+ *   cannot resolve, read from a computed style and never parsed here -- and no `auto`,
+ *   because the CSS grammar has none for this property;
+ *
+ *   a **used** value per side by one stated policy, which is the whole of it: padding
+ *   neither distributes like a margin nor resolves against a containing block, so the
+ *   same four declarations mean the same thing to every kind of box;
+ *
+ *   the box's **border box** -- what `robo_layout_result_t::size` carries -- derived as
+ *   the content box plus the padding, and the box's **content box** inset from its
+ *   border edges by `padding-left`/`padding-top`, under this build's `box-sizing:
+ *   content-box` model, which is CSS's initial value;
+ *
+ *   an `auto` width filling what the margins **and** the padding left, because CSS's
+ *   constraint equation has both terms, and an atomic inline's advance including its
+ *   padding on the line.
+ *
+ * What it does **not** claim: `box-sizing: border-box`, which is the branch a later goal
+ * adds at one place; percentage and relative-unit padding (read, recorded unresolved and
+ * used as zero, because no goal resolves a percentage yet); padding on a **transparent
+ * inline box**, whose rectangle is the union of its contents and which this build does
+ * not inflate; and borders, which 10.11 adds to the same two derived numbers. Each is a
+ * later phase's, and `RoboLayoutPadding.h` names them where they would otherwise be
+ * assumed.
+ */
+#define ROBO_LAYOUT_PADDING_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

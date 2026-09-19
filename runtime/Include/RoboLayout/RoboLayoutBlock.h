@@ -44,14 +44,23 @@
  *
  *   1. its margins are resolved against its containing block -- `auto` included,
  *      which is what distributes the leftover space beside a declared width;
- *   2. it fills what its margins left of the containing block's content width;
- *   3. its block-level children are stacked from its content origin, each below
- *      the last;
- *   4. its height is the declared one if this build can resolve it, and the
- *      stacked extent of its children otherwise;
- *   5. its result is written in its containing block's coordinate space, which is
- *      what `robo_layout_result_t.position` has meant since 10.1 -- and since
- *      10.9 that position is its **margin** origin, not its containing block's.
+ *   2. its padding is resolved from its own declarations, which needs nobody's
+ *      permission and no containing block;
+ *   3. it fills what its margins **and its padding** left of the containing block's
+ *      content width, because CSS's constraint equation has a term for each -- so a
+ *      box with padding and no declared width is as wide as its containing block
+ *      rather than wider by its insets;
+ *   4. its block-level children are stacked from its content origin, each below
+ *      the last, inside a content box that is its own declared size and *not* its
+ *      border box;
+ *   5. its height is the declared one if this build can resolve it, and the
+ *      stacked extent of its children otherwise -- either way the **content**
+ *      height, which the padding then grows;
+ *   6. its result is written in its containing block's coordinate space, which is
+ *      what `robo_layout_result_t.position` has meant since 10.1 -- since 10.9 that
+ *      position is its **margin** origin, and since 10.10 its `size` is the **border**
+ *      box, so the content origin is that position plus `padding-left`/`padding-top`
+ *      and the content box is its `size` less the padding.
  *
  * What this phase deliberately does not do, and where each one belongs
  *
@@ -68,13 +77,14 @@
  *   only one of them is a claim this phase can defend. Reading it is not a
  *   sizing algorithm: there is one property, one kind check and one unit check.
  *
- *   Padding and borders are **10.10 and 10.11**. So a box's content box is still
- *   its border box, and its content origin is its top-left corner -- but since
- *   10.9 its *margin* origin is not: a box is placed `margin-left`/`margin-top`
- *   inside its containing block, and the extent this pass reports to a parent is
- *   the box's **margin box**. A margin never changes a box's `size`; it changes
- *   where the box sits and how much room it takes. There is **no collapsing**, so
- *   adjacent vertical margins add (`layout/docs/Margins.md`).
+ *   Borders are **10.11**. So a box's border box is its content box plus padding and
+ *   nothing else -- and the two are no longer one number. A margin never changes a box's
+ *   `size`; a padding does, which is the difference in one line: since 10.9 a box is
+ *   placed at its **margin origin** and its parent stacks by its **margin box**, and since
+ *   10.10 its `size` is the **border** box while its own declarations are the **content**
+ *   box, under this build's `box-sizing: content-box`. There is **no margin collapsing**,
+ *   so adjacent vertical margins add (`layout/docs/Margins.md`), and **no padding on a
+ *   transparent inline box** (`layout/docs/Padding.md`).
  *
  *   Inline layout is **10.4**, and it runs *inside* this pass rather than beside
  *   it. A box that establishes an inline formatting context has its contents placed
@@ -227,6 +237,17 @@ typedef struct robo_layout_block_stats {
      *  document whose spacing depends on `margin: 5%` lays out flush here, and the
      *  count is what says so. */
     size_t margins_unresolved;
+    /** **Sides** whose declared padding reached geometry (10.10), zero included.
+     *  Summed over sides for the reason the margin counters are, and counted from the
+     *  *resolution* rather than from the style: a side nobody declared is `ABSENT` and is
+     *  counted nowhere, which is the distinction 10.9 had to add a kind for and this phase
+     *  inherited rather than re-learned. */
+    size_t paddings_applied;
+    /** Sides declared with a padding this build cannot use -- a percentage, a relative
+     *  unit, a negative length, or the `auto` the grammar does not allow (10.10). Their
+     *  used value is zero, which is why they are counted: a document whose insets depend
+     *  on `padding: 5%` lays out flush here, and the count is what says so. */
+    size_t paddings_unresolved;
     /** Containers with no block-level child at all, so the extent this pass
      *  stacked in the block direction is zero and the height is `0` unless one was
      *  declared -- or, from 10.4, is the extent the *lines* reached. A box that
