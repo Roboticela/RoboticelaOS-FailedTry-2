@@ -161,11 +161,19 @@ rounds of placement to assert that resolving one allocates nothing.
 
 Two places, and they carry different things:
 
-- `robo_layout_result_t` carries the **box**: its origin is the margin origin and its
-  size is the content box, so a caller that reads one result has everything a paint
-  pass needs to draw a rectangle.
+- `robo_layout_result_t` carries the **box**: its origin is the margin origin and,
+  since 10.10, its size is the **border** box — the content box plus the padding — so
+  a caller that reads one result has everything a paint pass needs to draw a
+  rectangle.
+
+  *10.10's outcome row:* this section was written when a box's content box **was** its
+  border box, and it says "the content box" where the result's `size` is meant. That
+  is now the border box, and the content box is that inset by `padding-left` and
+  `padding-top`, read from the object rather than re-derived from a style
+  (`Padding.md` §6). The margin arithmetic here is untouched: a padding changes the
+  size these four numbers sit around and never moves where the box is.
 - `robo_layout_object_t::margins` carries the **used margins**, read back through
-  `robo_layout_object_margins`. The result cannot carry them: it holds the content
+  `robo_layout_object_margins`. The result cannot carry them: it holds the border
   box by definition, and adding the four numbers back is exactly the arithmetic this
   phase exists to stop a caller from re-deriving. The door refuses a **text run** and
   a **transparent inline box** with `ROBO_NOT_FOUND` — not zero — because CSS applies
@@ -269,8 +277,12 @@ Each a named later goal:
   `UNRESOLVED` and counted, and the goal that resolves percentages owns all of them at
   once. A percentage is also why `available_content_width` can be *right* while a
   side's used value is *missing*, which the two counters say separately.
-- **padding and borders** (10.10, 10.11), which is why a box's margin box is its
-  border box plus these four numbers and its border box *is* its content box.
+- ~~**padding**~~ **done in 10.10** (`Padding.md`). A box's margin box is still its
+  border box plus these four numbers, and what changed is what the border box *is*:
+  no longer its content box, but that plus the padding — derived by the padding layer
+  from the sizing layer's answer rather than by this one adding a third term.
+- **borders** (10.11), still absent, and the reason a box's border box today is a
+  content box plus padding and nothing else.
 - **positioning** (10.12), where a vertical `auto` and the `top`/`left` insets get
   their meaning, and overflow (10.13), which owns an over-constrained box's overflow
   and a negative margin's overhang.

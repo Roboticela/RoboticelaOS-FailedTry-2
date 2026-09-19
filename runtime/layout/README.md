@@ -1,8 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.9, margins**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.10, padding**).
 
-**Version:** 0.9.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.10.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -36,6 +36,14 @@ resolved against a containing dimension, and intrinsic sizing does not exist yet
 origin**, lets a horizontal `auto` take its share of the leftover beside a declared
 width, and stacks a parent's children by their **margin boxes**. Margin collapsing
 does not exist yet: adjacent vertical margins sum.
+
+`ROBO_LAYOUT_PADDING_IMPLEMENTED=1` — this build reads a box's **four padding
+longhands** and turns them into the box a reader sees: a result's `size` is the
+**border** box (the content box plus the padding), its contents begin
+`padding-left`/`padding-top` inside that, and an `auto` width fills what the margins
+*and* the padding left. The model is `box-sizing: content-box` — CSS's initial value
+— so a declared `width` is the *content* box. Percentage padding is read and used as
+zero, and no padding applies to a transparent inline box.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -130,6 +138,22 @@ horizontal `auto` beside a declared width and treats a vertical one as zero whil
 atomic inline turns every `auto` into zero — and collapsing is deliberately not
 implemented, with the shape left for it in one record of numbers.
 
+**10.10 (padding).** The mirror image of 10.9, and the phase that retires the
+identity a box's content box used to have with its border box. A padding changes two
+things and neither is where the box is: a result's `size` becomes the **border** box
+(the content box the sizing layer resolved, plus the padding on each axis) and the
+box's **contents** begin `padding-left`/`padding-top` inside its border edges — while
+`position` stays the border-box origin it was. Three kinds rather than the margin
+layer's four, because the CSS grammar has no `padding: auto`; one resolution door
+rather than two, because with no `auto` there is nothing for a block box and an
+atomic inline to disagree about; and a padding is **non-negative**, which is the one
+parameter (`allow_negative`) by which the two readers differ over a shared
+classification. What is new is the *arithmetic*: the containing block less the
+margins **and the padding** is what an `auto` width fills, and the border box is
+derived in the layer that owns the property rather than inside the sizing one —
+because "how big did this box's declarations ask it to be" and "how big is the box"
+are two questions and only the first is the sizing layer's.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -140,12 +164,13 @@ implemented, with the shape left for it in one record of numbers.
 | builder | DOM tree in, layout tree out, with `display: none` elements generating no box, every other element generating one, and a text node generating a TEXT object unless it is collapsible whitespace | Handle anonymous boxes or fragments |
 | bridge | The RoboHTML + RoboCSS adapter: RoboCSS's four element-host callbacks, one computed style per element, and the style source the builder reads through | Own a style context, a stylesheet, or a parser |
 | formatting context | The four kinds, the record, and the classification as a **pure function of a display value**, a child composition and a root flag; the per-tree arena of contexts; the two ids on each box | Lay anything out, measure anything, or create an anonymous box |
-| block layout | A real position and size for every block-level box in a block-direction context: width **resolved through the sizing layer**, children stacked from the content origin **at that width**, height declared or content-derived, and a record of what was placed and what was not | Resolve a percentage against a containing dimension, a margin, a padding or a border; place an inline box, a line, or an unreached box; build an anonymous wrapper |
+| block layout | A real position and size for every block-level box in a block-direction context: width **resolved through the sizing layer** against what the margins and padding left, a **border box** on the result, children stacked from the content origin **at that width**, height declared or content-derived, and a record of what was placed and what was not | Resolve a percentage against a containing dimension, a margin or a border; place an inline box, a line, or an unreached box; build an anonymous wrapper |
 | inline layout | A real position and size for every participant of an inline formatting context: a cursor that advances, a line that moves down when a participant does not fit, a union for a transparent box, and an atomic box's contents laid out inside it by the block pass | Collapse whitespace, break Unicode lines, fragment a participant across two lines, or build the anonymous wrapper a block-level box in an inline context needs |
 | text layout | A code-point range type, the style a font needs resolved from computed CSS, the **measurement seam**, a run record, and a RoboFont-backed measurer that sums advances in font units and scales once | Shape, kern, ligate, reorder for bidi, break lines, or rasterise a glyph |
 | line box | The record of one line — identity, ordinal within its context, finalized rectangle in its owner's content-box space, the width it had to fit, the **baseline** it was given (ascent, descent, kind), and the objects it placed — read back through the tree's arena | Align, fragment, or paint a line; derive its height from a resolved `line-height` or from an inline-block's last in-flow line box |
-| sizing | A box's dimensions as a question and an answer: the available extent per direction with whether it is known at all, the declared dimension in three kinds, the bounds, the contents' extent, and the resolved size with a **source** and a clamped flag per dimension — plus the one seam a computed style becomes a size through | Resolve a percentage against a containing *dimension*, size intrinsically (`min-content`, `max-content`, `fit-content`, shrink-to-fit), apply `box-sizing`, or add the contribution of padding and borders |
+| sizing | A box's dimensions as a question and an answer: the available extent per direction with whether it is known at all, the declared dimension in three kinds, the bounds, the contents' extent, and the resolved size with a **source** and a clamped flag per dimension — plus the one seam a computed style becomes a size through | Resolve a percentage against a containing *dimension*, size intrinsically (`min-content`, `max-content`, `fit-content`, shrink-to-fit), apply `box-sizing`, or add the contribution of borders — a padding's contribution is the padding layer's, derived *beside* this one from the answer it gives |
 | margin | The gap beside a box, in two vocabularies: the four declarations in four kinds (`absent`, `resolved` — signed — `auto`, `unresolved`) read from a computed style, and the four **used values** a result is placed by; two policies (a block box's, which distributes a horizontal `auto` beside a declared width, and an atomic inline's, which does not); and the read door a caller uses instead of re-deriving the addition | Collapse two adjacent vertical margins, resolve a percentage against the containing *width*, place a vertically `auto` margin (`auto` means something only for an absolutely positioned box, 10.12), or add padding or border to any of it |
+| padding | The same declarations, one layer *inside*: three kinds (`absent`, `resolved` — non-negative — `unresolved`) read from a computed style, the four **used values**, and two derived numbers — the width left for a box's contents (floored at zero) and the **border box** the result carries (summed in 64 bits and saturated) — with the read door a caller uses for where a box's contents begin | Inflate a **transparent inline box** by a declared padding, resolve a percentage against the containing *width*, apply `box-sizing: border-box`, or add a **border** to either derived number (10.11) |
 
 ## The one structural decision
 
@@ -374,6 +399,35 @@ there is anything to distribute is the *declared* dimension rather than the
 resolution — so `robo_layout_margins_resolve_block` takes the dimension and not a
 number.
 
+## The ninth structural decision: a padding is inside the box
+
+10.10's, and the one that retires the identity a box's content box used to have with
+its border box. A padding changes two things and neither of them is where the box is:
+
+```text
+where the box is placed   unchanged -- a padding is inside it
+how big the box is        content box + padding on each axis  (the BORDER box)
+where its contents begin  its border-box origin + left/top
+what is left inside       containing width - margins - padding  (an `auto` width fills this)
+```
+
+That is the exact mirror of the decision above it, and the pair is the reason the
+module has two records rather than one: a margin is kept **on the object** so a caller
+does not re-derive the space beside the box, and a padding is kept there so a caller
+does not re-derive the space inside it. A result can carry neither, and for the same
+kind of reason — `size` is the border box by definition, `position` is where the box
+begins, and the insets on either side of those two numbers are facts about the box
+rather than about its placement.
+
+The order inside the pass is forced in one direction and chosen in the other: the
+padding resolves **after** the margins, because what is left beside the box is what
+the numbers inside it are measured from; and **before** the width, because CSS's
+constraint equation has a padding term on each side, so a box with no declared width
+is as wide as its containing block rather than 20px wider. What it does *not* do is
+change the shape of the pass: the padding is read and used, it distributes nothing
+and resolves against nothing, so it is one call rather than the margin layer's two
+doors.
+
 ## What "the pass ran" is allowed to mean
 
 There are two passes now, and they answer different questions about the same tree.
@@ -529,7 +583,8 @@ module.
 | `docs/Baselines.md` | Where the member's metrics are written versus where the line's floor is final, half-leading from the run's gap, the bottom-edge fallback, the two coordinate spaces, and why the union walk had to move |
 | `docs/Sizing.md` | Why a resolved width is what the children are laid out into, the three dimension kinds, per-direction availability, where the bounds come from (and the both-dimensions rule), the two readers over one classification, and the three earlier assertions the phase updated |
 | `docs/Margins.md` | Why a margin moves a box and never resizes it, the four kinds (and why an absent side is not a declared zero), the two policies, the used values record and its one clamped number, the three earlier assertions the phase updated, and the missing collapsing |
-| `docs/Tests.md` | The fifteen suites, what each asks, and what each phase found |
+| `docs/Padding.md` | Why a padding grows a box and never moves it, the three kinds (and why there is no `auto`), the one policy and why one door is enough where margins needed two, the two derived numbers and their two different clamps, the `content-box` model, the four earlier assertions the phase updated, and the missing transparent-inline padding |
+| `docs/Tests.md` | The sixteen suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -537,7 +592,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 219 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 239 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -566,9 +621,17 @@ module, which sits below layout in the graph but has no business in a layout pas
   vertical margins **sum** where CSS takes the larger, and a parent's top margin does
   not merge with its first child's. `layout.margins.block_no_collapse` asserts the
   sum, so the difference is a value a later goal changes rather than an omission.
-- No `padding` or `border` arithmetic. Margins reach geometry since 10.9; padding and
-  border widths are still readable and unapplied, which is why those declarations can
-  be present in a document and change no number here.
+- No `border` arithmetic, and no `box-sizing`. Padding reaches geometry since 10.10:
+  a box's `size` is its border box, its contents begin inside it, and an `auto` width
+  fills what the margins and the padding left — but a border width is still readable
+  and unapplied, so a `border: 4px solid` declaration can be present in a document and
+  change no number here. The build is `box-sizing: content-box`, CSS's initial value,
+  so a declared `width` is the content box; `border-box` is a branch a later goal adds
+  at the one place the padding layer hands the sizing layer a number.
+- No `padding` on a **transparent inline box**. A `<span>` with contents has a
+  rectangle that is the union of what it contains, and this build does not inflate that
+  union by a declared padding. `layout.paddings.inline_transparent_not_applied` asserts
+  the omission as a value, so a later goal changes an assertion rather than adding one.
 - No paint, no rendering, no windowing, no display. The viewport is an argument.
 - No **shaping**, no kerning, no ligature, no bidi reordering, no Unicode line
   breaking and no whitespace collapsing. A run's width is the sum of its glyphs'

@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.9)
+# RoboLayout Test Organisation (through Phase 10.10)
 
-Fifteen suites, 219 tests, one framework. Each phase adds no test runner, no reporter
+Sixteen suites, 239 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -20,7 +20,7 @@ no glob: a suite that is not on the list is not built, which is the same
 kept as it stood rather than back-dated. Where a case has since changed meaning —
 `layout.conformance.statement` and the old `geometry == 0` claims, 10.4's
 re-pinning of the same two cases again, and 10.5's, 10.6's and 10.7's re-pinning of
-the version and the capability table — the change is recorded in §8–§12, under the
+the version and the capability table — the change is recorded in §8–§15, under the
 phase that made it.
 
 ---
@@ -43,6 +43,7 @@ phase that made it.
 | `SuiteRoboLayoutBaseline.c` | `layout.baseline.*` | 16 | does every line get a floor, are its members placed on it, and is "not placed" a different answer from "placed with no extent"? |
 | `SuiteRoboLayoutSizing.c` | `layout.sizing.*` | 17 | does a declaration reach geometry, and does a box's resolved width reach the children laid out *into* it? |
 | `SuiteRoboLayoutMargin.c` | `layout.margins.*` | 25 | does a margin move a box without resizing it, and does each of the four sides get the value its policy asks for? |
+| `SuiteRoboLayoutPadding.c` | `layout.paddings.*` | 20 | does a padding grow a box without moving it, does an `auto` width fill what it left, and is a transparent inline box left un-inflated? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -540,7 +541,7 @@ Seven cases, and the shape is 9.16's: ask the questions no single-module suite c
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now seventeen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes`, `baselines`, `sizing` and `margins` at 1 and `painting` at 0, and the count of implemented fields asserted as sixteen |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now eighteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes`, `baselines`, `sizing`, `margins` and `padding` at 1 and `painting` at 0, and the count of implemented fields asserted as seventeen |
 | `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.9.0`, API unfrozen, three object kinds and four context kinds |
 | `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no layout at all, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
@@ -580,11 +581,14 @@ replaced rather than weakened, and the numbers took over `layout.block.*`.
 | a scripted text measurer | answer a width per code point, so a case about cursor arithmetic fails because the arithmetic is wrong and not because a font differed — `layout.text.*` and `layout.line.*` |
 | a synthetic SFNT face | cmap, hmtx, hhea, head, maxp, loca and glyf built in the suite, for the one case whose subject *is* the real RoboFont answer |
 
-The second row is the design record's §6.1 argument made concrete. Ten of the
-fifteen suites never instantiate a style context at all — `layout.margins.*` is the
-newest of the ten, and the *most* scripted of them: a four-side record, an `auto`
-side and a **signed** length are read out of a fabricated style source directly,
-neither a stylesheet nor the shared scripted fixture. `layout.sizing.*` is the next
+The second row is the design record's §6.1 argument made concrete. Eleven of the
+sixteen suites never instantiate a style context at all — `layout.paddings.*` is the
+newest of the eleven, and the closest relative of the previous newest: a four-side
+record read out of a fabricated style source directly, with no `auto` to resolve and
+therefore no policy to script. `layout.margins.*` is next, and the *most* scripted of
+them: a four-side record, an `auto` side and a **signed** length are read out of a
+fabricated style source directly, neither a stylesheet nor the shared scripted
+fixture. `layout.sizing.*` is the next
 newest: the declaration it needs (`width: 300px`) goes through the real RoboCSS
 specified-value and computation doors and then into a style source **directly** —
 neither a stylesheet nor the shared scripted fixture (§10.14) — and the five that do
@@ -670,8 +674,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 221 — this module's 219, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 223 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 241 — this module's 239, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 243 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -686,9 +690,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.baseline` | 16 |
 | `layout.sizing` | 17 |
 | `layout.margins` | 25 |
+| `layout.paddings` | 20 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2235** tests, green in both configurations.
+Whole suite: **2255** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -703,11 +708,13 @@ Whole suite: **2235** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2235 cases. In 10.9's run the sanitized suite was 2235
-with **no sanitizer diagnostic** and `window.host.keyboard` as its only red case —
-the documented environment-dependent flake rather than a finding, since it passes in
-isolation and its failure is `ROBO_NOT_SUPPORTED` from `SetForegroundWindow`. 10.8's
-run was
+ASan and UBSan run the same 2255 cases. In 10.10's run the sanitized suite was 2255
+with **no sanitizer diagnostic** and `window.host.keyboard` and `window.host.mouse`
+as its only red cases — both the documented environment-dependent flake rather than a
+finding, since both pass in isolation and both fail with `ROBO_NOT_SUPPORTED` from
+`SetForegroundWindow`; `layout.paddings.*` was 20/20 under the sanitizers. In 10.9's
+run the sanitized suite was 2235 with no sanitizer diagnostic and
+`window.host.keyboard` as its only red case. 10.8's run was
 **2210/2210** the same way. 10.7's run was
 **2193/2193** the same way. 10.6's run was the
 same count; in 10.5's run the sanitized suite was 2177 with no sanitizer diagnostic
@@ -730,8 +737,8 @@ to get:
 
 | How the suite was run | Result |
 |---|---|
-| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7 |
-| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7 |
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7; **2254/2255** in 10.10 |
+| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7; **2254/2255** in 10.10 |
 | `--filter=window.host` in isolation | **19/19** — three times in each phase |
 | the binary as a child of `pwsh` with its output captured | **passes** |
 
@@ -1160,3 +1167,63 @@ phase moves and one more than the previous one: `layout.module.version`,
 which is asserted by count, by name, by "the newest domain is the last enumerator"
 *and* by "the one before it is the previous newest", a pair 10.9 added because a new
 domain should not be able to leave its predecessor's ordering unstated.
+
+---
+
+## 15. What the 10.10 suites found
+
+Three findings, and the first is an **arithmetic** one rather than a design one: a
+magnitude the module's own seam permits and a size cannot hold.
+
+**1. Two bounded numbers can sum out of range, and the sum is the size**
+(`RoboLayoutPadding.c`). A padding is added to a content box, and each of the two is
+bounded by the seam's maximum — `LAYOUT_STYLE_LENGTH_MAX`, which the classification
+applies on the way in. Their **sum** is not bounded by it, so a
+`width: 2147483647px` box with `padding: 10px` is a document an author can write and
+a `robo_gfx_pixel_x_t` cannot express. The first shape of the door added four
+`robo_gfx_pixel_x_t` values, which wraps into a **negative** rectangle — a box whose
+padding made it smaller, and a number every consumer below would believe. The fix is
+two lines: sum in `int64_t`, then clamp at the maximum. It is clamped rather than
+refused because there is no document some number cannot describe, and a size that
+saturates is still a drawable rectangle — which is a different decision from 10.9's
+`available_content_width`, where the correct answer at the lower edge really is zero.
+That the two derived numbers have **opposite** edge policies, one floor and one
+ceiling, is the finding: they are the first pair in the module where "clamp it" and
+"refuse it" are both wrong for one of them.
+
+**2. A size assertion alone passes for a build that grows a box the wrong way**
+(`SuiteRoboLayoutPadding.c`). The phase's claim is a pair — the box's `size` grows
+**and** its `position` does not move — and half of it is invisible in the number a
+suite reaches for first. A build that applied the padding *outward* from the content
+origin would report exactly the same `size` and put the box in the wrong place, so
+`layout.paddings.relayout` re-runs the pass after a padding change and asserts that
+the origin is the one the **margins** asked for while the size moved by the padding.
+The mirror case on the other side is `layout.paddings.block_auto_width`: a box with
+`padding: 10px` and no declared width is exactly as wide as its containing block, and
+a build that applied the padding *after* the width would report the containing block
+plus 20 — the same size class of error, one level out.
+
+**3. The four earlier assertions changed, and each said so before it did.**
+`layout.block.pipeline` (card 200 × 100 → **210 × 110**), `layout.conformance.pipeline`
+(the same card, and `<body>`'s and `<html>`'s extent 120 → **130**), plus the same
+case's `paddings_applied`/`paddings_unresolved`, which went from *absent* to **4 and
+0**. The one assertion in that group that deliberately **did not** move is the
+paragraph inside the card, still 200 wide: the card's border box is 210 but its
+content box is the 200 its author declared, so a build that read `width: 200px` as a
+border box would fail there and nowhere else — which is the case paying for the
+`content-box` model rather than merely documenting it. The card's own size in both
+cases is worth its note for the same reason 10.9's was: 10.3 recorded the declared
+width as *ignored*, 10.8 recorded it honoured, and 10.10 is the third phase to move
+the number — not by the declaration again but by the padding.
+
+**Six assertions moved for the version, the capabilities and the domains** — one more
+than 10.9's five, because `layout.module.diagnostic_domains` now asserts *three*
+positions rather than two: the newest domain is `padding`, `margins` is one behind it,
+and `sizing` one behind that. 
+
+**The flake, one phase on.** 10.10's `robo test-runtime` run was **2254/2255** with
+`window.host.keyboard` the only red case, and the same binary was 2254/2255 directly
+afterwards with the same case red — the documented host-desktop flake, unchanged by a
+phase whose diff contains no file matching `window`. The Debug and Release `-Verify
+-Test` runs were both green at **2255/2255**, and the case passes in isolation, which
+is the pattern §5 records rather than a new finding.

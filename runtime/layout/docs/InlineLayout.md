@@ -290,6 +290,8 @@ blocks_placed + inline_level_skipped + participants_placed + unreached == object
 | `wraps` | participants that began a new line |
 | `widths_declared` / `widths_filled` | atomic widths, from a declaration or from the containing block |
 | `heights_declared` / `heights_from_content` | atomic heights, likewise |
+| `margins_applied` / `margins_unresolved` | 10.9's two, summed over sides |
+| `paddings_applied` / `paddings_unresolved` | 10.10's two, likewise — an atomic inline reads the same four longhands a block box does, through the same single door |
 | `depth_max` | deepest participant placed |
 
 `block_level_declined` is the mirror of 10.3's `inline_level_skipped` and it is
@@ -331,6 +333,7 @@ the box owns through 10.2's own door.
 | 10.8 sizing (outcome) | both fallbacks survive as the sizing layer's `AUTO` and `UNRESOLVED` kinds, and the *read* moved out of the pass (`Sizing.md` §1); what the phase added here is the order — width, then the contents it was measured against, then height, because an atomic inline's `auto` height is the extent of contents that had to be laid out at a width first |
 | 10.9 margins | the union arithmetic (§5) that becomes the margin edge |
 | 10.9 margins (outcome) | an atomic inline's **advance** is now its width plus its two horizontal margins, and its **baseline** is its bottom *margin* edge — so an inline-block with a bottom margin sits higher than one without. Both go through `robo_layout_margins_resolve_inline`, the policy in which every `auto` is zero because distribution is a block-level normal-flow rule (`Margins.md` §3). A transparent inline box still takes neither: it is the union of what its contents reached, and CSS applies no margins to it |
+| 10.10 padding (outcome) | an atomic inline's `width`/`height` and therefore its **advance** are now its **border** box — the sizing layer's content box plus the padding — so an `inline-block` with `padding: 5px` advances ten more than its declaration says and places its contents five in. It goes through `robo_layout_padding_resolve`, the *same* door the block pass calls, because a padding has no `auto` and therefore no per-participation policy to choose (`Padding.md` §3). A transparent inline box takes **neither** margin nor padding: its rectangle is the union of what its contents reached, and `layout.paddings.inline_transparent_not_applied` asserts the omission as a value |
 | 10.12 positioning | the rebase (§5) — the coordinate convention surviving nesting |
 | 10.13 overflow | the `cursor > 0` guard (§4), which is the only place overflow is decided |
 | the anonymous box | `block_level_declined` (§2.1), the count of what the wrapper will be for |
@@ -442,11 +445,12 @@ placements: the phase changed where a member goes, not which objects are members
   §2.1 — the wrapper is still 10.4's own successor's, and an `inline-block`'s
   contents are stacked because its inner display says so, not because a second
   wrapper was made.
-- **No padding or border arithmetic, and no `box-sizing`.** A box's content origin
-  is still its top-left corner, so no coordinate is missing a term. Margins **are**
-  arithmetic since 10.9 (their own row in §10): an atomic inline's advance includes
-  its horizontal margins and its baseline is its bottom margin edge, while a
-  transparent inline box takes neither.
+- **No border arithmetic, and no `box-sizing`.** Margins **are** arithmetic since 10.9
+  and padding since 10.10 (their own rows in §10): an atomic inline's advance includes
+  its horizontal margins *and* its padding, its baseline is its bottom margin edge,
+  and its contents sit inside its padding — while a transparent inline box takes
+  none of the three, its rectangle being the union of what its contents reached. What
+  is still absent is a **border**, which reaches no coordinate at all.
 - **No shrink-to-fit, no intrinsic keyword, no percentage or relative-unit
   resolution.** §3, and 10.8 kept the atomic fallback stated rather than guessed:
   an unresolvable declaration is read, recorded and filled from the available space

@@ -282,12 +282,23 @@ Each a named later goal, and each stated where a reader will look for it:
   *known* containing dimension to resolve them against — the same missing input that
   keeps `has_available_height` clear.
 - **intrinsic sizing**: `min-content`, `max-content`, `fit-content`, shrink-to-fit.
-- **`box-sizing`**, and every contribution from margins (10.9), padding (10.10) and
-  borders (10.11) — which is why every size here is still the border box
-  `RoboLayoutResult.h` documents.
+- **`box-sizing`**, and any contribution from a **border** (10.11). A margin never
+  contributes to this layer (10.9) and neither does a padding *inside* it (10.10):
+  what the padding changes is the number the caller hands this layer as available,
+  and the box the caller derives from its answer. That is why the padding layer,
+  not this one, is where `content + padding` is computed (`Padding.md` §4).
 - flex, grid and table sizing, and positioning (10.12), which is where `auto`
   insets and a contained box's offset belong.
 
 The one thing this phase does **not** change: `RoboLayoutResult.h`'s statement that
 `size` is the border-box size. Sizing decides what that number is; it does not
 redefine it.
+
+*10.10's outcome row:* the sentence above needed one clarification rather than a
+change. This layer resolves *a box's own box as its declarations determined it*, and
+under this build's `box-sizing: content-box` — CSS's initial value — that is the
+**content** box. The border box `RoboLayoutResult.h` documents is that plus the
+padding, and the padding layer derives it from this layer's answer rather than this
+layer resolving it. So no rule here moved; what moved is that the two numbers are now
+distinguishable in a document that declares a padding, which is why the *result*'s
+`size` and the *resolved* size are the same number only where no padding exists.

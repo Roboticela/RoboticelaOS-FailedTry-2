@@ -4453,6 +4453,102 @@ and the statement, the same set every phase moves.
 The count went from **2210 pass to 2235**: 25 new cases, no case removed, and the module's 219 cases
 in fifteen suites are green in Debug, in Release, and under ASan and UBSan with no diagnostic.
 
+## Goal 10.10 — Padding
+
+**Status: complete.** The mirror image of 10.9, and the phase that retires the identity a box's content
+box used to have with its border box. A box's `size` becomes its **border** box — the content box the
+sizing layer resolved plus the padding on each axis — its contents begin `padding-left`/`padding-top`
+inside it, and its `position` is untouched. An `auto` width fills what the margins **and** the padding
+left, because CSS's constraint equation has a term for each.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The padding vocabulary (three kinds **including** `absent` and **excluding** `auto`), the four-declaration record, the four **used values**, the one policy, and the one seam a computed style becomes a padding through | `Include/RoboLayout/RoboLayoutPadding.h`, `Source/RoboLayout/RoboLayoutPadding.c` |
+| The two derived numbers: the width left for a box's contents (**floored** at zero) and the border box a content box asks for (**64-bit**, saturated) | `Source/RoboLayout/RoboLayoutPadding.c` |
+| The shared classification asked with `allow_negative = 0`, so the padding seam refuses a negative `padding` where the margin seam accepts a negative `margin` | `RoboLayoutInternal.h`, `RoboLayoutSizing.c`, `RoboLayoutMargin.c` |
+| The used padding kept on the object, with its read door and its clearing | `RoboLayoutObject.h` / `.c`, `RoboLayoutTree.c` |
+| The block pass: the padding read before the width, the width resolved against what it left, the result sized as the border box, the padding box reported upward | `Source/RoboLayout/RoboLayoutBlock.c`, `RoboLayoutBlock.h` |
+| The inline pass: an atomic inline's width, height and advance carry its padding | `Source/RoboLayout/RoboLayoutInline.c`, `RoboLayoutInline.h` |
+| Version `0.10.0`, `ROBO_LAYOUT_PADDING_IMPLEMENTED`, the `padding` diagnostic domain, the umbrella, the build and the suite registration | `RoboLayoutVersion.h`, `RoboLayout.h`, `RoboLayoutDiagnostics.h`, `Tools/Build.ps1`, `Tests/Main.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A padding representation exists in RoboLayout | `layout.paddings.kind_vocabulary`, `layout.paddings.one_side`, `layout.paddings.sides` |
+| Computed CSS padding is consumed, never parsed here | `layout.paddings.seam` |
+| Block layout accounts for padding | `layout.paddings.block_declared_width`, `layout.paddings.block_sides` |
+| Content origin and content width reflect padding | `layout.paddings.children_get_content_width`, `layout.paddings.block_auto_width` |
+| Content geometry accounts for padding under the current model | `layout.paddings.derived_boxes`, `layout.paddings.block_declared_width` |
+| Descendants are laid out inside the padded content area | `layout.paddings.children_get_content_width` |
+| Margin and padding stay distinct | `layout.paddings.margin_interaction` |
+| Existing inline/text layout remains functional | `layout.paddings.inline_atomic`, `layout.paddings.inline_transparent_not_applied` |
+| Re-layout responds to a changed padding | `layout.paddings.relayout` |
+| Invalid geometry cannot escape the layout system | `layout.paddings.derived_boxes`, `layout.paddings.block_negative` |
+| Geometry stays finite and deterministic | every case, plus `layout.paddings.allocator_balance` |
+
+### The one distinction the phase turns on
+
+**A padding is inside the box.** Two numbers move and one does not:
+
+```text
+the box's border box            content box + padding on each axis  (what `size` carries)
+the box's content origin        the border-box origin + left / top
+the width left for contents     containing width - margins - padding  (an `auto` width fills this)
+
+the box's position              unchanged — an inset inside it does not move it
+```
+
+That is the exact mirror of 10.9's claim, and the pair is why the module keeps two records on the object
+rather than one: a margin is kept there so a caller does not re-derive the space beside the box, and a
+padding so a caller does not re-derive the space inside it. A result can carry neither, for the same kind
+of reason — `size` is the border box by definition and `position` is where the box begins.
+
+The order inside the pass is forced in one direction and chosen in the other: the padding resolves
+**after** the margins, because what is left beside the box is what the numbers inside it are measured
+from, and **before** the width, because a box with `padding: 10px` and no declared width is as wide as
+its containing block rather than 20px wider. Three kinds rather than the margin vocabulary's four,
+because the CSS grammar has no `padding: auto` (the shared classification *can* answer `AUTO`, and this
+reader folds it onto `UNRESOLVED` rather than giving a grammar violation a vocabulary of its own); and
+**one** resolution door rather than two, because with no `auto` there is nothing for a block box and an
+atomic inline to disagree about. The two readers share one classification and differ in one parameter.
+The model is `box-sizing: content-box` — CSS's initial value — so a declared `width: 200px` with
+`padding: 5px` is 200 wide **inside** and 210 outside, and the box's children still get 200.
+
+### What 10.10 found
+
+Three findings. The first is an **arithmetic** one, and it is the first in this module about a magnitude
+rather than a rule: **two bounded numbers can sum out of range, and the sum is the size.** A padding is
+added to a content box and each is bounded by the seam's maximum, but their sum is not — so a
+`width: 2147483647px` box with `padding: 10px` is a document an author can write and a pixel type
+cannot hold. The first shape of the door added four pixel values, which wraps into a **negative**
+rectangle. The fix is two lines — sum in `int64_t`, clamp at the maximum — and the decision to **clamp
+rather than refuse**, because there is no document some number cannot describe and a size that saturates
+is still a drawable rectangle. That the two derived numbers have *opposite* edge policies, one floor and
+one ceiling, is the finding: "clamp it" and "refuse it" are each wrong for one of them.
+
+The second is a **test-design** one: a size assertion alone passes for a build that grows a box the
+wrong way. The phase's claim is a pair — the box's `size` grows **and** its `position` does not move —
+and half of it is invisible in the number a suite reaches for first, so a build that applied the padding
+outward from the content origin would report exactly the same size and put the box in the wrong place.
+`layout.paddings.relayout` re-runs the pass and asserts the pair; `layout.paddings.block_auto_width` is
+the same class of error one level out, where a build that applied the padding *after* the width would
+report the containing block plus 20.
+
+The third is 10.8's and 10.9's lesson paid another way: **the assertion that deliberately did not move is
+the one paying for the model.** Four earlier assertions changed (`layout.block.pipeline` 200×100 →
+**210×110**; `layout.conformance.pipeline` the same card and `<body>`'s and `<html>`'s extent 120 →
+**130**, plus its two padding counters, absent → **4 and 0**) and one did not: the paragraph inside the
+card is still **200** wide. The card's border box is 210 but its content box is the 200 its author
+declared, so a build that read `width: 200px` as a border box would fail there and nowhere else. Six pins
+moved for the version, the capabilities and the diagnostic domains — one more than 10.9's five, because
+`layout.module.diagnostic_domains` now asserts three positions rather than two.
+
+The count went from **2235 pass to 2255**: 20 new cases, no case removed, and the module's 239 cases
+in sixteen suites are green in Debug, in Release, and under ASan and UBSan with no diagnostic.
+
 ## Next
 
-- Goal 10.10 — padding — do not start until requested
+- Goal 10.11 — borders — do not start until requested
