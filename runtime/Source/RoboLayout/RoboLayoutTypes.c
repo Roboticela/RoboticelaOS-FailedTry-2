@@ -75,6 +75,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "formatting-context";
     case ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT:
         return "block-layout";
+    case ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT:
+        return "inline-layout";
     default:
         return "unknown";
     }

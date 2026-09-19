@@ -30,10 +30,18 @@
  * children are stacked below one another from its content origin, and its height is
  * the declared one when this build can resolve it and the stacked extent of its
  * children otherwise. The containing block is the *parent box*; the formatting
- * context decides the *direction*. Margins, padding, borders, declared widths,
- * inline layout, positioning and overflow are all still absent and all still
- * belong to named later goals -- so `geometry` and `block_layout` are 1 while
- * `inline_layout` and `block_and_inline_layout` are 0.
+ * context decides the *direction*.
+ *
+ * Phase 10.4 (RoboLayoutInline.h) adds the other direction to the same pass. The
+ * contents of a box that establishes an **inline** formatting context are placed one
+ * after another along a line, wrapping when the next participant does not fit, and a
+ * box's rectangle is a *union* of what its contents reached when the box is
+ * non-atomic and a declared size when it is atomic. The two directions are one pass
+ * and one door, because an inline context's height *is* the block extent of the box
+ * that owns it. Text measurement and line boxes are 10.5 and 10.6; margins,
+ * padding, borders, positioning and overflow are still absent and still belong to
+ * named later goals -- so `geometry`, `block_layout`, `inline_layout` and
+ * `block_and_inline_layout` are all 1, while `painting` is 0.
  *
  * Chromium's LayoutObject / LayoutBox / constraint models are temporary technical
  * reference only; nothing here is a translation of them. See layout/README.md and
@@ -53,6 +61,7 @@
 #include "RoboLayout/RoboLayoutDom.h"
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutObject.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutStyle.h"
@@ -104,15 +113,24 @@ typedef struct robo_layout_capabilities {
     /** Laying the **block** direction out: containing blocks, stacking, extents
      *  (10.3). */
     int block_layout;
-    /** Laying the **inline** direction out: line boxes, inline placement, the
-     *  anonymous block boxes a mixed container needs. **0**: Phase 10.4. */
+    /** Laying the **inline** direction out: the participants of an inline
+     *  formatting context placed along a line, wrapping, unions for transparent
+     *  inline boxes and declared sizes for atomic ones. **1** since 10.4 -- and it
+     *  is a claim about *positions*, not about line **boxes**: a line box has
+     *  identity, alignment, a baseline and a font-derived height, and it is 10.6's.
+     *  The anonymous block box a mixed container needs is still absent and is a
+     *  later goal's. */
     int inline_layout;
-    /** Computing a *line box* or a block extent. **0** until both of the two
-     *  above are 1 -- and it is kept as a derived, wider question rather than
-     *  retired, because a caller that wants "is layout done?" should have one field
-     *  to read that cannot be mistaken for "is half of it done?". A phase that
-     *  implemented one direction and flipped this one instead would have named a
-     *  feature it does not have. */
+    /** Computing a *line box* or a block extent.
+     *
+     * **1** since 10.4, as the conjunction of the two directions above rather than
+     * as a separate literal, and kept as a derived, wider question rather than
+     * retired because a caller that wants "is layout done?" should have one field to
+     * read that cannot be mistaken for "is half of it done?". 10.3 wrote it as 0
+     * while only one direction existed, and the derivation is what makes that phase's
+     * rule -- a phase that implemented one direction and flipped *this* one instead
+     * would have named a feature it does not have -- survive the next direction
+     * rather than ending with this one. */
     int block_and_inline_layout;
     /** Painting a box. **0**: Phase 11. */
     int painting;
@@ -143,13 +161,14 @@ robo_result_t robo_layout_get_version(robo_i32 *out_major,
  * caller actually asks before deciding whether to look at a result -- and because
  * a *function* cannot be read past.
  *
- * It answers 1 since Phase 10.3: the block direction is laid out, so a box *can*
- * have geometry. What it does **not** mean is that any particular box has one.
- * Two inputs decide that, and both are per-box rather than per-build:
+ * It answers 1 since Phase 10.3: geometry is computed, so a box *can* have one.
+ * What it does **not** mean is that any particular box has one. Two inputs decide
+ * that, and both are per-box rather than per-build:
  *
- *   a box the block pass did not place -- an inline-level box, or anything inside
- *   an unplaced box -- is UNRESOLVED, and reading its position is a
- *   `ROBO_NOT_FOUND` rather than a zero;
+ *   a box neither direction placed -- a block-level box in an inline context, an
+ *   inline-level box in a block-direction one, or anything inside an unplaced box --
+ *   is UNRESOLVED, and reading its position is a `ROBO_NOT_FOUND` rather than a
+ *   zero;
  *
  *   a pass with **no viewport** records no geometry at all, because the root box's
  *   containing block is the viewport and RoboLayout owns no window to ask. That is

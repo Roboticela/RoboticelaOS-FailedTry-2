@@ -47,27 +47,34 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
     out->formatting_contexts = 1;
 
     /*
-     * 10.3, and the two flags that have to be read together.
+     * 10.3 and 10.4, and the four flags that have to be read together.
      *
-     * `geometry` becomes 1 because this build really does compute coordinates:
-     * `robo_layout_block_layout` writes positions and sizes, and a caller that ran
-     * a pass with a viewport has boxes whose results are COMPUTED. It is a
-     * statement about the *build*, not about any particular box -- a box the block
-     * pass did not place is still UNRESOLVED, and its result state is the per-box
-     * authority that says so.
+     * `geometry` is 1 because this build really does compute coordinates: the pass
+     * writes positions and sizes, and a caller that ran one with a viewport has boxes
+     * whose results are COMPUTED. It is a statement about the *build*, not about any
+     * particular box -- a box neither direction placed is still UNRESOLVED, and its
+     * result state is the per-box authority that says so.
      *
-     * `block_layout` is 1 and `block_and_inline_layout` is still 0, which is the
-     * distinction worth keeping: the block direction is laid out and the inline
-     * direction is not, so a caller that asked the wider question has to be told no.
-     * `inline_layout` is 0 for the same reason and is spelled out rather than left
-     * to be inferred from the absence of the wider flag.
+     * `block_layout` and `inline_layout` are the two directions, each read from its
+     * own constant so that the field and the macro cannot disagree; 10.3 shipped the
+     * first at 1 and the second at 0, and 10.4 is the phase where the second's code
+     * arrived and the constant with it (`robo_layout_inline_walk_contents`).
+     *
+     * `block_and_inline_layout` is their conjunction rather than a third constant,
+     * and it is deliberately still an expression instead of a literal 1: it names the
+     * wider question -- "is layout done?" -- and 10.3's version of this file argued
+     * that a phase which implemented one direction and flipped *this* one would have
+     * advertised a feature it does not have. Writing it as the conjunction keeps that
+     * property for the next direction that is added, because the day one of the two is
+     * switched off this field goes back to 0 by itself.
      *
      * `painting` stays 0: nothing here draws.
      */
     out->geometry = ROBO_LAYOUT_GEOMETRY_IMPLEMENTED;
     out->block_layout = ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED;
-    out->inline_layout = 0;
-    out->block_and_inline_layout = 0;
+    out->inline_layout = ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED;
+    out->block_and_inline_layout = (ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED &&
+                                    ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED);
     out->painting = 0;
     return ROBO_OK;
 }

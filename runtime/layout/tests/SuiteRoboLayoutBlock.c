@@ -21,8 +21,10 @@
  *                    smaller than the content it holds
  *
  *   the gate         what block layout declines to place, and why -- inline-level
- *                    boxes, `display: none`, and the invariant that a block-level
- *                    box is never in a non-block context
+ *                    boxes in a *block-direction* context (from 10.4 they are
+ *                    placed when they are in an inline one), `display: none`, and
+ *                    the invariant that a block-level box is never in a non-block
+ *                    context
  *
  *   the pass         determinism, invalidation, the real CSS pipeline, and the
  *                    allocator
@@ -393,6 +395,8 @@ static void test_block_preconditions(void)
     robo_layout_size_t viewport;
     robo_layout_block_stats_t stats;
     robo_layout_block_stats_t zeros;
+    robo_layout_inline_stats_t inline_stats;
+    robo_layout_inline_stats_t inline_zeros;
     robo_layout_diag_t diag;
 
     layout_fixture();
@@ -400,18 +404,24 @@ static void test_block_preconditions(void)
     viewport.width = LAYOUT_BLOCK_VIEWPORT_WIDTH;
     viewport.height = LAYOUT_BLOCK_VIEWPORT_HEIGHT;
     robo_layout_block_stats_init(&zeros);
+    robo_layout_inline_stats_init(&inline_zeros);
 
-    /* An *argument* refusal happens before the output record is touched, so a caller's
-     * stats are left exactly as they were rather than half-cleared. */
+    /* An *argument* refusal happens before the output records are touched, so a
+     * caller's stats are left exactly as they were rather than half-cleared -- both of
+     * them, which is why the inline record is asserted alongside the block one. */
     stats = zeros;
     stats.blocks_placed = 99u;
-    ROBO_CHECK_EQ_INT(robo_layout_block_layout(NULL, viewport, &stats, NULL),
+    inline_stats.participants_placed = 99u;
+    ROBO_CHECK_EQ_INT(robo_layout_block_layout(NULL, viewport, &stats, &inline_stats, NULL),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(stats.blocks_placed, 99u);
+    ROBO_CHECK_EQ_INT(inline_stats.participants_placed, 99u);
     viewport.width = -1;
-    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, &inline_stats,
+                                               NULL),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(stats.blocks_placed, 99u);
+    ROBO_CHECK_EQ_INT(inline_stats.participants_placed, 99u);
     viewport.width = LAYOUT_BLOCK_VIEWPORT_WIDTH;
 
     /*
@@ -422,9 +432,11 @@ static void test_block_preconditions(void)
      * refuses to have.
      */
     ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 0);
-    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, &diag),
+    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, &inline_stats,
+                                               &diag),
                       ROBO_ERROR);
     ROBO_CHECK_EQ_INT(robo_layout_block_stats_equal(&stats, &zeros), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_inline_stats_equal(&inline_stats, &inline_zeros), 1);
     ROBO_CHECK_EQ_INT((int)diag.domain, (int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT);
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(diag.domain), "block-layout");
 
@@ -451,7 +463,7 @@ static void test_block_preconditions(void)
         ROBO_CHECK_EQ_INT(pass_stats.boxes_computed, 0u);
         ROBO_CHECK_EQ_INT(pass_stats.block.blocks_placed, 0u);
         ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 1);
-        ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, NULL),
+        ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, NULL, NULL),
                           ROBO_NOT_FOUND);
         layout_block_end(&fixture);
     }
@@ -825,8 +837,12 @@ static void test_block_inline_skipped(void)
         { "html", ROBO_CSS_DISPLAY_BLOCK, 0, 0.0 },
         { "body", ROBO_CSS_DISPLAY_BLOCK, 0, 0.0 },
         { "p", ROBO_CSS_DISPLAY_BLOCK, 1, 20.0 },
-        /* An atomic inline: laid out along a line, so *not* placed here even though
-         * its own contents would stack. */
+        /* An atomic inline: a box that belongs on a line, and whose own contents
+         * would stack. It is *not* placed here -- and from 10.4 the reason is not
+         * merely "it is inline-level" but "the context it participates in is the
+         * root's, which is a block-direction one": 10.2 made `<body>` transparent
+         * because it has a block-level child, so there is no line for the span to be
+         * on and the inline direction never sees it. */
         { "span", ROBO_CSS_DISPLAY_INLINE_BLOCK, 1, 30.0 }
     };
     robo_layout_stats_t stats;
@@ -977,9 +993,12 @@ static void test_block_context_gate(void)
         if (robo_css_display_is_block_level(display)) {
             /* A block-level box is always in a block-direction context -- the claim. */
             ROBO_CHECK_EQ_INT(robo_layout_fc_kind_is_block_container(context.kind), 1);
-        }
-        /* A box in an inline context is never placed by this pass. */
-        if (!robo_layout_fc_kind_is_block_container(context.kind)) {
+        } else if (robo_layout_fc_kind_is_block_container(context.kind)) {
+            /* And an inline-level box in a *block-direction* context is never placed
+             * by this pass -- it is the anonymous-box case, and it is counted rather
+             * than dropped. The mirror case, an inline-level box in an inline context,
+             * is *not* asserted here: 10.4 places it, and that claim belongs to
+             * layout.inline. */
             ROBO_CHECK_EQ_INT(result.state, ROBO_LAYOUT_RESULT_UNRESOLVED);
         }
     }
@@ -988,11 +1007,21 @@ static void test_block_context_gate(void)
     ROBO_CHECK_EQ_INT(stats.block.inline_level_skipped, 2u); /* head, span */
     ROBO_CHECK_EQ_INT(stats.block.unreached, 0u);
 
-    /* `<em>`, declared block, sits inside the inline `<span>`: it is block-level and
-     * in the root's context, but nothing that contains it was placed, so it is
-     * counted as unreached rather than silently omitted. This is the case 10.4's
-     * anonymous box exists for. */
     layout_block_end(&fixture);
+    /*
+     * And the *mirror* case, which 10.4 moved: a block-level box inside an inline
+     * box. `<body>`'s only child is a `<span>`, so body has no block-level child and
+     * 10.2 makes it establish an inline formatting context -- which means the `<em>`
+     * inside the span is a block-level box participating in an *inline* context, and
+     * 10.4 declines it for the same reason 10.3 declines the inline-level boxes
+     * above: the anonymous block box CSS would give it is a box with no element and
+     * no style, and this build makes none.
+     *
+     * The span itself moved the other way, and that is the half worth asserting: it
+     * used to be `inline_level_skipped` and is now *placed* by the inline direction
+     * with the zero extent its declined child left it. So the two records each
+     * decline exactly one box and the identity below closes over both directions.
+     */
     {
         static const layout_block_rule_t nested[] = {
             { "html", ROBO_CSS_DISPLAY_BLOCK, 0, 0.0 },
@@ -1006,20 +1035,23 @@ static void test_block_context_gate(void)
         layout_block_pass(&fixture, &stats, NULL);
 
         layout_block_expect_unresolved(&fixture, layout_block_box_of(&fixture, "em"));
+        layout_block_expect(&fixture, layout_block_box_of(&fixture, "span"), 0, 0, 0, 0);
         ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 2u);      /* html, body */
-        ROBO_CHECK_EQ_INT(stats.block.inline_level_skipped, 2u); /* head, span */
+        ROBO_CHECK_EQ_INT(stats.block.inline_level_skipped, 1u); /* head */
         ROBO_CHECK_EQ_INT(stats.block.unreached, 1u);          /* em */
-        ROBO_CHECK_EQ_INT(stats.boxes_computed, 2u);
-        ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 3u);
+        ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 1u); /* span */
+        ROBO_CHECK_EQ_INT(stats.inline_flow.block_level_declined, 1u); /* em */
+        ROBO_CHECK_EQ_INT(stats.boxes_computed, 3u);
+        ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 2u);
         /*
-         * The accounting closes: every box is placed, declined as inline-level, or
-         * unreached, and nothing is in two of those at once. Asserted as an identity
-         * rather than as three numbers, because the claim is that the pass *accounts
-         * for* the tree -- a build that dropped a box would have three right-looking
-         * counts and a document that did not add up.
+         * The accounting closes over both directions: every box is placed, declined by
+         * one of the two, or unreached, and nothing is in two of those at once.
+         * Asserted as an identity rather than as four numbers, because the claim is
+         * that the pass *accounts for* the tree -- a build that dropped a box would
+         * have right-looking counts and a document that did not add up.
          */
         ROBO_CHECK_EQ_INT(stats.block.blocks_placed + stats.block.inline_level_skipped +
-                              stats.block.unreached,
+                              stats.inline_flow.participants_placed + stats.block.unreached,
                           stats.objects);
     }
 

@@ -35,10 +35,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 3);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 4);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.3.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.3.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.4.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.4.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -102,8 +102,8 @@ static const struct {
     { "geometry", 1 },
     { "formatting_contexts", 1 },
     { "block_layout", 1 },
-    { "inline_layout", 0 },
-    { "block_and_inline_layout", 0 },
+    { "inline_layout", 1 },
+    { "block_and_inline_layout", 1 },
     { "painting", 0 }
 };
 
@@ -134,20 +134,21 @@ static void test_module_capabilities(void)
     }
 
     /*
-     * The four this phase moves are also reachable one at a time, so a caller that
+     * The five this build moves are also reachable one at a time, so a caller that
      * asks a single question is not reading a union of twelve. And they are asserted
      * as a *group* rather than only in the table above, because the group is the
-     * interesting fact: this build computes a coordinate, the direction it computes
-     * is the block one, the inline direction is still 0, and the field that names
-     * both is therefore still 0. Three of those four are 1/0/0 for a reason, and a
-     * build that flipped the third because it had flipped the first would have
-     * advertised a feature it does not have.
+     * interesting fact: this build computes a coordinate, it computes it in *both*
+     * directions, and the field that names both is the conjunction of the two -- still
+     * an expression rather than a literal, so that the day one direction is switched
+     * off the wider field follows it down by itself.
      */
     ROBO_CHECK_EQ_INT(caps.geometry, ROBO_LAYOUT_GEOMETRY_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.formatting_contexts, 1);
     ROBO_CHECK_EQ_INT(caps.block_layout, ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED);
-    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
-    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout,
+                      ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED &&
+                          ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -176,7 +177,15 @@ static void test_module_geometry_flag(void)
      * constants exist rather than one. */
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(caps.block_layout, ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED);
-    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
+    /*
+     * And the second direction arrives the same way, constant and field together: a
+     * macro that says a feature exists and a capability field that says it does not
+     * are two answers to one question, and the question is the one a caller asks
+     * before trusting a line of geometry.
+     */
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 1);
 }
 
 /* ------------------------------------------------------------------ */
@@ -216,9 +225,9 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 13);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 14);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)13), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)14), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -253,8 +262,15 @@ static void test_module_diagnostic_domains(void)
                       "formatting-context");
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT),
                       "block-layout");
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT,
+    /* The newest domain is the last enumerator, and it is the one this phase's pass
+     * reports in -- so the assertion is that the domain a failure *lands* in is the
+     * one the phase added, not merely that a name exists. */
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT),
+                      "inline-layout");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT,
+                      (int)ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
                       (int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT - 1);
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name((robo_layout_diagnostic_domain_t)400),
@@ -430,7 +446,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.3.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.4.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

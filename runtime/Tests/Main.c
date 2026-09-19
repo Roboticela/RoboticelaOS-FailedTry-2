@@ -184,6 +184,7 @@ void robo_test_register_css_dom_select(void);
 void robo_test_register_layout(void);
 void robo_test_register_layout_formatting_context(void);
 void robo_test_register_layout_block(void);
+void robo_test_register_layout_inline(void);
 void robo_test_register_layout_tree(void);
 void robo_test_register_layout_constraints(void);
 void robo_test_register_layout_context(void);
@@ -417,6 +418,7 @@ int main(int argc, char **argv)
     robo_test_register_layout();
     robo_test_register_layout_formatting_context();
     robo_test_register_layout_block();
+    robo_test_register_layout_inline();
     robo_test_register_layout_tree();
     robo_test_register_layout_constraints();
     robo_test_register_layout_context();

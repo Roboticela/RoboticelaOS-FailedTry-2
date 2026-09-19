@@ -449,22 +449,40 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
      * the precondition.
      */
     if (context->has_viewport && robo_layout_tree_root(tree) != ROBO_LAYOUT_NODE_ID_NONE) {
+        /*
+         * One call, two records: the block direction and, inside it, the inline
+         * direction -- because an inline formatting context's height is part of the
+         * block stack (RoboLayoutBlock.h). The context owns both records, so it passes
+         * both and the pass fills both.
+         */
         robo_result_t laid_out = robo_layout_block_layout(tree, context->viewport,
-                                                          &context->stats.block, diag);
+                                                          &context->stats.block,
+                                                          &context->stats.inline_flow, diag);
 
         if (laid_out != ROBO_OK) {
             context->outcome = ROBO_LAYOUT_PASS_FAILED;
             return laid_out;
         }
         /*
-         * Counted here rather than inside the block pass, because the fact is about
-         * *this* pass's boxes and not about the block pass's arithmetic: a box is
-         * COMPUTED exactly when the block pass placed it, and the block stats already
-         * carry that count. Deriving it keeps one source of truth for the number
-         * instead of two counters that must agree -- and it is what makes
-         * `boxes_computed` and `blocks_placed` impossible to disagree by construction.
+         * Counted here rather than inside the pass, because the fact is about *this*
+         * pass's boxes and not about either direction's arithmetic: a box is COMPUTED
+         * exactly when one of the two directions placed it, and each record already
+         * carries its own count. Adding the two keeps one source of truth for the
+         * number instead of a third counter that must agree with both -- and it is
+         * what makes `boxes_computed` and the two placement counts impossible to
+         * disagree by construction.
+         *
+         * No box can be in both: a box is placed either by the block pass (block-level,
+         * in a block-direction context) or by the inline pass (inline-level, in an
+         * inline one), and an atomic inline -- which is *both* a participant of a line
+         * and the owner of a block context -- is counted only where it was placed, by
+         * the inline pass, while the boxes inside it are counted by the block pass.
          */
-        context->stats.boxes_computed = context->stats.block.blocks_placed;
+        context->stats.boxes_computed = context->stats.block.blocks_placed +
+                                        context->stats.inline_flow.participants_placed;
+        if (context->stats.boxes_computed > count) {
+            context->stats.boxes_computed = count;
+        }
         context->stats.boxes_unresolved = count > context->stats.boxes_computed
                                               ? count - context->stats.boxes_computed
                                               : 0u;

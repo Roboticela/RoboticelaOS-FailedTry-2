@@ -1,10 +1,19 @@
 /*
- * RoboLayout block layout (Phase 10.3).
+ * RoboLayout block layout (Phase 10.3), and the pass the inline direction runs in
+ * (Phase 10.4).
  *
  * The first phase that computes a coordinate. Everything before it decided
  * *which* boxes there are, *what* they are and *which* formatting context
  * coordinates them; this one answers where each one goes and how big it is, in
  * the one direction the block algorithm owns: down.
+ *
+ * 10.4 added the other direction to the same door, and the reason is not
+ * convenience: an inline formatting context's height is the block extent of the box
+ * that owns it, so a build that laid the lines out *after* the blocks would have to
+ * re-stack every ancestor to use them. The door therefore reports two records -- the
+ * block direction here, the inline direction in RoboLayoutInline.h -- and there is
+ * no `robo_layout_inline_layout` beside it, because a second entry point could only
+ * duplicate this walk or run it in secret.
  *
  * The containing block is the parent, and the context is not
  *
@@ -61,14 +70,21 @@
  *   The values are readable in the borrowed style and simply not applied, which
  *   is why `margin: 10px 20px` in the pipeline document changes no number here.
  *
- *   Inline layout is **10.4**. A box that participates in an inline context is
- *   not placed by this pass, and neither is anything inside it -- an inline box
- *   has no geometry yet, so a descendant placed inside it would be placed inside
- *   nothing. Those boxes are counted (`inline_level_skipped`, `unreached`) rather
- *   than silently omitted, and the recursion descends only through boxes this
- *   pass placed. That is also why the pass creates no **anonymous** box: an
- *   anonymous block box exists to give an inline run a block-level home, and a
- *   line box is 10.4's.
+ *   Inline layout is **10.4**, and it runs *inside* this pass rather than beside
+ *   it. A box that establishes an inline formatting context has its contents placed
+ *   along a line by `robo_layout_inline_walk_contents` (RoboLayoutInline.h), and the
+ *   extent that comes back *is* the content extent the height rule above uses. The
+ *   two directions cannot be separate passes -- an inline context's height is part
+ *   of the block stack -- which is why this door reports two records rather than
+ *   one and why there is no second entry point.
+ *
+ *   An inline-level box that participates in a *block-direction* context is still
+ *   not placed, and is counted as `inline_level_skipped`: CSS gives the inline run
+ *   it belongs to an **anonymous** block box, and this build makes none -- such a
+ *   box has no element and therefore no computed style (RoboLayoutObject.h), so
+ *   inventing one here would be inventing an unstyled box that nothing can measure.
+ *   The recursion does not descend into one either, because a box inside an unplaced
+ *   box has no origin to be placed relative to.
  *
  *   Positioning, overflow, floats and fragmentation are **10.12, 10.13 and
  *   later**. In particular the result's two overflow flags stay 0 even when a
@@ -96,6 +112,7 @@
 
 #include "RoboLayout/RoboLayoutDiagnostics.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
 #ifdef __cplusplus
@@ -152,15 +169,19 @@ typedef struct robo_layout_block_stats {
     size_t containers;
     /** Block-level boxes that received geometry. */
     size_t blocks_placed;
-    /** Boxes block layout deliberately did not place because they are laid out
-     *  along a line instead: their own display is inline-level, or the context
-     *  they participate in is not a block-direction one. 10.4 places these. */
+    /** Inline-level boxes in a **block-direction** context: there is no line to
+     *  put them on, and the anonymous block box CSS would wrap them in is a later
+     *  goal. An inline-level box inside an *inline* context is deliberately **not**
+     *  counted here -- 10.4 places it, and `robo_layout_inline_stats_t` counts it. */
     size_t inline_level_skipped;
-    /** Boxes that received no geometry because nothing that contains them was
-     *  placed -- a block-level box inside an inline box, which needs the
-     *  anonymous box an inline run is wrapped in and which 10.4 builds. Counted
-     *  rather than dropped, because "no geometry" and "not in the document" must
-     *  not look the same. */
+    /** Boxes that received no geometry and that neither direction declined for a
+     *  stated reason -- a block-level box inside an inline box, which needs the
+     *  anonymous box CSS wraps an inline run in and which no phase in this build
+     *  makes. Counted rather than dropped, because "no geometry" and "not in the
+     *  document" must not look the same. The pass computes it as a difference, so
+     *  it is the field that proves the accounting closes:
+     *  `blocks_placed + inline_level_skipped + participants_placed + unreached`
+     *  is the tree's box count. */
     size_t unreached;
     /** Heights taken from a declared `height` this build could resolve: a
      *  computed length in `px`. */
@@ -168,9 +189,12 @@ typedef struct robo_layout_block_stats {
     /** Heights obtained by stacking children -- the `auto` path, and the path a
      *  declared-but-unresolvable height takes. */
     size_t heights_from_content;
-    /** Containers with no block-level child at all, so the stacked extent is
-     *  zero and the height is `0` unless one was declared. The single most
-     *  surprising fact about this phase, and therefore one worth counting. */
+    /** Containers with no block-level child at all, so the extent this pass
+     *  stacked in the block direction is zero and the height is `0` unless one was
+     *  declared -- or, from 10.4, is the extent the *lines* reached. A box that
+     *  establishes an inline formatting context is one of these, because 10.2's
+     *  rules make it have no block-level child by construction. The single most
+     *  surprising fact about 10.3, and therefore one worth counting. */
     size_t empty_containers;
     /** Deepest box placed. */
     uint32_t depth_max;
@@ -218,10 +242,19 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
  *         ROBO_ERROR when the tree is not classified. A failure reports through
  *         @p diag and leaves whatever it had already written -- a partial pass is
  *         visible in the per-box states rather than dressed up as a complete one.
+ *
+ * @p out_inline_stats receives what the **inline** direction did, and may be NULL
+ * for a caller that wants only the block numbers. The two records are not two
+ * passes: an inline formatting context's height *is* the block extent of the box
+ * that owns it, so the lines are laid out while this recursion descends and the
+ * numbers are written to both records as they happen. `boxes_computed` in
+ * `robo_layout_stats_t` is the two placement counts added together, which is the
+ * whole of what a caller has to know about the coupling.
  */
 robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
                                        robo_layout_size_t viewport,
                                        robo_layout_block_stats_t *out_stats,
+                                       robo_layout_inline_stats_t *out_inline_stats,
                                        robo_layout_diag_t *diag);
 
 #ifdef __cplusplus

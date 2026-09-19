@@ -53,13 +53,20 @@
  * ask which boxes it owns.
  *
  * It also runs *conditionally*, and the condition is the one honest thing this
- * document has to say about it: **a pass lays out the block direction only when it
+ * document has to say about it: **a pass lays out either direction only when it
  * has been given a viewport.** The root box's containing block is the initial
  * containing block, and RoboLayout owns no window to ask (README.md) -- so without
- * a viewport there is no width for anything to fill, no block layout to perform,
- * and every result stays UNRESOLVED. That is a documented precondition and not a
- * silent zero: `robo_layout_stats_t.block` reports all zeros and the caller can
- * see that `blocks_placed` is 0 with `objects` above it.
+ * a viewport there is no width for anything to fill, no line to lay out, and every
+ * result stays UNRESOLVED. That is a documented precondition and not a silent zero:
+ * `robo_layout_stats_t.block` and `.inline_flow` report all zeros and the caller can
+ * see that `boxes_computed` is 0 with `objects` above it.
+ *
+ * Phase 10.4 adds a fourth job to that same third job rather than a fifth stage:
+ * where a box's contents are an **inline formatting context**, its children are
+ * placed along a line (RoboLayoutInline.h) *while* the block recursion descends,
+ * and the extent the lines reached is the extent the block pass gives the box. The
+ * two directions are one stage because an inline context's height is part of the
+ * block stack; splitting them would mean re-stacking every ancestor afterwards.
  */
 
 #ifndef ROBO_LAYOUT_CONTEXT_H
@@ -72,6 +79,7 @@
 #include "RoboLayout/RoboLayoutDiagnostics.h"
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
 #ifdef __cplusplus
@@ -145,6 +153,27 @@ typedef struct robo_layout_stats {
      * first would have no way to tell a viewport-free pass from an empty document.
      */
     robo_layout_block_stats_t block;
+
+    /**
+     * What inline layout did (Phase 10.4).
+     *
+     * `boxes_computed` above is `block.blocks_placed` plus
+     * `inline_flow.participants_placed`, and both records are reported rather than
+     * the sum alone because the sum cannot answer "why has this box no geometry?"
+     * -- which is the question a reader of `boxes_unresolved` is asking, and which
+     * has five different answers across the two records (an inline box in a block
+     * context, a block box in an inline one, a box inside an unplaced box, and the
+     * two ways a box can be placed).
+     *
+     * All zeros when the pass had no viewport, for the same reason `block` is: an
+     * inline formatting context has no width to lay a line into without one.
+     *
+     * The field is named `inline_flow` rather than `inline` because `inline` is a
+     * keyword in the language this module is written in -- which is worth writing
+     * down once, so that the one asymmetry between the two names in this struct
+     * does not read as an accident.
+     */
+    robo_layout_inline_stats_t inline_flow;
 } robo_layout_stats_t;
 
 /** An opaque, caller-owned pass. */
@@ -217,8 +246,10 @@ void *robo_layout_context_user_data(const robo_layout_context_t *context);
  * Run a pass over @p tree.
  *
  * Walks every box, resets every result to UNRESOLVED, classifies every box, and
- * -- when a viewport has been recorded -- lays the block direction out, which is
- * where results become COMPUTED. Every counter is filled either way.
+ * -- when a viewport has been recorded -- lays both directions out, which is where
+ * results become COMPUTED: the block direction first and, wherever a box's contents
+ * are an inline formatting context, the inline direction inside it. Every counter
+ * is filled either way.
  *
  * What the caller gets therefore depends on what the caller gave it, and the
  * dependency is stated rather than inferred: no viewport means no block layout, so

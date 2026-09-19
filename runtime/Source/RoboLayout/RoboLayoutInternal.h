@@ -32,6 +32,8 @@
 #ifndef ROBO_LAYOUT_INTERNAL_H
 #define ROBO_LAYOUT_INTERNAL_H
 
+#include "RoboLayout/RoboLayoutBlock.h"
+#include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
 /** Objects the arena holds before its first growth. */
@@ -46,6 +48,79 @@
  * not.
  */
 #define ROBO_LAYOUT_INITIAL_CONTEXT_CAPACITY 4u
+
+/*
+ * The walk (Phase 10.3, shared with 10.4)
+ *
+ * One pass lays both directions out, and it is split across two translation units
+ * along the line the two algorithms divide on: the block direction stacks in
+ * RoboLayoutBlock.c, the inline direction places along a line in
+ * RoboLayoutInline.c, and each calls the other. The coupling is not a convenience
+ * -- an inline formatting context's height *is* the block extent of the box that
+ * owns it, so the two cannot be separate passes without re-stacking every
+ * ancestor afterwards -- and what crosses the boundary is this record, holding the
+ * tree, the two stats records and the diagnostic sink, plus the two doors below,
+ * one defined per file.
+ */
+
+/**
+ * One pass's shared state.
+ *
+ * Borrowed throughout and owned by `robo_layout_block_layout`, which fills it
+ * once and hands the same pointer to every level of both recursions. A record on
+ * the caller's stack rather than a heap object, because nothing here outlives the
+ * pass that made it -- and because a pass that allocated its own scratch would be
+ * a pass that could fail for a reason its caller cannot see.
+ */
+typedef struct robo_layout_walk {
+    robo_layout_tree_t *tree;
+    robo_layout_block_stats_t *block;
+    robo_layout_inline_stats_t *inline_flow;
+    robo_layout_diag_t *diag;
+} robo_layout_walk_t;
+
+/**
+ * Lay out @p owner's contents in the **block** direction and report the extent
+ * they reached. Defined by RoboLayoutBlock.c; called by the inline pass for an
+ * atomic inline, whose contents are a formatting context of their own.
+ *
+ * It also records whether the owner stacked anything, because that is the same
+ * fact the block pass records for every box whose contents it stacked.
+ */
+robo_result_t robo_layout_block_walk_children(robo_layout_walk_t *walk,
+                                              robo_layout_node_id_t owner,
+                                              int32_t content_width,
+                                              robo_gfx_pixel_y_t *out_extent);
+
+/**
+ * Lay out @p owner's contents as an **inline** formatting context and report the
+ * extent the lines reached. Defined by RoboLayoutInline.c; called by the block
+ * pass for every box that establishes one (RoboLayoutInline.h).
+ */
+robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
+                                               robo_layout_node_id_t owner,
+                                               int32_t content_width,
+                                               robo_gfx_pixel_y_t *out_extent);
+
+/*
+ * The one style read both directions make, defined by RoboLayoutBlock.c because
+ * that is where it was first needed and where its rules are argued.
+ *
+ * Shared rather than copied, for the reason the module shares everything: "a
+ * declared value this build can resolve is a computed LENGTH in px, finite,
+ * non-negative and inside the geometry's range" is one rule, and two passes with
+ * their own copies of it would be two answers to one question the day 10.8
+ * changes it.
+ */
+
+/** The computed px length @p style declares for @p property, or 0 when there is
+ *  none this build can resolve. */
+int robo_layout_style_px_length(const robo_css_computed_style_t *style,
+                                const char *property,
+                                double *out_value);
+
+/** Round a resolved length to the integer pixel space (half away from zero). */
+robo_gfx_pixel_x_t robo_layout_px_round(double value);
 
 struct robo_layout_tree {
     robo_layout_object_t *objects;

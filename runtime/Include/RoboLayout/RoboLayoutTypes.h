@@ -97,11 +97,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** Formatting contexts: classification, establishment, participation. */
     ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT = 11,
     /** Block layout: containing blocks, stacking, the geometry it writes. */
-    ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT = 12
+    ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT = 12,
+    /** Inline layout: lines, wrapping, the geometry it writes. */
+    ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT = 13
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 13u
+#define ROBO_LAYOUT_DOMAIN_COUNT 14u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

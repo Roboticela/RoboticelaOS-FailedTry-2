@@ -72,9 +72,9 @@
  * alternative -- refusing the whole pass over one declaration an author wrote
  * legally -- would make a document with `height: 50%` unlayoutable.
  */
-static int layout_resolved_px_length(const robo_css_computed_style_t *style,
-                                     const char *property,
-                                     double *out_value)
+int robo_layout_style_px_length(const robo_css_computed_style_t *style,
+                                const char *property,
+                                double *out_value)
 {
     const robo_css_computed_value_t *value;
 
@@ -113,7 +113,7 @@ static int layout_resolved_px_length(const robo_css_computed_style_t *style,
  * one of two integers, and a build that truncated would make every fractional
  * declared height come out one pixel short of what the author wrote.
  */
-static robo_gfx_pixel_x_t layout_round_px(double value)
+robo_gfx_pixel_x_t robo_layout_px_round(double value)
 {
     return (robo_gfx_pixel_x_t)(value + 0.5);
 }
@@ -122,13 +122,7 @@ static robo_gfx_pixel_x_t layout_round_px(double value)
 /* The recursion                                                       */
 /* ------------------------------------------------------------------ */
 
-typedef struct layout_block_walk {
-    robo_layout_tree_t *tree;
-    robo_layout_block_stats_t *stats;
-    robo_layout_diag_t *diag;
-} layout_block_walk_t;
-
-static robo_result_t layout_block_box(layout_block_walk_t *walk,
+static robo_result_t layout_block_box(robo_layout_walk_t *walk,
                                       robo_layout_node_id_t id,
                                       robo_layout_point_t origin,
                                       int32_t available_width,
@@ -187,7 +181,7 @@ static layout_block_verdict_t layout_block_verdict_for(const robo_layout_tree_t 
  * difference rather than walked to be counted, which keeps the pass linear in the
  * boxes it places rather than in the boxes that exist.
  */
-static robo_result_t layout_block_children(layout_block_walk_t *walk,
+static robo_result_t layout_block_children(robo_layout_walk_t *walk,
                                            const robo_layout_object_t *object,
                                            int32_t content_width,
                                            robo_gfx_pixel_y_t *out_extent)
@@ -195,6 +189,32 @@ static robo_result_t layout_block_children(layout_block_walk_t *walk,
     robo_layout_node_id_t child = object->first_child;
     robo_gfx_pixel_y_t cursor = 0;
     int placed_any = 0;
+
+    /*
+     * The inline direction first, because it is a different *question* about the
+     * same box and not a different kind of child: when the box established an
+     * INLINE formatting context, its contents are participants of a line and 10.4
+     * owns every one of them. The distinction is 10.2's, read here through the
+     * context the box owns -- which is the same door 10.2's classifier wrote, so
+     * there is no second rule about which boxes have lines in them.
+     *
+     * A box that establishes an inline context has no block-level child, so the
+     * block direction has nothing to stack and the `empty_containers` count below is
+     * exactly what the loop would have produced: the extent this call hands back is
+     * the lines' instead of a cursor's, and the box's own height rule (declared, or
+     * the content's extent) is unchanged.
+     */
+    if (object->context_owned != ROBO_LAYOUT_FC_ID_NONE) {
+        robo_layout_formatting_context_t owned;
+
+        if (robo_layout_tree_context(walk->tree, object->context_owned, &owned, NULL) ==
+                ROBO_OK &&
+            owned.kind == ROBO_LAYOUT_FC_INLINE) {
+            walk->block->empty_containers++;
+            return robo_layout_inline_walk_contents(walk, object->id, content_width,
+                                                    out_extent);
+        }
+    }
 
     while (child != ROBO_LAYOUT_NODE_ID_NONE) {
         const robo_layout_object_t *child_object = robo_layout_object_slot_const(walk->tree,
@@ -221,7 +241,15 @@ static robo_result_t layout_block_children(layout_block_walk_t *walk,
             break;
         }
         case LAYOUT_BLOCK_INLINE_LEVEL:
-            walk->stats->inline_level_skipped++;
+            /*
+             * Inline-level, in a **block-direction** context — so there is no line
+             * to put it on and this is the mixed-content case the header describes:
+             * CSS wraps the inline run in an anonymous block box, this build makes
+             * none, and the honest answer is to count it and leave it UNRESOLVED.
+             * The inline pass never sees one of these, because it walks the contents
+             * of inline contexts and this box is not in one.
+             */
+            walk->block->inline_level_skipped++;
             break;
         case LAYOUT_BLOCK_CONTRADICTION:
         default:
@@ -235,12 +263,39 @@ static robo_result_t layout_block_children(layout_block_walk_t *walk,
     }
 
     if (placed_any) {
-        walk->stats->containers++;
+        walk->block->containers++;
     } else {
-        walk->stats->empty_containers++;
+        walk->block->empty_containers++;
     }
     *out_extent = cursor;
     return ROBO_OK;
+}
+
+/**
+ * Lay out @p owner's contents in the block direction — the door the inline pass
+ * calls for an atomic inline's contents (RoboLayoutInternal.h).
+ *
+ * A box is looked up and the child loop is the one above: an `inline-block`'s
+ * contents are an ordinary block formatting context (10.2's rule for `flow-root`),
+ * so there is no second walk and no second set of counters.
+ */
+robo_result_t robo_layout_block_walk_children(robo_layout_walk_t *walk,
+                                              robo_layout_node_id_t owner,
+                                              int32_t content_width,
+                                              robo_gfx_pixel_y_t *out_extent)
+{
+    const robo_layout_object_t *object;
+
+    if (!walk || !walk->tree || !walk->block || !out_extent) {
+        return ROBO_LAYOUT_DIAG(walk ? walk->diag : NULL, ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT,
+                                ROBO_INVALID_ARGUMENT, "the pass needs a walk and an out");
+    }
+    object = robo_layout_object_slot_const(walk->tree, owner);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(walk->diag, ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT, ROBO_ERROR,
+                                "the box that owns a block context is not in the tree");
+    }
+    return layout_block_children(walk, object, content_width, out_extent);
 }
 
 /**
@@ -259,7 +314,7 @@ static robo_result_t layout_block_children(layout_block_walk_t *walk,
  * a box has no height available to it in this phase: a block box's height is
  * decided by its contents, never by its containing block.
  */
-static robo_result_t layout_block_box(layout_block_walk_t *walk,
+static robo_result_t layout_block_box(robo_layout_walk_t *walk,
                                       robo_layout_node_id_t id,
                                       robo_layout_point_t origin,
                                       int32_t available_width,
@@ -285,14 +340,14 @@ static robo_result_t layout_block_box(layout_block_walk_t *walk,
         return status;
     }
 
-    has_declared = layout_resolved_px_length(object->style, "height", &declared);
+    has_declared = robo_layout_style_px_length(object->style, "height", &declared);
     size.width = available_width;
     if (has_declared) {
-        size.height = layout_round_px(declared);
-        walk->stats->heights_explicit++;
+        size.height = robo_layout_px_round(declared);
+        walk->block->heights_explicit++;
     } else {
         size.height = content_extent;
-        walk->stats->heights_from_content++;
+        walk->block->heights_from_content++;
     }
 
     status = robo_layout_result_set_geometry(&object->result, origin, size, walk->diag);
@@ -300,9 +355,9 @@ static robo_result_t layout_block_box(layout_block_walk_t *walk,
         return status;
     }
 
-    walk->stats->blocks_placed++;
-    if (object->depth > walk->stats->depth_max) {
-        walk->stats->depth_max = object->depth;
+    walk->block->blocks_placed++;
+    if (object->depth > walk->block->depth_max) {
+        walk->block->depth_max = object->depth;
     }
     *out_height = size.height;
     return ROBO_OK;
@@ -338,9 +393,11 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
 robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
                                        robo_layout_size_t viewport,
                                        robo_layout_block_stats_t *out_stats,
+                                       robo_layout_inline_stats_t *out_inline_stats,
                                        robo_layout_diag_t *diag)
 {
-    layout_block_walk_t walk;
+    robo_layout_walk_t walk;
+    robo_layout_inline_stats_t scratch;
     robo_layout_node_id_t root;
     robo_layout_point_t origin;
     robo_gfx_pixel_y_t height = 0;
@@ -354,7 +411,17 @@ robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
                                 "viewport is negative");
     }
 
+    /*
+     * Both records are cleared together and at the same point, which is the rule
+     * 10.3's header states for the block one: an *argument* refusal above happens
+     * before a caller's records are touched, and everything from here on -- including
+     * the refusal below -- leaves them describing *this* call rather than a previous
+     * one. A caller that asked only for the block numbers passes NULL and the inline
+     * record is a local that nothing reads.
+     */
     robo_layout_block_stats_init(out_stats);
+    robo_layout_inline_stats_init(out_inline_stats);
+    robo_layout_inline_stats_init(&scratch);
 
     /*
      * The classification first, because it is the placement gate. Reported rather
@@ -379,7 +446,8 @@ robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
     }
 
     walk.tree = tree;
-    walk.stats = out_stats;
+    walk.block = out_stats;
+    walk.inline_flow = out_inline_stats ? out_inline_stats : &scratch;
     walk.diag = diag;
 
     /*
@@ -403,18 +471,29 @@ robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
      * recursion: a box inside an unplaced box is never visited, so counting it
      * would mean walking it, and the arena already knows how many boxes there
      * are. `unreached` is therefore a *difference* and its definition is
-     * "boxes with no geometry that block layout did not decline for a stated
-     * reason" -- a block-level box inside an inline box, which needs 10.4's
-     * anonymous box and is the one case this phase cannot place.
+     * "boxes with no geometry that neither pass declined for a stated reason" --
+     * a block-level box inside an inline box, which needs the anonymous box this
+     * build does not make.
+     *
+     * Both records are subtracted, because they are both answers to "why has this
+     * box no geometry?": 10.3's `inline_level_skipped` is an inline-level box in a
+     * block-direction context, and 10.4's `block_level_declined` is its mirror. A
+     * box the inline pass *placed* is subtracted too, so the identity below closes
+     * over both directions at once:
+     *
+     *   blocks_placed + inline_level_skipped + participants_placed + unreached
+     *       == objects
+     *
+     * and the suite asserts it, because a build that dropped a box would have four
+     * right-looking counts and a document that did not add up.
      */
     {
         size_t boxes = robo_layout_tree_object_count(tree);
+        size_t explained = out_stats->inline_level_skipped;
 
-        if (boxes > out_stats->blocks_placed) {
-            size_t unaccounted = boxes - out_stats->blocks_placed;
-            size_t explained = out_stats->inline_level_skipped;
-
-            out_stats->unreached = unaccounted > explained ? unaccounted - explained : 0u;
+        explained += walk.inline_flow->participants_placed;
+        if (boxes > out_stats->blocks_placed + explained) {
+            out_stats->unreached = boxes - out_stats->blocks_placed - explained;
         }
     }
 

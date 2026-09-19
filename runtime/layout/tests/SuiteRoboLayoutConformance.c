@@ -25,9 +25,10 @@
  *   Does it survive input it should refuse? A malformed document has to produce a
  *   *reported* answer rather than a crash or a silent empty tree.
  *
- *   And does it still compute no geometry? Stated once more here, after a full
- *   pass over a real document, because that is the assertion the entire phase
- *   rests on.
+ *   And does it compute geometry in both directions, and say so? Stated once more
+ *   here, after a full pass over a real document, because the capability struct is
+ *   a promise and this is where a promise made in one file is checked against
+ *   behaviour in another.
  */
 
 #include "RoboLayoutTestSupport.h"
@@ -61,8 +62,8 @@ static const struct {
     { "geometry", 1 },
     { "formatting_contexts", 1 },
     { "block_layout", 1 },
-    { "inline_layout", 0 },
-    { "block_and_inline_layout", 0 },
+    { "inline_layout", 1 },
+    { "block_and_inline_layout", 1 },
     { "painting", 0 }
 };
 
@@ -90,31 +91,37 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Nine of twelve. Asserted as a count as well as field by field, so a build that
-     * turned one on and one off at the same time -- which field-by-field would
+    /* Eleven of twelve. Asserted as a count as well as field by field, so a build
+     * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
      * glance. */
-    ROBO_CHECK_EQ_INT(implemented, 9u);
+    ROBO_CHECK_EQ_INT(implemented, 11u);
 
     /*
-     * The three that matter are the direction pair and the flag above it, said
-     * three ways each: the field, the function and the macro. A build that flipped
-     * one of them would have two answers to one question, and this is the question
-     * a caller asks before reading a result.
+     * The four that matter are the direction pair, the field that names both, and
+     * `geometry` above them -- said several ways each: the field, the function and
+     * the macro. A build that flipped one of them would have two answers to one
+     * question, and this is the question a caller asks before reading a result.
      *
-     * `geometry` is 1 since 10.3 because the block pass writes real coordinates,
-     * and `inline_layout` stays 0 because it is the *other* direction. The field
-     * that names both is therefore 0 too -- and 10.3 is exactly the phase where that
-     * distinction stops being academic: a build that implemented one direction and
-     * flipped the wider flag would have advertised line boxes it does not have.
+     * `geometry` is 1 since 10.3 because the pass writes real coordinates;
+     * `block_layout` and `inline_layout` are the two directions, both 1 since 10.4;
+     * and the field that names both is their conjunction rather than a third
+     * constant, which is what makes it go back to 0 on its own if a direction is
+     * ever switched off. That is the rule 10.3 stated when only one direction
+     * existed -- a phase that implemented one direction and flipped the wider flag
+     * would have advertised a feature it does not have -- and writing it as an
+     * expression is what let it survive the phase that added the second direction.
      */
     ROBO_CHECK_EQ_INT(caps.geometry, 1);
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_GEOMETRY_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(caps.block_layout, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED, 1);
-    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
-    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 1);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout,
+                      caps.block_layout && caps.inline_layout);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -320,6 +327,27 @@ static void test_conformance_pipeline(void)
     ROBO_CHECK_EQ_INT(stats.block.empty_containers, 1u);
     ROBO_CHECK_EQ_INT(stats.block.heights_explicit, 1u);
     ROBO_CHECK_EQ_INT(stats.block.depth_max, 3u);
+
+    /*
+     * And the inline direction's record, for the one inline formatting context this
+     * document has. `<p class="title">` holds nothing but text, so 10.2's rule makes
+     * the *paragraph* establish the context -- and the context is empty, because a
+     * text node is not a box. That is the shape of the commonest document there is,
+     * and the shape 10.5 exists to give a height to.
+     *
+     * `<head>` is not here: it is an inline-level box in a *block-direction* context,
+     * which is 10.3's count and not this one's. Two records, one box, told apart by
+     * which direction declined it.
+     */
+    ROBO_CHECK_EQ_INT(stats.inline_flow.contexts, 1u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.empty_contexts, 1u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 0u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.lines, 0u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.block_level_declined, 0u);
+    /* `boxes_computed` is the two placement counts added together, asserted where
+     * both are non-trivial numbers rather than where one of them is zero. */
+    ROBO_CHECK_EQ_INT(stats.boxes_computed,
+                      stats.block.blocks_placed + stats.inline_flow.participants_placed);
 
     /*
      * And the geometry itself, which is what this case is now for: a box fills its
@@ -720,8 +748,8 @@ static void test_conformance_no_viewport(void)
     ROBO_CHECK_EQ_INT(caps.geometry, 1);
     ROBO_CHECK_EQ_INT(caps.formatting_contexts, 1);
     ROBO_CHECK_EQ_INT(caps.block_layout, 1);
-    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
-    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, 1);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 1);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
 
@@ -879,7 +907,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.3.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.4.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*
@@ -891,10 +919,13 @@ static void test_conformance_statement(void)
      * distinguish a block box from an inline one, and a second copy of those facts in
      * `kind` would be two places for one answer -- which is exactly what 10.1 refused
      * to do for every other property. `kind` therefore stays one entry wide, and it
-     * survived 10.3 unchanged: a block box is still the only kind of box the build
-     * makes, because an *anonymous* box -- the one a mixed container needs, and the
-     * one that has no element and therefore no `display` to derive a kind from -- is
-     * 10.4's to build.
+     * survived 10.3 and 10.4 unchanged: a block box is still the only kind of box the
+     * build makes, because an *anonymous* box -- the one a mixed container needs, and
+     * the one that has no element and therefore no `display` to derive a kind from --
+     * is still a later goal's. 10.4 laid the inline direction out without one, which
+     * is the point worth recording: a container whose children are all inline already
+     * has an inline formatting context of its own (10.2), so the anonymous box is
+     * only needed for *mixed* content and not for inline content as such.
      */
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_KIND_COUNT, 2);
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_BOX), 1);
