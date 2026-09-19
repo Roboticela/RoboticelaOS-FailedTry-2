@@ -490,8 +490,15 @@ static void test_dom_pipeline(void)
         ROBO_CHECK_EQ_INT(inline_block + block, 5u);
     }
 
-    /* And the pass leaves every one of them UNRESOLVED: the phase computes no
-     * coordinate, and the two ways of saying so agree. */
+    /*
+     * And this pass -- no viewport recorded, so nothing to fill -- leaves every one
+     * of them UNRESOLVED, with the counter that says so.
+     *
+     * The build *can* compute a coordinate (`geometry` is 1 since 10.3); the
+     * difference between the two facts is the whole reason the per-box result state
+     * survived a phase that made geometry possible, and the pipeline cases above run
+     * the other half of the same document with a viewport to show the other answer.
+     */
     ROBO_CHECK_EQ_INT(robo_layout_context_create(&context, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_layout_context_run(context, tree, NULL), ROBO_OK);
     robo_layout_context_stats(context, &stats);
@@ -500,7 +507,8 @@ static void test_dom_pipeline(void)
     ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 6u);
     ROBO_CHECK_EQ_INT(stats.boxes_computed, 0u);
     ROBO_CHECK_EQ_INT(stats.without_style, 0u);
-    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
+    ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 0u);
+    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
 
     /*
      * The same pass classifies, and it classifies from the *real* cascade rather

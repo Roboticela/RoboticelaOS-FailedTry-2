@@ -35,10 +35,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 2);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 3);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.2.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.2.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.3.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.3.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -99,8 +99,10 @@ static const struct {
     { "context", 1 },
     { "dom_build", 1 },
     { "computed_style_link", 1 },
-    { "geometry", 0 },
+    { "geometry", 1 },
     { "formatting_contexts", 1 },
+    { "block_layout", 1 },
+    { "inline_layout", 0 },
     { "block_and_inline_layout", 0 },
     { "painting", 0 }
 };
@@ -131,15 +133,25 @@ static void test_module_capabilities(void)
         ROBO_CHECK_EQ_INT(fields[index], layout_capability_flags[index].expected);
     }
 
-    /* The two that are 0 are also reachable one at a time, so a caller that asks a
-     * single question is not reading a union of ten. And the one that *flipped* is
-     * asserted beside them rather than only in the table above, because the pair is
-     * the interesting fact: this build classifies every box into a formatting
-     * context *and* still computes no coordinate. */
+    /*
+     * The four this phase moves are also reachable one at a time, so a caller that
+     * asks a single question is not reading a union of twelve. And they are asserted
+     * as a *group* rather than only in the table above, because the group is the
+     * interesting fact: this build computes a coordinate, the direction it computes
+     * is the block one, the inline direction is still 0, and the field that names
+     * both is therefore still 0. Three of those four are 1/0/0 for a reason, and a
+     * build that flipped the third because it had flipped the first would have
+     * advertised a feature it does not have.
+     */
     ROBO_CHECK_EQ_INT(caps.geometry, ROBO_LAYOUT_GEOMETRY_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.formatting_contexts, 1);
+    ROBO_CHECK_EQ_INT(caps.block_layout, ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
     ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
+    /* Both halves of the third row, so a build that set one of the pair without the
+     * other is caught here rather than by a caller that trusted the constant. */
+    ROBO_CHECK_EQ_INT(caps.geometry, caps.block_layout);
 }
 
 static void test_module_geometry_flag(void)
@@ -147,13 +159,24 @@ static void test_module_geometry_flag(void)
     robo_layout_capabilities_t caps;
 
     layout_fixture();
-    /* The macro, the function and the field: three doors, one answer. A build
+    /*
+     * The macro, the function and the field: three doors, one answer. A build
      * that flipped one of them would have two answers to one question, and this
-     * is the question a caller asks before reading a result. */
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_GEOMETRY_IMPLEMENTED, 0);
-    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
+     * is the question a caller asks before reading a result.
+     *
+     * 1 since 10.3, and the *field* is still the narrow one: "this build computes
+     * coordinates" is true while "this box has one" is a different question, which
+     * `robo_layout_result_state` answers per box.
+     */
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_GEOMETRY_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
     ROBO_CHECK_EQ_INT(robo_layout_get_capabilities(&caps), ROBO_OK);
     ROBO_CHECK_EQ_INT(caps.geometry, robo_layout_geometry_is_implemented());
+    /* And the block direction is where that 1 comes from, which is why the two
+     * constants exist rather than one. */
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(caps.block_layout, ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
 }
 
 /* ------------------------------------------------------------------ */
@@ -193,9 +216,9 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 12);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 13);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)12), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)13), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -220,13 +243,20 @@ static void test_module_diagnostic_domains(void)
         }
     }
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_TREE), "tree");
-    /* The 10.2 domain, named rather than only walked: a diagnostic that said
-     * "domain 11" would be a message nobody could act on. */
+    /* The two 10.2/10.3 domains, named rather than only walked: a diagnostic that
+     * said "domain 11" would be a message nobody could act on. 10.2's formatting
+     * contexts are no longer last, and the assertion below says who is: the domain
+     * a failure is reported in is the phase that can fail, so "the newest domain is
+     * the last enumerator" is a fact about the build and not about the numbering. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(
                           ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT),
                       "formatting-context");
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT),
+                      "block-layout");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
+                      (int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT - 1);
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name((robo_layout_diagnostic_domain_t)400),
                       "unknown");
 }
@@ -400,8 +430,8 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.2.0");
-        ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.3.0");
+        ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),
                 sizeof(buffer) - 1u);

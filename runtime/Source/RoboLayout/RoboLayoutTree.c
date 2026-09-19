@@ -141,6 +141,8 @@ void robo_layout_tree_destroy(robo_layout_tree_t *tree)
 
 void robo_layout_tree_contexts_reset(robo_layout_tree_t *tree)
 {
+    size_t index;
+
     if (!tree) {
         return;
     }
@@ -152,6 +154,47 @@ void robo_layout_tree_contexts_reset(robo_layout_tree_t *tree)
     tree->context_count = 0u;
     tree->context_capacity = 0u;
     tree->classified = 0;
+
+    /*
+     * And the geometry goes with it (Phase 10.3).
+     *
+     * Block layout is a function of the classification: the placement gate *is*
+     * `object->context`, and a box's height is the extent of the children that gate
+     * let through. So the moment a classification stops describing the tree, every
+     * coordinate derived from it is a statement about a tree that no longer exists
+     * -- and it would still be marked COMPUTED, which is the one thing that state
+     * is not allowed to mean.
+     *
+     * This is the shared path on purpose. All three callers -- an explicit
+     * invalidation, a clear, and an add -- are saying the same thing ("the box set
+     * changed or the classification was withdrawn"), and a rule written three times
+     * is a rule two of them will eventually disagree about. It also means a caller
+     * that adds a box after a pass gets results that are honestly UNRESOLVED rather
+     * than numbers computed with the box set of a moment ago.
+     *
+     * The boxes themselves are untouched: a result is not part of what a box *is*, it
+     * is what a pass concluded about it, and "unresolved" is a conclusion this
+     * module can state truthfully.
+     *
+     * What is withdrawn is a *conclusion*, so a box that never had one keeps the
+     * one it has -- which is NONE, and is not the same fact as UNRESOLVED. Only a
+     * result that claimed something is demoted; a fresh box in a fresh tree stays
+     * NONE, because nobody has computed its geometry *and* nobody has said that
+     * nobody has. A blunt `set_unresolved` over every slot would erase that
+     * distinction: it would make NONE a state no path in this module produces
+     * (every add would manufacture UNRESOLVED for every box, including the ones
+     * the add did not touch), and it would make a tree built by eight adds
+     * indistinguishable from one a pass had swept without placing anything. The
+     * conditional is the whole of the difference, and it is what keeps
+     * `robo_layout_result_init`'s state reachable.
+     */
+    for (index = 0u; index < tree->count; index++) {
+        robo_layout_result_t *result = &tree->objects[index].result;
+
+        if (robo_layout_result_state(result) != ROBO_LAYOUT_RESULT_NONE) {
+            robo_layout_result_set_unresolved(result);
+        }
+    }
 }
 
 void robo_layout_tree_invalidate_contexts(robo_layout_tree_t *tree)

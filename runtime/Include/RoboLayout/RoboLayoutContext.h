@@ -43,6 +43,23 @@
  * document order, which is parents before children. So when a box is reached, its
  * parent has already been classified, and "which context do I participate in?" is
  * a read rather than a search up the tree.
+ *
+ * Phase 10.3 adds a third job, and it is a different *kind* of job rather than
+ * another counter: **block layout** (RoboLayoutBlock.h), which computes real
+ * coordinates. It runs *after* the walk rather than inside it, because it is a
+ * recursion over the tree rather than a scan of the arena -- a box's position
+ * depends on its parent's content origin, which the parent knows and the arena
+ * does not -- and because it needs the classification to be complete before it can
+ * ask which boxes it owns.
+ *
+ * It also runs *conditionally*, and the condition is the one honest thing this
+ * document has to say about it: **a pass lays out the block direction only when it
+ * has been given a viewport.** The root box's containing block is the initial
+ * containing block, and RoboLayout owns no window to ask (README.md) -- so without
+ * a viewport there is no width for anything to fill, no block layout to perform,
+ * and every result stays UNRESOLVED. That is a documented precondition and not a
+ * silent zero: `robo_layout_stats_t.block` reports all zeros and the caller can
+ * see that `blocks_placed` is 0 with `objects` above it.
  */
 
 #ifndef ROBO_LAYOUT_CONTEXT_H
@@ -50,6 +67,7 @@
 
 #include "RoboBase/RoboError.h"
 
+#include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutConstraints.h"
 #include "RoboLayout/RoboLayoutDiagnostics.h"
 #include "RoboLayout/RoboLayoutFormattingContext.h"
@@ -116,6 +134,17 @@ typedef struct robo_layout_stats {
     size_t boxes_participating_only;
     /** Deepest context nesting seen: 0 for a tree whose only context is ROOT. */
     uint32_t context_depth_max;
+
+    /**
+     * What block layout did (Phase 10.3).
+     *
+     * All zeros when the pass had no viewport to lay out into -- which is why
+     * `boxes_computed` and `block.blocks_placed` are both reported rather than one
+     * being derived from the other: the first is "how many boxes have geometry",
+     * the second is "how many this pass placed", and a reader who saw only the
+     * first would have no way to tell a viewport-free pass from an empty document.
+     */
+    robo_layout_block_stats_t block;
 } robo_layout_stats_t;
 
 /** An opaque, caller-owned pass. */
@@ -187,9 +216,20 @@ void *robo_layout_context_user_data(const robo_layout_context_t *context);
 /**
  * Run a pass over @p tree.
  *
- * Walks every box, leaves each one's result UNRESOLVED, and fills the counters.
- * It is *not* a placeholder for a real pass: it is the pass 10.1 has, and its
- * whole output is a truthful statement about what has not been computed yet.
+ * Walks every box, resets every result to UNRESOLVED, classifies every box, and
+ * -- when a viewport has been recorded -- lays the block direction out, which is
+ * where results become COMPUTED. Every counter is filled either way.
+ *
+ * What the caller gets therefore depends on what the caller gave it, and the
+ * dependency is stated rather than inferred: no viewport means no block layout, so
+ * every result comes back UNRESOLVED and `stats.block.blocks_placed` is 0. That is
+ * the same honest answer as 10.1's, now conditional on an input instead of being
+ * the build's whole behaviour.
+ *
+ * A box the pass did not place is left UNRESOLVED rather than given a zeroed
+ * rectangle, so a caller can always tell "nobody computed this" from "this is at
+ * the origin with no size" -- which is the distinction the result *state* exists
+ * for, and one this pass would destroy by writing a provisional geometry.
  *
  * **@p tree is taken mutable, and that is deliberate.** A pass *writes*: it is
  * the one component in the module that does, because a box's result is where a
@@ -201,8 +241,15 @@ void *robo_layout_context_user_data(const robo_layout_context_t *context);
  *
  * An empty tree is a legitimate pass (a document whose root element is
  * `display: none` builds no boxes) and reports zero objects rather than an error.
+ * A tree with boxes but no viewport is equally legitimate: it is classified, and
+ * laid out as far as the input allows, which is not at all.
  *
- * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL context or tree.
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL context or tree. A failure of
+ *         the *block* stage -- a box link that names no box, a classification
+ *         released under the pass -- fails the whole pass with
+ *         ROBO_LAYOUT_PASS_FAILED and the diagnostic carrying the reason, because a
+ *         pass that laid out half a document and reported success would be handing
+ *         back a shape nobody asked for.
  */
 robo_result_t robo_layout_context_run(robo_layout_context_t *context,
                                       robo_layout_tree_t *tree,

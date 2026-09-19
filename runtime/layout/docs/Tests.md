@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.2)
+# RoboLayout Test Organisation (through Phase 10.3)
 
-Eight suites, 84 tests, one framework. The phase adds no test runner, no reporter
+Nine suites, 100 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -16,6 +16,11 @@ shape that needs it, and the suites are listed explicitly in `$SuiteSrcs`. There
 no glob: a suite that is not on the list is not built, which is the same
 "explicit over discovered" rule the rest of the tree follows.
 
+§§10.1–10.7 below were written when the module computed nothing, and their text is
+kept as it stood rather than back-dated. Where a case has since changed meaning —
+`layout.conformance.statement` and the old `geometry == 0` claims — the change is
+recorded in §8, under the phase that made it.
+
 ---
 
 ## 1. Suite map
@@ -29,6 +34,7 @@ no glob: a suite that is not on the list is not built, which is the same
 | `SuiteRoboLayoutBuild.c` | `layout.build.*` | 10 | does the builder apply its one rule, and only it? |
 | `SuiteRoboLayoutDom.c` | `layout.dom.*` | 9 | does the bridge join the two peers, and own what it says it owns? |
 | `SuiteRoboLayoutFormattingContext.c` | `layout.fc.*` | 13 | is the classification a table, and is the context tree the shape the rules imply? |
+| `SuiteRoboLayoutBlock.c` | `layout.block.*` | 16 | does the block pass place each box inside its parent, at the right y, with an honest height? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -202,15 +208,59 @@ does not.
 
 `tree.add_invalidates` found a production bug (§6.1).
 
+### 10.9 — block layout (`layout.block.*`)
+
+Sixteen cases, and they are the first in this directory that assert a **number**.
+While the module computed nothing, a case could only ask whether a box had geometry
+at all; asking *which* geometry was impossible. Now the assertions are arithmetic,
+and they are exact — `x == 0`, `y == 100`, `height == 50` — because a block
+algorithm's entire output is arithmetic over a document and "greater than zero"
+would pin none of it.
+
+| Case | Subject |
+|---|---|
+| `display_table` | the pipeline's multi-tag document: every box's exact rectangle |
+| `stats` | the counters of one pass, and the record's equality |
+| `preconditions` | a NULL tree, a negative viewport, and an **unclassified** tree |
+| `single` | one box: it fills the viewport and its height is its content's |
+| `siblings` | three siblings stack — y advances by each one's height |
+| `nested` | a child is placed at **its parent's** origin, three levels deep |
+| `explicit_height` | a declared `px` height is honoured, and is counted as `heights_explicit` |
+| `unresolvable_height` | `50%`, `2em` and `10vw` each take the `auto` path rather than a guess |
+| `inline_skipped` | an inline box is not placed, and is counted rather than dropped |
+| `display_none` | a `none` box has no box at all, so it is absent from the counts too |
+| `context_gate` | **the invariant**, walked over every box: block-level ⟹ block-direction context, and non-block context ⟹ never placed |
+| `no_viewport` | a pass without a viewport places nothing and reports zero, without failing |
+| `determinism` | two passes over one tree, and two trees from one document, agree box for box |
+| `invalidation` | adding a box to a laid-out tree demotes its result — see §8 |
+| `pipeline` | the real chain: tokenizer → parser → cascade → computed style → bridge → build → pass, over a document with margins, padding and borders that this phase must *not* apply |
+| `allocator_balance` | — |
+
+`context_gate` is the case the phase is built around, and its shape is what makes
+it worth having: rather than asserting one expected instance of the invariant, it
+walks every box in a tree containing a block box, a text-bearing block, an inline
+box and a block-level box *inside* that inline box — and checks the implication at
+each one. The last of those is the subtle one: it is block-level **and** in the
+root's context, so both of the pass's gates say yes, and it still has no geometry
+because nothing containing it was placed. It is counted as `unreached`, which is
+the state 10.4's anonymous box exists to end.
+
+`pipeline` is the only case here that goes through CSS rather than a scripted
+style source, and its document deliberately carries `margin: 10px 20px`,
+`padding: 8px 12px` and `border: 2px solid` alongside the geometry assertions —
+because "this phase reads those values and applies none of them" is a claim worth
+testing *with the values present*, and testing it against a document that omitted
+them would prove nothing.
+
 ### 10.7 — conformance (`layout.conformance.*`)
 
 Seven cases, and the shape is 9.16's: ask the questions no single-module suite can.
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — and `formatting_contexts` flipped to 1 with the phase |
-| `statement` | the module's central claim, asserted three ways: `geometry == 0`, the function answers 0, and a pass leaves `boxes_computed == 0` |
-| `no_geometry` | after a real pass over a real document, **every** box is `UNRESOLVED` and reading a position is `ROBO_NOT_FOUND` |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now twelve fields, with `geometry` and `block_layout` at 1 |
+| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.3.0`, API unfrozen, two object kinds and four context kinds |
+| `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no block pass, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
 | `determinism` | two builds of the same document produce equal trees, compared box by box |
 | `robust` | a corpus of hostile and malformed documents: every one is either a clean failure or a clean empty build, and none crashes |
@@ -218,11 +268,20 @@ Seven cases, and the shape is 9.16's: ask the questions no single-module suite c
 
 `capabilities` is a copy of the 9.16 finding applied one level up. In 9.16, two
 CSS capability flags had flipped to 1 with no assertion anywhere in the build;
-this suite walks all nine RoboLayout fields, so the same omission cannot happen
-here — and 10.2 is the first phase to *use* it, flipping `formatting_contexts` from
-0 to 1 with the walk already in place. `no_geometry` is the case a future phase must *delete*, not weaken: the day
-10.8 computes a coordinate it fails, and its replacement is a case that asserts the
-numbers — which is the correct way for a claim like this to die.
+this suite walks every RoboLayout field, so the same omission cannot happen here —
+and 10.2 and 10.3 are the two phases that *used* it, flipping
+`formatting_contexts`, then `geometry` and `block_layout`, with the walk already in
+place.
+
+The case 10.3 had to **replace** is worth recording, because the way it went is the
+way this file §3 said these claims should go. 10.1 and 10.2 shipped
+`layout.conformance.no_geometry`, whose whole subject was that after a real pass
+every box was `UNRESOLVED`. The day a pass computed a coordinate it failed —
+exactly as intended — and its replacement is `no_viewport`, which asserts the
+*sharper* fact that was true all along and is still true: a build that computes
+coordinates and a pass that had no containing block to compute them into are two
+different statements, and the capability field is the wider one. The claim was
+replaced rather than weakened, and the numbers took over `layout.block.*`.
 
 ---
 
@@ -266,18 +325,30 @@ They **do** assert:
 
 They **do not** assert:
 
-- any coordinate, size, or rectangle construction — there are none to assert;
-- CSS behaviour beyond `display`, which 9.1–9.16 tests in its own 609 cases;
-- that the tree is *right* about anything CSS did not tell it, because there is
-  nothing it claims.
+- CSS behaviour beyond `display` and a declared `height`, which 9.1–9.16 tests in
+  its own 609 cases;
+- a geometry this pass does not produce: no declared width, no percentage, no
+  margin, padding or border arithmetic, and no inline or line-box position. Those
+  numbers do not exist yet, and a suite that asserted one would be asserting a
+  number the module does not compute.
 
-A suite that asserted a coordinate in this phase would be asserting a number the
-module does not produce. `no_geometry` asserts the *absence* instead, which is the
-thing that is actually true.
+That last bullet is the *shape* of §§10.1–10.3's honesty claims, and it is worth
+stating how a claim like that is supposed to die. `layout.conformance.no_geometry`
+asserted, in 10.1 and 10.2, that after a real pass every box was `UNRESOLVED`. It
+failed the moment 10.3 computed a coordinate — and it was **replaced** rather than
+weakened, by `no_viewport`, which asserts the sharper fact that is still true (a
+build that computes coordinates versus a pass that had no containing block to
+compute them into), while the numbers moved to `layout.block.*`. A claim that only
+gets deleted leaves nothing behind; a claim that gets replaced by the sharper one
+keeps what was actually being defended.
 
 They **do** assert, since 10.2, the context topology: a parent link, a depth, a
 participant count and a kind — because those are facts this build produces, and the
 counts alone do not distinguish a correctly nested context tree from a flat one.
+
+And they **do** assert, since 10.3, the geometry: exact `x`, `y`, `width` and
+`height` per box, plus the per-box result **state**, which is what distinguishes
+"placed here" from "not placed at all" from "no pass has run".
 
 ---
 
@@ -294,8 +365,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 86 — this module's 84, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 88 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 102 — this module's 100, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 104 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -303,9 +374,15 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.build` | 10 |
 | `layout.dom` | 9 |
 | `layout.fc` | 13 |
+| `layout.block` | 16 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2100** tests, green in both configurations.
+Whole suite: **2116** tests, green in both configurations.
+
+```sh
+./Out/RoboTest.host.exe --filter layout.block
+./Out/RoboTest.host.exe --filter layout.block.context_gate
+```
 
 ---
 
@@ -315,8 +392,8 @@ Whole suite: **2100** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2100 cases. In 10.2's run the sanitized suite was
-**2100/2100** — no sanitizer diagnostic, and no red case.
+ASan and UBSan run the same 2116 cases. In 10.3's run the sanitized suite was
+**2116/2116** — no sanitizer diagnostic, and no red case.
 
 That is worth stating precisely, because an earlier phase's sanitized run
 reported `window.host.keyboard` and `window.host.mouse` and both are
@@ -325,9 +402,37 @@ them as a host-desktop flake (`SetForegroundWindow` declining with `err=0`, so
 `win32_focus` reports `ROBO_NOT_SUPPORTED` rather than faking success). The same
 flake turned up in one unsanitized `robo test-runtime` run during 10.2 — 2099 of
 2100, with `window.host.keyboard` the only red case — while the direct suite runs,
-both unsanitized configurations and the sanitized run were all fully green. It
-passes standalone every time, so it is desktop focus contention and not a
-defect in the case.
+both unsanitized configurations and the sanitized run were all fully green.
+
+In 10.3 it turned up in three consecutive `robo test-runtime` runs (2115 of 2116,
+`window.host.keyboard` every time), and the evidence is now as clean as it is going
+to get:
+
+| How the suite was run | Result |
+|---|---|
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times |
+| the same binary, run directly afterwards | **2116/2116** — twice |
+| `--filter=window.host` in isolation | **19/19** — three times |
+| the binary as a child of `pwsh` with its output captured | **passes** |
+
+`SuiteRoboWindowHost.c` and everything under `RoboWindow/platform/win32/` are
+untouched by this phase — the phase's diff is `LayoutBlock.c`, five edits in the
+layout module, and the layout suites — so there is no causal path from 10.3 to the
+failure, and the case's own subject (keyboard routing) passes every time it is run
+against a session whose console holds the foreground. The fourth row is the one that
+rules out the obvious explanation in the other direction: it is not the redirection,
+not the parent process, and not the flag — it is that the pipeline's whole-suite run
+begins *immediately after a six-minute build*, and Windows grants foreground
+activation on a rule about who received the last input event.
+
+The project already names the case in its own build script — `test-html` passes
+`-BuildOnly` so that "an unrelated failure (a host window suite with no foreground
+session) would not be reported against the component the developer actually asked
+about" — and `win32_focus` reports `ROBO_NOT_SUPPORTED` rather than faking success,
+which is the behaviour the case is asserting. So it is recorded here rather than
+worked around, and **not** weakened: the assertion is right and the OS denial is the
+anomaly. Nothing in `layout.*` touches it and nothing in `window.host.*` touches
+RoboLayout.
 
 No `layout.*` case touches it, and no `window.host.*` case touches RoboLayout.
 
@@ -416,3 +521,53 @@ the **parent link and the depth** of the nested pair as well as the counts, and
 that is the assertion a flat-but-correctly-counted context tree fails. A phase that
 had only counted contexts would have shipped with both facts wrong and found out in
 10.12.
+
+---
+
+## 8. What the 10.3 suites found
+
+One production bug and two fixture problems, and the first is the one the phase is
+worth.
+
+**1. An invalidation released the classification but kept the geometry derived from
+it** (`layout.block.invalidation`). 10.2's `robo_layout_tree_contexts_reset`
+dropped the context arena and cleared the classified flag, and left every box's
+`robo_layout_result_t` exactly as it was. That was *correct* while nothing derived
+geometry from the classification. From 10.3 on the block pass reads its placement
+gate straight out of `object->context` and takes a box's height from the extent of
+the children that gate let through — so a result surviving an invalidation was a
+`COMPUTED` state asserting a coordinate about a tree that no longer existed, which
+is the one thing that state is not allowed to mean.
+
+The fix went into the **shared** path rather than the invalidation door, because
+all three callers of `contexts_reset` — an explicit invalidation, a clear, and an
+add — are saying the same thing, and a rule written in three places is a rule two
+of them eventually disagree about. The case that found it is the only one whose
+stated subject is "place boxes, then add one", which is *exactly* the sequence 10.2's
+`layout.fc.tree.add_invalidates` covers one level up: both phases found a stale fact
+on the same code path, and the second one only became reachable when something
+started depending on the first.
+
+**2. A fixture that promised a state the builder cannot produce**
+(`RoboLayoutTestSupport.h`). The block suite's invalidation case needed a document
+it could *add an element to*, and the fixture's first attempt built one through the
+tree builder — except the builder finalizes at EOF, so no document it produces can
+ever accept a new element. The attempt to fix that by leaving the document
+un-finalized turned out to depend on a state the builder never produces. The
+fixture took the honest tool instead (`robo_html_document_create_element` over a
+live document), and the production builder was left alone: a fixture working around
+a limitation is one thing, a fixture *editing production to suit itself* is how a
+suite stops testing the thing it names.
+
+**3. Three stale suites the phase's numbers invalidated.** `layout.module`'s
+version and capability pins, `layout.conformance.statement`'s `geometry == 0`
+claims, and `layout.conformance`'s `no_geometry` case all had to move with the
+phase. None was weakened and none was deleted: the version pins were re-pinned, the
+`statement` case now asserts `1`, and `no_geometry` was replaced by `no_viewport`
+(§3, §10.7) — the sharper claim that survived.
+
+There was no fourth finding. The block algorithm itself came out right on the first
+build — which is reported as a fact about the phase and not as a virtue: the nine
+suites around it had already pinned every input the pass reads (the placement gate,
+the containing-block convention, the display vocabulary), so the arithmetic had
+nowhere to hide.

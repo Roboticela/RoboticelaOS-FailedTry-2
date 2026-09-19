@@ -346,9 +346,20 @@ static void test_context_run(void)
     ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_NOT_FOUND);
     ROBO_CHECK_EQ_INT(robo_layout_result_rect(&result, &rect, NULL), ROBO_NOT_FOUND);
 
-    /* The two statements of "no coordinate exists" cannot disagree. */
+    /*
+     * Two counters, about two different things -- and that they differ here is the
+     * assertion, not a contradiction.
+     *
+     * No viewport was recorded, so this pass placed nothing: `boxes_computed` is 0
+     * and every box above reads UNRESOLVED. The *build*, meanwhile, can compute a
+     * coordinate -- `geometry` is 1 since 10.3 -- it simply had no initial
+     * containing block to compute one into. A suite that asserted the two agree
+     * would be asserting that a capability is per-pass, which is exactly the
+     * confusion the result state exists to prevent.
+     */
     ROBO_CHECK_EQ_INT(stats.boxes_computed, 0u);
-    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
+    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, stats.objects);
 
     robo_layout_context_destroy(context);
     layout_context_tree_end(&fixture);

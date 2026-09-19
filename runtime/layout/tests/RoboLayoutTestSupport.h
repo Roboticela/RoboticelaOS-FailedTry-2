@@ -78,10 +78,20 @@ static inline size_t layout_live_blocks(void)
 /**
  * A real document built from @p html by the real tree builder.
  *
- * The tree is built and *not* finalized, which is what the 9.4 DOM suite does too:
- * finalization closes construction for the parser, and a test that later wants to
- * create an element through the DOM seam (RoboHTMLElement.h) must not have closed
- * it.
+ * `layout_document_build` leaves the document **finalized**, and that is a fact a
+ * suite has to plan around rather than a detail of this helper. Every path that
+ * builds a tree ends at `robo_html_tree_builder_finish`, which closes tree
+ * construction; and `robo_html_element_create` -- the one door an element comes
+ * into existence through -- writes through that gate, so it is refused from the
+ * moment the build is done. (The one-shot `robo_html_build_tree` is no different:
+ * it is begin + drive-to-EOF + finish.)
+ *
+ * A suite that needs an element to appear *after* its tree was built therefore
+ * cannot parse one, and `layout_document_create_empty` +
+ * `layout_document_add_element` below exist for exactly that case: a document
+ * assembled through the DOM seam is never finalized, so it can keep growing while
+ * the tree built from it is being tested. A suite that only reads a parsed document
+ * wants `layout_document_build` and should not care either way.
  */
 typedef struct layout_document {
     robo_html_document_id_t id;
@@ -106,6 +116,47 @@ static inline void layout_document_build(layout_document_t *doc, const char *htm
     robo_html_source_init(&source);
     ROBO_CHECK_EQ_INT(robo_html_source_string(&source, html, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_build_tree(doc->id, &source, NULL, NULL), ROBO_OK);
+}
+
+/**
+ * Create @p doc with its root node and nothing else -- no source, no parse.
+ *
+ * The starting point for a document assembled through the DOM seam
+ * (RoboHTMLElement.h), which is the only kind of document that can still grow
+ * after a layout tree has been built from it (see the note above). Pair it with
+ * `layout_document_add_element` and release it the same way: a document is a
+ * document whatever built it.
+ */
+static inline void layout_document_create_empty(layout_document_t *doc)
+{
+    layout_fixture();
+    doc->id = ROBO_HTML_DOCUMENT_ID_NONE;
+    ROBO_CHECK_EQ_INT(robo_html_document_create(&doc->id, NULL), ROBO_OK);
+}
+
+/**
+ * Create an element named @p name as the last child of @p parent.
+ *
+ * The parent is a handle rather than an id, because that is what the DOM's create
+ * door takes -- and the document's own root node is one, which is how `<html>`
+ * gets its parent. Asserts like the rest of the helpers here: a suite that has to
+ * check every element came out well formed would drown its own subject.
+ */
+static inline robo_html_node_handle_t layout_document_add_element(
+    const layout_document_t *doc, const robo_html_node_handle_t *parent, const char *name)
+{
+    robo_html_element_create_info_t info;
+    robo_html_node_handle_t out;
+
+    robo_html_element_create_info_init(&info);
+    info.parent = *parent;
+    info.origin = ROBO_HTML_NODE_ORIGIN_TEST;
+    info.namespace_id = ROBO_HTML_NAMESPACE_HTML;
+    info.local_name = name;
+    robo_html_node_handle_clear(&out);
+    ROBO_CHECK_EQ_INT(robo_html_element_create(doc->id, &info, &out, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_html_node_handle_is_wellformed(&out), 1);
+    return out;
 }
 
 static inline void layout_document_release(layout_document_t *doc)

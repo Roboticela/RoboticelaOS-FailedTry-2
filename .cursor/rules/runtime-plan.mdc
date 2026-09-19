@@ -14,7 +14,7 @@ alwaysApply: true
 * **Phase 7 — RoboWindow & QEMU Display:** complete through **7.15** ✅
 * **Phase 8 — Minimal RoboHTML & DOM:** complete through **8.15** ✅
 * **Phase 9 — Minimal RoboCSS:** complete through **9.16** (the whole of Phase 9 — the last goal is conformance, which adds no production code) ✅
-* **Phase 10 — Minimal RoboLayout:** goals **10.1** and **10.2** complete (layout tree, object, constraints, result, context, builder, the RoboHTML + RoboCSS bridge, and formatting contexts — still **no geometry**: version 0.2.0, `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=0`, `ROBO_LAYOUT_FORMATTING_CONTEXTS_IMPLEMENTED=1`); **Next:** Goal **10.3** (block layout)
+* **Phase 10 — Minimal RoboLayout:** goals **10.1**, **10.2** and **10.3** complete (layout tree, object, constraints, result, context, builder, the RoboHTML + RoboCSS bridge, formatting contexts, and the block pass — the first to compute a **coordinate**: version 0.3.0, `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1`, `ROBO_LAYOUT_FORMATTING_CONTEXTS_IMPLEMENTED=1`, `ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED=1`, with `inline_layout` deliberately still 0); **Next:** Goal **10.4** (inline layout)
 
 
 The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
@@ -123,7 +123,7 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 
 10.1 Layout architecture ✅
 10.2 Formatting contexts ✅
-10.3 Block layout
+10.3 Block layout ✅
 10.4 Inline layout
 10.5 Text layout foundation
 10.6 Line boxes

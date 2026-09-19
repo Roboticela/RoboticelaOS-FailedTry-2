@@ -3936,6 +3936,96 @@ the two ids a box now carries.
   corrected — the case now asserts the parent link and the depth of the nested pair, which is the
   assertion a flat-but-correctly-counted context tree fails.
 
+## Goal 10.3 — Block layout
+
+**Status: complete.** The first goal of RoboLayout that computes a **coordinate** — the point every
+phase before it was built to reach. 10.1 built the tree and a pass that walked it without resolving
+anything; 10.2 answered *which boxes' contents are coordinated in which direction* and still
+computed nothing; 10.3 takes that answer and lays the block direction out.
+
+| Deliverable | Where |
+|---|---|
+| The pass | `RoboLayoutBlock.h` / `RoboLayoutBlock.c` — `robo_layout_block_layout(tree, viewport, &stats, diag)`, the module's first function that writes a position and a size |
+| Containment, kept apart from context | A box is placed inside its **parent**; its **formatting context** decides which pass stacks its contents. The walk descends the parent link always, and the placement gate is 10.2's own `robo_layout_fc_kind_is_block_container` — the distinction 10.9 and 10.12 would otherwise force a rewrite of |
+| The width rule, stated | A block box fills its containing block's content width, which is CSS's `width: auto`. A declared `width` is readable and **not applied**: resolving `200px`, percentages, `min-width` and `box-sizing` is 10.8 |
+| The height rule, stated | A declared `height` is honoured where this build can resolve it — a computed `px` length — and everything else (`auto`, a percentage, `em`, `vw`) takes the content path rather than a guess. One property, one kind check, one unit check: not a sizing algorithm |
+| Vertical stacking | Block-level children from the content origin, each below the last; a parent's height is the stacked extent of its children, so an empty container is legitimately zero tall |
+| A record of the mix | `RoboLayoutBlock.h` — `containers`, `blocks_placed`, `inline_level_skipped`, `unreached`, `heights_explicit`, `heights_from_content`, `empty_containers`, `depth_max`. Counters rather than one total, because a tree of transparent containers and a tree of placed leaves can share a count and have nothing else in common |
+| Geometry withdrawn with the classification | `RoboLayoutTree.c` — `contexts_reset` now demotes `COMPUTED` results to `UNRESOLVED`, because block geometry is a *function of* the classification. Written once in the shared path so all three callers agree, and conditioned so a box that never had a conclusion keeps `NONE` |
+| The pass wired into the context | `RoboLayoutContext.c` — a context that recorded a viewport runs the block pass after classifying, and derives `boxes_computed` from `blocks_placed` so the two cannot disagree. A context without one places nothing and is **not** an error |
+| Nine suites, 100 cases | `layout/tests/SuiteRoboLayoutBlock.c` (16) plus eight suites updated; `layout/docs/Tests.md` |
+| Version | `RoboLayoutVersion.h` 0.3.0 — `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` and `ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED=1`, with `inline_layout` and `block_and_inline_layout` still 0 |
+| The design record | `layout/docs/BlockLayout.md` — containment versus context, the width and height rules, what the pass declines to place and which goal owns each refusal, determinism, and the invalidation rule |
+
+### Completion criteria
+
+- [x] A real block-layout algorithm: a position and a size per block-level box in a block-direction
+      context, in the containing block's coordinate space.
+- [x] Deterministic traversal — creation order, which the builder makes document order, siblings in
+      link order — asserted by two passes over one tree and two trees from one document.
+- [x] The containing-block relationship is established and asserted at three levels of nesting: a
+      child is placed at **its parent's** content origin, including when the parent is transparent
+      to formatting context.
+- [x] Available width propagates: a child's width is its containing block's content width.
+- [x] Siblings stack vertically, each starting where the previous one's extent ended.
+- [x] `display: none` is excluded — it generates no box at all, so it is absent from the counts too.
+- [x] Inline objects are not processed as blocks, and are **counted** (`inline_level_skipped`,
+      `unreached`) rather than silently dropped.
+- [x] Layout results integrate with the 10.1 architecture, and the formatting contexts of 10.2 are the
+      placement gate rather than an input the pass re-derives.
+- [x] Re-layout after a relevant input change recalculates correctly, and an invalidation now also
+      withdraws the geometry derived from it.
+- [x] All 2116 tests pass in Debug and Release, and under ASan + UBSan.
+- [x] No Chromium dependency; `Tools/Build.ps1 -Verify` still scans this module for one.
+- [x] No inline layout, no line box, no anonymous box, and no deferred arithmetic (declared width,
+      margins, padding, borders, positioning, overflow) was implemented.
+
+### What 10.3 found
+
+**One production bug and two fixture problems — and no fourth finding, which is itself worth stating:**
+
+* **An invalidation released the classification but kept the geometry derived from it.** 10.2's
+  `robo_layout_tree_contexts_reset` dropped the context arena and left every box's result as it was —
+  correct while nothing derived geometry from the classification, and wrong from the moment the block
+  pass started reading its placement gate out of `object->context` and taking a box's height from the
+  children that gate let through. A surviving result was a `COMPUTED` state asserting a coordinate
+  about a tree that no longer existed. `layout.block.invalidation` is the case that found it, and it is
+  the same code path 10.2's `layout.fc.tree.add_invalidates` covers one level up: both phases found a
+  stale fact there, and the second only became reachable when something started depending on the first.
+  Fixed in the shared reset rather than in the invalidation door, because all three callers are saying
+  the same thing; and conditioned on the previous state, so `NONE` stays reachable and eight adds do
+  not manufacture `UNRESOLVED` for every box.
+* **A fixture that promised a state the builder cannot produce.** The invalidation case needs a
+  document it can add an element to. Building one through the tree builder does not help — the builder
+  finalizes at EOF, so no document it produces can ever accept a new element — and the first attempt to
+  leave one un-finalized depended on a state the builder never produces. The fixture took the honest
+  tool (`robo_html_document_create_element` over a live document) and the production builder was left
+  alone: a fixture working around a limitation is one thing; a fixture editing production to suit
+  itself is how a suite stops testing the thing it names.
+* **Three suites the phase's own numbers invalidated.** `layout.module`'s version and capability pins,
+  `layout.conformance.statement`'s `geometry == 0` claims, and `layout.conformance.no_geometry` all had
+  to move with the phase. None was weakened and none was deleted: the pins were re-pinned, `statement`
+  now asserts `1`, and `no_geometry` was **replaced** by `no_viewport` — the sharper claim that was true
+  all along and still is (`geometry == 1` describes a *build*, while a pass with no recorded viewport
+  places nothing), with the numbers moving to `layout.block.*`.
+* **The block algorithm itself came out right on the first build.** Reported as a fact about the phase
+  and not as a virtue: the nine suites around it had already pinned every input the pass reads — the
+  placement gate, the containing-block convention, the display vocabulary — so the arithmetic had
+  nowhere to hide.
+
+### The one distinction the phase turns on
+
+10.2 called a block container holding a block-level child **transparent**, and the word invites one
+dangerous reading: *not in the chain*. If a child were placed inside the nearest box that *establishes*
+a context rather than inside its parent, a grandchild's origin would be the grandparent's, and a document
+whose `<body>` is transparent would look laid out while being wrong about every nested box — and
+margin collapsing (10.9) and positioned containing blocks (10.12) would each have to unpick it.
+
+So the two questions are asked separately and answered from two different places: *what am I laid out
+inside* is the **parent link, always**; *which direction stacks my contents* is the **formatting
+context**. `layout.block.context_gate` makes the second claim impossible to break over every box in a
+tree, and `layout.block.nested` asserts the first at three levels.
+
 ## Next
 
-- Goal 10.3 — block layout — do not start until requested
+- Goal 10.4 — inline layout — do not start until requested

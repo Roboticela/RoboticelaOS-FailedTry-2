@@ -43,14 +43,30 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
 
     /* 10.2: the pass classifies every box into a formatting context, and that
      * classification is a finished feature rather than a flag waiting to be
-     * flipped -- which is why it is 1 here while `geometry` is still 0. */
+     * flipped -- which is why it is 1 here while `geometry` was still 0. */
     out->formatting_contexts = 1;
 
-    /* The two that are 0 are the point of the phases. Nothing computes a
-     * coordinate, and nothing lays a block or a line out: knowing *which* context
-     * a box belongs to is not knowing *where* it goes, and a build that conflated
-     * the two would report a laid-out document it does not have. */
+    /*
+     * 10.3, and the two flags that have to be read together.
+     *
+     * `geometry` becomes 1 because this build really does compute coordinates:
+     * `robo_layout_block_layout` writes positions and sizes, and a caller that ran
+     * a pass with a viewport has boxes whose results are COMPUTED. It is a
+     * statement about the *build*, not about any particular box -- a box the block
+     * pass did not place is still UNRESOLVED, and its result state is the per-box
+     * authority that says so.
+     *
+     * `block_layout` is 1 and `block_and_inline_layout` is still 0, which is the
+     * distinction worth keeping: the block direction is laid out and the inline
+     * direction is not, so a caller that asked the wider question has to be told no.
+     * `inline_layout` is 0 for the same reason and is spelled out rather than left
+     * to be inferred from the absence of the wider flag.
+     *
+     * `painting` stays 0: nothing here draws.
+     */
     out->geometry = ROBO_LAYOUT_GEOMETRY_IMPLEMENTED;
+    out->block_layout = ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED;
+    out->inline_layout = 0;
     out->block_and_inline_layout = 0;
     out->painting = 0;
     return ROBO_OK;

@@ -23,10 +23,17 @@
  * needs before it can lay anything out: **which boxes it is coordinating, and in
  * which direction**. A box now carries two context ids -- the one it participates
  * in and the one it establishes for its contents -- and a pass classifies every
- * box into both. That is a statement about how the boxes *will* be laid out and
- * not about where they are, so `geometry` stays 0 while
- * `formatting_contexts` becomes 1, which is the distinction between the two
- * capability fields.
+ * box into both.
+ *
+ * Phase 10.3 (RoboLayoutBlock.h) is the first phase that computes a coordinate.
+ * A block box fills its containing block's content width, its block-level
+ * children are stacked below one another from its content origin, and its height is
+ * the declared one when this build can resolve it and the stacked extent of its
+ * children otherwise. The containing block is the *parent box*; the formatting
+ * context decides the *direction*. Margins, padding, borders, declared widths,
+ * inline layout, positioning and overflow are all still absent and all still
+ * belong to named later goals -- so `geometry` and `block_layout` are 1 while
+ * `inline_layout` and `block_and_inline_layout` are 0.
  *
  * Chromium's LayoutObject / LayoutBox / constraint models are temporary technical
  * reference only; nothing here is a translation of them. See layout/README.md and
@@ -38,6 +45,7 @@
 
 #include "RoboBase/RoboError.h"
 
+#include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutBuilder.h"
 #include "RoboLayout/RoboLayoutConstraints.h"
 #include "RoboLayout/RoboLayoutContext.h"
@@ -86,14 +94,25 @@ typedef struct robo_layout_capabilities {
     int dom_build;
     /** Reading computed styles through the DOM bridge (10.1). */
     int computed_style_link;
-    /** Computing a box's geometry. **0**: no coordinate exists yet. */
+    /** Computing a box's geometry. **1** since 10.3: the block pass writes real
+     *  positions and sizes. A statement about the *build*, not about a box -- a
+     *  box the block pass did not place is still UNRESOLVED, and the result state
+     *  is the per-box authority. */
     int geometry;
     /** Classifying boxes into formatting contexts (10.2). */
     int formatting_contexts;
-    /** Computing a *line box* or a block extent. **0**: Phase 10.3 onwards --
-     *  and deliberately separate from `formatting_contexts`, because the two are
-     *  routinely conflated and conflating them is how "the pass ran" becomes
-     *  "the boxes were laid out". */
+    /** Laying the **block** direction out: containing blocks, stacking, extents
+     *  (10.3). */
+    int block_layout;
+    /** Laying the **inline** direction out: line boxes, inline placement, the
+     *  anonymous block boxes a mixed container needs. **0**: Phase 10.4. */
+    int inline_layout;
+    /** Computing a *line box* or a block extent. **0** until both of the two
+     *  above are 1 -- and it is kept as a derived, wider question rather than
+     *  retired, because a caller that wants "is layout done?" should have one field
+     *  to read that cannot be mistaken for "is half of it done?". A phase that
+     *  implemented one direction and flipped this one instead would have named a
+     *  feature it does not have. */
     int block_and_inline_layout;
     /** Painting a box. **0**: Phase 11. */
     int painting;
@@ -122,14 +141,24 @@ robo_result_t robo_layout_get_version(robo_i32 *out_major,
  *
  * A function rather than only a capability field, because it is the question a
  * caller actually asks before deciding whether to look at a result -- and because
- * a *function* cannot be read past. It answers 0: the surface exists, the numbers
- * do not, and a caller must treat every result as UNRESOLVED until a phase that
- * computes one flips this.
+ * a *function* cannot be read past.
  *
- * Phase 10.2 does not flip it. Classifying a box into a formatting context is a
- * statement about *how* it will be laid out, not about where it is -- so a tree
- * can now be fully classified and still contain no coordinate at all, and these
- * are exactly the two facts the capability struct keeps in separate fields.
+ * It answers 1 since Phase 10.3: the block direction is laid out, so a box *can*
+ * have geometry. What it does **not** mean is that any particular box has one.
+ * Two inputs decide that, and both are per-box rather than per-build:
+ *
+ *   a box the block pass did not place -- an inline-level box, or anything inside
+ *   an unplaced box -- is UNRESOLVED, and reading its position is a
+ *   `ROBO_NOT_FOUND` rather than a zero;
+ *
+ *   a pass with **no viewport** records no geometry at all, because the root box's
+ *   containing block is the viewport and RoboLayout owns no window to ask. That is
+ *   a documented precondition (`robo_layout_context_run`), not a silent zero.
+ *
+ * So this function answers "does this build compute coordinates?" and
+ * `robo_layout_result_is_computed` answers "does this box have one?". A caller
+ * that needs only the first has it here; a caller about to read a result must ask
+ * the second, whichever way this answers.
  */
 int robo_layout_geometry_is_implemented(void);
 

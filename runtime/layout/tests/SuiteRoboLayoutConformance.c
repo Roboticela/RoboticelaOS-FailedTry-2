@@ -58,8 +58,10 @@ static const struct {
     { "context", 1 },
     { "dom_build", 1 },
     { "computed_style_link", 1 },
-    { "geometry", 0 },
+    { "geometry", 1 },
     { "formatting_contexts", 1 },
+    { "block_layout", 1 },
+    { "inline_layout", 0 },
     { "block_and_inline_layout", 0 },
     { "painting", 0 }
 };
@@ -88,19 +90,31 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Seven of ten. Asserted as a count as well as field by field, so a build that
+    /* Nine of twelve. Asserted as a count as well as field by field, so a build that
      * turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
      * glance. */
-    ROBO_CHECK_EQ_INT(implemented, 7u);
+    ROBO_CHECK_EQ_INT(implemented, 9u);
 
-    /* The capability that matters is the one that is 0, said three ways: the
-     * field, the function and the macro. A build that flipped one of them would
-     * have two answers to one question, and this is the question a caller asks
-     * before reading a result. */
-    ROBO_CHECK_EQ_INT(caps.geometry, 0);
-    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_GEOMETRY_IMPLEMENTED, 0);
+    /*
+     * The three that matter are the direction pair and the flag above it, said
+     * three ways each: the field, the function and the macro. A build that flipped
+     * one of them would have two answers to one question, and this is the question
+     * a caller asks before reading a result.
+     *
+     * `geometry` is 1 since 10.3 because the block pass writes real coordinates,
+     * and `inline_layout` stays 0 because it is the *other* direction. The field
+     * that names both is therefore 0 too -- and 10.3 is exactly the phase where that
+     * distinction stops being academic: a build that implemented one direction and
+     * flipped the wider flag would have advertised line boxes it does not have.
+     */
+    ROBO_CHECK_EQ_INT(caps.geometry, 1);
+    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_GEOMETRY_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(caps.block_layout, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
+    ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -193,6 +207,7 @@ static void test_conformance_pipeline(void)
     robo_layout_stats_t stats;
     robo_layout_result_t result;
     robo_layout_size_t size;
+    robo_layout_rect_t rect;
     robo_html_node_handle_t card;
     const robo_css_computed_style_t *card_style;
     size_t index;
@@ -258,7 +273,16 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(children, 1u); /* only `.card`; `.hidden` generated nothing */
     }
 
-    /* A full pass over a real document, and every result still UNRESOLVED. */
+    /*
+     * A full pass over a real document, into a real viewport -- and this is the
+     * case that used to assert the *opposite* of what it asserts now.
+     *
+     * Until 10.3 the pass walked, counted and classified, and every box was left
+     * UNRESOLVED, because nothing in the build computed a coordinate. That claim
+     * has been *replaced* rather than weakened, which is the only honest way for a
+     * claim like it to die: the same tree, the same viewport and the same call now
+     * produce geometry, and the four boxes below are asserted to the pixel.
+     */
     ROBO_CHECK_EQ_INT(robo_layout_context_create(&context, NULL), ROBO_OK);
     {
         robo_layout_size_t viewport;
@@ -273,23 +297,127 @@ static void test_conformance_pipeline(void)
     robo_layout_context_stats(context, &stats);
     ROBO_CHECK_EQ_INT(stats.objects, 5u);
     ROBO_CHECK_EQ_INT(stats.visited, 5u);
-    ROBO_CHECK_EQ_INT(stats.boxes_computed, 0u);
-    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 5u);
+    /*
+     * Four of five, and the one left over is `<head>`: nothing styles it, so it
+     * computes to `display: inline` -- 9.12's initial value, not a UA stylesheet --
+     * and block layout does not place it. The two counters therefore disagree on
+     * purpose, which is what makes them two counters.
+     */
+    ROBO_CHECK_EQ_INT(stats.boxes_computed, 4u);
+    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 1u);
     ROBO_CHECK_EQ_INT(stats.without_style, 0u);
     /* html 0, head 1, body 1, div.card 2, p.title 3. */
     ROBO_CHECK_EQ_INT(stats.depth_max, 3u);
     ROBO_CHECK_EQ_INT(stats.depth_max, layout_tree_max_depth(fixture.tree));
 
-    /* And "no geometry" is not a claim about a count: it is a claim that a caller
-     * reading a result is *told*, so every box's geometry read is a miss. */
-    for (index = 0u; index < 5u; index++) {
-        robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
+    /* The block pass's own record, because `boxes_computed` is *derived* from it:
+     * four placed, one declined for a stated reason, none unreached. A reader who
+     * wants to know why the fifth box has no geometry reads it here. */
+    ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 4u);
+    ROBO_CHECK_EQ_INT(stats.block.inline_level_skipped, 1u);
+    ROBO_CHECK_EQ_INT(stats.block.unreached, 0u);
+    ROBO_CHECK_EQ_INT(stats.block.containers, 3u);
+    ROBO_CHECK_EQ_INT(stats.block.empty_containers, 1u);
+    ROBO_CHECK_EQ_INT(stats.block.heights_explicit, 1u);
+    ROBO_CHECK_EQ_INT(stats.block.depth_max, 3u);
 
-        ROBO_CHECK_EQ_INT(robo_layout_object_id_at(fixture.tree, index, &id), ROBO_OK);
-        ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, id, &result), ROBO_OK);
-        ROBO_CHECK_EQ_INT(result.state, ROBO_LAYOUT_RESULT_UNRESOLVED);
+    /*
+     * And the geometry itself, which is what this case is now for: a box fills its
+     * containing block, its children stack, and a declared `height` is honoured
+     * while a declared `width` is not.
+     *
+     * The card is the whole point. It declares `width: 200px` and `height: 100px`,
+     * `position: relative`, `top: 10px`, a border, a margin and padding -- and of
+     * those, exactly one number reaches the result. Its width is the *containing
+     * block's* 1280, because resolving a declared width is 10.8; its height is 100,
+     * because a px length is the one declaration this build can resolve; and the
+     * position, border, margin and padding are all later goals. A build that read
+     * any of them here would be answering a phase that has not run.
+     */
+    {
+        robo_html_node_handle_t html_element = layout_document_find(&fixture.doc, "html");
+        robo_html_node_handle_t body_element = layout_document_find(&fixture.doc, "body");
+        robo_html_node_handle_t title_element = layout_document_find(&fixture.doc, "p");
+        robo_layout_node_id_t html_box = robo_layout_object_id_for_dom_node(fixture.tree,
+                                                                           &html_element);
+        robo_layout_node_id_t body_box = robo_layout_object_id_for_dom_node(fixture.tree,
+                                                                           &body_element);
+        robo_layout_node_id_t card_box = robo_layout_object_id_for_dom_node(fixture.tree,
+                                                                           &card);
+        robo_layout_node_id_t title_box = robo_layout_object_id_for_dom_node(fixture.tree,
+                                                                            &title_element);
+        robo_layout_point_t position;
+
+        ROBO_CHECK(html_box != ROBO_LAYOUT_NODE_ID_NONE);
+        ROBO_CHECK(body_box != ROBO_LAYOUT_NODE_ID_NONE);
+        ROBO_CHECK(card_box != ROBO_LAYOUT_NODE_ID_NONE);
+        ROBO_CHECK(title_box != ROBO_LAYOUT_NODE_ID_NONE);
+
+        ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, html_box, &result),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_COMPUTED);
+        ROBO_CHECK_EQ_INT(robo_layout_result_rect(&result, &rect, NULL), ROBO_OK);
+        ROBO_CHECK_EQ_INT(rect.x, 0);
+        ROBO_CHECK_EQ_INT(rect.y, 0);
+        ROBO_CHECK_EQ_INT(rect.width, 1280);
+        /* `<body>` is the only block-level child that stacks, and it is 100 tall. */
+        ROBO_CHECK_EQ_INT(rect.height, 100);
+
+        ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, body_box, &result),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_COMPUTED);
+        ROBO_CHECK_EQ_INT(robo_layout_result_rect(&result, &rect, NULL), ROBO_OK);
+        ROBO_CHECK_EQ_INT(rect.x, 0);
+        ROBO_CHECK_EQ_INT(rect.y, 0);
+        ROBO_CHECK_EQ_INT(rect.width, 1280);
+        ROBO_CHECK_EQ_INT(rect.height, 100);
+
+        ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, card_box, &result),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_COMPUTED);
+        ROBO_CHECK_EQ_INT(robo_layout_result_position(&result, &position), ROBO_OK);
+        ROBO_CHECK_EQ_INT(position.x, 0);
+        ROBO_CHECK_EQ_INT(position.y, 0);
+        ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
+        ROBO_CHECK_EQ_INT(size.width, 1280); /* the containing block's, not 200 */
+        ROBO_CHECK_EQ_INT(size.height, 100); /* the declared one, honoured */
+
+        /* The title is a placed box with a *zero* extent, which is 10.3's honest
+         * answer for a `<p>` whose only content is text: a text node is not a box,
+         * so there is nothing to stack and nothing measuring it yet. The container
+         * that holds only text is what establishes an inline context. */
+        ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, title_box, &result),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_COMPUTED);
+        ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
+        ROBO_CHECK_EQ_INT(size.width, 1280);
+        ROBO_CHECK_EQ_INT(size.height, 0);
+    }
+
+    /*
+     * And the opposite answer, from the same call, on the one box the pass declined:
+     * "no geometry" is not a claim about a count, it is a claim that a caller
+     * reading a result is *told*. `<head>` reads UNRESOLVED and its geometry reads
+     * are misses -- where the four above read COMPUTED and their numbers. A build
+     * that returned a zeroed rectangle for the fifth would satisfy "the pass ran"
+     * and is exactly what the states exist to prevent.
+     */
+    {
+        robo_html_node_handle_t head_element = layout_document_find(&fixture.doc, "head");
+        robo_layout_node_id_t head_box = robo_layout_object_id_for_dom_node(fixture.tree,
+                                                                           &head_element);
+
+        ROBO_CHECK(head_box != ROBO_LAYOUT_NODE_ID_NONE);
+        ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, head_box, &result),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_UNRESOLVED);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_NOT_FOUND);
         ROBO_CHECK_EQ_INT(robo_layout_result_is_computed(&result), 0);
+        ROBO_CHECK_EQ_INT(result.position.x, 0);
+        ROBO_CHECK_EQ_INT(result.position.y, 0);
+        ROBO_CHECK_EQ_INT(result.size.width, 0);
+        ROBO_CHECK_EQ_INT(result.size.height, 0);
+        ROBO_CHECK_EQ_INT(result.flags & ROBO_LAYOUT_RESULT_FLAG_ALL, 0);
     }
 
     robo_layout_context_destroy(context);
@@ -547,36 +675,63 @@ static void test_conformance_robust(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* No geometry, after a pass over a real document                      */
+/* Classification without a viewport, geometry with one               */
 /* ------------------------------------------------------------------ */
 
-static void test_conformance_no_geometry(void)
+/**
+ * A pass with no viewport: it classifies, and it places nothing.
+ *
+ * This case **replaces** `layout.conformance.no_geometry`, and the replacement is
+ * the point rather than an edit. 10.3 made "the pass computed no coordinate" false
+ * of a build; asserting it anyway would mean weakening the suite to keep a name,
+ * and the useful half of the old claim was never about geometry -- it was that the
+ * *classification* does not depend on having a viewport. A caller that wants to
+ * know which context a box is in should not have to invent a window size, and a
+ * build that refused would make the phase that classifies depend on the phase that
+ * sizes.
+ *
+ * So the geometry half is now *conditional*, and this case states the condition
+ * exactly: no viewport, no coordinate, every box honestly UNRESOLVED, and the
+ * counter that says nothing was placed at zero. The pipeline case above is the
+ * other side of the same coin, and the two together are what the capability fields
+ * mean.
+ */
+static void test_conformance_no_viewport(void)
 {
     layout_conformance_fixture_t fixture;
     robo_layout_context_t *context = NULL;
     robo_layout_capabilities_t caps;
+    robo_layout_stats_t stats;
+    robo_layout_size_t viewport;
     size_t index;
 
     layout_fixture();
     layout_conformance_begin(&fixture);
 
     ROBO_CHECK_EQ_INT(robo_layout_context_create(&context, NULL), ROBO_OK);
+    /* No viewport was recorded, and the context says so rather than reporting a
+     * default -- the difference between "the initial containing block is 0x0" and
+     * "nobody has told me what it is" is a difference a caller acts on. */
+    ROBO_CHECK_EQ_INT(robo_layout_context_viewport(context, &viewport), ROBO_NOT_FOUND);
     ROBO_CHECK_EQ_INT(robo_layout_context_run(context, fixture.tree, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_layout_context_run(context, fixture.tree, NULL), ROBO_OK);
 
     ROBO_CHECK_EQ_INT(robo_layout_get_capabilities(&caps), ROBO_OK);
-    ROBO_CHECK_EQ_INT(caps.geometry, 0);
+    ROBO_CHECK_EQ_INT(caps.geometry, 1);
     ROBO_CHECK_EQ_INT(caps.formatting_contexts, 1);
+    ROBO_CHECK_EQ_INT(caps.block_layout, 1);
+    ROBO_CHECK_EQ_INT(caps.inline_layout, 0);
     ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 0);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
-    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
 
     /*
      * The phase's two claims, side by side and both true of the same tree, which is
-     * the whole reason they are two capability fields: every box now takes part in
-     * a formatting context, and not one box has a coordinate. A build that had
-     * conflated "the pass classified this document" with "the pass laid it out"
-     * would have flipped `geometry` and failed here.
+     * the whole reason they are separate: `geometry` describes the *build* -- it can
+     * compute a coordinate -- while this pass has no containing block to compute one
+     * *into*. A build that had conflated "this build lays boxes out" with "this pass
+     * laid them out" would have failed here, and that conflation is what the
+     * per-box result state exists to make impossible.
      */
     ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 1);
     ROBO_CHECK_EQ_INT(robo_layout_tree_context_count(fixture.tree) > 0u, 1);
@@ -608,9 +763,19 @@ static void test_conformance_no_geometry(void)
         }
     }
 
-    /* Not one box has a coordinate, and not one of them answers as if it did.
-     * This is the assertion the phases rest on: a build that returned a
-     * zeroed rectangle would satisfy "the pass ran" and fail this. */
+    /*
+     * Not one box has a coordinate, and not one of them answers as if it did -- and
+     * the counters say *why* rather than leaving a reader to guess: two passes ran,
+     * both wrote their per-box statement, and the block pass placed nothing.
+     */
+    robo_layout_context_stats(context, &stats);
+    ROBO_CHECK_EQ_INT(stats.passes, 2u);
+    ROBO_CHECK_EQ_INT(stats.objects, 5u);
+    ROBO_CHECK_EQ_INT(stats.visited, 5u);
+    ROBO_CHECK_EQ_INT(stats.boxes_computed, 0u);
+    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 5u);
+    ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 0u);
+
     for (index = 0u; index < robo_layout_tree_object_count(fixture.tree); index++) {
         robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
         robo_layout_result_t result;
@@ -635,6 +800,23 @@ static void test_conformance_no_geometry(void)
             ROBO_CHECK_EQ_INT(robo_layout_result_equal(ref, &result), 1);
         }
     }
+
+    /*
+     * Then the viewport arrives, and the *same* call computes: the only input that
+     * changed is the initial containing block, and four boxes now have geometry where
+     * none of them did. That pair is the whole claim of this case -- what a pass
+     * needs in order to place a box -- and it is why the viewport is recorded by the
+     * caller instead of asked of a window.
+     */
+    viewport.width = 1280;
+    viewport.height = 800;
+    ROBO_CHECK_EQ_INT(robo_layout_context_set_viewport(context, viewport, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_layout_context_run(context, fixture.tree, NULL), ROBO_OK);
+    robo_layout_context_stats(context, &stats);
+    ROBO_CHECK_EQ_INT(stats.passes, 3u);
+    ROBO_CHECK_EQ_INT(stats.boxes_computed, 4u);
+    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 1u);
+    ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 4u);
 
     robo_layout_context_destroy(context);
     layout_conformance_end(&fixture);
@@ -696,8 +878,8 @@ static void test_conformance_statement(void)
      * which is the point: a phase that computes geometry should not be able to leave
      * the build claiming it does not.
      */
-    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 0);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.2.0");
+    ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.3.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*
@@ -708,9 +890,11 @@ static void test_conformance_statement(void)
      * everywhere else: `display` already carries the outer/inner pair that would
      * distinguish a block box from an inline one, and a second copy of those facts in
      * `kind` would be two places for one answer -- which is exactly what 10.1 refused
-     * to do for every other property. `kind` therefore stays one entry wide, and
-     * 10.3 will add the row it needs when anonymous boxes are boxes that have no
-     * element -- and therefore no `display` -- to derive it from.
+     * to do for every other property. `kind` therefore stays one entry wide, and it
+     * survived 10.3 unchanged: a block box is still the only kind of box the build
+     * makes, because an *anonymous* box -- the one a mixed container needs, and the
+     * one that has no element and therefore no `display` to derive a kind from -- is
+     * 10.4's to build.
      */
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_KIND_COUNT, 2);
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_BOX), 1);
@@ -734,7 +918,7 @@ void robo_test_register_layout_conformance(void)
     robo_test_register("layout.conformance.pipeline", test_conformance_pipeline);
     robo_test_register("layout.conformance.determinism", test_conformance_determinism);
     robo_test_register("layout.conformance.robust", test_conformance_robust);
-    robo_test_register("layout.conformance.no_geometry", test_conformance_no_geometry);
+    robo_test_register("layout.conformance.no_viewport", test_conformance_no_viewport);
     robo_test_register("layout.conformance.allocator_balance",
                        test_conformance_allocator_balance);
     robo_test_register("layout.conformance.statement", test_conformance_statement);

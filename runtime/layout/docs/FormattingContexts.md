@@ -34,10 +34,13 @@ robo_layout_context_run(context, tree, diag)
         robo_layout_object_context_owned() ─► what a box establishes, if anything
 ```
 
-What it still does **not** do is compute a coordinate. `geometry` stays `0`,
-`ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` stays `0`, and no function in this phase takes
-or returns a rectangle. What changed is that 10.3 and 10.4 now begin with a
-question already answered rather than a question to re-derive.
+What it still does **not** do is compute a coordinate. 10.2 shipped with
+`geometry` at `0` and `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` at `0`, and no function in
+that phase took or returned a rectangle. What it changed is that 10.3 and 10.4
+begin with a question already answered rather than a question to re-derive — and
+10.3 has since spent exactly that: the block pass reads its placement gate straight
+out of the context a box participates in, and never asks a display value which
+boxes it owns.
 
 The capability that flipped is `formatting_contexts`, which 10.1 shipped as `0`
 with `10.2` in its "filled by" column. It is `1` now, and
@@ -370,9 +373,15 @@ had only counted contexts would have shipped with both.
 | 10.12 containing blocks | what a positioned box's containing block is | `parent` and `depth` on the context tree |
 | 10.13 overflow | which box is a scroll container | the context a box establishes |
 
-None of these needs a new header for the classification itself. What 10.3 will add
-is the **anonymous box**, and that will be a builder change plus a row in §4's
-table — not a change to the context model.
+None of these needs a new header for the classification itself, and 10.3 did not
+change the context model at all: it consumed `robo_layout_fc_kind_is_block_container`
+as its single placement gate, and left §4's table alone. What the table's 10.3 rows
+predicted was the **anonymous box** — and 10.3 did not build it, on purpose. An
+anonymous box exists to give an inline run a block-level home, and a home whose
+contents are laid out along a line belongs to the phase that lays lines out. It is
+10.4's, and `docs/BlockLayout.md` §5 states what happens instead: a block-level box
+inside an inline box is counted as `unreached` rather than placed inside something
+that has no geometry.
 
 ---
 
@@ -382,10 +391,13 @@ table — not a change to the context model.
   of context*, never how to lay one out.
 - **No CSS parsing.** The display arrives computed, and the only thing read out of
   it is the outer/inner pair 9.12 records.
-- **No anonymous box, no text box, no fragment.** 10.3 and 10.5.
+- **No anonymous box, no text box, no fragment.** 10.4 and 10.5. 10.3 did not add
+  one either (see §9).
 - **No float, no clearance, no `overflow`, no `position`.** 10.12 and 10.13.
-- **No geometry.** A context has a depth and a participant count; it has no
-  rectangle, and `geometry` stays `0`.
+- **No geometry *of its own*.** A context still has a depth and a participant
+  count; it has no rectangle, and nothing here computes one. 10.3 computes geometry
+  and reads this model to decide which boxes it owns — the dependency is the one
+  §9's table lists, and it runs one way.
 - **No Chromium.** Blink's `LayoutBlock`/`LayoutInline` split and its
   `FormattingContext` are temporary technical reference only; the vocabulary, the
   record and the classifier here are Roboticela's, and `Tools/Build.ps1 -Verify`

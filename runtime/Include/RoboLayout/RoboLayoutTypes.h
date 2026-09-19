@@ -95,11 +95,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** The geometry vocabulary (borrowed from RoboGraphics). */
     ROBO_LAYOUT_DOMAIN_GEOMETRY = 10,
     /** Formatting contexts: classification, establishment, participation. */
-    ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT = 11
+    ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT = 11,
+    /** Block layout: containing blocks, stacking, the geometry it writes. */
+    ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT = 12
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 12u
+#define ROBO_LAYOUT_DOMAIN_COUNT 13u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

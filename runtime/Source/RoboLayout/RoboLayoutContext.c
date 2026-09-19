@@ -429,6 +429,53 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
      * answer rather than an absence.
      */
     robo_layout_tree_mark_classified(tree);
+
+    /*
+     * Block layout (10.3), and the condition on it is the interesting part.
+     *
+     * The root box's containing block is the initial containing block, which is the
+     * viewport -- and RoboLayout owns no window to ask. So the viewport is an
+     * *input*: recorded by the caller, and absent when the caller did not record
+     * one. Without it there is no width for a block box to fill and nothing to
+     * stack into, so the pass stops here with every box UNRESOLVED and a block
+     * stats record of zeros.
+     *
+     * That is deliberately not an error. A caller that only wants the classification
+     * -- a suite proving which context a box is in, a diagnostic asking what kind of
+     * box an element is -- should not have to invent a viewport to get it, and a
+     * build that refused would make the phase that *classifies* depend on the phase
+     * that *sizes*. It is also not silent: the result states and
+     * `stats.block.blocks_placed` both say nothing was placed, and the header states
+     * the precondition.
+     */
+    if (context->has_viewport && robo_layout_tree_root(tree) != ROBO_LAYOUT_NODE_ID_NONE) {
+        robo_result_t laid_out = robo_layout_block_layout(tree, context->viewport,
+                                                          &context->stats.block, diag);
+
+        if (laid_out != ROBO_OK) {
+            context->outcome = ROBO_LAYOUT_PASS_FAILED;
+            return laid_out;
+        }
+        /*
+         * Counted here rather than inside the block pass, because the fact is about
+         * *this* pass's boxes and not about the block pass's arithmetic: a box is
+         * COMPUTED exactly when the block pass placed it, and the block stats already
+         * carry that count. Deriving it keeps one source of truth for the number
+         * instead of two counters that must agree -- and it is what makes
+         * `boxes_computed` and `blocks_placed` impossible to disagree by construction.
+         */
+        context->stats.boxes_computed = context->stats.block.blocks_placed;
+        context->stats.boxes_unresolved = count > context->stats.boxes_computed
+                                              ? count - context->stats.boxes_computed
+                                              : 0u;
+    }
+    /*
+     * A tree with no root box is not taken to the block pass at all, and the
+     * condition above says so rather than letting a ROBO_NOT_FOUND travel back and
+     * be reinterpreted: a document whose root element generates no box has no block
+     * layout to do, `objects` is already 0, and every counter is already right.
+     */
+
     context->stats.passes++;
     return ROBO_OK;
 }
