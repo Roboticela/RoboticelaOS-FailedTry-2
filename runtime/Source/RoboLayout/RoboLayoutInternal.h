@@ -35,6 +35,7 @@
 #include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
+#include "RoboLayout/RoboLayoutMargin.h"
 #include "RoboLayout/RoboLayoutSizing.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTree.h"
@@ -137,22 +138,76 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
                                                robo_gfx_pixel_y_t *out_extent);
 
 /*
- * The one style read both directions make.
+ * The one style read every direction makes.
  *
  * 10.3 defined these in RoboLayoutBlock.c, "because that is where it was first
  * needed and where its rules are argued", and predicted that 10.8 would change the
  * rule. It did, and this is where the prediction landed: the four checks now live in
- * RoboLayoutSizing.c as one *classification* that two readers shape -- the dimension
- * reader below (three kinds) and `robo_layout_style_px_length` (a px length or
- * nothing). `font-size` needs the second because a font size is not a box dimension
- * and `12.5px` has to stay `12.5`, and keeping one classification behind both is what
- * stops `auto` and `50%` from being folded together at the seam.
+ * RoboLayoutSizing.c as one *classification* that three readers shape -- the dimension
+ * reader below (three kinds), `robo_layout_style_px_length` (a px length or nothing),
+ * and 10.9's margin reader (a **signed** px length or nothing). `font-size` needs the
+ * second because a font size is not a box dimension and `12.5px` has to stay `12.5`,
+ * and keeping one classification behind all three is what stops `auto` and `50%` from
+ * being folded together at the seam.
  *
- * Shared rather than copied, for the reason the module shares everything: "a
- * declared value this build can resolve is a computed LENGTH in px, finite,
- * non-negative and inside the geometry's range" is one rule, and two passes with
- * their own copies of it would be two answers to one question.
+ * 10.9 opened the classification's one parameter rather than copying it, and the
+ * parameter is the whole of the difference between a box dimension and a margin:
+ * `width: -10px` is an invalid declaration and `margin: -10px` is a technique. The
+ * *rules* -- the entry must exist, the keyword is `auto` or unusable, a LENGTH in px
+ * is usable when it is finite and inside the geometry's range, anything else is
+ * unusable -- are one rule and stay in one place.
+ *
+ * Shared rather than copied, for the reason the module shares everything: "a declared
+ * value this build can resolve is a computed LENGTH in px, finite and inside the
+ * geometry's range" is one rule, and two passes with their own copies of it would be
+ * two answers to one question.
  */
+
+/**
+ * The largest magnitude a declared length may have and still be usable.
+ *
+ * A `double` that fits the geometry: `robo_gfx_pixel_x_t` is int32_t, and a declared
+ * length of `3e9px` is not a size a box can have. It bounds the *length* rather than
+ * the geometry, so it is the seam's number and it belongs beside the seam's other
+ * vocabulary: 10.8's classification compares against it, 10.9's margin reader reads
+ * the same comparison through that classification, and the availability clamp in
+ * RoboLayoutMargin.c floors a containing block into the same range. Named for the
+ * seam rather than for sizing since 10.9, because two layers now read it.
+ */
+#define LAYOUT_STYLE_LENGTH_MAX 2147483647.0
+
+/**
+ * What a computed style's declaration holds, before anybody decides what to do with
+ * it. RoboLayoutSizing.c owns the classification and its readers; 10.9's margin seam
+ * is its second *shape*, which is why the vocabulary is here rather than in that
+ * file.
+ */
+typedef enum layout_style_value_kind {
+    /** No entry, or an entry that determines nothing at all. */
+    LAYOUT_STYLE_VALUE_ABSENT = 0,
+    /** The keyword `auto`. */
+    LAYOUT_STYLE_VALUE_AUTO = 1,
+    /** A usable px length, in the classification's number output. */
+    LAYOUT_STYLE_VALUE_PX = 2,
+    /** Declared, and not usable here: another unit, a percentage, or out of range. */
+    LAYOUT_STYLE_VALUE_UNUSABLE = 3
+} layout_style_value_kind_t;
+
+/**
+ * Classify what @p style declares for @p property.
+ *
+ * The seam's one rule, in one place, with signedness as its one parameter.
+ *
+ * @param allow_negative a box dimension refuses a negative length; a margin uses one.
+ * @return 1 when the question could be asked; 0 for a NULL @p style or @p property,
+ *         which leaves both outputs untouched -- the contract that makes "a box with
+ *         no style has made no declarations" true rather than a special case.
+ */
+int robo_layout_style_classify(const robo_css_computed_style_t *style,
+                               const char *property,
+                               int allow_negative,
+                               layout_style_value_kind_t *out_kind,
+                               double *out_number);
 
 /**
  * Fill @p sizing from one box (10.8): available width, declared dimensions and

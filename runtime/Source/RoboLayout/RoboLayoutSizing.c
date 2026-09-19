@@ -34,36 +34,23 @@
 
 #include <string.h>
 
-/* A `double` that fits the geometry: `robo_gfx_pixel_x_t` is int32_t, and a
- * declared length of `3e9px` or a NaN is not a size a box can have. */
-#define LAYOUT_SIZING_LENGTH_MAX 2147483647.0
+/*
+ * `LAYOUT_SIZING_LENGTH_MAX` lived here from 10.8 and moved to
+ * RoboLayoutInternal.h in 10.9, where it is `LAYOUT_STYLE_LENGTH_MAX`: the margin
+ * seam reads the same comparison through this classification, so the bound belongs
+ * beside the vocabulary two layers now share rather than inside one of them.
+ */
 
 /* ------------------------------------------------------------------ */
 /* The shared classification                                           */
 /* ------------------------------------------------------------------ */
 
-/**
- * What a computed style's declaration holds, before anybody decides what to do
- * with it.
- *
- * Four answers rather than a boolean, because "nothing there", "the keyword
- * `auto`" and "a percentage" are three different facts and the two readers below
- * need different subsets of them. `ABSENT` and `AUTO` resolve identically
- * *everywhere* -- CSS's initial value for `width` and `height` is `auto`, so an
- * element nothing declared one for is `auto` -- but they are kept apart because
- * the day a UA stylesheet (a later goal) gives an element a declared `auto`, this
- * is the seam that can see the difference.
+/*
+ * The classification's vocabulary is in RoboLayoutInternal.h, and it moved there in
+ * 10.9 for the reason a shared rule always moves: the margin seam reads a *signed*
+ * length through the same four checks, so the checks now have two callers' worth of
+ * vocabulary and one implementation.
  */
-typedef enum layout_style_value_kind {
-    /** No entry, or an entry that determines nothing at all. */
-    LAYOUT_STYLE_VALUE_ABSENT = 0,
-    /** The keyword `auto`. */
-    LAYOUT_STYLE_VALUE_AUTO = 1,
-    /** A usable px length, in @c out_number. */
-    LAYOUT_STYLE_VALUE_PX = 2,
-    /** Declared, and not usable here: another unit, a percentage, or out of range. */
-    LAYOUT_STYLE_VALUE_UNUSABLE = 3
-} layout_style_value_kind_t;
 
 /**
  * Classify what @p style declares for @p property.
@@ -78,9 +65,12 @@ typedef enum layout_style_value_kind {
  *   keyword names a length, so `width: inherit` reaching here as a keyword is a value
  *   this build cannot use rather than a value it may reinterpret.
  *
- *   a `LENGTH` in `px`, finite, non-negative and inside the geometry's range is
- *   usable. 9.8's computed rule normalises an *absolute* unit to px exactly, so
- *   `1in` arrives as `96`; a relative unit is not resolvable here.
+ *   a `LENGTH` in `px`, finite and inside the geometry's range is usable. 9.8's
+ *   computed rule normalises an *absolute* unit to px exactly, so `1in` arrives as
+ *   `96`; a relative unit is not resolvable here. **Non-negative unless the caller
+ *   allows otherwise** -- which is 10.9's one parameter and the only difference
+ *   between a box dimension and a margin: `width: -10px` is an invalid declaration
+ *   and `margin: -10px` is a technique.
  *
  *   anything else -- a percentage, a bare number, a colour -- is `UNUSABLE`.
  *
@@ -92,10 +82,11 @@ typedef enum layout_style_value_kind {
  *         public door documents: a box with no style has made no declarations, and
  *         its caller's initialised record already says so.
  */
-static int layout_style_read_px(const robo_css_computed_style_t *style,
-                                const char *property,
-                                layout_style_value_kind_t *out_kind,
-                                double *out_number)
+int robo_layout_style_classify(const robo_css_computed_style_t *style,
+                               const char *property,
+                               int allow_negative,
+                               layout_style_value_kind_t *out_kind,
+                               double *out_number)
 {
     const robo_css_computed_value_t *value;
 
@@ -120,11 +111,16 @@ static int layout_style_read_px(const robo_css_computed_style_t *style,
     if (value->kind == ROBO_CSS_COMPUTED_VALUE_LENGTH && value->unit == ROBO_CSS_UNIT_PX &&
         !value->unresolved) {
         /*
-         * Deliberately written as a negated pair so that a NaN -- which compares
-         * false against everything -- fails the first test rather than slipping
-         * through a `number < 0` check.
+         * Deliberately written as out-of-range tests rather than as a pair of
+         * comparisons against a negated `number < 0`, so that a NaN -- which compares
+         * false against everything -- fails a test rather than slipping through one.
+         * The lower bound is 10.9's parameter and nothing else: a margin may be
+         * negative, and a *bounded* negative margin is as much a length as a bounded
+         * positive one.
          */
-        if ((value->number >= 0.0) && (value->number <= LAYOUT_SIZING_LENGTH_MAX)) {
+        double lowest = allow_negative ? -LAYOUT_STYLE_LENGTH_MAX : 0.0;
+
+        if ((value->number >= lowest) && (value->number <= LAYOUT_STYLE_LENGTH_MAX)) {
             *out_kind = LAYOUT_STYLE_VALUE_PX;
             *out_number = value->number;
             return 1;
@@ -878,7 +874,7 @@ int robo_layout_sizing_read_dimension(const robo_css_computed_style_t *style,
     if (!out) {
         return 0;
     }
-    if (!layout_style_read_px(style, property, &kind, &number)) {
+    if (!robo_layout_style_classify(style, property, 0, &kind, &number)) {
         return 0;
     }
 
@@ -910,7 +906,15 @@ int robo_layout_sizing_read_dimension(const robo_css_computed_style_t *style,
 
 robo_gfx_pixel_x_t robo_layout_px_round(double value)
 {
-    return (robo_gfx_pixel_x_t)(value + 0.5);
+    /*
+     * Half away from zero, which this door's comment has claimed since 10.8 and which
+     * was only true for non-negative values until 10.9 -- because until 10.9 nothing
+     * signed reached it. A margin does: `margin: -10.5px` has to become -11 rather
+     * than -10, and a build that rounded a negative margin *towards* zero would make
+     * every fractional negative margin a pixel small in the one direction an author
+     * would notice (the box would not reach as far as it was told to).
+     */
+    return value < 0.0 ? (robo_gfx_pixel_x_t)(value - 0.5) : (robo_gfx_pixel_x_t)(value + 0.5);
 }
 
 int robo_layout_style_px_length(const robo_css_computed_style_t *style,
@@ -923,7 +927,7 @@ int robo_layout_style_px_length(const robo_css_computed_style_t *style,
     if (!out_value) {
         return 0;
     }
-    if (!layout_style_read_px(style, property, &kind, &number)) {
+    if (!robo_layout_style_classify(style, property, 0, &kind, &number)) {
         return 0;
     }
     if (kind != LAYOUT_STYLE_VALUE_PX) {

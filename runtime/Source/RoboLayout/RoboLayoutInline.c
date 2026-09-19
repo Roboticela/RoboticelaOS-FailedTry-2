@@ -368,14 +368,23 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
                                          robo_gfx_pixel_y_t y,
                                          int32_t width,
                                          int32_t height,
-                                         robo_layout_baseline_metrics_t baseline)
+                                         robo_layout_baseline_metrics_t baseline,
+                                         int32_t margin_left,
+                                         int32_t margin_right)
 {
     robo_layout_point_t position;
     robo_layout_size_t size;
     robo_result_t status;
     int first_on_line = flow->line.members == 0u;
+    int32_t advance = margin_left + width + margin_right;
 
-    position.x = x;
+    /*
+     * The horizontal margins arrive here rather than being folded into `width` by the
+     * caller, and the distinction is the phase in one place: the box is placed
+     * `margin_left` in from the cursor and its **size stays its own** -- the two
+     * numbers are not added together anywhere, even though the cursor moves past both.
+     */
+    position.x = x + margin_left;
     position.y = y;
     size.width = width;
     size.height = height;
@@ -441,8 +450,16 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
      * (`layout_inline_finalize_line`).
      */
 
-    flow->line.cursor = x + width;
-    flow->line.width += width;
+    /*
+     * And the cursor moves by the **advance**: left margin, the box, right margin. So
+     * a line's accounted width is the sum of what its members *occupy* rather than the
+     * sum of their content boxes, which is the same statement 10.6 made and the reason
+     * the definition survives this phase: for a text run and for a marginless box the
+     * two are equal, and where they differ the margin box is the honest one -- a
+     * `<span>`-shaped box with a `margin-right` does push the next thing along.
+     */
+    flow->line.cursor = x + advance;
+    flow->line.width += advance;
     layout_inline_count(walk, flow, object);
     return ROBO_OK;
 }
@@ -476,6 +493,9 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
     int atomic;
     int32_t width = 0;
     int32_t height = 0;
+    int32_t margin_left = 0;
+    int32_t margin_right = 0;
+    int32_t margin_bottom = 0;
 
     if (!object) {
         return ROBO_LAYOUT_DIAG(walk->diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
@@ -487,16 +507,41 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
     if (atomic) {
         robo_layout_sizing_t sizing;
         robo_layout_size_t content;
+        robo_layout_margins_t declared = robo_layout_margins_of(object->style);
+        robo_layout_margin_edges_t edges;
         robo_result_t sizing_status;
+
+        /*
+         * The margins first (10.9), for the reason the block pass resolves them first
+         * and one more: an atomic inline's horizontal margins move the cursor it is
+         * placed at *and* take space out of what its own `auto` width may fill. The
+         * containing block here is the inline context's content box, which is what
+         * 10.4's fallback has always filled.
+         *
+         * The **inline** policy, not the block one, and `auto` therefore does not
+         * distribute: an inline-level box has no width constraint to be under- or
+         * over-, so CSS gives every `auto` margin a used value of 0 here. Reaching for
+         * the block door would centre an `inline-block` inside its line, which is not
+         * a thing CSS does.
+         */
+        sizing_status = robo_layout_margins_resolve_inline(&declared, flow->available_width,
+                                                          &edges, walk->diag);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+        margin_left = edges.left;
+        margin_right = edges.right;
+        margin_bottom = edges.bottom;
 
         /*
          * The same sizing layer the block pass uses (10.8), and it is the same
          * *helper* too -- "what this box's declarations ask for, into this containing
          * block" is one question and two implementations of it would be two answers.
          * What differs is only the containing block: an atomic inline's is the inline
-         * context's content box, which is what `auto` width has always filled here.
+         * context's content box with its margins taken out, which is what `auto` width
+         * and every `%` that is filled rather than resolved now fills.
          */
-        robo_layout_object_sizing(&sizing, object, flow->available_width);
+        robo_layout_object_sizing(&sizing, object, edges.available_content_width);
 
         /*
          * The width, then the contents, then the height -- the two-phase shape the
@@ -555,6 +600,18 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
             walk->inline_flow->widths_filled++;
         }
         walk->inline_flow->atomic_placed++;
+
+        /* Counted from the *resolution* like the block pass's, so the two records mean
+         * the same thing about the same declarations. `autos_used` has no counterpart
+         * here and needs none: it is zero by rule on this policy, which is what makes
+         * the inline record's silence about `auto` a fact rather than a gap. */
+        walk->inline_flow->margins_applied += edges.resolved;
+        walk->inline_flow->margins_unresolved += edges.unresolved;
+
+        /* And the used margins are kept on the box, exactly as the block pass keeps
+         * them: the record a later phase wants is the participant's margin box, and
+         * re-deriving one from the declaration would re-decide the `auto` question. */
+        object->margins = edges;
     } else {
         walk->inline_flow->non_atomic_placed++;
     }
@@ -566,13 +623,22 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
      * sits on the line by its feet, and an empty inline box -- which is a leaf here,
      * because a box with no children has no contents to walk -- sits on the baseline
      * with no extent at all.
+     *
+     * 10.9 adds the bottom **margin** to the extent, and that is CSS's rule rather than
+     * a convenience: the baseline of an `inline-block` with no in-flow line box of its
+     * own is its **bottom margin edge**, so an `inline-block` with `margin-bottom: 6px`
+     * sits 6px above the floor and makes its line 6px taller. Passing `height` alone
+     * would put the box's border edge on the floor and quietly ignore a declaration the
+     * author wrote. A non-atomic leaf passes 0/0 whatever it declared, because CSS
+     * applies no margins to a non-replaced inline box -- which is also why only the
+     * atomic path writes `object->margins`.
      */
-    if (robo_layout_baseline_metrics_from_extent(height, &baseline) != ROBO_OK) {
+    if (robo_layout_baseline_metrics_from_extent(height + margin_bottom, &baseline) != ROBO_OK) {
         return ROBO_LAYOUT_DIAG(walk->diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
                                 "a participant's baseline could not be derived");
     }
 
-    if (layout_inline_would_overflow(flow, width)) {
+    if (layout_inline_would_overflow(flow, margin_left + width + margin_right)) {
         robo_result_t wrapped = layout_inline_new_line(walk, flow, walk->inline_flow);
 
         if (wrapped != ROBO_OK) {
@@ -580,7 +646,7 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         }
     }
     return layout_inline_place(walk, flow, object, flow->line.cursor, flow->line.top, width,
-                               height, baseline);
+                               height, baseline, margin_left, margin_right);
 }
 
 static robo_result_t layout_inline_object(robo_layout_walk_t *walk,
@@ -758,8 +824,14 @@ static robo_result_t layout_inline_place_text(robo_layout_walk_t *walk,
             return wrapped;
         }
     }
+    /*
+     * A text run's margins are 0/0, and that is a fact about text rather than a
+     * shortcut: a text node is not a box, CSS has no margin property that applies to
+     * one, and this object's borrowed style is its *parent's* -- so reading margins
+     * here would read the element's and apply them to the element's characters.
+     */
     return layout_inline_place(walk, flow, object, flow->line.cursor, flow->line.top, run.width,
-                               run.height, baseline);
+                               run.height, baseline, 0, 0);
 }
 
 /**
@@ -1030,6 +1102,8 @@ int robo_layout_inline_stats_equal(const robo_layout_inline_stats_t *a,
            a->widths_filled == b->widths_filled &&
            a->heights_declared == b->heights_declared &&
            a->heights_from_content == b->heights_from_content &&
+           a->margins_applied == b->margins_applied &&
+           a->margins_unresolved == b->margins_unresolved &&
            a->depth_max == b->depth_max;
 }
 

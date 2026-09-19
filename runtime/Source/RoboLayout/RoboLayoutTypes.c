@@ -83,6 +83,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "text-layout";
     case ROBO_LAYOUT_DOMAIN_SIZING:
         return "sizing";
+    case ROBO_LAYOUT_DOMAIN_MARGINS:
+        return "margins";
     default:
         return "unknown";
     }

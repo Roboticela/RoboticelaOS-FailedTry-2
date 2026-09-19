@@ -1,5 +1,31 @@
 /*
- * RoboLayout version pin — Phase 10.8 width/height.
+ * RoboLayout version pin — Phase 10.9 margins.
+ *
+ * 0.9.0 is 0.8.0 plus the layer that turns a declaration into **room**: four sides,
+ * each of them `auto` or a *signed* px length or a value this build cannot resolve
+ * (`RoboLayoutMargin.h`), and two policies that say what those three kinds mean to a
+ * block box in normal flow and to an inline-level participant. 10.8's sizing layer
+ * then resolves a width against what the margins left rather than against the whole
+ * containing block.
+ *
+ * What 10.9 adds, in one line: **a margin never changes a box's size, and it changes
+ * everything about where the box goes** -- its origin inside its containing block, the
+ * width its own `auto` fills, and the extent its parent stacks by.
+ *
+ * The one idea this phase turns on, and getting it backwards would produce a plausible
+ * document that is wrong everywhere: **the declarations are not the used values.** A
+ * margin is the first value in this module whose *answer* depends on its context --
+ * `auto` is nothing until a containing block and a declared width have been measured
+ * against each other, and CSS gives `auto` two different rules depending on whether
+ * the box is block-level. Hence `robo_layout_margin_edges_t`, which records the four
+ * used numbers plus how many declarations each of them came from, and two resolution
+ * doors rather than one with a flag.
+ *
+ * The other decision worth naming: **there is no collapsing.** Adjacent vertical
+ * margins add. That is stated in the header, asserted by the suite, and named as the
+ * next thing a later goal changes (`layout/docs/Margins.md` §6) -- and the *shape* it
+ * leaves behind is that collapsing is a rule over the four used values, not over the
+ * declarations, which is why the used values are a record of numbers.
  *
  * 0.8.0 is 0.7.0 plus the layer that turns a declaration into a size: an `auto`
  * dimension, a declared px length and a value this build cannot resolve are three
@@ -252,9 +278,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 8
+#define ROBO_LAYOUT_VERSION_MINOR 9
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.8.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.9.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -390,5 +416,36 @@
  * be assumed.
  */
 #define ROBO_LAYOUT_SIZING_IMPLEMENTED 1
+
+/**
+ * 1 once this build turns a box's **margins** into the space it occupies.
+ *
+ * A constant rather than a runtime decision for the same reason the other eight are:
+ * it is read by `robo_layout_get_capabilities().margins` and by the suite that asserts
+ * the flag against the code. What it claims, exactly:
+ *
+ *   four sides, each of them an `auto`, a **signed** px length or a declaration this
+ *   build cannot resolve, read from a computed style and never parsed here;
+ *
+ *   a **used** value per side, resolved by one of two stated policies -- distribution
+ *   of the leftover space for a block-level box in normal flow, and a used value of 0
+ *   for an inline-level participant -- with the containing block's contents left over
+ *   after the two horizontal margins available to the box's own `auto` width;
+ *
+ *   the box placed at its margin origin while its `size` stays its content box, and
+ *   the extent a parent stacks by being the box's **margin box**;
+ *
+ *   an atomic inline's margins in its **advance** along the line and in the baseline
+ *   it is placed on, which is its bottom margin edge.
+ *
+ * What it does **not** claim: margin collapsing of any kind -- adjacent margins add --
+ * percentage margins (read, recorded unresolved and used as zero, because no goal
+ * resolves a percentage yet), margins on a **non-replaced inline box** (CSS applies
+ * none, and `robo_layout_object_margins` refuses the box rather than reporting zeros),
+ * a margin on a replaced element or an out-of-flow box, or `box-sizing`. Each is a
+ * later phase's or later positioning's, and `RoboLayoutMargin.h` names them where they
+ * would otherwise be assumed.
+ */
+#define ROBO_LAYOUT_MARGINS_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

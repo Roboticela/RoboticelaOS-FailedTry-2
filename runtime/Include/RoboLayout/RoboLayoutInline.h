@@ -68,17 +68,30 @@
  *   and `height` apply to an atomic inline in CSS, so both are read through the
  *   same rule 10.3 reads `height` with: a computed LENGTH in `px` is usable, and
  *   anything else — `auto`, a percentage, `em` — is not. A width this build cannot
- *   resolve falls back to the containing block's content width, which is what
- *   10.3 does for a block box and is CSS's `width: auto`; shrink-to-fit is
- *   intrinsic sizing and is 10.8's. A height it cannot resolve comes from what the
- *   box contained.
+ *   resolve falls back to the containing block's content width **less its horizontal
+ *   margins** since 10.9, which is what 10.3 does for a block box and is CSS's
+ *   `width: auto`; shrink-to-fit is intrinsic sizing and is 10.8's. A height it
+ *   cannot resolve comes from what the box contained.
  *
  *   a **non-atomic** inline is sized by *nothing* it declares, and that is CSS
  *   rather than a shortcut: `width` and `height` do not apply to a non-replaced
  *   inline box, whose extent is the sum of its inline content. So its rectangle is
  *   the union of what its participants reached in the line's coordinate space —
  *   which is a real computation, not a placeholder — and it is **zero** when it
- *   contains no box at all.
+ *   contains no box at all. **10.9 extends the same rule to its margins**: no margin
+ *   applies to a non-replaced inline box either, so its four used values are nothing
+ *   even when the author declared some, and its union is unchanged.
+ *
+ * and since 10.9 a box's **margins** are part of where it goes and not part of how
+ * big it is. An atomic participant is placed `margin-left` in from the cursor and the
+ * cursor then advances by its **margin box** — `left + width + right` — so a wrapped
+ * line accounts for what each participant *occupies* rather than for its content box;
+ * and its baseline is its **bottom margin edge**, which is what CSS specifies for an
+ * `inline-block` with no in-flow line box of its own. Every `auto` margin is zero here
+ * whether the width is settled or not, because distribution is a block-level
+ * normal-flow rule: an inline participant has no width constraint to be under- or
+ * over-, and `robo_layout_margins_resolve_inline` is where that is stated
+ * (RoboLayoutMargin.h).
  *
  * That zero was the honest answer *in 10.4*, and the phase said so loudly rather
  * than dressing it up: a `<span>` holding only text had no extent because nothing in
@@ -270,6 +283,17 @@ typedef struct robo_layout_inline_stats {
     /** Heights obtained from the box's own contents — the `auto` path, and the
      *  path a declared-but-unresolvable height takes. */
     size_t heights_from_content;
+    /** **Sides** of an atomic participant whose declared margin reached its advance
+     *  (10.9), zero and negative included. Every `auto` is absent from this count *by
+     *  rule* rather than by omission: distribution is a block-level normal-flow rule,
+     *  so an inline participant's `auto` margin has a used value of 0 and was given
+     *  nothing (`RoboLayoutMargin.h`). A transparent inline box and a text run
+     *  contribute nothing here, because no margin applies to either. */
+    size_t margins_applied;
+    /** Sides declared on an atomic participant with a margin this build cannot use —
+     *  a percentage, a relative unit (10.9). Used as zero, and counted so that a
+     *  document spaced with `margin: 10%` is visible as one. */
+    size_t margins_unresolved;
     /** Deepest participant placed. */
     uint32_t depth_max;
 } robo_layout_inline_stats_t;

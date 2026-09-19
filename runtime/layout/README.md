@@ -1,8 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.8, width/height**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.9, margins**).
 
-**Version:** 0.8.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.9.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -31,6 +31,11 @@ members on it rather than at the line's top edge.
 height** from its declarations, and a box's resolved width is what its children are
 laid out into. A percentage is read and recorded as `UNRESOLVED` rather than
 resolved against a containing dimension, and intrinsic sizing does not exist yet.
+
+`ROBO_LAYOUT_MARGINS_IMPLEMENTED=1` — this build places a box at its **margin
+origin**, lets a horizontal `auto` take its share of the leftover beside a declared
+width, and stacks a parent's children by their **margin boxes**. Margin collapsing
+does not exist yet: adjacent vertical margins sum.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -110,6 +115,21 @@ resolves like `auto` today and will not when a containing dimension is known), t
 bounds are applied through 10.1's own clamp so “min wins over max” is still decided
 in one place, and both directions ask `robo_layout_object_sizing` the same question.
 
+**10.9 (margins).** The first number in this module that is *not* a size. A margin
+moves a box and grows the room beside it while leaving the box itself alone, and that
+asymmetry is the whole phase: a result's origin becomes its **margin origin** while
+its `size` stays the content box, and what a parent stacks its next child below is
+the **margin box**. The four used margins therefore live **on the object** rather
+than in the result — adding them back is the arithmetic this phase exists to stop a
+caller from re-deriving. A margin is one of **four kinds**, and "nothing was
+declared" is one of them: CSS's initial value makes an absent side and a declared
+`margin: 0` one used value and two facts, and it is the *counters* that need the
+difference, which is why the kind was added rather than the two being folded. Two
+resolution doors rather than one with a flag, because a block box distributes a
+horizontal `auto` beside a declared width and treats a vertical one as zero while an
+atomic inline turns every `auto` into zero — and collapsing is deliberately not
+implemented, with the shape left for it in one record of numbers.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -124,7 +144,8 @@ in one place, and both directions ask `robo_layout_object_sizing` the same quest
 | inline layout | A real position and size for every participant of an inline formatting context: a cursor that advances, a line that moves down when a participant does not fit, a union for a transparent box, and an atomic box's contents laid out inside it by the block pass | Collapse whitespace, break Unicode lines, fragment a participant across two lines, or build the anonymous wrapper a block-level box in an inline context needs |
 | text layout | A code-point range type, the style a font needs resolved from computed CSS, the **measurement seam**, a run record, and a RoboFont-backed measurer that sums advances in font units and scales once | Shape, kern, ligate, reorder for bidi, break lines, or rasterise a glyph |
 | line box | The record of one line — identity, ordinal within its context, finalized rectangle in its owner's content-box space, the width it had to fit, the **baseline** it was given (ascent, descent, kind), and the objects it placed — read back through the tree's arena | Align, fragment, or paint a line; derive its height from a resolved `line-height` or from an inline-block's last in-flow line box |
-| sizing | A box's dimensions as a question and an answer: the available extent per direction with whether it is known at all, the declared dimension in three kinds, the bounds, the contents' extent, and the resolved size with a **source** and a clamped flag per dimension — plus the one seam a computed style becomes a size through | Resolve a percentage against a containing *dimension*, size intrinsically (`min-content`, `max-content`, `fit-content`, shrink-to-fit), apply `box-sizing`, or add the contribution of margins, padding and borders |
+| sizing | A box's dimensions as a question and an answer: the available extent per direction with whether it is known at all, the declared dimension in three kinds, the bounds, the contents' extent, and the resolved size with a **source** and a clamped flag per dimension — plus the one seam a computed style becomes a size through | Resolve a percentage against a containing *dimension*, size intrinsically (`min-content`, `max-content`, `fit-content`, shrink-to-fit), apply `box-sizing`, or add the contribution of padding and borders |
+| margin | The gap beside a box, in two vocabularies: the four declarations in four kinds (`absent`, `resolved` — signed — `auto`, `unresolved`) read from a computed style, and the four **used values** a result is placed by; two policies (a block box's, which distributes a horizontal `auto` beside a declared width, and an atomic inline's, which does not); and the read door a caller uses instead of re-deriving the addition | Collapse two adjacent vertical margins, resolve a percentage against the containing *width*, place a vertically `auto` margin (`auto` means something only for an absolutely positioned box, 10.12), or add padding or border to any of it |
 
 ## The one structural decision
 
@@ -305,7 +326,7 @@ subtracts the origin the union just wrote.
 
 ## The seventh structural decision: one number, two uses
 
-10.8's, and it is the only one of the seven that changes an answer the module was
+10.8's, and the only one of the seven before it that changes an answer the module was
 already giving. 10.3 read a box's width once and used it twice — as the box's own
 size and as the width its children were laid out into — and the two uses are the same
 number only while nothing can size a box:
@@ -328,6 +349,30 @@ twice and discard one answer.
 For an `auto` width the two uses agree — `auto` *is* "fill the containing block" —
 which is why the seven structural decisions can share the recursion without any of
 the earlier ones moving.
+
+## The eighth structural decision: a margin is outside the box
+
+10.9's, and the first decision in this module about a number that is *not* a size.
+A margin changes three things and none of them is the box:
+
+```text
+the box's own size        unchanged — a margin is the gap beside it
+where the box is placed   its containing block's content origin + left/top
+what is left inside       containing width - left - right   (an `auto` width fills this)
+what the parent stacks    top + height + bottom             (the MARGIN box)
+```
+
+That is why the block pass writes an origin and a size that are not derived from one
+another, why `size` in a result still means the content box although the box sits at a
+margin origin, and why the four used margins are kept **on the object** rather than in
+the result: adding them back is exactly the arithmetic this phase exists to stop a
+caller from re-deriving.
+
+The order inside the pass is forced: the margins resolve **before** the width,
+because an `auto` width fills whatever the margins left, and what decides whether
+there is anything to distribute is the *declared* dimension rather than the
+resolution — so `robo_layout_margins_resolve_block` takes the dimension and not a
+number.
 
 ## What "the pass ran" is allowed to mean
 
@@ -483,7 +528,8 @@ module.
 | `docs/LineBoxes.md` | Construction state versus the record, members as placements, the space a line is in, the lifecycle the pass runs, and what the block pass gets from the lines |
 | `docs/Baselines.md` | Where the member's metrics are written versus where the line's floor is final, half-leading from the run's gap, the bottom-edge fallback, the two coordinate spaces, and why the union walk had to move |
 | `docs/Sizing.md` | Why a resolved width is what the children are laid out into, the three dimension kinds, per-direction availability, where the bounds come from (and the both-dimensions rule), the two readers over one classification, and the three earlier assertions the phase updated |
-| `docs/Tests.md` | The fourteen suites, what each asks, and what each phase found |
+| `docs/Margins.md` | Why a margin moves a box and never resizes it, the four kinds (and why an absent side is not a declared zero), the two policies, the used values record and its one clamped number, the three earlier assertions the phase updated, and the missing collapsing |
+| `docs/Tests.md` | The fifteen suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -491,7 +537,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 194 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 219 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -514,9 +560,15 @@ module, which sits below layout in the graph but has no business in a layout pas
   guess. The bounds path *is* live — it is applied through 10.1's clamp and tested
   end to end — but no property RoboCSS registers feeds it yet, so a document can
   declare `min-width` and change no number here.
-- No `margin`, `padding` or `border` arithmetic. A box's content box *is* its border
-  box until 10.9–10.11, which is why those declarations can be present in a document
-  and change no number here.
+- No **margin collapsing**. Margins are added and placed: a box sits at its margin
+  origin, a horizontal `auto` takes its share of the leftover beside a declared
+  width, and a parent stacks its children by their margin boxes — but two adjacent
+  vertical margins **sum** where CSS takes the larger, and a parent's top margin does
+  not merge with its first child's. `layout.margins.block_no_collapse` asserts the
+  sum, so the difference is a value a later goal changes rather than an omission.
+- No `padding` or `border` arithmetic. Margins reach geometry since 10.9; padding and
+  border widths are still readable and unapplied, which is why those declarations can
+  be present in a document and change no number here.
 - No paint, no rendering, no windowing, no display. The viewport is an argument.
 - No **shaping**, no kerning, no ligature, no bidi reordering, no Unicode line
   breaking and no whitespace collapsing. A run's width is the sum of its glyphs'

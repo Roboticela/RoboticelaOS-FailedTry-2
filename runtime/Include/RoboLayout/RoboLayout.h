@@ -74,6 +74,7 @@
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
+#include "RoboLayout/RoboLayoutMargin.h"
 #include "RoboLayout/RoboLayoutObject.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutSizing.h"
@@ -206,6 +207,20 @@ typedef struct robo_layout_capabilities {
      * obey them with no change to either pass.
      */
     int sizing;
+    /**
+     * Turning a box's **margins** into the space it occupies (10.9). **1** since
+     * 10.9.
+     *
+     * A claim about the *build*, and one sentence short enough to be checked: four
+     * sides are read from a computed style, given **used** values by one of two stated
+     * policies, and the results are a box placed at its margin origin, a width resolved
+     * against what the margins left, and a parent stacking by a margin box. Kept narrow
+     * for the same reason the other flags are: **collapsing** does not exist -- adjacent
+     * vertical margins add -- percentage margins are read and used as zero, and no
+     * margin applies to a non-replaced inline box. `margins` would be claiming those if
+     * it were named for "margins are finished".
+     */
+    int margins;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

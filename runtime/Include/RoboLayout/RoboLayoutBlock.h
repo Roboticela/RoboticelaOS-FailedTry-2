@@ -42,13 +42,16 @@
  *
  * What a block box does
  *
- *   1. it fills its containing block's content width;
- *   2. its block-level children are stacked from its content origin, each below
+ *   1. its margins are resolved against its containing block -- `auto` included,
+ *      which is what distributes the leftover space beside a declared width;
+ *   2. it fills what its margins left of the containing block's content width;
+ *   3. its block-level children are stacked from its content origin, each below
  *      the last;
- *   3. its height is the declared one if this build can resolve it, and the
+ *   4. its height is the declared one if this build can resolve it, and the
  *      stacked extent of its children otherwise;
- *   4. its result is written in its containing block's coordinate space, which is
- *      what `robo_layout_result_t.position` has meant since 10.1.
+ *   5. its result is written in its containing block's coordinate space, which is
+ *      what `robo_layout_result_t.position` has meant since 10.1 -- and since
+ *      10.9 that position is its **margin** origin, not its containing block's.
  *
  * What this phase deliberately does not do, and where each one belongs
  *
@@ -65,10 +68,13 @@
  *   only one of them is a claim this phase can defend. Reading it is not a
  *   sizing algorithm: there is one property, one kind check and one unit check.
  *
- *   Margins, padding and borders are **10.9, 10.10 and 10.11**. So a box's
- *   content box is its border box and its content origin is its top-left corner.
- *   The values are readable in the borrowed style and simply not applied, which
- *   is why `margin: 10px 20px` in the pipeline document changes no number here.
+ *   Padding and borders are **10.10 and 10.11**. So a box's content box is still
+ *   its border box, and its content origin is its top-left corner -- but since
+ *   10.9 its *margin* origin is not: a box is placed `margin-left`/`margin-top`
+ *   inside its containing block, and the extent this pass reports to a parent is
+ *   the box's **margin box**. A margin never changes a box's `size`; it changes
+ *   where the box sits and how much room it takes. There is **no collapsing**, so
+ *   adjacent vertical margins add (`layout/docs/Margins.md`).
  *
  *   Inline layout is **10.4**, and it runs *inside* this pass rather than beside
  *   it. A box that establishes an inline formatting context has its contents placed
@@ -204,6 +210,23 @@ typedef struct robo_layout_block_stats {
     /** Heights obtained by stacking children -- the `auto` path, and the path a
      *  declared-but-unresolvable height takes. */
     size_t heights_from_content;
+    /** **Sides** whose declared margin reached geometry (10.9), zero and negative
+     *  included. Summed over sides rather than over boxes because that is the unit a
+     *  stylesheet is written in: four longhands, one declaration. Counted from the
+     *  *resolution* rather than from the style, so an `auto` that distributed is not
+     *  one of these -- it is `margins_auto_used` below. */
+    size_t margins_applied;
+    /** Sides whose `auto` was given a value by **distribution** (10.9): the horizontal
+     *  margins of a block-level box whose declared width left space over. Zero for a
+     *  document where nobody asked to be centred, and zero for every vertical `auto`
+     *  even where one was written, because normal flow does not distribute
+     *  vertically. */
+    size_t margins_auto_used;
+    /** Sides declared with a margin this build cannot use -- a percentage, a relative
+     *  unit (10.9). Their used value is zero, which is why they are counted: a
+     *  document whose spacing depends on `margin: 5%` lays out flush here, and the
+     *  count is what says so. */
+    size_t margins_unresolved;
     /** Containers with no block-level child at all, so the extent this pass
      *  stacked in the block direction is zero and the height is `0` unless one was
      *  declared -- or, from 10.4, is the extent the *lines* reached. A box that

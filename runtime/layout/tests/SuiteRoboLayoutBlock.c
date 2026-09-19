@@ -1377,10 +1377,11 @@ static void test_block_invalidation(void)
  * The numbers came from CSS.
  *
  * A real stylesheet through the real cascade, and the assertions are chosen to say
- * what this phase reads and what it deliberately does not: `height` is honoured,
- * `width` is *not*, and `margin`/`padding`/`border` change nothing. Each of the
- * ignored declarations is the reason a capability field is 0, and putting them in
- * the same document as the honoured one is what makes that visible in one place.
+ * what each phase reads and what it deliberately does not: `height` is honoured,
+ * `width` was *not* until 10.8 and `margin` was *not* until 10.9, while
+ * `padding`/`border` still change nothing. Each of the ignored declarations is the
+ * reason a capability field is 0, and putting them in the same document as the
+ * honoured ones is what makes that visible in one place.
  */
 static void test_block_pipeline(void)
 {
@@ -1462,10 +1463,16 @@ static void test_block_pipeline(void)
          * declaration's, and the phase that made it so is the phase that updated it.
          */
         ROBO_CHECK_EQ_INT(size.width, 200);
-        /* `margin`, `padding` and `border` change nothing, and `position: relative;
-         * top: 12px` is not applied: the box is at its parent's content origin. */
-        ROBO_CHECK_EQ_INT(position.x, 0);
-        ROBO_CHECK_EQ_INT(position.y, 0);
+        /*
+         * `margin: 10px 20px` reaches geometry since 10.9 and `padding`/`border` still
+         * do not, and `position: relative; top: 12px` is still not applied: the box is
+         * at its parent's content origin **plus its own margins**, which is the number
+         * this case recorded as 0/0 when 10.8 last touched it. A box's own margin is a
+         * declaration about the gap beside it, so it moves the box and leaves the
+         * size above alone -- and the two assertions together are what says so.
+         */
+        ROBO_CHECK_EQ_INT(position.x, 20);
+        ROBO_CHECK_EQ_INT(position.y, 10);
     }
     /* `<p>` is a block inside the card and declares no height, so the card's extent
      * would be 0 -- and the declared 100 is what propagates up the chain. */

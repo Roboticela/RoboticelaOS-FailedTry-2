@@ -4362,6 +4362,97 @@ Everything else that changed was a version or capability pin.
 The count went from **2193 pass to 2210**: 17 new cases, no case removed, and the module's 194 cases
 in fourteen suites are green in Debug, in Release, and under ASan and UBSan with no diagnostic.
 
+## Goal 10.9 — Margins
+
+**Status: complete.** The first number in this module that is *not* a size. A box's position becomes
+its **margin origin**, its `size` is untouched by any of the four declarations, and what a parent stacks
+its next child below becomes the **margin box**. The four margins resolve *before* the width, because
+an `auto` width fills whatever they left.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The margin vocabulary (four kinds, `absent` among them), the four-declaration record, the four **used values**, the two policies, and the one seam a computed style becomes a margin through | `Include/RoboLayout/RoboLayoutMargin.h`, `Source/RoboLayout/RoboLayoutMargin.c` |
+| The shared classification opened to a **signed** length, so the sizing seam keeps refusing a negative `width` while the margin seam accepts a negative `margin` | `RoboLayoutInternal.h`, `RoboLayoutSizing.c` |
+| The used margins kept on the object, with their read door and their clearing | `RoboLayoutObject.h` / `.c`, `RoboLayoutTree.c` |
+| The block pass: margins before the width, the box placed at its margin origin, the margin box reported upward | `Source/RoboLayout/RoboLayoutBlock.c`, `RoboLayoutBlock.h` |
+| The inline pass: an atomic inline's advance includes its horizontal margins, and its baseline is its bottom margin edge | `Source/RoboLayout/RoboLayoutInline.c`, `RoboLayoutInline.h` |
+| Version `0.9.0`, `ROBO_LAYOUT_MARGINS_IMPLEMENTED`, the `margins` diagnostic domain, the umbrella, the build and the suite registration | `RoboLayoutVersion.h`, `RoboLayout.h`, `RoboLayoutDiagnostics.h`, `Tools/Build.ps1`, `Tests/Main.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A margin representation exists in RoboLayout | `layout.margins.kind_vocabulary`, `layout.margins.one_side`, `layout.margins.sides` |
+| Computed CSS margins are consumed, never parsed here | `layout.margins.seam` |
+| Block layout accounts for margins | `layout.margins.block_basic`, `layout.margins.block_sides` |
+| Horizontal geometry integrates with the sizing layer | `layout.margins.block_auto_center`, `layout.margins.block_auto_odd`, `layout.margins.block_auto_under_auto_width`, `layout.margins.block_overconstrained` |
+| Vertical placement accounts for margins | `layout.margins.block_geometry`, `layout.margins.margin_box_flows_down`, `layout.margins.block_stacking` |
+| A margin moves the box and not its size | `layout.margins.block_geometry`, `layout.conformance.pipeline` |
+| Negative margins are supported safely | `layout.margins.block_negative` |
+| Existing inline layout remains functional | `layout.margins.inline_advance`, `layout.margins.inline_baseline`, `layout.margins.inline_policy` |
+| Re-layout responds to a changed margin | `layout.margins.relayout` |
+| Geometry stays finite and deterministic | every case, plus `layout.margins.allocator_balance` |
+| Collapsing is explicitly **not** implemented, and says so | `layout.margins.block_no_collapse` |
+
+### The one distinction the phase turns on
+
+**A margin is outside the box.** Three numbers move and one does not:
+
+```text
+containing block's content origin
+        │
+        ├── left / top ────────────────▶ where the box is PLACED
+        ├── left + right ──────────────▶ what is LEFT for the contents (and for an `auto` width)
+        └── top + height + bottom ─────▶ what the PARENT STACKS the next box below
+
+the box's own size             unchanged — the gap beside it is not part of it
+```
+
+That asymmetry is why the result's position and its size are no longer derived from one another, and
+why the four used margins live **on the object** rather than in the result: adding them back is exactly
+the arithmetic this phase exists to stop a caller re-deriving. Every case that reads a coordinate
+asserts the pair — a moved origin and an unmoved size — so a build that added the margins to the `size`
+fails whichever half it got wrong.
+
+The order inside the pass is forced rather than tidy. The margins resolve **before** the width, because
+an `auto` width fills whatever they left, and what decides whether there is anything to distribute is
+the *declared* dimension rather than the resolution — so the block policy takes the dimension and not a
+number. Two doors rather than one with a flag, for the reason 10.8 kept two dimension resolvers: a block
+box distributes a horizontal `auto` beside a declared definite width (an odd pixel going to `right`) and
+treats a vertical `auto` as zero, while an atomic inline turns every `auto` into zero — and the
+difference *is* the two CSS rules, so a flag would let a caller pass the wrong one and get a plausible
+answer.
+
+### What 10.9 found
+
+One finding, and it is a **design** one rather than an implementation one: **the vocabulary was one kind
+short, and only the accounting could see it.** The first draft had three kinds — a resolved length
+(including a declared zero), `auto`, and `unresolved` — with a cleared side reading as a resolved zero.
+That is CSS's initial value and it produces correct geometry, which is exactly why it survives every
+case that only reads coordinates. It is the **counters** that cannot be built on it: "how many of this
+document's margins did an author actually write?" has no answer when a cleared record and `margin: 0`
+are one value. `ABSENT` is the fix — the same split 10.8 reached from the other direction, where a
+box's `auto` width and its undeclared width are likewise one geometry and two facts — and it is
+deliberately **0**, for the reason RoboCSS gives for its own first-slot defaults.
+
+The suite's own lesson is 10.8's, paid a third time: **a case whose fixture never reaches its subject
+reports the absence as a pass.** Three cases were fixed for it — two that drove a stylesheet with no
+`display: block` chain and no viewport, so no pass ran at all, and one whose "determinism" claim
+compared a value with a second read of itself. Every margin case that reads a coordinate now resolves
+the element **by tag** and asserts that a pass actually placed something before it reads the number.
+
+Three earlier assertions changed, and each named the phase that would change it: `layout.block.pipeline`
+(the card's origin 0/0 → **20/10** for its `margin: 10px 20px`) and `layout.conformance.pipeline` (the
+same card's origin, and `<body>`'s and `<html>`'s extent 100 → **120**, the margin box the cursor
+reaches). Neither card's own size moved — 200×100 in both — which is what makes the pair the phase's
+claim rather than two numbers. Five pins moved for the version, the capability, the diagnostic domain
+and the statement, the same set every phase moves.
+
+The count went from **2210 pass to 2235**: 25 new cases, no case removed, and the module's 219 cases
+in fifteen suites are green in Debug, in Release, and under ASan and UBSan with no diagnostic.
+
 ## Next
 
-- Goal 10.9 — margins — do not start until requested
+- Goal 10.10 — padding — do not start until requested

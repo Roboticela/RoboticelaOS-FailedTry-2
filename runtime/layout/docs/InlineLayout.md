@@ -330,6 +330,7 @@ the box owns through 10.2's own door.
 | 10.8 sizing | the atomic inline's two fallbacks (§3) and the `widths_filled` count |
 | 10.8 sizing (outcome) | both fallbacks survive as the sizing layer's `AUTO` and `UNRESOLVED` kinds, and the *read* moved out of the pass (`Sizing.md` §1); what the phase added here is the order — width, then the contents it was measured against, then height, because an atomic inline's `auto` height is the extent of contents that had to be laid out at a width first |
 | 10.9 margins | the union arithmetic (§5) that becomes the margin edge |
+| 10.9 margins (outcome) | an atomic inline's **advance** is now its width plus its two horizontal margins, and its **baseline** is its bottom *margin* edge — so an inline-block with a bottom margin sits higher than one without. Both go through `robo_layout_margins_resolve_inline`, the policy in which every `auto` is zero because distribution is a block-level normal-flow rule (`Margins.md` §3). A transparent inline box still takes neither: it is the union of what its contents reached, and CSS applies no margins to it |
 | 10.12 positioning | the rebase (§5) — the coordinate convention surviving nesting |
 | 10.13 overflow | the `cursor > 0` guard (§4), which is the only place overflow is decided |
 | the anonymous box | `block_level_declined` (§2.1), the count of what the wrapper will be for |
@@ -441,9 +442,11 @@ placements: the phase changed where a member goes, not which objects are members
   §2.1 — the wrapper is still 10.4's own successor's, and an `inline-block`'s
   contents are stacked because its inner display says so, not because a second
   wrapper was made.
-- **No margin, padding or border arithmetic, and no `box-sizing`.** Unchanged from
-  10.3: a box's content origin is still its top-left corner, so no coordinate is
-  missing a term.
+- **No padding or border arithmetic, and no `box-sizing`.** A box's content origin
+  is still its top-left corner, so no coordinate is missing a term. Margins **are**
+  arithmetic since 10.9 (their own row in §10): an atomic inline's advance includes
+  its horizontal margins and its baseline is its bottom margin edge, while a
+  transparent inline box takes neither.
 - **No shrink-to-fit, no intrinsic keyword, no percentage or relative-unit
   resolution.** §3, and 10.8 kept the atomic fallback stated rather than guessed:
   an unresolvable declaration is read, recorded and filled from the available space

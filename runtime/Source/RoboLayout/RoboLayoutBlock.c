@@ -354,8 +354,10 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
 {
     robo_layout_object_t *object = robo_layout_object_slot(walk->tree, id);
     robo_layout_sizing_t sizing;
+    robo_layout_margin_edges_t edges;
     robo_layout_size_t content;
     robo_layout_size_t size;
+    robo_layout_point_t margin_origin;
     robo_gfx_pixel_y_t content_extent = 0;
     robo_result_t status;
 
@@ -367,7 +369,37 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     robo_layout_object_sizing(&sizing, object, available_width);
 
     /*
-     * The width first (10.8), because the children are laid out *into* this box's
+     * The margins next (10.9), and *before* the width for a reason that is forced
+     * rather than tidy: an `auto` width fills whatever the margins leave, so the two
+     * horizontal margins have to be settled before there is a number to fill. The
+     * declared dimension is what the margin arithmetic reads to decide whether there
+     * is anything to distribute -- `auto` margins have nothing to take beside an
+     * `auto` width -- which is why the sizing record is built first and *not* resolved
+     * yet.
+     *
+     * The containing block a margin resolves against is the one this box's width
+     * resolves against: 10.3's rule that a box's containing block is its parent, with
+     * the viewport standing in for the root. One number, two uses, and the second use
+     * is the one whose answer the first has to wait for.
+     */
+    {
+        robo_layout_margins_t declared = robo_layout_margins_of(object->style);
+
+        status = robo_layout_margins_resolve_block(&declared, available_width, &sizing.width,
+                                                   &edges, walk->diag);
+        if (status != ROBO_OK) {
+            return status;
+        }
+    }
+
+    status = robo_layout_sizing_set_available_width(&sizing, edges.available_content_width,
+                                                    walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+
+    /*
+     * The width next (10.8), because the children are laid out *into* this box's
      * content box and so the number they get is the resolved one rather than the
      * containing block's. That is the difference the phase adds, and it is one line:
      * for an `auto` width the two are the same number, because `auto` fills the
@@ -426,16 +458,63 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
         walk->block->heights_from_content++;
     }
 
-    status = robo_layout_result_set_geometry(&object->result, origin, size, walk->diag);
+    /*
+     * The margin counters, summed over sides rather than boxes for the reason the
+     * record's own counters are: a document's margins arrive four at a time and a
+     * count of *sides* is what can be checked against a stylesheet by hand. They are
+     * counted here rather than from the declarations because the *resolution* is what
+     * they describe -- an `auto` that distributed is not a declaration this build
+     * found, it is one it used.
+     */
+    walk->block->margins_applied += edges.resolved;
+    walk->block->margins_auto_used += edges.autos_used;
+    walk->block->margins_unresolved += edges.unresolved;
+
+    /*
+     * And the box's own geometry is written at its **margin origin**, which is the
+     * whole of what a margin does to a box: `origin` is where its containing block's
+     * content box starts, and the box starts `left` and `top` further in. The `size`
+     * written here is the *content* box -- a margin never changes how big a box is,
+     * only where it sits and how much room it takes -- which is why the two numbers are
+     * not added together anywhere.
+     */
+    margin_origin.x = origin.x + edges.left;
+    margin_origin.y = (robo_gfx_pixel_y_t)(origin.y + edges.top);
+    status = robo_layout_result_set_geometry(&object->result, margin_origin, size,
+                                             walk->diag);
     if (status != ROBO_OK) {
         return status;
     }
+
+    /*
+     * The used margins are kept on the box (RoboLayoutObject.h), because the record a
+     * later phase wants is a *margin box* and the result cannot carry one: the result
+     * holds the content box by definition, and adding the four numbers back is exactly
+     * the arithmetic this phase exists to stop a caller from re-deriving.
+     */
+    object->margins = edges;
 
     walk->block->blocks_placed++;
     if (object->depth > walk->block->depth_max) {
         walk->block->depth_max = object->depth;
     }
-    *out_height = size.height;
+
+    /*
+     * And the extent the parent stacks by is the **margin box**, which is the second
+     * thing a margin does: `cursor` in `layout_block_children` is a bottom edge, and the
+     * next box starts below this one's bottom *margin*. Reported as one number rather
+     * than as a size because that is all a containing block needs from a child in this
+     * direction -- the parent never looks at where its child's content box ended, only
+     * at where the next one may start.
+     *
+     * No collapsing (the header says so): two adjacent margins add rather than
+     * overlap, so a box with `margin-bottom: 20px` above one with `margin-top: 30px`
+     * leaves 50px between them here where CSS would leave 30. That is the one place
+     * this phase knowingly differs from the specification, it is stated in
+     * `layout/docs/Margins.md` §6, and `layout.margins.block_no_collapse` asserts the
+     * sum so that the goal that implements collapsing has a case to change.
+     */
+    *out_height = (robo_gfx_pixel_y_t)(edges.top + size.height + edges.bottom);
     return ROBO_OK;
 }
 
@@ -464,6 +543,9 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
            a->widths_filled == b->widths_filled &&
            a->heights_explicit == b->heights_explicit &&
            a->heights_from_content == b->heights_from_content &&
+           a->margins_applied == b->margins_applied &&
+           a->margins_auto_used == b->margins_auto_used &&
+           a->margins_unresolved == b->margins_unresolved &&
            a->empty_containers == b->empty_containers &&
            a->depth_max == b->depth_max;
 }

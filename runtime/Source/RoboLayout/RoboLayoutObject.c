@@ -184,6 +184,65 @@ robo_result_t robo_layout_object_baseline(const robo_layout_tree_t *tree,
     return ROBO_OK;
 }
 
+robo_result_t robo_layout_object_margins(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_margin_edges_t *out,
+                                         robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading margins needs an out");
+    }
+    /* Cleared beside no containing block: the record a caller reads after a refusal
+     * is a *stated* absence rather than whatever its stack held. */
+    robo_layout_margin_edges_init(out, 0);
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading margins needs a tree and an id");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+
+    /*
+     * Three refusals, and the header argues each: a text run is not a box, an object
+     * nothing placed has no used margins, and a transparent inline box is a box CSS
+     * applies no margins to.
+     *
+     * The middle check asks the **result** rather than the record, and that asymmetry
+     * with the baseline door above is stated rather than accidental: a cleared
+     * baseline has an invalid kind and could be recognised on its own, while a cleared
+     * margin record *is* the initial value -- zero on all four sides -- so "never
+     * placed" and "placed with no margins" are indistinguishable from the record and
+     * the state is what tells them apart.
+     *
+     * The third reuses 10.4's doctrine rather than inventing a check: a participant of
+     * an inline context is atomic exactly when it established a context of its own, so
+     * an inline-level box that established none is the transparent one -- the box whose
+     * rectangle is the union of what it contained and whose margins do not apply.
+     */
+    if (object->kind != ROBO_LAYOUT_OBJECT_BOX) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a text run has no margins");
+    }
+    if (robo_layout_result_state(&object->result) != ROBO_LAYOUT_RESULT_COMPUTED) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "no pass has placed this box");
+    }
+    if (robo_css_display_is_inline_level(object->display) &&
+        object->context_owned == ROBO_LAYOUT_FC_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "margins do not apply to a transparent inline box");
+    }
+
+    *out = object->margins;
+    return ROBO_OK;
+}
+
 /** Which link a caller asked for. */
 typedef enum layout_link_pick {
     LAYOUT_LINK_PARENT = 0,

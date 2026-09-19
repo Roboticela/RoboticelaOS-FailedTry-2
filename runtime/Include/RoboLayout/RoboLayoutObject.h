@@ -52,6 +52,7 @@
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
+#include "RoboLayout/RoboLayoutMargin.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTypes.h"
@@ -188,6 +189,27 @@ typedef struct robo_layout_object {
      * same way @ref line's are, by whether the object has a computed result.
      */
     robo_layout_baseline_metrics_t baseline;
+    /**
+     * The margins this box was **placed** with (10.9), or a cleared record.
+     *
+     * The used values rather than the declared ones, because those are what the pass
+     * acted on: `margin: auto` is not a number until a containing block has been
+     * measured against, and that is a conclusion of the pass exactly as @ref baseline
+     * is. Cleared with the geometry in the same sweep and for the same reason -- a
+     * used margin that outlived the classification would be a plausible-looking
+     * number about a layout that no longer holds.
+     *
+     * It is on the object for the reason a reader will need it one phase from now: a
+     * *margin box* is what paint (11) draws a shadow around and what a hit test (12)
+     * includes, and neither can be recovered from the result, which holds the content
+     * box by definition.
+     *
+     * A cleared record means **no margins were used**, which is not the same as "no
+     * pass ran": `robo_layout_object_margins` refuses an object that was never placed
+     * *and* an object no margin applies to, and the two halves of that are documented
+     * there.
+     */
+    robo_layout_margin_edges_t margins;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;
@@ -302,6 +324,39 @@ robo_result_t robo_layout_object_baseline(const robo_layout_tree_t *tree,
                                           robo_layout_node_id_t id,
                                           robo_layout_baseline_metrics_t *out,
                                           robo_layout_diag_t *diag);
+
+/**
+ * The **margins** @p id was placed with (Phase 10.9).
+ *
+ * The used values of the four sides, and the record a later phase reads a *margin
+ * box* out of. Signed, because a negative margin is a legal declaration: `left` may
+ * be less than zero on a box that overhangs its containing block.
+ *
+ * The door refuses three things, and the three are three different statements:
+ *
+ *   an id that names nothing                     -- `robo_layout_object_get`'s miss;
+ *   an object **nothing placed**, so no margins were used, and -- unlike a baseline,
+ *   whose "never placed" is visible in its kind -- a margin record's cleared state is
+ *   a legal value (zero margins are the initial value), so this door has to ask the
+ *   result instead;
+ *   a **text run**, and a **transparent inline box** with contents: no margins apply
+ *   to either. A text node is not a box at all, and CSS does not apply margins to a
+ *   non-replaced inline box -- so a `<span style="margin-left: 10px">` has a
+ *   declaration this build can read from its style and a used margin of *nothing*.
+ *   Answering a zero with a count of two resolved sides would tell a caller the
+ *   author's margin had been honoured and come to zero, which is the kind of
+ *   plausible-looking wrong
+ *   answer this module refuses everywhere else.
+ *
+ * @return ROBO_OK and the used margins; ROBO_INVALID_ARGUMENT for NULL arguments or
+ *         a NONE id; ROBO_NOT_FOUND for the three cases above. @p out is cleared to no
+ *         margins beside @p id's containing block first, so a caller that ignores the
+ *         code reads a stated absence rather than a leftover.
+ */
+robo_result_t robo_layout_object_margins(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_margin_edges_t *out,
+                                         robo_layout_diag_t *diag);
 
 /**
  * The parent.

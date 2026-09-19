@@ -828,6 +828,19 @@ void robo_layout_tree_lines_reset(robo_layout_tree_t *tree)
          * is a plausible-looking ascent for a document that is no longer laid out.
          */
         robo_layout_baseline_metrics_init(&tree->objects[index].baseline);
+        /*
+         * And the used margins too (10.9), in the same sweep and for the same reason:
+         * a used margin is the number a pass *concluded* from a containing block, so a
+         * record that outlived the classification would be a plausible-looking gap
+         * about a layout that no longer holds -- the exact failure mode a stale
+         * baseline has, one axis further out.
+         *
+         * Cleared to no margins beside no containing block, which is the record's own
+         * cleared state rather than a claim: `robo_layout_object_margins` refuses an
+         * object that was never placed, so "no margins were used" and "no pass has
+         * said anything" stay distinguishable through the result's state.
+         */
+        robo_layout_margin_edges_init(&tree->objects[index].margins, 0);
     }
 }
 

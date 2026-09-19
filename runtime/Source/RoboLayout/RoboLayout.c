@@ -107,6 +107,15 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      * caller reads it rather than only here.
      */
     out->sizing = ROBO_LAYOUT_SIZING_IMPLEMENTED;
+
+    /*
+     * And 10.9's, same shape: the margin layer exists, a declaration reaches a used
+     * value, and a box is placed at its margin origin with its parent stacking by its
+     * margin box. **Not** "margins are finished": there is no collapsing, a percentage
+     * is used as zero rather than resolved, and a non-replaced inline box has no
+     * margins at all, which is why `robo_layout_object_margins` refuses one.
+     */
+    out->margins = ROBO_LAYOUT_MARGINS_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }

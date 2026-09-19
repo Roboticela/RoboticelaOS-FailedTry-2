@@ -212,15 +212,29 @@ would have no element and no `display` to derive a kind from.
 
 ## 6. Not applied, and readable anyway
 
-Margins, padding and borders are **10.9, 10.10 and 10.11**. Until then a box's
-content box **is** its border box and its content origin **is** its top-left corner,
-so no arithmetic is missing and no number is faked: there is simply nothing to add
-yet.
+**Superseded in part by 10.9, and kept as it stood.** Margins, padding and borders
+were **10.9, 10.10 and 10.11**, and until then a box's content box **is** its border
+box and its content origin **is** its top-left corner, so no arithmetic was missing
+and no number was faked: there was simply nothing to add yet.
+
+That is still true of padding and borders, and it is no longer true of margins. A
+box's position is now its **margin origin** — the content origin of §3 plus its own
+`margin-top` and `margin-left` — while its `size` is untouched, and what the pass
+reports to a parent as the extent to stack below is the **margin box**,
+`top + height + bottom`. Two things in this document therefore say something a build
+no longer does, and they are left standing rather than silently edited because how
+they changed is the record:
+
+| §6 as written | what 10.9 made of it |
+|---|---|
+| "a box's content origin **is** its top-left corner" | it is its top-left corner **plus its top and left margins**, and the `margin_origin` the sizing layer resolves is what the result's position is written from (`Margins.md` §1) |
+| "`margin: 10px 20px` … change[s] no number" | it changes two: the origin moves to (20, 10), and the extent the parent stacks by becomes the margin box (`Margins.md` §7) |
 
 The values arrive computed and borrowed through 10.1's style seam, so a test can
-read them beside the geometry — which is how the pipeline case in §7 proves that
-`margin: 10px 20px` and `border: 1px solid` change no number in this phase while
-still being present in the style.
+read them beside the geometry — which is how the pipeline case in §7 proved that
+`margin: 10px 20px` and `border: 1px solid` changed no number in *this* phase while
+still being present in the style, and how the same case now asserts that the margin
+reaches geometry where the border still does not.
 
 The two overflow flags on the result stay **0** even when a declared height is
 smaller than the content it holds, and that is deliberate: *that a box overflows*
@@ -318,6 +332,7 @@ one source of truth for one fact, which is the rule this module applies everywhe
 | 10.8 sizing | the single width rule (§3) it replaces, and the `heights_from_content` `auto` path |
 | 10.8 sizing (outcome) | §3's single width is now **one resolution and two uses**: the pass resolves the width first and recursion lays children out into that number, so a declared `width` reaches a box's *children* and not only the box (`Sizing.md` §1); §4's four rows become the sizing layer's three kinds, and a percentage or relative unit is read and recorded **unresolved** rather than silently treated as `auto` (`Sizing.md` §4) |
 | 10.9 margins | the content origin (§6) that becomes the margin edge |
+| 10.9 margins (outcome) | §6's content origin is now a **margin origin**: the pass resolves the four margins *before* the width (an `auto` width fills what they left), writes the result's position from them, and advances the stacking cursor by the child's **margin box** rather than its content height (`Margins.md` §1) — so the card's origin moves to (20, 10) and `<body>`'s extent becomes 120, and the size stays 200×100 in both cases |
 | 10.12 positioning | `position` on the result, in the containing block's coordinate space |
 | 10.13 overflow | the two result flags that are still 0, and the box that is the scroll container |
 | 11 paint | a rectangle per box, in the coordinate space §2 defines |
@@ -334,8 +349,10 @@ doing.
 - **No inline layout, no line box, no text.** §5, and `inline_level_skipped` and
   `unreached` are how the absence is *visible* rather than silent.
 - **No anonymous box.** §5 — 10.4's.
-- **No margin, padding or border arithmetic, and no `box-sizing`.** §6, and the
-  content origin is stated as such.
+- **No padding or border arithmetic, and no `box-sizing`.** §6, and the content
+  origin is stated as such. Margins **are** arithmetic since 10.9 (their own row in
+  §9); what is still absent is collapsing — adjacent vertical margins sum — and that
+  has its own boundary item in `Margins.md` §6.
 - **No declared width.** §3 — 10.8's, and it landed: a `px` length and `auto` are
   both resolved by the sizing layer, and everything else is read, recorded as
   unresolved and filled rather than guessed (`Sizing.md`).

@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.8)
+# RoboLayout Test Organisation (through Phase 10.9)
 
-Fourteen suites, 194 tests, one framework. Each phase adds no test runner, no reporter
+Fifteen suites, 219 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -42,6 +42,7 @@ phase that made it.
 | `SuiteRoboLayoutLineBox.c` | `layout.line.*` | 12 | is the line being built not a line box, and are a line's members exactly the objects that advanced its cursor? |
 | `SuiteRoboLayoutBaseline.c` | `layout.baseline.*` | 16 | does every line get a floor, are its members placed on it, and is "not placed" a different answer from "placed with no extent"? |
 | `SuiteRoboLayoutSizing.c` | `layout.sizing.*` | 17 | does a declaration reach geometry, and does a box's resolved width reach the children laid out *into* it? |
+| `SuiteRoboLayoutMargin.c` | `layout.margins.*` | 25 | does a margin move a box without resizing it, and does each of the four sides get the value its policy asks for? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -490,14 +491,57 @@ the block suite does for its card and for the same reason: a fixture's *indices*
 a fact about the parser, and counting them asserts the wrong thing the day the parser
 gains one more element.
 
+### 10.15 — margins (`layout.margins.*`)
+
+Twenty-five cases in four groups: the vocabulary, the seam and its policies, the
+record, and the two passes that consume it. Like `layout.sizing.*` this suite drives
+**fabricated computed styles** where the subject is a policy rather than a parse —
+no stylesheet reaches the `auto`-margin branch with a containing block that makes the
+answer interesting, so the cases that care hand the pass the style they mean.
+
+**The vocabulary** — `kind_vocabulary` walks the four kinds (declaring each name and
+predicate, with an absent side as a **fourth** kind rather than a declared zero, and
+a count asserted), and `one_side`/`sides` read a single margin and a four-side record
+back through its doors.
+
+**The seam and the policies** — `seam` covers the one CSS read the phase adds: a
+declared `%`, `em` or `auto` classified rather than folded, a negative `px` length
+kept **signed** where the sizing seam refuses one, and an `out` left untouched when
+the question cannot be asked. `edges_record` (the used-edges record and its one
+clamped number), `block_basic`/`block_sides` (the block policy over each side),
+`block_negative`, `block_auto_center`, `block_auto_odd`,
+`block_auto_under_auto_width`, `block_overconstrained`, `block_unresolved` and
+`block_vertical_auto` are the policy's edge cases, and `inline_policy` is the other
+policy — the one that does not distribute an `auto`.
+
+**The pass** — the group that reads geometry:
+
+| Case | Subject |
+|---|---|
+| `block_geometry` | a box at its **margin origin** rather than its border origin, and its own content size unmoved by the margin — the phase's central claim, seen in a coordinate |
+| `auto_center_geometry` | `margin: 0 auto` in an 800px parent putting a 300px box at 250, which is where a symmetric distribution lands |
+| `margin_box_flows_down` | the next sibling placed at `top + height + bottom`, where the box's own extent is only `height` |
+| `block_stacking` | several stacked blocks, so a bottom margin that reached the position of the block *after* the next one is a failure |
+| `block_no_collapse` | **two 20px margins meeting at 40**, and not 20 — the non-collapsing behavior asserted as a value, which is what makes "collapsing is not implemented" a claim rather than an omission |
+| `inline_advance` | an atomic inline's advance including its horizontal margins, because the text after it starts where the margin ends |
+| `inline_baseline` | an atomic inline's baseline at its bottom **margin** edge, so that an inline-block with a bottom margin sits higher than one without |
+| `object_door` | the used margins kept on the object and read back through the object's own accessor rather than a side table |
+| `relayout` | a changed margin recomputing the affected geometry on a second pass over the same tree |
+| `allocator_balance` | two passes at two viewports over one tree, with nothing leaked |
+
+**What the group is shaped against.** Every case that reads a coordinate does so
+through `layout_margin_origin_of`/`layout_margin_box_for`, which resolve an element
+**by tag** — the lesson 10.8 learned twice in a row and the reason these cases were
+written that way on the first build.
+
 ### 10.7 — conformance (`layout.conformance.*`)
 
 Seven cases, and the shape is 9.16's: ask the questions no single-module suite can.
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now sixteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes`, `baselines` and `sizing` at 1 and `painting` at 0, and the count of implemented fields asserted as fifteen |
-| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.8.0`, API unfrozen, three object kinds and four context kinds |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now seventeen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes`, `baselines`, `sizing` and `margins` at 1 and `painting` at 0, and the count of implemented fields asserted as sixteen |
+| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.9.0`, API unfrozen, three object kinds and four context kinds |
 | `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no layout at all, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
 | `determinism` | two builds of the same document produce equal trees, compared box by box |
@@ -536,13 +580,15 @@ replaced rather than weakened, and the numbers took over `layout.block.*`.
 | a scripted text measurer | answer a width per code point, so a case about cursor arithmetic fails because the arithmetic is wrong and not because a font differed — `layout.text.*` and `layout.line.*` |
 | a synthetic SFNT face | cmap, hmtx, hhea, head, maxp, loca and glyf built in the suite, for the one case whose subject *is* the real RoboFont answer |
 
-The second row is the design record's §6.1 argument made concrete. Nine of the
-fourteen suites never instantiate a style context at all — `layout.sizing.*` is the
-newest of the nine, and the *most* scripted of them: the declaration it needs
-(`width: 300px`) goes through the real RoboCSS specified-value and computation doors
-and then into a style source **directly** — neither a stylesheet nor the shared
-scripted fixture (§10.14) — and the five that do reach
-for one solely in the cases whose subject *is* the joining: `layout.dom.*` and
+The second row is the design record's §6.1 argument made concrete. Ten of the
+fifteen suites never instantiate a style context at all — `layout.margins.*` is the
+newest of the ten, and the *most* scripted of them: a four-side record, an `auto`
+side and a **signed** length are read out of a fabricated style source directly,
+neither a stylesheet nor the shared scripted fixture. `layout.sizing.*` is the next
+newest: the declaration it needs (`width: 300px`) goes through the real RoboCSS
+specified-value and computation doors and then into a style source **directly** —
+neither a stylesheet nor the shared scripted fixture (§10.14) — and the five that do
+reach for one do so solely in the cases whose subject *is* the joining: `layout.dom.*` and
 `layout.conformance.*` throughout, and the single `pipeline` case in
 `layout.block.*`, `layout.inline.*` and `layout.text.*`. `layout.fc.*` is one of the six, which is
 what makes §10.8 able to assert the classification table as a table — a rule that
@@ -624,8 +670,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 196 — this module's 194, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 198 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 221 — this module's 219, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 223 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -639,9 +685,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.line` | 12 |
 | `layout.baseline` | 16 |
 | `layout.sizing` | 17 |
+| `layout.margins` | 25 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2210** tests, green in both configurations.
+Whole suite: **2235** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -656,8 +703,12 @@ Whole suite: **2210** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2210 cases. In 10.8's run the sanitized suite was
-**2210/2210** with no sanitizer diagnostic and **no red case**. 10.7's run was
+ASan and UBSan run the same 2235 cases. In 10.9's run the sanitized suite was 2235
+with **no sanitizer diagnostic** and `window.host.keyboard` as its only red case —
+the documented environment-dependent flake rather than a finding, since it passes in
+isolation and its failure is `ROBO_NOT_SUPPORTED` from `SetForegroundWindow`. 10.8's
+run was
+**2210/2210** the same way. 10.7's run was
 **2193/2193** the same way. 10.6's run was the
 same count; in 10.5's run the sanitized suite was 2177 with no sanitizer diagnostic
 and the two host-window cases below as its only red cases. In 10.4's run the
@@ -1058,3 +1109,54 @@ phase moves: `layout.module.version`, `layout.module.capabilities`,
 `layout.conformance.capabilities` and `layout.conformance.statement` — plus
 `layout.module.diagnostic_domains`, which is the fifth field a phase can add and is
 asserted by count, by name and by "the newest domain is the last enumerator".
+
+---
+
+## 14. What the 10.9 suites found
+
+Three findings, and the first is the kind this file exists to write down: a **design
+vocabulary** the new suite proved was incomplete, discovered by a *counter* rather
+than by a geometry assertion.
+
+**1. A kind was missing from the margin vocabulary, and the *accounting* is what
+found it** (`RoboLayoutMargin.h`). The first draft had three kinds — a resolved
+length (including a declared zero), `auto`, and `unresolved` — with a cleared side
+reading as a resolved zero. That is CSS's initial value and it produces correct
+geometry, which is exactly why it survives a suite that only reads coordinates. It is
+the **counters** that cannot be built on it: "how many of this document's margins did
+an author actually write?" has no answer, because a cleared record and `margin: 0`
+are one value and two different facts. The fix is the `ABSENT` kind 10.8 had already
+reached from the other direction for dimensions — a box's `AUTO` width and its
+undeclared width are likewise one geometry and two facts — so the vocabulary was
+looked up and reused rather than reinvented, and `ABSENT` is deliberately **0** for
+the reason RoboCSS gives for its own first-slot defaults. The lesson is the one the
+`clamp` case taught in the other direction: a counter is often the first reader to
+notice a vocabulary is one kind short, because it asks a question geometry cannot.
+
+**2. The suite's fixtures never reached their subject, twice, and both times the
+symptom was a pass that looked right** (`SuiteRoboLayoutMargin.c`). Two cases drove a
+real stylesheet and asserted zero geometry — and passed, because the document they
+built had no `display: block` chain and no viewport, so no pass ran at all. A third
+had a `settled` variable holding a *second* read of the same box, so its "determinism"
+claim compared a value with itself. All three are the 10.8 fixture finding's family: a
+case whose fixture never reaches its subject reports the absence of the subject as
+the feature being correct. Every margin case that reads a coordinate now resolves the
+element **by tag** and asserts that a pass actually placed something before it reads
+the number.
+
+**3. Three earlier assertions changed, and each said so before it did.**
+`layout.block.pipeline` (card origin 0/0 → **20/10**, the `margin: 10px 20px` it had
+recorded as ignored), `layout.conformance.pipeline` (the same card's origin, and
+`<body>`'s and `<html>`'s extent 100 → **120** — the margin *box* the cursor reaches),
+and `layout.block.pipeline`'s doc comment, which named `margin` among the ignored
+declarations and now names the phase that stopped ignoring it. The card's own size is
+unchanged at 200×100 in both cases, which is what makes the pair of assertions — a
+moved origin and an unmoved size — the phase's claim rather than two numbers.
+
+**Five assertions moved for the version and the capabilities**, the same set every
+phase moves and one more than the previous one: `layout.module.version`,
+`layout.module.capabilities`, `layout.conformance.capabilities`,
+`layout.conformance.statement` and `layout.module.diagnostic_domains` — the last of
+which is asserted by count, by name, by "the newest domain is the last enumerator"
+*and* by "the one before it is the previous newest", a pair 10.9 added because a new
+domain should not be able to leave its predecessor's ordering unstated.

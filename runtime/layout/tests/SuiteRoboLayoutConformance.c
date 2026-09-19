@@ -68,6 +68,7 @@ static const struct {
     { "line_boxes", 1 },
     { "baselines", 1 },
     { "sizing", 1 },
+    { "margins", 1 },
     { "painting", 0 }
 };
 
@@ -95,11 +96,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Fifteen of sixteen. Asserted as a count as well as field by field, so a build
+    /* Sixteen of seventeen. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The sixteenth is `painting`, and it is the only one that is 0. */
-    ROBO_CHECK_EQ_INT(implemented, 15u);
+     * glance. The seventeenth is `painting`, and it is the only one that is 0. */
+    ROBO_CHECK_EQ_INT(implemented, 16u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -423,10 +424,14 @@ static void test_conformance_pipeline(void)
      *
      * The card is the whole point. It declares `width: 200px` and `height: 100px`,
      * `position: relative`, `top: 10px`, a border, a margin and padding -- and of
-     * those, two numbers reach the result and the rest are later goals. Its width is
-     * 200 because resolving a declared width *is* this phase; its height is 100; and
-     * the position, border, margin and padding are still absent, so a build that read
-     * any of them here would be answering a phase that has not run.
+     * those, three numbers reach the result and the rest are later goals. Its width is
+     * 200 because resolving a declared width *is* 10.8; its height is 100; and since
+     * 10.9 its `margin: 10px 20px` also reaches geometry: the card is placed at its
+     * **margin origin**, (20, 10), which is where the containing block's content
+     * origin is plus the two margins, and the height it propagates up is its margin
+     * box -- 10 + 100 + 10 = 120 at `<body>` and `<html>`. The border and padding are
+     * still absent, and `position: relative`/`top: 10px` still are, so a build that
+     * read any of those here would be answering a phase that has not run.
      *
      * The card's width then travels: `<p class="title">` is its child, so the width
      * its own `auto` resolves against is 200 rather than the viewport's 1280. That is
@@ -460,8 +465,9 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(rect.x, 0);
         ROBO_CHECK_EQ_INT(rect.y, 0);
         ROBO_CHECK_EQ_INT(rect.width, 1280);
-        /* `<body>` is the only block-level child that stacks, and it is 100 tall. */
-        ROBO_CHECK_EQ_INT(rect.height, 100);
+        /* `<body>` is the only block-level child that stacks, and it is 120 tall since
+         * 10.9: the extent the cursor reached is the card's **margin box**. */
+        ROBO_CHECK_EQ_INT(rect.height, 120);
 
         ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, body_box, &result),
                           ROBO_OK);
@@ -470,17 +476,21 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(rect.x, 0);
         ROBO_CHECK_EQ_INT(rect.y, 0);
         ROBO_CHECK_EQ_INT(rect.width, 1280);
-        ROBO_CHECK_EQ_INT(rect.height, 100);
+        ROBO_CHECK_EQ_INT(rect.height, 120);
 
         ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, card_box, &result),
                           ROBO_OK);
         ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_COMPUTED);
         ROBO_CHECK_EQ_INT(robo_layout_result_position(&result, &position), ROBO_OK);
-        ROBO_CHECK_EQ_INT(position.x, 0);
-        ROBO_CHECK_EQ_INT(position.y, 0);
+        /* Since 10.9 these are the card's **margin** edges, and this is the case that
+         * recorded (0, 0): a build that added the margins to the box's `size` instead
+         * would move the size and leave the origin, and the pair below fails both
+         * ways round. */
+        ROBO_CHECK_EQ_INT(position.x, 20);
+        ROBO_CHECK_EQ_INT(position.y, 10);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
         ROBO_CHECK_EQ_INT(size.width, 200);  /* the declared one, honoured since 10.8 */
-        ROBO_CHECK_EQ_INT(size.height, 100); /* and so is this */
+        ROBO_CHECK_EQ_INT(size.height, 100); /* and so is this -- a margin is not a size */
 
         /* The title is a placed box with a *zero* extent, which is 10.3's honest
          * answer for a `<p>` whose only content is text: a text node is not a box,
@@ -1011,7 +1021,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.8.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.9.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*
