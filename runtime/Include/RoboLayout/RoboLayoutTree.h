@@ -79,20 +79,46 @@ typedef struct robo_layout_tree robo_layout_tree_t;
  */
 typedef struct robo_layout_object_info {
     /** Parent to link under as its last child. ROBO_LAYOUT_NODE_ID_NONE means
-     *  "this is the root box", which is only accepted for an empty tree. */
+     *  "this is the root object", which is only accepted for an empty tree. */
     robo_layout_node_id_t parent;
-    /** The element this box comes from. Must be well formed. */
+    /**
+     * What to create: a box, or a text run (RoboLayoutTypes.h).
+     *
+     * `robo_layout_object_info_init` defaults it to `BOX`, because that is what a
+     * builder makes most of and because a descriptor whose kind nobody set should
+     * describe the common thing rather than a third state nothing creates. A text
+     * object is therefore **opt-in**, and the two kinds carry different
+     * obligations below.
+     */
+    robo_layout_object_kind_t kind;
+    /** The DOM node this object comes from: an element for a box, a text node for
+     *  a text object. Must be well formed, and must be the right kind of node. */
     robo_html_node_handle_t dom_node;
-    /** Borrowed computed style, or NULL. Must outlive the tree. */
+    /**
+     * Borrowed computed style, or NULL. Must outlive the tree.
+     *
+     * Read for a box's `display` and borrowed by it; borrowed by a text object
+     * from its **parent element**, because inherited properties are what a run
+     * needs (RoboLayoutText.h).
+     */
     const robo_css_computed_style_t *style;
-    /** The computed display this box is created under. Must generate a box. */
+    /**
+     * The display to create the object under. Must generate a box.
+     *
+     * Meaningful for a BOX, and **ignored** for a text object: a text object's
+     * display is derived as `inline` (RoboLayoutObject.h says why), so a caller
+     * cannot get it wrong by leaving it at the initial value.
+     */
     robo_css_display_t display;
     /** ROBO_LAYOUT_OBJECT_FLAG_* bits; unset bits are added by the tree when it
      *  can tell (a NULL style sets STYLE_MISSING). */
     uint32_t flags;
 } robo_layout_object_info_t;
 
-/** Zero @p info: no parent (a root candidate), no element, no style. */
+/**
+ * Zero @p info: no parent (a root candidate), no node, no style, and the kind a
+ * builder makes most of -- an element box.
+ */
 void robo_layout_object_info_init(robo_layout_object_info_t *info);
 
 /**
@@ -142,13 +168,18 @@ robo_result_t robo_layout_object_id_at(const robo_layout_tree_t *tree,
  *
  *   - @p info->parent must be NONE only when the tree is empty (one root); a
  *     parent id must name a live box in *this* tree.
- *   - @p info->dom_node must be well formed (a box always came from something
- *     the DOM can be asked about).
- *   - @p info->display must generate a box (`robo_css_display_generates_box`);
- *     a `display: none` element has no box by definition, so creating one would
- *     make the tree a copy of the DOM's element list instead of what layout
- *     walks.
- *   - @p info->flags may not carry an undefined bit.
+ *   - @p info->kind must be a defined object kind other than NONE.
+ *   - @p info->dom_node must be well formed (an object always came from something
+ *     the DOM can be asked about), and must be the *right kind* of node: an
+ *     element for a BOX, a text node for a TEXT object. That is checked rather
+ *     than assumed because the two kinds read different payload fields, so a
+ *     mismatch would not fail here -- it would produce an object whose text is
+ *     empty or whose style lookup is meaningless, several phases later.
+ *   - @p info->display must generate a box (`robo_css_display_generates_box`)
+ *     when the kind is BOX; a `display: none` element has no box by definition, so
+ *     creating one would make the tree a copy of the DOM's element list instead of
+ *     what layout walks. A TEXT object's display is derived as `inline` and the
+ *     field is ignored (RoboLayoutObject.h).
  *
  * A NULL style is accepted and sets STYLE_MISSING rather than failing: a caller
  * building a tree without CSS is doing something legitimate (a structural-only
@@ -259,6 +290,79 @@ robo_result_t robo_layout_tree_context(const robo_layout_tree_t *tree,
 robo_result_t robo_layout_tree_root_context(const robo_layout_tree_t *tree,
                                            robo_layout_fc_id_t *out,
                                            robo_layout_diag_t *diag);
+
+/* ------------------------------------------------------------------ */
+/* Line boxes (10.6)                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Number of line boxes this tree holds, or 0 when no pass has laid it out.
+ *
+ * Zero is also the answer for a laid-out tree that produced no lines -- a document
+ * with no inline content, or a viewport-free pass -- and the two are told apart the
+ * way this module tells apart every other pair of "nothing" and "not yet": by asking
+ * the pass's own record (`robo_layout_inline_stats_t.lines`, or the block record's
+ * placement counts) rather than by inferring one from the other.
+ *
+ * Lines are released by the next pass and by anything that releases the
+ * classification, so this count always describes *the last pass*.
+ */
+size_t robo_layout_tree_line_count(const robo_layout_tree_t *tree);
+
+/**
+ * Identity of the line at @p index in finalization order.
+ *
+ * @return ROBO_OK and the id; ROBO_INVALID_ARGUMENT for NULL arguments;
+ *         ROBO_NOT_FOUND for an index at or past the count. Line ids are dense and
+ *         1-based, so the line at @p index has id `index + 1`; this door exists so a
+ *         walk needs no arithmetic of its own, exactly as the context and object
+ *         doors do.
+ *
+ * The order is the order the pass *finalized* lines, which for one context is the
+ * order they were laid out -- but the lines of two contexts interleave in this list,
+ * so a caller that wants one context's lines asks for them by context and index
+ * (`robo_layout_line_box_t.context` and @ref `.index`) rather than by position here.
+ */
+robo_result_t robo_layout_tree_line_at(const robo_layout_tree_t *tree,
+                                       size_t index,
+                                       robo_layout_line_id_t *out_id,
+                                       robo_layout_diag_t *diag);
+
+/**
+ * Line box by id, by value.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments or a NONE id;
+ *         ROBO_NOT_FOUND for an id that names no line in @p tree -- which includes
+ *         a line of a previous pass, because a line id is valid until the next one.
+ *         @p out is cleared first, so a failure never leaves a half-filled copy.
+ */
+robo_result_t robo_layout_tree_line(const robo_layout_tree_t *tree,
+                                    robo_layout_line_id_t id,
+                                    robo_layout_line_box_t *out,
+                                    robo_layout_diag_t *diag);
+
+/**
+ * The @p index'th member of line @p id, in layout order, as the object's id.
+ *
+ * The members are the objects the line *placed*, which is not the same set as the
+ * context's participants: a transparent inline box with contents encloses members
+ * without being one (RoboLayoutLineBox.h). To go the other way -- from an object to
+ * its line -- a caller uses `robo_layout_object_line` (RoboLayoutObject.h).
+ *
+ * O(index): a line's members are a chain because the placements of two lines
+ * interleave, so the walk is proportional to the position asked for. The count in the
+ * record is what bounds it, which is why the index is validated before the walk rather
+ * than during it.
+ *
+ * @return ROBO_OK and the object id; ROBO_INVALID_ARGUMENT for NULL arguments or a
+ *         NONE id; ROBO_NOT_FOUND for an id that names no line, or an index at or
+ *         past the line's member count.
+ */
+robo_result_t robo_layout_line_member(const robo_layout_tree_t *tree,
+                                     robo_layout_line_id_t id,
+                                     size_t index,
+                                     robo_layout_node_id_t *out_node,
+                                     robo_layout_diag_t *diag);
 
 #ifdef __cplusplus
 }

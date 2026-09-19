@@ -35,6 +35,11 @@
  *   that is `inline`. Its own rectangle is then not a size it has but a **union**
  *   of what its contents reached.
  *
+ * and 10.5 adds the participant that is neither: a **text run**. A text node is not
+ * a box, but it is a participant -- measured, placed at the cursor, and advancing it
+ * by its own advance width -- and that is what makes a `span` holding only text stop
+ * being zero-wide.
+ *
  * Getting this backwards is the expensive mistake, exactly as 10.2's
  * participating/establishing pair was: a build that treated a `span` as opaque
  * would place it with no width (it has none to measure) and drop everything inside
@@ -75,12 +80,14 @@
  *   which is a real computation, not a placeholder — and it is **zero** when it
  *   contains no box at all.
  *
- * That zero is the honest answer and the phase says so loudly rather than dressing
- * it up: a `<span>` holding only text has no extent here because nothing in this
- * build measures text. `layout.inline.textless` asserts the zero *and* the reason,
- * and 10.5 is the goal that replaces it. A build that guessed a width for text it
- * cannot measure would be the one failure a later phase could not detect, because
- * the numbers would look plausible.
+ * That zero was the honest answer *in 10.4*, and the phase said so loudly rather
+ * than dressing it up: a `<span>` holding only text had no extent because nothing in
+ * that build measured text, and `layout.inline.textless` asserted the zero *and* the
+ * reason. **10.5 is the goal that replaced it**, and it did so without changing this
+ * rule: a text run is now a participant, so the union is the union of *its* extents.
+ * The rule itself -- a non-atomic inline's rectangle is what its contents reached,
+ * and nothing it declares -- is unchanged, which is exactly why the zero was worth
+ * stating instead of papering over.
  *
  * Wrapping, and what a "line" is here
  *
@@ -178,25 +185,55 @@ typedef struct robo_layout_inline_stats {
      *  is text, or a truly empty one. The most common shape in a small document,
      *  and therefore worth counting rather than leaving to a reader to subtract. */
     size_t empty_contexts;
-    /** Inline-level boxes that were given geometry. This plus a block pass's
-     *  `blocks_placed` is every box in a laid-out document that has a result. */
+    /**
+     * Everything given geometry along a line: inline-level boxes **and text runs**.
+     *
+     * This plus a block pass's `blocks_placed` is every object in a laid-out document
+     * that has a result, and since 10.5 the count includes text objects -- which is
+     * why the three counters below are about *boxes* specifically. A text run is not a
+     * box, so counting it as one would make the atomic/non-atomic pair describe a set
+     * of things no formatting context has a rule about.
+     */
     size_t participants_placed;
-    /** Of those, the ones opaque to the line: inline-level and establishing a
+    /** Of those, the **boxes** opaque to the line: inline-level and establishing a
      *  formatting context of their own, so placed as a unit. `inline-block`
-     *  today. */
+     *  today. Text runs are not counted here -- they are not boxes. */
     size_t atomic_placed;
-    /** Of those, the ones transparent to the line: inline-level and establishing
+    /** Of those, the **boxes** transparent to the line: inline-level and establishing
      *  nothing, so their children are participants of the same context and their
-     *  own rectangle is the union of what those children reached. */
+     *  own rectangle is the union of what those children reached. Text runs are not
+     *  counted here either. */
     size_t non_atomic_placed;
     /** Block-level boxes found inside an inline formatting context, which this
      *  phase declines rather than places: CSS gives them an *anonymous* block box
      *  to live in and this build makes none. Counted rather than dropped, because
      *  "not placed yet" and "not in the document" must not look the same. */
     size_t block_level_declined;
-    /** Preliminary lines the contexts produced — the count 10.6's line boxes will
-     *  be counted against, and nothing more than a count (see the header). */
+    /**
+     * **Line boxes** the contexts finalized (10.6).
+     *
+     * Until 10.6 this counted preliminary lines, and the counters are the same
+     * number: a line is finalized exactly when something was placed on it, so the
+     * count is the number of non-empty lines and an empty context contributes none.
+     * What changed is what a reader can do with it -- the lines themselves are now
+     * records in the tree (`robo_layout_tree_line_count`), so this is a check against
+     * the arena rather than the only way to learn that anything was on a line.
+     */
     size_t lines;
+    /**
+     * Objects placed **on** those lines, summed.
+     *
+     * Not the same number as `participants_placed`, and the difference is 10.6's
+     * central distinction: a **transparent inline box with contents** is a participant
+     * of the context and a member of no single line, because its rectangle is the
+     * union of what it encloses (RoboLayoutLineBox.h). So this count is the placements
+     * -- the objects whose advance the cursor advanced by -- and the suite asserts it
+     * against the arena's own member counts rather than against the participant count.
+     *
+     * Equal to `participants_placed` for a document that nests no inline box, which is
+     * the shape most documents have and the reason the distinction is easy to miss.
+     */
+    size_t line_members;
     /** Participants that began a new line because they did not fit after the
      *  cursor. Zero for a document that wrapped nowhere, which is the number a
      *  wide viewport should produce. */

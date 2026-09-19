@@ -46,20 +46,36 @@ typedef uint32_t robo_layout_node_id_t;
 #define ROBO_LAYOUT_NODE_ID_NONE ((robo_layout_node_id_t)0u)
 
 /**
- * What kind of box a layout object is.
+ * What kind of layout object this is.
  *
- * One value, and that is the point: 10.1 knows how to say "this element
- * generates a box" and nothing about what *kind* of box it is, because the
- * formatting contexts that would answer that are Phase 10.2.
+ * 10.1 shipped one value, and the point then was that it knew how to say "this
+ * element generates a box" and nothing about what *kind* of box it is -- the
+ * formatting contexts that answer that are 10.2's.
+ *
+ * 10.5 adds the second, and it is not a box: a **text object** is what a text
+ * node generates (RoboLayoutText.h). It is a layout object because it
+ * participates in layout -- it is placed along a line, it advances a cursor, it
+ * has a position and a size -- and it is not a box because it has no element, no
+ * children and no `display` declaration of its own. Collapsing the two would mean
+ * either giving text an element it does not have or making the passes ask "is
+ * this one of the special ones?" in a dozen places.
+ *
+ * The vocabulary is deliberately still small, and the third entry is still
+ * absent: an **anonymous** box (the wrapper a mixed container needs) is a later
+ * goal's, and it would be the first kind with no DOM node behind it at all --
+ * which is why it is 10.3's and 10.4's machinery rather than something to claim
+ * here.
  */
 typedef enum robo_layout_object_kind {
     ROBO_LAYOUT_OBJECT_NONE = 0,
     /** An element that generates a box (any display except `none`). */
-    ROBO_LAYOUT_OBJECT_BOX = 1
+    ROBO_LAYOUT_OBJECT_BOX = 1,
+    /** A text node's content, placed as a run (10.5). */
+    ROBO_LAYOUT_OBJECT_TEXT = 2
 } robo_layout_object_kind_t;
 
 /** Number of defined object kinds. */
-#define ROBO_LAYOUT_OBJECT_KIND_COUNT 2u
+#define ROBO_LAYOUT_OBJECT_KIND_COUNT 3u
 
 /** Non-zero if @p kind is a defined object kind. */
 int robo_layout_object_kind_is_known(robo_layout_object_kind_t kind);
@@ -99,11 +115,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** Block layout: containing blocks, stacking, the geometry it writes. */
     ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT = 12,
     /** Inline layout: lines, wrapping, the geometry it writes. */
-    ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT = 13
+    ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT = 13,
+    /** Text layout: ranges, measurement, the seam it goes through. */
+    ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT = 14
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 14u
+#define ROBO_LAYOUT_DOMAIN_COUNT 15u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

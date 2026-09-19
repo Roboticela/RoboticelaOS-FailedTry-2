@@ -397,6 +397,8 @@ static void test_block_preconditions(void)
     robo_layout_block_stats_t zeros;
     robo_layout_inline_stats_t inline_stats;
     robo_layout_inline_stats_t inline_zeros;
+    robo_layout_text_stats_t text_stats;
+    robo_layout_text_stats_t text_zeros;
     robo_layout_diag_t diag;
 
     layout_fixture();
@@ -405,23 +407,31 @@ static void test_block_preconditions(void)
     viewport.height = LAYOUT_BLOCK_VIEWPORT_HEIGHT;
     robo_layout_block_stats_init(&zeros);
     robo_layout_inline_stats_init(&inline_zeros);
+    robo_layout_text_stats_init(&text_zeros);
 
     /* An *argument* refusal happens before the output records are touched, so a
-     * caller's stats are left exactly as they were rather than half-cleared -- both of
-     * them, which is why the inline record is asserted alongside the block one. */
+     * caller's stats are left exactly as they were rather than half-cleared -- all
+     * three of them, which is why the inline and text records are asserted alongside
+     * the block one. Since 10.5 the pass fills three, and "a refusal must not clear
+     * what it did not answer" is one rule about three records.
+     */
     stats = zeros;
     stats.blocks_placed = 99u;
     inline_stats.participants_placed = 99u;
-    ROBO_CHECK_EQ_INT(robo_layout_block_layout(NULL, viewport, &stats, &inline_stats, NULL),
+    text_stats.runs_placed = 99u;
+    ROBO_CHECK_EQ_INT(robo_layout_block_layout(NULL, viewport, NULL, &stats, &inline_stats,
+                                              &text_stats, NULL),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(stats.blocks_placed, 99u);
     ROBO_CHECK_EQ_INT(inline_stats.participants_placed, 99u);
+    ROBO_CHECK_EQ_INT(text_stats.runs_placed, 99u);
     viewport.width = -1;
-    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, &inline_stats,
-                                               NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, NULL, &stats,
+                                               &inline_stats, &text_stats, NULL),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK_EQ_INT(stats.blocks_placed, 99u);
     ROBO_CHECK_EQ_INT(inline_stats.participants_placed, 99u);
+    ROBO_CHECK_EQ_INT(text_stats.runs_placed, 99u);
     viewport.width = LAYOUT_BLOCK_VIEWPORT_WIDTH;
 
     /*
@@ -432,11 +442,12 @@ static void test_block_preconditions(void)
      * refuses to have.
      */
     ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 0);
-    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, &inline_stats,
-                                               &diag),
+    ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, NULL, &stats,
+                                               &inline_stats, &text_stats, &diag),
                       ROBO_ERROR);
     ROBO_CHECK_EQ_INT(robo_layout_block_stats_equal(&stats, &zeros), 1);
     ROBO_CHECK_EQ_INT(robo_layout_inline_stats_equal(&inline_stats, &inline_zeros), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_text_stats_equal(&text_stats, &text_zeros), 1);
     ROBO_CHECK_EQ_INT((int)diag.domain, (int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT);
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(diag.domain), "block-layout");
 
@@ -463,7 +474,8 @@ static void test_block_preconditions(void)
         ROBO_CHECK_EQ_INT(pass_stats.boxes_computed, 0u);
         ROBO_CHECK_EQ_INT(pass_stats.block.blocks_placed, 0u);
         ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 1);
-        ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, &stats, NULL, NULL),
+        ROBO_CHECK_EQ_INT(robo_layout_block_layout(fixture.tree, viewport, NULL, &stats, NULL,
+                                                  NULL, NULL),
                           ROBO_NOT_FOUND);
         layout_block_end(&fixture);
     }
@@ -1413,9 +1425,11 @@ static void test_block_pipeline(void)
     ROBO_CHECK_EQ_INT(robo_layout_tree_build_from_document(tree, doc.id, &options, NULL, NULL),
                       ROBO_OK);
 
-    /* html, head, body, div.card, p. `<p>` is empty of boxes -- its text node is
-     * not one -- so it contributes no extent. */
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 5u);
+    /* html, head, body, div.card, p -- five boxes, plus the text object `<p>`'s text
+     * node generates (10.5). That object is inline-level and the paragraph owns an
+     * inline context, so the inline pass places it; with no metrics source in this
+     * case it measures zero, which is why the extents below are unchanged. */
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 6u);
 
     viewport.width = LAYOUT_BLOCK_VIEWPORT_WIDTH;
     viewport.height = LAYOUT_BLOCK_VIEWPORT_HEIGHT;
@@ -1464,11 +1478,19 @@ static void test_block_pipeline(void)
     /*
      * The accounting closes here too, and it is worth asserting on a document whose
      * box count the *parser* decided (it synthesizes `<head>`) rather than one the
-     * fixture wrote. */
+     * fixture wrote.
+     *
+     * The four terms are the four answers to "why has this object no geometry?", and
+     * the fourth is 10.4's: a participant the *inline* pass placed is explained by that
+     * pass rather than by this one. `<p>`'s text run is exactly such an object, which
+     * is why the sum omits it and still has to add up -- a build that dropped it from
+     * the identity would have six objects and five explanations.
+     */
     ROBO_CHECK_EQ_INT(stats.block.blocks_placed + stats.block.inline_level_skipped +
-                          stats.block.unreached,
+                          stats.inline_flow.participants_placed + stats.block.unreached,
                       stats.objects);
-    ROBO_CHECK_EQ_INT(stats.objects, 5u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 1u);
+    ROBO_CHECK_EQ_INT(stats.objects, 6u);
 
     robo_layout_context_destroy(context);
     robo_layout_tree_destroy(tree);

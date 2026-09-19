@@ -31,6 +31,14 @@ struct robo_layout_context {
     robo_layout_constraints_t constraints;
     int has_viewport;
     robo_layout_size_t viewport;
+    /*
+     * Who measures text (10.5). Borrowed, and the flag is what keeps "nobody installed
+     * a source" a *different* thing from "a source that measures nothing" -- the same
+     * distinction `has_viewport` draws one line up, and for the same reason: a zeroed
+     * record is not a statement.
+     */
+    robo_layout_text_metrics_t text_metrics;
+    int has_text_metrics;
     robo_layout_stats_t stats;
     robo_layout_pass_outcome_t outcome;
     /* Borrowed, and const *as read back*: the pass wrote into the boxes, not into
@@ -227,6 +235,12 @@ void robo_layout_context_reset(robo_layout_context_t *context)
     context->has_viewport = 0;
     context->viewport.width = 0;
     context->viewport.height = 0;
+    /* The metrics source is dropped by a reset for the same reason the viewport is:
+     * both are *inputs to a pass*, and a reset restores "this context has run
+     * nothing", which includes "nothing has been installed". The userdata they name
+     * is the caller's and is untouched -- see the note below. */
+    robo_layout_text_metrics_init(&context->text_metrics);
+    context->has_text_metrics = 0;
     memset(&context->stats, 0, sizeof(context->stats));
     context->outcome = ROBO_LAYOUT_PASS_NONE;
     context->tree = NULL;
@@ -263,6 +277,46 @@ robo_result_t robo_layout_context_viewport(const robo_layout_context_t *context,
         return ROBO_NOT_FOUND;
     }
     *out = context->viewport;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_context_set_text_metrics(robo_layout_context_t *context,
+                                                   const robo_layout_text_metrics_t *metrics)
+{
+    if (!context) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!metrics) {
+        robo_layout_text_metrics_init(&context->text_metrics);
+        context->has_text_metrics = 0;
+        return ROBO_OK;
+    }
+    /*
+     * The record is copied; the *userdata inside it* stays the caller's. That is the
+     * whole ownership story, and it is why clearing with NULL is a supported call
+     * rather than an afterthought: a caller whose font is about to go away clears the
+     * source first, and a context that kept the pointer past that would be measuring
+     * through a dangling face.
+     */
+    context->text_metrics = *metrics;
+    context->has_text_metrics = 1;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_context_text_metrics(const robo_layout_context_t *context,
+                                               robo_layout_text_metrics_t *out)
+{
+    if (!context || !out) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    /* A cleared record is the answer for "nothing installed", and it is the record
+     * whose own predicate (`robo_layout_text_metrics_is_usable`) says so -- so this
+     * door never has to report a miss to mean "nothing measures here". */
+    if (context->has_text_metrics) {
+        *out = context->text_metrics;
+        return ROBO_OK;
+    }
+    robo_layout_text_metrics_init(out);
     return ROBO_OK;
 }
 
@@ -455,9 +509,10 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
          * block stack (RoboLayoutBlock.h). The context owns both records, so it passes
          * both and the pass fills both.
          */
-        robo_result_t laid_out = robo_layout_block_layout(tree, context->viewport,
-                                                          &context->stats.block,
-                                                          &context->stats.inline_flow, diag);
+        robo_result_t laid_out = robo_layout_block_layout(
+            tree, context->viewport,
+            context->has_text_metrics ? &context->text_metrics : NULL,
+            &context->stats.block, &context->stats.inline_flow, &context->stats.text, diag);
 
         if (laid_out != ROBO_OK) {
             context->outcome = ROBO_LAYOUT_PASS_FAILED;

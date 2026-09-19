@@ -15,6 +15,12 @@
 #include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTypes.h"
 
+/* The one text-layer fact the builder needs: whether a text node carries anything
+ * a line could hold (10.5). The predicate lives there rather than here because the
+ * rule is CSS's collapsible-whitespace set, and a second copy of that set is a
+ * second answer to what "whitespace" means. */
+#include "RoboLayout/RoboLayoutText.h"
+
 #include <string.h>
 
 /** Everything one build carries down the recursion. */
@@ -28,13 +34,20 @@ typedef struct layout_build_context {
  * Build @p element's box's children, and their descendants.
  *
  * @p parent_box is the box of @p element; every child *element* becomes a box
- * under it. An element that generates no box is skipped, and so are its
+ * under it, and every child *text node* carrying anything becomes a text object
+ * under it (10.5). An element that generates no box is skipped, and so are its
  * descendants: a subtree with `display: none` on its root generates nothing,
  * which is the same rule applied one level down rather than a special case.
+ *
+ * @p parent_style is @p element's own computed style, threaded down rather than
+ * looked up again -- a text object borrows its parent element's style
+ * (RoboLayoutBuilder.h), and re-asking the source per text node would be one extra
+ * callback invocation per node for a value the recursion already holds.
  */
 static robo_result_t build_children(layout_build_context_t *ctx,
                                     const robo_html_node_handle_t *element,
                                     robo_layout_node_id_t parent_box,
+                                    const robo_css_computed_style_t *parent_style,
                                     uint32_t depth,
                                     robo_layout_diag_t *diag)
 {
@@ -55,6 +68,7 @@ static robo_result_t build_children(layout_build_context_t *ctx,
         robo_html_node_view_t child_view;
         robo_layout_object_info_t info;
         robo_layout_node_id_t child_box = ROBO_LAYOUT_NODE_ID_NONE;
+        const robo_css_computed_style_t *style = NULL;
         robo_result_t added;
 
         if (robo_html_node_get_view(&child, &child_view, NULL) != ROBO_OK) {
@@ -62,18 +76,59 @@ static robo_result_t build_children(layout_build_context_t *ctx,
                                     "a child handle did not resolve while building");
         }
 
-        /* Text, comments and the document node are walked over rather than
-         * turned into boxes -- see the header. The walk still uses the sibling
-         * link, so the *order* of the boxes is the DOM's own order. */
+        /*
+         * Text, comments and the document node are not *boxes* -- see the header.
+         * A text node becomes a **text object** instead (10.5), which is a layout
+         * object but not a box, and the distinction is the reason this branch is
+         * not the same as the comment case beside it.
+         */
+        if (child_view.kind == ROBO_HTML_NODE_KIND_TEXT) {
+            const char *text = child_view.text ? child_view.text : "";
+            size_t length = child_view.text ? child_view.text_length : 0u;
+
+            /*
+             * The one text rule: content that is entirely collapsible whitespace
+             * generates no object (RoboLayoutBuilder.h). Whitespace *inside* a run is
+             * kept -- collapsing it is a line-box algorithm -- and a run whose content
+             * is only spaces is an empty run on every line it could ever be on.
+             */
+            if (robo_layout_text_is_collapsible_whitespace(text, length)) {
+                ctx->report.texts_skipped_whitespace++;
+                child = child_view.next_sibling;
+                continue;
+            }
+
+            robo_layout_object_info_init(&info);
+            info.kind = ROBO_LAYOUT_OBJECT_TEXT;
+            info.parent = parent_box;
+            info.dom_node = child;
+            /* The *parent element's* style, borrowed -- see the header. */
+            info.style = parent_style;
+            added = robo_layout_tree_add_object(ctx->tree, &info, &child_box, diag);
+            if (added != ROBO_OK) {
+                return added;
+            }
+            ctx->report.texts_created++;
+            if (depth > ctx->report.depth_max) {
+                ctx->report.depth_max = depth;
+            }
+            /*
+             * Not descended into, and not counted in `elements_seen`: a text node has
+             * no children and is not an element, so the two counters above would be
+             * describing something that is not there.
+             */
+            child = child_view.next_sibling;
+            continue;
+        }
+
         if (child_view.kind != ROBO_HTML_NODE_KIND_ELEMENT) {
             child = child_view.next_sibling;
             continue;
         }
 
         ctx->report.elements_seen++;
+        style = robo_layout_style_source_style(ctx->styles, &child);
         {
-            const robo_css_computed_style_t *style =
-                robo_layout_style_source_style(ctx->styles, &child);
             robo_css_display_t display = robo_layout_style_display(style);
 
             if (!robo_css_display_generates_box(display)) {
@@ -102,7 +157,7 @@ static robo_result_t build_children(layout_build_context_t *ctx,
 
         ctx->report.boxes_created++;
         /* Descend. Depth is the box depth, so a child of the root is 1. */
-        if (build_children(ctx, &child, child_box, depth + 1u, diag) != ROBO_OK) {
+        if (build_children(ctx, &child, child_box, style, depth + 1u, diag) != ROBO_OK) {
             return diag ? diag->code : ROBO_ERROR;
         }
         child = child_view.next_sibling;
@@ -222,7 +277,7 @@ robo_result_t robo_layout_tree_build_from_document(robo_layout_tree_t *tree,
         }
         ctx.report.boxes_created++;
 
-        if (build_children(&ctx, &root_element, root_box, 1u, diag) != ROBO_OK) {
+        if (build_children(&ctx, &root_element, root_box, style, 1u, diag) != ROBO_OK) {
             return diag ? diag->code : ROBO_ERROR;
         }
     }

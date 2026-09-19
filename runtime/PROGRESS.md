@@ -4123,6 +4123,101 @@ plausible numbers in the wrong coordinate space. So atomicity is derived rather 
 `InlineLayout.md` §2 keeps the two questions apart the way 10.3's §2 keeps containment apart from
 context.
 
+## Goal 10.5 — Text layout
+
+**Status: complete.** The phase that makes a `<span>` holding only text as wide as its font says — and
+the one that widens the object vocabulary for the first time since 10.1.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| Code-point ranges, direction, the resolved font inputs, the run record, the measurement seam | `Include/RoboLayout/RoboLayoutText.h` |
+| Range and byte-span helpers, style resolution from computed CSS, whitespace predicate, the text counters | `Source/RoboLayout/RoboLayoutText.c` |
+| The RoboFont-backed measurer — cmap + hmtx, summed in font units and scaled once | `Include/RoboLayout/RoboLayoutTextFont.h`, `Source/RoboLayout/RoboLayoutTextFont.c` |
+| `ROBO_LAYOUT_OBJECT_TEXT`, and the derived inline display | `RoboLayoutTypes.h`, `RoboLayoutObject.h` |
+| The builder's second rule, with `whitespace_nodes_skipped` in its report | `RoboLayoutBuilder.c` |
+| Text placed on the line, the text record, and the accounting identity closing over it | `RoboLayoutInline.c`, `RoboLayoutBlock.c`, `RoboLayoutContext.h` |
+| Version `0.5.0`, `ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED`, the umbrella | `RoboLayoutVersion.h`, `RoboLayout.h` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A text node becomes a layout object and borrows its parent's style | `layout.text.build`, `layout.text.object_model` |
+| A real font measures a run | `layout.text.font_measure` — against a synthetic SFNT built in the suite |
+| Text is an ordinary participant of the line | `layout.text.pass_measured`, `layout.text.pipeline` |
+| A pass with no metrics source is legitimate and honest | `layout.text.pass_unmeasured` |
+| Ranges are code points, not bytes | `layout.text.*`, and RoboUnicode through them |
+| The identity still closes | `layout.text.accounting`, `layout.block.*` |
+
+### The one distinction the phase turns on
+
+Three answers to "measure this", and the type keeps all three apart: a **source that
+is not there** (`ROBO_NOT_SUPPORTED`, counted `unmeasured`), a **source that failed** (its own
+`robo_result_t`, counted `unmeasured`), and a **source that answered** (a width).
+`TextLayout.md` §4 argues it at length, and it is why `robo_layout_text_font_measure` refuses a
+detached font rather than answering zero: "I cannot measure" and "this is zero wide" are different
+statements, and a phase that conflated them would ship a document laid out as if every character
+were absent.
+
+### What 10.5 found
+
+A measurement seam that produced numbers from a **detached** font — not a crash, which is worse,
+because a null face still has a shape in memory. `layout.text.font_source` is the case, and the fix
+is the refusal above. Reported rather than smoothed over: the failure it would have caused is a
+document whose text is the wrong width in a way nobody can attribute to anything.
+
+---
+
+## Goal 10.6 — Line boxes
+
+**Status: complete.** The line stops being a cursor on the stack and becomes a record a caller can
+read back — with identity, geometry, an ordinal within its context, and the objects that went on it.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The record, the two-state vocabulary, the read side | `Include/RoboLayout/RoboLayoutLineBox.h` |
+| Line creation and finalization in the inline pass | `Source/RoboLayout/RoboLayoutInline.c` |
+| The two arenas — line records and the interleaved member chain — and their release | `Source/RoboLayout/RoboLayoutTree.c`, `RoboLayoutInternal.h` |
+| `robo_layout_tree_line_count` / `_line_at` / `_line` / `_line_member`, `robo_layout_object_line` | `RoboLayoutTree.h`, `RoboLayoutObject.h` |
+| `line_members` in the inline record, beside the unchanged `lines` | `RoboLayoutInline.h` |
+| Version `0.6.0`, `ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED`, the umbrella | `RoboLayoutVersion.h`, `RoboLayout.h` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| Construction state and the record are different things | `layout.line.record`, `layout.line.state_vocabulary` |
+| Inline content produces lines, in the right order and at the right y | `layout.line.single_run`, `layout.line.wrapping` |
+| Members are the **placements**, not the participants | `layout.line.members_are_placements`, `layout.line.empty_span_is_a_member` |
+| A line whose only member is unmeasured exists and is 0 × 0 | `layout.line.unmeasured_run` |
+| An empty context produces no lines | `layout.line.empty_context` |
+| A second pass replaces rather than accumulates | `layout.line.repeat_pass_replaces`, `layout.line.allocator_balance` |
+
+### The one distinction the phase turns on
+
+A line's **members are not the context's participants**, and the difference is exactly the transparent
+inline boxes that enclosed something. A union can span several lines, so recording such a box as a
+member of one of them would either state a rectangle it does not have or double-count the width its
+children already contributed. `LineBoxes.md` §2 and §9 argue it, and
+`layout.line.members_are_placements` is a *walk over the arena* on a document that nests inline boxes,
+where the two counts differ — so both plausible implementations (record it, or skip an empty one) fail
+it in opposite directions.
+
+### What 10.6 found
+
+One Release-only defect, and it was in this phase's **own new case**: an `allocator_balance` case
+asserted that destroying the tree *lowered* the Debug allocator's live count, which is a fact that does
+not exist in a Release build — `layout_live_blocks` reads 0 there because the counter behind it is a
+`ROBO_MEM_DEBUG` instrument. So it passed in Debug and failed in Release while saying nothing about
+line boxes in either. Rewritten to the equality every other case in the directory already uses, and
+broadened to bracket the whole fixture rather than only the passes. That is 10.1's fourth finding
+recurring two phases later and one level down, and the first time a phase made the mistake itself
+rather than inheriting it.
+
 ## Next
 
-- Goal 10.5 — text layout — do not start until requested
+- Goal 10.7 — baselines — do not start until requested

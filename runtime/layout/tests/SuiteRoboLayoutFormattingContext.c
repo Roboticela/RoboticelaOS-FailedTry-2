@@ -403,9 +403,9 @@ static void test_fc_tree_root(void)
      * tree has boxes and it has no contexts. */
     ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 0);
     ROBO_CHECK_EQ_INT(robo_layout_tree_context_count(fixture.tree), 0u);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 8u);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_root_context(fixture.tree, &root_context, NULL),
-                      ROBO_NOT_FOUND);
+    /* Eight boxes and the three text runs their text nodes contributed (10.5): a
+     * text object is an object, so it is in the count the classification walks. */
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 11u);
 
     layout_fc_classify(&fixture, &stats);
 
@@ -475,7 +475,15 @@ static void test_fc_tree_transparent(void)
     ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_INLINE], 2u);
     ROBO_CHECK_EQ_INT(robo_layout_tree_context_count(fixture.tree), 4u);
     ROBO_CHECK_EQ_INT(stats.boxes_establishing, 4u);
-    ROBO_CHECK_EQ_INT(stats.boxes_participating_only, 4u);
+    /*
+     * Seven of eleven participate without establishing: `<body>`, `<div>` and
+     * `<section>` are transparent (each has a block-level child), `<span>` is inline,
+     * and the three **text runs** take the context of whichever box encloses
+     * them (10.5). The identity below is the one that has to hold, and it does: every
+     * object either establishes a context or participates in one, and none does
+     * neither.
+     */
+    ROBO_CHECK_EQ_INT(stats.boxes_participating_only, 7u);
     ROBO_CHECK_EQ_INT(stats.boxes_establishing + stats.boxes_participating_only,
                       stats.objects);
     /* html 0, head 1, body 1, div 2, section 3, p 4 -- so `<p>`'s context nests one
@@ -525,21 +533,28 @@ static void test_fc_tree_transparent(void)
         ROBO_CHECK_EQ_INT((int)context.parent, (int)root_context);
         ROBO_CHECK_EQ_INT(context.depth, 1u);
         /*
-         * Zero box participants, and that is the truth rather than a hole: the
-         * inline context coordinates the *inline content* of `<p>`, and inline
-         * content that is text is not a box in this build. 10.5 makes text runs
-         * into boxes and this count becomes 1 -- which is exactly why it is
-         * asserted at all: the phase that changes it should have to say so.
+         * One participant, and it is the phase's arrival: 10.4 left this at zero with
+         * the note that inline content that is text was not a box, and 10.5 is the
+         * phase that changed it. The participant is `<p>`'s own text run -- a layout
+         * object, not a box, which is why the *box* counters above do not see it.
          */
-        ROBO_CHECK_EQ_INT(context.participants, 0u);
+        ROBO_CHECK_EQ_INT(context.participants, 1u);
     }
 
     /* The initial context coordinates every box, because nothing in this document
      * establishes a context that encloses another box. */
     ROBO_CHECK_EQ_INT(robo_layout_tree_context(fixture.tree, root_context, &context, NULL),
                       ROBO_OK);
-    ROBO_CHECK_EQ_INT(context.participants, 8u);
-    ROBO_CHECK_EQ_INT(context.participants, robo_layout_tree_object_count(fixture.tree));
+    /*
+     * Every box, and every text run whose nearest enclosing context is the root's --
+     * which is one of the three: `<p>` and `<i>` each establish a context of their
+     * own, so the runs inside them belong to those and not here. Written as the
+     * object count minus two rather than as a bare 9, so that the *reason* is in the
+     * expression: a text run is only the root's when nothing nearer owns it.
+     */
+    ROBO_CHECK_EQ_INT(context.participants, 9u);
+    ROBO_CHECK_EQ_INT(context.participants,
+                      robo_layout_tree_object_count(fixture.tree) - 2u);
 
     layout_fc_end(&fixture);
 }
@@ -560,7 +575,8 @@ static void test_fc_tree_inline_boxes(void)
     layout_fixture();
     layout_fc_begin(&fixture, "<html><body><p><span>a</span><i>b</i></p></body></html>",
                     layout_fc_displays, LAYOUT_FC_PAIRS);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 6u);
+    /* html, head, body, p, span, i -- and the two text runs `a` and `b`. */
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 8u);
     layout_fc_classify(&fixture, &stats);
 
     ROBO_CHECK_EQ_INT(stats.contexts, 4u);
@@ -568,7 +584,9 @@ static void test_fc_tree_inline_boxes(void)
     ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_BLOCK], 1u);
     ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_INLINE], 2u);
     ROBO_CHECK_EQ_INT(stats.boxes_establishing, 4u);
-    ROBO_CHECK_EQ_INT(stats.boxes_participating_only, 2u);
+    /* `<body>` and `<span>` participate without establishing, and so do the two text
+     * runs -- four of eight. */
+    ROBO_CHECK_EQ_INT(stats.boxes_participating_only, 4u);
     /* Two, not one: `<i>`'s block context nests *inside* `<p>`'s inline one, so the
      * deepest context is an atomic inline's, one level below its parent's. */
     ROBO_CHECK_EQ_INT(stats.context_depth_max, 2u);
@@ -583,7 +601,10 @@ static void test_fc_tree_inline_boxes(void)
         ROBO_CHECK_EQ_INT(robo_layout_tree_context(fixture.tree, p_owned, &context, NULL),
                           ROBO_OK);
         ROBO_CHECK_EQ_INT((int)context.kind, (int)ROBO_LAYOUT_FC_INLINE);
-        ROBO_CHECK_EQ_INT(context.participants, 2u);
+        /* `<span>`, `<i>`, and the text run inside `<span>`: a transparent inline box
+         * is transparent to the *line* as well as to the context, so its text is a
+         * participant of `<p>`'s context and not of a context of its own. */
+        ROBO_CHECK_EQ_INT(context.participants, 3u);
 
         /* An inline box participates; it establishes nothing. */
         ROBO_CHECK_EQ_INT(robo_layout_object_context(fixture.tree, span, &span_context,
@@ -614,8 +635,9 @@ static void test_fc_tree_inline_boxes(void)
         ROBO_CHECK_EQ_INT((int)context.parent, (int)p_owned);
         ROBO_CHECK_EQ_INT(context.depth, 2u);
         ROBO_CHECK_EQ_INT(robo_layout_fc_kind_is_block_container(context.kind), 1);
-        /* And it coordinates nothing yet: `<i>` holds text, which is not a box. */
-        ROBO_CHECK_EQ_INT(context.participants, 0u);
+        /* And it coordinates one thing: the text run inside `<i>`, which is the block
+         * context's own because `<i>` is atomic and owns its contents. */
+        ROBO_CHECK_EQ_INT(context.participants, 1u);
     }
 
     /* The nesting is real: a context two levels down names the one above it, so the
@@ -846,7 +868,7 @@ static void test_fc_lifecycle(void)
     robo_layout_tree_invalidate_contexts(fixture.tree);
     ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 0);
     ROBO_CHECK_EQ_INT(robo_layout_tree_context_count(fixture.tree), 0u);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 8u);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 11u);
     ROBO_CHECK_EQ_INT(robo_layout_tree_root(fixture.tree), fixture.root);
     /*
      * And the box's own stale id must *not* be readable. This is the assertion that
@@ -895,7 +917,7 @@ static void test_fc_lifecycle(void)
         ROBO_CHECK_EQ_INT(robo_layout_tree_build_from_document(fixture.tree, fixture.doc.id,
                                                                &options, NULL, NULL),
                           ROBO_OK);
-        ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 8u);
+        ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 11u);
         ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 0);
     }
 
@@ -936,7 +958,7 @@ static void test_fc_tree_add_invalidates(void)
         ROBO_CHECK_EQ_INT(robo_layout_tree_add_object(fixture.tree, &info, &added, NULL),
                           ROBO_OK);
         ROBO_CHECK(added != ROBO_LAYOUT_NODE_ID_NONE);
-        ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 9u);
+        ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 12u);
         ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(fixture.tree), 0);
         ROBO_CHECK_EQ_INT(robo_layout_tree_context_count(fixture.tree), 0u);
     }

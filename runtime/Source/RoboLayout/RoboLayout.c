@@ -75,6 +75,27 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
     out->inline_layout = ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED;
     out->block_and_inline_layout = (ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED &&
                                     ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED);
+
+    /*
+     * 10.5, and read from its own constant for the same reason the two directions are:
+     * the field and the macro cannot disagree. What it reports is that this build can
+     * *measure* -- a text node becomes a layout object and a run's width can come from
+     * a font -- and not that any particular pass measured anything: a pass with no
+     * source installed is a legitimate configuration, counts every run as *unmeasured*,
+     * and lays the document out exactly as 10.4 did. That distinction is why the
+     * per-pass answer lives in `robo_layout_text_stats_t` and this flag is about the
+     * build.
+     */
+    out->text_layout = ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED;
+
+    /*
+     * 10.6, read from its own constant: the pass finalizes line boxes into the tree,
+     * so a caller can ask what is on a line, how wide it is and where it sits. Not a
+     * promise about any document -- an empty inline context has no lines by CSS's own
+     * rule -- and not a promise about what a line *knows*: a baseline and a
+     * font-derived extent are 10.7's and the field's own comment says so.
+     */
+    out->line_boxes = ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }

@@ -13,12 +13,26 @@
  * with them. A builder that made text nodes into boxes today would be inventing
  * the shape of a box it cannot fill.
  *
- * **Elements only, and that is a boundary rather than an omission.** The DOM
- * stores the newline between two elements as a text node, so a builder that
- * walked *nodes* would produce a tree whose sibling order was half whitespace. The
- * rule "children are elements" is what makes `+` and `:first-child` mean the same
- * thing here as they do in the selector matcher, and it is applied by asking the
- * DOM rather than by filtering bytes.
+ * and, since 10.5, a second rule beside it:
+ *
+ *   a text node generates a **text object**, unless its content is entirely
+ *   collapsible whitespace
+ *
+ * The first rule is about *boxes* and still holds: text is not a box, and an inline
+ * `display` declaration on a text node is not a thing CSS has. The second is what
+ * 10.5 adds, and it is the reason `objects` and `boxes_created` stopped being the
+ * same number. The escape clause is not whitespace collapsing -- that is a line-box
+ * algorithm this build does not have -- it is the thing that keeps the newline
+ * between two elements in a pretty-printed document from becoming a run of spaces,
+ * and it is argued where the predicate lives (RoboLayoutText.h).
+ *
+ * A text object borrows its **parent element's** computed style, because every
+ * property a run needs is inherited and RoboCSS already distributed inherited values
+ * to descendants -- so a text node's computed style *is* its parent's for exactly the
+ * properties in question, and pointing at the parent's is the one representation that
+ * cannot go stale (RoboLayoutText.h). The style is threaded down the recursion rather
+ * than looked up again, so a document with text in it does not ask the style source
+ * one extra question per text node.
  *
  * **The tree is replaced, not merged.** A build clears the tree first. A
  * rebuild is what a DOM mutation leads to -- the tree is derived state, and there
@@ -70,7 +84,28 @@ typedef struct robo_layout_build_report {
     size_t skipped_display_none;
     /** Boxes built without a computed style (a fact, not a failure). */
     size_t boxes_without_style;
-    /** Deepest box created (0 when the root is the only one). */
+    /**
+     * Text objects added to the tree (10.5).
+     *
+     * One per text node that carries something, with the two counter-examples below
+     * -- and counted separately from `boxes_created` because a text object is not a
+     * box: it has no element, no children and no `display` declaration of its own
+     * (RoboLayoutText.h). A suite that added these into the box count would be
+     * asserting a number that is two different facts.
+     */
+    size_t texts_created;
+    /**
+     * Text nodes that generated no object because their content is *entirely*
+     * collapsible whitespace.
+     *
+     * Not whitespace collapsing -- which is a line-box algorithm this build does not
+     * have -- but its first consequence, and the reason a pretty-printed document does
+     * not put a run of spaces between every pair of elements. An **empty** text node
+     * counts here too, because "carries nothing" and "carries only spaces" are the
+     * same non-content to a line.
+     */
+    size_t texts_skipped_whitespace;
+    /** Deepest object created (0 when the root is the only one). */
     uint32_t depth_max;
 } robo_layout_build_report_t;
 

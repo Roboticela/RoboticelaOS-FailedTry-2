@@ -14,7 +14,7 @@ alwaysApply: true
 * **Phase 7 — RoboWindow & QEMU Display:** complete through **7.15** ✅
 * **Phase 8 — Minimal RoboHTML & DOM:** complete through **8.15** ✅
 * **Phase 9 — Minimal RoboCSS:** complete through **9.16** (the whole of Phase 9 — the last goal is conformance, which adds no production code) ✅
-* **Phase 10 — Minimal RoboLayout:** goals **10.1** through **10.4** complete (layout tree, object, constraints, result, context, builder, the RoboHTML + RoboCSS bridge, formatting contexts, and both directions of layout as one pass — the block pass computing a **coordinate**, and the inline direction placing a context's participants along a preliminary line, wrapping, writing a transparent inline box as the union of its contents and an atomic one's contents inside it: version 0.4.0, `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1`, `ROBO_LAYOUT_FORMATTING_CONTEXTS_IMPLEMENTED=1`, `ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED=1`, `ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED=1`, with line boxes, text measurement and the anonymous box deliberately still absent); **Next:** Goal **10.5** (text layout foundation)
+* **Phase 10 — Minimal RoboLayout:** goals **10.1** through **10.6** complete (layout tree, object, constraints, result, context, builder, the RoboHTML + RoboCSS bridge, formatting contexts, both directions of layout as one pass — the block pass computing a **coordinate**, and the inline direction placing a context's participants along a line, wrapping, writing a transparent inline box as the union of its contents and an atomic one's contents inside it — a **text-layout foundation** where a text node becomes the one new object kind the vocabulary has needed, measured through a **callback seam** with a RoboFont-backed implementation beside it, and a **line-box record** a caller reads back with its members: version 0.6.0, `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1`, `ROBO_LAYOUT_FORMATTING_CONTEXTS_IMPLEMENTED=1`, `ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED=1`, `ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED=1`, `ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED=1`, `ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED=1`, with baselines, `line-height`, shaping, bidi, Unicode line breaking, fragmentation and the anonymous box deliberately still absent); **Next:** Goal **10.7** (baselines)
 
 
 The target remains a **complete Chromium-class runtime for RoboticelaOS**, independently implemented, while also exposing **native RoboticelaOS capabilities** and a real PostgreSQL + Prisma application stack.
@@ -125,8 +125,8 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 10.2 Formatting contexts ✅
 10.3 Block layout ✅
 10.4 Inline layout ✅
-10.5 Text layout foundation
-10.6 Line boxes
+10.5 Text layout foundation ✅
+10.6 Line boxes ✅
 10.7 Baselines
 10.8 Width/height
 10.9 Margins

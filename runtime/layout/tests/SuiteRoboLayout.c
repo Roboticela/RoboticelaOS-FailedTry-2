@@ -35,10 +35,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 4);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 6);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.4.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.4.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.6.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.6.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -104,6 +104,8 @@ static const struct {
     { "block_layout", 1 },
     { "inline_layout", 1 },
     { "block_and_inline_layout", 1 },
+    { "text_layout", 1 },
+    { "line_boxes", 1 },
     { "painting", 0 }
 };
 
@@ -149,6 +151,14 @@ static void test_module_capabilities(void)
     ROBO_CHECK_EQ_INT(caps.block_and_inline_layout,
                       ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED &&
                           ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(caps.text_layout, ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED);
+    /*
+     * And `line_boxes`, the same pair for the same reason. Asserted as its own field
+     * rather than as a consequence of `text_layout`: producing a line and measuring a
+     * run are independent claims, and the build that could do the first and not the
+     * second is the one this module was before 10.6.
+     */
+    ROBO_CHECK_EQ_INT(caps.line_boxes, ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -186,6 +196,14 @@ static void test_module_geometry_flag(void)
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(caps.inline_layout, ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 1);
+    /*
+     * And the *participant* this build can now measure, through the same pair: the
+     * macro and the field, so a build whose header promised text measurement and whose
+     * capability record denied it would fail rather than pass on the more flattering
+     * of the two answers.
+     */
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(caps.text_layout, ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED);
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,13 +214,15 @@ static void test_module_object_kinds(void)
 {
     size_t index;
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_KIND_COUNT, 2);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_KIND_COUNT, 3);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_NONE, 0);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_BOX, 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_TEXT, 2);
 
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_NONE), 1);
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_BOX), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known((robo_layout_object_kind_t)2), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_TEXT), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known((robo_layout_object_kind_t)3), 0);
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known((robo_layout_object_kind_t)99), 0);
 
     /* Walked in enumerator order: a table whose rows had drifted would still
@@ -216,6 +236,7 @@ static void test_module_object_kinds(void)
     }
     ROBO_CHECK_STR_EQ(robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_NONE), "none");
     ROBO_CHECK_STR_EQ(robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX), "box");
+    ROBO_CHECK_STR_EQ(robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_TEXT), "text");
     ROBO_CHECK_STR_EQ(robo_layout_object_kind_name((robo_layout_object_kind_t)77), "unknown");
     ROBO_CHECK(robo_layout_object_kind_name((robo_layout_object_kind_t)77) != NULL);
 }
@@ -225,9 +246,10 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 14);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 15);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)14), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)15), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -267,8 +289,12 @@ static void test_module_diagnostic_domains(void)
      * one the phase added, not merely that a name exists. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT),
                       "inline-layout");
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT,
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT),
+                      "text-layout");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT,
+                      (int)ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT,
                       (int)ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT,
@@ -446,7 +472,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.4.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.6.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

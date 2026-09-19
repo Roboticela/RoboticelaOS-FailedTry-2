@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.4)
+# RoboLayout Test Organisation (through Phase 10.6)
 
-Ten suites, 123 tests, one framework. Each phase adds no test runner, no reporter
+Twelve suites, 160 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -18,9 +18,10 @@ no glob: a suite that is not on the list is not built, which is the same
 
 §§10.1–10.6 below were written when the module computed nothing, and their text is
 kept as it stood rather than back-dated. Where a case has since changed meaning —
-`layout.conformance.statement` and the old `geometry == 0` claims, and 10.4's
-re-pinning of the same two cases again — the change is recorded in §8 and §9, under
-the phase that made it.
+`layout.conformance.statement` and the old `geometry == 0` claims, 10.4's
+re-pinning of the same two cases again, and 10.5's and 10.6's re-pinning of the
+version and the capability table — the change is recorded in §8–§11, under the phase
+that made it.
 
 ---
 
@@ -37,6 +38,8 @@ the phase that made it.
 | `SuiteRoboLayoutFormattingContext.c` | `layout.fc.*` | 13 | is the classification a table, and is the context tree the shape the rules imply? |
 | `SuiteRoboLayoutBlock.c` | `layout.block.*` | 16 | does the block pass place each box inside its parent, at the right y, with an honest height? |
 | `SuiteRoboLayoutInline.c` | `layout.inline.*` | 23 | does the inline pass advance a cursor, wrap when one does not fit, and write a transparent box as the union of its contents? |
+| `SuiteRoboLayoutText.c` | `layout.text.*` | 26 | does a text node become an object, does a real font measure it, and does a run placed on a line get the width the font said? |
+| `SuiteRoboLayoutLineBox.c` | `layout.line.*` | 12 | is the line being built not a line box, and are a line's members exactly the objects that advanced its cursor? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -302,14 +305,89 @@ context**. Every earlier determinism case called a helper that made a fresh cont
 which proves the geometry is reproducible and says nothing about whether a second
 pass stacks on the first — the failure a cumulative cursor has.
 
+### 10.11 — text layout (`layout.text.*`)
+
+Twenty-six cases, in six groups, in the order the phase is built: the model, reading
+text, the builder's second rule, the font, the pass, and the pipeline. It is the
+largest suite in the module and the reason is structural rather than thoroughness
+for its own sake — three different questions now live under one name, and each has
+its own fixtures.
+
+| Case | Subject |
+|---|---|
+| `build` | a text node becomes a TEXT object, and the object's own model: no box, a derived inline display, its parent's style |
+| `object_model` | `robo_layout_object_box` / `_text` refuse the other's kind, and the kind name is walked against the vocabulary |
+| `font_measure` | **a synthetic face built in the suite** — cmap, hmtx, hhea, head, maxp, loca, glyf — asked for real advances, so "sum in font units and scale once" is asserted against arithmetic rather than a scripted number |
+| `font_source` | the four answers to "measure this": no source, no callback, a detached font, and a real answer — the last two told apart by `ROBO_NOT_SUPPORTED` versus a width |
+| `pass_measured` | a scripted measurer: the cursor advances by the width it answered, and the counters say `measured` |
+| `pass_unmeasured` | **the zero, with its reason in the case** — the same document with no source places every run at width 0 and counts them `unmeasured` |
+| `two_runs_and_rebase` | a run inside a transparent inline box is rebased onto it, and the box is the union of what its runs reached |
+| `wrapping` | a run that does not fit starts a new line, and the run is a whole object rather than a fragment |
+| `direction_in_pass` | LTR and RTL runs are counted, and direction came from the style rather than from the text |
+| `block_context` | a text run in a **block**-direction context is `inline_level_skipped`, which is the identity of §3 closing over text objects |
+| `relayout` | changed text, changed style, and a second pass all recompute the geometry |
+| `pipeline` | the real chain: `font-size` through the cascade, resolved into font inputs, measured by the real font, read back out of a result |
+| `pipeline_direction` | the same, with `direction` coming through the cascade |
+| `accounting` | the identity over a document that holds text, inline boxes and atomic inlines at once |
+| `allocator_balance` | — |
+
+`font_measure` is the case worth naming. Every other case in this directory either
+scripts a measurement or asserts a count; this one builds a **real face** — a
+minimal but well-formed SFNT with its own tables — and asks RoboFont for the advance
+of a code point it maps. A suite that only scripted the numbers could not tell
+"the measurement seam works" from "the seam is called", and the arithmetic is what
+makes the difference visible: a build that scaled per glyph rather than summing in
+font units would fail it by a rounding error on a multi-glyph run.
+
+`pass_unmeasured` is the counterpart, and it is deliberately the *same document*
+run with no source. The module is legitimate in both configurations, so the two
+cases differ by one argument rather than by a fixture, and the assertion is on the
+counter that names which one happened.
+
+### 10.12 — line boxes (`layout.line.*`)
+
+Twelve cases. They are the first in the directory whose subject is a **record the
+tree owns**, so most of them are about a relationship rather than a number: which
+objects are on which line, and whether the answer is reachable from both ends.
+
+| Case | Subject |
+|---|---|
+| `state_vocabulary` | the two states walked, their names, an undefined enumerator refused, and `FINAL` the only one a read can produce |
+| `record` | the record's fields, its equality, and its rectangle formed from origin and size |
+| `single_run` | one line for one run: `x == 0`, `y == 0`, width from the font, and `index == 0` |
+| `members_are_placements` | **the invariant of LineBoxes.md §9** — the members summed over all lines equal the placements, and are **smaller** than the participant count, because a transparent box with contents is not a member |
+| `empty_span_is_a_member` | a transparent inline box with **no** contents *is* a member, so the rule is about contents rather than about the display value |
+| `wrapping` | three lines from content that does not fit, each with its own `index`, and `y` advancing by the previous line's height |
+| `repeat_pass_replaces` | a second pass replaces the arena rather than appending to it, and ids restart at 1 |
+| `empty_context` | an inline formatting context with nothing on it produces **no** line boxes, and the count and the record agree |
+| `unmeasured_run` | a line whose only member is unmeasured exists, with width 0 and height 0 — distinct from no line at all |
+| `released` | a released classification withdraws the lines with it, and a read across the invalidation answers `ROBO_NOT_FOUND` |
+| `validation` | NULL arguments, a NONE id, an index past the count, and a member index past the line's own count |
+| `allocator_balance` | four passes over a settled tree leave the live count where the settling pass found it, and destroying the tree returns the allocator to where the fixture found it |
+
+`members_are_placements` is the case the phase is built around, and its shape is
+what makes it worth having: it walks a document that **nests** inline boxes, where
+the participant count and the member count differ, and asserts the difference rather
+than the equality. A build that recorded a transparent box as a member would fail it
+by double-counting; a build that skipped an empty transparent box would fail it by
+one. Both are plausible implementations.
+
+`allocator_balance` is also not the boilerplate case it looks like. The first pass
+is the one that may grow the line arena and every later one must not, so the
+baseline is taken **after** a settled pass rather than before it — an arena that
+reserved on demand and kept what it reserved is not a leak, and a case that called
+it one would fail as soon as the capacity fitted. What the loop asserts is the
+*repeat*: four further passes over an unchanged tree leave the live count exactly
+where the settled one found it.
+
 ### 10.7 — conformance (`layout.conformance.*`)
 
 Seven cases, and the shape is 9.16's: ask the questions no single-module suite can.
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now twelve fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout` and the derived `block_and_inline_layout` at 1 and `painting` at 0 |
-| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.4.0`, API unfrozen, two object kinds and four context kinds |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now fourteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout` and `line_boxes` at 1 and `painting` at 0 |
+| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.6.0`, API unfrozen, three object kinds and four context kinds |
 | `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no layout at all, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
 | `determinism` | two builds of the same document produce equal trees, compared box by box |
@@ -345,12 +423,14 @@ replaced rather than weakened, and the numbers took over `layout.block.*`.
 | `layout_stub_style(name)` / a stub style source | build a tree **with no CSS at all**, which is what makes §10.2–10.5 possible |
 | a real-DOM style fixture | stand up a style context and its bridge, for §10.6–10.7 only |
 | equality helpers | compare two trees box by box, for `determinism` |
+| a scripted text measurer | answer a width per code point, so a case about cursor arithmetic fails because the arithmetic is wrong and not because a font differed — `layout.text.*` and `layout.line.*` |
+| a synthetic SFNT face | cmap, hmtx, hhea, head, maxp, loca and glyf built in the suite, for the one case whose subject *is* the real RoboFont answer |
 
-The second row is the design record's §6.1 argument made concrete. Six of the ten
-suites never instantiate a style context at all, and the four that do reach for one
-solely in the cases whose subject *is* the joining: `layout.dom.*` and
+The second row is the design record's §6.1 argument made concrete. Seven of the
+twelve suites never instantiate a style context at all, and the five that do reach
+for one solely in the cases whose subject *is* the joining: `layout.dom.*` and
 `layout.conformance.*` throughout, and the single `pipeline` case in
-`layout.block.*` and `layout.inline.*`. `layout.fc.*` is one of the six, which is
+`layout.block.*`, `layout.inline.*` and `layout.text.*`. `layout.fc.*` is one of the six, which is
 what makes §10.8 able to assert the classification table as a table — a rule that
 could only be observed by standing up a stylesheet and walking a document is a rule
 whose table cannot be written down. `layout.inline.*` is another for all of its
@@ -384,11 +464,13 @@ They **do not** assert:
   its own 609 cases;
 - a geometry the pass does not produce: no declared width in the *block*
 direction, no percentage, no shrink-to-fit, no margin, padding or border
-  arithmetic, and no **line-box** position or text extent. Those numbers do not
-  exist yet, and a suite that asserted one would be asserting a number the module
-  does not compute. The inline direction's numbers *do* exist now and are asserted
-  exactly — 10.4's suite names the zero it produces for a text-bearing `<span>` as
-  a fact rather than omitting the case.
+  arithmetic, no **baseline**, no `line-height`, no font-derived line extent and no
+  **fragmentation**. Those numbers do not exist yet, and a suite that asserted one
+  would be asserting a number the module does not compute. The inline direction's
+  numbers *do* exist and are asserted exactly — and 10.6's suite names the zero it
+  produces for a line whose only member is unmeasured as a *fact* rather than
+  omitting the case, which is the same discipline 10.4 applied to a text-bearing
+  `<span>` and 10.5 retired by making the measurement exist.
 
 That last bullet is the *shape* of §§10.1–10.3's honesty claims, and it is worth
 stating how a claim like that is supposed to die. `layout.conformance.no_geometry`
@@ -426,8 +508,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 125 — this module's 123, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 127 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 162 — this module's 160, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 164 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -437,9 +519,11 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.fc` | 13 |
 | `layout.block` | 16 |
 | `layout.inline` | 23 |
+| `layout.text` | 26 |
+| `layout.line` | 12 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2139** tests, green in both configurations.
+Whole suite: **2177** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -454,7 +538,9 @@ Whole suite: **2139** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2139 cases. In 10.4's run the sanitized suite was
+ASan and UBSan run the same 2177 cases. In 10.6's run the sanitized suite was
+2177 with no sanitizer diagnostic and the two host-window cases below as its only
+red cases. 10.5's run was the same; in 10.4's run the sanitized suite was
 **2139/2139** — no sanitizer diagnostic, and no red case. 10.3's run was
 2116/2116 the same way.
 
@@ -473,8 +559,8 @@ to get:
 
 | How the suite was run | Result |
 |---|---|
-| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3, **2138/2139** once in 10.4 |
-| the same binary, run directly afterwards | **2116/2116** — twice in 10.3, **2139/2139** twice in 10.4 |
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6 |
+| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground |
 | `--filter=window.host` in isolation | **19/19** — three times in each phase |
 | the binary as a child of `pwsh` with its output captured | **passes** |
 
@@ -686,3 +772,69 @@ The inline algorithm itself came out right on the first build, for 10.3's reason
 the ten suites around it had already pinned every input the pass reads — the two
 context ids, the atomic/transparent derivation, the containing-block convention — so
 the cursor arithmetic had nowhere to hide.
+
+---
+
+## 10. What the 10.5 suites found
+
+One fixture mistake and one honest degradation, and the second is the more useful
+record because it is a case that was *kept* rather than fixed.
+
+**1. A measurement seam that answered a width for a detached font**
+(`layout.text.font_source`). The first version of
+`robo_layout_text_font_measure` measured through the font with no check that one was
+attached, so a detached measurer did not crash — it produced numbers, from a null
+face, by luck of what the struct held. The case that found it is the second row of
+TextLayout.md §4's table, and the fix is the row itself: a detached font answers
+`ROBO_NOT_SUPPORTED`, because "I cannot measure" and "this is zero wide" are
+different statements and 10.5 is the phase that has to keep them apart.
+
+**2. `empty_context` stopped having an example, and the case was not weakened.**
+`layout.inline.empty_context` used a `<p>` holding only text as its archetype, and
+that container is no longer empty once a text run is a participant. The case was
+kept with the same subject — an inline context with nothing to place produces no
+line — and its *fixture* moved to a container with genuinely no content. This is the
+honest version of a claim changing: the fact being defended is unchanged, the
+evidence for it had to be replaced, and the replacement is written into the case
+rather than left as a diff.
+
+Three suites outside the phase's own had to move with it, and none was weakened: the
+version pins in `layout.module` and `layout.conformance.statement`, the capability
+table in both (a field was added), and the object-kind count in `statement`, which is
+now three. That is the same set of four assertions 10.3 and 10.4 had to move, which
+is the point of writing them down as assertions in the first place.
+
+---
+
+## 11. What the 10.6 suites found
+
+One Release-only defect, this time **in the new suite**, and it is the third
+instance of a shape §6 already named.
+
+**1. An `allocator_balance` case asserted a fact that only exists in Debug**
+(`layout.line.allocator_balance`). The case was first written to assert that
+destroying the tree lowered the Debug allocator's live count — true, meaningful, and
+impossible to state in a Release build, where `layout_live_blocks` reads 0 because
+the counter behind it is a `ROBO_MEM_DEBUG` instrument. So it passed in Debug and
+failed in Release at `layout_live_blocks() < before` with `0 != 1`, saying nothing
+about line boxes in either configuration.
+
+The fix is the one every other `allocator_balance` case in this directory already
+uses: assert **equality**, which is the claim that is true in both — and in Debug it
+is still the exact claim that matters. The case now also brackets the *whole fixture*
+rather than only the passes, taking its baseline before the tree exists, so the
+assertion covers the arenas' lifetime rather than only their reuse. Its second half —
+four passes over a settled tree must not move the live count — is what makes it
+worth having at all: it is the only case in the directory whose subject is an arena
+that *could* accumulate per pass.
+
+This is `Tests.md` §6's fourth finding recurring two phases later and one level down:
+the same Debug-only instrument, the same unconditional assertion, and the same
+Release run as the only thing that finds it. 10.6 is the first phase to make the
+mistake in its *own* new case rather than inheriting it.
+
+**2. Nothing else.** The line algorithm, the member chain and the block
+extent-from-lines change were all right on the first build — for the reason 10.3
+and 10.4 give, and with one more suite in the pile this time: twelve suites had
+pinned the inputs (the flow record, the union arithmetic, the placement counts) so
+the finalization arithmetic had nowhere to hide.

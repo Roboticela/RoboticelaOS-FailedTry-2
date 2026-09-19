@@ -64,6 +64,8 @@ static const struct {
     { "block_layout", 1 },
     { "inline_layout", 1 },
     { "block_and_inline_layout", 1 },
+    { "text_layout", 1 },
+    { "line_boxes", 1 },
     { "painting", 0 }
 };
 
@@ -91,11 +93,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Eleven of twelve. Asserted as a count as well as field by field, so a build
+    /* Thirteen of fourteen. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
      * glance. */
-    ROBO_CHECK_EQ_INT(implemented, 11u);
+    ROBO_CHECK_EQ_INT(implemented, 13u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -122,6 +124,30 @@ static void test_conformance_capabilities(void)
     ROBO_CHECK_EQ_INT(caps.block_and_inline_layout, 1);
     ROBO_CHECK_EQ_INT(caps.block_and_inline_layout,
                       caps.block_layout && caps.inline_layout);
+
+    /*
+     * And `text_layout`, which is the phase that arrived after them and is *not* a
+     * third direction: it says this build can measure a run of text, and it is read
+     * from its own macro so the field and the constant cannot disagree. What it does
+     * not say is asserted here too, because the distinction is the one a caller would
+     * otherwise get wrong: a *pass* with no metrics installed measures every run as
+     * zero and counts it (`robo_layout_text_stats_t.unmeasured`), which is a
+     * legitimate way to run this module and not a failure.
+     */
+    ROBO_CHECK_EQ_INT(caps.text_layout, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED, 1);
+
+    /*
+     * And `line_boxes`, which is 10.6's and is the narrowest claim in the struct. Read
+     * from its own macro for the same reason, and *not* written as a derivation over
+     * `text_layout`: measuring a run and producing a line are independent -- a build
+     * could measure text and place none of it in a line (which is what this module was
+     * before this phase), and a line of atomic inlines and no text at all is a line
+     * this build produces without measuring anything. Making one field the other's
+     * consequence would name a feature neither phase implemented.
+     */
+    ROBO_CHECK_EQ_INT(caps.line_boxes, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -224,9 +250,10 @@ static void test_conformance_pipeline(void)
 
     /* html, head, body, div.card, p.title, div.hidden = six elements; the hidden
      * one generates nothing, so five boxes. `<head>` is the parser's, not the
-     * markup's, and it is a box because nothing hid it. */
+     * markup's, and it is a box because nothing hid it. The sixth *object* is the
+     * paragraph's text node, which is a text object and not a box (10.5). */
     ROBO_CHECK_EQ_INT(robo_layout_dom_element_count(fixture.dom), 6u);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 5u);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(fixture.tree), 6u);
 
     card = layout_document_find(&fixture.doc, "div");
     ROBO_CHECK_EQ_INT(robo_html_node_handle_is_wellformed(&card), 1);
@@ -302,19 +329,21 @@ static void test_conformance_pipeline(void)
     ROBO_CHECK_EQ_INT((int)robo_layout_context_outcome(context),
                       (int)ROBO_LAYOUT_PASS_WALKED);
     robo_layout_context_stats(context, &stats);
-    ROBO_CHECK_EQ_INT(stats.objects, 5u);
-    ROBO_CHECK_EQ_INT(stats.visited, 5u);
+    ROBO_CHECK_EQ_INT(stats.objects, 6u); /* five boxes and one text run (10.5) */
+    ROBO_CHECK_EQ_INT(stats.visited, 6u);
     /*
-     * Four of five, and the one left over is `<head>`: nothing styles it, so it
+     * Five of six, and the one left over is `<head>`: nothing styles it, so it
      * computes to `display: inline` -- 9.12's initial value, not a UA stylesheet --
      * and block layout does not place it. The two counters therefore disagree on
-     * purpose, which is what makes them two counters.
+     * purpose, which is what makes them two counters. The five include the *text run*
+     * the paragraph holds, which is placed along a line rather than in the block flow.
      */
-    ROBO_CHECK_EQ_INT(stats.boxes_computed, 4u);
+    ROBO_CHECK_EQ_INT(stats.boxes_computed, 5u);
     ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 1u);
     ROBO_CHECK_EQ_INT(stats.without_style, 0u);
-    /* html 0, head 1, body 1, div.card 2, p.title 3. */
-    ROBO_CHECK_EQ_INT(stats.depth_max, 3u);
+    /* html 0, head 1, body 1, div.card 2, p.title 3 -- and the text run inside the
+     * paragraph at 4, which is why the deepest object is no longer a box. */
+    ROBO_CHECK_EQ_INT(stats.depth_max, 4u);
     ROBO_CHECK_EQ_INT(stats.depth_max, layout_tree_max_depth(fixture.tree));
 
     /* The block pass's own record, because `boxes_computed` is *derived* from it:
@@ -331,19 +360,34 @@ static void test_conformance_pipeline(void)
     /*
      * And the inline direction's record, for the one inline formatting context this
      * document has. `<p class="title">` holds nothing but text, so 10.2's rule makes
-     * the *paragraph* establish the context -- and the context is empty, because a
-     * text node is not a box. That is the shape of the commonest document there is,
-     * and the shape 10.5 exists to give a height to.
+     * the *paragraph* establish the context -- and since 10.5 that context has a
+     * participant: the text node's own layout object, placed along the line. It is a
+     * participant and *not* a box, which is why `participants_placed` counts it while
+     * the box counters above do not.
      *
      * `<head>` is not here: it is an inline-level box in a *block-direction* context,
      * which is 10.3's count and not this one's. Two records, one box, told apart by
      * which direction declined it.
      */
     ROBO_CHECK_EQ_INT(stats.inline_flow.contexts, 1u);
-    ROBO_CHECK_EQ_INT(stats.inline_flow.empty_contexts, 1u);
-    ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 0u);
-    ROBO_CHECK_EQ_INT(stats.inline_flow.lines, 0u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.empty_contexts, 0u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 1u);
+    ROBO_CHECK_EQ_INT(stats.inline_flow.lines, 1u);
     ROBO_CHECK_EQ_INT(stats.inline_flow.block_level_declined, 0u);
+
+    /*
+     * And the text direction's record, which is the one that says whether the line's
+     * participant was actually *measured*. This pass installed no metrics source, so
+     * the run was placed and not measured -- and the two counters are what make that
+     * difference visible rather than looking like a paragraph that measured zero.
+     * The document's title is `Roboticela`'s text and nothing declared a font for it,
+     * which is exactly the case a build with no font has to be able to say out loud.
+     */
+    ROBO_CHECK_EQ_INT(stats.text.runs_placed, 1u);
+    ROBO_CHECK_EQ_INT(stats.text.measured, 0u);
+    ROBO_CHECK_EQ_INT(stats.text.unmeasured, 1u);
+    ROBO_CHECK_EQ_INT(stats.text.width_max, 0);
+    ROBO_CHECK_EQ_INT(stats.text.height_max, 0);
     /* `boxes_computed` is the two placement counts added together, asserted where
      * both are non-trivial numbers rather than where one of them is zero. */
     ROBO_CHECK_EQ_INT(stats.boxes_computed,
@@ -671,7 +715,14 @@ static void test_conformance_robust(void)
             size_t count = robo_layout_tree_object_count(tree);
             size_t at;
 
-            ROBO_CHECK_EQ_INT(count, report.boxes_created);
+            /*
+             * The tree holds every box *and* every text run the document generated
+             * (10.5), which is why the report has two creation counters and this is
+             * their sum. A corpus entry with no text in it has `texts_created` 0 and
+             * the two numbers coincide -- and the entry that has text is the one that
+             * proves the sum is not a coincidence.
+             */
+            ROBO_CHECK_EQ_INT(count, report.boxes_created + report.texts_created);
             for (at = 0u; at < count; at++) {
                 robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
                 robo_layout_object_t object;
@@ -679,8 +730,20 @@ static void test_conformance_robust(void)
                 ROBO_CHECK_EQ_INT(robo_layout_object_id_at(tree, at, &id), ROBO_OK);
                 ROBO_CHECK_EQ_INT(robo_layout_object_get(tree, id, &object, NULL), ROBO_OK);
                 ROBO_CHECK_EQ_INT((int)object.id, (int)id);
-                ROBO_CHECK_EQ_INT((int)object.kind, (int)ROBO_LAYOUT_OBJECT_BOX);
-                ROBO_CHECK_EQ_INT(robo_css_display_generates_box(object.display), 1);
+                ROBO_CHECK(object.kind == ROBO_LAYOUT_OBJECT_BOX ||
+                           object.kind == ROBO_LAYOUT_OBJECT_TEXT);
+                if (object.kind == ROBO_LAYOUT_OBJECT_TEXT) {
+                    /* A text object is not a box, and the two facts that make it one
+                     * are asserted rather than assumed: no children, and a display
+                     * of `inline` that was *derived* rather than declared -- so a
+                     * builder that copied a `display` onto a text object would fail
+                     * here. */
+                    ROBO_CHECK_EQ_INT(object.child_count, 0u);
+                    ROBO_CHECK_EQ_INT((int)object.display, (int)ROBO_CSS_DISPLAY_INLINE);
+                    ROBO_CHECK_EQ_INT(robo_css_display_generates_box(object.display), 1);
+                } else {
+                    ROBO_CHECK_EQ_INT(robo_css_display_generates_box(object.display), 1);
+                }
             }
         }
 
@@ -690,7 +753,7 @@ static void test_conformance_robust(void)
         ROBO_CHECK_EQ_INT((int)robo_layout_context_outcome(context),
                           (int)ROBO_LAYOUT_PASS_WALKED);
         robo_layout_context_stats(context, &stats);
-        ROBO_CHECK_EQ_INT(stats.objects, report.boxes_created);
+        ROBO_CHECK_EQ_INT(stats.objects, report.boxes_created + report.texts_created);
         ROBO_CHECK_EQ_INT(stats.boxes_computed, 0u);
 
         robo_layout_context_destroy(context);
@@ -798,11 +861,16 @@ static void test_conformance_no_viewport(void)
      */
     robo_layout_context_stats(context, &stats);
     ROBO_CHECK_EQ_INT(stats.passes, 2u);
-    ROBO_CHECK_EQ_INT(stats.objects, 5u);
-    ROBO_CHECK_EQ_INT(stats.visited, 5u);
+    ROBO_CHECK_EQ_INT(stats.objects, 6u); /* five boxes and the paragraph's text run */
+    ROBO_CHECK_EQ_INT(stats.visited, 6u);
     ROBO_CHECK_EQ_INT(stats.boxes_computed, 0u);
-    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 5u);
+    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 6u);
     ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 0u);
+    /* No viewport means no line, so the text direction placed nothing either -- and
+     * the record is zeros rather than absent, which is the same rule the other two
+     * follow. */
+    ROBO_CHECK_EQ_INT(stats.text.runs_placed, 0u);
+    ROBO_CHECK_EQ_INT(stats.text.unmeasured, 0u);
 
     for (index = 0u; index < robo_layout_tree_object_count(fixture.tree); index++) {
         robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
@@ -842,9 +910,14 @@ static void test_conformance_no_viewport(void)
     ROBO_CHECK_EQ_INT(robo_layout_context_run(context, fixture.tree, NULL), ROBO_OK);
     robo_layout_context_stats(context, &stats);
     ROBO_CHECK_EQ_INT(stats.passes, 3u);
-    ROBO_CHECK_EQ_INT(stats.boxes_computed, 4u);
+    ROBO_CHECK_EQ_INT(stats.boxes_computed, 5u);
     ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 1u);
     ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 4u);
+    /* The fifth placement is the text run: with a viewport there is now a line for it
+     * to be on, and still nothing to measure it with. */
+    ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 1u);
+    ROBO_CHECK_EQ_INT(stats.text.runs_placed, 1u);
+    ROBO_CHECK_EQ_INT(stats.text.unmeasured, 1u);
 
     robo_layout_context_destroy(context);
     layout_conformance_end(&fixture);
@@ -907,7 +980,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.4.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.6.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*
@@ -918,18 +991,24 @@ static void test_conformance_statement(void)
      * everywhere else: `display` already carries the outer/inner pair that would
      * distinguish a block box from an inline one, and a second copy of those facts in
      * `kind` would be two places for one answer -- which is exactly what 10.1 refused
-     * to do for every other property. `kind` therefore stays one entry wide, and it
-     * survived 10.3 and 10.4 unchanged: a block box is still the only kind of box the
-     * build makes, because an *anonymous* box -- the one a mixed container needs, and
-     * the one that has no element and therefore no `display` to derive a kind from --
-     * is still a later goal's. 10.4 laid the inline direction out without one, which
-     * is the point worth recording: a container whose children are all inline already
-     * has an inline formatting context of its own (10.2), so the anonymous box is
-     * only needed for *mixed* content and not for inline content as such.
+     * to do for every other property. `kind` therefore stayed one entry wide through
+     * 10.2, 10.3 and 10.4: a block box was the only kind of box the build makes.
+     *
+     * **10.5 is the goal that widened it, and it did so with something that is not a
+     * box at all.** A text node is not an element and has no `display` declaration, so
+     * there is no property to derive its kind from and no element for a `box` to
+     * reference -- which is exactly the condition 10.1 said would justify a second
+     * entry. The anonymous box is still absent and still a later goal's: it *does* have
+     * a display to derive from (it is block-level by construction), so it is the case
+     * `kind` was never needed for, and 10.4 laid the inline direction out without one.
      */
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_KIND_COUNT, 2);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_OBJECT_KIND_COUNT, 3);
     ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_BOX), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known((robo_layout_object_kind_t)2), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known(ROBO_LAYOUT_OBJECT_TEXT), 1);
+    ROBO_CHECK_STR_EQ(robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_TEXT), "text");
+    /* One past the last defined entry is still refused, so the vocabulary is closed at
+     * three and not merely observed to have three members. */
+    ROBO_CHECK_EQ_INT(robo_layout_object_kind_is_known((robo_layout_object_kind_t)3), 0);
 
     /* And the vocabulary 10.2 added instead: three kinds of context plus the
      * absence, of which ROOT is one and only one per tree. */

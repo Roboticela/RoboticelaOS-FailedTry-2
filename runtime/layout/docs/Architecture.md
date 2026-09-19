@@ -1,17 +1,18 @@
-# RoboLayout — architecture (through Phase 10.4)
+# RoboLayout — architecture (through Phase 10.6)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
-Phase 10.4 onwards may not cross without changing this document.
+Phase 10.6 onwards may not cross without changing this document.
 
 It is not a tutorial. It is the thing a reviewer reads to answer "why is it like
 this", and the thing a later goal reads to find out what it is allowed to assume.
 
 For the parts a later phase added, this document describes the *frame* — where a
-context lives, what owns it, how a pass classifies and then lays out — and four
+context lives, what owns it, how a pass classifies and then lays out — and six
 documents are the records for the parts themselves: `FormattingContexts.md` for the
 classification, `BlockLayout.md` for the block direction, `InlineLayout.md` for the
-inline one, `Tests.md` for the suites.
+inline one, `TextLayout.md` for measurement and the text object's arrival,
+`LineBoxes.md` for the line record, `Tests.md` for the suites.
 
 ---
 
@@ -52,15 +53,17 @@ an edge whose width already came from 9.15.
 rather than leaving a caller to find out. 10.3 flipped all three, and the shape of
 that flip is the part worth keeping:
 
-| Door | 10.1 / 10.2 | 10.3 | 10.4 | What it means now |
-|---|---|---|---|---|
-| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | a compile-time constant per direction, and the same one for both |
-| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | *this build* computes coordinates |
-| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | the block direction |
-| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | the inline direction |
-| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | derived: their conjunction |
-| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | a function a caller cannot read past |
-| `robo_layout_result_state()` | — | — | — | *this box* has one — the per-box authority |
+| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | What it means now |
+|---|---|---|---|---|---|---|
+| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
+| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
+| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | the block direction |
+| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | the inline direction |
+| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | derived: their conjunction |
+| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
+| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | this build can **produce a line a caller reads** |
+| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
+| `robo_layout_result_state()` | — | — | — | — | — | *this box* has one — the per-box authority |
 
 Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
@@ -69,12 +72,21 @@ already forgotten to query the struct will call.
 But every answer in that table is about the **build**, and 10.3 made that
 distinction load-bearing rather than pedantic. `geometry == 1` is true of a tree
 whose boxes are all `UNRESOLVED` — a context that recorded no viewport placed
-nothing, a `<span>` holding only text is zero-wide because nothing here measures
-text, and a `<div>` whose content is a text node is zero tall. So the per-box
+nothing, and a `<div>` whose content is a text node is zero tall. So the per-box
 `state` is the authority a consumer reads, and the capability is the answer to "does
 this build lay boxes out at all". `layout.conformance.no_viewport` asserts the two
 side by side over one tree, because a build that conflated them would have failed
 exactly there.
+
+10.5 and 10.6 are the same distinction asked twice more, and each time about a
+*seam* rather than a direction: `text_layout == 1` while a pass given no metrics
+source measures every run as zero and counts it, and `line_boxes == 1` while a
+document with no inline content produces no lines at all. "Are there lines?" is
+`robo_layout_tree_line_count`'s; the capability says the module can *produce* them.
+Those are the two phases that retired the paragraph which used to stand here about a
+`<span>` holding only text being zero-wide, and what replaced it is not a bullet but
+the measurement existing — the same way 10.3 replaced `no_geometry` with
+`no_viewport` rather than deleting it.
 
 10.4 added a field to that table rather than changing one, and the shape of the
 addition is the part worth keeping: `inline_layout` was written as `0` in **10.2**,
@@ -178,7 +190,7 @@ exactly one copy of each fact**:
 | Field | Why it is this and not something else |
 |---|---|
 | `id` | Dense, tree-scoped (above) |
-| `kind` | `ROBO_LAYOUT_OBJECT_BOX` is the only value. Shipping `BLOCK` / `INLINE` / `LINE` enumerators now would be claiming a distinction the tree cannot yet make |
+| `kind` | `ROBO_LAYOUT_OBJECT_BOX` and, since 10.5, `ROBO_LAYOUT_OBJECT_TEXT`. Shipping `BLOCK` / `INLINE` / `LINE` enumerators would be claiming a distinction the tree cannot make — the tree knows a box's `display` and the context it established, which is where that distinction already lives |
 | `dom_node` | An inert RoboHTML **handle** — a token, not a pointer. Asking "which element is this box?" is a comparison; asking "which box is this element?" is a lookup |
 | `style` | A **borrowed** `robo_css_computed_style_t *`. The tree never disposes it, never copies it, and never parses CSS to make one |
 | `display` | **The one CSS value that is copied.** The box would not exist without it — the builder creates a box exactly when the computed display generates one — and the first question a formatting context asks is what kind of box it has, before it has any reason to reach into a style it may not have |
@@ -190,6 +202,24 @@ exactly one copy of each fact**:
 Everything else about the element — `position`, the four margin edges, padding,
 border widths, the background, the insets — is read from the borrowed style when a
 later goal needs it. That is what keeps the number of copies of any fact at one.
+
+### 4.3 A text object, and why the vocabulary widened only here
+
+10.5 added the second kind and it is worth recording why *that* was the phase that
+did it, because three phases before it had refused. A box's kind would have to be
+`BLOCK` or `INLINE` and the tree already knows both facts — the computed `display`
+is on the object and the context it establishes is on 10.2's arena — so a second
+kind would be a second copy of an answer. A **text node is not an element**: it has
+no display declaration to derive from, no element for `dom_node` to reference, and
+no declaration for the cascade to have filled. That is exactly the condition 10.1's
+record named as the one that justifies a second kind, and it is the only one in the
+module.
+
+What a text object borrows is its **parent element's** computed style, which is
+what CSS says a text node has and what the style seam already answers for an
+element. Its `display` is derived as inline rather than stored, and
+`robo_layout_object_box` refuses it, so an object of the new kind cannot be mistaken
+for one with an element behind it.
 
 ### 4.1 `STYLE_MISSING` is a flag, not `style == NULL`
 
@@ -223,13 +253,25 @@ well-formed as a struct. The tree refuses it at the only door that can.
 
 ---
 
-## 5. The builder's one rule
+## 5. The builder's rules
 
 ```text
-an element generates a box unless its computed display says otherwise
+1. an element generates a box unless its computed display says otherwise
+2. a text node generates a TEXT object unless it holds only collapsible whitespace
 ```
 
-Three consequences, each of which was a decision:
+Rule 1 was the only one through 10.4. Rule 2 arrived with 10.5 and its exception is
+narrow on purpose: whitespace-only text between two elements is DOM structure rather
+than content, and nothing in this module collapses whitespace yet, so an object for
+every newline in a formatted document would put a participant on the line for the
+document's indentation. The predicate is
+`robo_layout_text_is_collapsible_whitespace`, which is a **module** door rather
+than a suite's, because the builder and the eventual collapsing rule have to agree
+about what counts; the builder counts what it skipped
+(`whitespace_nodes_skipped`) so that "no text object" and "no text" stay two
+different quantities.
+
+Rule 1's consequences, each of which was a decision:
 
 **Children are elements, not nodes.** The DOM stores the newline between two
 elements as a text node. A builder that walked *nodes* would produce a tree whose
@@ -645,8 +687,8 @@ visible omission rather than a silent gap.
 
 ## 13. The capability model
 
-`robo_layout_capabilities_t` is twelve `int` fields in declaration order, and one of
-them is deliberately 0:
+`robo_layout_capabilities_t` is fourteen `int` fields in declaration order, and one
+of them is deliberately 0:
 
 | Field | this build | Filled by |
 |---|---|---|
@@ -661,6 +703,8 @@ them is deliberately 0:
 | `block_layout` | 1 | 10.3 |
 | `inline_layout` | 1 | 10.4 |
 | `block_and_inline_layout` | 1 | derived: the two above |
+| `text_layout` | 1 | 10.5 |
+| `line_boxes` | 1 | 10.6 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -675,6 +719,16 @@ done?" should have one field to read that cannot be mistaken for "is half of it
 done?". A phase that implemented one direction and flipped the conjunction instead
 would have named a feature it did not have, which is exactly why 10.3 wrote it as 0
 while only the block direction existed.
+
+`text_layout` and `line_boxes` are **not** a third and fourth direction, and neither
+is derived from the other. Measuring a run and producing a line are independent
+claims: a build could measure text and place none of it in a line — which is what
+this module was before 10.6 — and a line of atomic inlines and no text at all is a
+line this build produces without measuring anything. `line_boxes` is also the
+narrowest claim in the struct, deliberately: a line here has identity, geometry,
+membership and an ordinal, and does **not** yet have a baseline, a `line-height` or
+a font-derived extent. Naming the field for "text layout is finished" would have
+claimed those.
 
 `layout.conformance.capabilities` walks the struct **positionally** against a list
 of names written out by hand, and pins the struct's size against the list's length.
@@ -713,7 +767,8 @@ rather than unfinished:
 | Absent | Belongs to | What exists instead |
 |---|---|---|
 | anonymous boxes | a later goal | every box knows which context it participates in and which it establishes (10.2); the pass counts the boxes it declined (`block.inline_level_skipped`, `inline.block_level_declined`) and the boxes nothing containing was placed for (`block.unreached`) |
-| line **boxes**, text runs, baselines | 10.5–10.7 | a **preliminary line** — a cursor, a top, a running height and a count — and `lines`/`wraps` as counts; text nodes are not boxes |
+| **baselines**, `line-height`, a font-derived line extent, alignment, `text-align`, `vertical-align` | 10.7 | a text run carries the `ascent` and `descent` its measurer had for free, and nothing reads them yet; a line's height is its **tallest member** (10.6), which is the number this build can derive without a font's own line metrics |
+| text **shaping** — glyph substitution, positioning, ligature, kerning, bidi reordering, Unicode line breaking, whitespace collapsing, fragmentation | Phase 14, and 10.6's successor for the last two | a run's width is the **sum of its glyphs' advances**, which is what an unshaped run is; a participant too wide for its line **overflows** rather than breaking, guarded by `cursor > 0`; `robo_layout_text_is_collapsible_whitespace` is the predicate the builder applies and the one a collapsing rule will have to agree with |
 | declared **width**, `min-width`, `max-width`, `box-sizing`; percentages and relative units for both axes; shrink-to-fit | 10.8 | a block box fills its containing block (10.3), an atomic inline is sized by its own declarations where they resolve and fills its containing block otherwise (10.4), and a declared height is honoured where it is a computed `px` length |
 | margin collapsing, padding, border geometry | 10.9–10.11 | the values are readable from the borrowed style; a box's content box *is* its border box until then, and collapsing has the transparency rule it needs in *both* directions — 10.3's transparent block container and 10.4's transparent inline box |
 | positioned containing blocks, offsets | 10.12 | a box's containing block is its parent (10.3, `BlockLayout.md` §2); `display` and `position` are readable |
@@ -795,13 +850,13 @@ a window" decision in §2 enforced rather than merely documented.
 
 Later phases' findings are recorded with their phases rather than appended here:
 10.2's in `FormattingContexts.md` §8, 10.3's in `BlockLayout.md` §7.1 and
-`Tests.md` §8, 10.4's in `InlineLayout.md` §5 and `Tests.md` §9. The reason to keep
-them out of this document is that this one describes what is *stable*; a finding is
-a thing that changed.
+`Tests.md` §8, 10.4's in `InlineLayout.md` §5 and `Tests.md` §9, 10.5's and 10.6's
+in `Tests.md` §10–§11. The reason to keep them out of this document is that this one
+describes what is *stable*; a finding is a thing that changed.
 
 ---
 
-## 17. What 10.5 onwards may assume
+## 17. What 10.7 onwards may assume
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -824,10 +879,12 @@ a thing that changed.
    by *neither* and is the union of what its contents reached. All of it is replaced
    wholesale by 10.8.
 7. An inline formatting context's height **is** the block extent of the box that
-   owns it (`lines` and `wraps` are counts, and a preliminary line is not a line
-   box — 10.6 owns that), which is why there is no second entry point beside
+   owns it, which is why there is no second entry point beside
    `robo_layout_block_layout`: `robo_layout_inline_walk_contents` is internal and
-   reached only by the block pass.
+   reached only by the block pass. Since 10.6 the lines themselves are **records on
+   the tree** (`robo_layout_tree_line_count`, `_line_at`, `_line`, `_line_member`,
+   and `robo_layout_object_line` the other way), so `lines` and `wraps` are counts a
+   caller checks against the arena rather than the only way to learn anything.
 8. A box's content box *is* its border box, so its content origin is its top-left
    corner until 10.9–10.11 say otherwise; margins, padding and borders are readable
    and unapplied.
@@ -870,9 +927,25 @@ a thing that changed.
     pass. A later goal that writes into a participant's position must respect that
     the rebase happens once, at the end of the context's walk, and that an atomic
     inline's contents are *already* relative to it.
-20. **Every box with no geometry is explained by one of four counters** —
+20. **Every object with no geometry is explained by one of four counters** —
     `block.inline_level_skipped`, `block.unreached`, `inline.block_level_declined`,
-    and "it generated no box at all". The identity
+    and "it generated no object at all". The identity
     `blocks_placed + inline_level_skipped + participants_placed + unreached ==
-    objects` is asserted over every laid-out tree, so a build that dropped a box
-    would be visible as a document that did not add up.
+    objects` is asserted over every laid-out tree, so a build that dropped an object
+    would be visible as a document that did not add up. Since 10.5 this closes over
+    **every kind of object at once**, not only boxes: `objects` is the tree's
+    population including text objects, and a text run in a block-direction context is
+    an `inline_level_skipped` like any other inline-level object.
+21. **A text run is an ordinary participant of the line**, measured before it is
+    placed and placed by the same call an atomic inline is. There is no
+    text-specific branch in the inline pass, and a pass given no metrics source
+    places every run with width 0 and **counts** it (`text.unmeasured`) rather than
+    failing — which is a legitimate way to run the module, not a degraded one.
+22. **A line is a record, not a live object.** A caller reads line boxes through the
+    tree's arena and can create or mutate none; the line being built never leaves the
+    pass's stack. A line's **members are the objects it placed**, which is a smaller
+    set than the context's participants whenever a transparent inline box enclosed
+    something — `robo_layout_object_line` answers `ROBO_NOT_FOUND` for such a box,
+    and that is the documented answer rather than an omission. Line geometry is in
+    the **owner's** content-box space, so a line is not rebased the way a participant
+    is (item 19).

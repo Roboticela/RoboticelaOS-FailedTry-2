@@ -51,7 +51,9 @@
 #include "RoboLayout/RoboLayoutDiagnostics.h"
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutResult.h"
+#include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTypes.h"
 
 #ifdef __cplusplus
@@ -92,13 +94,78 @@ typedef struct robo_layout_tree robo_layout_tree_t;
 typedef struct robo_layout_object {
     /** Tree-scoped identity; never NONE for a live box. */
     robo_layout_node_id_t id;
+    /**
+     * What this object is (RoboLayoutTypes.h): a box, or a text run.
+     *
+     * One kind since 10.5, and the field is here rather than inferred from
+     * @ref dom_node's node kind because a later goal's anonymous box will have no
+     * node at all -- so "what is this?" has to be answerable from the object.
+     */
     robo_layout_object_kind_t kind;
-    /** The element this box came from. Always well formed for a live box. */
+    /**
+     * The DOM node this object came from. Always well formed for a live object.
+     *
+     * An element for a box and a **text node** for a text object, which is why the
+     * field is not named `element`: a node handle is a node handle
+     * (RoboLayoutTypes.h), and the accessor that reads it is the same door for
+     * both kinds.
+     */
     robo_html_node_handle_t dom_node;
-    /** Borrowed computed style, or NULL when none was supplied (see the flag). */
+    /**
+     * Borrowed computed style, or NULL when none was supplied (see the flag).
+     *
+     * For a text object this is the **parent element's** style, borrowed -- not a
+     * copy and not a style of its own. Every property a run needs (font family,
+     * size, weight, style, `direction`, `color`) is an inherited property, and
+     * RoboCSS already distributes inherited values to descendants, so a text
+     * node's computed style *is* its parent's for exactly those properties.
+     * RoboLayoutText.h argues it at length.
+     */
     const robo_css_computed_style_t *style;
-    /** The computed `display` the box was created under. */
+    /**
+     * The `display` this object was created under.
+     *
+     * For a box, the computed value, copied because the box would not exist
+     * without it. For a **text object** it is `inline`, and that is a derivation
+     * rather than a declaration: a text node's content is inline-level by
+     * construction, and there is no property an author could write that would make
+     * it otherwise. The passes dispatch on this field, so a text object being
+     * inline-level is what makes it a participant of a line without either pass
+     * special-casing it (RoboLayoutInline.h).
+     */
     robo_css_display_t display;
+    /**
+     * The measured run, for a **text object** (10.5).
+     *
+     * Written by the inline pass where the run is placed, and zero for a box --
+     * which is unambiguous because a box is not measured: `source` stays an
+     * ill-formed handle, exactly as it is in a run nothing measured. The record is
+     * kept on the object rather than discarded after placement because it is the one
+     * place the *consequences* of a measurement live: a caller can ask how wide the
+     * run was, how many code points it covered, whether the font had glyphs for them
+     * and which direction it was declared in -- and 10.6's line box and 10.7's
+     * baseline read ascent and descent from here instead of re-measuring.
+     *
+     * It is a copy of a value, not a borrowed reference: a run is arithmetic about a
+     * range, so unlike @ref style and @ref dom_node it has nothing to outlive and
+     * nothing to go stale.
+     */
+    robo_layout_text_run_t text_run;
+    /**
+     * The line box this object was **placed on** (10.6), or NONE.
+     *
+     * Written by the inline pass at the moment of placement and cleared with the
+     * lines themselves, so it is a cache of a conclusion in the same sense
+     * @ref context is (RoboLayoutObject.h) -- and read through a door that validates
+     * it against the arena, so a released line cannot be read back.
+     *
+     * NONE means "this object is not a placement": either nothing has placed it, or
+     * it is a **transparent inline box with contents**, whose rectangle is the union
+     * of what its contents reached and which therefore belongs to no single line
+     * (RoboLayoutLineBox.h argues it). The two cases are told apart by the same fact
+     * as everywhere else in this module -- whether the object has a computed result.
+     */
+    robo_layout_line_id_t line;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;
@@ -168,6 +235,27 @@ const robo_css_computed_style_t *robo_layout_object_style(
  *  none. */
 robo_css_display_t robo_layout_object_display(const robo_layout_tree_t *tree,
                                               robo_layout_node_id_t id);
+
+/**
+ * The measured run of a **text object** @p id, by value.
+ *
+ * @return ROBO_OK and the run; ROBO_INVALID_ARGUMENT for NULL arguments or a NONE
+ *         id; ROBO_NOT_FOUND when the id names no object, names a **box** (a box is
+ *         not measured, so its run would be an ill-formed handle and a zeroed
+ *         rect -- a shape that reads as an answer), or names a text object whose
+ *         result is not COMPUTED -- one no pass has reached, or one a pass declined.
+ *
+ *         The miss cases are told apart by `robo_layout_object_kind` and the
+ *         object's result state, which is the same division this module draws
+ *         everywhere: an id, a kind, and "did this one get laid out?" are three
+ *         facts and not one. A *declined* text run is deliberately a miss rather
+ *         than a zero-size answer, because its run is zeroed by construction and a
+ *         zeroed run reads as a measurement.
+ */
+robo_result_t robo_layout_object_text_run(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_text_run_t *out,
+                                         robo_layout_diag_t *diag);
 
 /**
  * The parent.
@@ -289,6 +377,34 @@ robo_result_t robo_layout_object_context_owned(const robo_layout_tree_t *tree,
  *  establishes none, and a box whose classification has been released. */
 int robo_layout_object_establishes_context(const robo_layout_tree_t *tree,
                                            robo_layout_node_id_t id);
+
+/**
+ * The line box @p id was placed on, or ROBO_NOT_FOUND when it is on none.
+ *
+ * "On none" is the common answer for a *box* and a normal one for an object that
+ * has not been laid out, and it is reached by three routes that a caller tells apart
+ * the way it always does in this module -- by asking the object's own result state,
+ * which answers "was anything computed for this object at all?":
+ *
+ *   the object was never placed -- no pass has run, the pass declined it, or it is
+ *   a block-level box, which lives in a block stack and not on a line;
+ *
+ *   the object was placed by a pass whose lines have since been released (a later
+ *   pass, an add, a clear, or an explicit invalidation). A line id is valid until the
+ *   next pass (RoboLayoutLineBox.h), and a released one is refused rather than
+ *   handed back as a number that names a different line;
+ *
+ *   the object is a **transparent inline box with contents** -- a `<span>` around
+ *   other participants -- which is a participant of its context and a member of no
+ *   single line, because its rectangle is the union of what it contains.
+ *
+ * @return ROBO_OK and the line id (never NONE); ROBO_INVALID_ARGUMENT for NULL
+ *         arguments or a NONE id; ROBO_NOT_FOUND as above.
+ */
+robo_result_t robo_layout_object_line(const robo_layout_tree_t *tree,
+                                      robo_layout_node_id_t id,
+                                      robo_layout_line_id_t *out,
+                                      robo_layout_diag_t *diag);
 
 #ifdef __cplusplus
 }

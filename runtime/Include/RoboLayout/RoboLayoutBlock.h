@@ -169,19 +169,24 @@ typedef struct robo_layout_block_stats {
     size_t containers;
     /** Block-level boxes that received geometry. */
     size_t blocks_placed;
-    /** Inline-level boxes in a **block-direction** context: there is no line to
-     *  put them on, and the anonymous block box CSS would wrap them in is a later
-     *  goal. An inline-level box inside an *inline* context is deliberately **not**
-     *  counted here -- 10.4 places it, and `robo_layout_inline_stats_t` counts it. */
+    /** Inline-level **boxes and text runs** in a **block-direction** context: there
+     *  is no line to put them on, and the anonymous block box CSS would wrap them in
+     *  is a later goal. A text run is counted here for the same reason a box is -- it
+     *  is inline-level, so a text node between two blocks has no line to be on — and
+     *  it is counted *instead of* being measured, because a measurement with nowhere
+     *  to go is not a result. An inline-level box inside an *inline* context is
+     *  deliberately **not** counted here -- 10.4 places it, and
+     *  `robo_layout_inline_stats_t` counts it. */
     size_t inline_level_skipped;
-    /** Boxes that received no geometry and that neither direction declined for a
+    /** Objects that received no geometry and that neither direction declined for a
      *  stated reason -- a block-level box inside an inline box, which needs the
      *  anonymous box CSS wraps an inline run in and which no phase in this build
      *  makes. Counted rather than dropped, because "no geometry" and "not in the
      *  document" must not look the same. The pass computes it as a difference, so
      *  it is the field that proves the accounting closes:
      *  `blocks_placed + inline_level_skipped + participants_placed + unreached`
-     *  is the tree's box count. */
+     *  is the tree's object count -- boxes *and* text runs, which since 10.5 is the
+     *  count the identity is stated over. */
     size_t unreached;
     /** Heights taken from a declared `height` this build could resolve: a
      *  computed length in `px`. */
@@ -250,11 +255,28 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
  * numbers are written to both records as they happen. `boxes_computed` in
  * `robo_layout_stats_t` is the two placement counts added together, which is the
  * whole of what a caller has to know about the coupling.
+ *
+ * @p text_metrics is **who measures the text this pass lays out** (10.5), and it is
+ * an argument for exactly the reason @p viewport is one: it is an input to a pass and
+ * not a property of a tree, so a caller that has a font supplies one and a caller
+ * that is testing cursor arithmetic -- or laying out a document with no text --
+ * supplies NULL and gets the same geometry 10.4 produced. A NULL source is not a
+ * failure: every run measures to zero, `robo_layout_text_stats_t.unmeasured` counts
+ * them, and a caller can always tell "nobody measured" from "measured to nothing"
+ * (`measured` with `width_max` 0) and from "there was no text" (`runs_placed` 0).
+ *
+ * @p out_text_stats receives what the **text** direction did, and may be NULL like
+ * the other two. Three records rather than one because they answer three different
+ * questions -- where the boxes went, where the participants on the lines went, and
+ * how much of the text anything could measure -- and the third is the one a reader
+ * needs precisely when the first two look plausible.
  */
 robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
                                        robo_layout_size_t viewport,
+                                       const robo_layout_text_metrics_t *text_metrics,
                                        robo_layout_block_stats_t *out_stats,
                                        robo_layout_inline_stats_t *out_inline_stats,
+                                       robo_layout_text_stats_t *out_text_stats,
                                        robo_layout_diag_t *diag);
 
 #ifdef __cplusplus

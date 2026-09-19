@@ -64,17 +64,25 @@ static void test_build_root(void)
          * RoboHTML's tree builder inserts it, because a document with a `<body>`
          * has a head -- and the *number is derived from the DOM* rather than
          * guessed, because how many elements a fragment parses to is the parser's
-         * fact and not this suite's. The text node inside p is stepped over.
+         * fact and not this suite's.
+         *
+         * The text node inside `<p>` is not an element and is not counted as one:
+         * since 10.5 it becomes a **text object** instead, and the two counters it
+         * lands in are its own (RoboLayoutBuilder.h).
          */
         ROBO_CHECK_EQ_INT(layout_document_element_count(&doc), 4u);
         ROBO_CHECK_EQ_INT(report.elements_seen, 4u);
         ROBO_CHECK_EQ_INT(report.boxes_created, 4u);
+        ROBO_CHECK_EQ_INT(report.texts_created, 1u);
         ROBO_CHECK_EQ_INT(report.skipped_display_none, 0u);
         ROBO_CHECK_EQ_INT(report.boxes_without_style, 4u);
-        /* html 0, head 1, body 1, p 2. */
-        ROBO_CHECK_EQ_INT(report.depth_max, 2u);
+        /* html 0, head 1, body 1, p 2 -- and the deepest *object* is now the text
+         * inside p, at 3, because a text object is an object with a depth and not a
+         * child the builder steps over. */
+        ROBO_CHECK_EQ_INT(report.depth_max, 3u);
         ROBO_CHECK_EQ_INT(report.depth_max, layout_tree_max_depth(tree));
-        ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 4u);
+        ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree),
+                          report.boxes_created + report.texts_created);
 
         /* The root box is the *document element*, not the document node: a
          * document is not an element, generates nothing, and a box of its own
@@ -131,13 +139,16 @@ static void test_build_order(void)
 
     /* html, head, title, body, section, p, p, p, footer -- nine elements, all of
      * them in the markup this time. html 0, head 1, title 2, body 1, section 2,
-     * p 3, footer 2, so the deepest box is a paragraph at depth 3. */
+     * p 3, footer 2, so the deepest *box* is a paragraph at depth 3 -- and the text
+     * inside the three paragraphs sits at 4, which is what the report now says. */
     ROBO_CHECK_EQ_INT(layout_document_element_count(&doc), 9u);
     ROBO_CHECK_EQ_INT(report.elements_seen, 9u);
     ROBO_CHECK_EQ_INT(report.boxes_created, 9u);
-    ROBO_CHECK_EQ_INT(report.depth_max, 3u);
+    ROBO_CHECK_EQ_INT(report.texts_created, 4u); /* title's t, and a, b, c */
+    ROBO_CHECK_EQ_INT(report.depth_max, 4u);
     ROBO_CHECK_EQ_INT(report.depth_max, layout_tree_max_depth(tree));
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 9u);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree),
+                      report.boxes_created + report.texts_created);
 
     /*
      * The newline between every pair of elements is a text node, so a builder
@@ -176,8 +187,8 @@ static void test_build_order(void)
         ROBO_CHECK_EQ_INT(robo_layout_object_next_sibling(tree, body, &next), ROBO_NOT_FOUND);
     }
 
-    /* Three `<p>` under `<section>`, in order, each with no child of its own --
-     * the text inside is not a box. */
+    /* Three `<p>` under `<section>`, in order, each holding one child: its own text
+     * node, which generates a text object (10.5) and no box. */
     ROBO_CHECK_EQ_INT(robo_layout_object_first_child(tree, body, &section), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_layout_object_child_count(tree, body, &seen), ROBO_OK);
     ROBO_CHECK_EQ_INT(seen, 2u); /* section, footer */
@@ -197,7 +208,7 @@ static void test_build_order(void)
             robo_html_node_handle_t handle;
 
             ROBO_CHECK_EQ_INT(robo_layout_object_child_count(tree, p, &seen), ROBO_OK);
-            ROBO_CHECK_EQ_INT(seen, 0u);
+            ROBO_CHECK_EQ_INT(seen, 1u); /* the paragraph's text object */
             ROBO_CHECK_EQ_INT(robo_layout_object_dom_node(tree, p, &handle), ROBO_OK);
             ROBO_CHECK_STR_EQ(robo_html_element_name(&handle, NULL), "p");
             paragraphs++;
@@ -526,7 +537,8 @@ static void test_build_rebuild_replaces(void)
 
     ROBO_CHECK_EQ_INT(robo_layout_tree_build_from_document(tree, doc.id, NULL, &first, NULL),
                       ROBO_OK);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), first.boxes_created);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree),
+                      first.boxes_created + first.texts_created);
     ROBO_CHECK_EQ_INT(robo_layout_tree_build_from_document(tree, doc.id, NULL, &second, NULL),
                       ROBO_OK);
 
@@ -534,8 +546,10 @@ static void test_build_rebuild_replaces(void)
      * document -- not one document's boxes twice. The tree is derived state and
      * there is no incremental path in 10.1 because nothing consumes a tree finely
      * enough to need one. */
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), second.boxes_created);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree),
+                      second.boxes_created + second.texts_created);
     ROBO_CHECK_EQ_INT(first.boxes_created, second.boxes_created);
+    ROBO_CHECK_EQ_INT(first.texts_created, second.texts_created);
     ROBO_CHECK_EQ_INT((int)robo_layout_tree_root(tree), 1);
 
     robo_layout_tree_destroy(tree);

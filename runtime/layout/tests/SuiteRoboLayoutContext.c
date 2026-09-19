@@ -313,17 +313,25 @@ static void test_context_run(void)
     ROBO_CHECK(robo_layout_context_tree(context) == fixture.tree);
 
     robo_layout_context_stats(context, &stats);
-    ROBO_CHECK_EQ_INT(stats.objects, report.boxes_created);
-    ROBO_CHECK_EQ_INT(stats.visited, report.boxes_created);
-    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, report.boxes_created);
+    /*
+     * Every **object**, not every box: a text node generates an object of its own
+     * (10.5) and the pass visits it exactly as it visits a box, so the count the
+     * pass reports is the tree's object count -- the two builder counters added
+     * rather than one of them.
+     */
+    ROBO_CHECK_EQ_INT(stats.objects, report.boxes_created + report.texts_created);
+    ROBO_CHECK_EQ_INT(stats.visited, report.boxes_created + report.texts_created);
+    ROBO_CHECK_EQ_INT(stats.boxes_unresolved,
+                      report.boxes_created + report.texts_created);
     ROBO_CHECK_EQ_INT(stats.passes, 1u);
-    /* No style source was supplied, so every box is marked and *counted*: it is a
-     * fact about the build, not a failure. */
-    ROBO_CHECK_EQ_INT(stats.without_style, report.boxes_created);
+    /* No style source was supplied, so every object is marked and *counted*: it is a
+     * fact about the build, not a failure. A text object borrows its parent's style,
+     * and there is no parent style here, so it is in the count as well. */
+    ROBO_CHECK_EQ_INT(stats.without_style, report.boxes_created + report.texts_created);
 
     /* The pass is the thing that moves a box from "built" to "unresolved", so the
      * counters and the results agree. */
-    for (index = 0u; index < report.boxes_created; index++) {
+    for (index = 0u; index < report.boxes_created + report.texts_created; index++) {
         robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
         uint32_t depth = 0u;
 
@@ -385,9 +393,10 @@ static void test_context_run_repeated(void)
     for (run = 0; run < 4; run++) {
         ROBO_CHECK_EQ_INT(robo_layout_context_run(context, fixture.tree, NULL), ROBO_OK);
         robo_layout_context_stats(context, &first);
-        ROBO_CHECK_EQ_INT(first.objects, report.boxes_created);
-        ROBO_CHECK_EQ_INT(first.visited, report.boxes_created);
-        ROBO_CHECK_EQ_INT(first.boxes_unresolved, report.boxes_created);
+        ROBO_CHECK_EQ_INT(first.objects, report.boxes_created + report.texts_created);
+        ROBO_CHECK_EQ_INT(first.visited, report.boxes_created + report.texts_created);
+        ROBO_CHECK_EQ_INT(first.boxes_unresolved,
+                          report.boxes_created + report.texts_created);
         ROBO_CHECK_EQ_INT(first.passes, (size_t)(run + 1));
         ROBO_CHECK_EQ_INT(first.boxes_computed, 0u);
         (void)second;
@@ -491,7 +500,7 @@ static void test_context_run_with_styles(void)
     /* The pass counts exactly what the build marked, so the two halves of the
      * module agree about which boxes have no style. */
     ROBO_CHECK_EQ_INT(stats.without_style, report.boxes_without_style);
-    ROBO_CHECK_EQ_INT(stats.objects, report.boxes_created);
+    ROBO_CHECK_EQ_INT(stats.objects, report.boxes_created + report.texts_created);
     /* The fake answered some elements, so it was actually consulted. */
     ROBO_CHECK(fake.answers > 0u);
 

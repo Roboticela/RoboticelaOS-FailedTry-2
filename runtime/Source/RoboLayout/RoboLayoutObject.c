@@ -95,6 +95,53 @@ robo_css_display_t robo_layout_object_display(const robo_layout_tree_t *tree,
     return object ? object->display : ROBO_CSS_DISPLAY_NONE;
 }
 
+robo_result_t robo_layout_object_text_run(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_text_run_t *out,
+                                         robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading a text run needs an out");
+    }
+    robo_layout_text_run_init(out);
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading a text run needs a tree and an id");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+    /*
+     * A box is refused rather than answered, and the refusal is the point: a box
+     * holds a zeroed run, and a zeroed run is a *shape* a caller could read a width
+     * out of. "This object is not a text run" has to be a miss.
+     */
+    if (object->kind != ROBO_LAYOUT_OBJECT_TEXT) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the object is not a text run");
+    }
+    /*
+     * And a run that was not *placed* is refused too, one level down from the same
+     * reason: a text object a pass reached but declined -- a text run in a
+     * block-direction context, which waits for the anonymous box -- holds a zeroed run
+     * because nothing measured it, and a zeroed run read as an answer is exactly the
+     * "plausible number" this module refuses to hand out. The result state is the
+     * per-object authority, here as everywhere: COMPUTED means the run was placed and
+     * measured, and anything else is a miss.
+     */
+    if (object->result.state != ROBO_LAYOUT_RESULT_COMPUTED) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "no pass has placed this text run");
+    }
+    *out = object->text_run;
+    return ROBO_OK;
+}
+
 /** Which link a caller asked for. */
 typedef enum layout_link_pick {
     LAYOUT_LINK_PARENT = 0,
@@ -404,4 +451,53 @@ int robo_layout_object_establishes_context(const robo_layout_tree_t *tree,
     const robo_layout_object_t *object = robo_layout_object_slot_const(tree, id);
 
     return object != NULL && layout_object_context_is_live(tree, object->context_owned);
+}
+
+/**
+ * Whether @p id names a line this tree actually holds.
+ *
+ * The same rule the context accessor above states, applied to the third arena: a
+ * box's `line` field is a cache of a pass's conclusion, and a released line must be a
+ * reported miss rather than a number that happens to name a different line -- which
+ * it would, because ids restart at 1 with each pass.
+ */
+static int layout_object_line_is_live(const robo_layout_tree_t *tree,
+                                      robo_layout_line_id_t id)
+{
+    return id != ROBO_LAYOUT_LINE_ID_NONE && robo_layout_line_slot_const(tree, id) != NULL;
+}
+
+robo_result_t robo_layout_object_line(const robo_layout_tree_t *tree,
+                                      robo_layout_node_id_t id,
+                                      robo_layout_line_id_t *out,
+                                      robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "out is NULL");
+    }
+    *out = ROBO_LAYOUT_LINE_ID_NONE;
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL or the id is NONE");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+    /*
+     * Three routes to one answer, and the door's own note in RoboLayoutObject.h lists
+     * them: never placed, placed by a released pass, or a transparent inline box with
+     * contents -- which is a participant of its context and a member of no single
+     * line, because its rectangle is the union of what it encloses.
+     */
+    if (!layout_object_line_is_live(tree, object->line)) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the object was placed on no line this tree holds");
+    }
+    *out = object->line;
+    return ROBO_OK;
 }

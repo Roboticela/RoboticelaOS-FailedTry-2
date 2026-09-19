@@ -454,24 +454,50 @@ static void test_dom_pipeline(void)
     ROBO_CHECK_EQ_INT(report.skipped_display_none, 1u);
     ROBO_CHECK_EQ_INT(report.boxes_created, 6u);
     ROBO_CHECK_EQ_INT(report.boxes_without_style, 0u);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 6u);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree),
+                      report.boxes_created + report.texts_created);
 
-    /* Every box carries the typed display the sheet meant, and the *bridge's*
-     * style for its own element -- which is the borrowed-pointer claim arriving
-     * from a real cascade. */
+    /*
+     * Every **object** carries the typed display the sheet meant and a style that
+     * is the bridge's own for the right node -- which is the borrowed-pointer claim
+     * arriving from a real cascade.
+     *
+     * The walk covers both kinds, because a text object is an object and skipping it
+     * would leave the assertion silently narrower than its name. The two kinds answer
+     * the style question differently *on purpose*, and that difference is the phase's
+     * central decision: a box's style is the bridge's style for its own element, and a
+     * text object's is the bridge's style for its **parent element** -- which is not a
+     * shortcut but the same pointer, since every property a run needs is inherited.
+     */
     {
         size_t index;
         size_t inline_block = 0u;
         size_t block = 0u;
+        size_t texts = 0u;
 
-        for (index = 0u; index < 6u; index++) {
+        for (index = 0u; index < report.boxes_created + report.texts_created; index++) {
             robo_layout_node_id_t id = ROBO_LAYOUT_NODE_ID_NONE;
-            robo_html_node_handle_t element;
+            robo_html_node_handle_t node;
             robo_css_display_t display;
 
             ROBO_CHECK_EQ_INT(robo_layout_object_id_at(tree, index, &id), ROBO_OK);
-            ROBO_CHECK_EQ_INT(robo_layout_object_dom_node(tree, id, &element), ROBO_OK);
+            ROBO_CHECK_EQ_INT(robo_layout_object_dom_node(tree, id, &node), ROBO_OK);
             display = robo_layout_object_display(tree, id);
+
+            if (robo_layout_object_kind(tree, id) == ROBO_LAYOUT_OBJECT_TEXT) {
+                robo_html_node_handle_t parent;
+
+                /* A text object is inline-level *by derivation*: it has no
+                 * declaration and no box of its own, and no sheet can change it. */
+                ROBO_CHECK_EQ_INT((int)display, (int)ROBO_CSS_DISPLAY_INLINE);
+                ROBO_CHECK_EQ_INT(robo_html_node_parent(&node, &parent, NULL), ROBO_OK);
+                ROBO_CHECK(robo_layout_object_style(tree, id) ==
+                           robo_layout_dom_style_for(fixture.dom, &parent));
+                texts++;
+                continue;
+            }
+
+            ROBO_CHECK_EQ_INT(robo_layout_object_kind(tree, id), ROBO_LAYOUT_OBJECT_BOX);
             ROBO_CHECK_EQ_INT(robo_css_display_generates_box(display), 1);
             if (display == ROBO_CSS_DISPLAY_INLINE_BLOCK) {
                 inline_block++;
@@ -479,15 +505,17 @@ static void test_dom_pipeline(void)
                 block++;
             }
             ROBO_CHECK(robo_layout_object_style(tree, id) ==
-                       robo_layout_dom_style_for(fixture.dom, &element));
+                       robo_layout_dom_style_for(fixture.dom, &node));
             ROBO_CHECK_EQ_INT(robo_layout_style_display(robo_layout_object_style(tree, id)),
                               display);
         }
         /* One inline-block (`.panel`), four blocks (html, body, p, span) and one
-         * inline (`<head>`, which nothing matched). */
+         * inline (`<head>`, which nothing matched) -- five boxes of six, plus the
+         * text objects the document's text nodes contributed. */
         ROBO_CHECK_EQ_INT(inline_block, 1u);
         ROBO_CHECK_EQ_INT(block, 4u);
         ROBO_CHECK_EQ_INT(inline_block + block, 5u);
+        ROBO_CHECK_EQ_INT(texts, report.texts_created);
     }
 
     /*
@@ -502,9 +530,10 @@ static void test_dom_pipeline(void)
     ROBO_CHECK_EQ_INT(robo_layout_context_create(&context, NULL), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_layout_context_run(context, tree, NULL), ROBO_OK);
     robo_layout_context_stats(context, &stats);
-    ROBO_CHECK_EQ_INT(stats.objects, 6u);
-    ROBO_CHECK_EQ_INT(stats.visited, 6u);
-    ROBO_CHECK_EQ_INT(stats.boxes_unresolved, 6u);
+    ROBO_CHECK_EQ_INT(stats.objects, report.boxes_created + report.texts_created);
+    ROBO_CHECK_EQ_INT(stats.visited, report.boxes_created + report.texts_created);
+    ROBO_CHECK_EQ_INT(stats.boxes_unresolved,
+                      report.boxes_created + report.texts_created);
     ROBO_CHECK_EQ_INT(stats.boxes_computed, 0u);
     ROBO_CHECK_EQ_INT(stats.without_style, 0u);
     ROBO_CHECK_EQ_INT(stats.block.blocks_placed, 0u);
@@ -519,11 +548,12 @@ static void test_dom_pipeline(void)
      * `display: inline-block`, whose inner display 9.12 records as `flow-root` --
      * so it establishes a *block* context while itself participating in the root's,
      * which is the atomic-inline case arriving from a real sheet. `<p>` and
-     * `<span>` are block containers with no children, so each establishes an inline
-     * context. `<body>` is transparent because `span` computes to `display: block`,
-     * and `<head>` -- which nothing matched -- is inline and establishes nothing,
-     * because a non-inherited property nothing declared is the property's initial
-     * value.
+     * `<span>` are block containers whose only child is a text run, so each
+     * establishes an *inline* context -- the shape the commonest document there is has
+     * -- and `<div class="hidden">` establishes nothing because it generates nothing.
+     * `<body>` is transparent because its children are block-level boxes, and
+     * `<head>` -- which nothing matched -- is inline and establishes nothing, because
+     * a non-inherited property nothing declared is the property's initial value.
      */
     ROBO_CHECK_EQ_INT(robo_layout_tree_is_classified(tree), 1);
     ROBO_CHECK_EQ_INT(stats.contexts, 4u);
@@ -531,7 +561,14 @@ static void test_dom_pipeline(void)
     ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_BLOCK], 1u);
     ROBO_CHECK_EQ_INT(stats.contexts_by_kind[ROBO_LAYOUT_FC_INLINE], 2u);
     ROBO_CHECK_EQ_INT(stats.boxes_establishing, 4u);
-    ROBO_CHECK_EQ_INT(stats.boxes_participating_only, 2u);
+    /*
+     * And four participate without establishing: `<head>` (inline, in the root's
+     * context), `<body>` (transparent), and the two **text runs** -- `Hello` in the
+     * paragraph's inline context and `Inline` in the span's. A text object
+     * participates wherever its enclosing box puts it, which is why it belongs in this
+     * count and in neither of the box counters.
+     */
+    ROBO_CHECK_EQ_INT(stats.boxes_participating_only, 4u);
     /*
      * Two levels, and the second one is the point: `<p>` lives inside the atomic
      * inline, so its inline context nests in the panel's block context rather than
@@ -605,7 +642,8 @@ static void test_dom_pipeline(void)
      * with one of them generating no box. Classification reads the DOM and never
      * writes it, and the box set is derived state rather than a second tree. */
     ROBO_CHECK_EQ_INT(robo_layout_dom_element_count(fixture.dom), 7u);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 6u);
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree),
+                      report.boxes_created + report.texts_created);
 
     /* The tree goes first: it borrows the bridge's styles. */
     robo_layout_context_destroy(context);
@@ -685,7 +723,12 @@ static void test_dom_relations(void)
     ROBO_CHECK_EQ_INT(report.elements_seen, 8u);
     ROBO_CHECK_EQ_INT(report.skipped_display_none, 3u);
     ROBO_CHECK_EQ_INT(report.boxes_created, 5u);
-    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree), 5u);
+    /* Five boxes, and the text objects for the two paragraphs that survived: the
+     * hidden `.b`/`.c` and the hidden `<p>` generate no box *and* no text object,
+     * because a subtree with `display: none` on its root generates nothing. */
+    ROBO_CHECK_EQ_INT(report.texts_created, 1u); /* `inside` is inside the hidden p */
+    ROBO_CHECK_EQ_INT(robo_layout_tree_object_count(tree),
+                      report.boxes_created + report.texts_created);
 
     robo_layout_tree_destroy(tree);
     layout_dom_fixture_end(&fixture);

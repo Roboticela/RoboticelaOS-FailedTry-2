@@ -38,10 +38,20 @@
  * box's rectangle is a *union* of what its contents reached when the box is
  * non-atomic and a declared size when it is atomic. The two directions are one pass
  * and one door, because an inline context's height *is* the block extent of the box
- * that owns it. Text measurement and line boxes are 10.5 and 10.6; margins,
- * padding, borders, positioning and overflow are still absent and still belong to
- * named later goals -- so `geometry`, `block_layout`, `inline_layout` and
- * `block_and_inline_layout` are all 1, while `painting` is 0.
+ * that owns it.
+ *
+ * Phase 10.5 (RoboLayoutText.h, RoboLayoutTextFont.h) adds the participant that is
+ * neither box nor line: a **text run**. A text node generates a layout object of its
+ * own -- not a box; it has no element and no `display` declaration -- it borrows its
+ * parent element's computed style because every property a run needs is inherited,
+ * and it is *measured* through a callback seam whose real supplier is a RoboFont face
+ * asked through RoboFont's own API. A pass given no metrics source measures every run
+ * as zero and counts it, which is the documented degradation rather than a failure.
+ *
+ * Line boxes are 10.6; margins, padding, borders, positioning and overflow are still
+ * absent and still belong to named later goals -- so `geometry`, `block_layout`,
+ * `inline_layout`, `block_and_inline_layout` and `text_layout` are all 1, while
+ * `painting` is 0.
  *
  * Chromium's LayoutObject / LayoutBox / constraint models are temporary technical
  * reference only; nothing here is a translation of them. See layout/README.md and
@@ -62,9 +72,12 @@
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutInline.h"
+#include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutObject.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutStyle.h"
+#include "RoboLayout/RoboLayoutText.h"
+#include "RoboLayout/RoboLayoutTextFont.h"
 #include "RoboLayout/RoboLayoutTree.h"
 #include "RoboLayout/RoboLayoutTypes.h"
 #include "RoboLayout/RoboLayoutVersion.h"
@@ -132,6 +145,30 @@ typedef struct robo_layout_capabilities {
      * would have named a feature it does not have -- survive the next direction
      * rather than ending with this one. */
     int block_and_inline_layout;
+    /** Measuring **text**: a text node generating a layout object, and a run's
+     *  advance width and line extent coming from a font through a callback seam
+     *  (10.5). **1** since 10.5.
+     *
+     *  A claim about the *build* and not about a pass, exactly as `geometry` is: a
+     *  pass that was given no metrics source measures every run as zero and counts it
+     *  (`robo_layout_text_stats_t.unmeasured`), which is a legitimate way to run this
+     *  module — and the stats record is where that shows. What this field rules out is
+     *  a build in which nothing *could* measure, which is what this module was until
+     *  this phase. */
+    int text_layout;
+    /**
+     * Producing **line boxes** a caller can read (10.6). **1** since 10.6.
+     *
+     * A claim about the *build* and not about a pass, exactly as `geometry` and
+     * `text_layout` are: a document with no inline content produces no lines, and a
+     * pass with no viewport places nothing at all -- so "are there lines?" is answered
+     * by `robo_layout_tree_line_count` and this field only says that the module can
+     * *produce* them. Kept narrow on purpose: a line box here has identity, geometry,
+     * membership and an ordinal, and does **not** yet have a baseline, a `line-height`
+     * or a font-derived extent -- `line_boxes` would be claiming those if it were
+     * named for "text layout is finished".
+     */
+    int line_boxes;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

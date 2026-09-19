@@ -34,6 +34,8 @@
 
 #include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutInline.h"
+#include "RoboLayout/RoboLayoutLineBox.h"
+#include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
 /** Objects the arena holds before its first growth. */
@@ -48,6 +50,19 @@
  * not.
  */
 #define ROBO_LAYOUT_INITIAL_CONTEXT_CAPACITY 4u
+
+/**
+ * Line boxes and line members the third and fourth arenas hold before their first
+ * growth (Phase 10.6).
+ *
+ * Both small, and for the reason the context arena is: a document with one line has
+ * one line and as many members as it placed, so a size that guessed high is a size
+ * every small fixture pays for. They are separate arenas because their growth rates
+ * are unrelated -- a line has one record and many members -- and a single arena of
+ * a union would waste the larger of the two on every entry.
+ */
+#define ROBO_LAYOUT_INITIAL_LINE_CAPACITY 4u
+#define ROBO_LAYOUT_INITIAL_LINE_MEMBER_CAPACITY 8u
 
 /*
  * The walk (Phase 10.3, shared with 10.4)
@@ -76,6 +91,24 @@ typedef struct robo_layout_walk {
     robo_layout_tree_t *tree;
     robo_layout_block_stats_t *block;
     robo_layout_inline_stats_t *inline_flow;
+    /**
+     * The text direction's counters (10.5), filled by the inline pass where a text
+     * participant is measured. The third record for the same reason there are two:
+     * the interesting fact is the *mix*, and "how much of this text did anything
+     * measure?" is not a question either of the other two can answer.
+     */
+    robo_layout_text_stats_t *text;
+    /**
+     * Who measures text, borrowed for the length of the pass (10.5).
+     *
+     * *Not* on the tree, and the difference matters: the tree is derived state that
+     * outlives every pass and is rebuilt from the DOM, while a measurer is an input
+     * to one pass -- the same shape the viewport has, which is recorded on the
+     * context and handed to the pass rather than stored on the tree. NULL means
+     * "nothing can measure", which is the documented degradation and not an error:
+     * every run measures to zero and the document lays out exactly as 10.4 left it.
+     */
+    const robo_layout_text_metrics_t *text_metrics;
     robo_layout_diag_t *diag;
 } robo_layout_walk_t;
 
@@ -122,6 +155,53 @@ int robo_layout_style_px_length(const robo_css_computed_style_t *style,
 /** Round a resolved length to the integer pixel space (half away from zero). */
 robo_gfx_pixel_x_t robo_layout_px_round(double value);
 
+/*
+ * The line-box arenas (Phase 10.6)
+ *
+ * Four arenas now live on the tree, in two pairs, and the pairs exist for the same
+ * reason the context one does: a line box is a *conclusion a pass draws*, so the
+ * tree owns it, the pass is its only writer, and the public header exposes the read
+ * side. A caller cannot create a line, which is what makes `state` a fact rather than
+ * a promise.
+ *
+ * The **member** records are the interesting half. A line's members are the objects
+ * it placed, in layout order, and they are a **chain** rather than a contiguous range
+ * in one shared vector -- because the placements of one line are *interleaved* with
+ * the placements of another. Laying out an atomic inline recurses into the block pass
+ * for its contents (10.3's door), and those contents build lines and members of their
+ * own before the atomic inline itself is placed on its parent's line. So the arena
+ * holds the members of several lines in an order no range can describe, each record
+ * names the next member of *its* line, and the line names the head. Reading is
+ * therefore O(members) rather than O(1), which the public door states.
+ */
+
+/** Identity of one member record in the member arena. Internal: a member is not a
+ *  thing a caller names, it is a thing a line contains. */
+typedef uint32_t layout_line_member_id_t;
+
+#define LAYOUT_LINE_MEMBER_ID_NONE ((layout_line_member_id_t)0u)
+
+/** One object placed on one line, and the next member of the same line. */
+typedef struct layout_line_member {
+    robo_layout_node_id_t node;
+    layout_line_member_id_t next;
+} layout_line_member_t;
+
+/**
+ * One line box as stored: the public record plus the one fact the public record does
+ * not carry.
+ *
+ * `first_member` is internal because it names an *internal* id, and a caller with no
+ * way to resolve one would be handed a handle to nothing. What a caller gets instead
+ * is the count (in the record) and `robo_layout_line_member(tree, line, index, ...)`,
+ * which walks the chain and hands back the *object* id -- the thing a caller can
+ * actually use.
+ */
+typedef struct layout_line_slot {
+    robo_layout_line_box_t box;
+    layout_line_member_id_t first_member;
+} layout_line_slot_t;
+
 struct robo_layout_tree {
     robo_layout_object_t *objects;
     /** Live objects; also the number of ids handed out. */
@@ -145,6 +225,28 @@ struct robo_layout_tree {
     size_t context_capacity;
     /** Non-zero once a pass has classified this tree. */
     int classified;
+
+    /*
+     * The line-box arena (Phase 10.6). Lazily allocated like the context one, and
+     * released -- with the member arena -- by the next pass and by anything that
+     * releases the classification, because a line box describes a box set and a pass
+     * and neither outlives the other.
+     *
+     * Member ids follow the same discipline as every other id here -- dense,
+     * 1-based, made at the moment of the append and never reused -- but there is no
+     * `next_member_id` counter, because `member_count + 1` *is* the next id and a
+     * second field that had to agree with the first would be a second answer to it.
+     */
+    layout_line_slot_t *lines;
+    /** Live line boxes; also the number of ids handed out. */
+    size_t line_count;
+    /** Slots allocated; always >= line_count. */
+    size_t line_capacity;
+    layout_line_member_t *members;
+    /** Live member records; also the number of ids handed out. */
+    size_t member_count;
+    /** Slots allocated; always >= member_count. */
+    size_t member_capacity;
 };
 
 /**
@@ -219,5 +321,87 @@ robo_layout_formatting_context_t *robo_layout_fc_slot(robo_layout_tree_t *tree,
 const robo_layout_formatting_context_t *robo_layout_fc_slot_const(
     const robo_layout_tree_t *tree,
     robo_layout_fc_id_t id);
+
+/*
+ * The line-box arena (Phase 10.6), internal for the same reason the context arena
+ * is: the inline pass is its only writer, and there is exactly one caller of each
+ * door below, so a public descriptor would exist to be used once.
+ */
+
+/**
+ * Release every line box and every member record, and clear each object's `line`
+ * id.
+ *
+ * Called by the next pass, before it places anything, and by anything that releases
+ * the classification -- so a second pass *replaces* the first one's lines rather than
+ * appending to them, and a box set that changed cannot leave a line describing a box
+ * that is gone. Independent of the object arena: the boxes and their results are
+ * untouched, because releasing a pass's conclusions is not the same act as clearing a
+ * tree.
+ *
+ * Object ids handed out in a *previous* pass therefore remain valid (they name boxes),
+ * while line ids do not: a line id is valid until the next pass, which the public read
+ * doors state.
+ */
+void robo_layout_tree_lines_reset(robo_layout_tree_t *tree);
+
+/**
+ * Append @p node to the member chain @p head .. @p tail and count it in @p count.
+ *
+ * One door rather than "allocate a record" plus "link it", because the two are one
+ * act: a record that was allocated and not linked would be a member no line names, and
+ * a link into an unallocated id would be a chain that ends in nothing. The pass holds
+ * the head, the tail and the count on its stack for the length of one open line --
+ * construction state, which is exactly where RoboLayoutLineBox.h says it lives -- and
+ * hands them over on every placement.
+ *
+ * `*head` is NONE for an empty chain and is filled on the first append, which is why
+ * the pass cannot tell "no members yet" from "the first append failed" by looking at
+ * the head: it looks at the return code, and that is the distinction.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments or a NONE node;
+ *         ROBO_OUT_OF_MEMORY when the arena could not grow -- which the pass must
+ *         turn into a failure rather than a line, because a placement the line could
+ *         not *record* would leave a line whose width and member count disagreed.
+ */
+robo_result_t robo_layout_line_members_append(robo_layout_tree_t *tree,
+                                             robo_layout_node_id_t node,
+                                             layout_line_member_id_t *head,
+                                             layout_line_member_id_t *tail,
+                                             size_t *count,
+                                             robo_layout_diag_t *diag);
+
+/**
+ * Append one finalized line box and return its id.
+ *
+ * The caller supplies the whole record, because the pass holds the construction state
+ * and this is the single moment it becomes a record. `context` must name a live
+ * context: a line that names no context is a line nothing can attribute, and the pass
+ * reads the id off the box that established the context rather than inventing one.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p tree or @p out_id, a NONE
+ *         owner, an undefined state or a NONE context; ROBO_NOT_FOUND for a context
+ *         that names none; ROBO_OUT_OF_MEMORY.
+ */
+robo_result_t robo_layout_line_add(robo_layout_tree_t *tree,
+                                   robo_layout_fc_id_t context,
+                                   robo_layout_node_id_t owner,
+                                   size_t index,
+                                   robo_layout_point_t origin,
+                                   robo_layout_size_t size,
+                                   int32_t available_width,
+                                   layout_line_member_id_t first_member,
+                                   size_t members,
+                                   robo_layout_line_id_t *out_id,
+                                   robo_layout_diag_t *diag);
+
+/** The stored line, or NULL when @p id names none. */
+const layout_line_slot_t *robo_layout_line_slot_const(const robo_layout_tree_t *tree,
+                                                      robo_layout_line_id_t id);
+
+/** Member record @p id, or NULL when it names none. */
+const layout_line_member_t *robo_layout_line_member_slot_const(
+    const robo_layout_tree_t *tree,
+    layout_line_member_id_t id);
 
 #endif /* ROBO_LAYOUT_INTERNAL_H */

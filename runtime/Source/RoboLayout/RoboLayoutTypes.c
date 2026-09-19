@@ -31,6 +31,8 @@ const char *robo_layout_object_kind_name(robo_layout_object_kind_t kind)
         return "none";
     case ROBO_LAYOUT_OBJECT_BOX:
         return "box";
+    case ROBO_LAYOUT_OBJECT_TEXT:
+        return "text";
     default:
         return "unknown";
     }
@@ -77,6 +79,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "block-layout";
     case ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT:
         return "inline-layout";
+    case ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT:
+        return "text-layout";
     default:
         return "unknown";
     }

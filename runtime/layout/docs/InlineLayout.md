@@ -174,6 +174,9 @@ its line is a fact the result's two flag bits deliberately still do not carry.
 
 ### 4.1 A preliminary line is not a line box
 
+*Written in 10.4, when nothing here produced either. §12 records what 10.6 made of
+it; the argument is kept as it stood.*
+
 What makes the cursor work is four numbers: a cursor, a top, a running height and a
 count. It is **not** a line box, and the header says so in the same words:
 
@@ -328,7 +331,45 @@ baseline to the line that currently has neither.
 
 ---
 
-## 11. Boundaries
+## 11. What 10.5 and 10.6 turned out to be
+
+*Added after the fact, because the table above is a prediction and two of its rows
+have since been settled. Neither phase needed the change §1 promised the inline
+model would not need.*
+
+**10.5 gave the participant that had none a measured width, and nothing else.** The
+zero §3.1 argues loudly for is still exactly what a text run gets from a pass with
+no measurement seam; what changed is that a seam can now be installed, and then a
+`<span>` holding only text is as wide as its font says. A text run is placed by the
+same call an atomic inline is, and the inline pass gained no text-specific branch.
+`empty_contexts` went on meaning what it meant — and it is worth recording that its
+*example* changed rather than its subject: a `<p>` holding only text used to be the
+archetype of an empty context and is no longer one, because it now has a
+participant, which is `empty_contexts` falling to zero for the document that
+introduced it rather than a case being deleted.
+
+**10.6 gave identity to the line, and this header's §4.1 was half right.** The line
+is now a record with an id, an ordinal, a finalized rectangle and its members — so
+the "identity" half of the prediction landed. The "alignment, baseline and height
+that comes from fonts" half did **not**: a line's height is its **tallest member**,
+and there is still no baseline in this module. So 10.6 was a smaller phase than
+§4.1 foresaw, deliberately, and the header of `RoboLayoutLineBox.h` says so where
+the field is declared rather than in a remark here.
+
+The one thing the inline pass itself gained is that `lines` stopped being the only
+way to learn that anything was on a line. The counter is unchanged and still the
+number it was — 10.6's record is what a caller reads back — so the counter became a
+*check against the arena* rather than the answer, which is why the suite asserts the
+two against each other.
+
+And the distinction §2 drew is what 10.6 turned into an assertion:
+`participants_placed` and the sum of the lines' member counts **differ** for a
+document that nests inline boxes, by exactly the transparent boxes that enclosed
+something. 10.6 made that difference visible instead of leaving it as a note.
+
+---
+
+## 12. Boundaries
 
 - **No line box, no text measurement, no font metrics, no baseline, no shaping.**
   §3.1, §4.1, and `empty_contexts` is how the absence is *visible* rather than

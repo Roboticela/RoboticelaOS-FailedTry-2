@@ -248,6 +248,14 @@ static robo_result_t layout_block_children(robo_layout_walk_t *walk,
              * none, and the honest answer is to count it and leave it UNRESOLVED.
              * The inline pass never sees one of these, because it walks the contents
              * of inline contexts and this box is not in one.
+             *
+             * A **text run** takes this branch too, and that is the same case rather
+             * than a second one: text is inline-level by construction
+             * (RoboLayoutObject.h), so a text node between two blocks is a run with no
+             * line to be on, and it waits for the same anonymous box. Counting it
+             * here — rather than measuring it and then having nowhere to put the
+             * measurement — is what keeps `unreached` a statement about *structure*
+             * and not a bucket of things nobody got round to.
              */
             walk->block->inline_level_skipped++;
             break;
@@ -392,12 +400,15 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
 
 robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
                                        robo_layout_size_t viewport,
+                                       const robo_layout_text_metrics_t *text_metrics,
                                        robo_layout_block_stats_t *out_stats,
                                        robo_layout_inline_stats_t *out_inline_stats,
+                                       robo_layout_text_stats_t *out_text_stats,
                                        robo_layout_diag_t *diag)
 {
     robo_layout_walk_t walk;
     robo_layout_inline_stats_t scratch;
+    robo_layout_text_stats_t text_scratch;
     robo_layout_node_id_t root;
     robo_layout_point_t origin;
     robo_gfx_pixel_y_t height = 0;
@@ -422,6 +433,22 @@ robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
     robo_layout_block_stats_init(out_stats);
     robo_layout_inline_stats_init(out_inline_stats);
     robo_layout_inline_stats_init(&scratch);
+    robo_layout_text_stats_init(out_text_stats);
+    robo_layout_text_stats_init(&text_scratch);
+
+    /*
+     * And the line boxes this pass is about to produce replace whatever the last one
+     * left (Phase 10.6). The reset is here -- at the top of the pass, with the records
+     * -- rather than inside the inline pass, because it is the same rule those records
+     * follow: everything from this point on describes *this* call. A repeated pass over
+     * an unchanged tree therefore produces the same lines, and a pass over a tree whose
+     * viewport changed produces a different set rather than two sets appended.
+     *
+     * It is also why the *classification* does not have to be re-run for lines to be
+     * correct: a caller may classify once and lay out many times, and each pass still
+     * starts from no lines.
+     */
+    robo_layout_tree_lines_reset(tree);
 
     /*
      * The classification first, because it is the placement gate. Reported rather
@@ -448,6 +475,15 @@ robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
     walk.tree = tree;
     walk.block = out_stats;
     walk.inline_flow = out_inline_stats ? out_inline_stats : &scratch;
+    /*
+     * The text record has a scratch for the same reason the inline one does: the pass
+     * fills three records and a caller may want any subset of them, so "not asked
+     * for" must still be a place to write -- never a NULL the inline pass would have
+     * to test at every text run. The metrics, by contrast, are passed through as they
+     * came: NULL is a *meaning* here ("nothing can measure"), not an omission.
+     */
+    walk.text = out_text_stats ? out_text_stats : &text_scratch;
+    walk.text_metrics = text_metrics;
     walk.diag = diag;
 
     /*
@@ -476,10 +512,11 @@ robo_result_t robo_layout_block_layout(robo_layout_tree_t *tree,
      * build does not make.
      *
      * Both records are subtracted, because they are both answers to "why has this
-     * box no geometry?": 10.3's `inline_level_skipped` is an inline-level box in a
-     * block-direction context, and 10.4's `block_level_declined` is its mirror. A
-     * box the inline pass *placed* is subtracted too, so the identity below closes
-     * over both directions at once:
+     * object no geometry?": 10.3's `inline_level_skipped` is an inline-level box -- or
+     * a text run, which is inline-level by construction -- in a block-direction
+     * context, and 10.4's `block_level_declined` is its mirror. An object the inline
+     * pass *placed* is subtracted too, so the identity below closes over every
+     * direction and every kind of object at once:
      *
      *   blocks_placed + inline_level_skipped + participants_placed + unreached
      *       == objects

@@ -80,6 +80,7 @@
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutInline.h"
+#include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
 #ifdef __cplusplus
@@ -174,6 +175,24 @@ typedef struct robo_layout_stats {
      * does not read as an accident.
      */
     robo_layout_inline_stats_t inline_flow;
+
+    /**
+     * What text layout did (Phase 10.5).
+     *
+     * The record that answers a question the other two cannot, and the reason it is a
+     * third record rather than two more fields on `inline_flow`: the placement counts
+     * say where the participants went, and this says **how much of the text anything
+     * could measure**. A document laid out with no metrics source and one laid out
+     * with a real font produce identical box counts, identical line counts and -- for
+     * the unmeasured case -- identical geometry, so a reader who saw only the first
+     * two records could not tell a correct build from one that never measured a
+     * glyph. `measured` and `unmeasured` are the pair that distinguishes them
+     * (RoboLayoutText.h).
+     *
+     * All zeros when the pass had no viewport, for the same reason the other two are:
+     * text is placed along a line, and there is no line without a width.
+     */
+    robo_layout_text_stats_t text;
 } robo_layout_stats_t;
 
 /** An opaque, caller-owned pass. */
@@ -227,6 +246,43 @@ robo_result_t robo_layout_context_set_constraints(robo_layout_context_t *context
  *  a caller can tell "nothing is known" from a failure. */
 robo_result_t robo_layout_context_constraints(const robo_layout_context_t *context,
                                               robo_layout_constraints_t *out);
+
+/**
+ * Record who measures text (Phase 10.5), or clear it with NULL.
+ *
+ * The record is copied in by value, and the **userdata it names is borrowed for as
+ * long as it stays installed** -- the same lifetime rule the style source states, and
+ * for the same reason: RoboLayout cannot extend the life of something it does not
+ * own, so the caller keeps whatever the callback needs alive until it clears the
+ * metrics or destroys the context.
+ *
+ * It lives on the context rather than on the tree because it is an *input to a pass*
+ * and not a property of a document: a tree is derived state that outlives many
+ * passes, and a measurer is the same shape of thing the viewport is -- recorded here,
+ * handed to the pass, never stored where it would outlive its owner by accident.
+ *
+ * NULL is a legitimate setting and means "nothing can measure": every text run
+ * measures to zero and is counted as *unmeasured*, so the document lays out exactly
+ * as 10.4 left it. That is the documented degradation rather than an error, and
+ * `robo_layout_text_stats_t` is where a caller sees that it happened.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL @p context.
+ */
+robo_result_t robo_layout_context_set_text_metrics(robo_layout_context_t *context,
+                                                   const robo_layout_text_metrics_t *metrics);
+
+/**
+ * The installed metrics source, by value.
+ *
+ * @return ROBO_OK and the record; ROBO_INVALID_ARGUMENT for NULL arguments. A context
+ *         with no source installed answers the cleared record -- "measures nothing" --
+ *         rather than failing, because that is a state a caller can legitimately be
+ *         in and
+ *         `robo_layout_text_metrics_is_usable` already answers the question they meant
+ *         to ask.
+ */
+robo_result_t robo_layout_context_text_metrics(const robo_layout_context_t *context,
+                                               robo_layout_text_metrics_t *out);
 
 /**
  * Install the caller's temporary pass data.

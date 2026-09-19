@@ -70,8 +70,25 @@ typedef struct layout_inline_line {
     robo_gfx_pixel_y_t top;
     /** Tallest participant on the current line so far. */
     robo_gfx_pixel_y_t height;
-    /** Lines started: 0 until something is placed, then 1 and up. */
-    size_t count;
+    /**
+     * Sum of the placed members' widths -- the occupied width of the line.
+     *
+     * Accumulated rather than taken from the cursor, and the two agree by
+     * construction (every placement advances the cursor by exactly the width it adds
+     * here), which is what makes the equality a fact about the algorithm rather than
+     * a coincidence. It is a *separate* accumulator because the definition
+     * `line.width = sum of member widths` is the one Phase 10.6 states and the one
+     * `report.line_geometry` asserts; a build that later places a member without
+     * advancing the cursor (a zero-advance box, a mark) would then differ from the
+     * cursor and the difference would be visible rather than absorbed.
+     */
+    int32_t width;
+    /** 0-based ordinal of this line within its context (RoboLayoutLineBox.h). */
+    size_t index;
+    /** Members placed on this line, and the ends of their chain. */
+    size_t members;
+    layout_line_member_id_t first_member;
+    layout_line_member_id_t last_member;
 } layout_inline_line_t;
 
 /**
@@ -104,7 +121,22 @@ typedef struct layout_inline_flow {
     /** The owner's content width: the line's width, and the fallback a
      *  width-less atomic inline fills (see the header). */
     int32_t available_width;
+    /** The open line -- construction state, on the caller's stack, not a record. */
     layout_inline_line_t line;
+    /** The context these lines belong to, and the box that established it. */
+    robo_layout_fc_id_t context;
+    robo_layout_node_id_t owner;
+    /**
+     * Lines finalized by this context so far, and the id of the last one.
+     *
+     * The count is what the stats record reports and what gives the *next* line its
+     * `index`; the id is what the block extent is read back from, so that the extent
+     * comes from the finalized record rather than from the open line that is about to
+     * be discarded with the stack frame.
+     */
+    size_t lines;
+    size_t members_total;
+    robo_layout_line_id_t last_line;
     /** Innermost open inline box, or NULL at the context's own level. */
     layout_inline_scope_t *scope;
 } layout_inline_flow_t;
@@ -118,13 +150,124 @@ static void layout_inline_count(robo_layout_walk_t *walk,
                                 layout_inline_flow_t *flow,
                                 const robo_layout_object_t *object)
 {
+    (void)flow;
     walk->inline_flow->participants_placed++;
     if (object->depth > walk->inline_flow->depth_max) {
         walk->inline_flow->depth_max = object->depth;
     }
-    if (flow->line.count == 0u) {
-        flow->line.count = 1u;
+}
+
+/**
+ * Finalize the open line: append it to the tree as a line box, and reset it.
+ *
+ * The one moment construction state becomes a record, and it is a *no-op* for a line
+ * nothing was placed on. That is CSS's rule and not an optimisation: an empty inline
+ * formatting context has no line boxes, so a container with nothing to place
+ * produces nothing to describe, and a build that emitted a zero-height line for it
+ * would make "no content" and "one empty line" the same document
+ * (RoboLayoutLineBox.h).
+ *
+ * Called at a wrap and at the end of the context -- the only two places a line can
+ * end in this build, because nothing fragments a line. It is also where the *extent*
+ * a wrap advances by comes from, which is why it is called *before* the advance: the
+ * line's height is settled here and the next line starts below it.
+ */
+static robo_result_t layout_inline_finalize_line(robo_layout_walk_t *walk,
+                                                 layout_inline_flow_t *flow)
+{
+    robo_layout_point_t origin;
+    robo_layout_size_t size;
+    robo_layout_line_id_t id = ROBO_LAYOUT_LINE_ID_NONE;
+    robo_result_t status;
+
+    if (flow->line.members == 0u) {
+        return ROBO_OK;
     }
+
+    origin.x = 0;
+    origin.y = flow->line.top;
+    size.width = flow->line.width;
+    size.height = (int32_t)flow->line.height;
+    status = robo_layout_line_add(walk->tree, flow->context, flow->owner, flow->line.index,
+                                  origin, size, flow->available_width,
+                                  flow->line.first_member, flow->line.members, &id, walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+
+    /*
+     * The back-link, in one walk: every member now knows the line it is on. Done here
+     * rather than at placement because this is the first moment the line has an id --
+     * an id the arena hands out, and one that other contexts' lines may be interleaved
+     * with (RoboLayoutInternal.h).
+     */
+    {
+        layout_line_member_id_t member = flow->line.first_member;
+
+        while (member != LAYOUT_LINE_MEMBER_ID_NONE) {
+            const layout_line_member_t *record =
+                robo_layout_line_member_slot_const(walk->tree, member);
+            robo_layout_object_t *placed;
+
+            if (!record) {
+                break;
+            }
+            placed = robo_layout_object_slot(walk->tree, record->node);
+            if (placed) {
+                placed->line = id;
+            }
+            member = record->next;
+        }
+    }
+
+    flow->lines++;
+    flow->last_line = id;
+    flow->members_total += flow->line.members;
+
+    /* The next line begins where this one ends, with nothing on it. `index` is the
+     * only field carried forward, because the *ordinal* counts lines in the context
+     * and the rest describe one line. */
+    memset(&flow->line, 0, sizeof(flow->line));
+    flow->line.index = flow->lines;
+    flow->line.top = (robo_gfx_pixel_y_t)0;
+    return ROBO_OK;
+}
+
+/**
+ * Start a new line below the one just finished.
+ *
+ * The advance is the *finalized* line's height, read back out of the record rather
+ * than from the open line, so that a line's contribution to the block stack is the
+ * geometry the tree holds and not a number that only existed on the stack. The top
+ * therefore accumulates the heights of the lines above -- which is the whole of this
+ * phase's vertical arithmetic, and 10.7's baselines will replace it without moving
+ * the shape.
+ */
+static robo_result_t layout_inline_new_line(robo_layout_walk_t *walk,
+                                            layout_inline_flow_t *flow,
+                                            robo_layout_inline_stats_t *stats)
+{
+    robo_gfx_pixel_y_t top = flow->line.top;
+    robo_result_t status = layout_inline_finalize_line(walk, flow);
+
+    if (status != ROBO_OK) {
+        return status;
+    }
+    if (flow->last_line != ROBO_LAYOUT_LINE_ID_NONE) {
+        const layout_line_slot_t *slot = robo_layout_line_slot_const(walk->tree,
+                                                                    flow->last_line);
+
+        if (slot) {
+            top = (robo_gfx_pixel_y_t)(slot->box.origin.y + slot->box.size.height);
+        }
+    }
+
+    /* `finalize` already advanced `index` to the new line's ordinal -- it counts the
+     * lines the context has produced -- so all this call has to do is put the new top
+     * in place. The rest of the record is zeroed by the same memset. */
+    flow->line.top = top;
+    stats->wraps++;
+    return ROBO_OK;
 }
 
 /**
@@ -139,17 +282,6 @@ static void layout_inline_count(robo_layout_walk_t *walk,
 static int layout_inline_would_overflow(const layout_inline_flow_t *flow, int32_t width)
 {
     return flow->line.cursor > 0 && (flow->line.cursor + width) > flow->available_width;
-}
-
-/** Move the cursor to a new line, below the tallest thing the last one held. */
-static void layout_inline_wrap(layout_inline_flow_t *flow,
-                               robo_layout_inline_stats_t *stats)
-{
-    flow->line.top += flow->line.height;
-    flow->line.height = 0;
-    flow->line.cursor = 0;
-    flow->line.count++;
-    stats->wraps++;
 }
 
 /**
@@ -200,7 +332,33 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
         }
     }
 
+    /*
+     * And the line's own bookkeeping, in the one place a placement happens. The
+     * member is appended *before* the cursor moves, so a placement that could not be
+     * recorded is a failure rather than a line whose width counted an object its
+     * membership did not: the two facts are the same fact, and the reason the append
+     * is not optional is exactly that a reader asking "how wide is this line?" and a
+     * reader asking "what is on it?" must not be able to disagree.
+     */
+    status = robo_layout_line_members_append(walk->tree, object->id, &flow->line.first_member,
+                                             &flow->line.last_member, &flow->line.members,
+                                             walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    /*
+     * `object->line` is deliberately **not** written here. The line this
+     * participant is going on has not been finalized yet, so it has no id to write --
+     * and it cannot be guessed: laying out an atomic inline recurses into the block
+     * pass, which finalizes lines of its own *between* this line's first placement and
+     * this line's finalization, so "the next id" is not this line's id. The back-link
+     * is filled in at finalization, in one walk of the chain, which is the only moment
+     * the id exists and the members are known together
+     * (`layout_inline_finalize_line`).
+     */
+
     flow->line.cursor = x + width;
+    flow->line.width += width;
     if (height > flow->line.height) {
         flow->line.height = height;
     }
@@ -280,7 +438,11 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
     }
 
     if (layout_inline_would_overflow(flow, width)) {
-        layout_inline_wrap(flow, walk->inline_flow);
+        robo_result_t wrapped = layout_inline_new_line(walk, flow, walk->inline_flow);
+
+        if (wrapped != ROBO_OK) {
+            return wrapped;
+        }
     }
     return layout_inline_place(walk, flow, object, flow->line.cursor, flow->line.top, width,
                                height);
@@ -371,9 +533,97 @@ static robo_result_t layout_inline_place_transparent(robo_layout_walk_t *walk,
 }
 
 /**
+ * Place a **text run** (10.5): a text node's content, measured and put on the line.
+ *
+ * This is the phase's arrival. Before it, a `<span>` holding only text was zero-wide
+ * because nothing in the build measured text (10.4's own header said so); now the
+ * text node generates an object of its own, that object is a participant of this
+ * context, and its advance width comes from a measurement.
+ *
+ * Four decisions, each of which the text header argues and this call site has to
+ * honour:
+ *
+ *   the run is measured **as a unit**, because splitting a text node into the pieces
+ *   a line can actually hold is line breaking and line breaking is 10.6's. So a
+ *   measured run *is* a unit whose width is known before it is placed -- which is
+ *   what makes it, like an atomic inline, something the wrap rule can act on. A run
+ *   wider than the line overflows rather than breaking, and the header says so;
+ *
+ *   the run is **kept on the object** rather than discarded after placement, so the
+ *   measurement's consequences -- width, code points, missing glyphs, direction --
+ *   are readable from the tree afterwards (`robo_layout_object_text_run`);
+ *
+ *   the **style** handed to the measurement is the object's own borrowed style,
+ *   which for a text object is its parent element's (RoboLayoutObject.h): every
+ *   property a run needs is inherited, so the element's computed style already holds
+ *   the answer and a text-node style would be the same values stored twice;
+ *
+ *   and a **NULL measurer** measures to zero and is *counted as unmeasured* rather
+ *   than treated as a failure, which is what keeps every 10.4 expectation about a
+ *   document 10.4 could not measure true in this build (RoboLayoutText.h).
+ */
+static robo_result_t layout_inline_place_text(robo_layout_walk_t *walk,
+                                              layout_inline_flow_t *flow,
+                                              robo_layout_object_t *object)
+{
+    robo_layout_text_run_t run;
+    int usable = robo_layout_text_metrics_is_usable(walk->text_metrics);
+    robo_result_t status;
+
+    status = robo_layout_text_measure_node(&object->dom_node, object->style,
+                                          walk->text_metrics, &run, walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    object->text_run = run;
+
+    /*
+     * Counted before the placement below, because these facts are about the
+     * *measurement* and the placement is what happens to it. A run that fails to be
+     * placed is still a run something answered for, and a reader comparing
+     * `runs_placed` against `measured` learns which of the two stopped.
+     */
+    walk->text->runs_placed++;
+    if (usable) {
+        walk->text->measured++;
+    } else {
+        walk->text->unmeasured++;
+    }
+    if (robo_layout_text_range_is_empty(run.range)) {
+        walk->text->empty++;
+    }
+    walk->text->code_points += (size_t)run.code_points;
+    walk->text->glyphs_missing += (size_t)run.glyphs_missing;
+    if (run.direction == ROBO_LAYOUT_TEXT_DIRECTION_RTL) {
+        walk->text->rtl++;
+    }
+    if (run.width > walk->text->width_max) {
+        walk->text->width_max = run.width;
+    }
+    if (run.height > walk->text->height_max) {
+        walk->text->height_max = run.height;
+    }
+    if (object->depth > walk->text->depth_max) {
+        walk->text->depth_max = object->depth;
+    }
+
+    if (layout_inline_would_overflow(flow, run.width)) {
+        robo_result_t wrapped = layout_inline_new_line(walk, flow, walk->inline_flow);
+
+        if (wrapped != ROBO_OK) {
+            return wrapped;
+        }
+    }
+    return layout_inline_place(walk, flow, object, flow->line.cursor, flow->line.top, run.width,
+                               run.height);
+}
+
+/**
  * Place one participant of the current inline formatting context.
  *
- * Three answers, and the middle one is the reason this function is not a loop:
+ * Four answers, and the third is the reason this function is not a loop:
+ *
+ *   a **text run** is measured and placed (above);
  *
  *   a **block-level** box is declined and counted. CSS would have wrapped the
  *   inline run in an anonymous block box before this point and this build makes
@@ -393,6 +643,17 @@ static robo_result_t layout_inline_object(robo_layout_walk_t *walk,
     if (!object) {
         return ROBO_LAYOUT_DIAG(walk->diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
                                 "a box vanished under the inline pass");
+    }
+
+    /*
+     * Text first, before anything about display: a text object *is* inline-level by
+     * derivation (RoboLayoutObject.h) and the check below would pass, so the order
+     * is not what makes it correct -- but a caller reading this function should meet
+     * the phase's new participant before the old rules, and the two paths share no
+     * arithmetic.
+     */
+    if (object->kind == ROBO_LAYOUT_OBJECT_TEXT) {
+        return layout_inline_place_text(walk, flow, object);
     }
 
     if (!robo_css_display_is_inline_level(object->display)) {
@@ -493,6 +754,7 @@ int robo_layout_inline_stats_equal(const robo_layout_inline_stats_t *a,
            a->atomic_placed == b->atomic_placed &&
            a->non_atomic_placed == b->non_atomic_placed &&
            a->block_level_declined == b->block_level_declined && a->lines == b->lines &&
+           a->line_members == b->line_members &&
            a->wraps == b->wraps && a->widths_declared == b->widths_declared &&
            a->widths_filled == b->widths_filled &&
            a->heights_declared == b->heights_declared &&
@@ -527,6 +789,22 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
 
     memset(&flow, 0, sizeof(flow));
     flow.available_width = content_width;
+    /*
+     * The two facts every line of this context records about where it came from: the
+     * context it belongs to and the box whose contents it holds. The context id is
+     * read off the owner -- the classification put it there -- rather than passed in,
+     * because the caller of this door is the block pass and it is asking about
+     * *contents*, not about context identity. A NONE id is left as it is: a box the
+     * classification gave no context can still have its contents walked (the block
+     * pass does it for a box that establishes one), and a line with no context is
+     * refused by the arena rather than stored with a lie.
+     */
+    flow.context = object->context_owned;
+    flow.owner = owner;
+    flow.line.index = 0u;
+    flow.line.first_member = LAYOUT_LINE_MEMBER_ID_NONE;
+    flow.line.last_member = LAYOUT_LINE_MEMBER_ID_NONE;
+    flow.last_line = ROBO_LAYOUT_LINE_ID_NONE;
 
     placed_before = walk->inline_flow->participants_placed;
     walk->inline_flow->contexts++;
@@ -554,7 +832,20 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
         child = child_object->next_sibling;
     }
 
-    walk->inline_flow->lines += flow.line.count;
+    /*
+     * The last line is finalized here, and it is the *only* place a context ends a
+     * line: every other line ended at a wrap. Nothing fragments a line in this build,
+     * so a context's last line is simply the one still open when its contents run out
+     * -- and a context that placed nothing finalizes nothing, because `finalize` is a
+     * no-op for an empty line.
+     */
+    status = layout_inline_finalize_line(walk, &flow);
+    if (status != ROBO_OK) {
+        return status;
+    }
+
+    walk->inline_flow->lines += flow.lines;
+    walk->inline_flow->line_members += flow.members_total;
     if (walk->inline_flow->participants_placed == placed_before) {
         walk->inline_flow->empty_contexts++;
     }
@@ -577,10 +868,22 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
     }
 
     /*
-     * The extent the block pass needs: the top of the last line plus the tallest
-     * thing on it. Zero when nothing was placed, which is the answer for a container
-     * holding only text and is what keeps `<p>one</p>` the height 10.3 gave it.
+     * The extent the block pass needs, and since 10.6 it is read from the **last
+     * finalized line** rather than from the open line that is about to die with this
+     * stack frame: the block extent of an inline formatting context *is* the bottom
+     * edge of its last line, and stating it as such is what makes the record the
+     * authority rather than a parallel copy of it. Zero when no line was produced,
+     * which is the answer for a container with nothing on a line and is what keeps
+     * `<p></p>` the height 10.3 gave it.
      */
-    *out_extent = flow.line.top + flow.line.height;
+    *out_extent = 0;
+    if (flow.last_line != ROBO_LAYOUT_LINE_ID_NONE) {
+        const layout_line_slot_t *last = robo_layout_line_slot_const(walk->tree,
+                                                                    flow.last_line);
+
+        if (last) {
+            *out_extent = (robo_gfx_pixel_y_t)(last->box.origin.y + last->box.size.height);
+        }
+    }
     return ROBO_OK;
 }

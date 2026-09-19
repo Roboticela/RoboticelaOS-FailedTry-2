@@ -1,5 +1,57 @@
 /*
- * RoboLayout version pin — Phase 10.4 inline layout.
+ * RoboLayout version pin — Phase 10.6 line boxes.
+ *
+ * 0.6.0 is 0.5.0 plus the thing the preliminary line was always going to become: a
+ * **line box**. A line is now a record the tree owns -- an id, a finalized rectangle,
+ * the context it belongs to, its ordinal in that context, the width it had to fit into,
+ * and the objects it placed -- with the construction state (a cursor, a top, a running
+ * height and a member chain) staying on the pass's stack where it belongs.
+ *
+ * What 10.6 adds, in one line: **a line stops being a number and becomes a thing.**
+ * 10.4's header called its line *preliminary* and named identity, alignment, a baseline
+ * and a font-derived height as this phase's; identity and geometry are here, and the
+ * baseline and the font-derived height are 10.7's, which is why the line's height is
+ * still "the tallest member" and the header says so where the field is declared.
+ *
+ * The one idea this phase turns on, and getting it backwards would have made every
+ * line a fragment of the wrong thing: **a line's members are the objects it placed,
+ * not the participants of its context.** A transparent inline box with contents is a
+ * participant -- 10.4 made its rectangle the union of what it enclosed -- and a union
+ * can span several lines, so it belongs to no single line. Counting it as a member
+ * would either state a rectangle the box does not have or count its children's width
+ * twice; the difference between the two counts (`participants_placed` and
+ * `line_members`) is exactly that case, which is why both exist.
+ *
+ * The other decision worth naming: the id is handed out when a line is *finalized*,
+ * so an object's back-link to its line cannot be written at placement. That is not a
+ * wrinkle to be smoothed over -- it is a consequence of laying out an atomic inline,
+ * whose block pass finalizes lines of its own between the moment the parent line
+ * opened and the moment it closes. The back-link is therefore filled in one walk at
+ * finalization, which is the only moment the id and the membership are known together.
+ *
+ * 0.5.0 is 0.4.0 plus the participant that is neither box nor line: a **text run**.
+ * A text node now generates a layout object of its own, it is measured through a
+ * callback seam (RoboLayoutText.h), and its advance width is what a run of text in a
+ * `<span>` finally has -- where 10.4 measured it as zero and said so.
+ *
+ * What 10.5 adds, in one line: **text is measured, and measurement is a seam.** A
+ * text node generates a TEXT object; the object borrows its parent element's computed
+ * style, because every property a run needs is inherited; the run is measured through
+ * `robo_layout_text_metrics_t`, whose real supplier is a RoboFont face
+ * (RoboLayoutTextFont.h); and a pass with no supplier measures every run as zero and
+ * *counts* it, so "nobody measured" and "measured to nothing" are different facts.
+ *
+ * The one idea this phase turns on, and getting it backwards would have made every
+ * existing layout suite a font test: **the pass must be testable without the
+ * dependency.** Measurement is a callback for the same reason computed styles are one
+ * (10.1), and the build with no source is byte-for-byte 10.4's behaviour with a
+ * counter attached -- which is what let this phase land without moving a single 10.4
+ * expectation about geometry.
+ *
+ * The other decision worth naming: a range is **code points**, not bytes, and the
+ * conversion goes through RoboUnicode. A byte offset stops being a character
+ * position the moment a document contains "é", "م" or "👋", and the whole point of
+ * having built RoboUnicode in Phase 4 is that a later phase does not rediscover it.
  *
  * 0.4.0 is 0.3.0 plus the second direction. 10.3 taught the module to compute a
  * coordinate in the one direction block layout owns -- down -- and 10.4 computes
@@ -87,10 +139,50 @@
  *                  union of its contents and an atomic one's contents laid out by
  *                  the block pass inside it
  *
- *   the records    both directions report their own counters, and `boxes_computed`
- *                  is the two placement counts added together — one pass, two
+ *   the records    every direction reports its own counters, and `boxes_computed`
+ *                  is the two placement counts added together — one pass, three
  *                  records, because an inline context's height is part of the block
- *                  stack and the two cannot be separate passes
+ *                  stack and the two cannot be separate passes, and because "how much
+ *                  of the text anything measured" is not a question either of the
+ *                  other two can answer
+ *
+ * and, from 10.6:
+ *
+ *   line boxes    an arena of finalized lines owned by the tree, each naming its
+ *                  formatting context, its owner, its ordinal, its rectangle, the
+ *                  width it had to fit into and the objects it placed -- with the
+ *                  member chain in a second arena, because the placements of two
+ *                  lines interleave
+ *
+ *   the lifecycle  an open line is construction state on the pass's stack and an
+ *                  arena record is a conclusion: finalized at a wrap or at the end of
+ *                  its context, never mutated, and released wholesale by the next pass
+ *
+ *   the back-link `robo_layout_object_line`: the line an object was placed on, written
+ *                  once at finalization, refused for an object on no line -- which
+ *                  includes a transparent inline box with contents, whose rectangle is
+ *                  a union rather than a line's
+ *
+ * and, from 10.5:
+ *
+ *   the text model a **range** in code points, the **direction** a run was declared
+ *                  in, the **style** a measurement needs resolved from a computed
+ *                  style, the **request** and the **run** — with the run's width,
+ *                  line extent, ascent, descent, code-point count and missing-glyph
+ *                  count
+ *
+ *   the seam       `robo_layout_text_metrics_t`: who measures, asked through one
+ *                  driver that turns "no source", "source with no callback" and "a
+ *                  source that failed" into three different answers rather than
+ *                  three call sites
+ *
+ *   the font half  `robo_layout_text_font_t` — the real supplier: a borrowed RoboFont
+ *                  face, its cmap and its layout metrics, summing glyph advances in
+ *                  **font units** and converting once, because a per-glyph rounding
+ *                  accumulates
+ *
+ *   the TEXT kind  a layout object that is not a box: an element-less, childless
+ *                  participant whose `display` is derived as `inline`
  *
  * `robo_layout_context_run` walks the tree, counts what it saw, classifies every
  * box, and — when the caller has recorded a viewport — lays both directions out. A
@@ -99,20 +191,27 @@
  * truth, and a build that returns (0, 0) instead has been told a lie. That is why
  * the result *state* is still the per-box authority even though `geometry` is 1.
  *
- * The capability fields say what is and is not in this build, and the four that
- * matter here are deliberately four: `geometry` is 1 because coordinates are
+ * The capability fields say what is and is not in this build, and the five that
+ * matter here are deliberately five: `geometry` is 1 because coordinates are
  * computed, `block_layout` is 1 because the block direction is one of them,
- * `inline_layout` is 1 because the inline direction is the other, and
- * `block_and_inline_layout` is their conjunction — the wider question a caller asks
- * when it wants to know whether layout is done, answered by the same derivation it
- * always was rather than retired now that both halves exist.
+ * `inline_layout` is 1 because the inline direction is the other,
+ * `block_and_inline_layout` is their conjunction, and `line_boxes` is 1 because the
+ * lines those directions place are now records a caller can read.
  *
- * Still absent, and each a named later goal: text measurement and line boxes (10.5,
- * 10.6), baselines (10.7), a declared `width` in the block direction, `min-width`,
- * `max-width` and shrink-to-fit (10.8), margins (10.9), padding (10.10), borders
- * (10.11), positioning (10.12), overflow (10.13), the anonymous block box a mixed
- * container needs and the inner inline context of an atomic inline, and paint
- * (Phase 11).
+ * Still absent, and each a named later goal: baselines and line-height (10.7),
+ * whitespace collapsing and Unicode line breaking, ``line splitting`` and alignment
+ * (10.6's remaining neighbours and 10.7's), text
+ * **shaping** — GlyphSubstitution, GlyphPositioning, ligatures, kerning — and the
+ * bidi algorithm, which are Phase 14's, font *fallback* (10.8), a declared `width` in
+ * the block direction, `min-width`, `max-width` and shrink-to-fit (10.8), margins
+ * (10.9), padding (10.10), borders (10.11), positioning (10.12), overflow (10.13), the
+ * anonymous block box a mixed container needs, and paint (Phase 11).
+ *
+ * The measurer is **unshaped by design**, and saying so is the difference between a
+ * foundation and a claim: it sums the advances the font's own `hmtx` gives, in logical
+ * order, which is exactly what CSS calls the advance width of a run *before* layout
+ * reorders it. A later phase that adds shaping changes this measurer and nothing
+ * else.
  *
  * The surface will keep growing for the whole of Phase 10, so API freeze is NOT
  * claimed here (ROBO_LAYOUT_API_FROZEN=0). RoboLayout depends on RoboHTML and
@@ -124,9 +223,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 4
+#define ROBO_LAYOUT_VERSION_MINOR 6
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.4.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.6.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -181,5 +280,36 @@
  * one", and it is drawn here rather than left to a reader.
  */
 #define ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED 1
+
+/**
+ * 1 once this build can ask — and be answered — how wide a run of text is.
+ *
+ * A constant rather than a runtime decision for the same reason the other three are:
+ * it is read by `robo_layout_get_capabilities().text_layout` and by the suite that
+ * asserts the flag against the code, so the two cannot drift.
+ *
+ * What it claims, exactly: a text node becomes a layout object, and a measurement can
+ * be asked of a `robo_layout_text_metrics_t` and answered by a real font
+ * (RoboLayoutTextFont.h). What it does **not** claim: that any particular pass
+ * measured anything. A pass with no source installed measures every run as zero and
+ * counts it (`robo_layout_text_stats_t.unmeasured`), and that is a legitimate build
+ * configuration rather than a degraded one — which is why the *per-pass* answer is in
+ * the stats record and this flag is only about the build.
+ */
+#define ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED 1
+
+/**
+ * 1 once this build produces **line boxes** a caller can read.
+ *
+ * A constant rather than a runtime decision for the same reason the other four are:
+ * it is read by `robo_layout_get_capabilities().line_boxes` and by the suite that
+ * asserts the flag against the code. What it claims, exactly: the inline pass
+ * finalizes lines into the tree's arena, so after a pass there are line records with
+ * geometry, membership and a back-link from each member. What it does **not** claim: a
+ * baseline, a `line-height`, segmentation of a line into fragments, alignment, or a
+ * font-derived line extent -- all of which are 10.7's or later, and the flag would be
+ * lying if it meant them.
+ */
+#define ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

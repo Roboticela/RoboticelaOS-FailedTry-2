@@ -607,17 +607,19 @@ static void test_inline_non_atomic_union(void)
 }
 
 /**
- * A box with no measurable content has no extent, and that is the honest answer.
+ * A run nobody measured has no extent, and that is the honest answer.
  *
- * A `<span>` holding only text has a width in a browser, and this build cannot know
- * it: nothing here measures text, and 10.5 is the goal that will. So the box is
- * placed — it exists, it is on the line, and it is counted — with a zero extent, and
- * this case asserts the zero *and* its reason rather than leaving a reader to guess
- * whether it is a placeholder. The alternative, guessing a plausible width for text
- * nobody measured, is the one failure a later phase could not detect.
+ * A paragraph holding text has a height in a browser, and this pass cannot know it
+ * *here*: 10.5 made a text node measurable, but measurement is a **seam** and this
+ * fixture installs no metrics source -- so the run is placed, it is a participant of
+ * the line, and it measures zero. The case asserts the zero *and* the counter that
+ * says why (`unmeasured`), rather than leaving a reader to guess whether the zero is
+ * a placeholder: a pass given no font and a pass given a font that measures nothing
+ * would otherwise look identical. The alternative — inventing a plausible width for
+ * text nobody measured — is the one failure a later phase could not detect.
  *
- * Two empty spans are placed at the same cursor, which is the second half of the
- * claim: a zero-width participant advances the cursor by nothing.
+ * Two empty spans are placed at the same cursor as the run, which is the second half
+ * of the claim: a zero-width participant advances the cursor by nothing.
  */
 static void test_inline_textless(void)
 {
@@ -636,18 +638,25 @@ static void test_inline_textless(void)
 
     layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "span"), 0, 0, 0, 0);
     layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "b"), 0, 0, 0, 0);
-    /* Not one pixel of extent, from either box or from the text node between them:
-     * a text node is not a box (10.1), so the line's height is zero and the
-     * container is a zero-height block -- which is exactly what 10.3 concluded about
-     * `<p>Hello</p>` before this phase existed. */
+    /* Not one pixel of extent, from either box or from the run after them: the line's
+     * height is zero and the container is a zero-height block -- which is exactly what
+     * 10.3 concluded about `<p>Hello</p>` before 10.5 existed, and is now a statement
+     * about an *unmeasured* run rather than about a node that generated nothing. */
     layout_inline_expect(&fixture, layout_inline_box_of(&fixture, "p"), 0, 0,
                          LAYOUT_INLINE_WIDE_VIEWPORT, 0);
 
-    ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 2u);
+    /* Three participants: the two empty spans and the text run, which is a
+     * participant and *not* a box -- so `non_atomic_placed`, the box counter, stays
+     * at two while `participants_placed` moves. */
+    ROBO_CHECK_EQ_INT(stats.inline_flow.participants_placed, 3u);
     ROBO_CHECK_EQ_INT(stats.inline_flow.non_atomic_placed, 2u);
     ROBO_CHECK_EQ_INT(stats.inline_flow.lines, 1u);
     ROBO_CHECK_EQ_INT(stats.inline_flow.wraps, 0u);
     ROBO_CHECK_EQ_INT(stats.inline_flow.empty_contexts, 0u);
+    /* And the reason the run is zero wide is recorded rather than implied. */
+    ROBO_CHECK_EQ_INT(stats.text.runs_placed, 1u);
+    ROBO_CHECK_EQ_INT(stats.text.measured, 0u);
+    ROBO_CHECK_EQ_INT(stats.text.unmeasured, 1u);
 
     layout_inline_end(&fixture);
 }

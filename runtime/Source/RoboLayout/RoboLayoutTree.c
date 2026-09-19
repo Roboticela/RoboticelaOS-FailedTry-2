@@ -22,6 +22,15 @@ void robo_layout_object_info_init(robo_layout_object_info_t *info)
     }
     memset(info, 0, sizeof(*info));
     info->parent = ROBO_LAYOUT_NODE_ID_NONE;
+    /*
+     * The common case, stated as the default so a caller cannot get a third
+     * "kind nobody set" state: a descriptor describes an element box unless it
+     * says otherwise. The display below is deliberately the opposite default --
+     * NONE rather than `inline` -- because a descriptor that forgot its display
+     * must NOT accidentally claim a box, while a descriptor that forgot its kind
+     * is simply the ordinary one.
+     */
+    info->kind = ROBO_LAYOUT_OBJECT_BOX;
     info->display = ROBO_CSS_DISPLAY_NONE;
 }
 
@@ -115,6 +124,17 @@ robo_result_t robo_layout_tree_create(robo_layout_tree_t **out_tree,
     tree->context_count = 0u;
     tree->context_capacity = 0u;
     tree->classified = 0;
+    /*
+     * And no line boxes either, for the same reason: a tree that is built and never
+     * laid out owns no lines, so the third and fourth allocations wait for the pass
+     * that makes them (the internal header).
+     */
+    tree->lines = NULL;
+    tree->line_count = 0u;
+    tree->line_capacity = 0u;
+    tree->members = NULL;
+    tree->member_count = 0u;
+    tree->member_capacity = 0u;
     *out_tree = tree;
     return ROBO_OK;
 }
@@ -125,7 +145,10 @@ void robo_layout_tree_destroy(robo_layout_tree_t *tree)
         return;
     }
     /* One free per arena: no recursion, no per-node teardown to get wrong, and
-     * nothing borrowed is touched. */
+     * nothing borrowed is touched. Four frees since 10.6, and the line and member
+     * arenas are released by their own reset so that this one place and the
+     * invalidation path cannot disagree about what releasing a line means. */
+    robo_layout_tree_lines_reset(tree);
     robo_free(tree->contexts);
     tree->contexts = NULL;
     tree->context_count = 0u;
@@ -195,6 +218,17 @@ void robo_layout_tree_contexts_reset(robo_layout_tree_t *tree)
             robo_layout_result_set_unresolved(result);
         }
     }
+
+    /*
+     * And the line boxes go with the geometry (Phase 10.6), which is the same
+     * argument one step further on: a line box is a conclusion *derived from* the
+     * results -- it groups the participants a pass placed and states the extent they
+     * reached -- so a line box that outlived the classification would be a rectangle
+     * about a layout that no longer holds, plus member links to objects whose results
+     * had just been withdrawn. Both are refused by construction rather than by a
+     * check somebody has to remember.
+     */
+    robo_layout_tree_lines_reset(tree);
 }
 
 void robo_layout_tree_invalidate_contexts(robo_layout_tree_t *tree)
@@ -329,11 +363,42 @@ robo_result_t robo_layout_tree_add_object(robo_layout_tree_t *tree,
         return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_TREE, ROBO_INVALID_ARGUMENT,
                                 "tree, info or out_id is NULL");
     }
+    if (!robo_layout_object_kind_is_known(info->kind) ||
+        info->kind == ROBO_LAYOUT_OBJECT_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_TREE, ROBO_INVALID_ARGUMENT,
+                                "the object kind is not a defined kind");
+    }
     if (!robo_html_node_handle_is_wellformed(&info->dom_node)) {
         return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_TREE, ROBO_INVALID_ARGUMENT,
-                                "the element handle is not well formed");
+                                "the node handle is not well formed");
     }
-    if (!robo_css_display_generates_box(info->display)) {
+    /*
+     * The node must be the *right kind* of node for the object being built, and
+     * the check is here rather than in the builder because it is the invariant the
+     * arena is allowed to rely on afterwards: a text object whose handle named an
+     * element would read an empty payload and measure nothing, and an element box
+     * whose handle named a text node would have a `display` nobody computed. Both
+     * would build, and both would be wrong several phases later, so the mismatch
+     * fails where it is made.
+     */
+    {
+        robo_html_node_view_t node_view;
+
+        if (robo_html_node_get_view(&info->dom_node, &node_view, NULL) != ROBO_OK) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_TREE, ROBO_NOT_FOUND,
+                                    "the node handle did not resolve");
+        }
+        if (info->kind == ROBO_LAYOUT_OBJECT_TEXT) {
+            if (node_view.kind != ROBO_HTML_NODE_KIND_TEXT) {
+                return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_TREE, ROBO_INVALID_ARGUMENT,
+                                        "a text object's node must be a text node");
+            }
+        } else if (node_view.kind != ROBO_HTML_NODE_KIND_ELEMENT) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_TREE, ROBO_INVALID_ARGUMENT,
+                                    "a box's node must be an element");
+        }
+    }
+    if (info->kind == ROBO_LAYOUT_OBJECT_BOX && !robo_css_display_generates_box(info->display)) {
         /* `display: none` means no box. Accepting one would make this tree a copy
          * of the DOM's element list, and every later pass would have to re-filter
          * what the container had already failed to. */
@@ -386,10 +451,19 @@ robo_result_t robo_layout_tree_add_object(robo_layout_tree_t *tree,
     object = &tree->objects[index];
     memset(object, 0, sizeof(*object));
     object->id = id;
-    object->kind = ROBO_LAYOUT_OBJECT_BOX;
+    object->kind = info->kind;
     object->dom_node = info->dom_node;
     object->style = info->style;
-    object->display = info->display;
+    /*
+     * A text object's display is *derived*, not copied: its content is
+     * inline-level by construction and no declaration could make it otherwise
+     * (RoboLayoutObject.h). Deriving it here rather than asking the caller to set
+     * it is what keeps the two passes free of a special case -- they dispatch on
+     * this field, and a text object reads as an inline participant because that is
+     * what it is.
+     */
+    object->display = info->kind == ROBO_LAYOUT_OBJECT_TEXT ? ROBO_CSS_DISPLAY_INLINE
+                                                           : info->display;
     object->parent = is_root ? ROBO_LAYOUT_NODE_ID_NONE : info->parent;
     object->first_child = ROBO_LAYOUT_NODE_ID_NONE;
     object->last_child = ROBO_LAYOUT_NODE_ID_NONE;
@@ -694,4 +768,372 @@ robo_result_t robo_layout_tree_root_context(const robo_layout_tree_t *tree,
     }
     return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_FORMATTING_CONTEXT, ROBO_NOT_FOUND,
                             "the tree has no root box, so it has no initial context");
+}
+
+/* ------------------------------------------------------------------ */
+/* The line-box arena (Phase 10.6)                                     */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Two arenas, one writer, four doors -- and the same three rules the context
+ * arena above follows: released rather than zeroed, ids are `count + 1`, and
+ * nothing public can create one.
+ *
+ * The one thing that is different is the *member* chain, and the internal header
+ * argues why it has to be a chain: the placements of one line are interleaved with
+ * another's, because laying out an atomic inline recurses into the block pass for
+ * its contents before the inline itself is placed. So a member record names the
+ * next member of its own line and the line names the head, which makes a line's
+ * membership exact rather than merely usually-contiguous -- at the price of O(n) to
+ * read the n-th member, which the public door says out loud.
+ */
+
+void robo_layout_tree_lines_reset(robo_layout_tree_t *tree)
+{
+    size_t index;
+
+    if (!tree) {
+        return;
+    }
+    /* Released rather than zeroed, like the contexts: the next pass rebuilds lines
+     * wholesale, so keeping a grown arena would hold memory for a shape nobody has
+     * asked for. */
+    robo_free(tree->lines);
+    tree->lines = NULL;
+    tree->line_count = 0u;
+    tree->line_capacity = 0u;
+    robo_free(tree->members);
+    tree->members = NULL;
+    tree->member_count = 0u;
+    tree->member_capacity = 0u;
+
+    /*
+     * And every object's `line` id goes with them. This is the one place this module
+     * *does* sweep the boxes rather than validating on read, and the asymmetry with
+     * the context field is deliberate: ids restart at 1 with every pass, so a stale
+     * line id does not merely name nothing -- it names *a different line*, and a
+     * reader would get a plausible rectangle for the wrong text. The context field
+     * has no such failure mode (a released classification leaves nothing to read),
+     * and it is also swept here, in the same loop, because the two facts are released
+     * together and one loop is cheaper than two.
+     */
+    for (index = 0u; index < tree->count; index++) {
+        tree->objects[index].line = ROBO_LAYOUT_LINE_ID_NONE;
+    }
+}
+
+/** Grow the line arena if it is full. 0 on success, ROBO_OUT_OF_MEMORY otherwise. */
+static robo_result_t layout_tree_line_reserve(robo_layout_tree_t *tree,
+                                              robo_layout_diag_t *diag)
+{
+    size_t wanted;
+    layout_line_slot_t *grown;
+
+    if (tree->lines == NULL) {
+        tree->lines = (layout_line_slot_t *)robo_calloc(ROBO_LAYOUT_INITIAL_LINE_CAPACITY,
+                                                       sizeof(layout_line_slot_t));
+        if (!tree->lines) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_OUT_OF_MEMORY,
+                                    "could not allocate the line-box arena");
+        }
+        tree->line_capacity = ROBO_LAYOUT_INITIAL_LINE_CAPACITY;
+        return ROBO_OK;
+    }
+    if (tree->line_count < tree->line_capacity) {
+        return ROBO_OK;
+    }
+    wanted = tree->line_capacity * 2u;
+    if (wanted <= tree->line_capacity) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_OUT_OF_MEMORY,
+                                "line-box capacity overflowed");
+    }
+    grown = (layout_line_slot_t *)robo_realloc(tree->lines,
+                                               wanted * sizeof(layout_line_slot_t));
+    if (!grown) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_OUT_OF_MEMORY,
+                                "could not grow the line-box arena");
+    }
+    memset(grown + tree->line_capacity, 0,
+           (wanted - tree->line_capacity) * sizeof(layout_line_slot_t));
+    tree->lines = grown;
+    tree->line_capacity = wanted;
+    return ROBO_OK;
+}
+
+/** Grow the member arena if it is full. 0 on success, ROBO_OUT_OF_MEMORY otherwise. */
+static robo_result_t layout_tree_member_reserve(robo_layout_tree_t *tree,
+                                                robo_layout_diag_t *diag)
+{
+    size_t wanted;
+    layout_line_member_t *grown;
+
+    if (tree->members == NULL) {
+        tree->members = (layout_line_member_t *)robo_calloc(
+            ROBO_LAYOUT_INITIAL_LINE_MEMBER_CAPACITY, sizeof(layout_line_member_t));
+        if (!tree->members) {
+            return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_OUT_OF_MEMORY,
+                                    "could not allocate the line-member arena");
+        }
+        tree->member_capacity = ROBO_LAYOUT_INITIAL_LINE_MEMBER_CAPACITY;
+        return ROBO_OK;
+    }
+    if (tree->member_count < tree->member_capacity) {
+        return ROBO_OK;
+    }
+    wanted = tree->member_capacity * 2u;
+    if (wanted <= tree->member_capacity) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_OUT_OF_MEMORY,
+                                "line-member capacity overflowed");
+    }
+    grown = (layout_line_member_t *)robo_realloc(
+        tree->members, wanted * sizeof(layout_line_member_t));
+    if (!grown) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_OUT_OF_MEMORY,
+                                "could not grow the line-member arena");
+    }
+    memset(grown + tree->member_capacity, 0,
+           (wanted - tree->member_capacity) * sizeof(layout_line_member_t));
+    tree->members = grown;
+    tree->member_capacity = wanted;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_line_members_append(robo_layout_tree_t *tree,
+                                             robo_layout_node_id_t node,
+                                             layout_line_member_id_t *head,
+                                             layout_line_member_id_t *tail,
+                                             size_t *count,
+                                             robo_layout_diag_t *diag)
+{
+    layout_line_member_t *member;
+    layout_line_member_id_t id;
+
+    if (!tree || !head || !tail || !count) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "a member append needs a tree and the chain's three fields");
+    }
+    if (node == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "the object id is NONE");
+    }
+    if (layout_tree_member_reserve(tree, diag) != ROBO_OK) {
+        return diag ? diag->code : ROBO_OUT_OF_MEMORY;
+    }
+
+    /*
+     * Allocated, linked and counted in one call, in that order, so an append either
+     * happened or did not: a record that was allocated and not linked would be a member
+     * no line names, and a link to an id that was never allocated would be a chain that
+     * ends in nothing. The reserve above is what makes each of the three infallible
+     * once reached, which is the only reason this can promise it.
+     */
+    id = (layout_line_member_id_t)(tree->member_count + 1u);
+    member = &tree->members[tree->member_count];
+    member->node = node;
+    member->next = LAYOUT_LINE_MEMBER_ID_NONE;
+    tree->member_count++;
+
+    if (*tail != LAYOUT_LINE_MEMBER_ID_NONE) {
+        layout_line_member_t *previous = &tree->members[*tail - 1u];
+
+        previous->next = id;
+    } else {
+        *head = id;
+    }
+    *tail = id;
+    *count += 1u;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_line_add(robo_layout_tree_t *tree,
+                                   robo_layout_fc_id_t context,
+                                   robo_layout_node_id_t owner,
+                                   size_t index,
+                                   robo_layout_point_t origin,
+                                   robo_layout_size_t size,
+                                   int32_t available_width,
+                                   layout_line_member_id_t first_member,
+                                   size_t members,
+                                   robo_layout_line_id_t *out_id,
+                                   robo_layout_diag_t *diag)
+{
+    layout_line_slot_t *slot;
+    robo_layout_line_id_t id;
+
+    if (out_id) {
+        *out_id = ROBO_LAYOUT_LINE_ID_NONE;
+    }
+    if (!tree || !out_id) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "tree or out_id is NULL");
+    }
+    /*
+     * An owner that names no object is refused rather than stored, for the reason the
+     * context arena refuses one: a line nothing can attribute is a line a reader can
+     * only misread. A NONE *context* is refused for the same reason; a context id that
+     * names none is refused too, because the pass reads it off the box that
+     * established the context rather than inventing one, so a miss here is a bug in
+     * the pass and not a document shape.
+     */
+    if (owner == ROBO_LAYOUT_NODE_ID_NONE || !robo_layout_object_slot(tree, owner)) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the line's owner id names no object in this tree");
+    }
+    if (context == ROBO_LAYOUT_FC_ID_NONE || robo_layout_fc_slot(tree, context) == NULL) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the line names no live formatting context");
+    }
+    /* A line is finalized, so an open one cannot be stored: the construction record
+     * is the pass's and never reaches here (RoboLayoutLineBox.h). What the pass passes
+     * is the *state it is storing*, and the only state the arena can hold is FINAL. */
+    if (members == 0u || first_member == LAYOUT_LINE_MEMBER_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "a finalized line has at least one member");
+    }
+
+    if (layout_tree_line_reserve(tree, diag) != ROBO_OK) {
+        return diag ? diag->code : ROBO_OUT_OF_MEMORY;
+    }
+
+    id = (robo_layout_line_id_t)(tree->line_count + 1u);
+    slot = &tree->lines[tree->line_count];
+    robo_layout_line_box_init(&slot->box);
+    slot->box.id = id;
+    slot->box.state = ROBO_LAYOUT_LINE_FINAL;
+    slot->box.context = context;
+    slot->box.owner = owner;
+    slot->box.index = index;
+    slot->box.origin = origin;
+    slot->box.size = size;
+    slot->box.available_width = available_width;
+    slot->box.members = members;
+    slot->first_member = first_member;
+    tree->line_count++;
+    *out_id = id;
+    return ROBO_OK;
+}
+
+const layout_line_slot_t *robo_layout_line_slot_const(const robo_layout_tree_t *tree,
+                                                      robo_layout_line_id_t id)
+{
+    if (!tree || id == ROBO_LAYOUT_LINE_ID_NONE || id > tree->line_count) {
+        return NULL;
+    }
+    return &tree->lines[id - 1u];
+}
+
+const layout_line_member_t *robo_layout_line_member_slot_const(
+    const robo_layout_tree_t *tree,
+    layout_line_member_id_t id)
+{
+    if (!tree || id == LAYOUT_LINE_MEMBER_ID_NONE || id > tree->member_count) {
+        return NULL;
+    }
+    return &tree->members[id - 1u];
+}
+
+/* ------------------------------------------------------------------ */
+/* The read side                                                       */
+/* ------------------------------------------------------------------ */
+
+size_t robo_layout_tree_line_count(const robo_layout_tree_t *tree)
+{
+    return tree ? tree->line_count : 0u;
+}
+
+robo_result_t robo_layout_tree_line_at(const robo_layout_tree_t *tree,
+                                       size_t index,
+                                       robo_layout_line_id_t *out_id,
+                                       robo_layout_diag_t *diag)
+{
+    if (!out_id) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "out_id is NULL");
+    }
+    *out_id = ROBO_LAYOUT_LINE_ID_NONE;
+    if (!tree) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "tree is NULL");
+    }
+    if (index >= tree->line_count) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the index is past the line count");
+    }
+    /* Ids are dense and ordered, so the n-th line's id *is* n + 1 -- which is what
+     * makes walking the lines a loop rather than a lookup (RoboLayoutLineBox.h). */
+    *out_id = (robo_layout_line_id_t)(index + 1u);
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_tree_line(const robo_layout_tree_t *tree,
+                                    robo_layout_line_id_t id,
+                                    robo_layout_line_box_t *out,
+                                    robo_layout_diag_t *diag)
+{
+    const layout_line_slot_t *slot;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "out is NULL");
+    }
+    robo_layout_line_box_init(out);
+    if (!tree || id == ROBO_LAYOUT_LINE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL or the id is NONE");
+    }
+    slot = robo_layout_line_slot_const(tree, id);
+    if (!slot) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the id names no line in this tree");
+    }
+    *out = slot->box;
+    return ROBO_OK;
+}
+
+robo_result_t robo_layout_line_member(const robo_layout_tree_t *tree,
+                                      robo_layout_line_id_t id,
+                                      size_t index,
+                                      robo_layout_node_id_t *out_node,
+                                      robo_layout_diag_t *diag)
+{
+    const layout_line_slot_t *slot;
+    const layout_line_member_t *member;
+    size_t walked = 0u;
+
+    if (!out_node) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_INVALID_ARGUMENT,
+                                "out_node is NULL");
+    }
+    *out_node = ROBO_LAYOUT_NODE_ID_NONE;
+    if (!tree || id == ROBO_LAYOUT_LINE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT,
+                                ROBO_INVALID_ARGUMENT, "tree is NULL or the id is NONE");
+    }
+    slot = robo_layout_line_slot_const(tree, id);
+    if (!slot) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the id names no line in this tree");
+    }
+    if (index >= slot->box.members) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_NOT_FOUND,
+                                "the index is past the line's member count");
+    }
+    /*
+     * The walk, and the reason the door is O(index) rather than O(1): a line's
+     * members are a chain, because the placements of two lines interleave (the
+     * internal header). The count in the record is what bounds it, so a corrupt link
+     * cannot walk off the end -- the loop ends on the index, and the *count* was
+     * validated above.
+     */
+    member = robo_layout_line_member_slot_const(tree, slot->first_member);
+    while (member && walked < index) {
+        member = robo_layout_line_member_slot_const(tree, member->next);
+        walked++;
+    }
+    if (!member) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
+                                "a line's member chain ended before its own count");
+    }
+    *out_node = member->node;
+    return ROBO_OK;
 }

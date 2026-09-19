@@ -1,8 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.4, inline layout**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.6, line boxes**).
 
-**Version:** 0.4.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.6.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -16,6 +16,12 @@ down the page and gives each one a position and a size.
 
 `ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED=1` — this build places an inline formatting
 context's participants along a line, wrapping when one does not fit.
+
+`ROBO_LAYOUT_TEXT_LAYOUT_IMPLEMENTED=1` — this build measures a run of text through
+a font, and a text node is a participant of the line it was placed on.
+
+`ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED=1` — this build produces line boxes a caller
+can read back: identity, finalized geometry, and which objects went on them.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -52,6 +58,25 @@ so its children are participants of the *same* context and its own rectangle is 
 **union** of what they reached. The same pass therefore reports two records, and
 `boxes_computed` is their two placement counts added together.
 
+**10.5 (text layout).** The width a `<span>` holding only text produces. A text
+node is not an element and has no `display`, so it is the one thing the object
+vocabulary genuinely had to widen for (`ROBO_LAYOUT_OBJECT_TEXT`); it borrows its
+parent element's computed style, derives its display as inline, and becomes an
+**ordinary participant of the line** rather than a special case in the inline
+pass. Where the width comes from is a **seam**: a callback a caller installs, with
+a RoboFont-backed implementation supplied beside it. A pass with no seam measures
+every run as zero and **counts it**, which is a legitimate way to run the module
+and not a failure.
+
+**10.6 (line boxes).** The preliminary line becomes a record. The structural claim
+is that **the line being built is not a line box**: construction state stays on the
+pass's stack and an immutable record is appended to the tree's line arena once, at
+finalization — so "keep finalized results separate from temporary state" is the
+shape of the types rather than a rule anyone has to remember. A line's **members
+are the objects it placed**, which is not the same set as the context's
+participants: a transparent inline box *with* contents encloses members without
+being one, because its rectangle is a union and a union can span lines.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -59,11 +84,13 @@ so its children are participants of the *same* context and its own rectangle is 
 | constraints | Available space, minimum and maximum, each either **known or unset** and each with an explicit flag; a validity predicate; and `clamp` | Resolve a percentage, fill an `auto`, size anything intrinsically, or apply `box-sizing` |
 | result | Position and size, plus an explicit **state**: `NONE`, `UNRESOLVED`, `COMPUTED` — the per-box authority on whether its numbers are real | Refine a previous pass's numbers rather than replacing them |
 | context | One pass: the constraints it ran with, the viewport, the counters, the outcome, and the user-data seam a later goal hangs scratch state on | Lay out a direction whose context it did not record a viewport for |
-| builder | DOM tree in, layout tree out, with `display: none` elements generating no box and every other element generating one | Handle text, anonymous boxes, or fragments |
+| builder | DOM tree in, layout tree out, with `display: none` elements generating no box, every other element generating one, and a text node generating a TEXT object unless it is collapsible whitespace | Handle anonymous boxes or fragments |
 | bridge | The RoboHTML + RoboCSS adapter: RoboCSS's four element-host callbacks, one computed style per element, and the style source the builder reads through | Own a style context, a stylesheet, or a parser |
 | formatting context | The four kinds, the record, and the classification as a **pure function of a display value**, a child composition and a root flag; the per-tree arena of contexts; the two ids on each box | Lay anything out, measure anything, or create an anonymous box |
 | block layout | A real position and size for every block-level box in a block-direction context: width filled from the containing block, children stacked from the content origin, height declared or content-derived, and a record of what was placed and what was not | Resolve a declared width, a percentage, a margin, a padding or a border; place an inline box, a line, or an unreached box; build an anonymous wrapper |
-| inline layout | A real position and size for every participant of an inline formatting context: a cursor that advances, a line that moves down when a participant does not fit, a union for a transparent box, and an atomic box's contents laid out inside it by the block pass | Measure text, build a line box, collapse whitespace, break Unicode lines, or build the anonymous wrapper a block-level box in an inline context needs |
+| inline layout | A real position and size for every participant of an inline formatting context: a cursor that advances, a line that moves down when a participant does not fit, a union for a transparent box, and an atomic box's contents laid out inside it by the block pass | Collapse whitespace, break Unicode lines, fragment a participant across two lines, or build the anonymous wrapper a block-level box in an inline context needs |
+| text layout | A code-point range type, the style a font needs resolved from computed CSS, the **measurement seam**, a run record, and a RoboFont-backed measurer that sums advances in font units and scales once | Shape, kern, ligate, reorder for bidi, break lines, or rasterise a glyph |
+| line box | The record of one line — identity, ordinal within its context, finalized rectangle in its owner's content-box space, the width it had to fit, and the objects it placed — read back through the tree's arena | Align, baseline, fragment, or paint a line; derive its height from the font rather than from its tallest member |
 
 ## The one structural decision
 
@@ -175,6 +202,38 @@ carries — the box's outer display, and whether it established a context — an
 is no "is this an inline-block" test in this module, because that question is
 9.12's.
 
+## The fifth structural decision: the line being built is not a line box
+
+10.6's, and the counterpart one level down. Formatting contexts taught the module
+that what a pass *concludes* belongs in an arena on the tree, released wholesale by
+the next pass. A line box is a conclusion too, but the temptation is stronger here,
+because a line is built incrementally and *feels* like a record being appended to:
+
+```text
+the tempting model
+   open a line box → mutate it as participants are placed → close it
+
+this build
+   the open line is four numbers on the pass's stack;
+   a record is written ONCE, at finalization, and appended to the tree's arena
+```
+
+The difference is not tidiness. In the tempting model there is a window during which
+a line box exists and is wrong — addressable, half-built, with a cursor that will
+change — and every later phase that reads a line has to know not to read it then.
+Here there is no such window, and no door that mutates a line, because there is no
+code that would need one. `robo_layout_line_box_t` has no cursor, no member head to
+append to, and no "so far" field, so the requirement is met by the shape of the
+types and `state` is a fact rather than a promise.
+
+Members are a **chain in a shared arena** rather than a range, and that too is
+forced by the recursion rather than chosen: laying out an atomic inline recurses
+into the block pass for its contents, and those contents build lines and members of
+their own before the atomic inline is placed on its parent's line. So the
+placements of one line interleave with another's, each member names the next member
+of *its* line, and reading is O(index) — which the door's own note says rather than
+leaving a caller to infer an array.
+
 ## What "the pass ran" is allowed to mean
 
 There are two passes now, and they answer different questions about the same tree.
@@ -252,6 +311,9 @@ so the tree can borrow them.
 | `RoboLayoutFormattingContext.h` | The four kinds, the record, and the pure classifier |
 | `RoboLayoutBlock.h` | The block pass, its preconditions, and the record it leaves |
 | `RoboLayoutInline.h` | The inline direction: the record it leaves, and the doctrine of atomic versus transparent |
+| `RoboLayoutText.h` | Ranges in code points, direction, the resolved font inputs, the run record, the measurement seam, and the text counters |
+| `RoboLayoutTextFont.h` | The RoboFont-backed measurer — cmap + hmtx, summed in font units and scaled once |
+| `RoboLayoutLineBox.h` | One finalized line: the record, the state vocabulary, and the read side |
 | `RoboLayoutStyle.h` | The style-source seam |
 | `RoboLayoutBuilder.h` | DOM document in, layout tree out |
 | `RoboLayoutDom.h` | The RoboHTML + RoboCSS bridge that supplies the styles |
@@ -280,12 +342,20 @@ robo_layout_init()
        │                 │  builds the context tree, classifies every box, and
        │                 │  lays both directions out
        │                 │
-       │                 ├── robo_layout_block_layout(tree, viewport, &block, &inline, diag)
-       │                 │        └── robo_layout_inline_walk_contents(walk, owner, width, &extent)
-       │                 │                 └── robo_layout_block_walk_children(walk, atomic, w, &ext)
-       │                 │
-       │                 ├── robo_layout_tree_root_context(tree, &id, diag)
-       │                 └── robo_layout_tree_context(tree, id, &fc, diag)
+│                 ├── robo_layout_block_layout(tree, viewport, &block, &inline, &text, diag)
+│                 │        └── robo_layout_inline_walk_contents(walk, owner, width, &extent)
+│                 │                 ├── robo_layout_text_measure_node(node, style, metrics, &run)
+│                 │                 │        └── robo_layout_text_font_measure(font, ...)   [the seam]
+│                 │                 ├── layout_inline_finalize_line(walk, flow)
+│                 │                 │        └── the line record + its member chain
+│                 │                 └── robo_layout_block_walk_children(walk, atomic, w, &ext)
+│                 │
+│                 ├── robo_layout_tree_root_context(tree, &id, diag)
+│                 ├── robo_layout_tree_context(tree, id, &fc, diag)
+│                 ├── robo_layout_tree_line_count(tree)
+│                 ├── robo_layout_tree_line(tree, id, &line, diag)
+│                 ├── robo_layout_tree_line_member(tree, id, index, &node, diag)
+│                 └── robo_layout_object_line(tree, node, &line_id, diag)
        │
        └── destroy in any order, except that the tree goes before the bridge
 robo_layout_shutdown()
@@ -312,7 +382,9 @@ module.
 | `docs/FormattingContexts.md` | The two-context model, the classification rules, ownership and depth, invalidation, and what 10.3–10.13 will consume |
 | `docs/BlockLayout.md` | Containment versus context, the width and height rules, what the pass declines to place, determinism and invalidation, and what 10.4–10.13 will consume |
 | `docs/InlineLayout.md` | Atomic versus transparent, where a participant's width comes from, the wrapping rule and why a preliminary line is not a line box, rebasing, and why there is no second entry point |
-| `docs/Tests.md` | The ten suites, what each asks, and what each phase found |
+| `docs/TextLayout.md` | Text as an ordinary participant, ranges in code points, direction as metadata, the measurement seam and its three answers, the four facts a font needs, and the builder's second rule |
+| `docs/LineBoxes.md` | Construction state versus the record, members as placements, the space a line is in, the lifecycle the pass runs, and what the block pass gets from the lines |
+| `docs/Tests.md` | The twelve suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -320,7 +392,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 125 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 160 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -346,10 +418,17 @@ module, which sits below layout in the graph but has no business in a layout pas
   height is honoured only where it is a computed `px` length; anything else takes
   the `auto` path rather than a guess.
 - No paint, no rendering, no windowing, no display. The viewport is an argument.
-- No **line box**, no text measurement, no font metrics and no baseline, so a
-  `<span>` holding only text is zero-wide and a container whose only content is
-  text produces a line *count* of zero. Both are counted (`empty_contexts`,
-  `textless`) rather than patched over with a guessed width.
+- No **shaping**, no kerning, no ligature, no bidi reordering, no Unicode line
+  breaking and no whitespace collapsing. A run's width is the sum of its glyphs'
+  advances, which is what an unshaped run is. A participant too wide for its line
+  **overflows** rather than fragmenting.
+- No **baseline** and no `line-height`. A line's height is its tallest member — the
+  number this build can derive without a font's own line metrics. The runs carry
+  ascent and descent already, so 10.7 has its inputs and does not re-measure.
+- No **text measurement of its own**. The seam is a callback and the RoboFont-backed
+  measurer is one implementation beside it; a pass with no seam measures every run
+  as zero and counts it (`robo_layout_text_stats_t.unmeasured`), which is a
+  legitimate way to run the module rather than a degraded one.
 - No **anonymous box**, and no automatic inner inline context for an atomic inline.
   A block-level box inside an inline one is counted as `block_level_declined`
   rather than placed inside something with no geometry — that box is what the
@@ -358,5 +437,8 @@ module, which sits below layout in the graph but has no business in a layout pas
   readable from the borrowed style and resolved by nothing; the result's two
   overflow flags stay 0 even when a declared height is smaller than its content.
 - No `flex`, `grid`, `table`, `ruby` or `multicol` context, and no enumerator for
-  any of them. `ROBO_LAYOUT_OBJECT_KIND_COUNT` is still two — `NONE` and `BOX` —
-  and `ROBO_LAYOUT_FC_KIND_COUNT` is four.
+  any of them. `ROBO_LAYOUT_OBJECT_KIND_COUNT` is three — `NONE`, `BOX` and `TEXT`,
+  and 10.5 is the phase that widened it, with the no-property-to-derive-from
+  justification 10.1 wrote down — and `ROBO_LAYOUT_FC_KIND_COUNT` is four.
+- No **line-box** alignment, `text-align`, `vertical-align`, `line-height` or
+  painting. A line is a rectangle and a membership list.
