@@ -5,7 +5,9 @@ context is in this module, the two claims a box makes about one, the classificat
 rules and where they came from, and what 10.3 onwards is entitled to assume.
 
 `docs/Architecture.md` remains the record for the module's architecture. This
-document is the record for the one thing 10.2 added to it.
+document is the record for the one thing 10.2 added to it — and it is unchanged by
+10.4, which consumed the same two ids a second way rather than adding a fact. §9
+records both consumptions.
 
 ---
 
@@ -306,10 +308,18 @@ where 10.3 can extend the answer without undoing it.
 child, plus text or an inline child — anonymous block boxes wrapping each inline
 run, after which the container holds only block-level children and the *anonymous*
 boxes establish the inline contexts. This build creates none, because a box with no
-element and no style is exactly what 10.1's builder cannot produce and 10.3 cannot
-lay out yet. A mixed container is therefore classified **transparent**, and when
-10.3 introduces the anonymous boxes they will establish the inline contexts and
-this classification will already be right about them.
+element and no style is exactly what 10.1's builder cannot produce. A mixed
+container is therefore classified **transparent**, and when a later goal introduces
+the anonymous boxes they will establish the inline contexts and this classification
+will already be right about them.
+
+10.4 kept that decision and made its *consequence* visible rather than silent: a
+block-level box inside an inline context is counted by the inline pass as
+`block_level_declined` and left `UNRESOLVED`, which is the sibling of 10.3's
+`unreached`. Neither is a dropped box. And it turned out the wrapper was not the
+entry condition for inline layout at all — a block container with no block-level
+child establishes an inline context by *this* document's own rule, which is the
+ordinary case in any document (`docs/InlineLayout.md` §2.1).
 
 **A text node is not a box, and does not count as a block-level child.** So
 `<p>one</p>` — a block container holding one text node and nothing else — has no
@@ -360,28 +370,41 @@ had only counted contexts would have shipped with both.
 
 ---
 
-## 9. What 10.3–10.13 will consume
+## 9. What 10.5–10.13 will consume
 
 | Later goal | What it asks this phase | Which door |
 |---|---|---|
 | 10.3 block layout | which contexts are laid out in the block direction | `robo_layout_fc_kind_is_block_container` |
 | 10.3 | which boxes a context coordinates | `participants` + the box walk |
-| 10.3 anonymous boxes | which containers are transparent, and so need wrapping | `robo_layout_object_establishes_context` returning 0 with `can_establish` returning 1 |
-| 10.4 inline layout | where an inline context is, one per block container holding inline content | `robo_layout_object_context_owned` |
-| 10.6 line boxes | where a `<p>`'s lines go | the `INLINE` context a block container with no block-level child establishes |
+| 10.4 inline layout | where an inline context is, one per block container holding inline content | `robo_layout_object_context_owned`, read for its *kind* |
+| 10.4 atomicity | whether an inline-level box is opaque to the line or transparent to it | `robo_layout_object_context_owned` — a participant is atomic exactly when it established one |
+| 10.5 text layout | how often a document depends on a participant with no measured width | the `INLINE` context a block container with no block-level child establishes |
+| 10.6 line boxes | where a `<p>`'s lines go | the same `INLINE` context, and its owner's content origin |
 | 10.9 margin collapsing | which boxes a margin may collapse *through* | the transparency rule, §4 |
 | 10.12 containing blocks | what a positioned box's containing block is | `parent` and `depth` on the context tree |
 | 10.13 overflow | which box is a scroll container | the context a box establishes |
+| anonymous boxes | which containers are mixed, and so need wrapping | a block container whose children are both inline and block level — what 10.4 counts as `block_level_declined` |
 
-None of these needs a new header for the classification itself, and 10.3 did not
-change the context model at all: it consumed `robo_layout_fc_kind_is_block_container`
-as its single placement gate, and left §4's table alone. What the table's 10.3 rows
-predicted was the **anonymous box** — and 10.3 did not build it, on purpose. An
-anonymous box exists to give an inline run a block-level home, and a home whose
-contents are laid out along a line belongs to the phase that lays lines out. It is
-10.4's, and `docs/BlockLayout.md` §5 states what happens instead: a block-level box
-inside an inline box is counted as `unreached` rather than placed inside something
-that has no geometry.
+None of these needs a new header for the classification itself, and neither 10.3 nor
+10.4 changed the context model at all. 10.3 consumed
+`robo_layout_fc_kind_is_block_container` as its single placement gate. 10.4 consumed
+the *same two ids* a second way: the context a box **participates in** says whether
+it is on a line at all, and whether the box **established** one says whether it is
+opaque to that line or transparent to it. So §2's two relationships became the
+deciding fact of both directions, from one field pair and with no third flag — which
+is the payoff the phase predicted when it refused a single boolean on the box.
+
+What the table's 10.3 rows predicted was the **anonymous box**, and neither 10.3 nor
+10.4 built it, on purpose. An anonymous box exists to give an inline *run* a
+block-level home — the mixed container, not the pure one — and 10.4 turned out not
+to need it as an entry condition: 10.2 already makes an inline formatting context the
+ordinary case, because a block container with no block-level child establishes one.
+So `<div><span></span><span></span></div>` was placeable without any wrapper, and
+the mixed case is counted (`inline.block_level_declined`) and left `UNRESOLVED`
+rather than placed badly. `docs/InlineLayout.md` §2.1 is the argument, and
+`docs/BlockLayout.md` §5 is what happens instead: `ROBO_LAYOUT_OBJECT_KIND_COUNT`
+stays **2**, because an anonymous box is the one kind that would have no element and
+therefore no computed style.
 
 ---
 
@@ -391,13 +414,13 @@ that has no geometry.
   of context*, never how to lay one out.
 - **No CSS parsing.** The display arrives computed, and the only thing read out of
   it is the outer/inner pair 9.12 records.
-- **No anonymous box, no text box, no fragment.** 10.4 and 10.5. 10.3 did not add
-  one either (see §9).
+- **No anonymous box, no text box, no fragment.** A later goal, and 10.5. Neither
+  10.3 nor 10.4 added one (see §9).
 - **No float, no clearance, no `overflow`, no `position`.** 10.12 and 10.13.
 - **No geometry *of its own*.** A context still has a depth and a participant
-  count; it has no rectangle, and nothing here computes one. 10.3 computes geometry
-  and reads this model to decide which boxes it owns — the dependency is the one
-  §9's table lists, and it runs one way.
+  count; it has no rectangle, and nothing here computes one. Both directions
+  compute geometry by reading this model to decide which boxes they own — the
+  dependency is the one §9's table lists, and it runs one way.
 - **No Chromium.** Blink's `LayoutBlock`/`LayoutInline` split and its
   `FormattingContext` are temporary technical reference only; the vocabulary, the
   record and the classifier here are Roboticela's, and `Tools/Build.ps1 -Verify`

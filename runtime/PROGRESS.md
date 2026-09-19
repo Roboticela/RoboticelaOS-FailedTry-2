@@ -4026,6 +4026,103 @@ inside* is the **parent link, always**; *which direction stacks my contents* is 
 context**. `layout.block.context_gate` makes the second claim impossible to break over every box in a
 tree, and `layout.block.nested` asserts the first at three levels.
 
+## Goal 10.4 — Inline layout
+
+**Status: complete.** The other direction. 10.3 computed a coordinate in the one axis block flow owns
+— *down* — and left two counts standing for the boxes it could not place (`inline_level_skipped`,
+`unreached`) with a note saying they were 10.4's to retire. This phase retires the first of them, and it
+does it as a **branch of the same pass** rather than as a second entry point: an inline formatting
+context's height *is* the block extent of the box that owns it, so block layout cannot finish before
+the lines exist and the lines cannot be laid out before the block pass knows where their owner is.
+
+| Deliverable | Where |
+|---|---|
+| The direction | `RoboLayoutInline.h` / `RoboLayoutInline.c` — `robo_layout_inline_walk_contents(walk, owner, width, &extent)`, reached only by the block pass. There is deliberately **no** `robo_layout_inline_layout` beside `robo_layout_block_layout`: a second public entry point could only duplicate that walk or run it in secret |
+| Atomic versus transparent, the phase's one distinction | An inline-level box is **atomic** exactly when it established a formatting context of its own (`inline-block`, whose inner display 10.2 records as `flow-root`) and **transparent** when it established nothing (`inline`). Derived from the two facts the tree already carries — 9.12's outer display and 10.2's ids — with no third flag and no "is this an inline-block" predicate in the module |
+| The line, and what it is not | A cursor, a top, a running height and a count. A line *box* has identity, alignment, a baseline and a font-derived height, and it is 10.6's; the record reports the line **count** and nothing about any individual line |
+| Wrapping, and its one guard | A participant whose width is known before it is placed that does not fit after the cursor starts a new line. The `cursor > 0` half of the test is CSS's rule about a box wider than its containing block: placed anyway and allowed to overflow, rather than starting lines forever |
+| Width: three answers | An atomic inline is sized by its own declaration where it resolves (a computed `px` length) and fills its containing block otherwise; a transparent inline is sized by *neither*, and its rectangle is the **union** of what its contents reached. The declared/filled split is counted (`widths_declared`, `widths_filled`) because the difference is what a reader is trying to make |
+| An atomic inline's contents | Handed to the block pass in the box's own space through `robo_layout_block_walk_children` — the one door, so there is no second child loop. A `<p>` inside a 300px `inline-block` comes out exactly as wide as the span and inside it |
+| Rebasing | Participants are placed in the owner's space and then rebased onto their own containing block, because a transparent box's origin is a **union** and a later sibling that wraps can move it. A second walk, and a *pass* rather than a placement, because of when the union is known. It stops at an atomic inline, whose contents are already stated relative to it |
+| The second record | `RoboLayoutInline.h` — `contexts`, `empty_contexts`, `participants_placed`, `atomic_placed`, `non_atomic_placed`, `block_level_declined`, `lines`, `wraps`, `widths_declared`/`widths_filled`, `heights_declared`/`heights_from_content`, `depth_max`. Reported beside the block record and derived from neither, because it is one pass asked two questions |
+| The accounting closes over both directions | `blocks_placed + inline_level_skipped + participants_placed + unreached == objects`, asserted over every laid-out tree, so a build that dropped a box would be visible as a document that did not add up |
+| Ten suites, 123 cases | `layout/tests/SuiteRoboLayoutInline.c` (23) plus three suites updated; `layout/docs/Tests.md` |
+| Version | `RoboLayoutVersion.h` 0.4.0 — `ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED=1`, `inline_layout` and the derived `block_and_inline_layout` now 1 |
+| The design record | `layout/docs/InlineLayout.md` — atomic versus transparent, the three width answers, the wrapping rule and why a preliminary line is not a line box, rebasing, and why there is no second entry point |
+
+### Completion criteria
+
+- [x] An inline-layout algorithm exists, and Inline Formatting Contexts are actually the gate it runs
+      on: a box's contents are placed along a line exactly when the context it *participates in* is an
+      inline one.
+- [x] Inline children are traversed deterministically — sibling order, descending *through* transparent
+      boxes so a `span`'s children are reached in the same loop as the `span`.
+- [x] Basic inline width and height are represented: an atomic inline's declared width/height where
+      they resolve, the containing block's width and the contents' extent otherwise.
+- [x] Inline objects progress horizontally, and `B.x == A.x + A.width` is asserted from the results
+      rather than from the input.
+- [x] Basic wrapping occurs when the available width is exhausted, and a box wider than its line is
+      placed anyway rather than wrapping forever.
+- [x] Nested inline objects are supported, and the coordinate convention survives a rebase at two
+      depths.
+- [x] Block/inline integration works for simple mixed content: an atomic inline's contents are laid out
+      by the block pass inside it, and a block-level box among inline ones is **counted**
+      (`block_level_declined`) rather than placed badly.
+- [x] `display: none` is excluded, and block objects are not processed as inline.
+- [x] Layout results contain valid x/y/width/height, in the containing block's coordinate space.
+- [x] Re-layout works when available width changes — a narrower viewport moves `lines` and `wraps` — and
+      an invalidation still withdraws the geometry derived from the classification.
+- [x] All 2139 tests pass in Debug and Release, and under ASan + UBSan.
+- [x] No Chromium dependency; `Tools/Build.ps1 -Verify` still scans this module for one.
+- [x] No line box, no text measurement, no font metrics, no baseline, no anonymous box, and no
+      deferred arithmetic (declared width in the block direction, shrink-to-fit, margins, padding,
+      borders, positioning, overflow) was implemented.
+
+### What 10.4 found
+
+**No production bug, and two mistakes in the phase's own suite — which is the interesting shape:**
+
+* **A fixture that declared one tag twice, and a lookup that silently absorbed it.** The suite's shared
+  `LAYOUT_INLINE_BLOCK_RULES` macro declares the three containers every case shares, `p` among them,
+  and one case that needed a *sized* paragraph appended a second `p` rule after it. The fixture's style
+  lookup answers with the **first** match by tag name, so the case ran silently against the macro's
+  height-less `<p>` — surfacing as a span that was zero tall rather than as a rule that never applied.
+  Fixed in the fixture rather than the case, and fixed as a **refusal**: `layout_inline_style_add` now
+  asserts the tag is not already declared, so two rules for one element fail immediately with a
+  readable message. A fixture is a script, and a script with two lines for one element is a mistake in
+  the test rather than a shape a document can have.
+* **Object counts that ignored the parser's own `<head>`.** `layout.inline.no_viewport` asserted four
+  boxes for a four-tag markup string; RoboHTML's builder inserts the `<head>` a well-formed document
+  requires, so the answer is five. `RoboLayoutTestSupport.h` already argued the rule in its own text —
+  the element count of a fixture is a fact about the *parser*, so assert the number **and say which
+  elements are being counted** — and the case now carries that list rather than a bare 5.
+* **The inline algorithm itself came out right on the first build**, for 10.3's reason: the ten suites
+  around it had already pinned every input the pass reads — the two context ids, the
+  atomic/transparent derivation, the containing-block convention — so the cursor arithmetic had nowhere
+  to hide.
+
+It is also the second phase in a row to meet the host-window flake and the first to meet **only** it:
+`robo test-runtime` aborted at the Debug step with 2138 of 2139 and `window.host.keyboard` the single
+red case, while the same binary was 2139/2139 twice within the minute and `--filter=window.host` was
+19/19 three times. Recorded rather than worked around — the assertion is right and the OS denial is the
+anomaly — and `git status` reports **no** file matching `window` in either phase's diff.
+
+### The one distinction the phase turns on
+
+An inline-level box comes in two kinds, and they are not degrees of the same thing. One is **opaque to
+the line** — it occupies a run, what is inside it is laid out inside it, and its width therefore has to
+be known before it is placed, which is what makes it the one participant the wrapping rule can act on.
+The other is **transparent to the line** — its children are participants of the *same* context, placed
+at the same cursor, and its own rectangle is the **union** of what they reached.
+
+Reading that the wrong way round is the expensive mistake both times, exactly as 10.2's
+participating/establishing pair was: treat a `span` as opaque and it is placed with no width (nothing
+here measures text) so everything inside it is dropped, and the document looks laid out with boxes
+missing; treat an `inline-block` as transparent and its contents stack in the outer line, producing
+plausible numbers in the wrong coordinate space. So atomicity is derived rather than stored, and
+`InlineLayout.md` §2 keeps the two questions apart the way 10.3's §2 keeps containment apart from
+context.
+
 ## Next
 
-- Goal 10.4 — inline layout — do not start until requested
+- Goal 10.5 — text layout — do not start until requested

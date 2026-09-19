@@ -1,18 +1,21 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.3, block layout**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.4, inline layout**).
 
-**Version:** 0.3.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.4.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
-`ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in the
-block direction.
+`ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
+directions.
 
 `ROBO_LAYOUT_FORMATTING_CONTEXTS_IMPLEMENTED=1` — this build classifies every box
 into the context it participates in and the context, if any, it establishes.
 
 `ROBO_LAYOUT_BLOCK_LAYOUT_IMPLEMENTED=1` — this build stacks block-level boxes
 down the page and gives each one a position and a size.
+
+`ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED=1` — this build places an inline formatting
+context's participants along a line, wrapping when one does not fit.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -39,6 +42,16 @@ containing block's content width, its block-level children stack below one anoth
 from its content origin, and its height is a declared `px` length where this build
 can resolve one and the stacked extent of its children otherwise.
 
+**10.4 (inline layout).** The other direction, and it is a *branch* of the same
+pass rather than a second one: a box that owns an **inline** formatting context
+has its contents placed along a preliminary line, wrapping when one does not fit.
+Its one structural claim is that an inline-level box is **atomic** or
+**transparent** and never a degree of the same thing — an `inline-block` is
+opaque to the line and sized before it is placed; an `inline` is transparent to it,
+so its children are participants of the *same* context and its own rectangle is the
+**union** of what they reached. The same pass therefore reports two records, and
+`boxes_computed` is their two placement counts added together.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -50,6 +63,7 @@ can resolve one and the stacked extent of its children otherwise.
 | bridge | The RoboHTML + RoboCSS adapter: RoboCSS's four element-host callbacks, one computed style per element, and the style source the builder reads through | Own a style context, a stylesheet, or a parser |
 | formatting context | The four kinds, the record, and the classification as a **pure function of a display value**, a child composition and a root flag; the per-tree arena of contexts; the two ids on each box | Lay anything out, measure anything, or create an anonymous box |
 | block layout | A real position and size for every block-level box in a block-direction context: width filled from the containing block, children stacked from the content origin, height declared or content-derived, and a record of what was placed and what was not | Resolve a declared width, a percentage, a margin, a padding or a border; place an inline box, a line, or an unreached box; build an anonymous wrapper |
+| inline layout | A real position and size for every participant of an inline formatting context: a cursor that advances, a line that moves down when a participant does not fit, a union for a transparent box, and an atomic box's contents laid out inside it by the block pass | Measure text, build a line box, collapse whitespace, break Unicode lines, or build the anonymous wrapper a block-level box in an inline context needs |
 
 ## The one structural decision
 
@@ -131,19 +145,49 @@ which direction stacks my
 box in a tree: a block-level box is never in a non-block-direction context, and a
 box in an inline context is never placed by the block pass.
 
+## The fourth structural decision: atomic is not a degree of transparent
+
+10.4's pair, and it is the same *shape* of decision as the one above — two
+questions that look like one. An inline-level box comes in two kinds, and the
+difference is not "how much does it participate" but *what its contents belong
+to*:
+
+```text
+box.span   display: inline-block   established a context (flow-root)
+   │
+   └── opaque to the line: it occupies a run, and what is inside is laid out
+       INSIDE it — which is why its width has to be known before it is placed,
+       and why it is the one participant the wrapping rule can act on
+
+box.em     display: inline        established nothing
+   │
+   └── transparent to the line: its children are participants of the SAME
+       context, placed at the same cursor; its own rectangle is the UNION of
+       what they reached
+```
+
+Reading that the wrong way round is the expensive mistake both times: treat a
+`span` as opaque and it is placed with no width — nothing here measures text — so
+everything inside is dropped; treat an `inline-block` as transparent and its
+contents stack in the outer line, producing plausible numbers in the wrong
+coordinate space. So atomicity is derived from the two facts the tree already
+carries — the box's outer display, and whether it established a context — and there
+is no "is this an inline-block" test in this module, because that question is
+9.12's.
+
 ## What "the pass ran" is allowed to mean
 
 There are two passes now, and they answer different questions about the same tree.
 
 `robo_layout_context_run` classifies every box and then — if the context recorded a
-viewport — runs the block pass. A box holds a `robo_layout_result_t` whose **state**
-is the per-box authority:
+viewport — runs layout, in both directions, as one pass. A box holds a
+`robo_layout_result_t` whose **state** is the per-box authority:
 
 | State | Means |
 |---|---|
 | `NONE` | no pass has run over this box |
 | `UNRESOLVED` | a pass ran and did not give this box geometry |
-| `COMPUTED` | the block pass placed this box, and its numbers are real |
+| `COMPUTED` | a pass placed this box, in one direction or the other, and its numbers are real |
 
 That a box is `UNRESOLVED` is a *statement*, not a placeholder for one. A caller
 that reads a result and finds it unresolved has been told the truth; a phase that
@@ -151,11 +195,13 @@ returned `(0, 0)` instead would have been told a lie, and every consumer above �
 paint, compositing, hit testing — has a decision to make about a box whose geometry
 is not known.
 
-The capability field is deliberately the wider one. `geometry` says **the build
-computes coordinates**, not that a particular box has one: an inline box in an
-inline context has none, and 10.4 is what will give it some. `layout.conformance.no_viewport`
-asserts the two claims side by side over one tree — `geometry == 1` while nothing
-was placed — which is the conflation the per-box state exists to make impossible.
+The capability fields are deliberately the wider ones. `geometry` says **the build
+computes coordinates**, not that a particular box has one: a box participating in a
+block-direction context that is itself inside an unreached box has none, and a
+`<span>` holding only text is zero-wide because nothing here measures text.
+`layout.conformance.no_viewport` asserts the two claims side by side over one tree —
+`geometry == 1` while nothing was placed — which is the conflation the per-box state
+exists to make impossible.
 
 ## Geometry is borrowed, not defined
 
@@ -205,6 +251,7 @@ so the tree can borrow them.
 | `RoboLayoutContext.h` | One pass, its stats and its outcome |
 | `RoboLayoutFormattingContext.h` | The four kinds, the record, and the pure classifier |
 | `RoboLayoutBlock.h` | The block pass, its preconditions, and the record it leaves |
+| `RoboLayoutInline.h` | The inline direction: the record it leaves, and the doctrine of atomic versus transparent |
 | `RoboLayoutStyle.h` | The style-source seam |
 | `RoboLayoutBuilder.h` | DOM document in, layout tree out |
 | `RoboLayoutDom.h` | The RoboHTML + RoboCSS bridge that supplies the styles |
@@ -231,9 +278,11 @@ robo_layout_init()
        │        ├── robo_layout_context_set_viewport(size)
        │        └── robo_layout_context_run(context, tree, diag)
        │                 │  builds the context tree, classifies every box, and
-       │                 │  lays the block direction out
+       │                 │  lays both directions out
        │                 │
-       │                 ├── robo_layout_block_layout(tree, viewport, &stats, diag)
+       │                 ├── robo_layout_block_layout(tree, viewport, &block, &inline, diag)
+       │                 │        └── robo_layout_inline_walk_contents(walk, owner, width, &extent)
+       │                 │                 └── robo_layout_block_walk_children(walk, atomic, w, &ext)
        │                 │
        │                 ├── robo_layout_tree_root_context(tree, &id, diag)
        │                 └── robo_layout_tree_context(tree, id, &fc, diag)
@@ -262,7 +311,8 @@ module.
 | `docs/Architecture.md` | Why the tree is separate, the builder's rule, the pass contract, the seams, and the ownership model |
 | `docs/FormattingContexts.md` | The two-context model, the classification rules, ownership and depth, invalidation, and what 10.3–10.13 will consume |
 | `docs/BlockLayout.md` | Containment versus context, the width and height rules, what the pass declines to place, determinism and invalidation, and what 10.4–10.13 will consume |
-| `docs/Tests.md` | The nine suites, what each asks, and what each phase found |
+| `docs/InlineLayout.md` | Atomic versus transparent, where a participant's width comes from, the wrapping rule and why a preliminary line is not a line box, rebasing, and why there is no second entry point |
+| `docs/Tests.md` | The ten suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -270,7 +320,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 102 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 125 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -296,10 +346,14 @@ module, which sits below layout in the graph but has no business in a layout pas
   height is honoured only where it is a computed `px` length; anything else takes
   the `auto` path rather than a guess.
 - No paint, no rendering, no windowing, no display. The viewport is an argument.
-- No **inline** layout, so no line box, no text measurement and no **anonymous**
-  box. A block-level box inside an inline box is counted as `unreached` rather
-  than placed inside something that has no geometry — that box is what 10.4's
-  anonymous wrapper exists for.
+- No **line box**, no text measurement, no font metrics and no baseline, so a
+  `<span>` holding only text is zero-wide and a container whose only content is
+  text produces a line *count* of zero. Both are counted (`empty_contexts`,
+  `textless`) rather than patched over with a guessed width.
+- No **anonymous box**, and no automatic inner inline context for an atomic inline.
+  A block-level box inside an inline one is counted as `block_level_declined`
+  rather than placed inside something with no geometry — that box is what the
+  anonymous wrapper will be for.
 - No positional, float, overflow or fragmentation behaviour. `position` is
   readable from the borrowed style and resolved by nothing; the result's two
   overflow flags stay 0 even when a declared height is smaller than its content.

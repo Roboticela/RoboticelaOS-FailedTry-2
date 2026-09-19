@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.3)
+# RoboLayout Test Organisation (through Phase 10.4)
 
-Nine suites, 100 tests, one framework. Each phase adds no test runner, no reporter
+Ten suites, 123 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -16,10 +16,11 @@ shape that needs it, and the suites are listed explicitly in `$SuiteSrcs`. There
 no glob: a suite that is not on the list is not built, which is the same
 "explicit over discovered" rule the rest of the tree follows.
 
-§§10.1–10.7 below were written when the module computed nothing, and their text is
+§§10.1–10.6 below were written when the module computed nothing, and their text is
 kept as it stood rather than back-dated. Where a case has since changed meaning —
-`layout.conformance.statement` and the old `geometry == 0` claims — the change is
-recorded in §8, under the phase that made it.
+`layout.conformance.statement` and the old `geometry == 0` claims, and 10.4's
+re-pinning of the same two cases again — the change is recorded in §8 and §9, under
+the phase that made it.
 
 ---
 
@@ -35,6 +36,7 @@ recorded in §8, under the phase that made it.
 | `SuiteRoboLayoutDom.c` | `layout.dom.*` | 9 | does the bridge join the two peers, and own what it says it owns? |
 | `SuiteRoboLayoutFormattingContext.c` | `layout.fc.*` | 13 | is the classification a table, and is the context tree the shape the rules imply? |
 | `SuiteRoboLayoutBlock.c` | `layout.block.*` | 16 | does the block pass place each box inside its parent, at the right y, with an honest height? |
+| `SuiteRoboLayoutInline.c` | `layout.inline.*` | 23 | does the inline pass advance a cursor, wrap when one does not fit, and write a transparent box as the union of its contents? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -252,15 +254,63 @@ because "this phase reads those values and applies none of them" is a claim wort
 testing *with the values present*, and testing it against a document that omitted
 them would prove nothing.
 
+### 10.10 — inline layout (`layout.inline.*`)
+
+Twenty-three cases, in five groups, in the order the phase is built: the
+vocabulary, placement, wrapping, nesting, and the pass.
+
+| Case | Subject |
+|---|---|
+| `stats` | the record's fields, its equality, and the invariant that `boxes_computed` is the two placement counts added |
+| `display_table` | the three answers to "what is on the line" — atomic, transparent, declined — walked rather than spot-checked |
+| `empty_context` | a block container holding only text establishes an inline context with **no participant and no line** |
+| `single_atomic` | one `inline-block`: it is placed at the origin and its width is the viewport's |
+| `siblings` | three atomics: the cursor advances by each one's width — `B.x == A.x + A.width`, using the results |
+| `non_atomic_union` | a transparent box's rectangle is the union of what its contents reached, and the cursor advanced **once** |
+| `textless` | **a `<span>` holding only text is zero-wide, and the case says why** |
+| `atomic_fill` | an atomic inline with no resoluble width takes the containing block's content width, and with one takes it |
+| `wrapping` | a participant that does not fit starts a new line, and the line moves down by the last one's height |
+| `overflow_does_not_wrap` | a box wider than its line is placed anyway and overflows — the `cursor > 0` guard |
+| `transparent_wraps_inside` | a transparent box is **not** wrapped as a unit: its contents wrap individually and it is the union of their fragments |
+| `nested_rebase` | a participant inside a transparent box is rebased onto it, and the rebase stops at an atomic inline |
+| `nested_two_levels` | the same through two depths, where the coordinate convention has to survive twice |
+| `mixed_declined` | a block-level box among inline ones is counted as `block_level_declined`, not placed |
+| `block_level_declined` | the mirror of 10.3's `inline_level_skipped`, asserted as its own fact |
+| `atomic_contents_are_blocks` | an `inline-block`'s contents are stacked **by the block pass inside it**: a `<p>` inside a 300px span is exactly 300 wide and inside it, and the span's height is what the `<p>` reached |
+| `display_none` | a `display: none` element generates no box, so it neither advances the cursor nor contributes an extent |
+| `no_viewport` | an inline context has no line width without a containing block, so such a pass places nothing in **both** directions |
+| `determinism` | two passes on one context, and a second tree from the same document — the first is what rules out a cumulative cursor |
+| `invalidation` | adding a box to a laid-out tree demotes the geometry derived from the old classification |
+| `viewport_changes_layout` | a narrower viewport re-places and re-wraps, so `lines` and `wraps` *move* |
+| `pipeline` | the real chain — tokenizer → parser → cascade → computed style → bridge → build → pass — over a document whose `display` values come from a stylesheet |
+| `allocator_balance` | — |
+
+`non_atomic_union` and `textless` are the pair the phase is built around. The
+first asserts the union arithmetic; the second asserts the zero it produces when
+there is nothing to union — and asserting the zero *with the reason written into
+the case* is what keeps it from being read as a bug. A suite that tested only the
+union would leave the zero looking like an oversight, which is exactly the reading
+`InlineLayout.md` §3.1 exists to prevent.
+
+`transparent_wraps_inside` is the subtlest: it is the case a build that wrapped
+non-atomic boxes as units would pass and a build that wrapped their *contents*
+would pass differently, so the assertion is on the fragments rather than on the
+box.
+
+`determinism` is the first case in this directory that runs two passes on **one
+context**. Every earlier determinism case called a helper that made a fresh context,
+which proves the geometry is reproducible and says nothing about whether a second
+pass stacks on the first — the failure a cumulative cursor has.
+
 ### 10.7 — conformance (`layout.conformance.*`)
 
 Seven cases, and the shape is 9.16's: ask the questions no single-module suite can.
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now twelve fields, with `geometry` and `block_layout` at 1 |
-| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.3.0`, API unfrozen, two object kinds and four context kinds |
-| `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no block pass, and every box stays `UNRESOLVED` |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now twelve fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout` and the derived `block_and_inline_layout` at 1 and `painting` at 0 |
+| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.4.0`, API unfrozen, two object kinds and four context kinds |
+| `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no layout at all, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
 | `determinism` | two builds of the same document produce equal trees, compared box by box |
 | `robust` | a corpus of hostile and malformed documents: every one is either a clean failure or a clean empty build, and none crashes |
@@ -296,12 +346,17 @@ replaced rather than weakened, and the numbers took over `layout.block.*`.
 | a real-DOM style fixture | stand up a style context and its bridge, for §10.6–10.7 only |
 | equality helpers | compare two trees box by box, for `determinism` |
 
-The second row is the design record's §6.1 argument made concrete: six of the
-eight suites never instantiate a style context, and the two that do are exactly the
-two whose subject is the joining. `layout.fc.*` is one of the six, which is what
-makes §10.8 able to assert the classification table as a table — a rule that could
-only be observed by standing up a stylesheet and walking a document is a rule whose
-table cannot be written down.
+The second row is the design record's §6.1 argument made concrete. Six of the ten
+suites never instantiate a style context at all, and the four that do reach for one
+solely in the cases whose subject *is* the joining: `layout.dom.*` and
+`layout.conformance.*` throughout, and the single `pipeline` case in
+`layout.block.*` and `layout.inline.*`. `layout.fc.*` is one of the six, which is
+what makes §10.8 able to assert the classification table as a table — a rule that
+could only be observed by standing up a stylesheet and walking a document is a rule
+whose table cannot be written down. `layout.inline.*` is another for all of its
+twenty-two remaining cases: its fixtures are *scripted* computed styles, so a case
+whose subject is cursor arithmetic fails because the arithmetic is wrong and not
+because a selector did not match.
 
 The per-context stub source answers **only the elements it was told about**, and
 this is not a detail. An early version answered every element, which made
@@ -327,10 +382,13 @@ They **do not** assert:
 
 - CSS behaviour beyond `display` and a declared `height`, which 9.1–9.16 tests in
   its own 609 cases;
-- a geometry this pass does not produce: no declared width, no percentage, no
-  margin, padding or border arithmetic, and no inline or line-box position. Those
-  numbers do not exist yet, and a suite that asserted one would be asserting a
-  number the module does not compute.
+- a geometry the pass does not produce: no declared width in the *block*
+direction, no percentage, no shrink-to-fit, no margin, padding or border
+  arithmetic, and no **line-box** position or text extent. Those numbers do not
+  exist yet, and a suite that asserted one would be asserting a number the module
+  does not compute. The inline direction's numbers *do* exist now and are asserted
+  exactly — 10.4's suite names the zero it produces for a text-bearing `<span>` as
+  a fact rather than omitting the case.
 
 That last bullet is the *shape* of §§10.1–10.3's honesty claims, and it is worth
 stating how a claim like that is supposed to die. `layout.conformance.no_geometry`
@@ -348,7 +406,10 @@ counts alone do not distinguish a correctly nested context tree from a flat one.
 
 And they **do** assert, since 10.3, the geometry: exact `x`, `y`, `width` and
 `height` per box, plus the per-box result **state**, which is what distinguishes
-"placed here" from "not placed at all" from "no pass has run".
+"placed here" from "not placed at all" from "no pass has run". Since 10.4 that is
+true of both directions, and the assertions are grouped by direction because the two
+records are — `layout.block.*` asks about the block extent, `layout.inline.*` about
+the line.
 
 ---
 
@@ -365,8 +426,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 102 — this module's 100, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 104 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 125 — this module's 123, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 127 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -375,9 +436,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.dom` | 9 |
 | `layout.fc` | 13 |
 | `layout.block` | 16 |
+| `layout.inline` | 23 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2116** tests, green in both configurations.
+Whole suite: **2139** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -392,8 +454,9 @@ Whole suite: **2116** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2116 cases. In 10.3's run the sanitized suite was
-**2116/2116** — no sanitizer diagnostic, and no red case.
+ASan and UBSan run the same 2139 cases. In 10.4's run the sanitized suite was
+**2139/2139** — no sanitizer diagnostic, and no red case. 10.3's run was
+2116/2116 the same way.
 
 That is worth stating precisely, because an earlier phase's sanitized run
 reported `window.host.keyboard` and `window.host.mouse` and both are
@@ -410,16 +473,17 @@ to get:
 
 | How the suite was run | Result |
 |---|---|
-| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times |
-| the same binary, run directly afterwards | **2116/2116** — twice |
-| `--filter=window.host` in isolation | **19/19** — three times |
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3, **2138/2139** once in 10.4 |
+| the same binary, run directly afterwards | **2116/2116** — twice in 10.3, **2139/2139** twice in 10.4 |
+| `--filter=window.host` in isolation | **19/19** — three times in each phase |
 | the binary as a child of `pwsh` with its output captured | **passes** |
 
 `SuiteRoboWindowHost.c` and everything under `RoboWindow/platform/win32/` are
-untouched by this phase — the phase's diff is `LayoutBlock.c`, five edits in the
-layout module, and the layout suites — so there is no causal path from 10.3 to the
-failure, and the case's own subject (keyboard routing) passes every time it is run
-against a session whose console holds the foreground. The fourth row is the one that
+untouched by either phase — 10.3's diff is `LayoutBlock.c`, five edits in the
+layout module, and the layout suites; 10.4's is `RoboLayoutInline.c`, `git status`
+reporting **no** file matching `window` — so there is no causal path from either to
+the failure, and the case's own subject (keyboard routing) passes every time it is
+run against a session whose console holds the foreground. The fourth row is the one that
 rules out the obvious explanation in the other direction: it is not the redirection,
 not the parent process, and not the flag — it is that the pipeline's whole-suite run
 begins *immediately after a six-minute build*, and Windows grants foreground
@@ -435,6 +499,13 @@ anomaly. Nothing in `layout.*` touches it and nothing in `window.host.*` touches
 RoboLayout.
 
 No `layout.*` case touches it, and no `window.host.*` case touches RoboLayout.
+
+10.4's run is the second phase in a row to find it and the first to find **only**
+it: `robo test-runtime` aborted at the Debug step with 2138 of 2139 and
+`window.host.keyboard` as the single red case, so the pipeline never reached
+Release. That is the failure mode the build script's own comment describes, and
+since the *same binary* was 2139/2139 twice within the minute and `--filter=window.host`
+was 19/19 three times, it was recorded rather than worked around.
 
 ---
 
@@ -571,3 +642,47 @@ build — which is reported as a fact about the phase and not as a virtue: the n
 suites around it had already pinned every input the pass reads (the placement gate,
 the containing-block convention, the display vocabulary), so the arithmetic had
 nowhere to hide.
+
+---
+
+## 9. What the 10.4 suites found
+
+No production bug, and two mistakes in the phase's own suite — which is the
+interesting shape, because 10.3's single production bug was in the *shared* path and
+this phase inherited the fix rather than repeating the mistake.
+
+**1. A fixture that declared one tag twice, and a lookup that silently absorbed it**
+(`SuiteRoboLayoutInline.c`). The suite's shared `LAYOUT_INLINE_BLOCK_RULES` macro
+declares the three containers every case shares — `html`, `body`, `p` — and one case
+that needed a *sized* paragraph appended a second `p` rule after it. The fixture's
+style lookup answers with the **first** match by tag name, so the case silently ran
+against the macro's height-less `<p>`, and the failure surfaced as a span that was
+zero tall rather than as a rule that never applied.
+
+The rule in the fixture rather than in the case was the right place to fix it, and
+the fix is a **refusal**: `layout_inline_style_add` now asserts the tag is not
+already declared, so two rules for one element is an immediate failure with a
+readable message instead of a shadowed declaration. A fixture is a script, and a
+script with two lines for one element is a mistake in the test rather than a shape
+a document can have.
+
+**2. Object counts that ignored the parser's own `<head>`**
+(`layout.inline.no_viewport`). The case asserted four boxes for a four-tag markup
+string; RoboHTML's tree builder inserts the `<head>` a well-formed document
+requires, so the answer is five. The fix is the one
+`RoboLayoutTestSupport.h` already argued for in its own text — the element count of
+a fixture is a fact about the *parser*, so assert the number **and say which
+elements are being counted** — and the case now carries that list rather than a
+bare 5.
+
+Both are cases where the suite was wrong rather than the code, and both were fixed
+by making the fixture refuse to be wrong rather than by relaxing an assertion. The
+first is the second time this directory has found a failure mode *in the fixtures* —
+10.3's §8.2 was a fixture promising a state the builder cannot produce — and it is
+recorded here for the same reason: a suite is code, it has bugs, and the bugs it has
+are the ones its author cannot see.
+
+The inline algorithm itself came out right on the first build, for 10.3's reason:
+the ten suites around it had already pinned every input the pass reads — the two
+context ids, the atomic/transparent derivation, the containing-block convention — so
+the cursor arithmetic had nowhere to hide.

@@ -1,4 +1,4 @@
-# RoboLayout — architecture (through Phase 10.3)
+# RoboLayout — architecture (through Phase 10.4)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
@@ -8,10 +8,10 @@ It is not a tutorial. It is the thing a reviewer reads to answer "why is it like
 this", and the thing a later goal reads to find out what it is allowed to assume.
 
 For the parts a later phase added, this document describes the *frame* — where a
-context lives, what owns it, how a pass classifies and then lays out — and three
+context lives, what owns it, how a pass classifies and then lays out — and four
 documents are the records for the parts themselves: `FormattingContexts.md` for the
-classification, `BlockLayout.md` for the block direction, `Tests.md` for the
-suites.
+classification, `BlockLayout.md` for the block direction, `InlineLayout.md` for the
+inline one, `Tests.md` for the suites.
 
 ---
 
@@ -36,39 +36,53 @@ RoboHTML document                          RoboCSS style context
                                                           ├── classify every box
                                                           │
                                                           └── if a viewport was
-                                                              recorded, lay the
-                                                              block direction out
+                                                              recorded, lay **both
+                                                              directions** out
 ```
 
 What that buys the phases that follow: **every model they extend already exists**.
 10.2 added formatting contexts to an object kind that was already typed. 10.3 filled
 the result record that already had a state, and its pass is the only consumer of
-the context model. 10.8 clamps through a constraints record that already exists.
-10.11 paints an edge whose width already came from 9.15.
+the context model. 10.4 added a second *branch* to that same pass rather than a
+second pass, because an inline context's height is the block extent of the box that
+owns it. 10.8 clamps through a constraints record that already exists. 10.11 paints
+an edge whose width already came from 9.15.
 
 10.1 bought no coordinate, and the module said so in three independent places
 rather than leaving a caller to find out. 10.3 flipped all three, and the shape of
 that flip is the part worth keeping:
 
-| Door | 10.1 / 10.2 | 10.3 | What it means now |
-|---|---|---|---|
-| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | a compile-time constant |
-| `robo_layout_capabilities_t.geometry` | `0` | `1` | *this build* computes coordinates |
-| `robo_layout_geometry_is_implemented()` | `0` | `1` | a function a caller cannot read past |
-| `robo_layout_result_state()` | — | — | *this box* has one — the per-box authority |
+| Door | 10.1 / 10.2 | 10.3 | 10.4 | What it means now |
+|---|---|---|---|---|
+| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | a compile-time constant per direction, and the same one for both |
+| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | *this build* computes coordinates |
+| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | the block direction |
+| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | the inline direction |
+| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | derived: their conjunction |
+| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | a function a caller cannot read past |
+| `robo_layout_result_state()` | — | — | — | *this box* has one — the per-box authority |
 
 Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
 already forgotten to query the struct will call.
 
-But all three answers are about the **build**, and 10.3 made that distinction load-
-bearing rather than pedantic. `geometry == 1` is true of a tree whose boxes are all
-`UNRESOLVED` — an inline box in an inline context has no geometry yet, a context that
-recorded no viewport placed nothing, and a `<div>` whose content is a text node is
-zero tall. So the per-box `state` is the authority a consumer reads, and the
-capability is the answer to "does this build lay boxes out at all".
-`layout.conformance.no_viewport` asserts the two side by side over one tree, because
-a build that conflated them would have failed exactly there.
+But every answer in that table is about the **build**, and 10.3 made that
+distinction load-bearing rather than pedantic. `geometry == 1` is true of a tree
+whose boxes are all `UNRESOLVED` — a context that recorded no viewport placed
+nothing, a `<span>` holding only text is zero-wide because nothing here measures
+text, and a `<div>` whose content is a text node is zero tall. So the per-box
+`state` is the authority a consumer reads, and the capability is the answer to "does
+this build lay boxes out at all". `layout.conformance.no_viewport` asserts the two
+side by side over one tree, because a build that conflated them would have failed
+exactly there.
+
+10.4 added a field to that table rather than changing one, and the shape of the
+addition is the part worth keeping: `inline_layout` was written as `0` in **10.2**,
+with a field and no code behind it, and flipped only when the code existed. The
+constant `ROBO_LAYOUT_INLINE_LAYOUT_IMPLEMENTED` did not exist until then, which is
+the asymmetry 10.3's header argued for in its own text: a *field* may name a feature
+yet to land, because a caller reads it and gets a truthful `0`; a *constant* may
+not, because a name with no code behind it is a promise rather than a query.
 
 ---
 
@@ -631,7 +645,7 @@ visible omission rather than a silent gap.
 
 ## 13. The capability model
 
-`robo_layout_capabilities_t` is nine `int` fields in declaration order, and one of
+`robo_layout_capabilities_t` is twelve `int` fields in declaration order, and one of
 them is deliberately 0:
 
 | Field | this build | Filled by |
@@ -642,16 +656,25 @@ them is deliberately 0:
 | `context` | 1 | — |
 | `dom_build` | 1 | — |
 | `computed_style_link` | 1 | — |
-| `formatting_contexts` | 1 | — (10.2) |
-| `geometry` | **0** | 10.8 |
+| `geometry` | 1 | 10.3 |
+| `formatting_contexts` | 1 | 10.2 |
+| `block_layout` | 1 | 10.3 |
+| `inline_layout` | 1 | 10.4 |
+| `block_and_inline_layout` | 1 | derived: the two above |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
 positional walk below stays a walk of the struct and not of a history.
 
-A caller that checked only the version string would conclude that 0.2.0 lays boxes
-out. `geometry` is the field that says it does not, and the three doors §1 lists
-still all answer the same way.
+A caller that checked only the version string would conclude that 0.1.0 lays boxes
+out. The three doors §1 lists answer that together: `geometry` says **the build**
+computes coordinates; `block_layout` and `inline_layout` say **which directions**;
+and `block_and_inline_layout` is their conjunction, kept as a derived, *wider*
+question rather than retired now that both halves exist — a caller asking "is layout
+done?" should have one field to read that cannot be mistaken for "is half of it
+done?". A phase that implemented one direction and flipped the conjunction instead
+would have named a feature it did not have, which is exactly why 10.3 wrote it as 0
+while only the block direction existed.
 
 `layout.conformance.capabilities` walks the struct **positionally** against a list
 of names written out by hand, and pins the struct's size against the list's length.
@@ -689,14 +712,14 @@ rather than unfinished:
 
 | Absent | Belongs to | What exists instead |
 |---|---|---|
-| anonymous boxes, and the **inline** algorithm | 10.4 | every box knows which context it participates in and which it establishes (10.2); the block pass (10.3) counts the boxes it could not reach |
-| line boxes, text runs, baselines | 10.5–10.7 | text nodes are not boxes |
-| declared **width**, `min-width`, `max-width`, `box-sizing`; percentages and relative units for both axes | 10.8 | a block box fills its containing block (10.3), and a declared height is honoured where it is a computed `px` length |
-| margin collapsing, padding, border geometry | 10.9–10.11 | the values are readable from the borrowed style; a box's content box *is* its border box until then, and collapsing has the transparency rule it needs |
+| anonymous boxes | a later goal | every box knows which context it participates in and which it establishes (10.2); the pass counts the boxes it declined (`block.inline_level_skipped`, `inline.block_level_declined`) and the boxes nothing containing was placed for (`block.unreached`) |
+| line **boxes**, text runs, baselines | 10.5–10.7 | a **preliminary line** — a cursor, a top, a running height and a count — and `lines`/`wraps` as counts; text nodes are not boxes |
+| declared **width**, `min-width`, `max-width`, `box-sizing`; percentages and relative units for both axes; shrink-to-fit | 10.8 | a block box fills its containing block (10.3), an atomic inline is sized by its own declarations where they resolve and fills its containing block otherwise (10.4), and a declared height is honoured where it is a computed `px` length |
+| margin collapsing, padding, border geometry | 10.9–10.11 | the values are readable from the borrowed style; a box's content box *is* its border box until then, and collapsing has the transparency rule it needs in *both* directions — 10.3's transparent block container and 10.4's transparent inline box |
 | positioned containing blocks, offsets | 10.12 | a box's containing block is its parent (10.3, `BlockLayout.md` §2); `display` and `position` are readable |
-| overflow, damage, invalidation | 10.13–10.14 | two result flags that stay 0, and an invalidation that withdraws geometry rather than keeping a stale conclusion |
+| overflow, damage, invalidation | 10.13–10.14 | two result flags that stay 0 even when a participant is placed past its line or a child sits outside its box, and an invalidation that withdraws geometry rather than keeping a stale conclusion |
 | painting anything | Phase 11 | `painting` capability = 0 |
-| reading a property other than `display` and a declared `height` | 10.8+ | the borrowed style is there; the read is the later goal's |
+| reading a property other than `display` and a declared `width`/`height` on an atomic inline | 10.8+ | the borrowed style is there; the read is the later goal's |
 
 Three of these are worth a sentence more.
 
@@ -712,16 +735,20 @@ context places nothing and is not thereby an error.
 
 **Almost nothing reads a box's style.** The seam is in place and the style is
 borrowed and reachable, so a later goal asks for what it needs without a new header.
-10.3 reads exactly two things — `display` (through 9.12's accessors) and a declared
-`height` (one kind check, one unit check) — and 10.1's refusal to *pre-read*
-properties into fields still stands, because that is the second copy of a fact §4
-exists to avoid.
+Between them the two directions read exactly three things — `display` (through
+9.12's accessors), and a declared `height` for any box and a declared `width` for an
+*atomic inline*, each one kind check and one unit check — and 10.1's refusal to
+*pre-read* properties into fields still stands, because that is the second copy of a
+fact §4 exists to avoid.
 
-**The block pass is a *function of the classification*.** That is what makes an
+**Both directions are a *function of the classification*.** That is what makes an
 invalidation's second half necessary: withdrawing a classification without
 withdrawing the geometry derived from it would leave results marked `COMPUTED`
-about a tree that no longer exists. §10.2 of `BlockLayout.md` is the argument;
-`layout.block.invalidation` is the case.
+about a tree that no longer exists. §7.1 of `BlockLayout.md` is the argument;
+`layout.block.invalidation` is the case. 10.4 is the same function asked the other
+way round — its `wrap` and `union` arithmetic is a consequence of *which context*
+a box participates in — so the rule was fixed once, in the shared path, rather than
+twice.
 
 ---
 
@@ -768,12 +795,13 @@ a window" decision in §2 enforced rather than merely documented.
 
 Later phases' findings are recorded with their phases rather than appended here:
 10.2's in `FormattingContexts.md` §8, 10.3's in `BlockLayout.md` §7.1 and
-`Tests.md` §8. The reason to keep them out of this document is that this one
-describes what is *stable*; a finding is a thing that changed.
+`Tests.md` §8, 10.4's in `InlineLayout.md` §5 and `Tests.md` §9. The reason to keep
+them out of this document is that this one describes what is *stable*; a finding is
+a thing that changed.
 
 ---
 
-## 17. What 10.4 onwards may assume
+## 17. What 10.5 onwards may assume
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -781,42 +809,70 @@ describes what is *stable*; a finding is a thing that changed.
 3. Every box has a `display`, copied, and a borrowed style it may read — or
    `STYLE_MISSING`, which must be checked before reading one.
 4. Every box has a result, and its **state** is the authority: `NONE` before any
-   pass, `UNRESOLVED` when a pass did not place it, `COMPUTED` when the block pass
-   did.
+   pass, `UNRESOLVED` when a pass did not place it, `COMPUTED` when the pass did —
+   in **either** direction, because 10.3 and 10.4 are one pass.
 5. After a pass with a recorded viewport, every block-level box in a
-   block-direction context holds a real rectangle written in its **parent's**
-   coordinate space — `x`/`y` are relative to the parent's content origin, not to
-   the viewport.
-6. A box's width after a pass is its containing block's content width, and its
-   height is a declared `px` length or the stacked extent of its children. Both are
-   replaced wholesale by 10.8.
-7. A box's content box *is* its border box, so its content origin is its top-left
+   block-direction context — and every participant of an inline formatting context
+   — holds a real rectangle written in its **parent's** coordinate space: `x`/`y`
+   are relative to the containing block's content origin, not to the viewport. A
+   participant nested inside a transparent inline box has been **rebased** onto it,
+   so the convention survives nesting.
+6. A block box's width after a pass is its containing block's content width, and
+   its height is a declared `px` length or the stacked extent of its children. An
+   atomic inline is instead sized by its own declarations where they resolve, and
+   falls back to the containing block's content width; a transparent inline is sized
+   by *neither* and is the union of what its contents reached. All of it is replaced
+   wholesale by 10.8.
+7. An inline formatting context's height **is** the block extent of the box that
+   owns it (`lines` and `wraps` are counts, and a preliminary line is not a line
+   box — 10.6 owns that), which is why there is no second entry point beside
+   `robo_layout_block_layout`: `robo_layout_inline_walk_contents` is internal and
+   reached only by the block pass.
+8. A box's content box *is* its border box, so its content origin is its top-left
    corner until 10.9–10.11 say otherwise; margins, padding and borders are readable
    and unapplied.
-8. `robo_layout_context_run` is the only tree-mutating door in the module, and a
+9. `robo_layout_context_run` is the only tree-mutating door in the module, and a
    later goal extends it rather than adding a second one.
-9. Constraints can say "unset" honestly, and `clamp` is the only bounds arithmetic
-   in the module.
-10. The user-data seam is where scratch state goes; the context will not grow a
+10. Constraints can say "unset" honestly, and `clamp` is the only bounds arithmetic
+    in the module.
+11. The user-data seam is where scratch state goes; the context will not grow a
     field per formatting context.
-11. An invalidation withdraws geometry along with the classification, so a caller
+12. An invalidation withdraws geometry along with the classification, so a caller
     that adds a box after a pass reads honest `UNRESOLVED` states rather than
-    numbers computed with the previous box set.
-8. `robo_layout_geometry_is_implemented()` is the single question a caller asks
-   before reading geometry, and flipping it is a phase's *last* act — after the
-   numbers it promises exist.
-9. **Every live box participates in exactly one formatting context** once a pass
-   has run, and `robo_layout_tree_is_classified` is how a caller knows a pass has.
-   `robo_layout_object_context` answers where a box participates;
-   `robo_layout_object_context_owned` answers what it establishes, which is `NONE`
-   for most boxes and is not a failure.
-10. **A context's parent is the one its owner participates in**, so the context
+    numbers computed with the previous box set. **The withdrawal is the rule, and
+    it lives in one place** (`robo_layout_tree_contexts_reset`), because geometry
+    is a *function of the classification* and three callers say the same thing.
+13. `robo_layout_geometry_is_implemented()` is the single question a caller asks
+    before reading geometry, and flipping it is a phase's *last* act — after the
+    numbers it promises exist.
+14. **Every live box participates in exactly one formatting context** once a pass
+    has run, and `robo_layout_tree_is_classified` is how a caller knows a pass has.
+    `robo_layout_object_context` answers where a box participates;
+    `robo_layout_object_context_owned` answers what it establishes, which is `NONE`
+    for most boxes and is not a failure.
+15. **A context's parent is the one its owner participates in**, so the context
     tree's shape is a subsequence of the box tree's, and `depth` is real.
-11. **`robo_layout_tree_invalidate_contexts` is how a classification is released**,
+16. **`robo_layout_tree_invalidate_contexts` is how a classification is released**,
     and a build or an `add_object` releases it implicitly. A box's context id read
     across an invalidation answers `ROBO_NOT_FOUND` rather than resolving against
     the new classification.
-12. **A transparent box establishes nothing**, and that is a fact 10.9 and 10.13
+17. **A transparent box establishes nothing**, and that is a fact 10.9 and 10.13
     depend on: a margin collapses *through* it and a float escapes it. A later goal
     that needs it to be a barrier is asking for an anonymous box, which is 10.3's
     machinery rather than a change here.
+18. **Atomicity is derived, not stored.** A participant of an inline context is
+    atomic exactly when it established a context of its own; there is no third flag
+    and no "is this an inline-block" predicate in this module. The two facts come
+    from 10.2's ids and 9.12's outer display, and the header states the rule as a
+    table so 10.8 can re-derive it rather than re-decide it.
+19. **A box's rectangle is in its containing block's space in both directions**,
+    and for a participant inside a transparent inline box that required a rebase
+    pass. A later goal that writes into a participant's position must respect that
+    the rebase happens once, at the end of the context's walk, and that an atomic
+    inline's contents are *already* relative to it.
+20. **Every box with no geometry is explained by one of four counters** —
+    `block.inline_level_skipped`, `block.unreached`, `inline.block_level_declined`,
+    and "it generated no box at all". The identity
+    `blocks_placed + inline_level_skipped + participants_placed + unreached ==
+    objects` is asserted over every laid-out tree, so a build that dropped a box
+    would be visible as a document that did not add up.
