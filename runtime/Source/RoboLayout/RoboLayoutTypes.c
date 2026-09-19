@@ -81,6 +81,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "inline-layout";
     case ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT:
         return "text-layout";
+    case ROBO_LAYOUT_DOMAIN_SIZING:
+        return "sizing";
     default:
         return "unknown";
     }

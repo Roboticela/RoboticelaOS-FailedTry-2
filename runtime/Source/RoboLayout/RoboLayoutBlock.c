@@ -24,13 +24,24 @@
  * provisional geometry first: a provisional `(0, 0)` is exactly the lie 10.1 built
  * the result *state* to avoid, and writing one would make `UNRESOLVED` mean "not
  * yet" instead of "not known".
+ *
+ * 10.8 changed what 10.3 *passed* here, and the change is one line with a long
+ * shadow. Where this recursion used to hand every child its containing block's width,
+ * it now hands it the box's **resolved** width (`RoboLayoutSizing.h`), because a box
+ * that declares `width: 300px` is its children's containing block and 300 is what
+ * they are laid out into. For an `auto` width the two are the same number -- which is
+ * why every 10.3 expectation about an undeclared width still holds -- and the
+ * recursion's *shape* is untouched: the width resolves first because it depends on
+ * nothing, the children go in at it, and the height follows because it depends on
+ * them. That ordering is what the two dimension resolvers exist for.
  */
 
 #include "RoboLayout/RoboLayoutBlock.h"
 
 #include "RoboCSS/RoboCSSComputed.h"
 #include "RoboCSS/RoboCSSDisplay.h"
-#include "RoboCSS/RoboCSSUnit.h"
+
+#include "RoboLayout/RoboLayoutSizing.h"
 
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutObject.h"
@@ -41,81 +52,94 @@
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
-/* The declared height this build can resolve                          */
+/* What a box's declarations ask for                                   */
 /* ------------------------------------------------------------------ */
 
 /**
- * The computed LENGTH in px a style declares for @p property, when there is one.
+ * The px length @p style names for @p property, when it names a usable one.
  *
- * The whole of this phase's property reading, and it is deliberately four checks
- * rather than a resolver:
- *
- *   the entry must exist. A style with no `height` entry is an element nothing
- *   declared one for -- `auto`, by CSS's initial value.
- *
- *   the kind must be LENGTH. `auto` is a KEYWORD, `50%` is a PERCENTAGE and
- *   `2em` is a LENGTH in a relative unit: all three are values this build cannot
- *   turn into pixels without a containing block or a font, and 9.10 says so by
- *   keeping them in their own kinds and units rather than flattening them.
- *
- *   the unit must be px. 9.8's computed rule normalises an *absolute* unit to px
- *   exactly, so `1in` arrives as 96px and is usable; anything still spelled in
- *   another unit is relative and is not.
- *
- *   the number must be finite, non-negative and inside the range the geometry
- *   can hold. `robo_gfx_size_t` is `int32_t`, and a declared height of `3e9px`
- *   or `-1px` is not a size a box can have.
- *
- * A value that fails any check is treated exactly like `auto` and the height comes
- * from the content. That is not a fallback in the apologetic sense: it is the
- * honest answer, because in this build those values *are* unresolved, and the
- * alternative -- refusing the whole pass over one declaration an author wrote
- * legally -- would make a document with `height: 50%` unlayoutable.
+ * Written on top of `robo_layout_sizing_read_dimension` rather than beside it, and
+ * that is the phase: the four checks that used to live here -- an entry that exists,
+ * a kind that is a length, a unit that is `px`, a number that is finite, 
+ * non-negative and inside the geometry's range -- are now one classification in
+ * RoboLayoutSizing.c. What is left here is the *bound* reading's shape: "a bound, or
+ * none", where None covers `auto` and every value this build cannot resolve.
  */
-int robo_layout_style_px_length(const robo_css_computed_style_t *style,
-                                const char *property,
-                                double *out_value)
+static int layout_sizing_bound_px(const robo_css_computed_style_t *style,
+                                  const char *property,
+                                  robo_gfx_pixel_x_t *out)
 {
-    const robo_css_computed_value_t *value;
+    robo_layout_dimension_t dimension = robo_layout_dimension_auto();
+    robo_gfx_pixel_x_t length = 0;
 
-    if (!style || !property || !out_value) {
+    if (!robo_layout_sizing_read_dimension(style, property, &dimension)) {
         return 0;
     }
-    value = robo_css_computed_style_computed_by_name(style,
-                                                     robo_css_slice_from_text(property));
-    if (!value) {
+    if (robo_layout_dimension_length(&dimension, &length) != ROBO_OK) {
         return 0;
     }
-    if (value->kind != ROBO_CSS_COMPUTED_VALUE_LENGTH) {
-        return 0;
-    }
-    if (value->unit != ROBO_CSS_UNIT_PX) {
-        return 0;
-    }
-    if (value->unresolved) {
-        return 0;
-    }
-    if (!(value->number >= 0.0) || !(value->number <= 2147483647.0)) {
-        /* Deliberately written as a negated pair so that a NaN -- which compares
-         * false against everything -- fails the first test rather than slipping
-         * through a `number < 0` check. */
-        return 0;
-    }
-    *out_value = value->number;
+    *out = length;
     return 1;
 }
 
 /**
- * Round a resolved CSS length to the integer pixel space the geometry uses.
+ * Fill @p sizing from @p object: what its containing block offers, what its
+ * declarations ask for, and what its bounds allow.
  *
- * Half away from zero, which for the non-negative values the check above admits
- * is half up. Stated because it is a *decision*: `height: 10.5px` has to become
- * one of two integers, and a build that truncated would make every fractional
- * declared height come out one pixel short of what the author wrote.
+ * Defined here and called from both directions (RoboLayoutInternal.h), because the
+ * question -- "what does *this* box's style ask for, into this containing block?" --
+ * is the same one for a block box and for an atomic inline, and two implementations
+ * of it would answer differently the day either gained a property read.
+ *
+ * Three reads, and the two dimension ones are deliberately unguarded. A box with no
+ * computed style has made no declarations, and the record `init` wrote already says
+ * `AUTO`; `robo_layout_sizing_read_dimension` fills only when it can answer, so the
+ * unguarded form is the *contract* rather than a shortcut.
+ *
+ * Only the *width* is offered, and that asymmetry is CSS's: a block box's height is
+ * its contents', never its containing block's, so there is no available height to
+ * record. `has_available_height` exists for the goal that gives `height: 50%`
+ * something to resolve against, and leaving it clear is how this build says "nobody
+ * has told me, and I am not going to assume zero".
+ *
+ * The bounds are read through the same seam as the dimensions, and RoboCSS registers
+ * no `min-width`, so for every document this build can parse there is no entry and no
+ * bound recorded. That is not a stub: the clamping path is live and tested through
+ * the sizing record directly, and the day the property table knows those names a
+ * style that declares them reaches it here with no other change. A bound is recorded
+ * only when **both** of its dimensions name a usable length, because 10.1's
+ * constraints record holds a bound as one size and a half-known pair would silently
+ * bound the other dimension to whatever the unknown half defaulted to -- a
+ * `max-width` alone turning every height into zero.
  */
-robo_gfx_pixel_x_t robo_layout_px_round(double value)
+void robo_layout_object_sizing(robo_layout_sizing_t *sizing,
+                               const robo_layout_object_t *object,
+                               int32_t available_width)
 {
-    return (robo_gfx_pixel_x_t)(value + 0.5);
+    robo_gfx_pixel_x_t minimum_width = 0;
+    robo_gfx_pixel_x_t minimum_height = 0;
+    robo_gfx_pixel_x_t maximum_width = 0;
+    robo_gfx_pixel_x_t maximum_height = 0;
+    robo_layout_size_t bound;
+
+    robo_layout_sizing_init(sizing);
+    (void)robo_layout_sizing_set_available_width(sizing, available_width, NULL);
+
+    (void)robo_layout_sizing_read_dimension(object->style, "width", &sizing->width);
+    (void)robo_layout_sizing_read_dimension(object->style, "height", &sizing->height);
+
+    if (layout_sizing_bound_px(object->style, "min-width", &minimum_width) &&
+        layout_sizing_bound_px(object->style, "min-height", &minimum_height)) {
+        bound.width = minimum_width;
+        bound.height = minimum_height;
+        (void)robo_layout_sizing_set_minimum(sizing, bound, NULL);
+    }
+    if (layout_sizing_bound_px(object->style, "max-width", &maximum_width) &&
+        layout_sizing_bound_px(object->style, "max-height", &maximum_height)) {
+        bound.width = maximum_width;
+        bound.height = maximum_height;
+        (void)robo_layout_sizing_set_maximum(sizing, bound, NULL);
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -329,10 +353,10 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
                                       robo_gfx_pixel_y_t *out_height)
 {
     robo_layout_object_t *object = robo_layout_object_slot(walk->tree, id);
-    robo_gfx_pixel_y_t content_extent = 0;
+    robo_layout_sizing_t sizing;
+    robo_layout_size_t content;
     robo_layout_size_t size;
-    double declared = 0.0;
-    int has_declared;
+    robo_gfx_pixel_y_t content_extent = 0;
     robo_result_t status;
 
     if (!object) {
@@ -340,21 +364,65 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
                                 "a box vanished under the pass");
     }
 
-    /* The children first, because an `auto` height *is* their extent -- and
-     * because if this box declares a height, the children still have to be laid
-     * out inside it. */
-    status = layout_block_children(walk, object, available_width, &content_extent);
+    robo_layout_object_sizing(&sizing, object, available_width);
+
+    /*
+     * The width first (10.8), because the children are laid out *into* this box's
+     * content box and so the number they get is the resolved one rather than the
+     * containing block's. That is the difference the phase adds, and it is one line:
+     * for an `auto` width the two are the same number, because `auto` fills the
+     * containing block, and every 10.3 expectation about a box that declares no width
+     * is therefore untouched.
+     */
+    status = robo_layout_sizing_resolve_width(&sizing, walk->diag);
     if (status != ROBO_OK) {
         return status;
     }
 
-    has_declared = robo_layout_style_px_length(object->style, "height", &declared);
-    size.width = available_width;
-    if (has_declared) {
-        size.height = robo_layout_px_round(declared);
+    /*
+     * The children next, because an `auto` height *is* their extent -- and because if
+     * this box declares a height, the children still have to be laid out inside it.
+     */
+    status = layout_block_children(walk, object, (int32_t)sizing.resolved.width,
+                                   &content_extent);
+    if (status != ROBO_OK) {
+        return status;
+    }
+
+    /*
+     * Then the height, from what the contents turned out to be. The extent is
+     * reported at the *resolved* width as well as the stacked height, because a
+     * contents extent is what would hold the children and a later goal that grows a
+     * child beyond its parent needs both numbers to say so.
+     */
+    content.width = sizing.resolved.width;
+    content.height = content_extent;
+    status = robo_layout_sizing_set_content(&sizing, content, walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    status = robo_layout_sizing_resolve_height(&sizing, walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    status = robo_layout_sizing_resolved(&sizing, &size);
+    if (status != ROBO_OK) {
+        return status;
+    }
+
+    /* Counted from the *source* rather than from the declaration, so the two pairs of
+     * counters mean the same thing on every path: a width is declared or it filled
+     * what it was given, and a height is declared or it came from the contents. A
+     * declaration this build could not resolve lands in the second bucket, which is
+     * what 10.3's counters said and what the `UNRESOLVED` kind makes checkable. */
+    if (sizing.width_source == ROBO_LAYOUT_DIMENSION_SOURCE_DECLARED) {
+        walk->block->widths_declared++;
+    } else {
+        walk->block->widths_filled++;
+    }
+    if (sizing.height_source == ROBO_LAYOUT_DIMENSION_SOURCE_DECLARED) {
         walk->block->heights_explicit++;
     } else {
-        size.height = content_extent;
         walk->block->heights_from_content++;
     }
 
@@ -392,6 +460,8 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
     return a->containers == b->containers && a->blocks_placed == b->blocks_placed &&
            a->inline_level_skipped == b->inline_level_skipped &&
            a->unreached == b->unreached &&
+           a->widths_declared == b->widths_declared &&
+           a->widths_filled == b->widths_filled &&
            a->heights_explicit == b->heights_explicit &&
            a->heights_from_content == b->heights_from_content &&
            a->empty_containers == b->empty_containers &&

@@ -117,11 +117,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** Inline layout: lines, wrapping, the geometry it writes. */
     ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT = 13,
     /** Text layout: ranges, measurement, the seam it goes through. */
-    ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT = 14
+    ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT = 14,
+    /** Sizing: declared dimensions, availability, bounds, resolution. */
+    ROBO_LAYOUT_DOMAIN_SIZING = 15
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 15u
+#define ROBO_LAYOUT_DOMAIN_COUNT 16u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

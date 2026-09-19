@@ -1455,15 +1455,13 @@ static void test_block_pipeline(void)
         /* `height: 100px` reaches the result. */
         ROBO_CHECK_EQ_INT(size.height, 100);
         /*
-         * `width: 200px` does **not**: a block box fills its containing block, and
-         * resolving a declared width is 10.8. The number here is the viewport's,
-         * which is the honest answer this build can give -- and the assertion is
-         * written as the viewport's width rather than as "not 200" so that a build
-         * that started honouring a declared width would fail here and be *told* to
-         * update the phase's promise.
+         * And `width: 200px` now does too. This case is where 10.3 recorded that a
+         * declared width was **ignored** -- "a block box fills its containing block,
+         * and resolving a declared width is 10.8" -- and the assertion it wrote to
+         * fail the day that changed is the one this is: the number is the
+         * declaration's, and the phase that made it so is the phase that updated it.
          */
-        ROBO_CHECK_EQ_INT(size.width, LAYOUT_BLOCK_VIEWPORT_WIDTH);
-        ROBO_CHECK_EQ_INT(size.width != 200, 1);
+        ROBO_CHECK_EQ_INT(size.width, 200);
         /* `margin`, `padding` and `border` change nothing, and `position: relative;
          * top: 12px` is not applied: the box is at its parent's content origin. */
         ROBO_CHECK_EQ_INT(position.x, 0);

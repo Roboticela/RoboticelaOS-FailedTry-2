@@ -1,5 +1,33 @@
 /*
- * RoboLayout version pin — Phase 10.6 line boxes.
+ * RoboLayout version pin — Phase 10.8 width/height.
+ *
+ * 0.8.0 is 0.7.0 plus the layer that turns a declaration into a size: an `auto`
+ * dimension, a declared px length and a value this build cannot resolve are three
+ * *kinds* (`RoboLayoutSizing.h`), the containing block's availability is recorded
+ * per direction rather than as one number, the bounds are applied through 10.1's own
+ * clamp, and both directions resolve their width and height through the same two
+ * doors instead of reading `robo_layout_style_px_length` and hoping.
+ *
+ * What 10.8 adds, in one line: **a declared `width` finally reaches geometry -- and
+ * so does the width a box's children are laid out into.**
+ *
+ * The one idea this phase turns on, and getting it backwards would have moved every
+ * 10.3 expectation in the module: **`auto` width and a declared width resolve through
+ * one rule, and for `auto` the rule's answer is the containing block's width.** That
+ * is why the recursion's numbers are unchanged wherever nothing declares a width, and
+ * why the phase could add real sizing without rewriting a single existing geometry
+ * assertion -- the two cases agree exactly where the old build only knew one of them.
+ *
+ * The other decision worth naming: `UNRESOLVED` is a kind of its own. A percentage and
+ * `auto` resolve the same way *today* -- fill the containing block -- and are kept
+ * apart because that is the answer that will change: a percentage needs a containing
+ * *dimension*, and the day one is known the branch that changes is the resolver's,
+ * not the seam's that read the declaration.
+ *
+ * 0.7.0 is 0.6.0 plus the floor a line rests on: every line a pass stores has an
+ * ascent, a descent and a kind, every member's position is derived from them, and a
+ * text run's are its font's with the line gap split as half-leading while everything
+ * else's are the documented bottom-edge fallback.
  *
  * 0.6.0 is 0.5.0 plus the thing the preliminary line was always going to become: a
  * **line box**. A line is now a record the tree owns -- an id, a finalized rectangle,
@@ -198,14 +226,15 @@
  * `block_and_inline_layout` is their conjunction, and `line_boxes` is 1 because the
  * lines those directions place are now records a caller can read.
  *
- * Still absent, and each a named later goal: baselines and line-height (10.7),
- * whitespace collapsing and Unicode line breaking, ``line splitting`` and alignment
- * (10.6's remaining neighbours and 10.7's), text
+ * Still absent, and each a named later goal: `line-height` as a resolved used value
+ * and `vertical-align` (10.7's remainder), whitespace collapsing and Unicode line
+ * breaking, line splitting and alignment (10.6's remaining neighbours), text
  * **shaping** — GlyphSubstitution, GlyphPositioning, ligatures, kerning — and the
- * bidi algorithm, which are Phase 14's, font *fallback* (10.8), a declared `width` in
- * the block direction, `min-width`, `max-width` and shrink-to-fit (10.8), margins
- * (10.9), padding (10.10), borders (10.11), positioning (10.12), overflow (10.13), the
- * anonymous block box a mixed container needs, and paint (Phase 11).
+ * bidi algorithm, which are Phase 14's, font *fallback*, percentage and intrinsic
+ * sizing — `min-content`, `max-content`, `fit-content`, shrink-to-fit (10.8's
+ * remainder) — margins (10.9), padding (10.10), borders (10.11), positioning (10.12),
+ * overflow (10.13), the anonymous block box a mixed container needs, and paint
+ * (Phase 11).
  *
  * The measurer is **unshaped by design**, and saying so is the difference between a
  * foundation and a claim: it sums the advances the font's own `hmtx` gives, in logical
@@ -223,9 +252,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 7
+#define ROBO_LAYOUT_VERSION_MINOR 8
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.7.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.8.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -334,5 +363,32 @@
  * three where they would otherwise be assumed.
  */
 #define ROBO_LAYOUT_BASELINES_IMPLEMENTED 1
+
+/**
+ * 1 once this build resolves a box's **width and height** from its declarations.
+ *
+ * A constant rather than a runtime decision for the same reason the other six are:
+ * it is read by `robo_layout_get_capabilities().sizing` and by the suite that asserts
+ * the flag against the code. What it claims, exactly:
+ *
+ *   a declared px `width` and `height` reach the geometry of a block box and of an
+ *   atomic inline, and a box's resolved width is what its children are laid out into;
+ *
+ *   an `auto` dimension has a stated answer -- the containing block's width, or the
+ *   contents' extent for a height -- and a value this build cannot resolve is
+ *   *recorded* as `UNRESOLVED` and resolved by that same rule;
+ *
+ *   a minimum and a maximum can be recorded and are applied through
+ *   `robo_layout_constraints_clamp`, and a pair that contradicts itself is reported
+ *   rather than resolved in either's favour.
+ *
+ * What it does **not** claim: percentage resolution against a containing *dimension*
+ * (there is none to resolve against), `min-content`/`max-content`/`fit-content`,
+ * shrink-to-fit, `box-sizing`, or any contribution from margins, padding and borders
+ * -- which is why every size here is still the border box the result documents. Each
+ * is a later phase's, and `RoboLayoutSizing.h` names them where they would otherwise
+ * be assumed.
+ */
+#define ROBO_LAYOUT_SIZING_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

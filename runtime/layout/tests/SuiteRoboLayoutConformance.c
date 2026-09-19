@@ -67,6 +67,7 @@ static const struct {
     { "text_layout", 1 },
     { "line_boxes", 1 },
     { "baselines", 1 },
+    { "sizing", 1 },
     { "painting", 0 }
 };
 
@@ -94,11 +95,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Fourteen of fifteen. Asserted as a count as well as field by field, so a build
+    /* Fifteen of sixteen. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. */
-    ROBO_CHECK_EQ_INT(implemented, 14u);
+     * glance. The sixteenth is `painting`, and it is the only one that is 0. */
+    ROBO_CHECK_EQ_INT(implemented, 15u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -158,6 +159,17 @@ static void test_conformance_capabilities(void)
      */
     ROBO_CHECK_EQ_INT(caps.baselines, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BASELINES_IMPLEMENTED, 1);
+
+    /*
+     * And `sizing`, the field 10.7's prose left for the goal that would make a
+     * declaration *mean* something. Read from its own macro like the three above it,
+     * and the boundary is asserted where a reader will meet it: percentages are read
+     * and recorded as `UNRESOLVED` but are not resolved against a containing
+     * *dimension*, and intrinsic sizing does not exist -- so this is not "sizing is
+     * finished", it is "a declared px width and height reach geometry".
+     */
+    ROBO_CHECK_EQ_INT(caps.sizing, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_SIZING_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -405,16 +417,22 @@ static void test_conformance_pipeline(void)
 
     /*
      * And the geometry itself, which is what this case is now for: a box fills its
-     * containing block, its children stack, and a declared `height` is honoured
-     * while a declared `width` is not.
+     * containing block, its children stack, and both declared dimensions are
+     * honoured -- with the *width* also being what the box's children are laid out
+     * into, which is 10.8's arrival.
      *
      * The card is the whole point. It declares `width: 200px` and `height: 100px`,
      * `position: relative`, `top: 10px`, a border, a margin and padding -- and of
-     * those, exactly one number reaches the result. Its width is the *containing
-     * block's* 1280, because resolving a declared width is 10.8; its height is 100,
-     * because a px length is the one declaration this build can resolve; and the
-     * position, border, margin and padding are all later goals. A build that read
+     * those, two numbers reach the result and the rest are later goals. Its width is
+     * 200 because resolving a declared width *is* this phase; its height is 100; and
+     * the position, border, margin and padding are still absent, so a build that read
      * any of them here would be answering a phase that has not run.
+     *
+     * The card's width then travels: `<p class="title">` is its child, so the width
+     * its own `auto` resolves against is 200 rather than the viewport's 1280. That is
+     * the same change seen one level down and it is asserted below, because a build
+     * that resolved a box's own width and then handed its children the containing
+     * block's would pass the card's assertion and put the title at 1280.
      */
     {
         robo_html_node_handle_t html_element = layout_document_find(&fixture.doc, "html");
@@ -461,8 +479,8 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(position.x, 0);
         ROBO_CHECK_EQ_INT(position.y, 0);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
-        ROBO_CHECK_EQ_INT(size.width, 1280); /* the containing block's, not 200 */
-        ROBO_CHECK_EQ_INT(size.height, 100); /* the declared one, honoured */
+        ROBO_CHECK_EQ_INT(size.width, 200);  /* the declared one, honoured since 10.8 */
+        ROBO_CHECK_EQ_INT(size.height, 100); /* and so is this */
 
         /* The title is a placed box with a *zero* extent, which is 10.3's honest
          * answer for a `<p>` whose only content is text: a text node is not a box,
@@ -472,7 +490,10 @@ static void test_conformance_pipeline(void)
                           ROBO_OK);
         ROBO_CHECK_EQ_INT((int)result.state, (int)ROBO_LAYOUT_RESULT_COMPUTED);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
-        ROBO_CHECK_EQ_INT(size.width, 1280);
+        /* The card's 200, not the viewport's -- the child's containing block is the
+         * box that declares the width, which is what makes the declaration *contain*
+         * something rather than only describe one box. */
+        ROBO_CHECK_EQ_INT(size.width, 200);
         ROBO_CHECK_EQ_INT(size.height, 0);
     }
 
@@ -990,7 +1011,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.7.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.8.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*

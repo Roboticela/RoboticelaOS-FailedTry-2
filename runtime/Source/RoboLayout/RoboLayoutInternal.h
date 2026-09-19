@@ -35,6 +35,7 @@
 #include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
+#include "RoboLayout/RoboLayoutSizing.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
@@ -136,18 +137,38 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
                                                robo_gfx_pixel_y_t *out_extent);
 
 /*
- * The one style read both directions make, defined by RoboLayoutBlock.c because
- * that is where it was first needed and where its rules are argued.
+ * The one style read both directions make.
+ *
+ * 10.3 defined these in RoboLayoutBlock.c, "because that is where it was first
+ * needed and where its rules are argued", and predicted that 10.8 would change the
+ * rule. It did, and this is where the prediction landed: the four checks now live in
+ * RoboLayoutSizing.c as one *classification* that two readers shape -- the dimension
+ * reader below (three kinds) and `robo_layout_style_px_length` (a px length or
+ * nothing). `font-size` needs the second because a font size is not a box dimension
+ * and `12.5px` has to stay `12.5`, and keeping one classification behind both is what
+ * stops `auto` and `50%` from being folded together at the seam.
  *
  * Shared rather than copied, for the reason the module shares everything: "a
  * declared value this build can resolve is a computed LENGTH in px, finite,
  * non-negative and inside the geometry's range" is one rule, and two passes with
- * their own copies of it would be two answers to one question the day 10.8
- * changes it.
+ * their own copies of it would be two answers to one question.
  */
 
-/** The computed px length @p style declares for @p property, or 0 when there is
- *  none this build can resolve. */
+/**
+ * Fill @p sizing from one box (10.8): available width, declared dimensions and
+ * bounds. Defined by RoboLayoutBlock.c, called by both directions.
+ *
+ * The one place a `robo_layout_object_t` is turned into a sizing question, so that a
+ * block box and an atomic inline cannot disagree about what "this box declares no
+ * width" means. The *containing block* is the caller's to name, because it is the
+ * one thing that differs between the two directions.
+ */
+void robo_layout_object_sizing(robo_layout_sizing_t *sizing,
+                               const robo_layout_object_t *object,
+                               int32_t available_width);
+
+/** The declared px length @p style holds for @p property, unrounded, or 0 when
+ *  there is none this build can resolve. The reader `font-size` goes through. */
 int robo_layout_style_px_length(const robo_css_computed_style_t *style,
                                 const char *property,
                                 double *out_value);

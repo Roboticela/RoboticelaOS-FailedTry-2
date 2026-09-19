@@ -121,6 +121,14 @@ The first two rows count themselves (`widths_declared`, `widths_filled`) because
 the difference between "sized by its author" and "filled its line" is the
 difference a reader is trying to make.
 
+> **10.8 update.** The three answers stand, and the *reading* moved: the pass no
+> longer interprets a declared length itself — it hands the borrowed style to the
+> sizing layer, which answers `auto`, a definite `px` length, or a declaration it
+> cannot resolve, and the last of those is what the second row was already doing
+> (`Sizing.md` §1, §4). What the phase added is the order an atomic inline needs:
+> width, then the contents it was measured against, then height — because its `auto`
+> height *is* the extent of those contents.
+
 The third row is CSS, not a shortcut, and it is the reason a transparent box is a
 **union** rather than a size. Its rectangle is computed from the fragments its
 participants produced — a real calculation — and it is **zero** when it contains
@@ -320,6 +328,7 @@ the box owns through 10.2's own door.
 | 10.7 baselines | the line's `top` and its running height, which is a union of extents rather than a baseline |
 | 10.7 baselines (outcome) | the line's **top and the placement arithmetic**: a member's y is now `origin.y + (line.ascent - member.ascent)` rather than the line's top, written in one walk at finalization (§12) |
 | 10.8 sizing | the atomic inline's two fallbacks (§3) and the `widths_filled` count |
+| 10.8 sizing (outcome) | both fallbacks survive as the sizing layer's `AUTO` and `UNRESOLVED` kinds, and the *read* moved out of the pass (`Sizing.md` §1); what the phase added here is the order — width, then the contents it was measured against, then height, because an atomic inline's `auto` height is the extent of contents that had to be laid out at a width first |
 | 10.9 margins | the union arithmetic (§5) that becomes the margin edge |
 | 10.12 positioning | the rebase (§5) — the coordinate convention surviving nesting |
 | 10.13 overflow | the `cursor > 0` guard (§4), which is the only place overflow is decided |
@@ -435,9 +444,10 @@ placements: the phase changed where a member goes, not which objects are members
 - **No margin, padding or border arithmetic, and no `box-sizing`.** Unchanged from
   10.3: a box's content origin is still its top-left corner, so no coordinate is
   missing a term.
-- **No declared width in the block direction, no shrink-to-fit, no percentage or
-  relative-unit resolution.** §3, and the atomic fallback is stated rather than
-  guessed.
+- **No shrink-to-fit, no intrinsic keyword, no percentage or relative-unit
+  resolution.** §3, and 10.8 kept the atomic fallback stated rather than guessed:
+  an unresolvable declaration is read, recorded and filled from the available space
+  with a source saying so (`Sizing.md`).
 - **No absolute or fixed positioning, no floats, no overflow flag, no
   fragmentation.** §4, and 10.12–10.13.
 - **No paint, no rendering, no windowing, no display.** The viewport is still an

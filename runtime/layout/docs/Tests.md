@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.7)
+# RoboLayout Test Organisation (through Phase 10.8)
 
-Thirteen suites, 177 tests, one framework. Each phase adds no test runner, no reporter
+Fourteen suites, 194 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -41,6 +41,7 @@ phase that made it.
 | `SuiteRoboLayoutText.c` | `layout.text.*` | 26 | does a text node become an object, does a real font measure it, and does a run placed on a line get the width the font said? |
 | `SuiteRoboLayoutLineBox.c` | `layout.line.*` | 12 | is the line being built not a line box, and are a line's members exactly the objects that advanced its cursor? |
 | `SuiteRoboLayoutBaseline.c` | `layout.baseline.*` | 16 | does every line get a floor, are its members placed on it, and is "not placed" a different answer from "placed with no extent"? |
+| `SuiteRoboLayoutSizing.c` | `layout.sizing.*` | 17 | does a declaration reach geometry, and does a box's resolved width reach the children laid out *into* it? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -429,14 +430,74 @@ size is now derived from the array (`LAYOUT_BASELINE_RULE_COUNT`), and
 built, so a rule the container refused fails at the rule rather than three assertions
 later in the geometry.
 
+### 10.14 — sizing (`layout.sizing.*`)
+
+Seventeen cases in three groups: the vocabulary, the record, and the pass. The
+third group is the one that is different from every other group in this directory,
+because it drives a **fabricated computed style** rather than either a stylesheet or
+the shared scripted fixture.
+
+That is not a shortcut. No property RoboCSS registers feeds the clamping path, so
+the only way to prove that path is **live** rather than merely present is to hand
+the pass a style that declares `min-width` and its three siblings. A case built from
+a stylesheet could only prove that a property the property table does not know does
+nothing, which is a fact about the table.
+
+**The vocabulary** — `dimension` (the three kinds walked, with a cleared record
+reading as `auto` rather than as a zero length, a non-definite length read as a
+*miss* rather than a zero, and a negative length refused as a value) and
+`vocabulary` (the kind and source predicates, the names, and a count asserted for
+each).
+
+**The record** — `record` (the two availability flags as separate facts, the
+refusals on every setter, a minimum above a maximum reading as *invalid* rather than
+as an answer, and every getter answering for NULL instead of failing), `width` and
+`height` (the three resolution branches each, the two *different* failures — no
+available width against no contents extent — and a known zero resolving where an
+absent input does not), `clamp` (both bounds, minimum winning a tie, the clamped
+flags, a contradictory pair reported rather than resolved), and `reresolve` (a
+changed available width, a declared width arriving on top of a filled one with the
+source following it, and five resolves over unchanged inputs giving an equal
+record).
+
+**The seam** — `seam` (all four classifications against fabricated styles: absent
+and `auto` as one kind, `inherit` as `UNRESOLVED`, `10.5px` rounded **up** to 11, a
+percentage and an `em` as `UNRESOLVED`, a property the style does not declare as
+`auto` even in a rich style, and `out` left untouched when the question cannot be
+asked).
+
+**The pass** — the group that reads geometry:
+
+| Case | Subject |
+|---|---|
+| `block_declared_width` | a 300px box inside an 800px viewport, **and its child**: 300 both times, with the counters splitting one declared width from three filled ones |
+| `block_auto_width` | an `auto` chain fills the containing block at every level, and a second pass at another viewport is another document |
+| `block_unresolved_width` | `width: 50%` read as `UNRESOLVED` **through the seam on the very style the pass used**, and resolved by filling the containing block — the two halves of the merge, asserted separately |
+| `block_keyword_and_unit` | a declared `width: auto` and a `2em` height, which are the same two branches reached by *declaring* rather than by omitting — the case that proves the keyword and the relative unit are read, not guessed |
+| `block_bounds` | the clamping path driven end to end by a fabricated style, with all four bounds declared: 300 clamped down to 200, 0 raised to 44, and the parent unchanged |
+| `block_half_bound` | a `max-width` on its own changing **nothing**, because a bound is recorded only when both of its dimensions name a length |
+| `atomic_inline` | an `inline-block`'s declared width and its height from the contents it had to be sized *before* walking |
+| `line_regression` | over a document that wraps: every line is as wide as what it **placed** (150, then 90) where the width it had to fit is 200, so the sizing layer did not turn each line into a CSS box |
+| `allocator_balance` | two passes at two viewports over one tree, with the declared 250 unmoved — and nothing leaked |
+
+**The fixture's own lesson, and it is the second phase in a row to learn it.** The
+first cut of these cases indexed the arena (`layout_sizing_box_at(&fixture, 2u)`) on
+the assumption that the third box is the `<div>`. It is not: RoboHTML's tree builder
+inserts an implicit `<head>`, so index 2 is `<body>` — and a declared width that
+"does not reach geometry" is exactly what a measurement of the wrong box looks like.
+The suite now resolves elements **by tag** (`layout_sizing_box_for`), which is what
+the block suite does for its card and for the same reason: a fixture's *indices* are
+a fact about the parser, and counting them asserts the wrong thing the day the parser
+gains one more element.
+
 ### 10.7 — conformance (`layout.conformance.*`)
 
 Seven cases, and the shape is 9.16's: ask the questions no single-module suite can.
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now fifteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes` and `baselines` at 1 and `painting` at 0, and the count of implemented fields asserted as fourteen |
-| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.7.0`, API unfrozen, three object kinds and four context kinds |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now sixteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes`, `baselines` and `sizing` at 1 and `painting` at 0, and the count of implemented fields asserted as fifteen |
+| `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.8.0`, API unfrozen, three object kinds and four context kinds |
 | `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no layout at all, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
 | `determinism` | two builds of the same document produce equal trees, compared box by box |
@@ -475,10 +536,12 @@ replaced rather than weakened, and the numbers took over `layout.block.*`.
 | a scripted text measurer | answer a width per code point, so a case about cursor arithmetic fails because the arithmetic is wrong and not because a font differed — `layout.text.*` and `layout.line.*` |
 | a synthetic SFNT face | cmap, hmtx, hhea, head, maxp, loca and glyf built in the suite, for the one case whose subject *is* the real RoboFont answer |
 
-The second row is the design record's §6.1 argument made concrete. Eight of the
-thirteen suites never instantiate a style context at all — `layout.baseline.*` is
-the newest of the eight, scripting its styles the way `layout.inline.*` does — and
-the five that do reach
+The second row is the design record's §6.1 argument made concrete. Nine of the
+fourteen suites never instantiate a style context at all — `layout.sizing.*` is the
+newest of the nine, and the *most* scripted of them: the declaration it needs
+(`width: 300px`) goes through the real RoboCSS specified-value and computation doors
+and then into a style source **directly** — neither a stylesheet nor the shared
+scripted fixture (§10.14) — and the five that do reach
 for one solely in the cases whose subject *is* the joining: `layout.dom.*` and
 `layout.conformance.*` throughout, and the single `pipeline` case in
 `layout.block.*`, `layout.inline.*` and `layout.text.*`. `layout.fc.*` is one of the six, which is
@@ -513,11 +576,13 @@ They **do not** assert:
 
 - CSS behaviour beyond `display` and a declared `height`, which 9.1–9.16 tests in
   its own 609 cases;
-- a geometry the pass does not produce: no declared width in the *block*
-direction, no percentage, no shrink-to-fit, no margin, padding or border
-  arithmetic, no **baseline**, no `line-height`, no font-derived line extent and no
-  **fragmentation**. Those numbers do not exist yet, and a suite that asserted one
-  would be asserting a number the module does not compute. The inline direction's
+- a geometry the pass does not produce: no percentage resolved against a containing
+  *dimension*, no intrinsic keyword, no shrink-to-fit, no margin, padding or border
+  arithmetic and no **fragmentation**. Those numbers do not exist yet, and a suite
+  that asserted one would be asserting a number the module does not compute. (Two
+  entries this bullet used to carry have since arrived — a **baseline** in 10.7 and a
+  declared `width` in the 10.8 step below — which is how the list is meant to work:
+  a claim leaves it when a case can assert the number instead.) The inline direction's
   numbers *do* exist and are asserted exactly — and 10.6's suite names the zero it
   produces for a line whose only member is unmeasured as a *fact* rather than
   omitting the case, which is the same discipline 10.4 applied to a text-bearing
@@ -559,8 +624,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 162 — this module's 160, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 164 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 196 — this module's 194, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 198 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -573,9 +638,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.text` | 26 |
 | `layout.line` | 12 |
 | `layout.baseline` | 16 |
+| `layout.sizing` | 17 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2193** tests, green in both configurations.
+Whole suite: **2210** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -590,8 +656,9 @@ Whole suite: **2193** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2193 cases. In 10.7's run the sanitized suite was
-**2193/2193** with no sanitizer diagnostic and **no red case**. 10.6's run was the
+ASan and UBSan run the same 2210 cases. In 10.8's run the sanitized suite was
+**2210/2210** with no sanitizer diagnostic and **no red case**. 10.7's run was
+**2193/2193** the same way. 10.6's run was the
 same count; in 10.5's run the sanitized suite was 2177 with no sanitizer diagnostic
 and the two host-window cases below as its only red cases. In 10.4's run the
 sanitized suite was **2139/2139** — no sanitizer diagnostic, and no red case. 10.3's
@@ -942,3 +1009,52 @@ records the rule instead.
 `layout.conformance.statement` moved for the version bump and the new `baselines`
 field — the same set of four 10.3, 10.4, 10.5 and 10.6 each moved, which is what
 those assertions exist for.
+
+---
+
+## 13. What the 10.8 suites found
+
+One finding, and it is a **fixture** finding rather than an implementation one — the
+second phase in a row whose new suite cost more to get right than the code it tests,
+and the first whose mistake produced a *layout* symptom that read as a missing
+feature.
+
+**1. The suite measured the wrong box, because it counted the parse instead of
+naming the element** (`SuiteRoboLayoutSizing.c`). Five cases indexed the arena
+directly — `layout_sizing_box_at(&fixture, 2u)` for "the `<div>`" — on the
+assumption that a document `<html><body><div>…</div></body></html>` produces boxes in
+that order. It does not: RoboHTML's tree builder inserts an implicit `<head>`, so
+index 2 is `<body>`, and the assertion that "a declared width reaches geometry"
+failed at `800 != 300` — a declared width being **ignored**, which is exactly what
+the phase exists to fix and exactly what a measurement of the wrong box looks like.
+The object-count assertion in the same fixture said `5 != 4` at the same time, which
+was the evidence that should have been read first.
+
+The fix is the one the block suite already uses: resolve the element **by tag**
+(`layout_sizing_box_for`) and let the builder find it. A fixture's *indices* are a
+fact about the parser, so a test that counts them is asserting the parser's element
+list — and it passes right up until the parser gains one more synthesized element,
+which is a change no layout phase should be able to break.
+
+**2. Nothing in the implementation.** The phase's one structural change — resolving
+the width *first* and laying the children out into it — was right on the first build,
+and the reason is worth recording because it is not luck. 10.3 had written down that
+a declared width was ignored, 10.6 and 10.7 had written down which width a line and a
+baseline are derived at, and the three cases that pinned the old answer did so with
+comments saying the phase which resolved a width must update them. The inputs were
+pinned from three directions before the decision was made.
+
+**3. And three cases changed on purpose, exactly as they said they would.**
+`layout.block.pipeline` (card 800 → **200**), `layout.conformance.pipeline` (card
+1280 → **200**) and the same case's `.title` (1280 → **200**), which is the phase seen
+one level down: a build that resolved a box's own width and then handed its children
+the containing block's would pass the first two and put the title at 1280. All three
+carried a note predicting the change and naming the phase that would make it — which
+is what those assertions are *for*, and the first time in this directory that a
+predicted failure arrived.
+
+**Four assertions moved for the version and the capability**, the same four every
+phase moves: `layout.module.version`, `layout.module.capabilities`,
+`layout.conformance.capabilities` and `layout.conformance.statement` — plus
+`layout.module.diagnostic_domains`, which is the fifth field a phase can add and is
+asserted by count, by name and by "the newest domain is the last enumerator".

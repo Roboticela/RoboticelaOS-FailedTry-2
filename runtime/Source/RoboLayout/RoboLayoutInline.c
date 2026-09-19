@@ -454,12 +454,14 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
  * Both cases end at the same cursor arithmetic, and they differ in where the
  * numbers come from — which is the header's central distinction, in code:
  *
- *   an **atomic** inline is sized by its declarations, through the same rule 10.3
- *   reads a declared height with (`robo_layout_style_px_length`): a computed
- *   length in `px` is usable and nothing else is. A width it cannot resolve takes
- *   the containing block's content width, which is CSS's `width: auto` and what
- *   10.3 does for a block box; a height it cannot resolve comes from what it
- *   contained, laid out by the block pass through 10.3's own door.
+ *   an **atomic** inline is sized by its declarations, through the sizing layer both
+ *   directions share (10.8, `robo_layout_object_sizing`): a computed length in `px`
+ *   is usable and nothing else is. A width it cannot resolve takes the containing
+ *   block's content width, which is CSS's `width: auto` and what 10.3 does for a
+ *   block box; a height it cannot resolve comes from what it contained, laid out by
+ *   the block pass through 10.3's own door. The *width* resolves first and is what
+ *   those contents are laid out into, which is 10.8's one structural change to this
+ *   path and the reason `robo_layout_sizing_resolve_width` exists apart from the pair.
  *
  *   a **non-atomic** inline with no contents is placed with no extent at all, and
  *   the header argues why that zero is the honest answer rather than a placeholder:
@@ -474,7 +476,6 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
     int atomic;
     int32_t width = 0;
     int32_t height = 0;
-    double declared = 0.0;
 
     if (!object) {
         return ROBO_LAYOUT_DIAG(walk->diag, ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT, ROBO_ERROR,
@@ -484,19 +485,41 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
     atomic = object->context_owned != ROBO_LAYOUT_FC_ID_NONE;
 
     if (atomic) {
-        if (robo_layout_style_px_length(object->style, "width", &declared)) {
-            width = (int32_t)robo_layout_px_round(declared);
-            walk->inline_flow->widths_declared++;
-        } else {
-            width = flow->available_width;
-            walk->inline_flow->widths_filled++;
-        }
-        if (width < 0) {
-            width = 0;
-        }
+        robo_layout_sizing_t sizing;
+        robo_layout_size_t content;
+        robo_result_t sizing_status;
 
-        if (robo_layout_style_px_length(object->style, "height", &declared)) {
-            height = (int32_t)robo_layout_px_round(declared);
+        /*
+         * The same sizing layer the block pass uses (10.8), and it is the same
+         * *helper* too -- "what this box's declarations ask for, into this containing
+         * block" is one question and two implementations of it would be two answers.
+         * What differs is only the containing block: an atomic inline's is the inline
+         * context's content box, which is what `auto` width has always filled here.
+         */
+        robo_layout_object_sizing(&sizing, object, flow->available_width);
+
+        /*
+         * The width, then the contents, then the height -- the two-phase shape the
+         * header explains and the reason `robo_layout_sizing_resolve` is not the only
+         * door: an `auto` height is the block extent of this box's own contents, and
+         * those contents can only be laid out once the width is settled. Resolving
+         * both at once would need the contents' extent before it exists.
+         */
+        sizing_status = robo_layout_sizing_resolve_width(&sizing, walk->diag);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+        width = (int32_t)sizing.resolved.width;
+
+        if (sizing.height.kind == ROBO_LAYOUT_DIMENSION_DEFINITE) {
+            /*
+             * Declared, so the contents are not walked -- 10.4's rule, kept: a
+             * declared height means this box's height is not the contents' extent, and
+             * looking inside one to find something the author already stated would be
+             * work whose result nothing reads. The width above is still resolved and
+             * still the box's own, so a declared width reaches an `inline-block`'s
+             * contents here exactly as it reaches a block's (10.12 does the rest).
+             */
             walk->inline_flow->heights_declared++;
         } else {
             robo_gfx_pixel_y_t extent = 0;
@@ -508,11 +531,28 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
                     return status;
                 }
             }
-            height = (int32_t)extent;
+            content.width = sizing.resolved.width;
+            content.height = extent;
+            sizing_status = robo_layout_sizing_set_content(&sizing, content, walk->diag);
+            if (sizing_status != ROBO_OK) {
+                return sizing_status;
+            }
             walk->inline_flow->heights_from_content++;
         }
-        if (height < 0) {
-            height = 0;
+
+        sizing_status = robo_layout_sizing_resolve_height(&sizing, walk->diag);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+        height = (int32_t)sizing.resolved.height;
+
+        /* Counted from the sources, so the two pairs mean the same thing as the block
+         * pass's: a width obeyed its author or filled what it was given, and a height
+         * was declared or came from the contents. */
+        if (sizing.width_source == ROBO_LAYOUT_DIMENSION_SOURCE_DECLARED) {
+            walk->inline_flow->widths_declared++;
+        } else {
+            walk->inline_flow->widths_filled++;
         }
         walk->inline_flow->atomic_placed++;
     } else {

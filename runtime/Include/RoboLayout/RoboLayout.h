@@ -76,6 +76,7 @@
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutObject.h"
 #include "RoboLayout/RoboLayoutResult.h"
+#include "RoboLayout/RoboLayoutSizing.h"
 #include "RoboLayout/RoboLayoutStyle.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTextFont.h"
@@ -184,6 +185,27 @@ typedef struct robo_layout_capabilities {
      * "text layout is finished".
      */
     int baselines;
+    /**
+     * Resolving a box's **width and height** from its declarations (10.8). **1**
+     * since 10.8.
+     *
+     * A claim about the *build*, exactly as `geometry` and `text_layout` are: the
+     * sizing layer exists, a declared px `width` and `height` reach the geometry a
+     * block box and an atomic inline are given, and an `auto` dimension has a stated
+     * answer (the containing block for a width, the contents for a height). Kept
+     * narrow for the same reason the other flags are: **percentages** are read and
+     * recorded as `UNRESOLVED` but not resolved against a containing dimension, and
+     * intrinsic sizing -- `min-content`, `max-content`, `fit-content`,
+     * shrink-to-fit -- does not exist at all. `sizing` would be claiming those if it
+     * were named for "sizing is finished".
+     *
+     * One consequence worth stating where a caller will read it: the clamping path is
+     * *live and tested* through the sizing record, and no property registered in
+     * RoboCSS feeds it yet -- `min-width` and its three siblings are read through the
+     * same seam as `width`, so the day the property table knows those names boxes
+     * obey them with no change to either pass.
+     */
+    int sizing;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

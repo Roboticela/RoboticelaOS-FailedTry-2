@@ -4284,6 +4284,84 @@ Three findings, and the first is a **defect in the implementation that the new s
 Plus two 10.4 cases whose *numbers* the phase changed on purpose (the shorter of two atomics no longer
 starts at the line's top), with every width, count and membership left exactly as 10.4 wrote them.
 
+## Goal 10.8 — Width and height
+
+**Status: complete.** The `width` RoboCSS has parsed since 9.11 finally *means* something: a box's
+dimensions are resolved by a layer of their own, in three kinds (`auto`, a definite `px` length, and a
+declaration this build cannot resolve), and the width a box resolves is the width its children are laid
+out **into**.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The dimension vocabulary (three kinds), the sizing record, its doors, the two resolvers and the pair, and the one seam a computed style becomes a size through | `Include/RoboLayout/RoboLayoutSizing.h`, `Source/RoboLayout/RoboLayoutSizing.c` |
+| The block pass routed through the layer: width first, children laid out at it, height after | `Source/RoboLayout/RoboLayoutBlock.c` |
+| The atomic inline's three-step order — width, contents, height — and the moved `px` reader | `Source/RoboLayout/RoboLayoutInline.c`, `RoboLayoutInternal.h` |
+| The two counters that split one declared width from the filled ones | `RoboLayoutBlock.h` |
+| Version `0.8.0`, `ROBO_LAYOUT_SIZING_IMPLEMENTED`, the umbrella | `RoboLayoutVersion.h`, `RoboLayout.h` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A dedicated sizing abstraction exists | `layout.sizing.dimension`, `layout.sizing.vocabulary` |
+| Computed `width`/`height` are consumed, never parsed here | `layout.sizing.seam` |
+| Availability is per direction and explicit | `layout.sizing.record` |
+| `auto` has defined behaviour, and the two axes differ | `layout.sizing.width`, `layout.sizing.height` |
+| A declared width reaches the box **and its children** | `layout.sizing.block_declared_width` |
+| A declaration this build cannot resolve is filled and reported | `layout.sizing.block_unresolved_width` |
+| A keyword and a relative unit take the same branches as an omission | `layout.sizing.block_keyword_and_unit` |
+| Clamping works where both dimensions name a length | `layout.sizing.block_bounds`, `layout.sizing.block_half_bound` |
+| An atomic inline is sized before and after its contents | `layout.sizing.atomic_inline` |
+| Line boxes were not turned into CSS boxes | `layout.sizing.line_regression` |
+| Re-layout responds to a changed input, and the same inputs give one answer | `layout.sizing.reresolve`, `layout.sizing.block_auto_width` |
+| The phase added no arena | `layout.sizing.allocator_balance` |
+
+### The one distinction the phase turns on
+
+**One resolved width, two uses.** 10.3 resolved a single width from the containing block and spent it
+twice — the box's own size, and the width its children were laid out into — so a `width: 300px` box in
+an 800px parent came out 800 wide *and* gave its children 800. The layer settles the width first and
+recursion uses that number. For an `auto` width the two uses coincide, which is why real sizing arrived
+without a single existing geometry assertion needing to be rewritten: the two answers agree exactly
+where the old build knew only one of them.
+
+The ordering is what the two resolvers exist for. `robo_layout_sizing_resolve` is the pair, and it is
+the shape a block box uses. An **atomic inline** cannot use it: its `auto` height is the block extent of
+its own contents, and those contents can only be laid out *at* a width, so the width has to be settled,
+the contents walked, and the height asked for afterwards. A single door would have forced that caller to
+either lie about contents it does not have yet, or resolve twice and throw one answer away.
+
+And a dimension this build cannot use is never a zero. A `%`, an `em`, `min-content` — each is read,
+recorded as `UNRESOLVED`, and *filled* from the available space, with a **source** on the resolved size
+saying so. The three kinds are a vocabulary rather than a number with a flag, which is what lets a later
+goal make one of them resolvable without touching the record.
+
+### What 10.8 found
+
+One finding, and it is the first of its kind in this module: **the phase's own suite caught a wrong
+*convention*, not a wrong number — a fixture indexing the arena.** Five cases addressed boxes as
+`layout_sizing_box_at(&fixture, 2u)` — "the second box is the `<div>`" — which is a claim about the
+order the builder produced rather than about the element the case named. Resolving elements **by tag**
+(`layout_sizing_box_for`) is the fix, and the reason it matters is that a fixture's *indices* are the
+one thing a later phase is free to change.
+
+The rest is a lesson already paid for in 10.7 and paid again here: **a rule array and its count are one
+fact.** Where the count comes from a literal it can be left behind by an edit, and a dropped rule shows
+up three assertions later as a layout bug.
+
+Nothing existing was weakened. Two suites had written an assertion *designed to fail the day a declared
+width was resolved* — `layout.block.pipeline` and `layout.conformance.pipeline` — and both said so in
+their own comments ("the assertion is written as the viewport's width rather than as *not 200* so that a
+build that started honouring a declared width would fail here and be **told** to update the phase's
+promise"). Each moved only its numbers, and the conformance card gained the assertion that makes the
+phase's real claim: its `<p>` child resolves against the card's 200 rather than the viewport's 1280.
+Everything else that changed was a version or capability pin.
+
+The count went from **2193 pass to 2210**: 17 new cases, no case removed, and the module's 194 cases
+in fourteen suites are green in Debug, in Release, and under ASan and UBSan with no diagnostic.
+
 ## Next
 
-- Goal 10.8 — width and height resolution — do not start until requested
+- Goal 10.9 — margins — do not start until requested

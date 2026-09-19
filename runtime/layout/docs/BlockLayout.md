@@ -95,6 +95,13 @@ rules made impossible to break, checked rather than assumed.
 
 ## 3. Width: one rule, and it is `auto`
 
+> **Superseded by 10.8, and the reason this section is kept rather than rewritten**
+> The rule below is what 10.3 shipped, and it is still the `auto` rule. What
+> changed is the *other* declared widths: a `px` length is now resolved by the
+> sizing layer and is the width the box's children are laid out **into**
+> (`Sizing.md` §1). Read the rest of this section as 10.3's answer and the record
+> of why it was worth shipping a build that said "not yet" out loud.
+
 ```text
 a block box's width is its containing block's content width
 ```
@@ -103,12 +110,18 @@ That is CSS's `width: auto` for a block-level box in normal flow, and for this
 phase it is also the answer for every *other* declared width — because resolving
 `width: 200px` properly needs the border box, `box-sizing`, `min-width`,
 `max-width`, and percentages against a containing block that may itself be
-percentage-sized. Phase **10.8** owns all of it.
+percentage-sized. Phase **10.8** owned all of it, and delivered the half that
+needs no border box: `auto` and a `px` length. A percentage, a relative unit,
+`min-width`/`max-width` as registered properties and `box-sizing` are still
+absent — the sizing layer *reads* the first two and records them as unresolved
+rather than resolving them.
 
-So a declared `width` is readable in the borrowed style and **not applied**, and
-that is a decision with a visible consequence: a document saying `width: 200px`
-lays out 100% wide here. The header says so in the header itself rather than
-leaving it to be discovered, and the pipeline case in §7 exercises it.
+So a declared `width` was readable in the borrowed style and **not applied**, and
+that was a decision with a visible consequence: a document saying `width: 200px`
+laid out 100% wide here. The header said so rather than leaving it to be
+discovered, and the pipeline case in §7 exercised it — and that case is one of the
+two assertions 10.8 updated *because* it failed, which is the outcome this section
+was written to produce.
 
 The alternative — applying a `px` width and ignoring the rest — was rejected on
 this module's own precedent: it would make `width: 200px` mean something that
@@ -135,9 +148,9 @@ this phase implements the smallest honest version of that:
 |---|---|---|
 | `auto` (the initial value) | the stacked extent of the children | this is the definition, for a block container |
 | a `px` length | that height | one property, one kind check, one unit check |
-| a percentage | the stacked extent | a percentage needs a containing block *height*, which is 10.8 |
-| `em`, `rem`, `vw`, … | the stacked extent | a relative unit needs a font or a viewport basis, which is 10.8 |
-| `min-height`, `max-height` | ignored | 10.8 |
+| a percentage | the stacked extent | a percentage needs a containing block *height*, which no goal resolves yet — 10.8 reads it, records it unresolved and fills it (`Sizing.md` §4) |
+| `em`, `rem`, `vw`, … | the stacked extent | a relative unit needs a font or a viewport basis, which no goal resolves yet |
+| `min-height`, `max-height` | ignored | the sizing layer *has* bounds and clamps through them, but RoboCSS registers neither property, so a declared one is still a rule 9.11 will bring (`Sizing.md` §6) |
 
 The row that matters is the third and fourth: **an unresolvable declared height is
 treated as `auto`, not as a guess and not as a refusal of the whole document.** "I
@@ -303,13 +316,16 @@ one source of truth for one fact, which is the rule this module applies everywhe
 | 10.4 anonymous boxes | the recursion rule: the pass descends only through boxes it placed |
 | 10.6 line boxes | a block container's content origin, and the box whose extent a line box will add to |
 | 10.8 sizing | the single width rule (§3) it replaces, and the `heights_from_content` `auto` path |
+| 10.8 sizing (outcome) | §3's single width is now **one resolution and two uses**: the pass resolves the width first and recursion lays children out into that number, so a declared `width` reaches a box's *children* and not only the box (`Sizing.md` §1); §4's four rows become the sizing layer's three kinds, and a percentage or relative unit is read and recorded **unresolved** rather than silently treated as `auto` (`Sizing.md` §4) |
 | 10.9 margins | the content origin (§6) that becomes the margin edge |
 | 10.12 positioning | `position` on the result, in the containing block's coordinate space |
 | 10.13 overflow | the two result flags that are still 0, and the box that is the scroll container |
 | 11 paint | a rectangle per box, in the coordinate space §2 defines |
 
-None of these needs a change to the block model. What 10.4 adds is the line box
-and the anonymous wrapper; what 10.8 adds is a resolver in front of §3 and §4.
+None of these needs a change to the block model. What 10.4 added is the line box
+and the anonymous wrapper; what 10.8 added is a resolver in front of §3 and §4 —
+and, as its outcome row says, split §3's one number into the two uses it was always
+doing.
 
 ---
 
@@ -320,7 +336,9 @@ and the anonymous wrapper; what 10.8 adds is a resolver in front of §3 and §4.
 - **No anonymous box.** §5 — 10.4's.
 - **No margin, padding or border arithmetic, and no `box-sizing`.** §6, and the
   content origin is stated as such.
-- **No declared width.** §3 — 10.8's, and the one rule is stated in the header.
+- **No declared width.** §3 — 10.8's, and it landed: a `px` length and `auto` are
+  both resolved by the sizing layer, and everything else is read, recorded as
+  unresolved and filled rather than guessed (`Sizing.md`).
 - **No percentage, relative-unit, `min-height` or `max-height` resolution.** §4.
 - **No absolute or fixed positioning, no floats, no overflow, no fragmentation.**
   §6 and 10.12–10.13.

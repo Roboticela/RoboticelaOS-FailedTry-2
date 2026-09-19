@@ -188,6 +188,16 @@ typedef struct robo_layout_block_stats {
      *  is the tree's object count -- boxes *and* text runs, which since 10.5 is the
      *  count the identity is stated over. */
     size_t unreached;
+    /** Widths taken from a declared `width` this build could resolve: a computed
+     *  length in `px` (10.8). The counterpart of `heights_explicit`, and the number
+     *  a suite can use to tell a document whose boxes obey their authors from one
+     *  whose every box filled its containing block -- two documents that can place
+     *  the same boxes at the same positions. */
+    size_t widths_declared;
+    /** Widths filled from the containing block: the `auto` path, and the path a
+     *  declared-but-unresolvable width takes -- a percentage, which this build has no
+     *  containing dimension to resolve against. */
+    size_t widths_filled;
     /** Heights taken from a declared `height` this build could resolve: a
      *  computed length in `px`. */
     size_t heights_explicit;

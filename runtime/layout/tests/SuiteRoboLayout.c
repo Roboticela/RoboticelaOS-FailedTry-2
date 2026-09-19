@@ -35,10 +35,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 7);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 8);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.7.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.7.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.8.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.8.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -107,6 +107,7 @@ static const struct {
     { "text_layout", 1 },
     { "line_boxes", 1 },
     { "baselines", 1 },
+    { "sizing", 1 },
     { "painting", 0 }
 };
 
@@ -168,6 +169,14 @@ static void test_module_capabilities(void)
      * this phase, and it satisfied both of those fields.
      */
     ROBO_CHECK_EQ_INT(caps.baselines, ROBO_LAYOUT_BASELINES_IMPLEMENTED);
+    /*
+     * And `sizing`, its own field for the same reason again: 10.8's claim is that a
+     * declaration reaches the geometry -- a declared px width *and* the width a box's
+     * children are laid out into -- which is neither a line's existence nor a
+     * baseline. A build that had a sizing *record* and read nothing through it would
+     * have satisfied every field above it.
+     */
+    ROBO_CHECK_EQ_INT(caps.sizing, ROBO_LAYOUT_SIZING_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -255,10 +264,11 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 15);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 16);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)15), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_SIZING), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)16), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -293,15 +303,21 @@ static void test_module_diagnostic_domains(void)
                       "formatting-context");
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT),
                       "block-layout");
-    /* The newest domain is the last enumerator, and it is the one this phase's pass
-     * reports in -- so the assertion is that the domain a failure *lands* in is the
-     * one the phase added, not merely that a name exists. */
+    /* Each phase's domain, named and numbered, so that "the newest domain is the
+     * last enumerator" stays a fact about the build rather than about the numbering:
+     * the assertion below is that a failure *lands* in the domain its phase added. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT),
                       "inline-layout");
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT),
                       "text-layout");
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT,
+    /* 10.8's domain, and it is the newest rather than the last-but-one: the sizes a
+     * pass resolves are reported in it, so it is where this phase's failures land. */
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_SIZING),
+                      "sizing");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_SIZING,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT,
+                      (int)ROBO_LAYOUT_DOMAIN_SIZING - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_INLINE_LAYOUT,
                       (int)ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_BLOCK_LAYOUT,
@@ -481,7 +497,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.7.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.8.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

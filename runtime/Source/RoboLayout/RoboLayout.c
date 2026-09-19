@@ -97,6 +97,16 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      */
     out->line_boxes = ROBO_LAYOUT_LINE_BOXES_IMPLEMENTED;
     out->baselines = ROBO_LAYOUT_BASELINES_IMPLEMENTED;
+
+    /*
+     * 10.8, read from its own constant like the six above it. What it reports is that
+     * the sizing layer exists and that a declared px `width`/`height` reach the
+     * geometry -- **not** that sizing is finished: a percentage is read, recorded as
+     * `UNRESOLVED`, and filled from the containing block, and intrinsic sizing does
+     * not exist. The field's own comment in RoboLayout.h states that boundary where a
+     * caller reads it rather than only here.
+     */
+    out->sizing = ROBO_LAYOUT_SIZING_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }

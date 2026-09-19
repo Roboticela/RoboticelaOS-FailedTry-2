@@ -1,8 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.7, baselines**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.8, width/height**).
 
-**Version:** 0.7.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.8.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -26,6 +26,11 @@ can read back: identity, finalized geometry, and which objects went on them.
 `ROBO_LAYOUT_BASELINES_IMPLEMENTED=1` — this build gives every line a **floor** —
 an ascent, a descent and the kind they were derived from — and places each of its
 members on it rather than at the line's top edge.
+
+`ROBO_LAYOUT_SIZING_IMPLEMENTED=1` — this build resolves a box's **width and
+height** from its declarations, and a box's resolved width is what its children are
+laid out into. A percentage is read and recorded as `UNRESOLVED` rather than
+resolved against a containing dimension, and intrinsic sizing does not exist yet.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -93,6 +98,18 @@ everything that is not a text run takes a documented **bottom-edge fallback**, a
 the two coordinate spaces a baseline is read in — the line's own and its owner's —
 are named by two doors rather than left to a reader to infer.
 
+**10.8 (width/height).** Where a declaration becomes a size. The structural claim is
+a **split of one number into two uses**: a box's resolved width is what its children
+are laid out *into*, not merely what it is — so the width resolves first (it depends
+on nothing), the children go in at it, and the height follows (it depends on them).
+For an `auto` width the two numbers are the same, because `auto` *is* “fill the
+containing block”, which is why every earlier expectation about a box with no
+declared width still holds. A dimension is **three kinds** (`auto`, a definite px
+length, and *declared but unresolvable* — a percentage or a relative unit, which
+resolves like `auto` today and will not when a containing dimension is known), the
+bounds are applied through 10.1's own clamp so “min wins over max” is still decided
+in one place, and both directions ask `robo_layout_object_sizing` the same question.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -103,10 +120,11 @@ are named by two doors rather than left to a reader to infer.
 | builder | DOM tree in, layout tree out, with `display: none` elements generating no box, every other element generating one, and a text node generating a TEXT object unless it is collapsible whitespace | Handle anonymous boxes or fragments |
 | bridge | The RoboHTML + RoboCSS adapter: RoboCSS's four element-host callbacks, one computed style per element, and the style source the builder reads through | Own a style context, a stylesheet, or a parser |
 | formatting context | The four kinds, the record, and the classification as a **pure function of a display value**, a child composition and a root flag; the per-tree arena of contexts; the two ids on each box | Lay anything out, measure anything, or create an anonymous box |
-| block layout | A real position and size for every block-level box in a block-direction context: width filled from the containing block, children stacked from the content origin, height declared or content-derived, and a record of what was placed and what was not | Resolve a declared width, a percentage, a margin, a padding or a border; place an inline box, a line, or an unreached box; build an anonymous wrapper |
+| block layout | A real position and size for every block-level box in a block-direction context: width **resolved through the sizing layer**, children stacked from the content origin **at that width**, height declared or content-derived, and a record of what was placed and what was not | Resolve a percentage against a containing dimension, a margin, a padding or a border; place an inline box, a line, or an unreached box; build an anonymous wrapper |
 | inline layout | A real position and size for every participant of an inline formatting context: a cursor that advances, a line that moves down when a participant does not fit, a union for a transparent box, and an atomic box's contents laid out inside it by the block pass | Collapse whitespace, break Unicode lines, fragment a participant across two lines, or build the anonymous wrapper a block-level box in an inline context needs |
 | text layout | A code-point range type, the style a font needs resolved from computed CSS, the **measurement seam**, a run record, and a RoboFont-backed measurer that sums advances in font units and scales once | Shape, kern, ligate, reorder for bidi, break lines, or rasterise a glyph |
 | line box | The record of one line — identity, ordinal within its context, finalized rectangle in its owner's content-box space, the width it had to fit, the **baseline** it was given (ascent, descent, kind), and the objects it placed — read back through the tree's arena | Align, fragment, or paint a line; derive its height from a resolved `line-height` or from an inline-block's last in-flow line box |
+| sizing | A box's dimensions as a question and an answer: the available extent per direction with whether it is known at all, the declared dimension in three kinds, the bounds, the contents' extent, and the resolved size with a **source** and a clamped flag per dimension — plus the one seam a computed style becomes a size through | Resolve a percentage against a containing *dimension*, size intrinsically (`min-content`, `max-content`, `fit-content`, shrink-to-fit), apply `box-sizing`, or add the contribution of margins, padding and borders |
 
 ## The one structural decision
 
@@ -252,7 +270,7 @@ leaving a caller to infer an array.
 
 ## The sixth structural decision: one fact, two moments
 
-10.7's, and it is the subtlest of the six because both halves of it look like an
+10.7's, and it is the subtlest of the first six because both halves of it look like an
 implementation detail for the same function. A member's **metrics** are recorded when
 it is placed, because that is when the measurement is in hand. A member's **final y**
 is written when the line is finalized, because the line's ascent is a *maximum* over
@@ -284,6 +302,32 @@ positions are final. The rule is unchanged — a box is the bounding box of what
 contains — and only *when* it is computed moved, from each box's close to a post-order
 walk over the finished context, with the rebasing pass following it because the rebase
 subtracts the origin the union just wrote.
+
+## The seventh structural decision: one number, two uses
+
+10.8's, and it is the only one of the seven that changes an answer the module was
+already giving. 10.3 read a box's width once and used it twice — as the box's own
+size and as the width its children were laid out into — and the two uses are the same
+number only while nothing can size a box:
+
+```text
+the tempting model
+   resolve the box's size -> then lay its children out at the containing block's width
+     -> a 300px card whose child is 800 wide
+
+this build
+   resolve the WIDTH -> lay the children out AT IT -> resolve the HEIGHT (from them)
+```
+
+The split is the phase, and it is why the sizing layer has **two dimension
+resolvers** beside the pair: an atomic inline's `auto` height is its own contents'
+extent, so its width has to be settled before they are walked. A single door would
+have made that caller either lie about contents it does not have yet or resolve
+twice and discard one answer.
+
+For an `auto` width the two uses agree — `auto` *is* "fill the containing block" —
+which is why the seven structural decisions can share the recursion without any of
+the earlier ones moving.
 
 ## What "the pass ran" is allowed to mean
 
@@ -357,6 +401,7 @@ so the tree can borrow them.
 | `RoboLayoutObject.h` | One box, and the read side of every field |
 | `RoboLayoutTree.h` | The arena, the links, the lookup, `add_object` |
 | `RoboLayoutConstraints.h` | Available/minimum/maximum, each known or unset; `clamp` |
+| `RoboLayoutSizing.h` | One dimension in three kinds, the sizing record (available, declared, bounded, contents, resolved, with a source per dimension), the two resolvers and the pair, and the one seam a computed style becomes a size through |
 | `RoboLayoutResult.h` | Position, size, flags, and the state that says which are real |
 | `RoboLayoutContext.h` | One pass, its stats and its outcome |
 | `RoboLayoutFormattingContext.h` | The four kinds, the record, and the pure classifier |
@@ -370,7 +415,7 @@ so the tree can borrow them.
 | `RoboLayoutBuilder.h` | DOM document in, layout tree out |
 | `RoboLayoutDom.h` | The RoboHTML + RoboCSS bridge that supplies the styles |
 | `RoboLayoutDiagnostics.h` | The caller-owned diagnostic record |
-| `RoboLayoutVersion.h` | Version pin and the two capability constants |
+| `RoboLayoutVersion.h` | Version pin and the capability constants |
 
 ## Lifecycle
 
@@ -437,7 +482,8 @@ module.
 | `docs/TextLayout.md` | Text as an ordinary participant, ranges in code points, direction as metadata, the measurement seam and its three answers, the four facts a font needs, and the builder's second rule |
 | `docs/LineBoxes.md` | Construction state versus the record, members as placements, the space a line is in, the lifecycle the pass runs, and what the block pass gets from the lines |
 | `docs/Baselines.md` | Where the member's metrics are written versus where the line's floor is final, half-leading from the run's gap, the bottom-edge fallback, the two coordinate spaces, and why the union walk had to move |
-| `docs/Tests.md` | The thirteen suites, what each asks, and what each phase found |
+| `docs/Sizing.md` | Why a resolved width is what the children are laid out into, the three dimension kinds, per-direction availability, where the bounds come from (and the both-dimensions rule), the two readers over one classification, and the three earlier assertions the phase updated |
+| `docs/Tests.md` | The fourteen suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -445,7 +491,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 177 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 194 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -461,15 +507,16 @@ module, which sits below layout in the graph but has no business in a layout pas
 - No CSS parsing, no property names, no stylesheet, no normalisation. Display is
   read through 9.12's own accessors, including the block-level predicate — there is
   deliberately no second one in this module.
-- No declared `width`. A block box fills its containing block, which is CSS's
-  `width: auto`; resolving `200px`, a percentage, `min-width` or `box-sizing` is
-  10.8.
-- No `margin`, `padding` or `border` arithmetic, and no `box-sizing`. A box's
-  content box *is* its border box until 10.9–10.11, which is why those declarations
-  can be present in a document and change no number here.
-- No percentage, relative-unit, `min-height` or `max-height` resolution. A declared
-  height is honoured only where it is a computed `px` length; anything else takes
-  the `auto` path rather than a guess.
+- No **percentage resolved against a containing dimension**, no `min-content` /
+  `max-content` / `fit-content`, no shrink-to-fit and no `box-sizing`. A declared
+  `width` or `height` is honoured where it is a computed `px` length; a percentage and
+  a relative unit are recorded as `UNRESOLVED` and take the `auto` path rather than a
+  guess. The bounds path *is* live — it is applied through 10.1's clamp and tested
+  end to end — but no property RoboCSS registers feeds it yet, so a document can
+  declare `min-width` and change no number here.
+- No `margin`, `padding` or `border` arithmetic. A box's content box *is* its border
+  box until 10.9–10.11, which is why those declarations can be present in a document
+  and change no number here.
 - No paint, no rendering, no windowing, no display. The viewport is an argument.
 - No **shaping**, no kerning, no ligature, no bidi reordering, no Unicode line
   breaking and no whitespace collapsing. A run's width is the sum of its glyphs'
