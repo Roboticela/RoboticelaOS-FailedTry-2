@@ -48,11 +48,16 @@
  * asked through RoboFont's own API. A pass given no metrics source measures every run
  * as zero and counts it, which is the documented degradation rather than a failure.
  *
- * Line boxes are 10.6, baselines 10.7, sizing 10.8, margins 10.9, padding 10.10 and
- * borders 10.11 -- the last three being the box model complete, inset by inset;
- * positioning and overflow are still absent and still belong to named later goals -- so
- * `geometry`, `block_layout`, `inline_layout`, `block_and_inline_layout`, `text_layout`,
- * `line_boxes`, `baselines`, `sizing`, `margins`, `padding` and `border` are all 1, while
+ * Line boxes are 10.6, baselines 10.7, sizing 10.8, margins 10.9, padding 10.10,
+ * borders 10.11 -- the last three being the box model complete, inset by inset -- and
+ * 10.12 (RoboLayoutPosition.h) is the first phase whose number is a **displacement**
+ * rather than an extent: a `relative` box is moved by an offset while its size and its
+ * flow contribution are untouched, so a result's `position` is where the box is *drawn*
+ * and the object keeps the offset that turns it back into where flow put it. `absolute`,
+ * `fixed` and `sticky` are values 9.13 already carries and behaviour this build does not
+ * have; overflow is still absent and still belongs to a named later goal -- so `geometry`,
+ * `block_layout`, `inline_layout`, `block_and_inline_layout`, `text_layout`, `line_boxes`,
+ * `baselines`, `sizing`, `margins`, `padding`, `border` and `positioning` are all 1, while
  * `painting` is 0.
  *
  * Chromium's LayoutObject / LayoutBox / constraint models are temporary technical
@@ -79,6 +84,7 @@
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
 #include "RoboLayout/RoboLayoutPadding.h"
+#include "RoboLayout/RoboLayoutPosition.h"
 #include "RoboLayout/RoboLayoutObject.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutSizing.h"
@@ -257,6 +263,21 @@ typedef struct robo_layout_capabilities {
      * were named for "borders are finished".
      */
     int border;
+    /**
+     * Turning a box's **`position`** into a displacement (10.12). **1** since 10.12.
+     *
+     * A claim about the *build*, and one sentence short enough to be checked: the mode and
+     * the four insets are read from a computed style, resolved to one displacement by a
+     * stated precedence rule (`left` over `right`, `top` over `bottom`, an `auto` saying
+     * nothing), and applied so that a `relative` box is drawn where its offset puts it
+     * while its size and its flow contribution are untouched -- so the following sibling
+     * starts exactly where it always would have. Kept narrow for the same reason the other
+     * flags are: **`absolute`, `fixed` and `sticky` behaviour does not exist** (their values
+     * and facts do, 9.13; placing against a containing block or a scrollport is 18.5's), no
+     * stacking context or paint order moves, and no percentage inset resolves. `positioning`
+     * would be claiming those if it were named for "positioning is finished".
+     */
+    int positioning;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

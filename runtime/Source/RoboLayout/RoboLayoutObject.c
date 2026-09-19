@@ -342,6 +342,56 @@ robo_result_t robo_layout_object_borders(const robo_layout_tree_t *tree,
     return ROBO_OK;
 }
 
+robo_result_t robo_layout_object_position(const robo_layout_tree_t *tree,
+                                          robo_layout_node_id_t id,
+                                          robo_layout_position_offset_t *out,
+                                          robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading a position offset needs an out");
+    }
+    /* Cleared first, so the record a caller reads after a refusal is a *stated* absence
+     * rather than whatever its stack held. */
+    robo_layout_position_offset_init(out);
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading a position offset needs a tree and an id");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+
+    /*
+     * The same three refusals the inset doors make, and each for the reason the header
+     * argues -- but the *contrast* with them is the point of this door. A cleared padding
+     * or border record is a legal value and a legitimate state, so those doors ask the
+     * result to tell "no padding" from "no pass"; here a zero displacement is the answer
+     * for every `static` box in every document, so the door answers for any placed box
+     * and keeps its refusals for the cases where no offset could exist at all.
+     */
+    if (object->kind != ROBO_LAYOUT_OBJECT_BOX) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a text run has no position offset");
+    }
+    if (robo_layout_result_state(&object->result) != ROBO_LAYOUT_RESULT_COMPUTED) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "no pass has placed this box");
+    }
+    if (robo_css_display_is_inline_level(object->display) &&
+        object->context_owned == ROBO_LAYOUT_FC_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a position offset does not apply to a transparent inline box");
+    }
+
+    *out = object->position_offset;
+    return ROBO_OK;
+}
+
 /** Which link a caller asked for. */
 typedef enum layout_link_pick {
     LAYOUT_LINK_PARENT = 0,

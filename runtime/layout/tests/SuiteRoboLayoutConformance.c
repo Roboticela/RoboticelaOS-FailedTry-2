@@ -71,6 +71,7 @@ static const struct {
     { "margins", 1 },
     { "padding", 1 },
     { "border", 1 },
+    { "positioning", 1 },
     { "painting", 0 }
 };
 
@@ -102,7 +103,7 @@ static void test_conformance_capabilities(void)
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
      * glance. The nineteenth is `painting`, and it is the only one that is 0. */
-    ROBO_CHECK_EQ_INT(implemented, 18u);
+    ROBO_CHECK_EQ_INT(implemented, 19u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -535,9 +536,12 @@ static void test_conformance_pipeline(void)
         /* Since 10.9 these are the card's **margin** edges, and this is the case that
          * recorded (0, 0): a build that added the margins to the box's `size` instead
          * would move the size and leave the origin, and the pair below fails both
-         * ways round. */
+         * ways round. Since 10.12 the card also declares `position: relative;
+         * top: 10px`, so its final position is the margin origin displaced -- 10px
+         * down, and never sideways (`left`/`right` are absent). A `top` changes the
+         * y and leaves the x; the x below is the margins' 20 and nothing else. */
         ROBO_CHECK_EQ_INT(position.x, 20);
-        ROBO_CHECK_EQ_INT(position.y, 10);
+        ROBO_CHECK_EQ_INT(position.y, 20);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
         /*
          * And since 10.11 the two numbers are the card's **border** box rather than the
@@ -1087,7 +1091,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.11.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.12.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*

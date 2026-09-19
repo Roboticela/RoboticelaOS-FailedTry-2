@@ -4654,6 +4654,83 @@ The count went from **2255 pass to 2277**: 22 new cases, no case removed, and th
 cases in seventeen suites are green in Debug, in Release, and under ASan and UBSan with no
 diagnostic — `layout.borders.*` 22/22 under them.
 
+## Goal 10.12 — Basic positioning
+
+**Status: complete.** The phase that gives a box a second coordinate, and the first that is about
+**where** rather than about **how big**: a `position` is a *displacement* — one declaration that
+changes where a box is drawn without changing anything about the box. Every box is placed at its
+**flow** position (the number siblings were computed from) and a relatively positioned box's result
+carries the **final** one, flow displaced by the resolved offset, with the used offset kept on the
+object so `final − offset` is one subtraction and neither space is derived from the other twice.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The inset vocabulary — four kinds, `ABSENT` the zero of the record, **signed** `RESOLVED` (the one inset reader whose sign survives, because the grammar's negative half is the grammar's), `AUTO` and `UNRESOLVED` — the four-sides record, the **position** record (mode plus the four) and its predicates | `Include/RoboLayout/RoboLayoutPosition.h`, `Source/RoboLayout/RoboLayoutPosition.c` |
+| The seam `robo_layout_position_of`: the shared classification with one extra parameter (an inset is signed, where a padding and a border are not), the mode read through a kind check so "not positioned" and "not a position property" stay two answers | `RoboLayoutPosition.c`, `RoboLayoutInternal.h` |
+| The policy `robo_layout_position_resolve`: the one precedence rule (`left` over `right`, `top` over `bottom`, an `auto` saying nothing) and the four counters that account for every declaration — including `offsets_declined`, which tells a `static` box with four insets from a `relative` box with four autos | `RoboLayoutPosition.c` |
+| The apply `robo_layout_position_apply`: flow plus displacement in **64 bits, saturated** — a position and a displacement are each bounded by the seam's maximum and their sum is not — refusing a record no resolve produced *before* it touches the out | `RoboLayoutPosition.c` |
+| The used offset kept on the object, its read door `robo_layout_object_position` (zero returned rather than refused; `ROBO_NOT_FOUND` for an unplaced object, a text run and a transparent inline box), and its clearing | `RoboLayoutObject.h` / `.c`, `RoboLayoutTree.c` |
+| The block pass: the two-step placement — `margin_origin` (flow) then `final_origin` — the result carrying final, the stacking continuing from flow, the counters accumulated **after** the resolve | `Source/RoboLayout/RoboLayoutBlock.c`, `RoboLayoutBlock.h` |
+| The inline pass: an atomic inline's displacement in two halves — `dx` to its `position.x` and never to the advance, `dy` at finalization after the baseline correction; transparent boxes and text runs decline | `Source/RoboLayout/RoboLayoutInline.c`, `RoboLayoutInline.h` |
+| The four counters in both records and both `equal()` comparisons, `boxes_shifted` the first counter about the box rather than a declaration | `RoboLayoutBlock.h`, `RoboLayoutInline.h`, and their `.c` |
+| Version `0.12.0`, `ROBO_LAYOUT_POSITIONING_IMPLEMENTED`, the `position` diagnostic domain (the twentieth), the umbrella, the build and the suite registration | `RoboLayoutVersion.h`, `RoboLayout.h`, `RoboLayoutDiagnostics.h`, `Tools/Build.ps1`, `Tests/Main.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A dedicated positioning representation exists | `layout.positioning.kind_vocabulary`, `layout.positioning.position_record` |
+| `static` remains fully compatible with normal flow | `layout.positioning.policy_static_declines`, `layout.positioning.block_static_declines` |
+| `relative` works with basic offsets | `layout.positioning.policy_precedence`, `layout.positioning.apply` |
+| Relative elements retain their normal-flow space | `layout.positioning.flow_preserved`, `layout.positioning.block_relative` |
+| Final positioned geometry is distinct from flow geometry | `layout.positioning.block_relative`, `layout.positioning.object_door` |
+| Margins, borders, padding, width and height keep working | `layout.positioning.box_model_interaction`, `layout.positioning.descendants` |
+| Positive and negative offsets are safe | `layout.positioning.block_negative`, `layout.positioning.apply` |
+| Descendant geometry remains correct | `layout.positioning.descendants` |
+| Offset changes invalidate correctly | `layout.positioning.relayout` |
+| Final geometry available for paint and hit testing | `robo_layout_object_position` (the door both read) |
+| Focused positioning tests pass | `layout.positioning.*` 19/19 |
+| All previous CSS/layout tests pass | 2295/2295, Debug and Release |
+| No Chromium dependency | `Tools/Build.ps1 -Verify` boundary scan |
+
+### What 10.12 found
+
+Four findings, the first two **ordering** ones — the displacement arithmetic was correct the whole
+time, and what it sat next to was wrong.
+
+**A counter read a variable that was not written yet.** The block pass accumulated the four
+position counters *before* the call that resolved the displacement, so on the first box of every
+pass `offsets_applied` summed whatever the previous frame had left on the stack — visible as
+pointer-sized garbage in a determinism case that compared two passes' records. Every earlier
+counter was preceded by its own resolve, so this is the module's first accumulator that outlived
+its producer; the fix is the ordering, and only a *comparison* could see it (both passes were wrong
+the same way, so both records were self-consistent).
+
+**A test freed a pointer the fixture had already freed.** The seam case held the style pointer the
+first build handed back, replaced that style three times, and ended by destroying the stale first
+pointer — a double free that segfaulted the suite mid-case, after every assertion in it had passed.
+A handle a builder hands back is a view of one moment; a replace invalidates it.
+
+**A negative inset is honoured here and nowhere else.** `layout.positioning.seam` reads
+`right: -4px` back as **-4** — the one seam of the three inset readers where the sign survives —
+and the fixture's first draft stored the magnitude and expected the layer to negate it. The run
+said otherwise, and the helper now carries the sign it was handed.
+
+**A displacement composes with the flow stack, not with the boxes after it.** The box-model case's
+first draft expected a shifted sibling's `y` to restart from the displaced box's final position;
+the engine put it where the *flow* position says, and the case now asserts the pair — the box
+drawn at margin origin plus offset, the sibling at flow's number, the two differing by exactly the
+offset. Two coordinate spaces, one box, no third number.
+
+The count went from **2277 pass to 2295**: 19 new cases, and the module's 280 cases in eighteen
+suites are green in Debug, in Release, and under ASan and UBSan with no diagnostic —
+`layout.positioning.*` 19/19 under them. The host visual checkpoint is 23/23 probes and
+`robo test-qemu-display` passes; `robo test-runtime` remains red only on the documented
+`window.host.keyboard` host-focus flake, fourth consecutive phase, on a diff touching no `window`
+file.
+
 ## Next
 
-- Goal 10.12 — basic positioning — do not start until requested
+- Goal 10.13 — overflow — do not start until requested

@@ -1,9 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.11, borders — the box
-model complete**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.12, basic positioning**).
 
-**Version:** 0.11.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.12.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -55,6 +54,15 @@ this layer adds is that a side's **used** width is zero unless its style draws �
 `border: 5px none` costs no geometry — and the whole per-side record (used width,
 style, colour) is readable from the object so Phase 11 re-reads no declaration.
 `border-radius` and any border on a transparent inline box do not exist yet.
+
+`ROBO_LAYOUT_POSITIONING_IMPLEMENTED=1` — this build reads a box's **`position`**
+and its **four inset longhands** and turns them into a displacement: a `relative`
+box is drawn where its offset puts it — `left` over `right`, `top` over `bottom`, an
+`auto` saying nothing — while its **size** is untouched and its **flow** contribution
+is untouched, so the following sibling starts exactly where it always would have. A
+result carries the *final* position; the *flow* position stays recoverable through the
+used offset the object keeps. `static` remains the default and means no displacement;
+`absolute`, `fixed` and `sticky` are represented and declined (placing one is 18.5's).
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -185,6 +193,19 @@ term for each. It is the first phase where "this record is impossible" and "this
 document is extreme" needed different answers: a negative *available width* is floored
 at zero, but a negative *border record* is refused with a diagnostic.
 
+**10.12 (basic positioning).** The phase that gives a box a second coordinate. A
+`position` is a *displacement* — the first declaration in this module that changes
+**where** a box is without changing anything about the box — and the phase's work is
+keeping the two coordinate spaces two: every box is placed at its **flow** position
+(the number siblings were computed from) and drawn at its **final** position (flow
+plus the resolved offset), with the used offset kept on the object so neither is
+derived from the other twice. One resolution rule stated narrowly (`left` over
+`right`, `top` over `bottom`, an `auto` saying nothing), applied in 64 bits and
+saturated, counted in four counters whose **decline** count is the one that tells a
+`static` box with four insets from a `relative` box with four autos. Inline keeps its
+line: an atomic inline's `dx` moves it along its line without touching the advance,
+and its `dy` lands at finalization after the baseline correction.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -203,6 +224,7 @@ at zero, but a negative *border record* is refused with a diagnostic.
 | margin | The gap beside a box, in two vocabularies: the four declarations in four kinds (`absent`, `resolved` — signed — `auto`, `unresolved`) read from a computed style, and the four **used values** a result is placed by; two policies (a block box's, which distributes a horizontal `auto` beside a declared width, and an atomic inline's, which does not); and the read door a caller uses instead of re-deriving the addition | Collapse two adjacent vertical margins, resolve a percentage against the containing *width*, place a vertically `auto` margin (`auto` means something only for an absolutely positioned box, 10.12), or add padding or border to any of it |
 | padding | The same declarations, one layer *inside*: three kinds (`absent`, `resolved` — non-negative — `unresolved`) read from a computed style, the four **used values**, and two derived numbers — the width left for a box's contents (floored at zero) and the **padding box** the result carries (summed in 64 bits and saturated) — with the read door a caller uses for where a box's contents begin | Inflate a **transparent inline box** by a declared padding, resolve a percentage against the containing *width*, apply `box-sizing: border-box`, or add a **border** to either derived number — the border layer composes above this one and calls the padding box its input |
 | border | The third inset, and the one between the padding and the margin: the twelve longhands read through **three** seams (a width's `px`-or-`thin`/`medium`/`thick` door, a style's ten-row vocabulary and its `generates_border` fact, a colour reused from 9.9), the four sides as a width + style + colour each, the **used edges** record, and the two derived numbers — the **border box** the result carries (summed in 64 bits and saturated) and the content width after borders *and* padding (floored at zero) — with the read door a caller uses for the box a paint pass draws, and the three counters that keep "declared" and "drawn" two facts | Draw a border (Phase 11), round a corner (`border-radius`), apply a border to a **transparent inline box**, resolve a percentage border width, or draw any style but `solid` — the vocabulary is ten rows wide because the *value model* is, not because a painter exists |
+| position | A box's **second coordinate**: the mode and four inset longhands in four kinds (`absent`, `resolved` — signed — `auto`, `unresolved`), the **used offset** record (a displacement plus four counters that account for every declaration), one precedence rule (`left` over `right`, `top` over `bottom`, an `auto` saying nothing), the apply in 64 bits and saturated, and the object door that separates a box's **flow** position from its **final** one | Place an `absolute`, `fixed` or `sticky` box (18.5), resolve a percentage inset, move a stacking context or a paint order, or offset a **transparent inline box** or a text run — both decline, and the doors say so rather than answering a zero |
 
 ## The one structural decision
 
@@ -483,6 +505,29 @@ than a box's insets is a document, not a bug). The phase's own finding is that a
 rather than floored, because this layer's resolver cannot produce one and a hand-built
 one is a caller error rather than an extreme document.
 
+## The eleventh structural decision: a position is two coordinates, not one
+
+10.12's, and the first that is about **where** rather than about **how big**. Every
+earlier phase wrote one position per box and every consumer read it; a displacement
+would have been invisible — and quietly destructive — in that model, because the
+number a sibling's placement was computed from and the number a renderer draws would
+have been the same field. So the phase's rule is that the two spaces are written
+**once each**:
+
+```text
+the result carries the FINAL position   (what paint draws)
+the object carries the USED OFFSET      (final − flow is one subtraction)
+the flow position exists nowhere else   (and is never written over)
+```
+
+A build that added the offset into the flow position would look identical in every
+single-box test and move every following sibling; the suite asserts the pair — the box
+is drawn where its offset puts it and the next sibling starts where flow says — which
+is the case paying for the model rather than documenting it. The counters complete it:
+`boxes_shifted` counts a fact about the *box* (its displacement is non-zero) while the
+other three count *declarations*, and `offsets_declined` is the number that tells a
+`static` box with four insets from a `relative` box with four autos.
+
 ## What "the pass ran" is allowed to mean
 
 There are two passes now, and they answer different questions about the same tree.
@@ -568,6 +613,7 @@ so the tree can borrow them.
 | `RoboLayoutMargin.h` | The four margin declarations in four kinds, the four used values, the two policies, and the read door a caller uses instead of re-adding them |
 | `RoboLayoutPadding.h` | The four padding declarations in three kinds, the four used values, the one policy, and the two derived numbers (the content width, floored; the padding box, saturated) |
 | `RoboLayoutBorder.h` | The twelve border longhands read through three seams, the four sides, the used **edges** record, and the two derived numbers (the border box, saturated; the content width after borders and padding, floored) |
+| `RoboLayoutPosition.h` | The `position` mode and the four inset longhands in four kinds, the used **offset** record with its four counters, the one precedence rule, the apply, and the seam a computed style becomes a displacement through |
 | `RoboLayoutStyle.h` | The style-source seam |
 | `RoboLayoutBuilder.h` | DOM document in, layout tree out |
 | `RoboLayoutDom.h` | The RoboHTML + RoboCSS bridge that supplies the styles |
@@ -643,7 +689,8 @@ module.
 | `docs/Margins.md` | Why a margin moves a box and never resizes it, the four kinds (and why an absent side is not a declared zero), the two policies, the used values record and its one clamped number, the three earlier assertions the phase updated, and the missing collapsing |
 | `docs/Padding.md` | Why a padding grows a box and never moves it, the three kinds (and why there is no `auto`), the one policy and why one door is enough where margins needed two, the two derived numbers and their two different clamps, the `content-box` model, the four earlier assertions the phase updated, and the missing transparent-inline padding |
 | `docs/Borders.md` | Why a border is an in-box inset and not a spacing, the three seams and why the three properties compute three ways, the `padding_box` rename and why the old name was the defect, the two derived numbers with opposite clamps, the `content-box` model, and the assertion that deliberately did not move |
-| `docs/Tests.md` | The seventeen suites, what each asks, and what each phase found |
+| `docs/Positioning.md` | Why a position is two coordinates, the four inset kinds (and why an inset is signed where a padding is not), the one precedence rule and its four counters, the apply's saturation, the two inline halves, and the object door that separates flow from final |
+| `docs/Tests.md` | The eighteen suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -651,7 +698,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 261 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 280 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -693,6 +740,10 @@ module, which sits below layout in the graph but has no business in a layout pas
   union by a declared padding or border. `layout.paddings.inline_transparent_not_applied`
   and `layout.borders.inline_transparent_not_applied` assert the omission as a value, so
   a later goal changes an assertion rather than adding one.
+- No **absolute**, `fixed` or `sticky` placement. Their values and facts exist (9.13)
+  and a non-relative box's insets are read and **declined** — counted, not dropped —
+  but placing one against a containing block or a scrollport is 18.5's. No percentage
+  inset resolves, and no `z-index` or stacking context moves.
 - No paint, no rendering, no windowing, no display. The viewport is an argument.
 - No **shaping**, no kerning, no ligature, no bidi reordering, no Unicode line
   breaking and no whitespace collapsing. A run's width is the sum of its glyphs'

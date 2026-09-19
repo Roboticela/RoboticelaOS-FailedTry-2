@@ -276,8 +276,17 @@ static robo_result_t layout_inline_finalize_line(robo_layout_walk_t *walk,
                         "a line's ascent is smaller than one of its members'");
                 }
                 placed->line = id;
+                /*
+                 * And the vertical displacement (10.12), added *after* the baseline
+                 * correction because it is a displacement from where the line put the
+                 * member and not a second opinion about where the baseline is. A `top: 4px`
+                 * on an atomic inline lifts nothing and drops the box 4px; its line's floor
+                 * is unchanged, which is why this is the only place a member's `y` is
+                 * touched after placement.
+                 */
                 placed->result.position.y =
-                    origin.y + (baseline.ascent - placed->baseline.ascent);
+                    origin.y + (baseline.ascent - placed->baseline.ascent) +
+                    placed->position_offset.dy;
             }
             member = record->next;
         }
@@ -384,7 +393,18 @@ static robo_result_t layout_inline_place(robo_layout_walk_t *walk,
      * `margin_left` in from the cursor and its **size stays its own** -- the two
      * numbers are not added together anywhere, even though the cursor moves past both.
      */
-    position.x = x + margin_left;
+    /*
+     * The horizontal displacement (10.12) is applied to the *position* and never to the
+     * *advance* below, which is the phase in two lines: a relatively positioned atomic
+     * inline is drawn `dx` further along its line while the cursor moves by its margin box
+     * exactly as it always would. The offset is read off the object because the block pass
+     * writes it the same way for a block box -- one record, two passes.
+     *
+     * The vertical half is applied at finalization instead, because a member's `y` is not
+     * final until its line's baseline is (10.7), and adding it here would be overwritten by
+     * the correction walk there.
+     */
+    position.x = x + margin_left + object->position_offset.dx;
     position.y = y;
     size.width = width;
     size.height = height;
@@ -516,6 +536,8 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         robo_layout_border_edges_t borders;
         robo_layout_paddings_t declared_padding;
         robo_layout_padding_edges_t padding;
+        robo_layout_position_t declared_position;
+        robo_layout_position_offset_t position_offset;
         int32_t padding_box_available = 0;
         int32_t content_available = 0;
         robo_result_t sizing_status;
@@ -680,6 +702,31 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         walk->inline_flow->borders_applied += borders.widths_resolved;
         walk->inline_flow->borders_unresolved += borders.widths_unresolved;
         walk->inline_flow->borders_drawn += borders.borders_drawn;
+        /*
+         * And the position (10.12), which is the one declaration on an atomic inline that
+         * changes none of the numbers above it: not its size, not its advance along the
+         * line, not its baseline. It is read, resolved to a displacement, and written on
+         * the box -- and the two existing placement points read it back, `layout_inline_place`
+         * for `dx` and `layout_inline_finalize_line` for `dy`, so the offset applies to a
+         * participant the same way the block pass applies it to a block box.
+         *
+         * Counted here, in the atomic branch, because an atomic inline is the only inline
+         * participant that carries one: a **transparent** inline box's rectangle is the
+         * union of its contents and a **text run** is not a box at all. Both decline, and
+         * the doors say so rather than answering a zero (`RoboLayoutPosition.h`).
+         */
+        declared_position = robo_layout_position_of(object->style);
+        sizing_status = robo_layout_position_resolve(&declared_position, &position_offset,
+                                                     walk->diag);
+        if (sizing_status != ROBO_OK) {
+            return sizing_status;
+        }
+        walk->inline_flow->offsets_applied += position_offset.insets_resolved;
+        walk->inline_flow->offsets_declined += position_offset.insets_declined;
+        walk->inline_flow->offsets_unresolved += position_offset.insets_unresolved;
+        if (position_offset.dx != 0 || position_offset.dy != 0) {
+            walk->inline_flow->boxes_shifted++;
+        }
 
         /* And the used margins, padding and border are kept on the box, exactly as the block
          * pass keeps them: the record a later phase wants is the participant's margin box, and
@@ -689,6 +736,7 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         object->margins = edges;
         object->padding = padding;
         object->borders = borders;
+        object->position_offset = position_offset;
     } else {
         walk->inline_flow->non_atomic_placed++;
     }
@@ -1186,6 +1234,10 @@ int robo_layout_inline_stats_equal(const robo_layout_inline_stats_t *a,
            a->borders_applied == b->borders_applied &&
            a->borders_unresolved == b->borders_unresolved &&
            a->borders_drawn == b->borders_drawn &&
+           a->offsets_applied == b->offsets_applied &&
+           a->offsets_declined == b->offsets_declined &&
+           a->offsets_unresolved == b->offsets_unresolved &&
+           a->boxes_shifted == b->boxes_shifted &&
            a->depth_max == b->depth_max;
 }
 

@@ -89,6 +89,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "padding";
     case ROBO_LAYOUT_DOMAIN_BORDER:
         return "border";
+    case ROBO_LAYOUT_DOMAIN_POSITION:
+        return "position";
     default:
         return "unknown";
     }

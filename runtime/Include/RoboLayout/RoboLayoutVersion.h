@@ -278,9 +278,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 11
+#define ROBO_LAYOUT_VERSION_MINOR 12
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.11.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.12.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -533,5 +533,39 @@
  * otherwise be assumed.
  */
 #define ROBO_LAYOUT_BORDER_IMPLEMENTED 1
+
+/**
+ * 1 once this build turns a box's **`position`** into a displacement: where a box ends
+ * up relative to where flow put it, without changing flow.
+ *
+ * A constant rather than a runtime decision for the same reason the other eleven are: it
+ * is read by `robo_layout_get_capabilities().positioning` and by the suite that asserts
+ * the flag against the code. What it claims, exactly:
+ *
+ *   the **mode** read from a computed style (9.13's own vocabulary, carried rather than
+ *   copied) and the four **insets** (`top`, `right`, `bottom`, `left`) read from the
+ *   box model's offset shape -- each a signed px length, the `auto` keyword, or a
+ *   declaration this build cannot use, with the signedness a margin has rather than the
+ *   non-negativity a padding and a border have;
+ *
+ *   the **used displacement** by one stated policy: `left` wins over `right`, `top` wins
+ *   over `bottom`, and an `auto` side says nothing -- deterministic, documented at the
+ *   rule, and enough for every document that writes one side of a pair;
+ *
+ *   a result whose `position` is the **final** position (the flow position plus the
+ *   displacement) while the object carries the displacement itself, so the flow position
+ *   is `final - offset` and neither is guessed; a box's **size** and its **flow
+ *   contribution** are both untouched, so the following sibling starts where it always
+ *   would have.
+ *
+ * What it does **not** claim: `absolute`, `fixed` and `sticky` **behaviour** -- their
+ * values and their two facts exist (9.13), and placing a box against a containing block,
+ * the viewport or a scrollport is 18.5's -- no `z-index`, no stacking context, no paint
+ * order, and no percentage inset (read, recorded unresolved and used as zero). A
+ * displacement applies to a box the passes give a rectangle to; a **transparent inline
+ * box** (whose rectangle is a union) and a **text run** (which is not a box) take none.
+ * Each is named in `RoboLayoutPosition.h` where it would otherwise be assumed.
+ */
+#define ROBO_LAYOUT_POSITIONING_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

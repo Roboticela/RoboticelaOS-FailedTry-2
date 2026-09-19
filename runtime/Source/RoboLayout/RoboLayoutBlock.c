@@ -359,11 +359,14 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     robo_layout_border_edges_t borders;
     robo_layout_paddings_t declared_padding;
     robo_layout_padding_edges_t padding;
+    robo_layout_position_t declared_position;
+    robo_layout_position_offset_t position_offset;
     robo_layout_size_t content;
     robo_layout_size_t content_size;
     robo_layout_size_t padding_box;
     robo_layout_size_t size;
     robo_layout_point_t margin_origin;
+    robo_layout_point_t final_origin;
     robo_gfx_pixel_y_t content_extent = 0;
     robo_result_t status;
 
@@ -578,7 +581,6 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     walk->block->borders_applied += borders.widths_resolved;
     walk->block->borders_unresolved += borders.widths_unresolved;
     walk->block->borders_drawn += borders.borders_drawn;
-
     /*
      * And the box's own geometry is written at its **margin origin**, which is the
      * whole of what a margin does to a box: `origin` is where its containing block's
@@ -601,10 +603,51 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      */
     margin_origin.x = origin.x + edges.left;
     margin_origin.y = (robo_gfx_pixel_y_t)(origin.y + edges.top);
-    status = robo_layout_result_set_geometry(&object->result, margin_origin, size,
+
+    /*
+     * The position next (10.12), and it is the only phase in this module that changes
+     * *where* a box is without changing anything about the box. Two steps rather than one
+     * because the two coordinate spaces are the phase: `margin_origin` is where flow put
+     * the box -- the number every sibling's placement was computed from -- and
+     * `final_origin` is where it is drawn, which is `margin_origin` displaced by the
+     * resolved offset.
+     *
+     * A `static` box resolves to a zero offset and the two are the same number, which is
+     * why every 10.3–10.11 expectation about a position still holds: the three inset
+     * phases added their numbers *inside* `size`, and this one adds a number *outside* it
+     * and leaves the size alone. The `*out_height` below is computed from the flow
+     * geometry for the same reason, so the following sibling starts where it always would
+     * have whatever this box did with its offset.
+     */
+    declared_position = robo_layout_position_of(object->style);
+    status = robo_layout_position_resolve(&declared_position, &position_offset, walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    status = robo_layout_position_apply(margin_origin, &position_offset, &final_origin,
+                                        walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    status = robo_layout_result_set_geometry(&object->result, final_origin, size,
                                              walk->diag);
     if (status != ROBO_OK) {
         return status;
+    }
+    /* And the position's counters (10.12), which are the first counters in this record
+     * that are about *where* rather than about *how big* -- and the first to count a
+     * fact about the box rather than about a declaration (`boxes_shifted`).
+     * `offsets_declined` is the one that would otherwise be invisible: a `static` box
+     * with four insets and a `relative` box with four autos both resolve to a zero
+     * displacement, and only this counter tells the first document from the second.
+     * Counted *after* the resolve above so the record always describes this box rather
+     * than whatever a previous box left on the stack -- the ordering bug a determinism
+     * case caught as pointer-sized garbage in the counters. */
+    walk->block->offsets_applied += position_offset.insets_resolved;
+    walk->block->offsets_declined += position_offset.insets_declined;
+    walk->block->offsets_unresolved += position_offset.insets_unresolved;
+    if (position_offset.dx != 0 || position_offset.dy != 0) {
+        walk->block->boxes_shifted++;
     }
 
     /*
@@ -629,6 +672,14 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * here rather than re-decided from a style later.
      */
     object->borders = borders;
+    /*
+     * And the displacement it was placed with (10.12), which is what makes the box's
+     * **flow** position recoverable: the result above carries the final position, so a
+     * caller that wants where flow put the box subtracts this record. Kept on the box for
+     * the reason the three insets are and one more -- a displacement is not derivable from
+     * a size or an inset, so without this field the flow position would exist nowhere.
+     */
+    object->position_offset = position_offset;
 
     walk->block->blocks_placed++;
     if (object->depth > walk->block->depth_max) {
@@ -642,6 +693,12 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * than as a size because that is all a containing block needs from a child in this
      * direction -- the parent never looks at where its child's content box ended, only
      * at where the next one may start.
+     *
+     * And 10.12 does not touch it, which is the phase in one line: a displacement moves
+     * the box and never its flow contribution, so `size.height` and the two margins here
+     * are the *flow* geometry and a box shifted 100px down still leaves the hole flow gave
+     * it. A build that added the offset here would look identical in every single-box test
+     * and move every following sibling, which is why the suite asserts the pair.
      *
      * `size.height` is the **border** box since 10.10 and stays it in 10.11, so this one
      * expression spans all **four** of a box's boxes: the padding and the border are already
@@ -697,6 +754,10 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
            a->borders_applied == b->borders_applied &&
            a->borders_unresolved == b->borders_unresolved &&
            a->borders_drawn == b->borders_drawn &&
+           a->offsets_applied == b->offsets_applied &&
+           a->offsets_declined == b->offsets_declined &&
+           a->offsets_unresolved == b->offsets_unresolved &&
+           a->boxes_shifted == b->boxes_shifted &&
            a->empty_containers == b->empty_containers &&
            a->depth_max == b->depth_max;
 }

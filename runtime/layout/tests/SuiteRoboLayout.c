@@ -40,10 +40,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 11);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 12);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.11.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.11.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.12.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.12.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -116,6 +116,7 @@ static const struct {
     { "margins", 1 },
     { "padding", 1 },
     { "border", 1 },
+    { "position", 1 },
     { "painting", 0 }
 };
 
@@ -210,6 +211,7 @@ static void test_module_capabilities(void)
      * above it, which is why it is asserted here rather than left to the table.
      */
     ROBO_CHECK_EQ_INT(caps.border, ROBO_LAYOUT_BORDER_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(caps.positioning, ROBO_LAYOUT_POSITIONING_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -297,14 +299,15 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 19);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 20);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_SIZING), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_MARGINS), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_PADDING), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_BORDER), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)19), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_POSITION), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)20), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -360,7 +363,12 @@ static void test_module_diagnostic_domains(void)
      * size is a caller bug and the moment to see it is before a size is derived from it. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_BORDER),
                       "border");
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_BORDER,
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_POSITION),
+                      "position");
+    /* 10.12's, and it is the newest: the first domain in this module about *where*
+     * a box is rather than about how big it is, which is why it ends the list rather
+     * than slotting beside the three insets it displaces. */
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_POSITION,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_PADDING,
                       (int)ROBO_LAYOUT_DOMAIN_BORDER - 1);
@@ -549,7 +557,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.11.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.12.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

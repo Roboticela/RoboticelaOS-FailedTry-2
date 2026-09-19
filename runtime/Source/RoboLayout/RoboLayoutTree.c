@@ -863,6 +863,16 @@ void robo_layout_tree_lines_reset(robo_layout_tree_t *tree)
          * read as an answer.
          */
         robo_layout_border_edges_init(&tree->objects[index].borders);
+        /*
+         * And the position offset (10.12), the one record here that is a *displacement*
+         * rather than an extent or an inset. It is cleared in the same sweep and for the
+         * same reason -- a displacement that outlived the pass that concluded it would be
+         * a box drawn somewhere the current layout never put it -- and it needs the
+         * clearing more than the three above it, because its zero is the *common* value:
+         * every `static` box resolves to one, so "no offset" and "no pass" are the same
+         * record and only the result's state tells them apart.
+         */
+        robo_layout_position_offset_init(&tree->objects[index].position_offset);
     }
 }
 

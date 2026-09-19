@@ -125,11 +125,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** Padding: the four sides, the used values, the border and content boxes. */
     ROBO_LAYOUT_DOMAIN_PADDING = 17,
     /** Borders: the twelve longhands, the used widths, the two derived boxes. */
-    ROBO_LAYOUT_DOMAIN_BORDER = 18
+    ROBO_LAYOUT_DOMAIN_BORDER = 18,
+    /** Positioning: the four insets, the precedence rule, the used displacement. */
+    ROBO_LAYOUT_DOMAIN_POSITION = 19
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 19u
+#define ROBO_LAYOUT_DOMAIN_COUNT 20u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.11)
+# RoboLayout Test Organisation (through Phase 10.12)
 
-Seventeen suites, 261 tests, one framework. Each phase adds no test runner, no reporter
+Eighteen suites, 280 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -45,6 +45,7 @@ phase that made it.
 | `SuiteRoboLayoutMargin.c` | `layout.margins.*` | 25 | does a margin move a box without resizing it, and does each of the four sides get the value its policy asks for? |
 | `SuiteRoboLayoutPadding.c` | `layout.paddings.*` | 20 | does a padding grow a box without moving it, does an `auto` width fill what it left, and is a transparent inline box left un-inflated? |
 | `SuiteRoboLayoutBorder.c` | `layout.borders.*` | 22 | is a border's *used* width zero unless its style draws, is the box a reader sees the border box, and does a content origin compose two insets? |
+| `SuiteRoboLayoutPosition.c` | `layout.positioning.*` | 19 | does a relative box move without leaving its flow space, and does `static` stay exactly what it was? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -732,8 +733,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 263 — this module's 261, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 265 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 282 — this module's 280, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 284 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -750,9 +751,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.margins` | 25 |
 | `layout.paddings` | 20 |
 | `layout.borders` | 22 |
+| `layout.positioning` | 19 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2277** tests, green in both configurations.
+Whole suite: **2295** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -767,7 +769,9 @@ Whole suite: **2277** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2277 cases. In 10.11's run the sanitized suite was
+ASan and UBSan run the same 2295 cases. In 10.12's run the sanitized suite was
+**2296/2296** with **no sanitizer diagnostic and no red case at all**, and
+`layout.positioning.*` was 19/19 under them. In 10.11's run the sanitized suite was
 **2277/2277** with **no sanitizer diagnostic and no red case at all**, and
 `layout.borders.*` was 22/22 under them. In 10.10's run the sanitized suite was 2255
 with **no sanitizer diagnostic** and `window.host.keyboard` and `window.host.mouse`
@@ -798,8 +802,8 @@ to get:
 
 | How the suite was run | Result |
 |---|---|
-| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** in 10.11 |
-| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** on 10.11's first Release run and **2277/2277** on the next |
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** in 10.11; **2254/2255** in 10.12 |
+| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** on 10.11's first Release run and **2277/2277** on the next; **2295/2295** in 10.12 (direct) |
 | `--filter=window.host` in isolation | **19/19** — three times in each phase |
 | the binary as a child of `pwsh` with its output captured | **passes** |
 
@@ -1348,3 +1352,53 @@ a diff that contains no file matching `window`. It is worth noting only because 
 blocks two otherwise-green pipeline commands (`test-runtime`, `run-runtime`) in every
 unsanitized whole-suite run, which is a cost the module is paying rather than a
 property of this phase.
+
+---
+
+## 17. What the 10.12 suites found
+
+Four findings, and the first two are **ordering** ones — the phase's displacement
+arithmetic was correct the whole time, and what it sat next to was wrong.
+
+**1. A counter read a variable that was not written yet.** The block pass accumulated
+the four position counters *before* the call that resolved the displacement, so on the
+first box of every pass `offsets_applied` summed whatever the previous frame had left
+on the stack — visible as pointer-sized garbage in a determinism case that compared two
+passes' records. Every earlier counter was preceded by its own resolve, so this is the
+first time in the module that an accumulator outlived its producer; the fix is the
+ordering (count *after* the resolve, behind the two early returns) and the record
+always describing this box rather than the last one. The kind of bug only a
+*comparison* can see: both passes were wrong in the same way, so both records were
+self-consistent and no single run caught it.
+
+**2. A test freed a pointer the fixture had already freed.** The seam case held the
+style pointer the first build handed back, then replaced that style three times — each
+replace destroying the old row's style and building a new one — and ended by
+destroying the *stale* first pointer: a double free that ended the whole suite in a
+segfault under the Debug heap, mid-case and after every assertion in it had passed.
+The fix is teardown over what the source *currently* holds, and the lesson is the
+fixture's own rule restated: a handle handed back by a builder is a view of one
+moment, and a replace invalidates it.
+
+**3. A negative inset is honoured here and nowhere else, and the seam test is the
+case that says so.** `layout.positioning.seam` reads `right: -4px` back as **-4** —
+the one seam of the three inset readers where the sign survives, because CSS's
+inset grammar (like margin's) makes the negative half of the value space and a
+padding's or a border's does not. The first draft of the fixture stored the magnitude
+and expected the layer to negate it; the run said otherwise, and the helper now
+carries the sign it was handed.
+
+**4. A displacement composes with a *flow* stack, not with the boxes after it.** The
+box-model case's first draft expected a shifted sibling's `y` to restart from the
+displaced box's final position; the engine put it where the *flow* position says it
+belongs, and the case now asserts the pair — the box is drawn at margin origin plus
+offset, the next sibling's flow `y` accumulates from the margin box as if the offset
+did not exist, and the two numbers differ by exactly the offset. That is the phase in
+one case: two coordinate spaces, one box, no third number.
+
+**The flake, one phase on.** 10.12's `robo test-runtime` run was **2254/2255** with
+`window.host.keyboard` the only red case — the documented host-desktop flake, in the
+fourth consecutive phase — while the direct run of the same Debug binary was
+**2295/2295** and the sanitized run **2296/2296**, both with no red case at all. The
+diff touches no file matching `window`; the flake remains a property of the console
+holding the foreground, not of the module.

@@ -331,6 +331,25 @@ typedef struct robo_layout_inline_stats {
      *  `borders_applied` for the reason the block record's is: `border-width: 5px` with
      *  `border-style: none` resolves and draws nothing. */
     size_t borders_drawn;
+    /** **Sides** of an atomic participant whose declared inset reached this pass on a
+     *  `relative` box (10.12), zero and negative included. Summed over sides for the
+     *  reason every counter above it is, and it is a count of *atomic participants* only:
+     *  a transparent inline box's rectangle is a union and a text run is not a box, so
+     *  neither carries a displacement. */
+    size_t offsets_applied;
+    /** Sides whose inset this phase **did not act on** (10.12): the box's mode was not
+     *  `relative`, so CSS applies no offset (`static`) or this build does not move it
+     *  (`absolute`, `fixed`, `sticky`). Counted so that a document with insets on a
+     *  non-relative participant is visible as one. */
+    size_t offsets_declined;
+    /** Sides declared on an atomic participant with an inset this build cannot use -- a
+     *  percentage, a relative unit (10.12). Used as zero, and counted so that a document
+     *  displaced with `left: 10%` is visible as one. */
+    size_t offsets_unresolved;
+    /** Atomic participants given a **non-zero** displacement (10.12). Counted for the
+     *  reason the block record counts it: four declarations can resolve and move nothing,
+     *  so "how many boxes did this move?" is a question only a box count answers. */
+    size_t boxes_shifted;
     /** Deepest participant placed. */
     uint32_t depth_max;
 } robo_layout_inline_stats_t;

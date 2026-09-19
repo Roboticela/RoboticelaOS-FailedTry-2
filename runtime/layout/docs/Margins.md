@@ -189,6 +189,14 @@ Two places, and they carry different things:
   no margins to either, and a confident zero would tell a caller an author's margin
   had been honoured and come to nothing.
 
+  *10.12's outcome row:* one thing beside the numbers, and it is the phase's own:
+  **where the box sits is no longer only a margin question.** The margin origin is
+  still where flow puts the box, and a `position: relative` box is *drawn* from
+  there displaced by its resolved offset while its margins keep every duty they
+  had. The margin box the parent stacks by is computed from the **flow** geometry,
+  so a displaced box's margins still carve its hole in the parent exactly as if it
+  had not moved (`Positioning.md` §5).
+
 The parent's side of it is one number: `layout_block_box` reports
 `top + height + bottom` as the extent the cursor advances by. The containing block
 never looks at where a child's content box ended; it only asks where the next one may

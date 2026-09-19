@@ -312,3 +312,11 @@ document that declares neither inset. Nothing in this layer changed for it: a bo
 contributes to the **available width** its caller passes in (`Borders.md` §4) exactly
 as a padding does, which is why the border was a subtraction on the way in and an
 addition on the way out rather than a fourth kind of dimension.
+
+*10.12's outcome row:* nothing in this layer, and the phase is the proof the layer is
+done being extended by the box model. A displacement changes **where** a resolved
+size is drawn and touches neither the resolution nor the size: a relatively
+positioned box's `width`/`height` are exactly what this layer answered before 10.12
+existed, which is the assertion (`layout.positioning.block_relative`) paying for the
+boundary the two layers now have — sizing answers *how big*, positioning answers
+*where*, and neither reaches into the other.

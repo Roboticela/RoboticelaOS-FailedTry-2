@@ -1472,15 +1472,18 @@ static void test_block_pipeline(void)
         /*
          * `margin: 10px 20px` reaches geometry since 10.9, and neither `border` nor
          * `padding` ever touches this number: the box is at its parent's content origin
-         * **plus its own margins**, which is what this case recorded as 0/0 when 10.8 last
-         * touched it. A margin is a declaration about the gap beside a box, so it moves the
-         * box and leaves the size alone; a padding and a border are declarations about the
-         * space inside one, so they change the size and leave the position alone. The four
-         * assertions together are what says both. (`position: relative; top: 12px` is still
-         * not applied: basic positioning is 10.12's.)
+         * **plus its own margins**. A margin is a declaration about the gap beside a box, so
+         * it moves the box and leaves the size alone; a padding and a border are declarations
+         * about the space inside one, so they change the size and leave the flow position
+         * alone. And since 10.12 the card also declares `position: relative; top: 12px`, so
+         * the **final** position is that flow position displaced -- y is 10 + 12 = 22 while
+         * x keeps the margins' 20 (`left`/`right` are absent, and an absent side displaces
+         * nothing). The displacement adds outside the four assertions above it: the size is
+         * the border box still, and the following sibling still starts where the *flow*
+         * position says.
          */
         ROBO_CHECK_EQ_INT(position.x, 20);
-        ROBO_CHECK_EQ_INT(position.y, 10);
+        ROBO_CHECK_EQ_INT(position.y, 22);
     }
     /* `<p>` is a block inside the card and declares no height, so the card's extent
      * would be 0 -- and the declared 100 is what propagates up the chain. */

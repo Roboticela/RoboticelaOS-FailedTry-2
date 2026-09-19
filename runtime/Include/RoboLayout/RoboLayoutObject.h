@@ -55,6 +55,7 @@
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
 #include "RoboLayout/RoboLayoutPadding.h"
+#include "RoboLayout/RoboLayoutPosition.h"
 #include "RoboLayout/RoboLayoutResult.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTypes.h"
@@ -261,6 +262,29 @@ typedef struct robo_layout_object {
      * plausible-looking record about a layout that no longer holds.
      */
     robo_layout_border_edges_t borders;
+    /**
+     * The **displacement** this box was placed with (10.12), or a cleared record.
+     *
+     * The one field in this struct that is *not* an extent or an inset: it is where the
+     * box went relative to where flow put it, and it exists for the reason the other
+     * three do -- so no caller re-derives it -- with a second reason the others do not
+     * have. A result's `position` is the **final** position (the flow position plus this
+     * displacement), which is what paint draws and a hit test tests against; the *flow*
+     * position -- where the box participates, and the reason the following sibling does
+     * not move into the space this box still occupies -- is therefore
+     * `result.position - this record`. Keeping both is what makes requirement and outcome
+     * separately readable rather than one being reconstructed from a style.
+     *
+     * Its four counters record what the declarations came to (how many sides reached
+     * geometry, how many were `auto`, how many this build could not use, and how many
+     * the phase *declined* because the mode was not `relative`), so a reader can tell a
+     * `static` box with four insets from a `relative` box with none -- two documents
+     * with the same zero displacement.
+     *
+     * Cleared with the geometry in the same sweep and for the same reason as @ref margins,
+     * @ref padding and @ref borders.
+     */
+    robo_layout_position_offset_t position_offset;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;
@@ -478,6 +502,39 @@ robo_result_t robo_layout_object_borders(const robo_layout_tree_t *tree,
                                          robo_layout_node_id_t id,
                                          robo_layout_border_edges_t *out,
                                          robo_layout_diag_t *diag);
+
+/**
+ * The **position offset** @p id was placed with (Phase 10.12).
+ *
+ * The displacement between where flow put this box and where it is drawn, and the door
+ * a later phase reads the two coordinate spaces through: a result's `position` is the
+ * **final** position, so the **flow** position -- the one a sibling's placement was
+ * computed from -- is `final - offset`, and paint wants the final one while a
+ * diagnostic or a flow question wants the other.
+ *
+ * A placed box with no inset resolves to a zero offset, and that zero is *returned*
+ * rather than refused, unlike the three inset doors above it -- and the difference is
+ * not an inconsistency. A cleared padding or border record is a legal value *and* a
+ * legitimate state, so those doors have to ask the result to tell "no padding" from "no
+ * pass"; here the zero is the same either way, so the door answers for any placed box
+ * and reserves its refusal for the two cases where no offset could exist at all:
+ *
+ *   an id that names nothing                     -- `robo_layout_object_get`'s miss;
+ *   an object **nothing placed**, so no position was resolved;
+ *   a **text run**, which is not a box -- a text node's style is its *parent's*, so
+ *   reading `position` off it would read the element's;
+ *   a **transparent inline box** with contents: its rectangle is the union of what it
+ *   encloses, and this build does not offset that union by a declared `left`/`top`.
+ *
+ * @return ROBO_OK and the offset; ROBO_INVALID_ARGUMENT for NULL arguments or a NONE
+ *         id; ROBO_NOT_FOUND for the three cases above. @p out is cleared to a zero
+ *         displacement first, so a caller that ignores the code reads a stated absence
+ *         rather than a leftover.
+ */
+robo_result_t robo_layout_object_position(const robo_layout_tree_t *tree,
+                                          robo_layout_node_id_t id,
+                                          robo_layout_position_offset_t *out,
+                                          robo_layout_diag_t *diag);
 
 /**
  * The parent.

@@ -262,6 +262,28 @@ typedef struct robo_layout_block_stats {
      *  `border-style: none` resolves (so `borders_applied` counts it) and draws nothing (so
      *  this one does not), and a document can declare twelve borders and draw no line. */
     size_t borders_drawn;
+    /** **Sides** of a block box whose declared inset reached this pass on a `relative`
+     *  box (10.12), zero and negative included. Summed over sides for the reason every
+     *  counter above it is, and counted from the resolution so that an `ABSENT` side is
+     *  counted nowhere -- while a side written `auto` is *declined* rather than applied,
+     *  because an `auto` inset says nothing. */
+    size_t offsets_applied;
+    /** Sides whose inset this phase **did not act on** (10.12): the box is `static`, and
+     *  CSS does not apply an offset to one, or its mode is one this build does not move
+     *  (`absolute`, `fixed`, `sticky`). The mode is on the document and tells the two
+     *  apart; this counter says the declarations were there and were not used. It is the
+     *  one that separates a `static` box with four insets from a `relative` box with none
+     *  -- two documents whose displacement is the same zero. */
+    size_t offsets_declined;
+    /** Sides declared with an inset this build cannot use -- a percentage, a relative
+     *  unit (10.12). Their used value is zero, which is why they are counted: a document
+     *  shifted with `left: 10%` lays out flush here, and the count is what says so. */
+    size_t offsets_unresolved;
+    /** Boxes given a **non-zero** displacement (10.12): the counter that answers "how much
+     *  of this document did relative positioning move?" in one number. A counter about a
+     *  box rather than about a declaration, like `borders_drawn` -- and for the same kind
+     *  of reason, since four declarations can resolve and move nothing. */
+    size_t boxes_shifted;
     /** Containers with no block-level child at all, so the extent this pass
      *  stacked in the block direction is zero and the height is `0` unless one was
      *  declared -- or, from 10.4, is the extent the *lines* reached. A box that

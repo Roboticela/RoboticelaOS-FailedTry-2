@@ -127,6 +127,15 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      * to tables this build has none of, and a transparent inline box takes no border.
      */
     out->border = ROBO_LAYOUT_BORDER_IMPLEMENTED;
+    /*
+     * And 10.12's, the first capability in this struct that is about *where* a box is rather
+     * than how big it is or what is around it. A `relative` box is displaced and nothing else
+     * changes: its size, its baseline and the room flow reserved for it are all untouched.
+     * **Not** "positioning is finished": `absolute`, `fixed` and `sticky` are values 9.13
+     * already carries and behaviour this build does not have, no stacking context or paint
+     * order moves, and a transparent inline box and a text run carry no offset.
+     */
+    out->positioning = ROBO_LAYOUT_POSITIONING_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }
