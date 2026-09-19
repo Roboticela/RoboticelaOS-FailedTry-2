@@ -1,8 +1,8 @@
-# RoboLayout — architecture (through Phase 10.10)
+# RoboLayout — architecture (through Phase 10.11)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
-Phase 10.10 onwards may not cross without changing this document.
+Phase 10.11 onwards may not cross without changing this document.
 
 It is not a tutorial. It is the thing a reviewer reads to answer "why is it like
 this", and the thing a later goal reads to find out what it is allowed to assume.
@@ -15,7 +15,9 @@ inline one, `TextLayout.md` for measurement and the text object's arrival,
 `LineBoxes.md` for the line record, `Baselines.md` for the floor a line rests on,
 `Sizing.md` for what a box's declarations turn into, `Margins.md` for the gap beside
 a box and why it moves one without resizing it, `Padding.md` for the inset inside one
-and why it resizes a box without moving it, `Tests.md` for the suites.
+and why it resizes a box without moving it, `Borders.md` for the inset that finishes
+the box model and is the only layer whose *used* value is not its declared one,
+`Tests.md` for the suites.
 
 ---
 
@@ -54,27 +56,32 @@ resolves margins through the sizing layer's own seam rather than beside it. 10.1
 adds no door of its own to either pass: it reads the four longhands, subtracts the
 padding from what the margins left, and derives the border box from the sizing
 layer's answer — one call in each direction, and the width/height question is left
-where 10.8 put it. 10.11 paints an edge whose width already came from 9.15.
+where 10.8 put it. 10.11 is the same shape one layer out and closes the box model: it
+subtracts the borders from what the margins left *before* the padding is subtracted
+from that, adds them to the padding box in the other direction, and leaves the
+width/height question exactly where 10.8 put it — so the two phases together turned a
+one-inset box into a four-box model without touching the sizing layer's seam.
 
 10.1 bought no coordinate, and the module said so in three independent places
 rather than leaving a caller to find out. 10.3 flipped all three, and the shape of
 that flip is the part worth keeping:
 
-| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | What it means now |
-|---|---|---|---|---|---|---|---|---|---|---|
-| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
-| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
-| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the block direction |
-| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the inline direction |
-| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | derived: their conjunction |
-| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
-| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | this build can **produce a line a caller reads** |
-| `robo_layout_capabilities_t.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | this build gives a line a **floor** and places its members on it |
-| `robo_layout_capabilities_t.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
-| `robo_layout_capabilities_t.margins` | — | — | — | — | — | — | — | `1` | `1` | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
-| `robo_layout_capabilities_t.padding` | — | — | — | — | — | — | — | — | `1` | this build's `size` is a **border** box and its contents begin inside it, and an `auto` width fills what the margins *and* the padding left — **not** that `box-sizing: border-box` exists |
-| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
-| `robo_layout_result_state()` | — | — | — | — | — | — | — | — | — | *this box* has one — the per-box authority |
+| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | 10.11 | What it means now |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
+| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
+| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the block direction |
+| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the inline direction |
+| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | derived: their conjunction |
+| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
+| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | this build can **produce a line a caller reads** |
+| `robo_layout_capabilities_t.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | this build gives a line a **floor** and places its members on it |
+| `robo_layout_capabilities_t.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | `1` | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
+| `robo_layout_capabilities_t.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
+| `robo_layout_capabilities_t.padding` | — | — | — | — | — | — | — | — | `1` | `1` | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
+| `robo_layout_capabilities_t.border` | — | — | — | — | — | — | — | — | — | `1` | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
+| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
+| `robo_layout_result_state()` | — | — | — | — | — | — | — | — | — | — | *this box* has one — the per-box authority |
 
 Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
@@ -114,6 +121,18 @@ whose contents begin `padding-left`/`padding-top` inside it, while
 one. What the field names, then, is the two facts a caller may rely on — the size on a
 result is the box a reader sees, and the content box is recoverable from the object —
 rather than the property it is named for.
+
+10.11 asks it about a **rule** rather than a seam, a value or a model, and that is the
+fifth kind of narrowness: `border == 1` is true of a build in which a side's *used*
+width is zero unless its `border-style` generates a border, so `border: 5px none`
+costs no geometry at all — and in which the whole record a paint pass needs (used
+width, style and colour per side) is on the object, so Phase 11 re-reads no
+declaration. What it does **not** say is that a border paints: `painting` is still 0,
+and `border-radius`, `hidden`'s collapsing meaning and any border on a transparent
+inline box are each a later goal's. This is the one capability in the struct whose
+claim includes a CSS **rule** rather than the reach of a reader, which is why the
+suite asserts it against the *style vocabulary* (`layout.borders.side_record` walks
+all ten) rather than against a representative.
 
 10.4 added a field to that table rather than changing one, and the shape of the
 addition is the part worth keeping: `inline_layout` was written as `0` in **10.2**,
@@ -726,7 +745,7 @@ visible omission rather than a silent gap.
 
 ## 13. The capability model
 
-`robo_layout_capabilities_t` is fourteen `int` fields in declaration order, and one
+`robo_layout_capabilities_t` is fifteen `int` fields in declaration order, and one
 of them is deliberately 0:
 
 | Field | this build | Filled by |
@@ -745,6 +764,10 @@ of them is deliberately 0:
 | `text_layout` | 1 | 10.5 |
 | `line_boxes` | 1 | 10.6 |
 | `baselines` | 1 | 10.7 |
+| `sizing` | 1 | 10.8 |
+| `margins` | 1 | 10.9 |
+| `padding` | 1 | 10.10 |
+| `border` | 1 | 10.11 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -811,12 +834,13 @@ rather than unfinished:
 | text **shaping** — glyph substitution, positioning, ligature, kerning, bidi reordering, Unicode line breaking, whitespace collapsing, fragmentation | Phase 14, and 10.6's successor for the last two | a run's width is the **sum of its glyphs' advances**, which is what an unshaped run is; a participant too wide for its line **overflows** rather than breaking, guarded by `cursor > 0`; `robo_layout_text_is_collapsible_whitespace` is the predicate the builder applies and the one a collapsing rule will have to agree with |
 | `min-width`, `max-width`, `min-height`, `max-height` as **properties** (neither 9.11 nor a later CSS goal has registered them yet); `box-sizing`; percentages and relative units for both axes; shrink-to-fit | 10.11+, and a RoboCSS goal for the properties | the sizing layer *has* a minimum and a maximum and clamps through them (`Sizing.md` §6), so the arrival of the properties is a read rather than a redesign; `box-sizing: border-box` is one branch at the place 10.10 hands the layer a number |
 | ~~declared **width** and **height**~~ **done in 10.8**; still absent: a declared size on a **block** box beyond a bare `px` length, and `width` on a text object | 10.11+ | a block box lays its children out **into** its resolved width and is measured against its declared height (10.8); an atomic inline resolves width, contents and height in that order; a `%` is recorded as unresolved and filled from the containing block rather than guessed |
-| margin **collapsing**, border geometry | 10.11, and a later goal for collapsing | margins are *summed* and placed (10.9): a box sits at its margin origin, a horizontal `auto` distributes the leftover beside a declared width, and a parent stacks its children by their margin boxes — with the transparency rule collapsing needs already in *both* directions (10.3's transparent block container and 10.4's transparent inline box) and the four used values in one record, so collapsing becomes a rule **over those numbers** rather than over declarations (`Margins.md` §6) |
-| ~~padding~~ **done in 10.10**; still absent: `box-sizing: border-box`, a percentage padding (read, counted and used as zero), and padding on a **transparent inline box** | a later goal each | a box's `size` is its **border** box, its contents begin inside it, an `auto` width fills what the margins and the padding left, and the used padding is readable from the object (`Padding.md`); a border is still readable and unapplied, so 10.11 extends the two derived numbers rather than adding a third |
+| margin **collapsing** | a later goal | margins are *summed* and placed (10.9): a box sits at its margin origin, a horizontal `auto` distributes the leftover beside a declared width, and a parent stacks its children by their margin boxes — with the transparency rule collapsing needs already in *both* directions (10.3's transparent block container and 10.4's transparent inline box) and the four used values in one record, so collapsing becomes a rule **over those numbers** rather than over declarations (`Margins.md` §6) |
+| ~~padding~~ **done in 10.10**; still absent: `box-sizing: border-box`, a percentage padding (read, counted and used as zero), and padding on a **transparent inline box** | a later goal each | a box's `size` is its **padding** box built on the sizing layer's answer, its contents begin inside it, an `auto` width fills what the margins and the padding left, and the used padding is readable from the object (`Padding.md`) |
+| ~~border geometry~~ **done in 10.11**; still absent: `border-radius` and any corner geometry, `hidden`'s border-collapsing meaning (a table rule this build has no tables for), logical border properties, and a border on a **transparent inline box** | a later goal each | twelve longhands are read, a side's *used* width is zero unless its style draws, the border box is what a result carries, and the whole per-side record — used width, style, colour — is readable through `robo_layout_object_borders` so a paint pass re-decides nothing (`Borders.md`) |
 | positioned containing blocks, offsets | 10.12 | a box's containing block is its parent (10.3, `BlockLayout.md` §2); `display` and `position` are readable |
 | overflow, damage, invalidation | 10.13–10.14 | two result flags that stay 0 even when a participant is placed past its line or a child sits outside its box, and an invalidation that withdraws geometry rather than keeping a stale conclusion |
 | painting anything | Phase 11 | `painting` capability = 0 |
-| reading a property other than `display`, a declared `width`/`height`, and the four margins and paddings | 10.11+ | the borrowed style is there; the read is the later goal's, and since 10.8, 10.9 and 10.10 a read goes through the sizing, margin or padding layer rather than into a result record |
+| reading a property other than `display`, a declared `width`/`height`, the four margins, the four paddings and the twelve border longhands | 10.12+ | the borrowed style is there; the read is the later goal's, and since 10.8, 10.9, 10.10 and 10.11 a read goes through the sizing, margin, padding or border layer rather than into a result record |
 
 Three of these are worth a sentence more.
 
@@ -849,7 +873,14 @@ finished the sentence 10.9 started: the reader is a third, because a padding is
 neither a size nor a margin — it is the same *property family* as a margin read
 against a different number, and the two numbers it derives (the width left for a
 box's contents, and the border box a result carries) are answers about the **box**
-rather than about its placement.
+rather than about its placement. 10.11 read the twelve border longhands through
+`robo_layout_borders_of` (`Borders.md` §2) and is the last reader in this family:
+the count of properties read is now `display`, `width`, `height`, eight box insets
+and twelve border longhands, and the number of places that interpret one is four —
+one per layer that owns a property, which is the rule this module applies everywhere
+else. What changed with the fourth is the *shape* of the answer: a sizing read
+decides a dimension, a margin read distributes space and a padding read passes a
+number through, while a border read decides whether the declaration is used at all.
 
 **Both directions are a *function of the classification*.** That is what makes an
 invalidation's second half necessary: withdrawing a classification without
@@ -908,13 +939,14 @@ Later phases' findings are recorded with their phases rather than appended here:
 `Tests.md` §8, 10.4's in `InlineLayout.md` §5 and `Tests.md` §9, 10.5's and 10.6's
 in `Tests.md` §10–§11, 10.7's in `Baselines.md` §12 and `Tests.md` §12, 10.8's
 in `Sizing.md` §8 and `Tests.md` §13, 10.9's in `Margins.md` §8 and
-`Tests.md` §14, and 10.10's in `Padding.md` §8 and `Tests.md` §15. The reason to keep
+`Tests.md` §14, 10.10's in `Padding.md` §8 and `Tests.md` §15, and 10.11's in
+`Borders.md` §8 and `Tests.md` §16. The reason to keep
 them out of this document is
 that this one describes what is *stable*; a finding is a thing that changed.
 
 ---
 
-## 17. What 10.11 onwards may assume
+## 17. What 10.12 onwards may assume
 
 *(Written as "10.7 onwards" when 10.6 closed and re-headed by 10.7, then by 10.8,
 which left items 1–5, 7–9 and 11–22 as they were and replaced 6: a box's `size` no
@@ -924,10 +956,12 @@ lost its future tense. 10.9 left every one of those as they were and re-headed t
 section to 10.10, replacing item 8 — a box's content origin is no longer its
 top-left corner — and adding two: item 25, where a box sits now that a margin moves
 it, and item 26, what the four margin kinds are. It is the first phase to close an
-item *out* rather than sharpen one. 10.10 re-headed it to 10.11, replaced item 8
-again — a box's `size` is now its **border** box rather than the content box it was
-when this list was written — and added one: item 27, what a padding does to a box and
-what it deliberately does not.)*
+item *out* rather than sharpen one. 10.10 re-headed it to 10.11 and added item 27,
+what a padding does to a box and what it deliberately does not. 10.11 re-headed it to
+10.12 and did two things to item 8: a box's `size` is now its **border** box rather
+than the padding box 10.10 left it as, and a content origin is a *composed* number —
+the border's `top`/`left` and then the padding's — which is why item 8 now states
+both terms rather than one. It adds item 28, the one rule that is 10.11's own.)*
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -974,14 +1008,16 @@ what it deliberately does not.)*
    (item 5), and a line's are relative to the context owner. For a direct child the
    two spaces coincide.
 8. A box's `size` **is its border box**, and its content box is that inset by the
-   padding (item 27) — so a content origin is no longer a top-left corner, and a
-   `width: 200px` box with `padding: 5px` is 200 wide inside and 210 outside. Its
+   border (item 28) and then the padding (item 27) — so a content origin is no longer
+   a top-left corner but a **sum of two terms**, and a `width: 200px` box with
+   `padding: 5px` and `border: 1px solid` is 200 wide inside and 212 outside. Its
    `position` is its **margin origin**: its containing block's content origin plus its
    own `margin-top` and `margin-left`, while its size is unchanged by any margin
    (item 25). Under this build's `box-sizing: content-box` — CSS's initial value — a
-   declared `width`/`height` is the *content* box, which is why 10.10 changed no
-   declaration's meaning and only the box a reader sees. Borders are still readable
-   and unapplied (10.11), and `margin collapsing` is still not a thing this build does
+   declared `width`/`height` is the *content* box, which is why neither 10.10 nor
+   10.11 changed a declaration's meaning and only the box a reader sees. The box model
+   is now **complete**: all four of CSS's boxes (content, padding, border, margin)
+   are distinguishable, and `margin collapsing` is still not a thing this build does
    (item 26).
 9. `robo_layout_context_run` is the only tree-mutating door in the module, and a
    later goal extends it rather than adding a second one.
@@ -1091,3 +1127,17 @@ what it deliberately does not.)*
     no `auto` there is nothing for a block box and an atomic inline to disagree about.
     What it deliberately does not do is inflate a **transparent inline box**, whose
     rectangle is the union of its contents rather than a placed size.
+28. **A border's *used* width is not its declared one**, and that is the only rule in
+    this module that throws a declaration away rather than passing it through. A side
+    is used at its declared `px` length only when `robo_css_border_style_generates_border`
+    says its style draws — so `border: 5px none` is a declared five and a used **zero**,
+    and a box with twelve border declarations and eight `none` styles is exactly as big
+    as one with no border at all. Two consequences a later goal inherits rather than
+    rediscovers: the record on the object carries *used* widths (read a side and compare
+    it to zero; never re-read a style to find out whether this build could use it), and
+    the pass counts a declaration that resolved (`borders_applied`) **separately** from
+    a border that draws (`borders_drawn`), because those two questions have different
+    answers and a single counter would report the wrong one for a `none`-styled
+document. `thin`, `medium` and `thick` are the three numbers this build picks (1, 3 and
+    5, the browsers' choice), stated as named constants because 9.15 keeps the keywords
+    as keywords and a used width is a rendering decision rather than a parse.

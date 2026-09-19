@@ -40,10 +40,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 10);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 11);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.10.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.10.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.11.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.11.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -115,6 +115,7 @@ static const struct {
     { "sizing", 1 },
     { "margins", 1 },
     { "padding", 1 },
+    { "border", 1 },
     { "painting", 0 }
 };
 
@@ -201,6 +202,14 @@ static void test_module_capabilities(void)
      * every field above it.
      */
     ROBO_CHECK_EQ_INT(caps.padding, ROBO_LAYOUT_PADDING_IMPLEMENTED);
+    /*
+     * And `border`, the field 10.11 added -- the third inset and the one whose *used*
+     * value is not its declared one: `border: 5px none` is a declared five and a used
+     * zero, so this field claims a rule the two fields above it have no analogue of. A
+     * build with the padding vocabulary and no border would have satisfied every field
+     * above it, which is why it is asserted here rather than left to the table.
+     */
+    ROBO_CHECK_EQ_INT(caps.border, ROBO_LAYOUT_BORDER_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -288,13 +297,14 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 18);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 19);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_SIZING), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_MARGINS), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_PADDING), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)18), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_BORDER), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)19), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -336,19 +346,24 @@ static void test_module_diagnostic_domains(void)
                       "inline-layout");
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT),
                       "text-layout");
-    /* 10.8's domain, one behind the newest since 10.9. */
+    /* 10.8's domain, three behind the newest since 10.11. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_SIZING),
                       "sizing");
-    /* 10.9's, one behind the newest since 10.10. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_MARGINS),
                       "margins");
-    /* 10.10's, and it is the newest: the two derived numbers below a padding are the
-     * only arithmetic in this layer that can be handed a record it cannot use, which is
-     * the one way a padding can fail. */
+    /* 10.10's, the one that was newest before this phase. */
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_PADDING),
                       "padding");
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_PADDING,
+    /* 10.11's, and it is the newest: the two derived numbers above a border are the only
+     * arithmetic in this layer that can be handed a record it cannot use -- a *negative*
+     * side is a record this module's own resolver never produces, so one arriving at a
+     * size is a caller bug and the moment to see it is before a size is derived from it. */
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_BORDER),
+                      "border");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_BORDER,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_PADDING,
+                      (int)ROBO_LAYOUT_DOMAIN_BORDER - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_MARGINS,
                       (int)ROBO_LAYOUT_DOMAIN_PADDING - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_SIZING,
@@ -534,7 +549,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.10.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.11.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

@@ -105,7 +105,7 @@
  *   the CONTENT box       starts `padding-left`/`padding-top` in from the border
  *                         edge, so a box's children begin inside it;
  *   the BORDER box        is the content box plus the padding on each axis, which is
- *                         what @ref robo_layout_padding_edges_border_box computes and
+ *                         what @ref robo_layout_padding_edges_padding_box computes and
  *                         what a result's `size` carries;
  *   what is left for an   is the containing block less the margins (10.9) **and** the
  *   `auto` width          padding, because CSS's equation has both terms;
@@ -123,10 +123,20 @@
  *
  * What is deliberately absent
  *
- *   **Borders** -- 10.11. So the border box computed here is a content box plus
- *   padding and nothing else, and a `border: 4px solid` declaration is still read from
- *   the style and applied to no number. The doors below are named for what they add so
- *   that 10.11 can extend them rather than rename them.
+ *   **Borders** -- 10.11, which landed. This header predicted that its doors "are named
+ *   for what they add so that 10.11 can extend them rather than rename them", and it
+ *   was half right, which is worth recording rather than tidying away. The *content
+ *   width* door extended exactly as predicted: it takes a width and subtracts what it
+ *   owns, so a caller that has already subtracted the border hands it a padding box
+ *   and nothing else changes. The door below did not, because it was named for the box
+ *   it *hoped* to complete rather than for the box it computed -- it returns
+ *   `content + padding`, which is the **padding box**. That was an unobservable
+ *   misnomer while a padding was the only inset, since the two boxes were one number,
+ *   and it became an observable one the moment a border existed. So it moved to
+ *   @ref robo_layout_padding_edges_padding_box, and 10.11's
+ *   `robo_layout_border_edges_border_box` is the composition above it: one name
+ *   corrected, no arithmetic changed, and every case this phase wrote about these
+ *   numbers passes with the new spelling.
  *
  *   **Padding on a transparent inline box** -- a `<span>` with contents, whose
  *   rectangle is the *union* of what it contains. CSS does grow such a box's inline
@@ -415,7 +425,7 @@ int robo_layout_padding_edges_equal(const robo_layout_padding_edges_t *a,
                                     const robo_layout_padding_edges_t *b);
 
 /**
- * The width left for the **contents** of a box whose border box is @p border_width.
+ * The width left for the **contents** of a box whose padding box is @p padding_box_width.
  *
  * The first of the two derived numbers, and the one an `auto` width goes through: CSS's
  * constraint equation has a padding term on each side, so a box with no declared width
@@ -424,7 +434,12 @@ int robo_layout_padding_edges_equal(const robo_layout_padding_edges_t *a,
  * contained width arrives -- one number, and a block box's height is its contents' and
  * never its containing block's (10.8).
  *
- * Floored at **zero**, once, here: a border box narrower than its own padding leaves no
+ * Since 10.11 the number a caller hands this door is the **padding box**, which is what
+ * `robo_layout_border_edges_padding_box_width` computes from the containing block and
+ * the borders. The subtraction is unchanged and the two compose in order, one layer per
+ * property: containing, less margins, less borders, less padding.
+ *
+ * Floored at **zero**, once, here: a padding box narrower than its own padding leaves no
  * room for contents and a negative available width is not a width. The alternative --
  * refusing -- would fail a document for a stylesheet an author is allowed to write.
  *
@@ -434,16 +449,19 @@ int robo_layout_padding_edges_equal(const robo_layout_padding_edges_t *a,
  *         and the moment to see it is before a size is derived from it).
  */
 robo_result_t robo_layout_padding_edges_content_width(const robo_layout_padding_edges_t *edges,
-                                                      int32_t border_width,
+                                                      int32_t padding_box_width,
                                                       int32_t *out,
                                                       robo_layout_diag_t *diag);
 
 /**
- * The **border box** a content box of @p content asks for, with these padded sides.
+ * The **padding box** a content box of @p content asks for, with these padded sides.
  *
  * The second derived number and the phase in one call: the content box plus the padding
- * on each axis, which is what `robo_layout_result_t::size` carries. Both axes at once
- * because a size is what a result holds, and the two are computed identically.
+ * on each axis. Before 10.11 this *was* what a result's `size` carried, and it was named
+ * for the box it hoped to complete rather than for the box it computes -- see this
+ * header's opening note. It is now the middle box of three, and
+ * `robo_layout_border_edges_border_box` composes the next layer onto it. Both axes at
+ * once because a size is what a result holds, and the two are computed identically.
  *
  * Done in 64 bits and clamped to the geometry's range, because content and padding are
  * each bounded by the seam's maximum and their sum is not: a `width: 2147483647px` box
@@ -455,7 +473,7 @@ robo_result_t robo_layout_padding_edges_content_width(const robo_layout_padding_
  *         (a box's own extent is never negative); ROBO_ERROR and a diagnostic for
  *         invalid edges.
  */
-robo_result_t robo_layout_padding_edges_border_box(const robo_layout_padding_edges_t *edges,
+robo_result_t robo_layout_padding_edges_padding_box(const robo_layout_padding_edges_t *edges,
                                                    robo_layout_size_t content,
                                                    robo_layout_size_t *out,
                                                    robo_layout_diag_t *diag);

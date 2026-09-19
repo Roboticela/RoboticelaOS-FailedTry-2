@@ -172,6 +172,15 @@ Two places, and they carry different things:
   `padding-top`, read from the object rather than re-derived from a style
   (`Padding.md` §6). The margin arithmetic here is untouched: a padding changes the
   size these four numbers sit around and never moves where the box is.
+
+  *10.11's outcome row:* one more inset inside the same number. The result's `size`
+  is the **border** box, `content + padding + border`, and the content box is that
+  inset by **two** terms read from two records — the border's `top`/`left` through
+  `robo_layout_object_borders` and then the padding's through
+  `robo_layout_object_padding` (`Borders.md` §6). The margin arithmetic here is still
+  untouched, and the one number this document defines is unchanged: what a parent
+  stacks by is the child's margin box, which now encloses a two-inset border box
+  rather than a one-inset one.
 - `robo_layout_object_t::margins` carries the **used margins**, read back through
   `robo_layout_object_margins`. The result cannot carry them: it holds the border
   box by definition, and adding the four numbers back is exactly the arithmetic this

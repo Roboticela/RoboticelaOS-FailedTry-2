@@ -316,6 +316,21 @@ typedef struct robo_layout_inline_stats {
      *  percentage, a relative unit, a negative length, or `auto` (10.10). Their used value
      *  is zero, which is why they are counted. */
     size_t paddings_unresolved;
+    /** **Sides** of an atomic participant whose declared `border-*-width` reached its
+     *  advance along the line and its border box (10.11), zero included. Summed over sides
+     *  for the reason the counters above it are, and counted from the resolution so that an
+     *  `ABSENT` side is counted nowhere. A transparent inline box and a text run contribute
+     *  nothing here, because no border applies to either. */
+    size_t borders_applied;
+    /** Sides declared on an atomic participant with a border width this build cannot use
+     *  -- a relative unit, a `calc()`, a negative length, or `auto` (10.11). Used as zero,
+     *  and counted so that a document whose borders depend on one is visible as such. */
+    size_t borders_unresolved;
+    /** Sides of an atomic participant whose **used** width is above zero (10.11): a border
+     *  that takes room along the line and that a paint pass will draw. Distinct from
+     *  `borders_applied` for the reason the block record's is: `border-width: 5px` with
+     *  `border-style: none` resolves and draws nothing. */
+    size_t borders_drawn;
     /** Deepest participant placed. */
     uint32_t depth_max;
 } robo_layout_inline_stats_t;

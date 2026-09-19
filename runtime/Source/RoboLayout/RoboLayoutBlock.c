@@ -355,10 +355,13 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     robo_layout_object_t *object = robo_layout_object_slot(walk->tree, id);
     robo_layout_sizing_t sizing;
     robo_layout_margin_edges_t edges;
+    robo_layout_borders_t declared_border;
+    robo_layout_border_edges_t borders;
     robo_layout_paddings_t declared_padding;
     robo_layout_padding_edges_t padding;
     robo_layout_size_t content;
     robo_layout_size_t content_size;
+    robo_layout_size_t padding_box;
     robo_layout_size_t size;
     robo_layout_point_t margin_origin;
     robo_gfx_pixel_y_t content_extent = 0;
@@ -402,6 +405,22 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * the one policy. What it does change is the number the width is resolved against, and
      * that is the next step rather than this one.
      */
+    /*
+     * Then the box's two insets (10.10, 10.11), and neither is an ordering decision the
+     * way the margins were: a border and a padding distribute nothing and resolve against
+     * nothing, so both are read from the style and used, and each has one door rather than
+     * two policies. What they change is the number the width is resolved against, which is
+     * the next step rather than this one.
+     *
+     * The border resolves first only because it is the outer of the two -- the two calls are
+     * independent, and a reader following the arithmetic down the box wants the order the
+     * box is built in.
+     */
+    declared_border = robo_layout_borders_of(object->style);
+    status = robo_layout_border_resolve(&declared_border, &borders, walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
     declared_padding = robo_layout_paddings_of(object->style);
     status = robo_layout_padding_resolve(&declared_padding, &padding, walk->diag);
     if (status != ROBO_OK) {
@@ -409,21 +428,32 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     }
 
     /*
-     * What the box's own box is resolved against, and the phase's first consequence: the
-     * containing block less the margins (10.9) **and** the padding, because CSS's
-     * constraint equation has a term for each. So a box with `padding: 10px` and no
-     * declared width is exactly as wide as its containing block rather than 20px wider,
-     * and the padding comes out of the contents' room instead of out of the parent.
+     * What the box's own box is resolved against, and the phase's first consequence:
+     * the containing block less the margins (10.9), less the **border** (10.11) and less
+     * the padding (10.10), because CSS's constraint equation has a term for each. So a box
+     * with `border: 5px solid; padding: 10px` and no declared width is exactly as wide as
+     * its containing block rather than 30px wider, and both insets come out of the
+     * contents' room instead of out of the parent.
      *
-     * The subtraction is the padding layer's, and it happens *here* rather than inside the
-     * sizing layer, because the sizing layer does not know the property exists -- "how much
-     * room is there" is the caller's question and the answer is a number.
+     * One subtraction per layer, in the order the box is built, and each subtraction belongs
+     * to the layer that owns the property: the border layer turns the containing block into
+     * the **padding box** width and the padding layer turns that into the **content** width.
+     * It happens *here* rather than inside the sizing layer, because the sizing layer does
+     * not know either property exists -- "how much room is there" is the caller's question
+     * and the answer is a number.
      */
     {
+        int32_t padding_box_available = 0;
         int32_t content_available = 0;
 
+        status = robo_layout_border_edges_padding_box_width(&borders,
+                                                           edges.available_content_width,
+                                                           &padding_box_available, walk->diag);
+        if (status != ROBO_OK) {
+            return status;
+        }
         status = robo_layout_padding_edges_content_width(&padding,
-                                                        edges.available_content_width,
+                                                        padding_box_available,
                                                         &content_available, walk->diag);
         if (status != ROBO_OK) {
             return status;
@@ -484,17 +514,29 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
     }
     /*
      * And the resolved pair is the box's **content** box, which is what the sizing layer
-     * knows about; the box a reader sees is that plus the padding. That split is the phase
-     * in two lines, and it is why the two numbers are computed here rather than inside the
-     * layer: the layer answers "how big did this box's declarations ask it to be", and
-     * "how big is the box" is the padding layer's answer to a question the layer has no
-     * property for.
+     * knows about; the box a reader sees is that plus the padding and the border. That split
+     * is the phase in two lines -- three since 10.11 -- and it is why the numbers are
+     * computed here rather than inside the layer: the layer answers "how big did this box's
+     * declarations ask it to be", and "how big is the box" is the answer of the two layers
+     * that own the properties the layer has never heard of.
+     *
+     * One addition per layer, in the order the box is built, and it is the exact mirror of
+     * the subtraction above: the padding layer turns the content box into the **padding box**
+     * and the border layer turns that into the **border box**, which is what a result's
+     * `size` carries. A build that composed them the other way round would still get the
+     * same number here -- addition commutes -- which is why the *downward* direction is
+     * where the order is load-bearing and why the suite drives both.
      */
     status = robo_layout_sizing_resolved(&sizing, &content_size);
     if (status != ROBO_OK) {
         return status;
     }
-    status = robo_layout_padding_edges_border_box(&padding, content_size, &size, walk->diag);
+    status = robo_layout_padding_edges_padding_box(&padding, content_size, &padding_box,
+                                                    walk->diag);
+    if (status != ROBO_OK) {
+        return status;
+    }
+    status = robo_layout_border_edges_border_box(&borders, padding_box, &size, walk->diag);
     if (status != ROBO_OK) {
         return status;
     }
@@ -530,6 +572,12 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * arrives four at a time and `padding: 5px` is four declarations one layer down. */
     walk->block->paddings_applied += padding.resolved;
     walk->block->paddings_unresolved += padding.unresolved;
+    /* And the border's three, which are three rather than two because a border's *used*
+     * width is not its declared one: a document can declare four `border-width: 5px` and
+     * draw nothing, and only a counter that asks the second question can say so. */
+    walk->block->borders_applied += borders.widths_resolved;
+    walk->block->borders_unresolved += borders.widths_unresolved;
+    walk->block->borders_drawn += borders.borders_drawn;
 
     /*
      * And the box's own geometry is written at its **margin origin**, which is the
@@ -537,17 +585,19 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * content box starts, and the box starts `left` and `top` further in.
      *
      * The `size` written here is the **border** box -- the content box the sizing layer
-     * resolved plus the padding (10.10) -- which is what `RoboLayoutResult.h` has said
-     * this field means since 10.1 and what makes it a number a renderer can draw without
-     * re-deriving anything. A margin still never changes it, which is why the two numbers
-     * the box's own box is placed by (`margin_origin`, and the margins' contribution to
-     * the parent's stacking) are not added into it anywhere.
+     * resolved plus the padding (10.10) and the border (10.11) -- which is what
+     * `RoboLayoutResult.h` has said this field means since 10.1 and what makes it a number
+     * a renderer can draw without re-deriving anything. A margin still never changes it,
+     * which is why the two numbers the box's own box is placed by (`margin_origin`, and the
+     * margins' contribution to the parent's stacking) are not added into it anywhere.
      *
-     * The **content origin** is this origin plus `padding-left`/`padding-top`, and it is
+     * The **content origin** is this origin plus the border and the padding, and it is
      * deliberately not written anywhere: a child's position is already relative to its
      * containing block's *content* origin (`RoboLayoutResult.h`), so the children below
      * need no shift and a reader obtains the content origin from @ref
-     * robo_layout_object_padding rather than from a second copy of the same fact.
+     * robo_layout_object_borders and @ref robo_layout_object_padding rather than from a
+     * second copy of the same fact. Two terms since 10.11, and the two records compose in
+     * one order: the border first, then the padding.
      */
     margin_origin.x = origin.x + edges.left;
     margin_origin.y = (robo_gfx_pixel_y_t)(origin.y + edges.top);
@@ -571,6 +621,14 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * from the style would mean re-deciding which declarations this build could use.
      */
     object->padding = padding;
+    /*
+     * And the used border, kept on the box for the padding's reason and paint's: it is the
+     * **outermost** of the two insets that belong to the box, so it is the second term of a
+     * content origin beside `padding`, and it carries the style and colour of each side as
+     * well as the width -- which is every fact a pass that draws an edge needs, decided once
+     * here rather than re-decided from a style later.
+     */
+    object->borders = borders;
 
     walk->block->blocks_placed++;
     if (object->depth > walk->block->depth_max) {
@@ -585,12 +643,15 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * direction -- the parent never looks at where its child's content box ended, only
      * at where the next one may start.
      *
-     * `size.height` is the **border** box since 10.10, so this one expression now spans
-     * all three of a box's boxes: the padding is already inside `size` (that is what the
-     * border-box door added), the margins are the two terms around it, and the content box
-     * is inside both and not needed. Which is worth stating, because it is the phase's
-     * cleanest consequence -- a padding changes this number without changing its formula,
-     * and a build that had added the padding here *again* would double it.
+     * `size.height` is the **border** box since 10.10 and stays it in 10.11, so this one
+     * expression spans all **four** of a box's boxes: the padding and the border are already
+     * inside `size` (that is what the two derived doors added), the margins are the two terms
+     * around it, and the content box is inside both and not needed. Which is worth stating,
+     * because it is the cleanest consequence either phase has -- a border changes this number
+     * without changing its formula, and a build that had added the border here *again* would
+     * double it. The formula is the same one 10.9 wrote when `size` was the content box, which
+     * is the point: every inset phase since has added its number inside `size` rather than
+     * beside it.
      *
      * No collapsing (the header says so): two adjacent margins add rather than
      * overlap, so a box with `margin-bottom: 20px` above one with `margin-top: 30px`
@@ -633,6 +694,9 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
            a->margins_unresolved == b->margins_unresolved &&
            a->paddings_applied == b->paddings_applied &&
            a->paddings_unresolved == b->paddings_unresolved &&
+           a->borders_applied == b->borders_applied &&
+           a->borders_unresolved == b->borders_unresolved &&
+           a->borders_drawn == b->borders_drawn &&
            a->empty_containers == b->empty_containers &&
            a->depth_max == b->depth_max;
 }

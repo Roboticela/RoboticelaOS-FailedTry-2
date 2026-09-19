@@ -191,6 +191,7 @@ void robo_test_register_layout_baseline(void);
 void robo_test_register_layout_sizing(void);
 void robo_test_register_layout_margin(void);
 void robo_test_register_layout_padding(void);
+void robo_test_register_layout_border(void);
 void robo_test_register_layout_tree(void);
 void robo_test_register_layout_constraints(void);
 void robo_test_register_layout_context(void);
@@ -431,6 +432,7 @@ int main(int argc, char **argv)
     robo_test_register_layout_sizing();
     robo_test_register_layout_margin();
     robo_test_register_layout_padding();
+    robo_test_register_layout_border();
     robo_test_register_layout_tree();
     robo_test_register_layout_constraints();
     robo_test_register_layout_context();

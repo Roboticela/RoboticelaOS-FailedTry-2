@@ -212,32 +212,35 @@ would have no element and no `display` to derive a kind from.
 
 ## 6. Not applied, and readable anyway
 
-**Superseded in part by 10.9 and again by 10.10, and kept as it stood.** Margins,
-padding and borders were **10.9, 10.10 and 10.11**, and until then a box's content
+**Superseded in part by 10.9, again by 10.10 and again by 10.11, and kept as it
+stood.** Margins, padding and borders were **10.9, 10.10 and 10.11**, and until then a box's content
 box **is** its border box and its content origin **is** its top-left corner, so no
 arithmetic was missing and no number was faked: there was simply nothing to add yet.
 
-None of that is true of margins or padding any more, and it is still true of borders.
-A box's position is now its **margin origin** — the content origin of §3 plus its own
-`margin-top` and `margin-left` — the number the pass reports to a parent as the extent
-to stack below is the **margin box**, `top + height + bottom`, and since 10.10 the
-`size` it writes is the **border** box: the content box the sizing layer resolved plus
-the padding on each axis. Three things in this document therefore say something a
-build no longer does, and they are left standing rather than silently edited because
-how they changed is the record:
+None of that is true of margins, padding or borders any more. A box's position is now
+its **margin origin** — the content origin of §3 plus its own `margin-top` and
+`margin-left` — the number the pass reports to a parent as the extent to stack below is
+the **margin box**, `top + height + bottom`, and since 10.11 the `size` it writes is the
+**border** box: the content box the sizing layer resolved, plus the padding on each
+axis, plus the border. Three things in this document therefore say something a build no
+longer does, and they are left standing rather than silently edited because how they
+changed is the record:
 
-| §6 as written | what 10.9 and 10.10 made of it |
+| §6 as written | what 10.9, 10.10 and 10.11 made of it |
 |---|---|
-| "a box's content origin **is** its top-left corner" | it is its top-left corner **plus its top and left margins** (`Margins.md` §1) **plus its top and left padding** (`Padding.md` §1) |
+| "a box's content origin **is** its top-left corner" | it is its top-left corner **plus its top and left margins** (`Margins.md` §1) **plus its top and left border** (`Borders.md` §1) **plus its top and left padding** (`Padding.md` §1) |
 | "`margin: 10px 20px` … change[s] no number" | it changes two: the origin moves to (20, 10), and the extent the parent stacks by becomes the margin box (`Margins.md` §7) |
-| "a box's content box **is** its border box" | the border box is the content box **plus the padding**, which is what `size` carries; an `auto` width fills what the margins *and* the padding left (`Padding.md` §5) |
+| "a box's content box **is** its border box" | the border box is the content box **plus the padding and the border**, which is what `size` carries; an `auto` width fills what the margins, the border *and* the padding left (`Padding.md` §5, `Borders.md` §1) |
 
-10.10 also changed one number this document states as a rule: the width the children
-are laid out **into** is the content box, which under this build's
+10.11 closes the box model this document was written one inset short of, and it
+changed one number the document states as a rule not at all: the width the children are
+laid out **into** is still the content box, which under this build's
 `box-sizing: content-box` (CSS's initial value) is the declared one — so §3's "the
 resolved width is what the children get" still reads exactly as written, and the box
-around it is 2 × padding wider. The `content-box` model is what makes those two
-sentences compatible rather than contradictory.
+around it is 2 × (border + padding) wider. The `content-box` model is what makes those
+two sentences compatible rather than contradictory, and it is the assertion
+`layout.conformance.pipeline` keeps paying for: the card is 218 wide and its paragraph
+is still 200.
 
 The values arrive computed and borrowed through 10.1's style seam, so a test can
 read them beside the geometry — which is how the pipeline case in §7 proved that
@@ -344,7 +347,8 @@ one source of truth for one fact, which is the rule this module applies everywhe
 | 10.8 sizing (outcome) | §3's single width is now **one resolution and two uses**: the pass resolves the width first and recursion lays children out into that number, so a declared `width` reaches a box's *children* and not only the box (`Sizing.md` §1); §4's four rows become the sizing layer's three kinds, and a percentage or relative unit is read and recorded **unresolved** rather than silently treated as `auto` (`Sizing.md` §4) |
 | 10.9 margins | the content origin (§6) that becomes the margin edge |
 | 10.9 margins (outcome) | §6's content origin is now a **margin origin**: the pass resolves the four margins *before* the width (an `auto` width fills what they left), writes the result's position from them, and advances the stacking cursor by the child's **margin box** rather than its content height (`Margins.md` §1) — so the card's origin moves to (20, 10) and `<body>`'s extent becomes 120, and the size stays 200×100 in both cases |
-| 10.10 padding (outcome) | the width is resolved against what the margins **and** the padding left, and the result's `size` is the **border** box: the sizing layer's content box plus the padding on each axis (`Padding.md` §1). The card's own size moves 200×100 → **210×110** and `<body>`'s extent 120 → **130**, while its **children** still get 200 — the `content-box` model, and the assertion that keeps the declared-width rule in §3 true |
+| 10.10 padding (outcome) | the width is resolved against what the margins **and** the padding left, and the result's `size` is the **padding** box the padding layer derives: the sizing layer's content box plus the padding on each axis (`Padding.md` §1). The card's own size moves 200×100 → **210×110** and `<body>`'s extent 120 → **130**, while its **children** still get 200 — the `content-box` model, and the assertion that keeps the declared-width rule in §3 true |
+| 10.11 border (outcome) | one more subtraction and one more addition, and the last of each: the width is now resolved against the containing block less the **margins, the border and the padding**, and the result's `size` is the **border** box — the padding box plus the border — so the card declares `border: 4px solid black` and is **218×118** while `<body>`'s extent is **132** (`Borders.md` §1). The content origin this document defines becomes a **two-term** number, the border's `top`/`left` and then the padding's, and the `content-box` model is unmoved: the paragraph is still **200**. What the phase adds to this pass is one call in each direction, in the order the box is built |
 | 10.12 positioning | `position` on the result, in the containing block's coordinate space |
 | 10.13 overflow | the two result flags that are still 0, and the box that is the scroll container |
 | 11 paint | a rectangle per box, in the coordinate space §2 defines |
@@ -361,12 +365,12 @@ doing.
 - **No inline layout, no line box, no text.** §5, and `inline_level_skipped` and
   `unreached` are how the absence is *visible* rather than silent.
 - **No anonymous box.** §5 — 10.4's.
-- **No border arithmetic, and no `box-sizing`.** §6. Margins **are** arithmetic since
-  10.9 and padding since 10.10 (each with its own row in §9); a padding reaches this
-  document as the box's border box and as the subtraction that sets what the width is
-  resolved against. What is still absent is collapsing — adjacent vertical margins sum
-  — which has its own boundary item in `Margins.md` §6, and a **border**, which does
-  not reach geometry at all.
+- **No `box-sizing`, and no collapsing.** §6. Margins **are** arithmetic since 10.9,
+padding since 10.10 and borders since 10.11 (each with its own row in §9); the last of
+the three completes the box this document describes, as the outermost subtraction that
+sets what the width is resolved against and the last addition before a result's `size`.
+What is still absent is collapsing — adjacent vertical margins sum — which has its own
+boundary item in `Margins.md` §6.
 - **No declared width.** §3 — 10.8's, and it landed: a `px` length and `auto` are
   both resolved by the sizing layer, and everything else is read, recorded as
   unresolved and filled rather than guessed (`Sizing.md`).

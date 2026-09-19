@@ -70,6 +70,7 @@ static const struct {
     { "sizing", 1 },
     { "margins", 1 },
     { "padding", 1 },
+    { "border", 1 },
     { "painting", 0 }
 };
 
@@ -97,11 +98,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Seventeen of eighteen. Asserted as a count as well as field by field, so a build
+    /* Eighteen of nineteen. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The eighteenth is `painting`, and it is the only one that is 0. */
-    ROBO_CHECK_EQ_INT(implemented, 17u);
+     * glance. The nineteenth is `painting`, and it is the only one that is 0. */
+    ROBO_CHECK_EQ_INT(implemented, 18u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -195,6 +196,18 @@ static void test_conformance_capabilities(void)
      */
     ROBO_CHECK_EQ_INT(caps.padding, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_PADDING_IMPLEMENTED, 1);
+
+    /*
+     * And `border`, the field 10.11 added, with the one boundary that has no analogue in
+     * the two fields above it: a border's **used** width is not its declared one. A
+     * `border: 5px none` box is the same box as one with no border declaration at all,
+     * because `none` and `hidden` are the two styles that generate nothing -- so this is
+     * not "borders are finished", it is "a style that draws reaches geometry and one
+     * that does not costs nothing". `border-radius`, `hidden`'s collapsing meaning and
+     * any border on a transparent inline box are each a later goal's.
+     */
+    ROBO_CHECK_EQ_INT(caps.border, 1);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BORDER_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -457,14 +470,15 @@ static void test_conformance_pipeline(void)
      *
      * The card is the whole point. It declares `width: 200px` and `height: 100px`,
      * `position: relative`, `top: 10px`, a border, a margin and padding -- and of
-     * those, three numbers reach the result and the rest are later goals. Its width is
-     * 200 because resolving a declared width *is* 10.8; its height is 100; and since
-     * 10.9 its `margin: 10px 20px` also reaches geometry: the card is placed at its
+     * those, every number but the two offsets now reaches the result. Its width is
+     * 200 because resolving a declared width *is* 10.8; its height is 100; since 10.9
+     * its `margin: 10px 20px` also reaches geometry: the card is placed at its
      * **margin origin**, (20, 10), which is where the containing block's content
      * origin is plus the two margins, and the height it propagates up is its margin
-     * box -- 10 + 100 + 10 = 120 at `<body>` and `<html>`. The border and padding are
-     * still absent, and `position: relative`/`top: 10px` still are, so a build that
-     * read any of those here would be answering a phase that has not run.
+     * box; and since 10.11 its `border: 1px solid black` and `padding: 5px` are inside
+     * that box rather than beside it. `position: relative`/`top: 10px` is still not
+     * applied, so a build that read either here would be answering a phase that has not
+     * run.
      *
      * The card's width then travels: `<p class="title">` is its child, so the width
      * its own `auto` resolves against is 200 rather than the viewport's 1280. That is
@@ -498,12 +512,12 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(rect.x, 0);
         ROBO_CHECK_EQ_INT(rect.y, 0);
         ROBO_CHECK_EQ_INT(rect.width, 1280);
-        /* `<body>` is the only block-level child that stacks, and it is 130 tall since
-         * 10.10: the extent the cursor reached is the card's **margin box**, which now
-         * spans all three of the card's boxes -- 10 (margin) + 110 (the border box,
-         * whose `height: 100px` is a *content* box plus 5px of padding on each axis) + 10
-         * (margin). */
-        ROBO_CHECK_EQ_INT(rect.height, 130);
+        /* `<body>` is the only block-level child that stacks, and it is 132 tall since
+         * 10.11: the extent the cursor reached is the card's **margin box**, which spans
+         * all four of the card's boxes -- 10 (margin) + 112 (the border box, whose
+         * `height: 100px` is a *content* box plus 5px of padding and 1px of border on each
+         * axis) + 10 (margin). */
+        ROBO_CHECK_EQ_INT(rect.height, 132);
 
         ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, body_box, &result),
                           ROBO_OK);
@@ -512,7 +526,7 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(rect.x, 0);
         ROBO_CHECK_EQ_INT(rect.y, 0);
         ROBO_CHECK_EQ_INT(rect.width, 1280);
-        ROBO_CHECK_EQ_INT(rect.height, 130);
+        ROBO_CHECK_EQ_INT(rect.height, 132);
 
         ROBO_CHECK_EQ_INT(robo_layout_object_result(fixture.tree, card_box, &result),
                           ROBO_OK);
@@ -526,15 +540,16 @@ static void test_conformance_pipeline(void)
         ROBO_CHECK_EQ_INT(position.y, 10);
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
         /*
-         * And since 10.10 the two numbers are the card's **border** box rather than the
+         * And since 10.11 the two numbers are the card's **border** box rather than the
          * declared pair: `width: 200px` and `height: 100px` are the *content* box under
-         * this build's `content-box` model, and `padding: 5px` puts 5 on each of the four
-         * sides, so the box a reader sees is 200 + 5 + 5 by 100 + 5 + 5. That is the phase
-         * in one assertion: a padding changes a box's size and never its position, which
-         * is the same line a margin draws in the opposite direction.
+         * this build's `content-box` model, `padding: 5px` puts 5 on each of the four sides
+         * and `border: 1px solid black` puts 1 more outside those, so the box a reader sees
+         * is 200 + 5 + 5 + 1 + 1 by 100 + 5 + 5 + 1 + 1. That is the box model *complete* --
+         * the same assertion 10.10 wrote one inset short, which is why the fourth phase to
+         * move these numbers is also the last.
          */
-        ROBO_CHECK_EQ_INT(size.width, 210);
-        ROBO_CHECK_EQ_INT(size.height, 110);
+        ROBO_CHECK_EQ_INT(size.width, 212);
+        ROBO_CHECK_EQ_INT(size.height, 112);
 
         /* The title is a placed box with a *zero* extent, which is 10.3's honest
          * answer for a `<p>` whose only content is text: a text node is not a box,
@@ -549,10 +564,10 @@ static void test_conformance_pipeline(void)
          * that declares the width, which is what makes the declaration *contain* something
          * rather than only describe one box.
          *
-         * Still 200 after 10.10, and that is the `content-box` model asserted one level
-         * down: the card's *border* box is 210, but its **content** box is the 200 its
-         * author declared, so the paragraph fills 200 -- not the 210 the card occupies and
-         * not the 190 a `border-box` reading of the declaration would give its child.
+         * Still 200 after 10.11, and that is the `content-box` model asserted one level
+         * down: the card's *border* box is 212, but its **content** box is the 200 its
+         * author declared, so the paragraph fills 200 -- not the 212 the card occupies and
+         * not the 188 a `border-box` reading of the declaration would give its child.
          */
         ROBO_CHECK_EQ_INT(size.width, 200);
         ROBO_CHECK_EQ_INT(size.height, 0);
@@ -1072,7 +1087,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.10.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.11.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*

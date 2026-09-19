@@ -852,6 +852,17 @@ void robo_layout_tree_lines_reset(robo_layout_tree_t *tree)
          * so that the record's silence cannot be read as an answer.
          */
         robo_layout_padding_edges_init(&tree->objects[index].padding);
+        /*
+         * And the used border (10.11), the last of the four insets and the outermost of
+         * the two that belong to the box. It is steadier than the padding even -- the
+         * used widths come from declarations and a style that do not change between
+         * passes -- and it is cleared for the reason every record above is: it carries
+         * the *conclusion* that a side draws, and a conclusion that outlived the box set
+         * it was drawn from would be a border a paint pass could believe. The door
+         * refuses an object that was never placed so that the record's silence cannot be
+         * read as an answer.
+         */
+        robo_layout_border_edges_init(&tree->objects[index].borders);
     }
 }
 

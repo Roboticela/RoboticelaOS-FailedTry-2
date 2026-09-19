@@ -282,11 +282,12 @@ Each a named later goal, and each stated where a reader will look for it:
   *known* containing dimension to resolve them against — the same missing input that
   keeps `has_available_height` clear.
 - **intrinsic sizing**: `min-content`, `max-content`, `fit-content`, shrink-to-fit.
-- **`box-sizing`**, and any contribution from a **border** (10.11). A margin never
-  contributes to this layer (10.9) and neither does a padding *inside* it (10.10):
-  what the padding changes is the number the caller hands this layer as available,
-  and the box the caller derives from its answer. That is why the padding layer,
-  not this one, is where `content + padding` is computed (`Padding.md` §4).
+- **`box-sizing`**. No inset contributes to this layer: a margin never does (10.9),
+  and neither does a padding (10.10) or a border (10.11) *inside* it — what each
+  changes is the number the caller hands this layer as available, and the box the
+  caller derives from its answer. That is why the padding layer computes
+  `content + padding` (`Padding.md` §4) and the border layer computes that plus the
+  border (`Borders.md` §4), rather than either being resolved here.
 - flex, grid and table sizing, and positioning (10.12), which is where `auto`
   insets and a contained box's offset belong.
 
@@ -302,3 +303,12 @@ padding, and the padding layer derives it from this layer's answer rather than t
 layer resolving it. So no rule here moved; what moved is that the two numbers are now
 distinguishable in a document that declares a padding, which is why the *result*'s
 `size` and the *resolved* size are the same number only where no padding exists.
+
+*10.11's outcome row:* the same clarification one layer out, and it is the last one
+this document needs, because the box model is now complete. The result's `size` is the
+**border** box — this layer's content box, plus the padding (10.10), plus the border —
+and the *resolved* size is still the content box, so the two are equal only in a
+document that declares neither inset. Nothing in this layer changed for it: a border
+contributes to the **available width** its caller passes in (`Borders.md` §4) exactly
+as a padding does, which is why the border was a subtraction on the way in and an
+addition on the way out rather than a fourth kind of dimension.

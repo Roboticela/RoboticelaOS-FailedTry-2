@@ -4549,6 +4549,111 @@ moved for the version, the capabilities and the diagnostic domains — one more 
 The count went from **2235 pass to 2255**: 20 new cases, no case removed, and the module's 239 cases
 in sixteen suites are green in Debug, in Release, and under ASan and UBSan with no diagnostic.
 
+## Goal 10.11 — Borders
+
+**Status: complete.** The phase that completes the box model, and the one whose work was mostly a
+**move**: a border is an *in-box* layer that sits between the padding and the margin, so it grows the
+**border box** and moves the **content origin** and never moves the box — the exact mirror of 10.9's
+margin, which moves the box and never the size. The padding layer's `border_box` door is renamed
+`padding_box` (its real meaning now that a border exists) and the pass grows a fourth term, so the
+box model reads `margin → border → padding → content` and is now, as a model, done.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The border vocabulary (three width kinds **including** the keywords `thin`/`medium`/`thick`, the ten-row style vocabulary and its `generates_border` fact, the colour reused from 9.9), the side record, the four-sides record, the used **edges** record, the **one** policy, and the **three** seams a computed style becomes borders through | `Include/RoboLayout/RoboLayoutBorder.h`, `Source/RoboLayout/RoboLayoutBorder.c` |
+| The two derived numbers: the border box a padding box asks for (**64-bit**, saturated) and the width left for a box's contents after borders **and** padding (**floored** at zero) — with the two edge policies still opposite | `Source/RoboLayout/RoboLayoutBorder.c` |
+| The padding layer's `border_box` door renamed `padding_box`, threaded through the layer, the block pass, the inline pass and the padding suite | `RoboLayoutPadding.h` / `.c`, `RoboLayoutBlock.c`, `RoboLayoutInline.c` |
+| The three seams: the width reader on the computed style's `px`-or-keyword door (no other property's keyword names a length, so the shared classification folds them onto `UNUSABLE`), the style reader's closed vocabulary, and the colour reader | `RoboLayoutBorder.c`, `RoboLayoutInternal.h` |
+| The used borders kept on the object, with their read door and their clearing | `RoboLayoutObject.h` / `.c`, `RoboLayoutTree.c` |
+| The block pass: the borders read before the padding, the availability chain `margins → borders → padding → width`, the border box on the result, the three counters | `Source/RoboLayout/RoboLayoutBlock.c`, `RoboLayoutBlock.h` |
+| The inline pass: an atomic inline's advance, size and baseline carry its borders; a transparent inline box declares one and it does not apply | `Source/RoboLayout/RoboLayoutInline.c`, `RoboLayoutInline.h` |
+| The three counters `widths_resolved` / `widths_unresolved` / `borders_drawn` in both records and both `equal()` comparisons | `RoboLayoutBlock.h`, `RoboLayoutInline.h`, `RoboLayoutBlock.c`, `RoboLayoutInline.c` |
+| Version `0.11.0`, `ROBO_LAYOUT_BORDER_IMPLEMENTED`, the `border` diagnostic domain, the umbrella, the build and the suite registration | `RoboLayoutVersion.h`, `RoboLayout.h`, `RoboLayoutDiagnostics.h`, `Tools/Build.ps1`, `Tests/Main.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A border representation exists in RoboLayout | `layout.borders.kind_vocabulary`, `layout.borders.width_record`, `layout.borders.side_record` |
+| Four sides are independently represented | `layout.borders.seam`, `layout.borders.block_sides` |
+| Computed CSS width/style/colour are consumed, never parsed here | `layout.borders.seam` |
+| Border geometry integrates with padding and content geometry | `layout.borders.padding_interaction`, `layout.borders.derived_boxes` |
+| Block layout accounts for borders | `layout.borders.block_declared_width`, `layout.borders.block_sides` |
+| Margins stay external to the border box | `layout.borders.margin_interaction` |
+| Padding stays inside the border | `layout.borders.padding_interaction` |
+| Content origin accounts for border + padding | `layout.borders.padding_interaction`, `layout.borders.block_vertical` |
+| Width/height stay compatible with 10.8 | `layout.borders.block_auto_width`, `layout.borders.block_declared_width` |
+| Existing inline/text layout remains functional | `layout.borders.inline_atomic`, `layout.borders.inline_transparent_not_applied` |
+| Border information is exposed for a future RoboPaint | `layout.borders.object_door`, `layout.borders.edges_record` |
+| Re-layout responds to a changed border width | `layout.borders.relayout` |
+| Geometry stays finite and deterministic | `layout.borders.derived_boxes`, every case, plus `layout.borders.allocator_balance` |
+
+### The one distinction the phase turns on
+
+**A border is inside the box.** It is the third inset, ordered against the other two and unlike
+both in what it moves:
+
+```text
+the box's position        unchanged — 10.9's job
+the box's border box      padding box + border on each axis   (what `size` carries)
+the box's content origin  border-box origin + border-left/top + padding-left/top
+the width left for it     containing width - margins - borders - padding  (an `auto` width fills this)
+```
+
+An `auto` width fills what the margins, the borders **and** the padding left, because CSS's
+constraint equation has a term for each; a `border: 0` and a `border-style: none` both mean "no
+visible border" and both leave the geometry alone, because a border that draws nothing must not
+reserve space. The pass orders borders **before** the padding, the same reason 10.10 ordered the
+padding before the width: the border box is what the padding is an inset *within*, so it must be
+known first. Three seams rather than one, because the three properties compute three different
+ways — a width's keywords are a grammar no other property shares, a style's rows carry the one fact
+a paint phase must ask, and a colour is 9.9's. The model is still `box-sizing: content-box`, so a
+declared `width: 200px` with `padding: 5px` and `border: 5px` is 200 inside and **220** outside.
+
+### What 10.11 found
+
+Four findings. The first is a **vocabulary** one, the mirror of 10.10's arithmetic finding, and the
+kind only the accounting can see.
+
+**A record was one kind short of its own subject.** A padding's used value *is* its declared value,
+so "this side drew a border" and "this side was declared at five" were the same question — and a
+border makes them two. `layout.borders.none_style` is what exposed it: twelve declarations arrived
+and **none of them took room**, because `border-style: none` makes the used width zero whatever
+`border-width` says. One counter cannot report a pair, so the record carries three —
+`widths_resolved`, `widths_unresolved` and `borders_drawn` — and the third is the finding: it is the
+only number in this module that answers a question about *geometry* rather than about a
+*declaration*.
+
+**A door's name outlived its meaning, and only a second layer could see it.**
+`robo_layout_padding_edges_border_box` returned `content + padding` — the **padding** box — and was
+named for the box the module *hoped* to complete rather than the box it computed. That was
+unobservable while the padding was the only inset (the two boxes were one number) and became
+observable the moment a border existed: paint draws the border box's edge and would have drawn it
+`border-width` too far in. The fix is a rename plus a border-layer door composed above it, and **no
+arithmetic changed** — every 10.10 case about those numbers passes with the new spelling. 10.10's
+prediction ("the doors below are named for what they add so that 10.11 can extend them rather than
+rename them") was half right, and this is the half that was wrong.
+
+**A negative side is a caller bug, and the moment to see it is before a size is derived from it.**
+10.10 floored a negative *available width* at zero, because a containing block narrower than a box's
+padding is a **document**. A negative *border record* is not — this module's own resolver cannot
+produce one — so the two derived doors **refuse** with a diagnostic rather than flooring, through
+one shared `layout_border_edges_require`. It is the first place in the module where "this record is
+impossible" and "this document is extreme" needed different answers.
+
+**The same two numbers moved for the fourth time.** `layout.block.pipeline` (card 210 × 110 →
+**218 × 118**) and `layout.conformance.pipeline` (212 × 112 and heights **132**), each assertion's
+comment now naming which phase moved it. The assertion that deliberately **did not** move is still
+the paragraph inside the card: **200**, not 212 and not 188 — the card's border box grew and its
+content box did not, so a build that read `width: 200px` as a border box would fail there and
+nowhere else. Six pins moved for the version, the capabilities and the diagnostic domains.
+
+The count went from **2255 pass to 2277**: 22 new cases, no case removed, and the module's 261
+cases in seventeen suites are green in Debug, in Release, and under ASan and UBSan with no
+diagnostic — `layout.borders.*` 22/22 under them.
+
 ## Next
 
-- Goal 10.11 — borders — do not start until requested
+- Goal 10.12 — basic positioning — do not start until requested

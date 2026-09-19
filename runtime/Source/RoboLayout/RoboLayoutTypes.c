@@ -87,6 +87,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "margins";
     case ROBO_LAYOUT_DOMAIN_PADDING:
         return "padding";
+    case ROBO_LAYOUT_DOMAIN_BORDER:
+        return "border";
     default:
         return "unknown";
     }

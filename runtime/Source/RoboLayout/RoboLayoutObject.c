@@ -293,6 +293,55 @@ robo_result_t robo_layout_object_padding(const robo_layout_tree_t *tree,
     return ROBO_OK;
 }
 
+robo_result_t robo_layout_object_borders(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_border_edges_t *out,
+                                         robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading borders needs an out");
+    }
+    /* Cleared first, so the record a caller reads after a refusal is a *stated* absence
+     * rather than whatever its stack held. */
+    robo_layout_border_edges_init(out);
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading borders needs a tree and an id");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+
+    /*
+     * The same three refusals the margin and padding doors make, and each for the reason
+     * the header argues. The doors are separate rather than one with a record kind
+     * because their refusals are about *the record* rather than about the box: an
+     * `inline-block` has all three, a transparent inline box has none of them, and a text
+     * run is not a box to apply any of them to.
+     */
+    if (object->kind != ROBO_LAYOUT_OBJECT_BOX) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a text run has no border");
+    }
+    if (robo_layout_result_state(&object->result) != ROBO_LAYOUT_RESULT_COMPUTED) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "no pass has sized this box");
+    }
+    if (robo_css_display_is_inline_level(object->display) &&
+        object->context_owned == ROBO_LAYOUT_FC_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a border does not apply to a transparent inline box");
+    }
+
+    *out = object->borders;
+    return ROBO_OK;
+}
+
 /** Which link a caller asked for. */
 typedef enum layout_link_pick {
     LAYOUT_LINK_PARENT = 0,

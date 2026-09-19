@@ -33,6 +33,7 @@
 #define ROBO_LAYOUT_INTERNAL_H
 
 #include "RoboLayout/RoboLayoutBlock.h"
+#include "RoboLayout/RoboLayoutBorder.h"
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"

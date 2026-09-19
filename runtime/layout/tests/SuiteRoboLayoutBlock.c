@@ -1454,27 +1454,30 @@ static void test_block_pipeline(void)
         ROBO_CHECK_EQ_INT(robo_layout_result_size(&result, &size), ROBO_OK);
 
         /*
-         * `height: 100px` and `width: 200px` reach the result -- and since 10.10 the
+         * `height: 100px` and `width: 200px` reach the result -- and since 10.11 the
          * numbers here are the card's **border** box, because `padding: 5px` puts five on
-         * each of its four sides. This case is where 10.3 recorded that a declared width
-         * was **ignored** ("a block box fills its containing block, and resolving a
-         * declared width is 10.8") and where 10.8 recorded it being honoured; 10.10 is the
-         * third phase to move the number, and it moved it by the padding rather than by
-         * the declaration: `width: 200px` is the *content* box under this build's
-         * `content-box` model, so the box a reader sees is 210 by 110. A build that had
-         * read the declaration as a border box would still give 200 and 100 here, which is
-         * why the pair is worth writing down.
+         * each of its four sides *and* `border: 4px solid black` puts four more outside
+         * those. This case is where 10.3 recorded that a declared width was **ignored**
+         * ("a block box fills its containing block, and resolving a declared width is
+         * 10.8"), where 10.8 recorded it being honoured, and where 10.10 moved the number
+         * by the padding. 10.11 is the fourth phase to move it and the **last**: the box
+         * model is complete, so `width: 200px` is the *content* box under this build's
+         * `content-box` model and the box a reader sees is 218 by 118 -- 200 + 10 of
+         * padding + 8 of border, and 100 + 10 + 8. A build that had read the declaration
+         * as a border box would still give 200 and 100 here, which is why the pair is worth
+         * writing down.
          */
-        ROBO_CHECK_EQ_INT(size.height, 110);
-        ROBO_CHECK_EQ_INT(size.width, 210);
+        ROBO_CHECK_EQ_INT(size.height, 118);
+        ROBO_CHECK_EQ_INT(size.width, 218);
         /*
-         * `margin: 10px 20px` reaches geometry since 10.9, `border` still does not, and
-         * `position: relative; top: 12px` is still not applied: the box is at its parent's
-         * content origin **plus its own margins**, which is the number this case recorded
-         * as 0/0 when 10.8 last touched it. A margin is a declaration about the gap beside
-         * a box, so it moves the box and leaves the size alone; a padding is a declaration
-         * about the space inside one, so it changes the size and leaves the position
-         * alone. The four assertions together are what says both.
+         * `margin: 10px 20px` reaches geometry since 10.9, and neither `border` nor
+         * `padding` ever touches this number: the box is at its parent's content origin
+         * **plus its own margins**, which is what this case recorded as 0/0 when 10.8 last
+         * touched it. A margin is a declaration about the gap beside a box, so it moves the
+         * box and leaves the size alone; a padding and a border are declarations about the
+         * space inside one, so they change the size and leave the position alone. The four
+         * assertions together are what says both. (`position: relative; top: 12px` is still
+         * not applied: basic positioning is 10.12's.)
          */
         ROBO_CHECK_EQ_INT(position.x, 20);
         ROBO_CHECK_EQ_INT(position.y, 10);

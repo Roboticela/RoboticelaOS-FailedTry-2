@@ -950,7 +950,7 @@ static void test_paddings_derived_boxes(void)
     edges = layout_padding_edges(5, 5, 5, 5);
     content.width = 100;
     content.height = 50;
-    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_border_box(&edges, content, &box, NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_padding_box(&edges, content, &box, NULL),
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(box.width, 110);
     ROBO_CHECK_EQ_INT(box.height, 60);
@@ -960,7 +960,7 @@ static void test_paddings_derived_boxes(void)
     edges = layout_padding_edges(1, 2, 3, 4);
     content.width = 100;
     content.height = 50;
-    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_border_box(&edges, content, &box, NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_padding_box(&edges, content, &box, NULL),
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(box.width, 106);
     ROBO_CHECK_EQ_INT(box.height, 54);
@@ -975,23 +975,23 @@ static void test_paddings_derived_boxes(void)
     edges = layout_padding_edges(1, 1, 1, 1);
     content.width = 2147483647;
     content.height = 2147483647;
-    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_border_box(&edges, content, &box, NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_padding_box(&edges, content, &box, NULL),
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(box.width, 2147483647);
     ROBO_CHECK_EQ_INT(box.height, 2147483647);
 
     /* Refusals: NULL, a negative content box (a box's own extent is never negative), and
      * a record no size can be derived from. */
-    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_border_box(NULL, content, &box, NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_padding_box(NULL, content, &box, NULL),
                       ROBO_INVALID_ARGUMENT);
-    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_border_box(&edges, content, NULL, NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_padding_box(&edges, content, NULL, NULL),
                       ROBO_INVALID_ARGUMENT);
     content.width = -1;
     content.height = 50;
-    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_border_box(&edges, content, &box, NULL),
+    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_padding_box(&edges, content, &box, NULL),
                       ROBO_INVALID_ARGUMENT);
     content.width = 100;
-    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_border_box(&invalid, content, &box, &diag),
+    ROBO_CHECK_EQ_INT(robo_layout_padding_edges_padding_box(&invalid, content, &box, &diag),
                       ROBO_ERROR);
     ROBO_CHECK_EQ_INT((int)diag.domain, (int)ROBO_LAYOUT_DOMAIN_PADDING);
 }

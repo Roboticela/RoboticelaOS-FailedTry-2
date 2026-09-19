@@ -278,9 +278,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 10
+#define ROBO_LAYOUT_VERSION_MINOR 11
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.10.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.11.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -470,10 +470,11 @@
  *   neither distributes like a margin nor resolves against a containing block, so the
  *   same four declarations mean the same thing to every kind of box;
  *
- *   the box's **border box** -- what `robo_layout_result_t::size` carries -- derived as
- *   the content box plus the padding, and the box's **content box** inset from its
- *   border edges by `padding-left`/`padding-top`, under this build's `box-sizing:
- *   content-box` model, which is CSS's initial value;
+ *   the box's **padding box** -- derived as the content box plus the padding, which is
+ *   what a result's `size` carried until 10.11 and what the border box is now built
+ *   from -- and the box's **content box** inset from its padding-box edges by
+ *   `padding-left`/`padding-top`, under this build's `box-sizing: content-box` model,
+ *   which is CSS's initial value;
  *
  *   an `auto` width filling what the margins **and** the padding left, because CSS's
  *   constraint equation has both terms, and an atomic inline's advance including its
@@ -481,12 +482,56 @@
  *
  * What it does **not** claim: `box-sizing: border-box`, which is the branch a later goal
  * adds at one place; percentage and relative-unit padding (read, recorded unresolved and
- * used as zero, because no goal resolves a percentage yet); padding on a **transparent
+ * used as zero, because no goal resolves a percentage yet); and padding on a **transparent
  * inline box**, whose rectangle is the union of its contents and which this build does
- * not inflate; and borders, which 10.11 adds to the same two derived numbers. Each is a
- * later phase's, and `RoboLayoutPadding.h` names them where they would otherwise be
- * assumed.
+ * not inflate. Each is a later phase's, and `RoboLayoutPadding.h` names them where they
+ * would otherwise be assumed.
+ *
+ * One door moved in 10.11 and this note is where a reader finds out: the function that
+ * computes the padding box was named `..._border_box` until a border existed, because it
+ * was named for the box the module *hoped* to complete rather than for the box it
+ * computes. It is `robo_layout_padding_edges_padding_box` now, and the arithmetic is
+ * unchanged.
  */
 #define ROBO_LAYOUT_PADDING_IMPLEMENTED 1
+
+/**
+ * 1 once this build turns a box's **border** into the size it occupies, the room its
+ * contents get, and the record a paint pass draws an edge from.
+ *
+ * A constant rather than a runtime decision for the same reason the other ten are: it is
+ * read by `robo_layout_get_capabilities().border` and by the suite that asserts the flag
+ * against the code. What it claims, exactly:
+ *
+ *   twelve longhands, read from a computed style and never parsed here -- four widths
+ *   (a px length, one of the three width keywords, or a declaration this build cannot
+ *   use), four **styles** (9.15's typed vocabulary, all ten of them) and four
+ *   **colours** (9.9's own record, carried unaltered, `currentColor` included);
+ *
+ *   a **used** width per side by one stated policy, and the used value is *not* the
+ *   declared one: a `border-style` of `none` or `hidden` gives every side a used width of
+ *   zero however `border-width` was written, which is CSS's own rule and the reason
+ *   `robo_css_border_style_generates_border` exists;
+ *
+ *   the **border box** -- what `robo_layout_result_t::size` carries -- derived as the
+ *   padding box plus the border, and the **padding box** width resolved by subtracting
+ *   the borders from the containing block, so an `auto` width fills what the margins, the
+ *   border *and* the padding left;
+ *
+ *   an atomic inline's advance including its borders, and the whole record -- used width,
+ *   style and colour per side -- readable from the object, so a paint pass never re-reads
+ *   a declaration to decide whether this build could use it.
+ *
+ * What it does **not** claim: `border-radius` or any corner geometry; `hidden`'s
+ * border-collapsing meaning, which is a table rule this build has no tables for; logical
+ * border properties; and any border on a **transparent inline box**, which takes none for
+ * the reason it takes no margin and no padding. Percentage border widths are absent too,
+ * and absent for a different reason than a percentage padding: the CSS grammar has no
+ * percentage for `border-width` at all, so an `UNRESOLVED` width here is a relative unit,
+ * a `calc()`, a negative length or the forbidden `auto` -- never a percentage this build
+ * declined to resolve. Each absence is named in `RoboLayoutBorder.h` where it would
+ * otherwise be assumed.
+ */
+#define ROBO_LAYOUT_BORDER_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

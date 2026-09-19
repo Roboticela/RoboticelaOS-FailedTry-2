@@ -50,6 +50,7 @@
 
 #include "RoboLayout/RoboLayoutDiagnostics.h"
 #include "RoboLayout/RoboLayoutFormattingContext.h"
+#include "RoboLayout/RoboLayoutBorder.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
@@ -232,6 +233,34 @@ typedef struct robo_layout_object {
      * about a layout that no longer holds.
      */
     robo_layout_padding_edges_t padding;
+    /**
+     * The border this box was **sized and drawn** with (10.11), or a cleared record.
+     *
+     * The third inset and the outermost of the two that belong to the box, so this is
+     * the record that turns the padding box into the **border box** -- the number a
+     * result's `size` carries -- and `top`/`left` from it are the *second* term of a
+     * content origin:
+     *
+     *     content origin = the result's position
+     *                    + the border's top / left   (this field)
+     *                    + the padding's top / left  (@ref padding)
+     *
+     * It carries the style and colour of each side as well as its used width, which is
+     * paint's requirement rather than geometry's: a pass that draws an edge decides all
+     * three facts at the same moment, and this layer has already decided which of the
+     * twelve declarations it could use. Re-reading a style to find out would re-decide
+     * it, and a second reader of one question is what this module exists to avoid.
+     *
+     * Note what a side's width means here: the **used** width, which is zero for
+     * `border: 5px none` however `border-width` was written. A paint pass therefore
+     * draws a side exactly when its width is above zero, and never has to ask the style
+     * a second question.
+     *
+     * Cleared with the geometry in the same sweep and for the same reason as @ref margins
+     * and @ref padding: a used border that outlived the classification would be a
+     * plausible-looking record about a layout that no longer holds.
+     */
+    robo_layout_border_edges_t borders;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;
@@ -412,6 +441,42 @@ robo_result_t robo_layout_object_margins(const robo_layout_tree_t *tree,
 robo_result_t robo_layout_object_padding(const robo_layout_tree_t *tree,
                                          robo_layout_node_id_t id,
                                          robo_layout_padding_edges_t *out,
+                                         robo_layout_diag_t *diag);
+
+/**
+ * The **border** @p id was sized with (Phase 10.11).
+ *
+ * The four used widths *and* the style and colour that produced each, which is what
+ * makes this the one record a paint pass needs: it decides whether to draw a side
+ * (width above zero), how to draw it (the style) and in what colour, without re-reading
+ * a computed style and re-deciding which declarations this build could use.
+ *
+ * It is also the outermost of the two insets that belong to the box, so it is the
+ * second term of a **content origin**: a result's `position` is the border-box origin,
+ * `top`/`left` here take that to the padding box, and `top`/`left` from
+ * `robo_layout_object_padding` take that to where the contents begin. The three
+ * numbers compose in that order and none of them is recoverable from another.
+ *
+ * The door refuses the same four things `robo_layout_object_padding` refuses, and for
+ * the same reasons:
+ *
+ *   an id that names nothing                      -- `robo_layout_object_get`'s miss;
+ *   an object **nothing placed**, so no border was applied -- a cleared border record is
+ *   a legal value (no border is CSS's initial geometry), so this door asks the result
+ *   rather than reading the record's silence;
+ *   a **text run**, and a **transparent inline box** with contents: no border applies to
+ *   either. A text node is not a box at all, and a transparent inline box's rectangle is
+ *   the union of its contents rather than a placed size -- this build does not inflate
+ *   that union by a declared border, and `RoboLayoutBorder.h` says so out loud.
+ *
+ * @return ROBO_OK and the used border; ROBO_INVALID_ARGUMENT for NULL arguments or a
+ *         NONE id; ROBO_NOT_FOUND for the three cases above. @p out is cleared to no
+ *         border first, so a caller that ignores the code reads a stated absence rather
+ *         than a leftover.
+ */
+robo_result_t robo_layout_object_borders(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_border_edges_t *out,
                                          robo_layout_diag_t *diag);
 
 /**

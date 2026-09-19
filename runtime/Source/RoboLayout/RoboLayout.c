@@ -117,6 +117,16 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      */
     out->margins = ROBO_LAYOUT_MARGINS_IMPLEMENTED;
     out->padding = ROBO_LAYOUT_PADDING_IMPLEMENTED;
+
+    /*
+     * And 10.11's, the last of the box model's four layers and the only one whose *used*
+     * value is not its declared one: a `border-style: none` gives every side a used width of
+     * zero however `border-width` was written, which is why the record carries a counter for
+     * a width that resolved and a second for a border that actually draws. **Not** "borders
+     * are finished": `border-radius` does not exist, `hidden`'s collapsing meaning belongs
+     * to tables this build has none of, and a transparent inline box takes no border.
+     */
+    out->border = ROBO_LAYOUT_BORDER_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }

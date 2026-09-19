@@ -48,9 +48,11 @@
  * asked through RoboFont's own API. A pass given no metrics source measures every run
  * as zero and counts it, which is the documented degradation rather than a failure.
  *
- * Line boxes are 10.6; margins, padding, borders, positioning and overflow are still
- * absent and still belong to named later goals -- so `geometry`, `block_layout`,
- * `inline_layout`, `block_and_inline_layout` and `text_layout` are all 1, while
+ * Line boxes are 10.6, baselines 10.7, sizing 10.8, margins 10.9, padding 10.10 and
+ * borders 10.11 -- the last three being the box model complete, inset by inset;
+ * positioning and overflow are still absent and still belong to named later goals -- so
+ * `geometry`, `block_layout`, `inline_layout`, `block_and_inline_layout`, `text_layout`,
+ * `line_boxes`, `baselines`, `sizing`, `margins`, `padding` and `border` are all 1, while
  * `painting` is 0.
  *
  * Chromium's LayoutObject / LayoutBox / constraint models are temporary technical
@@ -65,6 +67,7 @@
 
 #include "RoboLayout/RoboLayoutBaseline.h"
 #include "RoboLayout/RoboLayoutBlock.h"
+#include "RoboLayout/RoboLayoutBorder.h"
 #include "RoboLayout/RoboLayoutBuilder.h"
 #include "RoboLayout/RoboLayoutConstraints.h"
 #include "RoboLayout/RoboLayoutContext.h"
@@ -238,6 +241,22 @@ typedef struct robo_layout_capabilities {
      * those if it were named for "padding is finished".
      */
     int padding;
+    /**
+     * Turning a box's **border** into the size it occupies, the room its contents get, and
+     * the record a paint pass draws an edge from (10.11). **1** since 10.11.
+     *
+     * A claim about the *build*, and one sentence short enough to be checked: twelve
+     * longhands are read from a computed style, each side's used width is zero unless its
+     * `border-style` generates a border (CSS's own rule), and the results are a box whose
+     * border box -- what a result's `size` carries -- is its padding box plus the border,
+     * whose padding box is resolved by subtracting the borders from the containing block,
+     * and whose whole record -- used width, style and colour per side -- a paint pass reads
+     * without re-reading a declaration. Kept narrow for the same reason the other flags are:
+     * **`border-radius` does not exist**, `hidden`'s border-collapsing meaning does not, and
+     * no border applies to a transparent inline box. `border` would be claiming those if it
+     * were named for "borders are finished".
+     */
+    int border;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

@@ -391,7 +391,7 @@ robo_result_t robo_layout_padding_edges_content_width(const robo_layout_padding_
     return ROBO_OK;
 }
 
-robo_result_t robo_layout_padding_edges_border_box(const robo_layout_padding_edges_t *edges,
+robo_result_t robo_layout_padding_edges_padding_box(const robo_layout_padding_edges_t *edges,
                                                    robo_layout_size_t content,
                                                    robo_layout_size_t *out,
                                                    robo_layout_diag_t *diag)

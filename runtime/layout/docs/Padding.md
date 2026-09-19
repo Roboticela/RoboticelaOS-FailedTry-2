@@ -100,6 +100,19 @@ they leave is what everything inside is measured from. The padding comes next be
 20px wider, and the subtraction that makes that true is the padding layer's — a single
 axis rather than a size, because that is how a contained width arrives.
 
+*10.11's outcome row:* two things in this document changed when a border arrived, and
+neither is arithmetic. The box this phase derives and a result's `size` carries is the
+**padding** box — `content + padding` — which is what `size` *was* until 10.11 and what
+the border layer now derives the border box from; the door was renamed to say so
+(`robo_layout_padding_edges_padding_box`), and every number it produces is unchanged
+(`Borders.md` §1). The order above gained one step on each side, one layer out: the
+border resolves **before** the padding because it is the outer inset, and the
+subtraction the padding consumes is the *padding box width* rather than the containing
+block's, so the paragraph quoted here ("a box with `padding: 10px` and no declared
+width is exactly as wide as its containing block") is still true and now holds with
+borders declared as well, because the number the padding subtracts from has already had
+them taken out.
+
 ## 2. Three kinds, no `auto`, and why `ABSENT` is counted nowhere
 
 ```text
@@ -312,10 +325,12 @@ declaration and nothing else at all.
 
 Each a named later goal:
 
-- **borders** (10.11). The border box computed here is a content box plus padding and
-  nothing else, and a `border: 4px solid` declaration is still read from the style and
-  applied to no number. The doors are named for what they add
-  (`content_width`, `border_box`) so that 10.11 extends them rather than renames them.
+- ~~**borders**~~ **done in 10.11** (`Borders.md`). What this section got right is
+  that the door is named for what it adds; what it got wrong is *which* box it adds to.
+  `..._border_box` returned `content + padding` — the padding box — and the border
+  layer's `..._border_box` is the composition above it. The padding itself is still
+  exactly what this phase made it: a border changes the size these four numbers sit
+  inside and never changes the numbers.
 
 - **padding on a transparent inline box** — a `<span>` with contents, whose rectangle
   is the *union* of what it contains. CSS does grow such a box's inline advance by its

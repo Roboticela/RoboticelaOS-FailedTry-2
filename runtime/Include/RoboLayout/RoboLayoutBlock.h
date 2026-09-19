@@ -248,6 +248,20 @@ typedef struct robo_layout_block_stats {
      *  used value is zero, which is why they are counted: a document whose insets depend
      *  on `padding: 5%` lays out flush here, and the count is what says so. */
     size_t paddings_unresolved;
+    /** **Sides** whose declared `border-*-width` reached this pass (10.11), zero
+     *  included. Summed over sides for the reason every counter above it is, and counted
+     *  from the resolution so that an `ABSENT` side is counted nowhere. */
+    size_t borders_applied;
+    /** Sides declared with a border width this build cannot use -- a relative unit, a
+     *  `calc()`, a negative length, or the `auto` the grammar does not allow (10.11).
+     *  Their used value is zero, which is why they are counted. */
+    size_t borders_unresolved;
+    /** **Sides whose used width is above zero** (10.11): a border that takes room and that
+     *  a paint pass will draw. A third counter rather than the sum of the two above it,
+     *  because the question it answers is a different one -- `border-width: 5px` with
+     *  `border-style: none` resolves (so `borders_applied` counts it) and draws nothing (so
+     *  this one does not), and a document can declare twelve borders and draw no line. */
+    size_t borders_drawn;
     /** Containers with no block-level child at all, so the extent this pass
      *  stacked in the block direction is zero and the height is `0` unless one was
      *  declared -- or, from 10.4, is the extent the *lines* reached. A box that

@@ -271,7 +271,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboLayout\RoboLayoutBaseline.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutSizing.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutMargin.c"),
-    (Join-Path $SourceDir "RoboLayout\RoboLayoutPadding.c")
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutPadding.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutBorder.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -459,6 +460,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutSizing.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutMargin.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutPadding.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutBorder.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutTree.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutConstraints.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutContext.c"),
