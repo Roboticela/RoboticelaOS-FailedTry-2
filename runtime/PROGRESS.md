@@ -4880,8 +4880,82 @@ host-focus flake — **sixth** consecutive phase, on a diff touching no `window`
 Debug run 2355/2355, so the §14 proposal to fix the focus race or quarantine the case is now overdue
 rather than optional.
 
+## Goal 10.15 — Layout Tests
+
+**Status: complete — Phase 10 is complete.** The goal that ends Phase 10, and it does it by asking a
+question the twenty suites before it could not: whether the fourteen layers are right *about each
+other*. Every earlier suite proves one layer against its own declarations — sizing against a `width`,
+margin against a `margin`, border against a `border`, position against an `inset`, overflow against an
+`overflow` — and a build that got each layer right and **composed them wrongly** passes every one of
+them. What that looks like in practice is a content origin computed from the padding but not the
+border, a final position that is the offset but not the flow, a parent that grows to hold an
+overflowing child, or a region that folds in a clipped child's *contents*. Each is one line of wrong
+arithmetic that no single-family assertion can see, and each is asked here on a real document through
+the real chain: `RoboHTML → RoboCSS → the bridge → the tree → the pass`.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The **consolidation suite**: twelve cases in four groups — *composition* (a card inside a column inside a shell, carrying a declared width, a margin, a padding, a border, a relative offset and a clipping child in one pass, with the **derived** relationships asserted — content origin, content width, margin-box stacking, line-to-baseline — rather than a pile of magic numbers, because the composition is the claim); *determinism* (the same document **re-built into a second tree** with every result, inset, offset, overflow record and line compared field by field); *robustness* (a dimension near the geometry's maximum, a zero, a negative margin, an unusable declaration and a deep chain, all of which must produce finite geometry); and *regressions* (the documented findings of 10.11, 10.13 and 10.14, each pinned as the minimal reproduction that failed before its fix) | `layout/tests/SuiteRoboLayoutIntegration.c`, `layout.integration.*` |
+| The **page-origin helper** the suite had to grow, because a result carries two coordinate spaces since 10.12 — `position` is where a box is *drawn* and lives in its **parent's** space, so composing the chain explicitly is the only way an integration assertion can be written without silently comparing the wrong pair | `SuiteRoboLayoutIntegration.c` |
+| Three regression cases whose reproductions had existed only as **prose**: 10.11's border-style finding (a width without a style draws nothing, so a `border-style` change moves geometry and the pair `width` + `style` is what makes it nonzero), 10.13's clipped-child finding (a clipping child contributes its *region* rather than its contents), and 10.14's dirty-root finding (the lowest common **ancestor**, not the shallowest dirty box) — a finding recorded in a document is a finding nobody runs | `SuiteRoboLayoutIntegration.c`, beside `layout/docs/Borders.md` §8, `Overflow.md` §11 and `Invalidation.md` §11 |
+| The one **production** change the phase made, and the reason a consolidation goal exists: the rule the padding, border, margin, position and overflow layers had each stated for their *own* sums — "add in 64 bits, saturate rather than refuse" — applied to the **pass's own accumulations**, which had never had it. Three sites (the block cursor, a margin origin, a margin box) summed bounded numbers into an `int32` and wrapped; a wrapped extent is *negative*, and `robo_layout_sizing_set_content` refuses a negative extent — correctly — so a merely tall document made the whole pass **fail** instead of saturating. One helper now stands where the rule does, so a layer and the pass cannot disagree about the bound | `Source/RoboLayout/RoboLayoutInternal.h` (`layout_extent_clamp`), `Source/RoboLayout/RoboLayoutBlock.c` |
+| Version `0.15.0` — no door, no enumerator and no capability field, which is the phase's smallest claim rather than an omission: the first goal since 10.2 to add nothing to the module's surface, because a `layout_tests` flag would invite a caller to ask whether the *build* is tested and there is no such thing to ask | `RoboLayoutVersion.h` |
+| The build and registry wiring, and the three version pins the bump forced a phase to update — the pins working exactly as intended | `Tools/Build.ps1`, `Tests/Main.c`, `SuiteRoboLayout.c`, `SuiteRoboLayoutConformance.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A dedicated RoboLayout test architecture exists | `layout/tests/`, twenty-one suites, wired explicitly in `$SuiteSrcs` and `Tests/Main.c` |
+| Reusable test helpers exist | `RoboLayoutTestSupport.h` (the real-author-sheet fixture), plus the suite's scripted measurer and page-origin helper |
+| Geometry assertions are reliable and informative | `ROBO_CHECK*` with the derived relationships named per case |
+| Block / inline layout have focused tests | `layout.block.*` 16, `layout.inline.*` 23 |
+| Text, line boxes and baselines have focused tests | `layout.text.*` 26, `layout.line.*` 12, `layout.baseline.*` 16 |
+| Width/height, margins, padding, borders have focused tests | `layout.sizing.*` 17, `layout.margins.*` 25, `layout.paddings.*` 20, `layout.borders.*` 22 |
+| Positioning and overflow have focused tests | `layout.positioning.*` 20, `layout.overflow.*` 26 |
+| Invalidation has focused tests | `layout.invalidation.*` 25 |
+| Cross-feature integration tests exist | `layout.integration.box_model`, `.inline_text`, `.position_overflow`, `.nested_tree`, `.showcase` |
+| Determinism is explicitly tested | `layout.integration.determinism` (two independently built trees) |
+| Invalid/extreme input behaviour is tested | `layout.integration.extreme_input`, `.no_stale_geometry` |
+| Lightweight performance sanity coverage exists | `layout.integration.performance_sanity` |
+| The complete Phase 10 suite runs deterministically | `--filter layout.` 346/346 |
+| All Phase 9 tests continue passing | `--filter css.` 616/616 |
+| All existing project tests continue passing | 2367/2367, Debug and Release; 2365/2367 under sanitizers |
+| Visual validation succeeds where the display path supports it | `layout.integration.showcase` plus the host checkpoint (11 probes, `RESULT: PASS`) |
+| No Chromium dependency is introduced | `Tools/Build.ps1 -Verify` boundary scan |
+
+### What 10.15 found
+
+Five findings, recorded in full in `layout/docs/Tests.md` §20. In one line each: **the pass's own
+arithmetic was unbounded**, and only an integration case could see it — four layer suites test the
+geometry's maximum already, one layer at a time, and the overflow is a property of an accumulation
+*across boxes*, so it needed a pass, a parent and two children; a **passed case can be the wrong case**,
+which the border regression proved by failing first on the suite's own mistake (a generic keyword
+value where the reader needs the `border-*-style` longhands); two **coordinate spaces** live in one
+result since 10.12 and the first assertions mixed them, so the fixture now composes the chain; the
+three **regression** cases each found their reproduction in a *document* rather than a suite; and the
+**version pins** are load-bearing — the bump reddened three of them, with `allocator_balance` reporting
+sixty-four failed checks because its loop re-asserts the version on every iteration.
+
+The count went from **2355 to 2367**: twelve new layout cases, and the module's **344 cases in
+twenty-one suites** are green in Debug, in Release, and under ASan and UBSan with no sanitizer
+diagnostic — `layout.integration.*` 12/12 under them. The host visual checkpoint passes unchanged (11
+probes, `RESULT: PASS`) and `robo test-qemu-display` passes; the visual-validation criterion is met the
+way 10.11–10.14 met it, since the demo rendering path does not run RoboLayout and this phase may not
+write a paint test. `robo test-runtime` was **2365/2367** with `window.host.keyboard` **and**
+`window.host.mouse` the only red cases — **seventh** consecutive phase, on a diff touching no `window`
+file, while the Debug, Release and sanitized builds each reported `ALL TESTS PASS` at 2367/2367 in the
+same session. The §14 proposal to fix the focus race or quarantine the cases is now overdue by five
+phases rather than one.
+
 ## Next
 
-- Goal 10.15 — layout tests, the last goal of Phase 10; the module's own deferred tables name floats,
-  fragmentation and scrolling, and `layout/docs/Invalidation.md` §11 lists what 10.14 handed on — do
-  not start until requested
+- **Phase 11 — RoboPaint & Rendering.** Phase 10 is complete: every box has a position, a size, four
+  inset layers, a final coordinate, an overflow record and a validity state, and the deferred tables
+  name what is still absent — floats, fragmentation, scrolling, `absolute`/`fixed`/`sticky` (18.5),
+  `border-radius`, and anything that draws a pixel. `layout/docs/Architecture.md` §17 states the
+  thirty-four rules Phase 11 may assume, and `layout/docs/Invalidation.md` §11 lists what 10.14 handed
+  on. The `painting` capability is still `0` and Phase 11 is where it flips — do not start until
+  requested

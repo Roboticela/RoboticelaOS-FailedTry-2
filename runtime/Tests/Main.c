@@ -202,6 +202,7 @@ void robo_test_register_layout_context(void);
 void robo_test_register_layout_build(void);
 void robo_test_register_layout_dom(void);
 void robo_test_register_layout_conformance(void);
+void robo_test_register_layout_integration(void);
 void robo_test_register_demo_html(void);
 
 int main(int argc, char **argv)
@@ -447,6 +448,7 @@ int main(int argc, char **argv)
     robo_test_register_layout_build();
     robo_test_register_layout_dom();
     robo_test_register_layout_conformance();
+    robo_test_register_layout_integration();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */
     robo_test_register_demo_html();

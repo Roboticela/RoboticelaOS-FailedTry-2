@@ -184,6 +184,34 @@ robo_result_t robo_layout_inline_walk_contents(robo_layout_walk_t *walk,
 #define LAYOUT_STYLE_LENGTH_MAX 2147483647.0
 
 /**
+ * A 64-bit sum clamped to the geometry's range (Phase 10.15).
+ *
+ * The block pass's cursor is an **accumulation**, and an accumulation is the one kind of
+ * arithmetic in this module that a document can make unbounded without any single
+ * declaration being unreasonable: two boxes each near the geometry's maximum have a sum
+ * larger than any `int32`, and the wrapped result is *negative*. That matters beyond a
+ * wrong number, because `robo_layout_sizing_set_content` refuses a negative extent --
+ * correctly, since a size is never negative -- so an overflowing cursor used to make the
+ * whole pass **fail** on a document that is merely tall.
+ *
+ * The padding, border and margin layers each state this rule for their own sums (one
+ * clamp on the sum, saturated rather than refused, "because there is no document an
+ * author can write that some number cannot describe"). This is the same rule for the
+ * pass's own arithmetic, in one place, so the pass and the layers cannot disagree about
+ * the bound -- and so a saturated extent is still a rectangle a renderer can draw.
+ */
+static inline int32_t layout_extent_clamp(int64_t value)
+{
+    if (value > (int64_t)LAYOUT_STYLE_LENGTH_MAX) {
+        return (int32_t)LAYOUT_STYLE_LENGTH_MAX;
+    }
+    if (value < -(int64_t)LAYOUT_STYLE_LENGTH_MAX) {
+        return (int32_t)(-(int64_t)LAYOUT_STYLE_LENGTH_MAX);
+    }
+    return (int32_t)value;
+}
+
+/**
  * What a computed style's declaration holds, before anybody decides what to do with
  * it. RoboLayoutSizing.c owns the classification and its readers; 10.9's margin seam
  * is its second *shape*, which is why the vocabulary is here rather than in that

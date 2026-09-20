@@ -211,7 +211,14 @@ static robo_result_t layout_block_children(robo_layout_walk_t *walk,
                                            robo_gfx_pixel_y_t *out_extent)
 {
     robo_layout_node_id_t child = object->first_child;
-    robo_gfx_pixel_y_t cursor = 0;
+    /*
+     * 64 bits, and clamped only on the way out (Phase 10.15). Two children each near
+     * the geometry's maximum sum past any `int32`, and a cursor that wrapped would be a
+     * *negative* extent -- which the sizing layer refuses, so the pass would fail rather
+     * than saturate. The bound and the rule are the ones the inset layers already use
+     * (`layout_extent_clamp`, RoboLayoutInternal.h).
+     */
+    int64_t cursor = 0;
     int placed_any = 0;
 
     /*
@@ -255,12 +262,12 @@ static robo_result_t layout_block_children(robo_layout_walk_t *walk,
             robo_gfx_pixel_y_t child_height = 0;
 
             child_origin.x = 0;
-            child_origin.y = cursor;
+            child_origin.y = layout_extent_clamp(cursor);
             if (layout_block_box(walk, child, child_origin, content_width, &child_height) !=
                 ROBO_OK) {
                 return walk->diag ? walk->diag->code : ROBO_ERROR;
             }
-            cursor += child_height;
+            cursor += (int64_t)child_height;
             placed_any = 1;
             break;
         }
@@ -299,7 +306,7 @@ static robo_result_t layout_block_children(robo_layout_walk_t *walk,
     } else {
         walk->block->empty_containers++;
     }
-    *out_extent = cursor;
+    *out_extent = layout_extent_clamp(cursor);
     return ROBO_OK;
 }
 
@@ -601,8 +608,10 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * second copy of the same fact. Two terms since 10.11, and the two records compose in
      * one order: the border first, then the padding.
      */
-    margin_origin.x = origin.x + edges.left;
-    margin_origin.y = (robo_gfx_pixel_y_t)(origin.y + edges.top);
+    /* A margin origin is an accumulation too (Phase 10.15): the caller's origin plus a
+     * bounded margin, and the sum of two bounded numbers is not bounded. */
+    margin_origin.x = layout_extent_clamp((int64_t)origin.x + (int64_t)edges.left);
+    margin_origin.y = layout_extent_clamp((int64_t)origin.y + (int64_t)edges.top);
 
     /*
      * The position next (10.12), and it is the only phase in this module that changes
@@ -780,7 +789,14 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      * `layout/docs/Margins.md` §6, and `layout.margins.block_no_collapse` asserts the
      * sum so that the goal that implements collapsing has a case to change.
      */
-    *out_height = (robo_gfx_pixel_y_t)(edges.top + size.height + edges.bottom);
+    /*
+     * The margin box, and the third accumulation: `edges.top + size.height +
+     * edges.bottom` is three bounded numbers, so it is summed in 64 bits and clamped
+     * like the cursor it feeds -- a build that let this wrap would hand the parent a
+     * negative child height, which is the same failure one level up.
+     */
+    *out_height = layout_extent_clamp((int64_t)edges.top + (int64_t)size.height +
+                                      (int64_t)edges.bottom);
     return ROBO_OK;
 }
 

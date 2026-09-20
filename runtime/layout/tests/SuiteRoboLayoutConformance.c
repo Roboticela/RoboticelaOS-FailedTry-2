@@ -1106,7 +1106,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.14.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.15.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*

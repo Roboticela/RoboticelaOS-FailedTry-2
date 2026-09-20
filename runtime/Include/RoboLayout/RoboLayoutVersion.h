@@ -1,5 +1,34 @@
 /*
- * RoboLayout version pin — Phase 10.9 margins.
+ * RoboLayout version pin — Phase 10.15 layout tests, and the last goal of Phase 10.
+ *
+ * 0.15.0 is 0.14.0 plus the layer that asks whether the module is *right*: a
+ * twenty-first suite (`layout/tests/SuiteRoboLayoutIntegration.c`) that stops testing
+ * one layer at a time and lays out whole trees -- a card inside a column inside a
+ * shell, with a declared width, a margin, a padding, a border, a relative offset and
+ * a clipping child all in the same pass -- so that the fourteen layers above it are
+ * checked against each other rather than against their own docs. The suite brings
+ * nothing to the module's surface: no door, no enumerator, no capability field, which
+ * is why `ROBO_LAYOUT_*_IMPLEMENTED` gains nothing here and the version moves alone.
+ *
+ * 0.14.0's prose is worth leaving where it is, because 10.15 found the thing a
+ * fourteen-layer build is most likely to be wrong about: **the pass's own arithmetic
+ * was unbounded.** Every layer from 10.9 on states the rule for its own sums -- add
+ * in 64 bits, saturate rather than refuse, "because there is no document an author can
+ * write that some number cannot describe" -- and the pass that *calls* them did not:
+ * its block cursor, a margin origin and a margin box each summed bounded numbers into
+ * an `int32` and wrapped. The wrapped value is not merely a wrong coordinate, it is a
+ * *negative* extent, and the sizing layer refuses one -- correctly, since a size is
+ * never negative -- so a document that was merely very tall, or merely very deeply
+ * indented, made the whole pass **fail** rather than saturate. Three sites, one
+ * helper (`layout_extent_clamp`), and the rule is now in one place so that a layer
+ * and the pass cannot disagree about the bound.
+ *
+ * The other thing the phase writes down is the shape of a finding: the defect was not
+ * found by a layer's own suite -- and could not have been, because four of them test
+ * the geometry's maximum already, one layer at a time. It was found by an integration
+ * case that stacks a `2000000000px` block above a `2147483647px` one, which is a
+ * document only a *pass* can see. The consolidation is what found it, which is the
+ * argument for the phase existing at all.
  *
  * 0.9.0 is 0.8.0 plus the layer that turns a declaration into **room**: four sides,
  * each of them `auto` or a *signed* px length or a value this build cannot resolve
@@ -278,9 +307,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 14
+#define ROBO_LAYOUT_VERSION_MINOR 15
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.14.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.15.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0

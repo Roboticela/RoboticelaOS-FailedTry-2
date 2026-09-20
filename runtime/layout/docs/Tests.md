@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.14)
+# RoboLayout Test Organisation (through Phase 10.15)
 
-Twenty suites, 332 tests, one framework. Each phase adds no test runner, no reporter
+Twenty-one suites, 344 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -49,6 +49,7 @@ phase that made it.
 | `SuiteRoboLayoutInvalidation.c` | `layout.invalidation.*` | 25 | does the module know which of its own conclusions are still true, and does it skip a pass exactly when nothing needs one? |
 | `SuiteRoboLayoutOverflow.c` | `layout.overflow.*` | 26 | is an overflow a *record* rather than a size, does a child contribute its region rather than its contents, and does a clipping box contribute only what it kept? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
+| `SuiteRoboLayoutIntegration.c` | `layout.integration.*` | 12 | do the fourteen layers agree with *each other* on one document, and is a whole tree's geometry the geometry the layers promise? |
 
 ### 10.1 — the module surface (`layout.module.*`)
 
@@ -735,8 +736,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 334 — this module's 332, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 336 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 346 — this module's 344, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 348 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -757,8 +758,9 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.overflow` | 26 |
 | `layout.invalidation` | 25 |
 | `layout.conformance` | 7 |
+| `layout.integration` | 12 |
 
-Whole suite: **2355** tests, green in both configurations.
+Whole suite: **2367** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -773,7 +775,12 @@ Whole suite: **2355** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2355 cases. In 10.14's run the sanitized suite was
+ASan and UBSan run the same 2367 cases. In 10.15 the sanitized **build** reported
+`ALL TESTS PASS (Debug)` — 2367/2367 with `SANITIZE PASS` and no sanitizer diagnostic —
+and a direct run of the same binary minutes later was **2365/2367**, with
+`window.host.keyboard` and `window.host.mouse` the only red cases (§20). Under the
+sanitizers `layout.` was 346/346 and `layout.integration.*` 12/12. In 10.14's run the
+sanitized suite was
 **2355/2355** with **no sanitizer diagnostic and no red case at all**, and
 `layout.overflow.*` was 26/26 and `css.overflow.*` 7/7 under them. In 10.12's run the
 sanitized suite was
@@ -1576,3 +1583,89 @@ the Release suite **2355/2355** on its first retry, the sanitized run **2355/235
 edit the suite that owns the case — the sixth consecutive phase, which is why §14's
 proposal to either fix the focus race or quarantine the case is now overdue rather than
 optional.
+
+---
+
+## 20. What the 10.15 suite found
+
+**1. The pass's own arithmetic was unbounded, and only an integration case could see
+it.** Ten phases had stated the rule for their *own* sums — one clamp on the sum,
+saturated rather than refused, "because there is no document an author can write that
+some number cannot describe" — and the pass that calls them had not applied it to
+itself. Three sites accumulated bounded numbers into an `int32`: the block cursor
+(`cursor += child_height`), a margin origin (`origin + edges.top`), and the margin box
+(`edges.top + size.height + edges.bottom`). Two of them are visible in the field and the
+third is the one that bites: a `2000000000px` block above a `2147483647px` one sums past
+`INT32_MAX`, the wrapped cursor is *negative*, and `robo_layout_sizing_set_content`
+refuses a negative extent — correctly, because a size is never negative — so a document
+that was merely tall made the whole pass **fail** rather than saturate.
+
+What makes this a 10.15 finding rather than a 10.3 one is that no layer suite *could*
+have caught it. `SuiteRoboLayoutPadding.c`, `SuiteRoboLayoutBorder.c`,
+`SuiteRoboLayoutPosition.c` and `SuiteRoboLayoutOverflow.c` all test the geometry's
+maximum already — one layer at a time, each against its own door. The overflow is a
+property of an *accumulation across boxes*, so it needs a pass, a parent and two
+children, which is the shape only an integration suite builds. The fix is one helper
+(`layout_extent_clamp` in `RoboLayoutInternal.h`) applied at the three sites, so that a
+layer and the pass cannot disagree about the bound.
+
+**2. A passed case can be the wrong case, and the border regression proved it.**
+`layout.integration.regression_border_style` was written to pin 10.11's finding — a
+border width without a style draws nothing — and the first version of it laid out a
+`div` with `border-width` set and asserted a *nonzero* height. It failed, and the
+failure was the suite's, not the engine's: the document used a generic keyword value
+where the reader needs the four `border-*-style` longhands, and a width with no style
+resolves to used width zero. The distinction the case now pins is the one the phase's
+brief calls "geometry-affecting versus paint-only": a `border-style` change moves
+geometry, and the pair `width` + `style` is what makes it nonzero.
+
+**3. Two coordinate spaces in one result, and the first assertions mixed them.**
+10.12 gave a result a second rectangle — `position` is where a box is *drawn*, and the
+parent still stacks by the flow geometry — and that makes an integration assertion easy
+to write backwards: a child's `position.y` is in the *parent's* coordinate space, not
+the page's, and a relatively positioned box that is displaced reports a `position`
+unlike its flow origin while its contribution to its parent's extent is the flow one.
+The suite's first pass compared page-space numbers against parent-space doors in four
+cases, which is not a bug in the module but is exactly the mistake a caller of these
+doors will make — so the fixture now carries a `page-origin` helper that composes the
+chain explicitly, and the composition is asserted rather than assumed.
+
+**4. The three regression cases found their reproductions in the *documents* rather
+than the suites.** 10.11's border-style finding, 10.13's clipped-child finding (a
+clipping child contributes its *region*, not its contents, which is the error that
+compiles and leaks a clipped subtree into an ancestor's scrollable area) and 10.14's
+dirty-root finding (the lowest common ancestor, not the shallowest dirty box) each
+existed only as prose in `layout/docs/Borders.md`, `Overflow.md` and `Invalidation.md`.
+A finding recorded in a document is a finding nobody runs, so each is now the minimal
+reproduction that failed before its fix — three documents' worth of history that a
+later phase fails *here* rather than in a paragraph.
+
+**And one design point the suite pins rather than finds.** Determinism is asserted by
+*re-building* the document into a second tree and comparing every result, inset, offset,
+overflow record and line field by field — not by laying the same tree out twice. A
+single tree laid out twice agrees with itself even when the pass reads uninitialized
+memory, because the second pass overwrites the first; two independently built trees
+agreeing field by field is the assertion that a build has no hidden state. That is why
+`layout.integration.determinism` is the longest case in the suite and the only one that
+touches the whole surface.
+
+**5. The version pins are load-bearing, and the phase found that out by bumping the
+version and leaving three of them stale.** `layout.module.version`,
+`layout.module.allocator_balance` and `layout.conformance.statement` each assert
+`"0.14.0"` by hand, so raising the module to 0.15.0 reddened all three — 3 failed cases,
+with `allocator_balance` reporting *64* failed checks because its loop re-asserts the
+version on every one of its sixty-four iterations. That is the pins working exactly as
+intended (a later goal that flips a sentence must change the test that states it), but it
+is also the phase's one self-inflicted red, and the shape is worth naming because every
+remaining goal in Phase 10 will meet it: the *count* of a version-pinned case is not the
+number of assertions a reader would write, it is the number of times the suite asks the
+question.
+
+**The flake, seventh phase.** 10.15's `robo test-runtime` run was **2365/2367** with
+`window.host.keyboard` **and** `window.host.mouse` the only red cases, while the Debug
+`-Verify -Test` build, the Release `-Verify -Test` build and the sanitized build each
+reported `ALL TESTS PASS` at **2367/2367** in the same session. The diff touches
+`robo_layout_*`, `Tests/Main.c` and `Tools/Build.ps1` and no file matching `window`. It
+is the seventh consecutive phase — and this time the pair, not just the keyboard case
+— so §14's proposal to either fix the focus race or quarantine the cases is now overdue
+by five phases rather than one.

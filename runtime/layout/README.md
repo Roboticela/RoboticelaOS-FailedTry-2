@@ -1,9 +1,10 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.14, invalidation**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.15, layout tests — Phase 10
+complete**).
 
-**Version:** 0.14.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
-of Phase 10)
+**Version:** 0.15.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows again in Phase 11,
+where paint reads what this module placed)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
 directions.
@@ -257,6 +258,32 @@ skips the pass when nothing needs one — and **no partial layout exists**: the 
 (the lowest common ancestor of the boxes whose own geometry is stale) is computed and
 reported, and the pass still recomputes from the tree root, because a dirty region a build
 *guesses* is a fast wrong answer.
+
+**10.15 (layout tests).** The goal that ends Phase 10 by asking whether the fourteen
+layers are right *about each other*, and it adds no door, no enumerator and no capability
+field: a twenty-first suite lays out whole trees — a card inside a column inside a shell,
+carrying a declared width, a margin, a padding, a border, a relative offset and a clipping
+child in the same pass — through the real chain, `RoboHTML → RoboCSS → the bridge → the
+tree → the pass`. That is a different question from the one the twenty suites before it
+asked, and the difference is not academic: a build that gets each layer right and
+*composes* them wrongly passes every one of them. What that looks like is a content origin
+computed from the padding but not the border, a final position that is the offset but not
+the flow, a parent that grows to hold an overflowing child, or a region that folds in a
+clipped child's *contents* — each one line of wrong arithmetic that no single-family
+assertion can see. The suite is also where the three findings 10.11, 10.13 and 10.14 left
+in prose became the minimal reproductions that failed before their fixes, so a later phase
+that reintroduces one fails here rather than in a paragraph nobody runs.
+
+And it found one real defect, which is the argument for a consolidation phase existing: a
+version-agnostic *rule* — "one clamp on the sum, saturated rather than refused" — that the
+padding, border, margin, position and overflow layers had each stated for their own sums
+and that the **pass had not applied to itself**. Three accumulations (the block cursor, a
+margin origin, a margin box) summed bounded numbers into an `int32` and wrapped, and a
+wrapped extent is *negative*, which the sizing layer refuses — correctly — so a document
+that was merely very tall or very deeply indented made the whole pass **fail**. No layer
+suite could have caught it: four of them test the geometry's maximum already, one layer at
+a time, and the overflow is a property of an accumulation *across boxes*. One helper
+(`layout_extent_clamp`) now stands where the rule does.
 
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
@@ -803,7 +830,7 @@ module.
 | `docs/Positioning.md` | Why a position is two coordinates, the four inset kinds (and why an inset is signed where a padding is not), the one precedence rule and its four counters, the apply's saturation, the two inline halves, and the object door that separates flow from final |
 | `docs/Overflow.md` | Why an overflow is a record rather than a size, the RoboSS vocabulary (and why the shorthand is read rather than expanded), the padding box as the reference edge, the one resolve policy and its three kinds, the per-side-maximum accumulate and its saturation, the region and the clip rectangle, the recursion that folds a child's region, where it is measured in each pass, and everything deliberately absent |
 | `docs/Invalidation.md` | Why an invalidation is a claim about a conclusion rather than about an input, the four state bits and the three masks, the classifier and its three decisions, the three marking policies and the shape each propagates, why the dirty root is a common ancestor rather than the shallowest box, where the state lives and why on the box, what a pass consumes and leaves, the four-term incremental decision, and everything deliberately absent |
-| `docs/Tests.md` | The twenty suites, what each asks, and what each phase found |
+| `docs/Tests.md` | The twenty-one suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -811,7 +838,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 332 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 344 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,

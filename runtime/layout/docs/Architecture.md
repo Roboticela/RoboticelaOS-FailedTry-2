@@ -1,8 +1,8 @@
-# RoboLayout — architecture (through Phase 10.14)
+# RoboLayout — architecture (through Phase 10.15, Phase 10 complete)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
-Phase 10.11 onwards may not cross without changing this document.
+Phase 11 onwards may not cross without changing this document.
 
 It is not a tutorial. It is the thing a reviewer reads to answer "why is it like
 this", and the thing a later goal reads to find out what it is allowed to assume.
@@ -93,6 +93,17 @@ Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
 already forgotten to query the struct will call.
 
+**10.15 adds no column, and that is the phase's smallest claim rather than an
+omission.** It is the first goal since 10.2 to put nothing on this surface — no door,
+no enumerator, no capability field — because its subject is whether the fourteen layers
+above are right *about each other*, which is a question about tests and not about the
+build. The asymmetry 10.2's header named for formatting contexts applies here twice
+over: a `layout_tests` field would invite a caller to ask whether the *build* is tested,
+and there is no such thing to ask. What the phase does change is underneath the table:
+the pass's own accumulations are now bounded the way every inset layer's already were
+(item 34), so a saturated extent is a rectangle a renderer can draw rather than a
+negative one the sizing layer refuses.
+
 But every answer in that table is about the **build**, and 10.3 made that
 distinction load-bearing rather than pedantic. `geometry == 1` is true of a tree
 whose boxes are all `UNRESOLVED` — a context that recorded no viewport placed
@@ -180,6 +191,16 @@ asserts the field against the *shape of the dirty set* rather than against a sav
 (`layout.invalidation.position_dirty_is_narrow` marks one box and asserts that its
 following sibling is still clean), because the model is the claim and the skip is only
 what the model is for.
+
+10.15 has no ninth kind of narrowness, and the absence is the phase: it adds no field to
+this table at all, because what it asks is whether the fourteen answers above are
+*consistent with each other* — a question whose answer is a suite rather than a flag.
+What it does add to the module is a *rule* rather than a claim (item 34, §17): the pass's
+own accumulations are bounded exactly as the inset layers' are, so the negative extent
+that a tall document used to hand the sizing layer is unreachable. A phase that says
+nothing new about a box but makes a promise about all of them is what a consolidation
+goal should look like, and it is the reason the flag table above has fourteen columns and
+will never have a fifteenth.
 
 10.4 added a field to that table rather than changing one, and the shape of the
 addition is the part worth keeping: `inline_layout` was written as `0` in **10.2**,
@@ -996,13 +1017,15 @@ in `Sizing.md` §8 and `Tests.md` §13, 10.9's in `Margins.md` §8 and
 `Borders.md` §8 and `Tests.md` §16, and 10.12's in `Positioning.md` §10 and
 `Tests.md` §17, 10.13's in
 `Overflow.md` §11 and `Tests.md` §18, and 10.14's in `Invalidation.md` §11 and
-`Tests.md` §19. The reason to keep
+`Tests.md` §19. 10.15's have no design record of their own, because the phase *is* a
+test record: they are `Tests.md` §20, and the one of them that changed production code
+is stated a second time as item 34 below. The reason to keep
 them out of this document is
 that this one describes what is *stable*; a finding is a thing that changed.
 
 ---
 
-## 17. What 10.15 onwards may assume
+## 17. What Phase 11 onwards may assume
 
 *(Written as "10.7 onwards" when 10.6 closed and re-headed by 10.7, then by 10.8,
 which left items 1–5, 7–9 and 11–22 as they were and replaced 6: a box's `size` no
@@ -1023,12 +1046,16 @@ both terms rather than one. It adds item 28, the one rule that is 10.11's own.
 inset reader the phase added and the one parameter by which it differs from the
 three before it. 10.13 re-headed it to **10.14** and adds item 31, the phase's own
 rule: an overflow is a record *beside* the box, measured from the padding box, and the
-thing a parent folds in is the child's region rather than its contents. 10.14 re-heads
+thing a parent folds in is the child's region rather than its contents. 10.14 re-headed
 it to **10.15** and adds two more: item 32, which says that a conclusion now *expires*
 and that the expiry is per box rather than per document, and item 33, the one thing a
 caller must not assume about a box it has not laid out. It is also the first phase to
 write a rule about the *order* of the module's own output -- a pass consumes the layout
-bits and leaves `STYLE` -- which is why item 32 names both halves.)*
+bits and leaves `STYLE` -- which is why item 32 names both halves. 10.15 is the last goal
+of Phase 10 and re-heads it to **Phase 11**, adding item 34 -- the rule the phase *found*
+rather than wrote: every accumulation in a pass is bounded, so no extent this module
+reports can be negative -- and leaving items 1–33 as they were, which is what a
+consolidation phase that changed no capability should be able to say.)*
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -1265,3 +1292,12 @@ document. `thin`, `medium` and `thick` are the three numbers this build picks (1
     since, and no box carries a layout bit. It is therefore never a substitute for
     `robo_layout_context_run` in a caller that must recompute; it is the caller that
     wants "leave it alone if nothing moved" writing one call instead of four checks.
+34. Every **accumulation** this module performs is bounded (10.15). The padding, border,
+    margin, position and overflow layers each sum their own numbers in 64 bits and
+    saturate at the geometry's maximum, and since 10.15 the pass does too: the block
+    cursor, a margin origin and a margin box are all clamped through
+    `layout_extent_clamp` (`RoboLayoutInternal.h`), so the module's rule and its caller's
+    rule cannot disagree about the bound. What a later phase may therefore assume is
+    narrow and useful: every extent a result, an inset record or an overflow record
+    carries is **finite and non-negative**, and a document at the geometry's limit
+    saturates rather than failing a pass.

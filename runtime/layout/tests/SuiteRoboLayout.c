@@ -43,10 +43,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 14);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 15);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.14.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.14.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.15.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.15.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -586,7 +586,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.14.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.15.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

@@ -478,6 +478,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutBuild.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutDom.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutConformance.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutIntegration.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
