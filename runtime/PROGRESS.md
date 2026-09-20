@@ -4800,8 +4800,88 @@ met it: the demo rendering path does not run RoboLayout at all, so the geometry 
 owes and the suite is where it is proved — the checkpoint was run and passes unchanged rather than
 being extended into a paint test this phase is not allowed to write.
 
+## Goal 10.14 — Layout Invalidation
+
+**Status: complete.** The phase that makes a conclusion **expire** — the first whose subject is not a
+box's geometry but its truth, and the last of the box-modelling phases for a reason worth naming: an
+invalidation is a claim *about* a set of conclusions, so it can only be written once there are
+conclusions to be about and once their shape has stopped moving. Every phase before it answered "what
+is a box's geometry?"; this one answers the question that only exists because those answers persist:
+**which of them is still true?**
+
+The tempting model — record which declarations changed and re-resolve those — is wrong at the second
+box, because geometry is a function of *ancestors'* conclusions as well as a box's own declarations: a
+leaf whose author changed nothing moves when its parent's padding changes. So what is tracked is not
+which inputs moved but which *conclusions cannot be trusted*, and that is a property of boxes.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The vocabulary: four **state bits** that compose (`STYLE`, `LAYOUT`, `SUBTREE`, `OVERFLOW`) with `CLEAN` as the 0 a cleared record already is, seven **reasons** answering "what happened?" where the bits answer "what is stale?", and the name doors that spell a combination as `layout+subtree` so a failing assertion prints something a reader decodes without a table | `Include/RoboLayout/RoboLayoutInvalidation.h`, `Source/RoboLayout/RoboLayoutInvalidation.c` |
+| The three **masks** a caller selects with — `LAYOUT_BITS` for *must a pass run*, `OWN_BITS` (= `LAYOUT` alone) for *where would it start*, `ALL` for *is anything owed* — because the three questions have three different answers and one mask answers all three wrongly | `RoboLayoutInvalidation.h` |
+| The style classifier `robo_layout_style_effect_for_property`: a property **name** in, one of *NONE* / *PAINT* / *GEOMETRY* out, written out by hand rather than derived from RoboCSS's registry because the question is what *layout* reads and only this module can answer it — with the two answers a naive table gets wrong being `border-style` (geometry: 10.11's used width is zero unless the style draws) and an unknown name (nothing, rather than everything) | `RoboLayoutInvalidation.c` |
+| The record and its stats: the invalid record with an `equal`, and `robo_layout_invalidation_stats_t` — `invalidated`, `style_only`, `root`, `reason`, `recomputed` — the pair (`invalidated`, `style_only`) being the one that tells a pass that found nothing from a pass that began with a colour change on every box | `RoboLayoutInvalidation.h` / `.c` |
+| The three **marking policies** and their three different shapes: a box-model change (`robo_layout_tree_mark_layout_dirty`) marks the box, its ancestors' **measurement** and the *transitively* following flow; a displacement (`robo_layout_tree_mark_position_dirty`) marks the box and its ancestors' measurement and **leaves the following flow clean**, which is 10.12's contract made testable; an overflow-mode change (`robo_layout_tree_mark_overflow_dirty`) marks measurements alone and no geometry at all — beside `mark_style`, `mark_style_property` (the classifier and the marking sharing one door so they cannot disagree), `mark_subtree_dirty`, `mark_clean`, `mark_all` and `mark_recomputed` | `RoboLayoutInvalidation.h` / `.c`, `RoboLayoutTree.h` |
+| The **dirty root**, computed as the lowest **common ancestor** of the boxes whose own geometry is stale rather than the shallowest such box — the difference being that a following sibling can sit higher in the tree than the changed box, so "shallowest" names a subtree that does not contain the change at all | `RoboLayoutInvalidation.c` |
+| The two doors a consumer must keep apart, and their two answers: `robo_layout_tree_is_clean` (subtree clean of everything, `STYLE` included) and `robo_layout_tree_needs_layout` (a layout bit anywhere) — held apart because *not clean* and *need layout* are not the same statement | `RoboLayoutInvalidation.h` |
+| The state on the **object** — the only field that must outlive a pass — with its reader and its clearing folded into the geometry sweep, and every box created dirty (`REASON_CONTENT`) so a box the layer never ran over is not implicitly clean | `RoboLayoutObject.h` / `.c`, `RoboLayoutTree.c` |
+| The one **decision** the model is put to: `robo_layout_context_run_incremental`, which skips the walk and reports `ROBO_LAYOUT_PASS_CLEAN` exactly when the context has completed a pass, on *this* tree, with no input changed since, and no box carries a layout bit — the fourth pass outcome, because a caller that cannot tell "nothing was stale" from "everything was recomputed" cannot use the answer | `Include/RoboLayout/RoboLayoutContext.h`, `Source/RoboLayout/RoboLayoutContext.c` |
+| The pass-half accounting: a pass reports how many boxes it began with dirty, so the model's claim and the walk's own numbers can be checked against each other, and the clearing sits **inside** the branch that laid geometry out rather than beside the pass counter, so a pass with no viewport — which classifies and computes nothing — clears nothing | `Source/RoboLayout/RoboLayoutContext.c`, `Source/RoboLayout/RoboLayoutBlock.c`, `Source/RoboLayout/RoboLayoutInline.c` |
+| Version `0.14.0`, `ROBO_LAYOUT_INVALIDATION_IMPLEMENTED`, the `invalidation` diagnostic domain (the twenty-second), the umbrella, the build and the two suite registrations | `RoboLayoutVersion.h`, `RoboLayout.h`, `RoboLayoutTypes.h` / `.c`, `Tools/Build.ps1`, `Tests/Main.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A dedicated layout-invalidation mechanism exists | `layout.invalidation.vocabulary`, `layout.invalidation.state_names` |
+| Invalidation states are explicit and deterministic | `layout.invalidation.masks`, `layout.invalidation.state_known` |
+| Style changes trigger appropriate invalidation | `layout.invalidation.classify_*`, `layout.invalidation.style_property` |
+| Width/height changes propagate correctly | `layout.invalidation.layout_dirty_propagation`, `layout.invalidation.width_marks_descendants` |
+| Margin/padding/border changes propagate correctly | `layout.invalidation.box_model_marks_following_flow`, `layout.invalidation.border_style_is_geometry` |
+| Relative-position changes invalidate final geometry | `layout.invalidation.position_dirty_is_narrow`, `layout.invalidation.position_leaves_flow_clean` |
+| Overflow data is invalidated and recomputed | `layout.invalidation.overflow_mode_marks_measurement`, `layout.invalidation.overflow_only_root` |
+| Parent/ancestor propagation works | `layout.invalidation.layout_dirty_propagation`, `layout.invalidation.root_is_the_common_ancestor` |
+| Affected following-flow siblings are recomputed | `layout.invalidation.transitive_following_flow`, `layout.invalidation.relayout_moves_the_following_flow` |
+| Subtree invalidation works | `layout.invalidation.subtree_dirty`, `layout.invalidation.subtree_marks_descendants` |
+| Successful layout clears required invalidation state | `layout.invalidation.pass_clears_layout_bits`, `layout.invalidation.pass_without_viewport_clears_nothing` |
+| No stale geometry survives a completed pass | `layout.invalidation.relayout_moves_the_following_flow`, `layout.invalidation.repeated_layout_is_stable` |
+| No-op changes avoid unnecessary invalidation | `layout.invalidation.incremental_skips_a_paint_only_change`, `layout.invalidation.style_bit_survives_the_pass` |
+| Geometry remains finite and deterministic | `layout.invalidation.determinism` |
+| Focused invalidation tests pass | `layout.invalidation.*` 25/25 |
+| All previous CSS/layout tests pass | 2355/2355, Debug and Release |
+| No Chromium dependency | `Tools/Build.ps1 -Verify` boundary scan |
+
+### What 10.14 found
+
+Five findings and one design point, recorded in full in `layout/docs/Tests.md` §19. In one line each:
+"shallowest stale box" is **not** the same question as "where does relayout start", and the first
+implementation was wrong — a real document failed it, because a following sibling sits higher in the
+tree than the changed box, and the fix is not a tie-break but a different question (the **lowest
+common ancestor**); `SUBTREE` on an ancestor is a relayout bit that must **not** count as one, which is
+why the module has three masks rather than one; the propagation rule needed a *transitive*
+following-flow walk, and only a three-level document can tell it from a one-deep rule; the incremental
+door cannot be tested through a rebuilt tree — rebuilding invalidates everything by construction — so
+the fixture had to rewrite a declaration on the pointer the built tree already holds, which is what
+makes `relayout_moves_the_following_flow` the only case where the pass actually has to run; and a pass
+that computed no coordinate must clear **nothing**, so the clearing is inside the branch that laid
+geometry out rather than beside the pass counter. The design point the suite pins rather than finds is
+that `STYLE` is **not** cleared by a recomputation, so a box can be *not clean* and *not need layout*
+at the same time — asserted three ways, because a build that cleared it would look correct until the
+repaint never happened.
+
+The count went from **2330 to 2355**: 25 new layout cases, and the module's **332 cases in twenty
+suites** are green in Debug, in Release, and under ASan and UBSan with no diagnostic —
+`layout.invalidation.*` 25/25 under them. The host visual checkpoint passes unchanged (11 probes,
+`RESULT: PASS`) and `robo test-qemu-display` passes; the visual-validation criterion is met the way
+10.11–10.13 met it, since the demo rendering path does not run RoboLayout and this phase may not
+write a paint test. `robo test-runtime` remains red only on the documented `window.host.keyboard`
+host-focus flake — **sixth** consecutive phase, on a diff touching no `window` file, with the direct
+Debug run 2355/2355, so the §14 proposal to fix the focus race or quarantine the case is now overdue
+rather than optional.
+
 ## Next
 
-- Goal 10.14 — the next layout goal; the module's own deferred tables name floats, fragmentation and
-  scrolling, and `layout/docs/Overflow.md` §12 lists what 10.13 handed on — do not start until
-  requested
+- Goal 10.15 — layout tests, the last goal of Phase 10; the module's own deferred tables name floats,
+  fragmentation and scrolling, and `layout/docs/Invalidation.md` §11 lists what 10.14 handed on — do
+  not start until requested

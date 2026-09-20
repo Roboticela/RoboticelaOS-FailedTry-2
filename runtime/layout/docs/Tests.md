@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.13)
+# RoboLayout Test Organisation (through Phase 10.14)
 
-Nineteen suites, 307 tests, one framework. Each phase adds no test runner, no reporter
+Twenty suites, 332 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -20,7 +20,7 @@ no glob: a suite that is not on the list is not built, which is the same
 kept as it stood rather than back-dated. Where a case has since changed meaning —
 `layout.conformance.statement` and the old `geometry == 0` claims, 10.4's
 re-pinning of the same two cases again, and 10.5's, 10.6's and 10.7's re-pinning of
-the version and the capability table — the change is recorded in §8–§16, under the
+the version and the capability table — the change is recorded in §8–§19, under the
 phase that made it.
 
 ---
@@ -46,6 +46,7 @@ phase that made it.
 | `SuiteRoboLayoutPadding.c` | `layout.paddings.*` | 20 | does a padding grow a box without moving it, does an `auto` width fill what it left, and is a transparent inline box left un-inflated? |
 | `SuiteRoboLayoutBorder.c` | `layout.borders.*` | 22 | is a border's *used* width zero unless its style draws, is the box a reader sees the border box, and does a content origin compose two insets? |
 | `SuiteRoboLayoutPosition.c` | `layout.positioning.*` | 20 | does a relative box move without leaving its flow space, and does `static` stay exactly what it was? |
+| `SuiteRoboLayoutInvalidation.c` | `layout.invalidation.*` | 25 | does the module know which of its own conclusions are still true, and does it skip a pass exactly when nothing needs one? |
 | `SuiteRoboLayoutOverflow.c` | `layout.overflow.*` | 26 | is an overflow a *record* rather than a size, does a child contribute its region rather than its contents, and does a clipping box contribute only what it kept? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
@@ -734,8 +735,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 309 — this module's 307, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 311 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 334 — this module's 332, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 336 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -754,9 +755,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.borders` | 22 |
 | `layout.positioning` | 20 |
 | `layout.overflow` | 26 |
+| `layout.invalidation` | 25 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2330** tests, green in both configurations.
+Whole suite: **2355** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -771,8 +773,8 @@ Whole suite: **2330** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2330 cases. In 10.13's run the sanitized suite was
-**2330/2330** with **no sanitizer diagnostic and no red case at all**, and
+ASan and UBSan run the same 2355 cases. In 10.14's run the sanitized suite was
+**2355/2355** with **no sanitizer diagnostic and no red case at all**, and
 `layout.overflow.*` was 26/26 and `css.overflow.*` 7/7 under them. In 10.12's run the
 sanitized suite was
 **2296/2296** with **no sanitizer diagnostic and no red case at all**, and
@@ -807,8 +809,8 @@ to get:
 
 | How the suite was run | Result |
 |---|---|
-| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** in 10.11; **2254/2255** in 10.12; **2329/2330** twice in 10.13 |
-| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** on 10.11's first Release run and **2277/2277** on the next; **2295/2295** in 10.12 (direct); **2330/2330** in 10.13, in Debug and Release both |
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** in 10.11; **2254/2255** in 10.12; **2329/2330** twice in 10.13; **2354/2355** once in 10.14 |
+| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** on 10.11's first Release run and **2277/2277** on the next; **2295/2295** in 10.12 (direct); **2330/2330** in 10.13, in Debug and Release both; **2355/2355** in 10.14, in Debug and on Release's first retry |
 | `--filter=window.host` in isolation | **19/19** — three times in each phase |
 | the binary as a child of `pwsh` with its output captured | **passes** |
 
@@ -1502,3 +1504,75 @@ box that overflows on one side and not the other has a record that says exactly 
 Release **2330/2330**, the sanitized run **2330/2330**, and `--filter=window.host`
 **19/19**. The diff contains no file matching `window` and does not edit the suite that
 owns the case.
+
+---
+
+## 19. What the 10.14 suite found
+
+**1. "Shallowest stale box" is not the same question as "where does relayout start", and
+the first implementation was wrong.** The dirty root was written as the shallowest box
+carrying an own-geometry bit, which is cheaper and reads well —
+`layout.invalidation.layout_dirty_propagation` failed it with a real document: marking
+`div` also marks `footer`, `footer` is `main`'s sibling and therefore sits *higher* in the
+tree than `div`, and the "shallowest" answer named a box whose subtree does not contain
+the change at all. The fix is not a tie-break but a different question: the **lowest
+common ancestor** of the boxes whose own geometry is stale, which is the smallest subtree
+that contains every box needing placement. Three cases moved with it
+(`layout_dirty_propagation`, `root_is_the_common_ancestor`,
+`incremental_runs_after_a_mark`), and the reason the failure was worth keeping is that
+every *weaker* assertion — "some box is dirty", "the count is right" — passes for either
+rule.
+
+**2. `SUBTREE` on an ancestor is a relayout bit that must not count as one.** The second
+half of the same finding: the marking policy deliberately never gives an ancestor
+`LAYOUT` (an ancestor's origin does not move when a descendant grows) *and* deliberately
+gives it `SUBTREE` (its extent may). A root defined over `LAYOUT | SUBTREE` therefore
+always answered the root box, which is the number that says nothing. This is why the
+module has three masks rather than one: `LAYOUT_BITS` for "must a pass run",
+`OWN_BITS` — `LAYOUT` alone — for "where would it start", and `ALL` for "is anything
+owed". `layout.invalidation.vocabulary` pins the relation between them, and the
+overflow-only case pins the third answer (`root == NONE`, `needs_layout == 1`).
+
+**3. The propagation rule needed a *transitive* following-flow walk, and only a
+three-level document can show it.** `section` is `div`'s following sibling and `footer`
+is `main`'s; a one-deep rule would mark the first and miss the second, and a document
+with two boxes could not tell the two rules apart. The walk therefore goes up from the
+marked box and marks the following siblings at each level, and the case asserts both
+levels plus the **transitively** preceding box staying clean.
+
+**4. The incremental door cannot be tested through a rebuilt tree, so the fixture had to
+rewrite a style the tree already borrows.** Replacing a style and rebuilding the tree is
+the honest way to change what a pass reads — and it invalidates everything by
+construction, which means the four-term decision is never reached. The suite therefore
+gained `layout_inv_style_set_px`, which rewrites one declaration **on the pointer the
+built tree already holds**, so the same tree can be laid out twice with different input.
+That is what makes `layout.invalidation.relayout_moves_the_following_flow` the strongest
+case in this suite: it is the only one where the pass actually has to run for the claim
+to mean anything.
+
+**5. A pass that computed no coordinate must clear nothing, and the first version had to
+be talked out of a tidier rule.** "A completed pass clears the bits it satisfied" is
+true only when the pass *satisfied* them: with no viewport the walk classifies and
+computes nothing, so clearing there would leave a tree that claims to be current and has
+no geometry at all — requirement 11's stale-clean state, and one that would be invisible
+until a later pass skipped work that had never been done. The clearing is therefore
+inside the condition that laid geometry out rather than beside the pass counter, and
+`layout.invalidation.pass_without_viewport_clears_nothing` is the case that holds it
+there.
+
+**And one design point the suite pins rather than finds.** The `STYLE` bit is *not*
+cleared by a recomputation, so a box can be **not clean** and **not need layout** at the
+same time. That is not an oversight but the phase's smallest claim: a colour change must
+not pull geometry, and it must not be silently dropped by the pass that declines to run
+either. `layout.invalidation.incremental_skips_a_paint_only_change` asserts all three
+halves — the door skips, the outcome is `CLEAN`, and the `STYLE` bit is still there
+afterwards — because a build that cleared it would look correct until the repaint never
+happened.
+
+**The flake, sixth phase.** 10.14's `robo test-runtime` run was **2354/2355** with
+`window.host.keyboard` the only red case, while the direct Debug run was **2355/2355**,
+the Release suite **2355/2355** on its first retry, the sanitized run **2355/2355**, and
+`--filter=window.host` **19/19**. The diff contains no file matching `window` and does not
+edit the suite that owns the case — the sixth consecutive phase, which is why §14's
+proposal to either fix the focus race or quarantine the case is now overdue rather than
+optional.

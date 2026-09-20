@@ -1,4 +1,4 @@
-# RoboLayout — architecture (through Phase 10.13)
+# RoboLayout — architecture (through Phase 10.14)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
@@ -17,6 +17,9 @@ inline one, `TextLayout.md` for measurement and the text object's arrival,
 a box and why it moves one without resizing it, `Padding.md` for the inset inside one
 and why it resizes a box without moving it, `Borders.md` for the inset that finishes
 the box model and is the only layer whose *used* value is not its declared one,
+`Positioning.md` for the displacement that moves a box without resizing it,
+`Overflow.md` for the second rectangle a box gets when its contents do not fit,
+`Invalidation.md` for the states that say which of those conclusions are still true,
 `Tests.md` for the suites.
 
 ---
@@ -66,24 +69,25 @@ one-inset box into a four-box model without touching the sizing layer's seam.
 rather than leaving a caller to find out. 10.3 flipped all three, and the shape of
 that flip is the part worth keeping:
 
-| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | 10.11 | 10.12 | 10.13 | What it means now |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
-| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
-| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the block direction |
-| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the inline direction |
-| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | derived: their conjunction |
-| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
-| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **produce a line a caller reads** |
-| `robo_layout_capabilities_t.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build gives a line a **floor** and places its members on it |
-| `robo_layout_capabilities_t.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
-| `robo_layout_capabilities_t.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
-| `robo_layout_capabilities_t.padding` | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
-| `robo_layout_capabilities_t.border` | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
-| `robo_layout_capabilities_t.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | `1` | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that a percentage inset resolves |
-| `robo_layout_capabilities_t.overflow` | — | — | — | — | — | — | — | — | — | — | — | `1` | the contents that do not fit are **recorded beside the box** as four extents measured from its padding box, with a mode per axis — **not** that anything scrolls, clips a pixel, or turns `visible` into `auto` |
-| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
-| `robo_layout_result_state()` | — | — | — | — | — | — | — | — | — | — | — | — | *this box* has one — the per-box authority |
+| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | 10.11 | 10.12 | 10.13 | 10.14 | What it means now |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
+| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
+| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the block direction |
+| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the inline direction |
+| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | derived: their conjunction |
+| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
+| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **produce a line a caller reads** |
+| `robo_layout_capabilities_t.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build gives a line a **floor** and places its members on it |
+| `robo_layout_capabilities_t.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
+| `robo_layout_capabilities_t.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
+| `robo_layout_capabilities_t.padding` | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
+| `robo_layout_capabilities_t.border` | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
+| `robo_layout_capabilities_t.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that a percentage inset resolves |
+| `robo_layout_capabilities_t.overflow` | — | — | — | — | — | — | — | — | — | — | — | `1` | `1` | the contents that do not fit are **recorded beside the box** as four extents measured from its padding box, with a mode per axis — **not** that anything scrolls, clips a pixel, or turns `visible` into `auto` |
+| `robo_layout_capabilities_t.invalidation` | — | — | — | — | — | — | — | — | — | — | — | — | `1` | a box carries a **state** saying what about it is stale and a reason for a reader, a property name is classified into what changing it costs, and a pass can be skipped when nothing needs one — **not** that partial layout exists: the dirty root is computed and reported, and the pass still recomputes from the tree root |
+| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
+| `robo_layout_result_state()` | — | — | — | — | — | — | — | — | — | — | — | — | `—` | *this box* has one — the per-box authority |
 
 Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
@@ -160,6 +164,22 @@ and both still contribute their region to their parent. The suite asserts the fi
 against the *pair* (`layout.overflow.pass_size_unchanged` measures a 200px child inside
 a 100px box and asserts the unchanged width and the 100px extent together), because
 the two halves are the claim.
+
+10.14 asks it about a **conclusion's shelf life** rather than about a box, and that is
+the eighth kind of narrowness: `invalidation == 1` is true of a build that can *say*
+what about a box is stale, classify a property name into what changing it costs, and
+skip a pass when nothing needs one -- and false of the build the word invites, the one
+that lays out *less*. Nothing about any coordinate changes in this phase: the dirty
+root is computed and reported (`robo_layout_tree_invalidation_root`) and the pass still
+recomputes from the tree root, because the brief that asks for invalidation also
+forbids the incremental recursion that would make it faster, and a build that guessed a
+dirty region would be fast and wrong. What it does **not** say is that a partial pass
+exists, that a dependency graph exists, that anything is multithreaded, or that paint
+invalidation exists beyond the one `STYLE` bit a paint phase would consume. The suite
+asserts the field against the *shape of the dirty set* rather than against a saving
+(`layout.invalidation.position_dirty_is_narrow` marks one box and asserts that its
+following sibling is still clean), because the model is the claim and the skip is only
+what the model is for.
 
 10.4 added a field to that table rather than changing one, and the shape of the
 addition is the part worth keeping: `inline_layout` was written as `0` in **10.2**,
@@ -974,13 +994,15 @@ in `Tests.md` §10–§11, 10.7's in `Baselines.md` §12 and `Tests.md` §12, 10
 in `Sizing.md` §8 and `Tests.md` §13, 10.9's in `Margins.md` §8 and
 `Tests.md` §14, 10.10's in `Padding.md` §8 and `Tests.md` §15, 10.11's in
 `Borders.md` §8 and `Tests.md` §16, and 10.12's in `Positioning.md` §10 and
-`Tests.md` §17. The reason to keep
+`Tests.md` §17, 10.13's in
+`Overflow.md` §11 and `Tests.md` §18, and 10.14's in `Invalidation.md` §11 and
+`Tests.md` §19. The reason to keep
 them out of this document is
 that this one describes what is *stable*; a finding is a thing that changed.
 
 ---
 
-## 17. What 10.12 onwards may assume
+## 17. What 10.15 onwards may assume
 
 *(Written as "10.7 onwards" when 10.6 closed and re-headed by 10.7, then by 10.8,
 which left items 1–5, 7–9 and 11–22 as they were and replaced 6: a box's `size` no
@@ -1001,7 +1023,12 @@ both terms rather than one. It adds item 28, the one rule that is 10.11's own.
 inset reader the phase added and the one parameter by which it differs from the
 three before it. 10.13 re-headed it to **10.14** and adds item 31, the phase's own
 rule: an overflow is a record *beside* the box, measured from the padding box, and the
-thing a parent folds in is the child's region rather than its contents.)*
+thing a parent folds in is the child's region rather than its contents. 10.14 re-heads
+it to **10.15** and adds two more: item 32, which says that a conclusion now *expires*
+and that the expiry is per box rather than per document, and item 33, the one thing a
+caller must not assume about a box it has not laid out. It is also the first phase to
+write a rule about the *order* of the module's own output -- a pass consumes the layout
+bits and leaves `STYLE` -- which is why item 32 names both halves.)*
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -1222,3 +1249,19 @@ document. `thin`, `medium` and `thick` are the three numbers this build picks (1
     neither axis clips). Folding in a child's *contents* instead of its region is the
     one mistake that compiles, looks right in every fitting document, and leaks a
     clipped subtree into an ancestor's scrollable area.
+32. A box carries an **invalidation state** (10.14) and it is per box, not per
+    document: `STYLE` for a change layout does not read, `LAYOUT` for its own stale
+    geometry, `SUBTREE` for its descendants', and `OVERFLOW` for its measurement alone.
+    A pass consumes the three layout bits and **leaves** `STYLE`, so a box can be *not
+    clean* and *not need layout* at the same time -- which is the pair
+    `robo_layout_tree_needs_layout` and `robo_layout_tree_is_clean` exist to keep apart.
+    A marking policy never gives an ancestor `LAYOUT`, so
+    `robo_layout_tree_invalidation_root` -- the lowest common ancestor of the boxes whose
+    own geometry is stale -- is the region and not the document. A box with no
+    invalidation layer run over it is **not** implicitly clean: a build creates every box
+    dirty (`REASON_CONTENT`) and a released classification re-marks the whole tree.
+33. `robo_layout_context_run_incremental` may skip the walk, and it does so when **all
+    four** hold: the context has completed a pass, on *this* tree, with no input changed
+    since, and no box carries a layout bit. It is therefore never a substitute for
+    `robo_layout_context_run` in a caller that must recompute; it is the caller that
+    wants "leave it alone if nothing moved" writing one call instead of four checks.

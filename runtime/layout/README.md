@@ -1,8 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.13, overflow**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.14, invalidation**).
 
-**Version:** 0.13.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.14.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -233,6 +233,30 @@ the recursion one line long, and the one case a suite needs a clipping child to 
 The three counters keep two facts apart that a naive count would merge: how many boxes
 *clip* and how many boxes *overflow* are independent, since a document can declare
 `overflow: hidden` on every box and have nothing stick out of any of them.
+
+**10.14 (invalidation).** The phase that makes a conclusion **expire** — the first whose
+subject is not a box's geometry but its truth, and the last among the layout phases for a
+reason worth naming: an invalidation is a claim *about* a set of conclusions, so it can
+only be written once there are conclusions to be about and once their shape has stopped
+moving. A box now carries four state bits that compose — `STYLE` for a change layout does
+not read, `LAYOUT` for its own stale geometry, `SUBTREE` for its descendants', `OVERFLOW`
+for its measurement alone — plus a reason for a reader. Three questions follow from the
+bits and they have three answers, which is why there are three masks rather than one:
+*must a pass run* (`LAYOUT_BITS`), *where would it start* (`OWN_BITS`, which is `LAYOUT`
+alone), and *is anything owed at all* (`ALL`). A property **name** is classified into what
+changing it costs, written out by hand rather than derived from RoboCSS's registry,
+because the question is what *layout* reads and only this module can answer it — and the
+two answers a naive table gets wrong are `border-style` (geometry: 10.11's used width is
+zero unless the style draws) and an unknown name (nothing, rather than everything). Three
+marking policies make three different shapes: a box-model change marks the box, its
+ancestors' **measurement** and the *transitively* following flow; a displacement marks the
+box and its ancestors' measurement and **leaves the following flow clean**, which is
+10.12's contract made testable; an overflow-mode change marks measurements alone and no
+geometry at all. One decision is built on the model — `robo_layout_context_run_incremental`
+skips the pass when nothing needs one — and **no partial layout exists**: the dirty root
+(the lowest common ancestor of the boxes whose own geometry is stale) is computed and
+reported, and the pass still recomputes from the tree root, because a dirty region a build
+*guesses* is a fast wrong answer.
 
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
@@ -590,6 +614,30 @@ fact about a box *declaring* a boundary while `overflowing` counts a fact about 
 nothing stick out of any of them — and `overflow_unresolved` is the number that makes a
 `var()`-driven declaration visible instead of silent.
 
+## The thirteenth structural decision: an invalidation is a claim about a conclusion, not about an input
+
+10.14's, and the one that is not about a box at all. The tempting model — record which
+declarations changed and re-resolve those — is wrong at the second box, because geometry
+is a function of *ancestors'* conclusions as well as a box's own declarations: a leaf whose
+author changed nothing moves when its parent's padding changes. So what is tracked is not
+which inputs moved but which *conclusions cannot be trusted*, which is a property of boxes:
+
+```text
+the record    a state per box, on the object   (the only field that must outlive a pass)
+the policy    three shapes of propagation      (box model / displacement / overflow mode)
+the decision  one, and it skips the walk       (never a partial layout)
+```
+
+Three bits of state and a reason, and every one of them earns its place: `STYLE` keeps a
+repaint from pulling geometry and survives the pass that declines to run; `OWN_BITS` is
+`LAYOUT` alone, which is what makes the dirty root a *region* instead of the document, since
+the marking policy never claims an ancestor's own geometry moved; and `OVERFLOW` exists
+because 10.13 made a box's measurement a second rectangle, so a change can leave the box
+right and the measurement wrong — which is exactly what a `position: relative` offset does
+to every ancestor it does not otherwise touch. The pair a consumer must keep apart is
+therefore *not clean* and *need layout*, and it is held apart by two doors with two answers:
+`robo_layout_tree_is_clean` and `robo_layout_tree_needs_layout`.
+
 ## What "the pass ran" is allowed to mean
 
 There are two passes now, and they answer different questions about the same tree.
@@ -754,7 +802,8 @@ module.
 | `docs/Borders.md` | Why a border is an in-box inset and not a spacing, the three seams and why the three properties compute three ways, the `padding_box` rename and why the old name was the defect, the two derived numbers with opposite clamps, the `content-box` model, and the assertion that deliberately did not move |
 | `docs/Positioning.md` | Why a position is two coordinates, the four inset kinds (and why an inset is signed where a padding is not), the one precedence rule and its four counters, the apply's saturation, the two inline halves, and the object door that separates flow from final |
 | `docs/Overflow.md` | Why an overflow is a record rather than a size, the RoboSS vocabulary (and why the shorthand is read rather than expanded), the padding box as the reference edge, the one resolve policy and its three kinds, the per-side-maximum accumulate and its saturation, the region and the clip rectangle, the recursion that folds a child's region, where it is measured in each pass, and everything deliberately absent |
-| `docs/Tests.md` | The nineteen suites, what each asks, and what each phase found |
+| `docs/Invalidation.md` | Why an invalidation is a claim about a conclusion rather than about an input, the four state bits and the three masks, the classifier and its three decisions, the three marking policies and the shape each propagates, why the dirty root is a common ancestor rather than the shallowest box, where the state lives and why on the box, what a pass consumes and leaves, the four-term incremental decision, and everything deliberately absent |
+| `docs/Tests.md` | The twenty suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -762,7 +811,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 307 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 332 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
