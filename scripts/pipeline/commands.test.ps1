@@ -38,6 +38,11 @@ $script:RoboRuntimeComponents = [ordered]@{
     # (`demo.layout.*`), so this group is a superset of two cases by design
     # rather than by accident.
     "layout"      = @("layout.")
+    # RoboPaint's suites live in runtime/paint/tests and report under `paint.`.
+    # The match is a substring, not a prefix, so the demo layer's six paint cases
+    # (`demo.paint.*`) fall inside this group too -- the same superset the layout
+    # group carries, and by the same mechanism.
+    "paint"       = @("paint.")
     "demo"        = @("demo.")
     "infra"       = @("infra.")
 }

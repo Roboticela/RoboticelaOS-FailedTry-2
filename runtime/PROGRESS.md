@@ -4950,12 +4950,76 @@ file, while the Debug, Release and sanitized builds each reported `ALL TESTS PAS
 same session. The §14 proposal to fix the focus race or quarantine the cases is now overdue by five
 phases rather than one.
 
+## Goal 11.1 — Paint architecture
+
+**Status: complete.** RoboPaint is the fifth module in the layout stack and the first whose subject is
+not a *conclusion* but a **sequence of work**: RoboLayout answers where every box is, and RoboPaint
+turns those answers into an ordered list of operations a rasteriser will one day execute. This goal is
+the boundary only — the pipeline stops at `RoboLayout → RoboPaint` and nothing above it — and the one
+idea it turns on is that **a paint list is a record of what will be drawn, not a set of drawing
+instructions, produced by one deterministic traversal of the layout tree**.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The module surface: eight headers and one umbrella — the operation vocabulary (`NONE`, `BEGIN_BOX`, `BACKGROUND`, four `BORDER_*`, `END_BOX`, deliberately **seven wide** because a name with no code behind it is a promise), the diagnostic domains (nine), the geometry records, the operation, the list, the context and the dump | `Include/RoboPaint/` |
+| `robo_paint_operation_t` — a value record with **no pointers in it**, carrying the three rectangles in paint coordinates *and* the containing block's content origin so layout coordinates are `boxes - origin`, plus a depth that makes the tree's shape recoverable from a flat list | `RoboPaintOperation.h` |
+| `robo_paint_boxes_from_layers` — the one derivation in the module: border box → padding box → content box, each layer **floored at zero and saturated in 64 bits**, because a forward per-layer computation puts the padding box outside its border box at the coordinate range's extreme | `RoboPaintGeometry.c` |
+| `robo_paint_clip_t` — **two axes, not one rectangle**: `overflow-x: hidden` beside `overflow-y: visible` is legal and a rectangle cannot express it, so each axis is a mode plus a half-open interval and `robo_paint_clip_rect` **refuses** unless both axes are bounded | `RoboPaintGeometry.h` |
+| The deterministic traversal — document order, parents before children, a `BEGIN_BOX`/decoration/child/`END_BOX` sequence per box, the page origin accumulated as the containing block's content origin, and the clip refined per axis from each box's own used overflow modes | `RoboPaintContext.c` |
+| The **staleness refusal**: a tree that needs layout is refused with `ROBO_PAINT_PASS_STALE` and an empty list rather than painted, so a list built from half-computed geometry never leaves the module — the whole of this phase's integration with 10.14 | `RoboPaintContext.c` |
+| The list, and the one allocation in the module: an array of value operations, cleared before every pass and grown in place, with `robo_paint_list_append` **refusing** any operation `robo_paint_operation_is_valid` rejects — the safety rule enforced once in the container rather than at every call site | `RoboPaintList.c` |
+| The developer's view — one line per operation, indented by the operation's own depth, with a **derived** line bound (`ROBO_PAINT_DUMP_LINE_MAX`) that a suite measures against the widest line this build can produce | `RoboPaintDump.c`, `RoboPaintDump.h` |
+| The module lifecycle, capabilities and version; `drawing` and `display_lists` and `raster` and `paint_invalidation` are **0**, and `decoration_ops` is **1** and named for what it is — this build records *that* a background will be filled and *which* colour; it does not fill it | `RoboPaint.c`, `RoboPaintVersion.h` |
+| Three suites, 39 cases, wired explicitly in `$SuiteSrcs` and `Tests/Main.c` | `paint/tests/` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A dedicated RoboPaint subsystem exists | `Include/RoboPaint/`, `Source/RoboPaint/`, five sources |
+| A clear public/private API boundary exists | the umbrella header vs `RoboPaintInternal.h`; `robo_paint_add_saturated` is private |
+| A paint context exists | `robo_paint_context_t` with its pass record and outcomes |
+| A deterministic paint-operation representation exists | `robo_paint_operation_t` plus `robo_paint_operation_equal` |
+| A paint-list representation exists | `robo_paint_list_t`, `paint.list.*` |
+| RoboPaint consumes RoboLayout output without recalculating layout | `robo_paint_boxes_of` reads layout's result and two inset records; the pass takes the tree `const` |
+| Border/padding/content/overflow geometry is accessed correctly | `paint.geometry.*` 6, `paint.traversal.box_model_geometry` |
+| A deterministic paint traversal exists | `paint.traversal.siblings_in_order`, `.counts_and_determinism` |
+| Paint-list ownership and lifetime are safe | `paint.list.lifecycle`, `paint.traversal.allocator_balance`, ASan/UBSan |
+| Geometry validation prevents invalid paint operations | `robo_paint_operation_is_valid` enforced at `robo_paint_list_append`; `paint.operation.record`, `paint.conformance.hostile_inputs` |
+| Basic paint architecture tests pass | `--filter paint.` 45/45 (39 module cases + 6 demo cases) |
+| Determinism is tested | `paint.traversal.counts_and_determinism` |
+| Existing Phase 9/10 tests continue passing | `--filter css.` 616/616, `--filter layout.` 346/346 |
+| A minimal graphics-path validation succeeds where supported | the host visual checkpoint (11 probes, `RESULT: PASS`) — the demo path is the runtime's rendering path; drawing is `0` by design here |
+| No Chromium dependency is introduced | `Tools/Build.ps1 -Verify` boundary scan |
+
+### What 11.1 found
+
+Five findings, recorded in full in `paint/docs/Tests.md` §6 and `paint/docs/Architecture.md` §14. In one
+line each: a **forward per-layer derivation** put the padding box outside its border box at the extreme
+of the coordinate range, so the derivation now works inward with saturation and a zero floor; the two
+**coordinate spaces** need an assertion and not just one field each, so the traversal suite checks
+`local == boxes - origin` against layout for every operation; a **one-rectangle clip** silently clips an
+axis the author left open, which is why the record is two axes; a **guessed dump bound** is a latent
+overflow, so `paint.dump.line_bound` measures the widest real line; and the fixture needed
+`display: block` on its containers, because a container computing to `display: inline` makes layout
+legitimately decline its insets — a correct layout conclusion that reads as a paint bug until the
+suite's own stylesheet is fixed. One pipeline note: the new `paint.` test group is a **substring**
+match, so it also carries the demo layer's six `demo.paint.*` cases.
+
+The count went from **2367 to 2406**: 39 new paint cases. Debug `-Verify -Test` reports `ALL TESTS
+PASS` at 2406/2406. `--filter paint.` is 45/45. `robo check` passes with Chromium independence CLEAN.
+`robo test-runtime` remains red solely on the documented `window.host.keyboard` host-focus flake, on a
+diff touching no `window` file — the eighth consecutive phase, and the §14 proposal to fix the focus
+race rather than keep noting it is now overdue by five phases.
+
 ## Next
 
-- **Phase 11 — RoboPaint & Rendering.** Phase 10 is complete: every box has a position, a size, four
-  inset layers, a final coordinate, an overflow record and a validity state, and the deferred tables
-  name what is still absent — floats, fragmentation, scrolling, `absolute`/`fixed`/`sticky` (18.5),
-  `border-radius`, and anything that draws a pixel. `layout/docs/Architecture.md` §17 states the
-  thirty-four rules Phase 11 may assume, and `layout/docs/Invalidation.md` §11 lists what 10.14 handed
-  on. The `painting` capability is still `0` and Phase 11 is where it flips — do not start until
-  requested
+- **Phase 11.2 — the next RoboPaint goal.** 11.1 establishes the architecture and stops at it: the
+  `painting` capability is still `0`, `ROBO_PAINT_DRAWING_IMPLEMENTED` is `0`, and the operation
+  vocabulary is deliberately seven wide because a name with no code behind it is a promise. The
+  deferred tables in `paint/README.md` and `paint/docs/Architecture.md` §13 name every later goal —
+  backgrounds, borders, text and image operations, opacity, clipping, display lists, rasterisation,
+  paint invalidation (11.11) and hit testing (11.10) — and `paint/docs/Architecture.md` §15 lists what
+  the next goal may assume. Do not start until requested

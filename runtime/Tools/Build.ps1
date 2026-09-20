@@ -276,7 +276,15 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboLayout\RoboLayoutBorder.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutPosition.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutOverflow.c"),
-    (Join-Path $SourceDir "RoboLayout\RoboLayoutInvalidation.c")
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutInvalidation.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaint.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintTypes.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDiagnostics.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintGeometry.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintOperation.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintList.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintContext.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDump.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -479,6 +487,9 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutDom.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutConformance.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutIntegration.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaint.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintTraversal.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintConformance.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -734,6 +745,34 @@ function Assert-RoboLayoutBoundaries {
     Write-Host "RoboLayout boundary source scan: OK"
 }
 
+function Assert-RoboPaintBoundaries {
+    $roots = @(
+        (Join-Path $RuntimeRoot "Include\RoboPaint"),
+        (Join-Path $RuntimeRoot "Source\RoboPaint"),
+        (Join-Path $RuntimeRoot "paint")
+    )
+    # RoboPaint sits directly above RoboLayout and directly below RoboRender
+    # (DEPENDENCIES.md): it may read a layout tree, a computed style's paint-visible
+    # properties and RoboGraphics' geometry. What it must never reach for is anything
+    # above itself -- render, compositing, JS, the shell, the API layer -- nor a window
+    # or display layer, which is the direction a layering argument would miss and the
+    # one this scan is really for, nor Chromium.
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboRender|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    foreach ($root in $roots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+            Select-String -Pattern $pat -SimpleMatch:$false |
+            Where-Object {
+                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|not a dependency|does not depend on|has no business'
+            }
+        if ($hits) {
+            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+            throw "RoboPaint boundary leak (Chromium or a higher layer):`n$sample"
+        }
+    }
+    Write-Host "RoboPaint boundary source scan: OK"
+}
+
 function Assert-RoboDisplayChromiumIndependence {
     $roots = @(
         (Join-Path $RuntimeRoot "Include\RoboDisplay"),
@@ -835,6 +874,10 @@ $hostFlags = @(
     # is the first module allowed to see both RoboHTML and RoboCSS, so its
     # integration suites belong beside it rather than in Tests/Suites.
     "-I", (Join-Path $RuntimeRoot "layout\tests"),
+    # paint/tests has the same shape: its own fixture header, and suites that resolve it
+    # relatively. RoboPaint's suites live there because the module reads a layout tree, so
+    # its fixtures belong beside the layer they build on.
+    "-I", (Join-Path $RuntimeRoot "paint\tests"),
     "-I", (Join-Path $SourceDir "RoboWindow\platform\win32"),
     "-I", (Join-Path $SourceDir "RoboDisplay\platform\win32"),
     "-D_CRT_SECURE_NO_WARNINGS",
@@ -993,6 +1036,7 @@ if ($Verify) {
     Assert-RoboHTMLChromiumIndependence
     Assert-RoboCSSChromiumIndependence
     Assert-RoboLayoutBoundaries
+    Assert-RoboPaintBoundaries
     Assert-RoboDemoIsolation
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }

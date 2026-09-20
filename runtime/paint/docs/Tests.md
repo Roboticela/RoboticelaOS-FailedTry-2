@@ -1,0 +1,176 @@
+# RoboPaint Test Organisation (through Phase 11.1)
+
+Three suites, 39 tests, one framework. Each phase adds no test runner, no reporter and no
+assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
+and `robo_test_register`), the same as every other subsystem.
+
+They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, for the same
+reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
+directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
+
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the three suites
+explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
+which is the "explicit over discovered" rule the rest of the tree follows.
+
+---
+
+## 1. Suite map
+
+| Suite | Domain | Cases | Asks |
+|---|---|---|---|
+| `SuiteRoboPaint.c` | `paint.module.*`, `paint.types.*`, `paint.diagnostics.*`, `paint.geometry.*`, `paint.operation.*`, `paint.list.*`, `paint.dump.*` | 18 | is each piece a record *on its own* — the vocabularies, the derivation, the clip, the operation's two coordinate spaces, the list's ownership, the dump's format? |
+| `SuiteRoboPaintTraversal.c` | `paint.traversal.*` | 16 | does one pass over a real document produce the operations, in the order, under the boundaries the architecture says it should? |
+| `SuiteRoboPaintConformance.c` | `paint.conformance.*` | 5 | does the build's own surface — capabilities, vocabulary names, the drawing claim — say what the module claims? |
+
+The unit suite and the traversal suite are deliberately not the same suite because they catch
+different things: a hand-built record catches an arithmetic or a rule that a document would
+produce by accident, and a document catches a rule that is right in isolation and wrong when a
+box is nested four deep.
+
+### 1.1 — the module surface and the records (`paint.module.*`, `paint.types.*`, `paint.diagnostics.*`)
+
+`paint.module.lifecycle` runs `init`/`shutdown`/`is_initialized` and asserts a double init is
+`ROBO_ALREADY_EXISTS`. `paint.types.kind_vocabulary` and `paint.types.domain_vocabulary` walk
+each enumeration against its `_COUNT`, assert `is_known`/`name` agree with the walk, and pin the
+derived predicates — that the four border kinds are exactly the ones `is_border` accepts, that
+`op_kind_side` is total over them and refuses the rest, and that the two markers are exactly the
+ones `is_marker` accepts. `paint.diagnostics.record` pins the domain-and-message record.
+
+### 1.2 — geometry (`paint.geometry.*`, 6 cases)
+
+- `boxes_record` — the three-box record's validity rule: nesting, the zero-size case, and the
+  `insets_measured` rule (a record with the flag clear must have all three rectangles equal).
+- `boxes_from_layers` — the one derivation, including the extreme case a saturated border box
+  produces: the layers still nest, every extent is finite, and none is negative.
+- `boxes_translate` — the page accumulation, including the saturated offset.
+- `clip_record` — the two-axis record, the cleared value (`visible` on both), and the validity
+  rule (a known mode per axis, an interval that does not run backwards on an axis that hides).
+- `clip_rect` — the one case where a rectangle answers, and the **refusal** when an axis is
+  unbounded.
+- `clip_intersect` — the per-axis accumulation: a boundary that hides neither axis leaves the
+  clip unchanged; a hidden axis intersects; an intersection that empties is success with an
+  empty interval, not a failure.
+
+### 1.3 — operations and the list (`paint.operation.*`, `paint.list.*`, 6 cases)
+
+- `operation.record` — the validity rule: known kind, live node, nesting boxes, valid clip, and
+  the colour rule (`none` refused on a drawing kind, required on a marker).
+- `operation.accessors` — every read door, and the `NONE`/zero answers for NULL.
+- `operation.side_band` — the band between the border box and the padding box, derived rather
+  than stored, and the refusal for a non-border kind.
+- `operation.write` — the one-line writer, including `ROBO_NOT_SUPPORTED` reporting the length
+  it would have needed.
+- `list.lifecycle` — create/clear/append/at/operations, capacity retained across `clear`, and
+  the append **refusing** an invalid operation (the list is left untouched).
+- `list.equality` — `robo_paint_list_equal`: empty lists equal, two NULLs equal, and the
+  operation-by-operation comparison.
+
+### 1.4 — the dump (`paint.dump.*`, 2 cases)
+
+- `dump.format` — the fixed line format, one line per operation, indented by depth.
+- `dump.line_bound` — the widest line this build can actually produce is measured and asserted
+  against `ROBO_PAINT_DUMP_LINE_MAX`, so a future field that pushes past the constant fails
+  here rather than overflowing a caller's buffer.
+
+### 1.5 — the traversal (`paint.traversal.*`, 16 cases)
+
+A document is built through the real chain — `RoboHTML → RoboCSS → the bridge → the tree → the
+layout pass` — and then painted. The cases ask:
+
+- **shape and order** — `single_box`, `siblings_in_order` (children left to right),
+  `empty_element`, `refusals_and_empty` (a stale tree refused with `STALE` and an empty list; an
+  empty tree painted as zero objects).
+- **what draws** — `background`, `border_sides` (only sides with a used width), an empty
+  element emitting only its marker pair.
+- **box-model geometry** — `box_model_geometry`: `robo_paint_operation_local_boxes` equals what
+  `robo_paint_boxes_of` reads out of layout, field for field, for every operation.
+- **the clip** — `clip_visible` (no boundary), `clip_hidden` (a boundary at the padding box),
+  `clip_axis_split` (`overflow-x: hidden` beside `overflow-y: visible` is not collapsed).
+- **text** — `text_counted_not_painted`: a run is visited, counted in `text_runs`, and no
+  operation is emitted for it.
+- **lifecycle and safety** — `context_lifecycle`, `counts_and_determinism`, `extreme_geometry`,
+  `allocator_balance`.
+- **initial values** — `border_color_initial`: a border whose colour is not declared draws in
+  `currentColor`, resolved against the element's `color`.
+
+### 1.6 — conformance (`paint.conformance.*`, 5 cases)
+
+- `capabilities` — the struct read positionally against a list of names, so a field added
+  without an assertion is a visible omission.
+- `drawing_absent` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
+  `robo_paint_drawing_is_implemented()` all agree, and all say 0.
+- `vocabulary_exhaustive` — every kind and every domain prints a name that is not "unknown".
+- `document_list` — a whole document's list, pinned operation by operation.
+- `hostile_inputs` — NULL and malformed records refused rather than read.
+
+---
+
+## 2. Fixtures
+
+`RoboPaintTestSupport.h` is the one fixture header, beside the suites. It builds a document
+(the real RoboHTML/CSS chain) into a laid-out tree and paints it, so every traversal case starts
+from a document rather than from a hand-built tree — a hand-built tree could agree with a bug in
+the builder. The unit suite fabricates only the module's own **value types** (a border box, an
+inset record, a clip), which are inputs a caller may legitimately construct; it never fabricates
+a *layout result*.
+
+The fixture's base stylesheet gives its containers `display: block`, because a container that
+computes to `display: inline` makes layout decline its insets — a legitimate layout conclusion
+that would look like a paint bug.
+
+---
+
+## 3. What the suites do and do not assert
+
+They assert **records and relationships** — nesting, the two coordinate spaces agreeing, the
+predicate tables, the refusal cases — rather than magic numbers. A paint list for a document is
+pinned in `document_list`, but the arithmetic cases assert the property (three layers nest, an
+axis is bounded) rather than a constant that would have to be re-derived by hand.
+
+They do **not** assert anything about pixels, rasterisation, display lists, text or image
+operations, opacity, transforms, scrolling, paint invalidation or hit testing: none of those
+exists in this build, and a suite that asserted them would be asserting a later phase.
+
+---
+
+## 4. Running
+
+```bash
+# from runtime/
+pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test   # build + whole suite
+./Out/RoboTest.host.exe --filter paint.                  # every paint case
+./Out/RoboTest.host.exe --filter paint.geometry.         # one group
+./Out/RoboTest.host.exe --filter paint.traversal.        # the traversal suite
+```
+
+`./scripts/robo test-paint` runs the module's group through the project pipeline. The filter is
+a **substring** match, not a prefix, so `--filter paint.` also matches the demo layer's six
+`demo.paint.*` cases: the group reports **45** for a module with **39** cases of its own. That
+superset is recorded in `scripts/pipeline/commands.test.ps1` beside the group, the same way the
+`layout` group's two-case superset is.
+
+---
+
+## 5. Sanitizers
+
+The module and its suites run clean under ASan and UBSan. The only allocation is the list's
+array, and `paint.traversal.allocator_balance` checks the module's allocation balance across a
+pass, so a leak in the list's growth is caught rather than merely reported by a sanitizer.
+
+---
+
+## 6. What the 11.1 suites found
+
+1. **A forward per-layer derivation can put the padding box outside its border box** at the
+   extreme of the coordinate range. `paint.geometry.boxes_from_layers` caught it; the fix works
+   inward with saturating arithmetic and floors each extent at zero.
+2. **The two coordinate spaces need an assertion, not just a field each.** Nothing about writing
+   `boxes` and `origin` keeps them consistent — `paint.traversal.box_model_geometry` holds them
+   together by checking `local == boxes - origin` against layout, for every operation.
+3. **A one-rectangle clip silently clips an axis the author left open.**
+   `paint.traversal.clip_axis_split` is the case that requires the two-axis record.
+4. **A guessed dump bound is a latent overflow.** `paint.dump.line_bound` measures the widest
+   real line rather than trusting the derivation.
+5. **The fixture needed `display: block` on its containers.** A container computing to
+   `display: inline` makes layout legitimately decline its insets, which reads as a paint
+   failure until the suite's own base stylesheet is fixed.
