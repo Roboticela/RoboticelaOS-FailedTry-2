@@ -177,8 +177,12 @@ the widest line this build can actually produce rather than trusting the derivat
 
 ## 8. What is deliberately not here
 
-- **No rasterisation, clipping or presentation.** The display list is data; `raster` is 0 and
-  nothing consumes the commands yet.
+- **No rasterisation of the whole list, no clipping architecture, no presentation.** The display
+  list is data and `raster` is 0: since 11.4 exactly one command kind is consumed -- a
+  `draw-background` is filled into a caller's surface by `robo_paint_background_paint`
+  (`paint/docs/Background.md`), and a `draw-border` band, the structural commands and everything
+  else are still data. A background fill *is* bounded by the clip the command carries, but no
+  clipping op is emitted and no clipping system exists.
 - **No batching, merging or command reordering.** The order is the traversal's; an optimizer
   is a later goal's and would need a consumer to justify it.
 - **No transforms, opacity, save/restore or clip *operations*.** A command carries the clip

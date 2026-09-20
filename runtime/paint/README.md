@@ -1,25 +1,31 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.3, display lists**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.4, background painting**).
 
-**Version:** 0.3.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.4.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
-`ROBO_PAINT_DRAWING_IMPLEMENTED=0` — this build produces an ordered list of operations,
-and a render-ready display list above it, and puts no colour on a surface.
-`robo_paint_drawing_is_implemented()` answers 0 with it, so a caller cannot mistake "the
-pass ran" for "the pixels are there".
+`ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a `draw-background`
+command's rectangle with its colour into a RoboGraphics surface, through the CPU raster.
+The claim is **narrow**, and the field beside it says how narrow: `raster` is **0**,
+because the background pass consumes exactly one command kind and skips the rest (and
+counts what it skipped). `robo_paint_drawing_is_implemented()` agrees with the constant,
+and `background_painting` says *which* drawing exists — a caller deciding whether to look
+for a surface reads the function; one deciding whether to *make* one reads the field.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
-RoboPaint turns those answers into a **sequence of work** a rasteriser will one day
-execute, and 11.3 turns that sequence into the **artifact** a rasteriser consumes.
+RoboPaint turns those answers into a **sequence of work** a rasteriser executes, 11.3 turns
+that sequence into the **artifact** a rasteriser consumes, and 11.4 puts the first colour on
+a surface.
 
 ```text
-HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → RoboGraphics → Display
+HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → draw-background → RoboGraphics raster → surface
 ```
 
-This phase stops at **RoboPaint → display list**; rasterisation is a later goal.
+This build stops after **backgrounds**: border bands, text, images, real clipping, opacity
+and a rasteriser of the whole list are each a later goal, and each is named in §Boundaries
+where it would otherwise be assumed.
 
 ## The one structural decision
 
@@ -139,6 +145,30 @@ of the display list, and **refuses** a record list that does not obey it. A cons
 display list may therefore group commands by `depth` and by the `begin-node`/`content`/
 `end-node` boundaries without re-deriving anything.
 
+## The tenth structural decision: the first colour on a surface, and why the fence around it is explicit
+
+`robo_paint_background_paint` walks a **display list** — not the records, because the display
+list is the artifact whose geometry is resolved — and fills each `draw-background` command into
+a `robo_gfx_surface_t` through the RoboGraphics CPU raster. Everything else is **skipped and
+counted**: the three structural kinds draw nothing, and a border band's rectangle is resolved but
+its rasterisation is a later goal's. So "the backgrounds are painted and the borders are not" is
+a number a reader sees (`robo_paint_background_stats_t.skipped`) rather than a silence — and it
+is why `raster` stays 0 while `drawing` flips to 1.
+
+The colour crosses into RoboGraphics through **one door**, `robo_paint_color_to_rgba8`, and the
+whole of it is a field-for-field copy between two 8-bit sRGB records: no arithmetic, no colour
+space, nothing to lose or invent, and alpha survives rather than being flattened. Its four kinds
+are **decided rather than flattened**, because three of them are not colours a surface can take —
+`currentColor` is *refused* (`currentColor` can only be resolved by the layer that owns an
+element's `color`, and that is the paint pass, not this bridge), `none` means no colour was
+declared, and `invalid` means it was meant to be a colour and was not.
+
+The boundary is **read, not implemented**: the command already carries it as two axes from 11.1,
+so the painter resets the raster's clip to the surface bounds, replaces the axis a boundary
+hides, and lets `robo_gfx_raster_set_clip` intersect — the graphics module's arithmetic rather
+than a second copy of it. The surface belongs to the caller: the painter retains nothing,
+destroys nothing it did not create, and holds no reference after returning.
+
 ## Geometry is borrowed, not defined
 
 There are no new coordinate types. `RoboGraphicsGeometry.h` defines the canonical pixel
@@ -164,6 +194,8 @@ flip in.
 | `RoboPaintDisplayList.h` | `robo_paint_display_list_t`, `robo_paint_display_list_stats_t` — the render-ready artifact (11.3) |
 | `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` — the conversion and structural check (11.3) |
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` — the developer's view of the display list (11.3) |
+| `RoboPaintColor.h` | `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` — the one-way colour bridge to RoboGraphics (11.4) |
+| `RoboPaintBackground.h` | `robo_paint_background_paint`, `robo_paint_background_stats_t` — the background-only pass into a surface (11.4) |
 
 ## Lifecycle
 
@@ -187,7 +219,8 @@ because nothing in an operation points anywhere.
 | `paint/docs/Architecture.md` | The phase, the dependency position, the traversal, the coordinate model, the clip model, ownership, what 11.3 onwards may assume |
 | `paint/docs/Operations.md` | The operation vocabulary, the structural/drawing split, the traversal contract, snapshot semantics — the precise order, the coordinate spaces and the clip accumulation |
 | `paint/docs/DisplayList.md` | The display command, the resolved rectangle per kind, the builder's structural invariants, ordering, ownership and what is deferred (11.3) |
-| `paint/docs/Tests.md` | Suite map (five suites, 65 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.3 found |
+| `paint/docs/Background.md` | The colour bridge, the background pass, its geometry, clipping, counters, ownership, safety and deferrals (11.4) |
+| `paint/docs/Tests.md` | Suite map (six suites, 79 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.4 found |
 
 ## Building and testing
 
@@ -200,20 +233,25 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ## Boundaries
 
 RoboPaint must not depend on RoboWindow, RoboDisplay or RoboRender. It reads RoboLayout
-through const doors and may use RoboGraphics geometry **only**.
+through const doors, and uses RoboGraphics for **geometry and — since 11.4 — the CPU raster it
+is handed a surface for**. A surface is always the *caller's* argument and never a query.
 
-- No rasterisation, no framebuffer presentation, no compositor, no GPU. `DRAWING` is 0.
-- **No display-list *consumption*** — the display list exists as a render-ready artifact
-  (`display_lists` is 1), and nothing rasters it, clips it or presents it yet. Rasterisation
-  is a later goal; `raster` is 0.
+- **Backgrounds are painted; nothing else is.** `DRAWING` is 1 and `background_painting` is 1.
+  Border bands, text, images, rounded corners, gradients, transforms, opacity beyond the
+  colour's own alpha and antialiasing are all absent, and every one of them is counted by the
+  pass rather than silently dropped.
+- **No rasteriser of the whole list.** The display list exists as a render-ready artifact
+  (`display_lists` is 1) and one command kind of it is consumed; `raster` is 0.
+- No framebuffer presentation, no compositor, no GPU.
 - No **text** or **image** operations. A text run is visited and counted
   (`robo_paint_stats_t.text_runs`) and **not painted**: a run's rectangle is a line fragment
   with no box layers, and painting one means shaping and glyph positions, which a later
   phase owns. The count exists so "this document has text and none of it was painted" is a
   number a reader sees rather than a silence.
 - No **opacity**, no transforms, no `border-radius`, no gradients, no antialiasing.
-- No **actual clipping**. The clip is computed and carried; no raster op is emitted. No
-  scroll clipping and no compositor clipping.
+- No **clipping architecture**. The clip a command carries is applied to the raster's own clip
+  (11.4); no clipping op is emitted, and there is no scroll clipping and no compositor clipping.
+- **No scrolling**, and no scroll offsets — 10.13 recorded the overflow; nothing scrolls it.
 - No **paint invalidation** (11.11) and no **hit testing** (11.10) — the final positioned
   geometry is preserved for both, but neither is built here.
 - No **`background-clip`** or **`background-origin`**: the painting area is the border box,

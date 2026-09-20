@@ -6,13 +6,14 @@
  * state, and why the whole file is a flag, a version and a table of what this build does
  * and does not do.
  *
- * The table is the interesting half. Three of its eleven fields are deliberately 0, and
- * they are the three a reader would otherwise have to discover by experiment: `drawing`,
- * `raster` and `paint_invalidation`. `decoration_ops` beside them is 1 -- this build
- * *does* decide that a background will be filled and which colour -- and `display_lists`
- * joined it in 11.3: the artifact a rasteriser consumes now exists, and keeping it apart
- * from `drawing` is what stops "a render-ready list exists" from being read as "a colour
- * reached a surface".
+ * The table is the interesting half. Two of its twelve fields are deliberately 0, and they
+ * are the two a reader would otherwise have to discover by experiment: `raster` and
+ * `paint_invalidation`. `display_lists` joined the 1s in 11.3 -- the artifact a rasteriser
+ * consumes now exists -- and `drawing` and `background_painting` joined them in 11.4: a
+ * `draw-background` command's rectangle and colour now reach a RoboGraphics surface. Keeping
+ * `background_painting` apart from `raster` is what stops "a colour reached a surface" from
+ * being read as "the document rasterises": the painter consumes one command kind and skips
+ * the rest.
  */
 
 #include "RoboPaint/RoboPaint.h"
@@ -47,7 +48,7 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      *
      * Every one of them is asserted by `paint.conformance.capabilities`, by name and in
      * declaration order, because a struct read positionally is the only way to assert
-     * eleven `int` fields without writing eleven accessors -- and an untested capability
+     * twelve `int` fields without writing twelve accessors -- and an untested capability
      * flag is one that stops being true without anybody noticing.
      */
     out->context = 1;
@@ -65,13 +66,13 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
     out->decoration_ops = 1;
 
     /*
-     * And the four that are 0, each naming a later goal rather than an omission.
+     * And the two that are 0, each naming a later goal rather than an omission.
      *
      * `drawing` is read from its own constant so that the field and the two doors that
      * report it -- this one and `robo_paint_drawing_is_implemented()` -- cannot disagree.
-     * `display_lists` and `raster` are the two halves of "the list reaches a surface",
-     * split because they are separate pieces of work: a display list is a consumable
-     * artifact and rasterising is what consumes it.
+     * `raster` is the general rasteriser that would consume *every* command; 11.4's
+     * background painter consumes one kind and skips the rest, which is why `raster` is 0
+     * while `background_painting` beside it is 1.
      *
      * `paint_invalidation` is 0 and what exists instead is the *input* to one:
      * `robo_paint_stats_t.style_only`. A paint list is regenerated rather than patched, so
@@ -80,15 +81,20 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      */
     out->drawing = ROBO_PAINT_DRAWING_IMPLEMENTED;
     /*
-     * **1 since 11.3**: a display list now exists as a consumable artifact -- the
+     * **1 since 11.3**: a display list exists as a consumable artifact -- the
      * `RoboPaintDisplayList` the builder produces from a paint list, with the box model
-     * resolved and the traversal's structural convention enforced. It stays 1 while
-     * `drawing` is 0, and the pair is the honest statement: this build produces the list a
-     * rasteriser consumes and puts no colour on a surface.
+     * resolved and the traversal's structural convention enforced.
      */
     out->display_lists = 1;
     out->raster = 0;
     out->paint_invalidation = 0;
+
+    /*
+     * **1 since 11.4**, and the narrow field beside `drawing`: this build fills backgrounds
+     * and still does not rasterise a whole list. Named for exactly what it is -- the painter
+     * skips the structural records and the border bands, and `raster` above stays 0.
+     */
+    out->background_painting = 1;
     return ROBO_OK;
 }
 
@@ -115,8 +121,11 @@ int robo_paint_drawing_is_implemented(void)
     /*
      * One macro, read by both this function and the capability field, so the two cannot
      * disagree -- which is exactly the drift a caller would have no way to see. It answers
-     * 0 and will keep answering 0 for at least one more goal: what this release produces
-     * is a *description* of what would be drawn.
+     * **1** since 11.4, where the condition the version header wrote down for the flip was
+     * met: a `draw-background` command's rectangle and colour reach a RoboGraphics surface.
+     *
+     * It does not mean a whole list rasterises -- `raster` is 0 -- so a caller must not read
+     * it as "the document renders". What it renders is the backgrounds.
      */
     return ROBO_PAINT_DRAWING_IMPLEMENTED;
 }

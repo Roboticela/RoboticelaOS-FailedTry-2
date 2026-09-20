@@ -1,6 +1,6 @@
 /*
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
- * display lists.
+ * display lists, 11.4 background painting.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -69,8 +69,21 @@
  * above needs it once the band is resolved); and the four border kinds *collapse into
  * one*, because the fact that distinguished them -- which side -- is consumed into the
  * band rectangle. A display list is therefore **render-ready**: a rasteriser walks it
- * once and never consults the box model. `ROBO_PAINT_DRAWING_IMPLEMENTED` is *still* 0:
- * a display list is data, and nothing here puts a colour on a surface.
+ * once and never consults the box model. `ROBO_PAINT_DRAWING_IMPLEMENTED` was *still* 0 at
+ * 11.3: a display list is data, and nothing there put a colour on a surface.
+ *
+ * 11.4 is where the colour finally reached one. `robo_paint_background_paint` walks a
+ * display list and fills each `draw-background` command into a RoboGraphics surface, so
+ * `ROBO_PAINT_DRAWING_IMPLEMENTED` is **1** -- the condition this header wrote down for the
+ * flip was exactly "a build in which an operation's rectangle and colour reach a RoboGraphics
+ * surface", and that is now true for backgrounds. The fence that keeps the claim honest is
+ * `raster` beside it, which stays **0**: this is a **background-only** painter that skips the
+ * structural records and the border bands (and counts them), not a rasteriser of the whole
+ * list. The colour crosses into RoboGraphics through one door
+ * (`robo_paint_color_to_rgba8`), which is a field-for-field copy between two 8-bit sRGB
+ * records rather than a conversion -- and `currentColor` is *refused* there, because only the
+ * layer that owns an element's `color` can resolve it, and the background pass has already
+ * done so before emitting.
  *
  * The colour resolution is the one place this release reads a property RoboLayout
  * deliberately ignored, and it is worth stating because it looks like a violation of
@@ -85,34 +98,34 @@
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 3
+#define ROBO_PAINT_VERSION_MINOR 4
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.3.0"
+#define ROBO_PAINT_VERSION_STRING "0.4.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0
 
 /**
- * 0 until this build puts a colour on a surface.
+ * 1 since 11.4: this build puts a colour on a surface.
  *
- * A constant that is 0, which is the point: RoboLayout 10.1 shipped
- * `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as 0 for the same reason, because the honest
- * thing a first architecture release can say about the feature it is *for* is that
- * the feature is not there yet.
+ * The flip happened exactly where this header said it would -- "a build in which an
+ * operation's rectangle and colour reach a RoboGraphics surface" -- and the thing that
+ * reached it is a **background**: `robo_paint_background_paint` fills a display list's
+ * `draw-background` commands through the RoboGraphics CPU raster.
  *
- * It is read by two doors that must not disagree -- `robo_paint_get_capabilities()`
- * with its `drawing` field, and `robo_paint_drawing_is_implemented()` -- and by the
- * conformance suite, which asserts all three together. A caller deciding whether to
- * look for a surface should read the function; a caller deciding whether to *make* one
- * should read the field.
+ * It is read by two doors that must not disagree -- `robo_paint_get_capabilities()` with
+ * its `drawing` field, and `robo_paint_drawing_is_implemented()` -- and by the conformance
+ * suite, which asserts all three together. A caller deciding whether to look for a surface
+ * should read the function; a caller deciding whether to *make* one should read the field.
  *
- * What it will claim when it flips, stated now so that the flip is a decision rather
- * than a discovery: a build in which an operation's rectangle and colour reach a
- * RoboGraphics surface. It will **not** claim antialiasing, rounded corners, gradients,
- * opacity beyond the colour's own alpha, or a compositor. Those are later goals', and
- * a phase that flipped this constant while adding one of them would be claiming more
- * than it did.
+ * What it claims is narrow and it must not be read wider: **backgrounds**, and only
+ * backgrounds. It does **not** claim borders, text, images, clipping, opacity beyond the
+ * colour's own alpha, antialiasing, rounded corners, gradients, transforms or a compositor,
+ * and it does **not** claim a rasteriser of the whole list -- that is `raster`, which is
+ * still 0. A caller that read this constant as "the document renders" would be wrong in
+ * exactly the way reading `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as "layout is done" was wrong
+ * in a first release; the field beside it, `background_painting`, says which drawing exists.
  */
-#define ROBO_PAINT_DRAWING_IMPLEMENTED 0
+#define ROBO_PAINT_DRAWING_IMPLEMENTED 1
 
 #endif /* ROBO_PAINT_VERSION_H */

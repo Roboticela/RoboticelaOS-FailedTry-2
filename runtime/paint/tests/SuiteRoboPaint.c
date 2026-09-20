@@ -135,16 +135,16 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.3.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.4.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 3);
+    ROBO_CHECK_EQ_INT((int)minor, 4);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
-     * the capability field are one statement, and a caller reading only a version number
-     * would conclude this build paints. */
-    ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 0);
-    ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 0);
+     * the capability field are one statement -- and since 11.4 all three say backgrounds
+     * reach a surface. */
+    ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
+    ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
     ROBO_CHECK_EQ_INT(robo_paint_get_capabilities(&capabilities), ROBO_OK);
     ROBO_CHECK_EQ_INT(capabilities.drawing, ROBO_PAINT_DRAWING_IMPLEMENTED);

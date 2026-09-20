@@ -288,7 +288,9 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayCommand.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayList.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayListBuilder.c"),
-    (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayDump.c")
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayDump.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintColor.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintBackground.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -496,6 +498,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintConformance.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintRecords.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintDisplayList.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintBackground.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -1068,7 +1071,29 @@ $hostSrcs = $ProdSrcs + $DemoSrcs + @(
     $Win32BackendSrc, $Win32KeyboardSrc, $Win32MouseSrc, $Win32DisplaySrc,
     $TestFrameworkSrc, $TestMainSrc
 ) + $SuiteSrcs
-& $clang @hostFlags -o $HostTest @hostSrcs "-luser32" "-lgdi32"
+
+# The host compile is the one command here whose **argument list** is large enough to matter:
+# it names the whole runtime, the demo layer, the Win32 backends and every suite, and Windows
+# refuses to start a process whose command line approaches 32k characters -- which a sanitizer
+# build crosses, because `-fsanitize=address -fsanitize=undefined` is two more arguments on a
+# line that was already near the edge. So the list goes in a **response file** and the process
+# is started with one argument: the fix is to hand clang the list rather than to stop growing
+# the suite, and it keeps working as suites are added.
+$hostRsp = Join-Path $OutDir "RoboTest.host.rsp"
+$hostArgs = @($hostFlags) + @("-o", $HostTest) + $hostSrcs + @("-luser32", "-lgdi32")
+$hostArgChars = 0
+foreach ($hostArg in $hostArgs) { $hostArgChars += $hostArg.Length + 1 }
+Write-Host "HOST   $($hostArgs.Count) arguments ($hostArgChars chars) -> $hostRsp"
+Set-Content -Path $hostRsp -Value ($hostArgs | ForEach-Object {
+    # clang's response-file tokenizer treats `\` as an escape, so a Windows path written
+    # verbatim loses its separators (`D:\Muhammad\...` arrives as `D:Muhammad...`). Every
+    # token is therefore written with forward slashes, which clang accepts on Windows and
+    # which cannot silently drop a separator. Quoting is added only where a token has
+    # whitespace, so a checkout under a path like `C:\Program Files` still works.
+    $token = $_ -replace '\\', '/'
+    if ($token -match '\s') { '"' + $token + '"' } else { $token }
+}) -Encoding ascii
+& $clang "@$hostRsp"
 if ($LASTEXITCODE -ne 0) { throw "Host RoboTest compile failed" }
 Write-Host "Build OK: $HostTest (tests only)"
 

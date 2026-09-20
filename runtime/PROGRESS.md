@@ -5138,11 +5138,82 @@ the six `demo.paint.*` cases the substring filter also matches), and `robo test-
 `robo check` passes with Chromium independence CLEAN, and the host visual checkpoint passes unchanged
 (11 probes, 15 checks, 0 failed -- `RESULT: PASS`).
 
+## Goal 11.4 — Background painting
+
+**Status: complete.** The first RoboPaint release that puts a colour on a **surface**, and the arrow
+the previous three phases left empty. `robo_paint_background_paint` walks a display list and fills
+every `draw-background` command into a caller's RoboGraphics surface; everything else is **skipped
+and counted**. `ROBO_PAINT_DRAWING_IMPLEMENTED` flips to **1** -- the condition the version header
+wrote down for the flip was exactly "a build in which an operation's rectangle and colour reach a
+RoboGraphics surface" -- while `raster` stays **0**, because this painter consumes exactly one
+command kind.
+
+**Done:**
+
+| Thing | Where |
+|---|---|
+| The **colour bridge**, one direction and one record: `robo_paint_color_to_rgba8` is a field-for-field copy between RoboCSS's `robo_css_color_t` and RoboGraphics' `robo_gfx_color_rgba8_t` -- both 8-bit sRGB with straight alpha, so there is no arithmetic, no colour space and nothing to lose or invent, and alpha survives rather than being flattened. The four kinds are **decided rather than flattened**: a resolved colour draws, a fully transparent one converts and does not draw, `currentColor` is **refused** (only the layer that owns an element's `color` can resolve it -- that is the paint pass, not this bridge), `none` means nothing was declared and `invalid` means it was meant to be a colour and was not | `RoboPaintColor.h/.c` |
+| The **background pass**: walk the display list once, in order, resolve each `draw-background`'s colour, apply its clip, fill its rectangle through `robo_gfx_raster_fill_rect`. `begin-node`/`content`/`end-node` draw nothing and a `draw-border` band is a later goal's -- all four are **skipped and counted**, so "the backgrounds are painted and the borders are not" is a number rather than a silence | `RoboPaintBackground.h/.c` |
+| The **list is the input, not the records**, because the display list is the artifact whose geometry is *resolved*: a command carries the one rectangle to fill and the boundary in force, so the painter never reads the box model, a computed style or the tree. The only conversion left is the colour | `RoboPaintBackground.h` |
+| The **clip read rather than implemented**: reset the raster's clip to the surface bounds (so nothing leaks from the previous command), replace the axis a boundary hides while leaving an open axis at the surface's own interval, and let `robo_gfx_raster_set_clip` intersect -- so "the boundary bounds the fill" is the graphics module's arithmetic, and an `overflow: hidden` ancestor bounds a descendant's background without a raster clipping system existing | `RoboPaintBackground.c` |
+| The **pass record**, whose fields are the *pairs*: `commands`/`backgrounds`/`filled`/`skipped`/`contextual`/`transparent`/`empty`/`clipped`, with two identities holding by construction -- `commands = backgrounds + skipped` and `backgrounds = filled + contextual + transparent + empty` | `RoboPaintBackground.h` |
+| Version `0.4.0`; `drawing` flips to **1** and `background_painting` is added as **1** -- the field that says *which* drawing exists -- while `raster` stays **0** | `RoboPaintVersion.h`, `RoboPaint.c` |
+| The **background suite** -- 14 cases in `paint.background.*`: the colour bridge's five kinds; a document's colour read back from the surface at the centre of the rectangle the list named and nowhere one pixel past it; the fill order proving depth-first traversal; the clip A/B against a `visible` control one declaration away plus the axis split read from a hand-built command; the three "nothing to paint" documents (no declaration, `borders_not_painted`, zero-area); a relative offset moving the fill and not the size; the counter identities; the four "draws nothing" reasons on a hand-built list; determinism across two surfaces and a repeat pass in place; snapshot isolation across a re-layout; and the empty and refusing cases | `paint/tests/SuiteRoboPaintBackground.c` |
+
+### Completion criteria
+
+| Criterion | Evidence |
+|---|---|
+| The CSS background representation is understood and reused | `background-color` only, resolved by the paint pass; `background:`'s expansion is RoboCSS's |
+| Solid background painting works for supported colours | `paint.background.pixel_fill`, `paint.background.end_to_end` |
+| Correct layout geometry is used | the command's resolved rectangle; the painter reads no box model |
+| CSS colours convert correctly to RoboGraphics colours | `RoboPaintColor.c`; `paint.background.color_bridge` |
+| `DrawBackground` commands carry real drawable data | 11.3's command, now consumed |
+| Display-list ordering is correct | `paint.background.ordering` (the child's colour wins where they overlap) |
+| Transparent/no-background cases work | `paint.background.nothing_to_paint` (no command exists at all) |
+| Geometry safety is enforced | `paint.background.zero_area`, `paint.background.hand_built_kinds` |
+| Mutation isolation is verified | `paint.background.mutation_isolation` |
+| Deterministic output is verified | `paint.background.determinism` |
+| RoboGraphics is used for the actual drawing primitive | `robo_gfx_raster_fill_rect` through a raster the pass creates and destroys |
+| A minimal visual smoke test works | the suite reads a real surface back at the rectangle each command names |
+| Existing tests remain passing | whole suite green |
+| No Chromium/Blink runtime dependency | boundary scan CLEAN; `robo check` PASS |
+| Nothing out of scope was implemented | `paint/README.md` §Boundaries and `paint/docs/Background.md` §11 |
+
+### What 11.4 found
+
+Four findings, three in `paint/docs/Tests.md` §9 and the fourth in `paint/docs/Architecture.md` §14.
+In one line each: **a colour refusal arrives as a different code one level down than the layer above
+promised** -- the graphics raster refuses a target that cannot take a write with
+`ROBO_INVALID_ARGUMENT` and an unimplemented format with `ROBO_NOT_SUPPORTED`, while the painter's
+header said "read-only or unsupported" was one `ROBO_NOT_SUPPORTED`, and a *test* is what made the
+two statements meet (the mapping is now explicit in one place, with `ROBO_OUT_OF_MEMORY`
+deliberately not folded in); **"every fill's centre is its own colour" is false the moment two
+fills overlap** -- a child's background covers its parent's, so the expectation at a point is the
+colour of the *last* drawable command whose rectangle contains it and whose clip admits it, which is
+what "the fills happen in the list's order" means stated where a pixel can be read; **a two-document
+comparison must spell out both documents** -- the clipping case had built its stylesheet from a
+variable left at one value, so it compared a thing with itself until the two sheets were written out
+side by side; and **the host test link is the one command in this tree whose argument list can fail**
+-- 498 arguments and 32,741 characters crossed Windows' ~32k process limit once the sanitizer flags
+were added, and the failure mode is *the compiler not starting* rather than a build error, so
+`Tools/Build.ps1` now hands the list over in a response file (and the list must be written with
+**forward slashes**, because clang's response-file tokenizer treats `\` as an escape and silently ate
+every separator in a Windows path -- `D:\Muhammad\...` arriving as `D:Muhammad...`).
+
+The count went from **2432 to 2446**: 14 new background cases, and the module's **79 cases in six
+suites**. Debug and Release `-Verify -Test` each report `ALL TESTS PASS`; the sanitized build is
+clean under ASan and UBSan with no diagnostic. `--filter paint.` is **85/85** (79 module cases plus
+the six `demo.paint.*` cases the substring filter also matches), `--filter paint.background.` is
+**14/14**, and `robo test-paint` passes. `robo check` passes with Chromium independence CLEAN, and
+the host visual checkpoint passes unchanged (15 checks, 0 failed -- `RESULT: PASS`).
+
 ## Next
 
-- **Phase 11.4 — the next RoboPaint goal.** 11.3 produces the render-ready artifact and stops at it:
-  `drawing` is still `0`, `raster` is `0`, and nothing consumes the commands yet. The deferred tables
-  in `paint/README.md` and `paint/docs/DisplayList.md` §8 name every later goal -- text and image
-  commands, opacity, clipping, transforms, batching, rasterisation, paint invalidation (11.11) and hit
-  testing (11.10) -- and `paint/docs/Architecture.md` §15 lists the sixteen rules the next goal may
-  assume. Do not start until requested
+- **Phase 11.5 — the next RoboPaint goal.** 11.4 fills exactly one command kind and stops at it:
+  `drawing` and `background_painting` are `1`, `raster` is still `0`, and the border bands, text,
+  images, opacity, real clipping, transforms, batching, rasterisation of the whole list, paint
+  invalidation (11.11) and hit testing (11.10) are all still absent. The deferred tables in
+  `paint/README.md` and `paint/docs/Background.md` §11 name every one of them, and
+  `paint/docs/Architecture.md` §15 lists the eighteen rules the next goal may assume. Do not start
+  until requested

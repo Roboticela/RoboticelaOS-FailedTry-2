@@ -1,5 +1,5 @@
 /*
- * RoboPaint — RoboticelaOS Runtime's paint architecture (Phase 11.1).
+ * RoboPaint — RoboticelaOS Runtime's paint architecture (Phase 11.1–11.4).
  *
  * Dependency:
  *   RoboBase / RoboMem → RoboGraphics → ... → RoboCSS / RoboHTML → RoboLayout
@@ -7,22 +7,24 @@
  *
  * RoboPaint sits directly above RoboLayout and directly below RoboRender
  * (DEPENDENCIES.md): it may read a layout tree, a computed style's paint-visible
- * properties and RoboGraphics' geometry, and it must not depend on render, compositing,
- * the shell, the API layer, JS, a window or a display. The boundary scan
+ * properties, RoboGraphics' geometry and -- since 11.4, where a background reaches a
+ * surface -- RoboGraphics' CPU raster primitive, and it must not depend on render,
+ * compositing, the shell, the API layer, JS, a window or a display. The boundary scan
  * (`Tools/Build.ps1 -Verify`) enforces it, and the direction that would be invisible to
  * a layering argument -- paint reaching *down* for a window to clip to -- is the one the
  * scan is really for.
  *
  * Phase 11.1 is architecture: the paint context, the operation vocabulary, the list and
  * its ownership, the geometry boundary, the clip state, the deterministic traversal and
- * the dump. It draws **no pixel** -- `robo_paint_drawing_is_implemented()` answers 0 and
- * the `drawing` capability field with it -- and that is a statement about this build
- * rather than a placeholder for one.
+ * the dump. And since 11.4 it paints **backgrounds**: `robo_paint_background_paint` walks a
+ * display list and fills each `draw-background` command into a RoboGraphics surface, so
+ * `robo_paint_drawing_is_implemented()` answers 1 and `background_painting` is 1 -- while
+ * `raster` stays 0, because a rasteriser that consumes *every* command is a later goal's.
  *
  * The pipeline this module is the fourth stage of, and where this release stops:
  *
- *   HTML / DOM → RoboCSS → RoboLayout → **RoboPaint** → display list → raster →
- *   RoboGraphics → RoboWindow / display
+ *   HTML / DOM → RoboCSS → RoboLayout → **RoboPaint** → display list →
+ *   **background fill** → RoboGraphics → RoboWindow / display
  *
  * What this release buys the phases that follow: a tree that has been laid out can be
  * turned into an ordered list of operations, every operation carries the box it draws
@@ -31,18 +33,18 @@
  * record already has a node, a depth, three rectangles, a clip and a colour, and a new
  * kind is one enumerator rather than a redesign.
  *
- * What it does *not* buy is a rasteriser, and this header says so in three places rather
- * than leaving a caller to find out: the constant is 0, the function answers 0, and the
- * capability field says `drawing` is absent. A caller that checked only a version number
- * would conclude that 0.3.0 paints; the field is the thing that says it does not.
+ * What it does *not* buy is a **rasteriser**: `raster` is 0 and this header says so rather
+ * than leaving a caller to find out from a blank surface. What 11.4 buys is narrower and
+ * precise -- one command kind reaches a surface -- and a caller that checked only a version
+ * number would conclude that 0.4.0 renders a document, when what it renders is the
+ * backgrounds.
  *
  * Chromium's paint and display-list architecture -- `PaintLayer`, `DisplayItem`,
  * `PaintController`, `cc::DisplayItemList` -- is temporary technical reference only, and
  * nothing here is a translation of any of it. The design decisions that matter are made
  * the other way round from Chromium's, and the two worth naming are that this list
- * carries **no transform stack and no property tree** (there is nothing to inherit,
- * because 11.1 paints nothing) and that it carries **both coordinate spaces per
- * operation** rather than one plus a walk. See paint/README.md and paint/docs/.
+ * carries **no transform stack and no property tree** (there is nothing to inherit yet) and
+ * that it carries **both coordinate spaces per operation** rather than one plus a walk. See paint/README.md and paint/docs/.
  */
 #ifndef ROBO_PAINT_H
 #define ROBO_PAINT_H
@@ -53,6 +55,8 @@
 #include "RoboPaint/RoboPaintDisplayDump.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
 #include "RoboPaint/RoboPaintDisplayListBuilder.h"
+#include "RoboPaint/RoboPaintBackground.h"
+#include "RoboPaint/RoboPaintColor.h"
 #include "RoboPaint/RoboPaintContext.h"
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintDump.h"
@@ -116,8 +120,14 @@ typedef struct robo_paint_capabilities {
      */
     int decoration_ops;
     /**
-     * Putting a colour on a surface. **0**: a later Phase 11 goal, and the field a
-     * caller who is about to look for a framebuffer should read.
+     * Putting a colour on a surface. **1** since 11.4: a `draw-background` command's
+     * rectangle and colour reach a RoboGraphics surface
+     * (`robo_paint_background_paint`).
+     *
+     * The field a caller about to look for a framebuffer should read -- and the one that
+     * says this build paints **backgrounds**. It is `background_painting` beside it that
+     * says *which* drawing exists, because "a colour reaches a surface" and "every command
+     * rasterises" are different claims and only the first is true.
      */
     int drawing;
     /**
@@ -137,6 +147,15 @@ typedef struct robo_paint_capabilities {
      *  instead is the *input* -- `robo_paint_stats_t.style_only` -- because a paint list
      *  is regenerated rather than patched (RoboPaintContext.h). */
     int paint_invalidation;
+    /**
+     * **Background painting** (11.4), and **1**: the first drawing this build does. It
+     * walks a display list, fills each `draw-background` command into a RoboGraphics
+     * surface, and **skips** the structural records and the border bands -- so the fence
+     * between this field and `raster` is the fence between one command kind and all of
+     * them. `raster` stays **0** because a general rasteriser that consumes *every* command
+     * is a later goal's, and this one consumes exactly one.
+     */
+    int background_painting;
 } robo_paint_capabilities_t;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */
@@ -146,7 +165,7 @@ void robo_paint_capabilities_init(robo_paint_capabilities_t *capabilities);
  *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p out. */
 robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out);
 
-/** The version this build was compiled as ("0.3.0"); never NULL. */
+/** The version this build was compiled as ("0.4.0"); never NULL. */
 const char *robo_paint_version_string(void);
 
 /**
@@ -164,13 +183,14 @@ robo_result_t robo_paint_get_version(robo_i32 *out_major,
  * actually asks before deciding whether to make a surface -- and because a *function*
  * cannot be read past.
  *
- * It answers **0**, and unlike RoboLayout's geometry door this one will keep answering 0
- * for at least one more goal: what this release produces is a *description* of what
- * would be drawn. So a caller that has a list and no rasteriser is holding exactly what
- * 11.1 promises, and the two things it must not conclude are that the list is empty
- * (it is not -- `robo_paint_list_count` answers that) or that the list is a picture (it
- * is not -- `robo_paint_list_write` prints it, and
- * `robo_paint_operation_local_boxes` is how a consumer checks it against layout).
+ * It answers **1** since 11.4, and the condition the version header wrote down for the
+ * flip was exactly this: "a build in which an operation's rectangle and colour reach a
+ * RoboGraphics surface". A `draw-background` command's rectangle and colour now do. What it
+ * still does **not** mean is that every command rasterises: `raster` is 0 and the painter
+ * skips the structural records and the border bands. So the two things a caller must not
+ * conclude are that borders or text reach a surface (they do not --
+ * `robo_paint_background_stats_t.skipped` counts them) or that a whole document is a
+ * picture (the list still prints with `robo_paint_list_write`).
  */
 int robo_paint_drawing_is_implemented(void);
 

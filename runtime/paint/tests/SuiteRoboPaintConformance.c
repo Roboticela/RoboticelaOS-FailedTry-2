@@ -60,13 +60,14 @@ static const paint_capability_row_t paint_capability_rows[] = {
     { "box_geometry", 1 },
     { "clip_state", 1 },
     { "decoration_ops", 1 },
-    /* The absences, plus 11.3's `display_lists` which joined the 1s. `drawing` is read
-     * from its own constant so the field and its two doors cannot drift; `raster` and
-     * `paint_invalidation` name later phases outright. */
+    /* `drawing` is read from its own constant so the field and its two doors cannot drift.
+     * 11.3's `display_lists` and 11.4's `drawing`/`background_painting` joined the 1s;
+     * `raster` and `paint_invalidation` name later phases outright. */
     { "drawing", ROBO_PAINT_DRAWING_IMPLEMENTED },
     { "display_lists", 1 },
     { "raster", 0 },
-    { "paint_invalidation", 0 }
+    { "paint_invalidation", 0 },
+    { "background_painting", 1 }
 };
 
 static void test_paint_conformance_capabilities(void)
@@ -119,7 +120,7 @@ static void test_paint_conformance_capabilities(void)
     robo_paint_capabilities_init(NULL); /* safe */
 }
 
-static void test_paint_conformance_drawing_absent(void)
+static void test_paint_conformance_drawing_present(void)
 {
     robo_paint_capabilities_t capabilities;
     robo_i32 major = 0;
@@ -129,22 +130,25 @@ static void test_paint_conformance_drawing_absent(void)
     paint_fixture();
 
     /*
-     * The statement 11.1 makes in three places, asserted in one: the constant is 0, the
-     * door answers 0, and the capability field reports it. A caller deciding whether to
-     * look for a surface reads the door; one deciding whether to *make* one reads the
-     * field; and neither can be true while the other says otherwise.
+     * The statement 11.4 makes, in one place: the constant is 1, the door answers 1, and
+     * the capability field reports it -- and `background_painting` beside it says *which*
+     * drawing exists while `raster` says the general rasteriser does not. A caller deciding
+     * whether to look for a surface reads the door; one deciding whether to *make* one reads
+     * `drawing`; one deciding whether the *whole* list renders reads `raster`, which is 0.
      */
-    ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 0);
-    ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 0);
+    ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
     ROBO_CHECK_EQ_INT(robo_paint_get_capabilities(&capabilities), ROBO_OK);
     ROBO_CHECK_EQ_INT(capabilities.drawing, robo_paint_drawing_is_implemented());
+    ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
+    ROBO_CHECK_EQ_INT(capabilities.raster, 0);
 
-    /* The version this build reports is 0.3.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.4.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
      * still add to this surface. */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 3);
+    ROBO_CHECK_EQ_INT((int)minor, 4);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -168,10 +172,11 @@ static void test_paint_conformance_drawing_absent(void)
         paint_once(&fixture, &result);
         ROBO_CHECK(paint_count_of(&result, ROBO_PAINT_OP_BACKGROUND) > 0u);
         ROBO_CHECK(paint_count_of(&result, ROBO_PAINT_OP_BORDER_TOP) > 0u);
-        /* And what the list *is* is a description: the pass ran, the list is not empty,
-         * and there is still nothing that puts a colour on a surface. */
+        /* And the list is not empty while the drawing is background-only: the pass ran,
+         * the list carries the operations, and what reaches a surface is the backgrounds. */
         ROBO_CHECK(robo_paint_list_count(result.list) > 0u);
-        ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 0);
+        ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
+        ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
         paint_result_dispose(&result);
         paint_end(&fixture);
     }
@@ -460,8 +465,8 @@ void robo_test_register_paint_conformance(void)
 {
     robo_test_register("paint.conformance.capabilities",
                        test_paint_conformance_capabilities);
-    robo_test_register("paint.conformance.drawing_absent",
-                       test_paint_conformance_drawing_absent);
+    robo_test_register("paint.conformance.drawing_present",
+                       test_paint_conformance_drawing_present);
     robo_test_register("paint.conformance.vocabulary_exhaustive",
                        test_paint_conformance_vocabulary_exhaustive);
     robo_test_register("paint.conformance.document_list",

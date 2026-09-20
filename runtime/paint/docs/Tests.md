@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.3)
+# RoboPaint Test Organisation (through Phase 11.4)
 
-Five suites, 65 tests, one framework. Each phase adds no test runner, no reporter and no
+Six suites, 79 tests, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,7 +8,7 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the five suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the six suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
@@ -23,6 +23,7 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaintConformance.c` | `paint.conformance.*` | 5 | does the build's own surface — capabilities, vocabulary names, the drawing claim — say what the module claims? |
 | `SuiteRoboPaintRecords.c` | `paint.records.*` | 13 | is the record model what it claims *as a model* — a regular sequence, an explicit content boundary, a snapshot that does not move, ownership that copies? |
 | `SuiteRoboPaintDisplayList.c` | `paint.display.*` | 13 | does the display list *resolve* the box model (one rectangle per command), *preserve* the order and identity, *refuse* a record list that is not a document, and *snapshot* what it consumes? |
+| `SuiteRoboPaintBackground.c` | `paint.background.*` | 14 | does the colour cross into RoboGraphics, does a document's `background-color` land **where the list said it would** (read back from the surface), and does the pass skip everything that is not a background while counting it? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -145,12 +146,51 @@ The Phase 11.3 suite, and it asks the artifact's guarantees rather than a docume
   `determinism` (two independent builds equal by list and by dump), `dump` (one line per
   command, and a refusal reporting the length it needed).
 
-### 1.8 — conformance (`paint.conformance.*`, 5 cases)
+### 1.8 — the background pass (`paint.background.*`, 14 cases)
+
+The Phase 11.4 suite, and it is the first in this module that **reads a surface back**:
+
+- **the colour bridge** — `color_bridge`: a resolved colour copies field for field (alpha
+  included), a fully transparent colour converts and does not draw, and the three kinds that are
+  not colours a surface can take each get their own answer (`currentColor` refused, `none`
+  absent, `invalid` a mistake).
+- **a colour reaches a surface** — `pixel_fill`: a document's box is painted, its colour is read
+  at the centre of the rectangle the display list named, and one pixel past that rectangle is
+  still untouched.
+- **order** — `ordering`: a parent's fill comes first in the list, so where the two overlap the
+  child's colour is on the surface -- depth-first traversal, demonstrated on pixels.
+- **clipping** — `clipping`: the same document with `overflow: hidden` and with `visible`, one
+  declaration apart, where a point far outside the ancestor but inside the spill's own
+  rectangle is red under `visible` and untouched under `hidden`; plus the axis-split mechanism
+  read from a hand-built command (bounded horizontally, free vertically).
+- **nothing to paint** — `nothing_to_paint` (no background declared, and `transparent`: no
+  command exists at all, so `skipped == commands`), `borders_not_painted` (a border-only
+  document whose four bands are resolved and whose surface is untouched), `zero_area` (an opaque
+  background on a zero-height box: a valid record, an `empty` non-fill).
+- **positioned rectangles** — `positions`: two documents one declaration apart, where the
+  relative offset moves the fill by exactly `(20, 10)`, does not change its size, and leaves the
+  control's corner untouched.
+- **the counters** — `counters`: the two identities (`commands = backgrounds + skipped`,
+  `backgrounds = filled + contextual + transparent + empty`) plus the pixels checked against the
+  list's own record of who writes where.
+- **the painter's own contract** — `hand_built_kinds`: a hand-built list exercising the four
+  "draws nothing" reasons and one that draws, with each counter asserted and the clip applied.
+- **determinism and isolation** — `determinism` (two surfaces, every fill's centre identical,
+  and a repeat pass in place unchanged), `mutation_isolation` (clear the record list and
+  re-lay-out the tree; the display list paints exactly as it did, proved by a second build that
+  *does* differ).
+- **empties and refusals** — `empty_cases` (an empty list, a structural-only list, `NULL`
+  arguments, and a **read-only** target refused with `ROBO_NOT_SUPPORTED`).
+- **end to end** — `end_to_end`: the whole chain for a document using the box model, a nested
+  child, a relative offset and both overflow modes.
+
+### 1.9 — conformance (`paint.conformance.*`, 5 cases)
 
 - `capabilities` — the struct read positionally against a list of names, so a field added
   without an assertion is a visible omission.
-- `drawing_absent` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
-  `robo_paint_drawing_is_implemented()` all agree, and all say 0.
+- `drawing_present` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
+  `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting` says
+  which drawing exists and `raster` still says 0.
 - `vocabulary_exhaustive` — every kind and every domain prints a name that is not "unknown".
 - `document_list` — a whole document's list, pinned operation by operation.
 - `hostile_inputs` — NULL and malformed records refused rather than read.
@@ -179,9 +219,16 @@ predicate tables, the refusal cases — rather than magic numbers. A paint list 
 pinned in `document_list`, but the arithmetic cases assert the property (three layers nest, an
 axis is bounded) rather than a constant that would have to be re-derived by hand.
 
-They do **not** assert anything about pixels, rasterisation, display lists, text or image
-operations, opacity, transforms, scrolling, paint invalidation or hit testing: none of those
-exists in this build, and a suite that asserted them would be asserting a later phase.
+Since 11.4 they **do** assert pixels — but only where a pixel is the claim: the background
+suite reads a real surface back, because "the colour reached RoboGraphics" is not a statement
+about a record. The expectation at a point is the **last** drawable command whose rectangle
+contains it and whose clip admits it, so the check is the list's own order rather than an
+assumption that every fill is visible.
+
+They still do **not** assert anything about border rasterisation, text or image painting, real
+clipping, opacity, transforms, scrolling, a whole-list rasteriser, paint invalidation or hit
+testing: none of those exists in this build, and a suite that asserted them would be asserting a
+later phase.
 
 ---
 
@@ -195,11 +242,12 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test   # bui
 ./Out/RoboTest.host.exe --filter paint.traversal.        # the traversal suite
 ./Out/RoboTest.host.exe --filter paint.records.          # the record-model suite
 ./Out/RoboTest.host.exe --filter paint.display.          # the display-list suite
+./Out/RoboTest.host.exe --filter paint.background.       # the background-painting suite
 ```
 
 `./scripts/robo test-paint` runs the module's group through the project pipeline. The filter is
 a **substring** match, not a prefix, so `--filter paint.` also matches the demo layer's six
-`demo.paint.*` cases: the group reports **71** for a module with **65** cases of its own. That
+`demo.paint.*` cases: the group reports **85** for a module with **79** cases of its own. That
 superset is recorded in `scripts/pipeline/commands.test.ps1` beside the group, the same way the
 `layout` group's two-case superset is.
 
@@ -213,7 +261,7 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
 
 ---
 
-## 6. What the 11.1 suites found
+## 6. What the 11.1 suite found
 
 1. **A forward per-layer derivation can put the padding box outside its border box** at the
    extreme of the coordinate range. `paint.geometry.boxes_from_layers` caught it; the fix works
@@ -268,3 +316,26 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
    identity* of every open box, not just a depth counter, so a box's content boundary and its
    closing marker can be checked to name the box its opening marker named. That stack is the
    real state a reused builder carries.
+
+---
+
+## 9. What the 11.4 suite found
+
+1. **A two-document comparison must spell out both documents.** The clipping case had been
+   written to build its stylesheet from a variable, and the variable was left at one value — so
+   both runs laid out the *same* document and the case "compared" a thing with itself. The fix
+   is not a bug fix but a shape: the two sheets are written out in full, side by side, so a
+   reader can see that the documents differ in exactly one declaration.
+2. **A test that asserts "untouched" needs a surface nothing has touched.** The hand-built clip
+   mechanism was checked on a surface the document's own fills were already on, so "transparent
+   here" failed against a red that had every right to be there. The mechanism gets its own
+   surface.
+3. **"Every fill's centre is its own colour" is false the moment two fills overlap** — a
+   child's background covers its parent's, which is the *correct* behaviour the ordering case
+   asserts. A pixel expectation is therefore computed from the list (the last drawable command
+   whose rectangle contains the point and whose clip admits it) rather than assumed per fill,
+   and that oracle is also what makes a clipped document's pixels checkable at all.
+4. **The read-only case is the one that found a real disagreement.** A read-only target is
+   refused by the graphics layer with `ROBO_INVALID_ARGUMENT` where the painter's own header
+   promised `ROBO_NOT_SUPPORTED` — the *test* is what made the two statements meet. See
+   `paint/docs/Architecture.md` §14.8.
