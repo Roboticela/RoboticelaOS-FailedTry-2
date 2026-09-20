@@ -135,10 +135,10 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.1.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.2.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 1);
+    ROBO_CHECK_EQ_INT((int)minor, 2);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement, and a caller reading only a version number
@@ -171,19 +171,22 @@ static void test_paint_kind_vocabulary(void)
 {
     static const char *const expected[ROBO_PAINT_OP_KIND_COUNT] = {
         "none", "begin-box", "background", "border-top", "border-right", "border-bottom",
-        "border-left", "end-box"
+        "border-left", "content", "end-box"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 8);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 9);
     /* The zero of the vocabulary is `NONE`, so a cleared record is not an operation --
      * the same decision RoboLayout's border width kinds make one module down. */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_NONE, 0);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_BEGIN_BOX, 1);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_BACKGROUND, 2);
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_END_BOX, 7);
+    /* `CONTENT` sits between the last decoration and the closing marker, because the
+     * enumerators are in the order a linear consumer meets them (RoboPaintTypes.h). */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_CONTENT, 7);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_END_BOX, 8);
 
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
@@ -191,6 +194,16 @@ static void test_paint_kind_vocabulary(void)
         ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_known(kind), 1);
         ROBO_CHECK_STR_EQ(robo_paint_op_kind_name(kind), expected[index]);
         ROBO_CHECK(robo_paint_op_kind_name(kind) != NULL);
+        /* The structural/drawing split, asserted where the vocabulary is: every kind
+         * above `NONE` either puts a pixel down or is structural, and never both. */
+        if (kind == ROBO_PAINT_OP_NONE) {
+            ROBO_CHECK_EQ_INT(robo_paint_op_kind_draws(kind), 0);
+            ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_structural(kind), 0);
+        } else {
+            ROBO_CHECK_EQ_INT(robo_paint_op_kind_draws(kind) +
+                                  robo_paint_op_kind_is_structural(kind),
+                              1);
+        }
     }
 
     /* Every kind prints its own name: a table with a duplicated row would pass the walk

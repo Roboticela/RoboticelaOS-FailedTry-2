@@ -205,6 +205,9 @@ void *robo_paint_context_user_data(const robo_paint_context_t *context);
  *   a `BACKGROUND` operation when the box's background declaration draws;
  *   one `BORDER_*` operation per side whose used width is above zero and whose colour
  *   draws;
+ *   a `CONTENT` record marking where the box's own painting ends and its contents
+ *   begin, emitted for **every** placed box whether or not it drew anything and whether
+ *   or not it has children;
  *   the box's children, in order, under the boundary this box's own overflow put in
  *   force;
  *   and an `END_BOX` marker closing the box.

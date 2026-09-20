@@ -17,19 +17,36 @@ typedef enum robo_paint_op_kind {
     ROBO_PAINT_OP_BORDER_RIGHT = 4,
     ROBO_PAINT_OP_BORDER_BOTTOM= 5,
     ROBO_PAINT_OP_BORDER_LEFT  = 6,   /* the band between the two boxes */
-    ROBO_PAINT_OP_END_BOX      = 7    /* leave a box: draws nothing */
+    ROBO_PAINT_OP_CONTENT      = 7,   /* the box's own records end, its contents begin */
+    ROBO_PAINT_OP_END_BOX      = 8    /* leave a box: draws nothing */
 } robo_paint_op_kind_t;
 ```
 
 The order of the enumerators **is** the paint order: a box is entered, its decorations are
-emitted in the order CSS paints them (background first, then the border), its children are
-emitted inside, and it is left. A consumer that walked the list and ignored every `kind`
-would still see each box's operations contiguous and in paint order.
+emitted in the order CSS paints them (background first, then the border), its own records
+end at its **content boundary**, its children are emitted inside, and it is left. A consumer
+that walked the list and ignored every `kind` would still see each box's operations
+contiguous and in paint order.
 
-The vocabulary is **seven wide** — six drawing-or-marker kinds plus `NONE` — and deliberately
+The drawing vocabulary is deliberately small — one background and four border sides — and
 has no `TEXT`, `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator. A name with no
 code behind it is a promise, not a vocabulary; adding one later is one enumerator, one name
-row and one case in the validity rule.
+row and one case in the validity rule. `CONTENT` (added by 11.2) is the one kind since 11.1.
+
+### 1.0 Structural records versus drawing records
+
+The vocabulary splits in two, and the split is the rule a builder obeys:
+
+| Half | Kinds | Emitted | Colour |
+|---|---|---|---|
+| **Structural** | `BEGIN_BOX`, `CONTENT`, `END_BOX` | for **every** placed box | `none` |
+| **Drawing** | `BACKGROUND`, the four `BORDER_*` | **only when it draws** | a rasteriser-usable colour |
+
+The two predicates are `robo_paint_op_kind_is_structural` and `robo_paint_op_kind_draws`, and
+they partition the vocabulary above `NONE`. Structural records are what give the sequence a
+regular skeleton — one triple per box — while drawing records make the list's length a
+statement about the document. Structural rather than "marker" is the right split because
+`CONTENT` is neither a drawing nor a box marker.
 
 ### 1.1 Four border kinds, not one kind plus a side
 
@@ -39,7 +56,7 @@ a kind per side there is no such value, and `robo_paint_op_kind_side` is a **tot
 from the four border kinds to the side each draws on and a refusal for everything else — so no
 operation can carry a side that disagrees with what it draws.
 
-### 1.2 Markers
+### 1.2 Markers, and the content boundary
 
 `BEGIN_BOX` and `END_BOX` draw nothing and carry no colour: their `color` is
 `robo_css_color_none()`, and `robo_paint_operation_is_valid` requires exactly that, so a
@@ -47,6 +64,14 @@ marker carrying a colour is a refused record rather than one a consumer might dr
 purpose is the boundary: a rasteriser that will one day push a clip, save a state or blend a
 group needs a marker to hang that on, and the depth the marker carries is what makes the
 tree's shape recoverable from the flat list.
+
+`CONTENT` is the third structural record and is **not** a marker
+(`robo_paint_operation_is_marker` excludes it). It is emitted for every placed box, whether
+or not the box declared a background, drew a border or has children, because what it states
+is a fact about the *sequence*: this box's own records end here and its subtree's begin. It
+acts on the **content box**, and it is what makes the boundary explicit rather than inferred.
+Without it a consumer would look at the next child's depth to find where one box's own
+records end, and a childless box would have no boundary at all.
 
 ---
 
@@ -58,14 +83,15 @@ and for each box emits:
 
 ```text
 BEGIN_BOX        the box's three rectangles in paint coordinates, the accumulated
-                 origin, the clip in force, the box's depth
+                 origin, the clip in force, the box's depth       (structural, always)
 BACKGROUND       iff the declared background draws
 BORDER_TOP       iff the top side's used width is above zero and its colour draws
 BORDER_RIGHT     iff ...
 BORDER_BOTTOM    iff ...
 BORDER_LEFT      iff ...
+CONTENT          the content box, the origin, the clip and the depth   (structural, always)
 <the box's children, in order, under the boundary this box's own overflow put in force>
-END_BOX          the same rectangles, origin, clip and depth as BEGIN_BOX
+END_BOX          the same rectangles, origin, clip and depth as BEGIN_BOX (structural)
 ```
 
 The invariants a consumer may rely on, and where the suite checks them:
@@ -73,6 +99,9 @@ The invariants a consumer may rely on, and where the suite checks them:
 | Invariant | Case |
 |---|---|
 | Each box's operations are contiguous, beginning with `BEGIN_BOX` and ending with `END_BOX`. | `paint.traversal.single_box`, `.empty_element` |
+| Exactly one `CONTENT` per placed box, between its opening marker and its closing marker. | `paint.records.content_sequence`, `paint.records.fields` |
+| A box's `CONTENT` precedes every one of its children's opening markers. | `paint.records.nested_order`, `paint.records.siblings_order` |
+| A structural record carries `none` and a drawing record a usable colour. | `paint.records.fields`, `paint.conformance.document_list` |
 | A box's decorations carry the **same depth** as its markers. | `paint.traversal.background`, `.border_sides` |
 | Siblings appear in DOM order and interleave with their own subtrees, never flattened across. | `paint.traversal.siblings_in_order` |
 | An operation is emitted **only when it draws**: no declaration, no operation; a zero used width, no border side. | `paint.traversal.background`, `.border_sides` |
@@ -133,7 +162,9 @@ has no bound to report.
 
 `robo_paint_operation_is_valid` requires a known kind and never `NONE`; a live node id; three
 valid boxes whose border box contains the padding box contains the content box; a valid clip;
-and the colour rule (`none` for a marker, a drawable colour for a drawing kind).
+and the colour rule (`none` for a **structural** record, a drawable colour for a **drawing**
+kind — see §1.0). The split is `robo_paint_op_kind_draws`, not `is_marker`, so a `CONTENT`
+record is held to the structural side.
 
 `robo_paint_list_append` enforces it. The traversal is one caller; a rule enforced in the
 container is a rule no future caller can forget, and it is the "geometry safety" requirement
@@ -142,7 +173,22 @@ records by construction.
 
 ---
 
-## 6. What is deliberately not here
+## 6. Snapshot semantics
+
+A record is a **value**: it carries no pointer into the layout tree, the style tree or the
+DOM, so a list built from a document cannot move when that document is laid out again, and
+cannot dangle when the tree is destroyed. The two coordinate spaces it carries (`boxes` and
+`origin`, §3) are copied numbers, not references. This is the property
+`paint.records.snapshot_isolation` pins: it lays a tree out, paints a list, lays the *same*
+tree out at a different viewport, paints again, and shows the first list's records did not
+move while the second list did.
+
+The one thing a record deliberately does *not* snapshot is the texture of a text run: text is
+counted, not painted (§6 below), so there is no run payload to carry. When text painting
+arrives it will be a new kind with its own snapshot fields, which is the shape the record was
+designed for.
+
+## 7. What is deliberately not here
 
 - No **text** or **image** operation (a run is counted, not painted).
 - No **clip**, **save**, **restore** or **opacity** operation: the clip is *carried* on every

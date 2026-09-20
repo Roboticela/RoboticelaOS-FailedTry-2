@@ -1,7 +1,7 @@
 /*
- * RoboPaint version pin — Phase 11.1 paint architecture.
+ * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records.
  *
- * 0.1.0 is the first release of the fifth module in the layout stack and the first
+ * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
  * answers where every box is, and RoboPaint turns those answers into an ordered list
  * of operations a rasteriser will one day execute. `DEPENDENCIES.md` puts it directly
@@ -33,7 +33,7 @@
  *   one page space, and the intersection that turns a nested boundary into one clip
  *   rectangle.
  *
- * What 0.1.0 does **not** do is draw. `ROBO_PAINT_DRAWING_IMPLEMENTED` is 0 and
+ * What this build does **not** do is draw. `ROBO_PAINT_DRAWING_IMPLEMENTED` is 0 and
  * `robo_paint_drawing_is_implemented()` answers 0 with it, so a caller cannot mistake
  * "the pass ran" for "the pixels are there" -- the same three-place statement
  * RoboLayout 10.1 made about geometry, for the same reason. What exists is the
@@ -42,6 +42,21 @@
  * display lists, text, images, opacity and paint invalidation are each a named later
  * goal, and every one of them is named in `paint/README.md` where it would otherwise
  * be assumed.
+ *
+ * 11.2 adds one enumerator and no new door, and the honest way to say what it is is
+ * that the record model was already right: an operation was a value snapshot with no
+ * pointers, the list owned it, the traversal ordered it deterministically and the dump
+ * read it back, so "records" is what the phase *consolidates* rather than something it
+ * introduces. What it adds is the record the first release's sequence was missing --
+ * `CONTENT`, the boundary between a box's own records and its descendants' -- and the
+ * rule that makes the sequence regular: **structural records are unconditional, drawing
+ * records are conditional**. A consumer can now read a box's own painting as
+ * `[BEGIN_BOX .. CONTENT]` and its subtree as `(CONTENT .. END_BOX)` without inferring
+ * the boundary from the depth of the next child's marker, and a childless box has a
+ * boundary exactly as a parent does. Nothing else about a record changed: same fields,
+ * same ownership, same two coordinate spaces, same clip. `ROBO_PAINT_DRAWING_IMPLEMENTED`
+ * is still 0, because a `CONTENT` record is a statement about the sequence and not a
+ * pixel either.
  *
  * The colour resolution is the one place this release reads a property RoboLayout
  * deliberately ignored, and it is worth stating because it looks like a violation of
@@ -56,9 +71,9 @@
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 1
+#define ROBO_PAINT_VERSION_MINOR 2
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.1.0"
+#define ROBO_PAINT_VERSION_STRING "0.2.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0

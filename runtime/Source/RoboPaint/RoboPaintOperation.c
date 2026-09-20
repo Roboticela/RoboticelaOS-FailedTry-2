@@ -1,5 +1,5 @@
 /*
- * RoboPaint operations (Phase 11.1) — see RoboPaintOperation.h.
+ * RoboPaint operations (Phase 11.1–11.2) — see RoboPaintOperation.h.
  *
  * The record, the validity rule that decides whether it may enter a list, the two
  * coordinate spaces in one call, and the band a border side occupies. The validity rule
@@ -33,8 +33,6 @@ void robo_paint_operation_init(robo_paint_operation_t *operation)
 
 int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
 {
-    int marker;
-
     if (!operation) {
         return 0;
     }
@@ -57,19 +55,22 @@ int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
     }
     /*
      * The colour rule, and it is two rules because the two halves of the vocabulary have
-     * different answers. A **marker** draws nothing, so it must carry the colour that
-     * says nothing was declared -- `robo_css_color_none()`, which is RoboCSS's own "no
-     * colour", not a black that a consumer might draw. A **drawing** must carry a colour
-     * a rasteriser can use: resolved, or `currentColor` that this layer could not resolve
-     * (`robo_css_color_is_valid` is exactly that pair). `none` on a drawing is refused
-     * because a fill or a border with no colour draws nothing, and an operation that
-     * draws nothing is not a statement about the document.
+     * different answers. A **structural** record draws nothing, so it must carry the
+     * colour that says nothing was declared -- `robo_css_color_none()`, which is
+     * RoboCSS's own "no colour", not a black that a consumer might draw. A **drawing**
+     * must carry a colour a rasteriser can use: resolved, or `currentColor` that this
+     * layer could not resolve (`robo_css_color_is_valid` is exactly that pair). `none` on
+     * a drawing is refused because a fill or a border with no colour draws nothing, and
+     * an operation that draws nothing is not a statement about the document.
+     *
+     * The split is `robo_paint_op_kind_draws` rather than `is_marker`, so that `CONTENT`
+     * -- a structural record that is not a box marker -- is held to the "carries no
+     * colour" side of the rule instead of being asked for a colour it has no use for.
      */
-    marker = robo_paint_op_kind_is_marker(operation->kind);
-    if (marker) {
-        return operation->color.kind == ROBO_CSS_COLOR_NONE;
+    if (robo_paint_op_kind_draws(operation->kind)) {
+        return robo_css_color_is_valid(operation->color);
     }
-    return robo_css_color_is_valid(operation->color);
+    return operation->color.kind == ROBO_CSS_COLOR_NONE;
 }
 
 int robo_paint_operation_equal(const robo_paint_operation_t *a,
@@ -140,6 +141,11 @@ robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operat
     return operation ? operation->color : robo_css_color_none();
 }
 
+int robo_paint_operation_is_structural(const robo_paint_operation_t *operation)
+{
+    return operation != NULL && robo_paint_op_kind_is_structural(operation->kind);
+}
+
 int robo_paint_operation_is_marker(const robo_paint_operation_t *operation)
 {
     return operation != NULL && robo_paint_op_kind_is_marker(operation->kind);
@@ -147,11 +153,7 @@ int robo_paint_operation_is_marker(const robo_paint_operation_t *operation)
 
 int robo_paint_operation_is_drawing(const robo_paint_operation_t *operation)
 {
-    if (!operation || !robo_paint_op_kind_is_known(operation->kind)) {
-        return 0;
-    }
-    return operation->kind == ROBO_PAINT_OP_BACKGROUND ||
-           robo_paint_op_kind_is_border(operation->kind);
+    return operation != NULL && robo_paint_op_kind_draws(operation->kind);
 }
 
 robo_result_t robo_paint_operation_side(const robo_paint_operation_t *operation,
@@ -324,6 +326,14 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
         rect = operation->boxes.border;
         have_rect = 1;
         robo_paint_text_string(&text, " rect=");
+    } else if (operation->kind == ROBO_PAINT_OP_CONTENT) {
+        /* The content boundary acts on the inner rectangle: the region a box's own
+         * painting ends at and its contents begin in. Printed explicitly so a reader of
+         * a dump sees which of the three rectangles the record is about, rather than
+         * having to remember that `content` means "the content box". */
+        rect = operation->boxes.content;
+        have_rect = 1;
+        robo_paint_text_string(&text, " content=");
     } else {
         rect = operation->boxes.border;
         have_rect = 1;

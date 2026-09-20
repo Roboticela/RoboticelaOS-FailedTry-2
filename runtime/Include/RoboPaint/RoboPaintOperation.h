@@ -1,5 +1,5 @@
 /*
- * RoboPaint operations (Phase 11.1).
+ * RoboPaint operations (Phase 11.1–11.2).
  *
  * One operation: what will be drawn, on which box, in which space, under which
  * boundary. It is a **record by value** and owned by nobody, like every model record
@@ -93,11 +93,14 @@ void robo_paint_operation_init(robo_paint_operation_t *operation);
  *   **three valid boxes** whose border box contains the padding box contains the
  *   content box;
  *   a **valid clip**;
- *   and the colour rule the header states: `none` for a marker, and a colour a
- *   rasteriser can use -- resolved, or `currentColor` that this layer could not
- *   resolve -- for a drawing kind. `none` on a drawing operation is refused because a
- *   fill or a border with no colour draws nothing, and a builder that emitted one would
- *   be emitting an operation that is not a statement about the document.
+ *   and the colour rule the header states: `none` for a **structural** record
+ *   (`BEGIN_BOX`, `CONTENT`, `END_BOX`), and a colour a rasteriser can use -- resolved,
+ *   or `currentColor` that this layer could not resolve -- for a **drawing** kind.
+ *   `none` on a drawing operation is refused because a fill or a border with no colour
+ *   draws nothing, and a builder that emitted one would be emitting an operation that is
+ *   not a statement about the document. The split is
+ *   `robo_paint_op_kind_draws`, not `is_marker`, so a `CONTENT` record -- which draws
+ *   nothing and is not a box marker -- is held to the structural side of the rule.
  */
 int robo_paint_operation_is_valid(const robo_paint_operation_t *operation);
 
@@ -129,7 +132,17 @@ void robo_paint_operation_clip(const robo_paint_operation_t *operation,
 /** The colour, by value. `none` for NULL. */
 robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operation);
 
-/** Non-zero when @p operation is a `BEGIN_BOX`/`END_BOX` marker. Safe on NULL (0). */
+/**
+ * Non-zero when @p operation is **structural** -- draws nothing and is emitted for every
+ * placed box: `BEGIN_BOX`, `CONTENT` or `END_BOX`. Safe on NULL (0).
+ *
+ * The predicate a consumer asks to skip the records that carry no colour, and the exact
+ * complement of @ref robo_paint_operation_is_drawing over a valid record.
+ */
+int robo_paint_operation_is_structural(const robo_paint_operation_t *operation);
+
+/** Non-zero when @p operation is a `BEGIN_BOX`/`END_BOX` marker. Safe on NULL (0).
+ *  Narrower than @ref robo_paint_operation_is_structural, which also covers `CONTENT`. */
 int robo_paint_operation_is_marker(const robo_paint_operation_t *operation);
 
 /** Non-zero when @p operation draws something: a background or a border side. Safe on

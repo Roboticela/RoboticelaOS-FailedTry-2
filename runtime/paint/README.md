@@ -1,8 +1,8 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.1, paint architecture**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.2, paint records**).
 
-**Version:** 0.1.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.2.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=0` — this build produces an ordered list of operations
@@ -70,16 +70,33 @@ half-computed geometry is a *wrong* list that draws boxes in the wrong places; a
 that wanted a best-effort preview can run a layout pass first. This is the whole of the
 phase's integration with 10.14.
 
-## The fifth structural decision: the operation vocabulary is seven wide
+## The fifth structural decision: the operation vocabulary splits in two
 
-`NONE`, `BEGIN_BOX`, `BACKGROUND`, the four `BORDER_*` sides, `END_BOX`. There is no `TEXT`,
-`IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator, because a name with no code
-behind it is a promise rather than a vocabulary. What makes them *expressible* is the
-record's shape: an operation is a tagged record with a node, a depth, three rectangles and
-a clip, so adding a kind is one enumerator, one name row and one case in the validity rule —
-never a redesign of the list.
+`NONE`, `BEGIN_BOX`, `BACKGROUND`, the four `BORDER_*` sides, `CONTENT`, `END_BOX`. There is no
+`TEXT`, `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator, because a name with no code
+behind it is a promise rather than a vocabulary. What makes them *expressible* is the record's
+shape: an operation is a tagged record with a node, a depth, three rectangles and a clip, so
+adding a kind is one enumerator, one name row and one case in the validity rule — never a
+redesign of the list.
 
-## The sixth structural decision: invalidation stops at the build
+The vocabulary splits into **structural** records (`BEGIN_BOX`, `CONTENT`, `END_BOX`), emitted
+for every placed box and carrying no colour, and **drawing** records (`BACKGROUND`, the four
+`BORDER_*`), emitted only when they draw and carrying a colour a rasteriser can use. Structural
+records give the sequence a regular skeleton; drawing records make the list's length a statement
+about the document. `robo_paint_op_kind_is_structural` and `robo_paint_op_kind_draws` are the
+partition.
+
+## The sixth structural decision: the content boundary is explicit
+
+A box's own records end at its **`CONTENT`** record, emitted for every placed box whether or not
+it drew anything and whether or not it has children. It acts on the content box and states a
+fact about the sequence rather than the document: this box's own painting is the contiguous group
+`[BEGIN_BOX .. CONTENT]` and its subtree is `(CONTENT .. END_BOX)`, so a consumer reads the
+boundary without inferring it from the next child's depth — and a childless box has one exactly
+as a parent does. It is why the colour rule splits on *drawing* rather than on *marker*: `CONTENT`
+is structural but is not a box marker.
+
+## The seventh structural decision: invalidation stops at the build
 
 10.14 asks a per-box question — *is this conclusion still true?* — and answers with a state
 on the box. Paint invalidation asks a different question — *is this list still current?* —
@@ -130,9 +147,9 @@ because nothing in an operation points anywhere.
 
 | Document | Contents |
 |---|---|
-| `paint/docs/Architecture.md` | The phase, the dependency position, the traversal, the coordinate model, the clip model, ownership, what 11.2 onwards may assume |
-| `paint/docs/Operations.md` | The operation vocabulary and the traversal contract — the precise order, the coordinate spaces and the clip accumulation |
-| `paint/docs/Tests.md` | Suite map, fixtures, what the suites assert, running, sanitizers, what 11.1 found |
+| `paint/docs/Architecture.md` | The phase, the dependency position, the traversal, the coordinate model, the clip model, ownership, what 11.3 onwards may assume |
+| `paint/docs/Operations.md` | The operation vocabulary, the structural/drawing split, the traversal contract, snapshot semantics — the precise order, the coordinate spaces and the clip accumulation |
+| `paint/docs/Tests.md` | Suite map (four suites, 52 cases), fixtures, what the suites assert, running, sanitizers, what 11.1 and 11.2 found |
 
 ## Building and testing
 

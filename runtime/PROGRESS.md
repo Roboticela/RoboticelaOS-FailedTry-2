@@ -5014,12 +5014,74 @@ PASS` at 2406/2406. `--filter paint.` is 45/45. `robo check` passes with Chromiu
 diff touching no `window` file — the eighth consecutive phase, and the §14 proposal to fix the focus
 race rather than keep noting it is now overdue by five phases.
 
+## Goal 11.2 — Paint records
+
+**Status: complete.** The goal that makes the record model **explicit**. 11.1 established the
+architecture — an operation is a value snapshot with no pointers, the list owns it, the traversal
+orders it deterministically and the dump reads it back — so "records" is what this phase
+consolidates rather than something it introduces. What it adds is the one record the first release's
+sequence was missing, and the tests that pin the guarantees the brief demands: a regular sequence, an
+explicit content boundary, a snapshot that does not move, and ownership that copies.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The **`CONTENT`** record — the boundary between a box's own records and its descendants', emitted for **every** placed box, acting on the content box. It is the one kind since 11.1, and it is what makes the sequence regular: a consumer reads a box's own painting as `[BEGIN_BOX .. CONTENT]` and its subtree as `(CONTENT .. END_BOX)` without inferring the boundary from the next child's depth | `RoboPaintTypes.h`, `RoboPaintContext.c` |
+| The **structural/drawing split**, made an explicit rule: structural records (`BEGIN_BOX`, `CONTENT`, `END_BOX`) are emitted for every box and carry none; drawing records (`BACKGROUND`, the four `BORDER_*`) are emitted only when they draw. `robo_paint_op_kind_is_structural` / `robo_paint_op_kind_draws` are the partition, and the validity rule splits on **drawing** rather than on **marker** so `CONTENT` is held to the structural side | `RoboPaintTypes.h/.c`, `RoboPaintOperation.c` |
+| The record's one-line writer learning `CONTENT` — it prints the rectangle it acts on (` content=<the content box>`) so a reader of a dump can tell a boundary from a marker | `RoboPaintOperation.c` |
+| Version `0.2.0` — one enumerator and no new door; `ROBO_PAINT_DRAWING_IMPLEMENTED` stays `0`, because a `CONTENT` record is a statement about the sequence and not a pixel either | `RoboPaintVersion.h` |
+| The **record-model suite** — 13 cases in `paint.records.*`: the sequence and its boundary, the fields and the partition, snapshot isolation under a re-layout, ownership and copy-by-value, the empty and degenerate cases, geometry safety at the coordinate range's maximum, determinism across two independently built trees, the dump, and allocation balance | `paint/tests/SuiteRoboPaintRecords.c` |
+| The build/registry wiring, and the version pins the bump forced a phase to update — the pins working as intended | `Tools/Build.ps1`, `Tests/Main.c`, `SuiteRoboPaint.c`, `SuiteRoboPaintConformance.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| RoboPaint record types exist | `robo_paint_op_kind_t` — nine kinds, structural and drawing |
+| PaintRecord ownership is explicit | `RoboPaintList.h`; `paint.records.ownership` |
+| PaintRecordList exists | `robo_paint_list_t` — create/clear/append/at/operations/equal |
+| Record insertion preserves deterministic order | `paint.records.nested_order`, `.siblings_order` |
+| Records snapshot required geometry | `paint.records.content_geometry`, `paint.traversal.box_model_geometry` |
+| Records snapshot required paint metadata | colour per drawing record; the content box on `CONTENT`; `paint.records.fields` |
+| Records do not mutate RoboLayout | the pass takes the tree `const`; `paint.records.snapshot_isolation` |
+| Nested nodes produce correct ordering | `paint.records.nested_order` (four-deep chain, depths 0–3) |
+| Empty cases are safe | `paint.records.empty_cases` (empty body, zero-sized box, empty dump) |
+| Geometry is validated | `robo_paint_operation_is_valid` at `robo_paint_list_append`; `paint.records.geometry_safety` |
+| Mutation isolation is tested | `paint.records.snapshot_isolation` (re-layout of the same tree leaves the first list's records byte-identical) |
+| Determinism is tested | `paint.records.determinism` (two passes, and a second independently built tree, compared by list and dump) |
+| Debug dump works | `RoboPaintDump.c`; `paint.records.dump` |
+| Existing tests remain passing | `--filter paint.` 58/58; whole suite 2417/2419 with the two documented host-focus flakes |
+| No Chromium/Blink runtime dependency was introduced | `Tools/Build.ps1 -Verify` boundary scan; `robo check` CLEAN |
+| No out-of-scope subsystem was implemented | the deferral tables in `paint/README.md` and `paint/docs/Architecture.md` §13 are unchanged except for `CONTENT` |
+
+### What 11.2 found
+
+Three findings, recorded in `paint/docs/Tests.md` §7. In one line each: **"marker" did not partition
+the vocabulary** — 11.1's colour rule split on `is_marker`, which had exactly two members, so a third
+structural kind fell through to the drawing half and was asked for a colour it has no use for; two
+failing conformance checks exposed it, and the split is now `draws`; a **snapshot test has to prove
+its mutation**, so the isolation case uses a block with no declared width (which fills its containing
+block) and asserts the two lists *differ* as well as that the first did not move; and a **count
+assertion is a calibration, not a constant** — two cases named an operation total that omitted the
+document's decorations, so the arithmetic is now stated in the case.
+
+The count went from **2406 to 2419**: 13 new paint cases, and the module's **52 cases in four
+suites**. Debug and Release `-Verify -Test` each report `ALL TESTS PASS`; the sanitized build is
+clean under ASan and UBSan with no diagnostic. `--filter paint.` is **58/58** (52 module cases plus
+the six `demo.paint.*` cases the substring filter also matches). `robo check` passes with Chromium
+independence CLEAN, and the host visual checkpoint passes unchanged (11 probes, 15 checks,
+0 failed — `RESULT: PASS`). `robo test-runtime` remains red solely on the documented
+`window.host.keyboard` and `window.host.mouse` host-focus flakes, on a diff touching no `window`
+file — the ninth consecutive phase, and the §14 proposal to fix the focus race rather than keep
+noting it is now overdue by five phases.
+
 ## Next
 
-- **Phase 11.2 — the next RoboPaint goal.** 11.1 establishes the architecture and stops at it: the
-  `painting` capability is still `0`, `ROBO_PAINT_DRAWING_IMPLEMENTED` is `0`, and the operation
-  vocabulary is deliberately seven wide because a name with no code behind it is a promise. The
-  deferred tables in `paint/README.md` and `paint/docs/Architecture.md` §13 name every later goal —
-  backgrounds, borders, text and image operations, opacity, clipping, display lists, rasterisation,
-  paint invalidation (11.11) and hit testing (11.10) — and `paint/docs/Architecture.md` §15 lists what
-  the next goal may assume. Do not start until requested
+- **Phase 11.3 — the next RoboPaint goal.** 11.2 completes the record model and stops at it: the
+  `painting` capability is still `0`, `ROBO_PAINT_DRAWING_IMPLEMENTED` is `0`, and the drawing
+  vocabulary is still one background and four border sides. The deferred tables in `paint/README.md`
+  and `paint/docs/Architecture.md` §13 name every later goal — backgrounds, borders, text and image
+  operations, opacity, clipping, display lists, rasterisation, paint invalidation (11.11) and hit
+  testing (11.10) — and `paint/docs/Architecture.md` §15 lists the twelve rules the next goal may
+  assume. Do not start until requested

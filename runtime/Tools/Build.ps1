@@ -490,6 +490,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaint.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintTraversal.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintConformance.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintRecords.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

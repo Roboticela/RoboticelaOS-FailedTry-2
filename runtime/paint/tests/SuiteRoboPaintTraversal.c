@@ -317,8 +317,12 @@ static void test_traversal_single_box(void)
     ROBO_CHECK_EQ_INT((int)result.stats.unplaced, 1);
     ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_BEGIN_BOX), 3);
     ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_END_BOX), 3);
+    /* The content boundary is emitted for every placed box, so it is as many records as
+     * there are boxes -- and the sequence is three structural triples and nothing that
+     * draws, because this document declares no background and no border. */
+    ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_CONTENT), 3);
     ROBO_CHECK_EQ_INT((int)result.stats.ops, (int)robo_paint_list_count(result.list));
-    ROBO_CHECK_EQ_INT((int)result.stats.ops, 6);
+    ROBO_CHECK_EQ_INT((int)result.stats.ops, 9);
 
     /* The root's containing block is the initial containing block, so its origin is the
      * page origin -- and it is the one place an origin is not another box's content. */
@@ -341,6 +345,15 @@ static void test_traversal_single_box(void)
                paint_index_of(&result, ROBO_PAINT_OP_END_BOX, card));
     ROBO_CHECK(paint_index_of(&result, ROBO_PAINT_OP_END_BOX, card) <
                paint_index_of(&result, ROBO_PAINT_OP_END_BOX, body_box));
+    /* The content boundary of a parent precedes its children's opening markers, and a
+     * box's own boundary comes after its own opening marker: the shape that makes each
+     * box's own records a contiguous group. */
+    ROBO_CHECK(paint_index_of(&result, ROBO_PAINT_OP_BEGIN_BOX, body_box) <
+               paint_index_of(&result, ROBO_PAINT_OP_CONTENT, body_box));
+    ROBO_CHECK(paint_index_of(&result, ROBO_PAINT_OP_CONTENT, body_box) <
+               paint_index_of(&result, ROBO_PAINT_OP_BEGIN_BOX, card));
+    ROBO_CHECK(paint_index_of(&result, ROBO_PAINT_OP_CONTENT, card) <
+               paint_index_of(&result, ROBO_PAINT_OP_END_BOX, card));
     ROBO_CHECK(paint_begin_of(&result, card, &begin) == 1);
     ROBO_CHECK(paint_end_of(&result, card, &end) == 1);
     /* The pair closes over the same rectangle: an `END_BOX` that reported different
@@ -913,6 +926,9 @@ static void test_traversal_counts_and_determinism(void)
     ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_BEGIN_BOX),
                       (int)result.stats.boxes);
     ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_END_BOX),
+                      (int)result.stats.boxes);
+    /* Structural records are unconditional: one content boundary per placed box. */
+    ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_CONTENT),
                       (int)result.stats.boxes);
     ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_BACKGROUND),
                       (int)result.stats.backgrounds);

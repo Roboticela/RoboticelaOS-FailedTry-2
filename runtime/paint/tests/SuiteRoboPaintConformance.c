@@ -138,12 +138,12 @@ static void test_paint_conformance_drawing_absent(void)
     ROBO_CHECK_EQ_INT(robo_paint_get_capabilities(&capabilities), ROBO_OK);
     ROBO_CHECK_EQ_INT(capabilities.drawing, robo_paint_drawing_is_implemented());
 
-    /* The version this build reports is 0.1.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.2.0 and its API is not frozen -- two facts a
      * consumer of a first release needs, and the second is the one that says a later goal
      * may still add to this surface. */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 1);
+    ROBO_CHECK_EQ_INT((int)minor, 2);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -188,22 +188,33 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
      * A phase that added an enumerator without a name row would fail here -- which is the
      * whole point of the table being a table.
      */
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 8);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 9);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 9);
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
-        int is_marker = robo_paint_op_kind_is_marker(kind);
+        int is_structural = robo_paint_op_kind_is_structural(kind);
         int is_border = robo_paint_op_kind_is_border(kind);
-        int is_drawing = is_border || kind == ROBO_PAINT_OP_BACKGROUND;
+        int is_drawing = robo_paint_op_kind_draws(kind);
 
         ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_known(kind), 1);
         ROBO_CHECK(strcmp(robo_paint_op_kind_name(kind), "unknown") != 0);
-        /* Exactly one of marker/drawing for every kind but `NONE`, which is neither. */
+        /* Exactly one of structural/drawing for every kind but `NONE`, which is neither.
+         * `CONTENT` is the kind that makes this the right pair to ask: it is structural
+         * but not a box marker, so `is_marker + is_drawing` would leave it at 0. */
         if (kind == ROBO_PAINT_OP_NONE) {
-            ROBO_CHECK_EQ_INT(is_marker, 0);
+            ROBO_CHECK_EQ_INT(is_structural, 0);
             ROBO_CHECK_EQ_INT(is_drawing, 0);
         } else {
-            ROBO_CHECK_EQ_INT(is_marker + is_drawing, 1);
+            ROBO_CHECK_EQ_INT(is_structural + is_drawing, 1);
+        }
+        /* A drawing kind is exactly the border-or-background pair the builder asks for,
+         * and the marker predicate is the strict subset of structural that excludes the
+         * content boundary. */
+        ROBO_CHECK_EQ_INT(is_drawing,
+                          is_border || kind == ROBO_PAINT_OP_BACKGROUND ? 1 : 0);
+        if (robo_paint_op_kind_is_marker(kind)) {
+            ROBO_CHECK_EQ_INT(is_structural, 1);
+            ROBO_CHECK(kind != ROBO_PAINT_OP_CONTENT);
         }
         /* A border kind has a side and nothing else does: no kind can be both a border
          * and a marker, and no side is invented for a kind that has none. */
@@ -268,7 +279,7 @@ static void test_paint_conformance_document_list(void)
     ROBO_CHECK(robo_paint_list_count(result.list) > 0u);
     for (index = 0u; index < robo_paint_list_count(result.list); index++) {
         robo_paint_operation_t operation;
-        int kind_marker;
+        int kind_structural;
 
         ROBO_CHECK_EQ_INT(robo_paint_list_at(result.list, index, &operation), ROBO_OK);
 
@@ -283,12 +294,14 @@ static void test_paint_conformance_document_list(void)
         ROBO_CHECK(operation.node != ROBO_LAYOUT_NODE_ID_NONE);
         ROBO_CHECK_EQ_INT(robo_layout_object_is_live(fixture.tree, operation.node), 1);
 
-        /* Marker and drawing agree with the colour rule, in both directions: a marker
-         * carries RoboCSS's own "no colour" and a drawing carries one a rasteriser can
-         * use. That is not a tautology -- it is the rule this module's whole validity
-         * story rests on, asked once more over a document. */
-        kind_marker = robo_paint_operation_is_marker(&operation);
-        if (kind_marker) {
+        /* Structural and drawing agree with the colour rule, in both directions: a
+         * structural record carries RoboCSS's own "no colour" and a drawing carries one a
+         * rasteriser can use. That is not a tautology -- it is the rule this module's
+         * whole validity story rests on, asked once more over a document -- and it is the
+         * *structural* predicate rather than the marker one, so a `CONTENT` record is held
+         * to the no-colour side rather than asked for a colour it has no use for. */
+        kind_structural = robo_paint_operation_is_structural(&operation);
+        if (kind_structural) {
             ROBO_CHECK_EQ_INT((int)robo_paint_operation_color(&operation).kind,
                               (int)ROBO_CSS_COLOR_NONE);
         } else {
@@ -309,6 +322,9 @@ static void test_paint_conformance_document_list(void)
                       (int)paint_count_of(&result, ROBO_PAINT_OP_END_BOX));
     ROBO_CHECK_EQ_INT((int)result.stats.boxes,
                       (int)paint_count_of(&result, ROBO_PAINT_OP_BEGIN_BOX));
+    /* The content boundary is unconditional, so it is exactly one per placed box. */
+    ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_CONTENT),
+                      (int)result.stats.boxes);
     ROBO_CHECK_EQ_INT((int)result.stats.ops, (int)robo_paint_list_count(result.list));
     ROBO_CHECK_EQ_INT((int)result.stats.visited, (int)result.stats.objects);
     ROBO_CHECK((int)result.stats.text_runs >= 1);

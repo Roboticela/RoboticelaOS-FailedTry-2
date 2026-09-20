@@ -1,4 +1,4 @@
-# RoboPaint — architecture (through Phase 11.1)
+# RoboPaint — architecture (through Phase 11.2)
 
 RoboPaint is the fifth module in the layout stack. It sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`), and it turns the completed geometry RoboLayout
@@ -90,15 +90,34 @@ typedef struct robo_paint_operation {
 } robo_paint_operation_t;
 ```
 
-### 4.1 The vocabulary is seven wide
+### 4.1 The vocabulary: structural and drawing
 
-`NONE`, `BEGIN_BOX`, `BACKGROUND`, `BORDER_TOP`, `BORDER_RIGHT`, `BORDER_BOTTOM`,
-`BORDER_LEFT`, `END_BOX`. There is no `TEXT`, `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY`
-enumerator, even though the phase's brief lists all six as things the representation must
-*eventually* express. The reason is the one RoboLayout 10.2 gives for not adding a constant
-for a feature it does not have: a name with no code behind it is a promise, not a
-vocabulary. What makes them expressible is the record's shape — adding a kind is one
-enumerator, one name row and one case in the validity rule, never a redesign of the list.
+`NONE`, `BEGIN_BOX`, `BACKGROUND`, the four `BORDER_*` kinds, **`CONTENT`**, `END_BOX`. There
+is no `TEXT`, `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator, even though the
+phase's brief lists all six as things the representation must *eventually* express. The
+reason is the one RoboLayout 10.2 gives for not adding a constant for a feature it does not
+have: a name with no code behind it is a promise, not a vocabulary. What makes them
+expressible is the record's shape — adding a kind is one enumerator, one name row and one
+case in the validity rule, never a redesign of the list.
+
+The vocabulary splits in two, and the split is the rule a builder obeys:
+
+| Half | Kinds | Emitted | Colour |
+|---|---|---|---|
+| **Structural** | `BEGIN_BOX`, `CONTENT`, `END_BOX` | for **every** placed box | `none` |
+| **Drawing** | `BACKGROUND`, the four `BORDER_*` | **only when it draws** | a usable colour |
+
+`robo_paint_op_kind_is_structural` and `robo_paint_op_kind_draws` are the predicates, and
+they partition the vocabulary above `NONE`. **11.2** added `CONTENT` — the record the
+brief's sequence names that 11.1 did not emit — and it is the kind that makes "structural"
+rather than "marker" the right word: `CONTENT` draws nothing but is not a box marker.
+
+`CONTENT` is emitted for every placed box whether or not the box drew anything or has
+children, because what it states is a fact about the *sequence*: this box's own records end
+here and its subtree's begin. It acts on the **content box**, and it makes the boundary
+explicit rather than inferred — a consumer reads a box's own painting as
+`[BEGIN_BOX .. CONTENT]` and its subtree as `(CONTENT .. END_BOX)`, and a childless box has a
+boundary exactly as a parent does.
 
 ### 4.2 Four border kinds, not one kind plus a side
 
@@ -399,10 +418,14 @@ What 11.1 does **not** do, each named where it would otherwise be assumed:
 
 ---
 
-## 14. What 11.1 found
+## 14. What 11.1 and 11.2 found
 
-The phase is an architecture release, so most of what it establishes is design. The things it
-*discovered* rather than decided:
+11.1 is an architecture release, so most of what it establishes is design; 11.2 is a record
+release, and what it establishes was largely already right — an operation was already a value
+snapshot with no pointers, the list already owned it, the traversal already ordered it
+deterministically and the dump already read it back. What 11.2 adds is the one record the
+sequence was missing and the tests that pin the guarantees the brief demands. The things the
+two phases *discovered* rather than decided:
 
 1. **A forward per-layer derivation can put the padding box outside its border box.** The
    obvious `padding = border - insets` computes each layer from the previous one, and a
@@ -423,9 +446,25 @@ The phase is an architecture release, so most of what it establishes is design. 
    the widest document; deriving the bound and asserting it against a real widest line keeps
    the constant and the code from drifting.
 
+And 11.2's own:
+
+6. **"Marker" was the wrong word for the colour rule.** 11.1 split the vocabulary on
+   `is_marker`, which had exactly two members, so a third structural kind would have fallen
+   through to the drawing half and been asked for a colour it has no use for. Adding `CONTENT`
+   is what exposed it: the split is now `robo_paint_op_kind_draws`, and "structural" is the
+   half that means "emitted for every box and carries no colour". A two-member predicate that
+   happened to partition a two-member set is a rule that was not general enough to survive
+   one more member.
+7. **A "blank" viewport change is not always blank.** The snapshot-isolation test has to
+   *prove* the mutation it isolates against, and a box with a declared width would have made
+   the second layout pass identical to the first — the test would have passed for the wrong
+   reason. A block with no declared width fills its containing block, so the viewport change
+   is observable; the case asserts the two lists differ as well as that the first did not
+   move.
+
 ---
 
-## 15. What Phase 11.2 onwards may assume
+## 15. What Phase 11.3 onwards may assume
 
 1. `robo_paint_context_run` produces the full operation sequence for a laid-out tree, in
    document order, deterministically, and refuses a stale tree rather than painting it.
@@ -444,3 +483,15 @@ The phase is an architecture release, so most of what it establishes is design. 
    paint-invalidation mechanism yet and no per-list currency check.
 9. There are no new coordinate types: geometry is RoboGraphics', re-exported by layout, read
    here.
+10. **The sequence is regular**: exactly one structural triple (`BEGIN_BOX`, `CONTENT`,
+    `END_BOX`) per placed box, in that order, with the box's own drawing records between the
+    opening marker and the content boundary and its subtree between the boundary and the
+    closing marker. A consumer can group a box's records by `depth` and by that boundary
+    alone.
+11. **A record is a snapshot that does not move.** Laying the same tree out again, or
+    destroying it, leaves an existing list's records byte-identical — `paint.records.snapshot_
+    isolation` pins it. A display list built from these records therefore does not need to
+    copy defensively.
+12. `robo_paint_op_kind_is_structural` / `robo_paint_op_kind_draws` partition the vocabulary
+    above `NONE`, so a new kind is added by choosing a side rather than by extending a
+    two-member special case.

@@ -1,5 +1,5 @@
 /*
- * RoboPaint vocabularies (Phase 11.1).
+ * RoboPaint vocabularies (Phase 11.1–11.2).
  *
  * Two closed enumerations and their counters, in the shape every module in this tree
  * uses: an enumerator list with an explicit `NONE`/`COUNT`, an `is_known` predicate, and
@@ -8,16 +8,18 @@
  * an enumerator is *made* to add its name, rather than forgetting and shipping a
  * value that prints "unknown".
  *
- * The operation vocabulary is deliberately **seven wide**, and the reason is the same
- * one RoboLayout 10.2 gives for not adding a constant for a feature it does not have: a
- * name with no code behind it is a promise, not a vocabulary. So there is no `TEXT`
- * operation and no `IMAGE` operation and no `CLIP`, `SAVE`, `RESTORE` or `OPACITY` in
- * this release, even though the brief that asks for this architecture lists all six as
- * things the representation must *eventually* be able to express. What makes them
- * expressible is the record's shape rather than an enumerator nobody emits: an operation
- * is a tagged record with a node, a depth, three rectangles and a clip, and adding a
- * kind is one enumerator, one name row and one case in the validity rule -- never a
- * redesign of the list.
+ * The **drawing** vocabulary is deliberately small -- one background and four border
+ * sides -- and the reason is the same one RoboLayout 10.2 gives for not adding a constant
+ * for a feature it does not have: a name with no code behind it is a promise, not a
+ * vocabulary. So there is no `TEXT` operation and no `IMAGE` operation and no `CLIP`,
+ * `SAVE`, `RESTORE` or `OPACITY` in this release, even though the brief that asks for
+ * this architecture lists all six as things the representation must *eventually* be able
+ * to express. What makes them expressible is the record's shape rather than an enumerator
+ * nobody emits: an operation is a tagged record with a node, a depth, three rectangles
+ * and a clip, and adding a kind is one enumerator, one name row and one case in the
+ * validity rule -- never a redesign of the list. `CONTENT` (11.2) is the one kind added
+ * since 11.1, and it is the one the brief's record sequence names that the first release
+ * did not emit.
  *
  * The four border kinds are four enumerators rather than one kind plus a side field,
  * and that is a decision about **invalid states** rather than about verbosity: a `side`
@@ -43,10 +45,20 @@ extern "C" {
  *
  * A closed vocabulary in the order a linear consumer meets it, and the order matters:
  * `BEGIN_BOX`, then the two kinds of decoration in the order CSS paints them
- * (background first, then the border), then `END_BOX`. A consumer that walked the list
+ * (background first, then the border), then `CONTENT` -- the boundary between a box's
+ * own records and its descendants' -- then `END_BOX`. A consumer that walked the list
  * and ignored every `kind` would still see each box's operations contiguous and in
  * paint order, which is the property `paint/docs/Operations.md` states as the
  * traversal's contract.
+ *
+ * The vocabulary splits in two, and the split is the rule a builder obeys rather than a
+ * fact about this release. A **structural** record (`BEGIN_BOX`, `CONTENT`, `END_BOX`)
+ * draws nothing, carries no colour and is emitted for **every** placed box, so the
+ * sequence has a regular skeleton. A **drawing** record (`BACKGROUND`, the four
+ * `BORDER_*`) is emitted **only when it draws**, so the list's length is a statement
+ * about the document. `robo_paint_op_kind_draws` and
+ * `robo_paint_op_kind_is_structural` are the two predicates, and they partition the
+ * vocabulary above `NONE`.
  */
 typedef enum robo_paint_op_kind {
     /** Nothing: a cleared record. Never appended to a list. */
@@ -79,12 +91,30 @@ typedef enum robo_paint_op_kind {
     ROBO_PAINT_OP_BORDER_BOTTOM = 5,
     /** Draw the left border. */
     ROBO_PAINT_OP_BORDER_LEFT = 6,
+    /**
+     * A box's own painting is over and its contents begin.
+     *
+     * The record that makes the boundary between a box's own records and its
+     * descendants' **explicit**, and it is emitted for every placed box even when the
+     * box declares no background, draws no border and has no children -- because the
+     * thing it states is a fact about the sequence rather than about the document.
+     * Without it a consumer would have to infer where one box's own records end by
+     * looking at the *next* child's depth, and a box with no children would have no
+     * boundary at all; with it every box's own painting is the contiguous group
+     * `[BEGIN_BOX .. CONTENT]` and its subtree is `(CONTENT .. END_BOX)`, readable
+     * without consulting the tree.
+     *
+     * It carries the **content box** as the rectangle it acts on -- the region a later
+     * clip, scroll or content-origin record will need -- and draws nothing, so it is a
+     * structural record and its colour is `none` (see the vocabulary note above).
+     */
+    ROBO_PAINT_OP_CONTENT = 7,
     /** Leave a box: the marker that closes the operations of one placed box. */
-    ROBO_PAINT_OP_END_BOX = 7
+    ROBO_PAINT_OP_END_BOX = 8
 } robo_paint_op_kind_t;
 
 /** Number of defined operation kinds. */
-#define ROBO_PAINT_OP_KIND_COUNT 8u
+#define ROBO_PAINT_OP_KIND_COUNT 9u
 
 /** Non-zero if @p kind is a defined operation kind. */
 int robo_paint_op_kind_is_known(robo_paint_op_kind_t kind);
@@ -107,7 +137,26 @@ int robo_paint_op_kind_is_border(robo_paint_op_kind_t kind);
  */
 robo_result_t robo_paint_op_kind_side(robo_paint_op_kind_t kind, robo_css_box_side_t *out);
 
-/** Non-zero when @p kind is a marker rather than a drawing: `BEGIN_BOX`/`END_BOX`. */
+/**
+ * Non-zero when @p kind **puts a pixel down**: `BACKGROUND` or one of the four
+ * `BORDER_*` sides. It is the predicate a builder asks before emitting a decoration, and
+ * the split the validity rule uses -- a kind that draws must carry a colour a rasteriser
+ * can use, and a kind that does not must carry `none`.
+ */
+int robo_paint_op_kind_draws(robo_paint_op_kind_t kind);
+
+/**
+ * Non-zero when @p kind is **structural**: a record that draws nothing and is emitted
+ * for every placed box, namely `BEGIN_BOX`, `CONTENT` and `END_BOX`. It is the exact
+ * complement of @ref robo_paint_op_kind_draws above `NONE`.
+ */
+int robo_paint_op_kind_is_structural(robo_paint_op_kind_t kind);
+
+/**
+ * Non-zero when @p kind is a **box marker** rather than a drawing or the content
+ * boundary: `BEGIN_BOX`/`END_BOX`. Narrower than
+ * @ref robo_paint_op_kind_is_structural, which also covers `CONTENT`.
+ */
 int robo_paint_op_kind_is_marker(robo_paint_op_kind_t kind);
 
 /*

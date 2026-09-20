@@ -1,5 +1,5 @@
 /*
- * RoboPaint context and the deterministic traversal (Phase 11.1) — see
+ * RoboPaint context and the deterministic traversal (Phase 11.1–11.2) — see
  * RoboPaintContext.h.
  *
  * This file is the pass: the walk, the accumulation and the stats. Everything it
@@ -209,13 +209,13 @@ static const robo_paint_op_kind_t paint_border_kinds[ROBO_CSS_BOX_SIDE_COUNT] = 
 /*
  * Emission is three helpers rather than one with a kind switch, because the three kinds
  * of record carry different fields and filling the wrong ones is the mistake worth
- * making impossible: a marker fills a colour that says "nothing", a drawing fills a
- * colour a rasteriser can use, and neither can be spelled by accident from the other's
- * helper.
+ * making impossible: a structural record fills a colour that says "nothing", a drawing
+ * fills a colour a rasteriser can use, and neither can be spelled by accident from the
+ * other's helper.
  */
 
-/** Append a `BEGIN_BOX`/`END_BOX` marker. */
-static robo_result_t paint_emit_marker(robo_paint_list_t *list,
+/** Append a **structural** record: a `BEGIN_BOX`/`CONTENT`/`END_BOX`. */
+static robo_result_t paint_emit_structural(robo_paint_list_t *list,
                                       robo_paint_op_kind_t kind,
                                       robo_layout_node_id_t node,
                                       size_t depth,
@@ -516,8 +516,8 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     (void)robo_paint_boxes_translate(&local, origin.x, origin.y, &boxes, NULL);
 
     {
-        robo_result_t result = paint_emit_marker(list, ROBO_PAINT_OP_BEGIN_BOX, id, depth,
-                                                 &boxes, origin, clip, diag);
+        robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_BEGIN_BOX, id,
+                                                     depth, &boxes, origin, clip, diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -532,6 +532,25 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     {
         robo_result_t result = paint_box_decorations(context, tree, id, depth, &boxes,
                                                      origin, clip, list, diag);
+
+        if (result != ROBO_OK) {
+            return result;
+        }
+    }
+
+    /*
+     * The **content boundary**, emitted for every placed box whether or not it declared
+     * a background, drew a border or has children -- because what it states is a fact
+     * about the sequence. It is the explicit end of this box's own records and the start
+     * of its subtree's: a consumer reads a box's own painting as `[BEGIN_BOX .. CONTENT]`
+     * and its contents as `(CONTENT .. END_BOX)` without having to infer the boundary
+     * from the depth of the next child's marker, and a childless box has a boundary just
+     * as a parent does. It is a structural record, so it draws nothing and carries no
+     * colour (RoboPaintTypes.h).
+     */
+    {
+        robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_CONTENT, id, depth,
+                                                     &boxes, origin, clip, diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -562,8 +581,8 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     }
 
     {
-        robo_result_t result = paint_emit_marker(list, ROBO_PAINT_OP_END_BOX, id, depth,
-                                                 &boxes, origin, clip, diag);
+        robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_END_BOX, id,
+                                                     depth, &boxes, origin, clip, diag);
 
         if (result != ROBO_OK) {
             return result;

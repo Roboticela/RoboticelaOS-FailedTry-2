@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.1)
+# RoboPaint Test Organisation (through Phase 11.2)
 
-Three suites, 39 tests, one framework. Each phase adds no test runner, no reporter and no
+Four suites, 52 tests, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,7 +8,7 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the three suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the four suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
@@ -21,6 +21,7 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaint.c` | `paint.module.*`, `paint.types.*`, `paint.diagnostics.*`, `paint.geometry.*`, `paint.operation.*`, `paint.list.*`, `paint.dump.*` | 18 | is each piece a record *on its own* — the vocabularies, the derivation, the clip, the operation's two coordinate spaces, the list's ownership, the dump's format? |
 | `SuiteRoboPaintTraversal.c` | `paint.traversal.*` | 16 | does one pass over a real document produce the operations, in the order, under the boundaries the architecture says it should? |
 | `SuiteRoboPaintConformance.c` | `paint.conformance.*` | 5 | does the build's own surface — capabilities, vocabulary names, the drawing claim — say what the module claims? |
+| `SuiteRoboPaintRecords.c` | `paint.records.*` | 13 | is the record model what it claims *as a model* — a regular sequence, an explicit content boundary, a snapshot that does not move, ownership that copies? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -93,7 +94,28 @@ layout pass` — and then painted. The cases ask:
 - **initial values** — `border_color_initial`: a border whose colour is not declared draws in
   `currentColor`, resolved against the element's `color`.
 
-### 1.6 — conformance (`paint.conformance.*`, 5 cases)
+### 1.6 — the record model (`paint.records.*`, 13 cases)
+
+The Phase 11.2 suite, and it asks the *guarantees* rather than a document's output:
+
+- **the sequence** — `content_sequence` (one structural triple per box, balanced, each
+  `CONTENT` between its markers), `structural_unconditional` (a box that draws nothing and has
+  no children still gets its whole skeleton), `siblings_order`, `nested_order`.
+- **the content boundary** — `content_geometry` (the `CONTENT` record acts on the content box
+  and carries the same three nested rectangles as the box's markers), and `fields` (every
+  record's kind, identity, depth, boxes, clip and colour rule; the structural/drawing split as
+  an exact partition).
+- **snapshot and ownership** — `snapshot_isolation` (paint a list, lay the *same* tree out
+  again at a different viewport, and show the first list's records did not move while the
+  second's did), `ownership` (append copies by value, lists are independent, `clear` keeps the
+  capacity, a non-record is refused).
+- **empties and safety** — `empty_cases` (empty body, zero-sized box, empty dump),
+  `geometry_safety` (a box at the geometry maximum with a border, a zero extent and a nested
+  pair — every stored record is still one), `determinism` (two passes, and the same document
+  built into a *second* tree, compared by list and by dump), `dump` (one line per record, a
+  `content=` line, and a refusal that reports the length it needed), `allocator_balance`.
+
+### 1.7 — conformance (`paint.conformance.*`, 5 cases)
 
 - `capabilities` — the struct read positionally against a list of names, so a field added
   without an assertion is a visible omission.
@@ -141,11 +163,12 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test   # bui
 ./Out/RoboTest.host.exe --filter paint.                  # every paint case
 ./Out/RoboTest.host.exe --filter paint.geometry.         # one group
 ./Out/RoboTest.host.exe --filter paint.traversal.        # the traversal suite
+./Out/RoboTest.host.exe --filter paint.records.          # the record-model suite
 ```
 
 `./scripts/robo test-paint` runs the module's group through the project pipeline. The filter is
 a **substring** match, not a prefix, so `--filter paint.` also matches the demo layer's six
-`demo.paint.*` cases: the group reports **45** for a module with **39** cases of its own. That
+`demo.paint.*` cases: the group reports **58** for a module with **52** cases of its own. That
 superset is recorded in `scripts/pipeline/commands.test.ps1` beside the group, the same way the
 `layout` group's two-case superset is.
 
@@ -174,3 +197,23 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
 5. **The fixture needed `display: block` on its containers.** A container computing to
    `display: inline` makes layout legitimately decline its insets, which reads as a paint
    failure until the suite's own base stylesheet is fixed.
+
+---
+
+## 7. What the 11.2 suite found
+
+1. **"Marker" did not partition the vocabulary.** 11.1's colour rule split kinds on
+   `is_marker`, which had exactly two members — so `CONTENT`, a structural kind that is not a
+   box marker, fell through to the drawing half and was asked for a colour it has no use for.
+   Two failing conformance checks (`is_marker + is_drawing == 1`, and the document-list colour
+   assertion) are what exposed it; the split is now `robo_paint_op_kind_draws`, and
+   `paint.records.fields` asserts structural and drawing are exact complements.
+2. **A snapshot test has to prove its mutation.** A box with a declared width would have made
+   the second layout pass identical to the first, and `snapshot_isolation` would have passed
+   for the wrong reason — the case now uses a block with no declared width, which fills its
+   containing block, and asserts the two lists **differ** as well as that the first did not
+   move.
+3. **A count assertion is a calibration, not a constant.** Two cases (`nested_order`,
+   `single_box`) named an operation total that omitted the decorations the document declares;
+   the fix is to state the arithmetic in the case — structural triples plus drawing records —
+   rather than a bare number, so the next kind added does not silently move it.

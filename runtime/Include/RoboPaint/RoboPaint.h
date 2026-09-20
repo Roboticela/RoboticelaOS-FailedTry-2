@@ -34,7 +34,7 @@
  * What it does *not* buy is a rasteriser, and this header says so in three places rather
  * than leaving a caller to find out: the constant is 0, the function answers 0, and the
  * capability field says `drawing` is absent. A caller that checked only a version number
- * would conclude that 0.1.0 paints; the field is the thing that says it does not.
+ * would conclude that 0.2.0 paints; the field is the thing that says it does not.
  *
  * Chromium's paint and display-list architecture -- `PaintLayer`, `DisplayItem`,
  * `PaintController`, `cc::DisplayItemList` -- is temporary technical reference only, and
@@ -133,7 +133,7 @@ void robo_paint_capabilities_init(robo_paint_capabilities_t *capabilities);
  *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p out. */
 robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out);
 
-/** The version this build was compiled as ("0.1.0"); never NULL. */
+/** The version this build was compiled as ("0.2.0"); never NULL. */
 const char *robo_paint_version_string(void);
 
 /**

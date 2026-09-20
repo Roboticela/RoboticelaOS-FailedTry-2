@@ -1,5 +1,5 @@
 /*
- * RoboPaint vocabularies (Phase 11.1) — see RoboPaintTypes.h.
+ * RoboPaint vocabularies (Phase 11.1–11.2) — see RoboPaintTypes.h.
  *
  * Two tables and their predicates, and the tables are written as rows rather than as
  * switches for the reason RoboLayout's are: a row per enumerator means the compiler
@@ -36,6 +36,7 @@ static const paint_op_row_t paint_op_rows[ROBO_PAINT_OP_KIND_COUNT] = {
     { ROBO_PAINT_OP_BORDER_RIGHT, "border-right", ROBO_CSS_BOX_SIDE_RIGHT },
     { ROBO_PAINT_OP_BORDER_BOTTOM, "border-bottom", ROBO_CSS_BOX_SIDE_BOTTOM },
     { ROBO_PAINT_OP_BORDER_LEFT, "border-left", ROBO_CSS_BOX_SIDE_LEFT },
+    { ROBO_PAINT_OP_CONTENT, "content", ROBO_CSS_BOX_SIDE_COUNT },
     { ROBO_PAINT_OP_END_BOX, "end-box", ROBO_CSS_BOX_SIDE_COUNT }
 };
 
@@ -84,6 +85,26 @@ robo_result_t robo_paint_op_kind_side(robo_paint_op_kind_t kind, robo_css_box_si
     }
     *out = row->side;
     return ROBO_OK;
+}
+
+int robo_paint_op_kind_draws(robo_paint_op_kind_t kind)
+{
+    return kind == ROBO_PAINT_OP_BACKGROUND || robo_paint_op_kind_is_border(kind);
+}
+
+int robo_paint_op_kind_is_structural(robo_paint_op_kind_t kind)
+{
+    /*
+     * Structural is the complement of drawing above `NONE`, and it is written as that
+     * complement rather than as a second list of three enumerators on purpose: a list
+     * would be a second place to add the next kind, and the day the two disagreed a
+     * record would be neither drawing nor structural and the validity rule would have
+     * no branch for it. `NONE` is excluded because a cleared record is not a record.
+     */
+    if (!robo_paint_op_kind_is_known(kind) || kind == ROBO_PAINT_OP_NONE) {
+        return 0;
+    }
+    return !robo_paint_op_kind_draws(kind);
 }
 
 int robo_paint_op_kind_is_marker(robo_paint_op_kind_t kind)
