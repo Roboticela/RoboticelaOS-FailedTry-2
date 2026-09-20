@@ -234,6 +234,16 @@ void robo_layout_tree_contexts_reset(robo_layout_tree_t *tree)
 void robo_layout_tree_invalidate_contexts(robo_layout_tree_t *tree)
 {
     robo_layout_tree_contexts_reset(tree);
+    /*
+     * Releasing the classification makes every conclusion stale, not just the
+     * contexts (10.14): the placement gate *is* the formatting context
+     * (RoboLayoutBlock.h), so a tree nobody has classified is a tree whose geometry
+     * cannot be trusted. Marking here rather than asking a caller to remember is what
+     * makes the two halves of "this tree needs work" impossible to get out of step.
+     */
+    if (tree) {
+        (void)robo_layout_tree_mark_all(tree, ROBO_LAYOUT_INVALIDATION_REASON_CONTENT, NULL);
+    }
 }
 
 void robo_layout_tree_mark_classified(robo_layout_tree_t *tree)
@@ -253,6 +263,10 @@ void robo_layout_tree_clear(robo_layout_tree_t *tree)
     }
     tree->count = 0u;
     tree->next_id = 1u;
+    /* The invalidation count describes a box set too, and it is gone with the same
+     * memset that took the records (10.14). Nothing else has to be done: a zeroed
+     * object carries a CLEAN record by construction. */
+    tree->invalidated = 0u;
     /* A classification describes a box set, and the box set is gone. The ids on
      * the boxes are zeroed with them, so no box can be left holding an id that
      * names a context in an arena that no longer exists. */
@@ -481,6 +495,14 @@ robo_result_t robo_layout_tree_add_object(robo_layout_tree_t *tree,
      * UNRESOLVED, so "the tree was built" and "a pass saw it" stay different
      * facts -- see RoboLayoutResult.h. */
     robo_layout_result_init(&object->result);
+    /*
+     * And nothing has concluded anything about it either (10.14). A box that has just
+     * arrived has no geometry anybody computed, so it owes the next pass all three
+     * layout bits -- and it is marked *here* rather than left to the caller, because a
+     * caller that forgot would produce a box a pass skipped. The reason is CONTENT:
+     * what changed is what the document contains.
+     */
+    robo_layout_invalidation_mark_new(tree, object);
 
     if (parent) {
         if (parent->first_child == ROBO_LAYOUT_NODE_ID_NONE) {

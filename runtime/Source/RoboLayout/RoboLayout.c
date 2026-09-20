@@ -146,6 +146,16 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      * promotion does not apply (it exists for scrolling), and no pixel is touched here.
      */
     out->overflow = ROBO_LAYOUT_OVERFLOW_IMPLEMENTED;
+    /*
+     * And 10.14's, the first capability in this struct that is about a **conclusion's
+     * shelf life** rather than about a box. A state and a reason per box, a classifier over
+     * property names, three propagation policies, a dirty root, and one decision -- skip the
+     * pass when nothing needs one. **Not** "invalidation is finished": there is no partial
+     * layout (the dirty root is reported and the pass still recomputes from the tree root),
+     * no dependency graph, no multithreading, and no paint invalidation beyond the STYLE bit
+     * a paint phase would consume.
+     */
+    out->invalidation = ROBO_LAYOUT_INVALIDATION_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }

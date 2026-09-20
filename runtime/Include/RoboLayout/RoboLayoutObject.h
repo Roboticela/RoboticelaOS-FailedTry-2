@@ -52,6 +52,7 @@
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutBorder.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
+#include "RoboLayout/RoboLayoutInvalidation.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
 #include "RoboLayout/RoboLayoutOverflow.h"
@@ -313,6 +314,27 @@ typedef struct robo_layout_object {
      * object's result state, exactly as everywhere else here.
      */
     robo_layout_overflow_edges_t overflow;
+    /**
+     * What the next pass must recompute about this box (10.14), or a clean record.
+     *
+     * The one field in this struct that is **input** rather than conclusion, and the
+     * reason it is here rather than in an arena beside the tree. The contexts, the line
+     * boxes and the four inset/overflow records above are all conclusions *of* a pass and
+     * are released with it; an invalidation is what the pass *after* this one starts
+     * from, so it must survive a pass -- and the object is the only thing in this module
+     * that does.
+     *
+     * It is written by the invalidation layer (RoboLayoutInvalidation.h) and read by the
+     * pass, and it is the second field a non-builder writes -- @ref result being the
+     * first, after the same fashion: the *structure* is add-only and read-only (the
+     * header says so), but the two fields that describe what has been *concluded* are
+     * mutable, because otherwise there would be no way to conclude anything.
+     *
+     * A clean record is the flag state for a tree nobody has invalidated and for a box a
+     * pass has just recomputed, which is why a box needs no separate "has been laid out"
+     * flag: `result.state` answers that, and this answers "is it still true?".
+     */
+    robo_layout_invalidation_t invalidation;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;

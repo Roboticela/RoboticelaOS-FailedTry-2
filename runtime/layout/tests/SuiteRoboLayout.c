@@ -43,10 +43,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 13);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 14);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.13.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.13.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.14.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.14.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -121,6 +121,7 @@ static const struct {
     { "border", 1 },
     { "position", 1 },
     { "overflow", 1 },
+    { "invalidation", 1 },
     { "painting", 0 }
 };
 
@@ -311,7 +312,7 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 21);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 22);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_SIZING), 1);
@@ -320,7 +321,8 @@ static void test_module_diagnostic_domains(void)
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_BORDER), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_POSITION), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_OVERFLOW), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)21), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_INVALIDATION), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)22), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -380,11 +382,15 @@ static void test_module_diagnostic_domains(void)
                       "position");
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_OVERFLOW),
                       "overflow");
-    /* 10.13's, and it is the newest: the first domain in this module whose subject is
-     * what happened *after* the box was placed, which is why it ends the list rather
-     * than slotting beside the geometry domains it measures. */
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_OVERFLOW,
+    /* 10.14's, and it is the newest: the first domain in this module whose subject is
+     * not a box's geometry but its *truth*, which is why it ends the list rather than
+     * slotting beside the geometry domains whose conclusions it expires. */
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_INVALIDATION),
+                      "invalidation");
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_INVALIDATION,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_OVERFLOW,
+                      (int)ROBO_LAYOUT_DOMAIN_INVALIDATION - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_POSITION,
                       (int)ROBO_LAYOUT_DOMAIN_OVERFLOW - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_PADDING,
@@ -425,19 +431,25 @@ static void test_module_result_states(void)
 
 static void test_module_pass_outcomes(void)
 {
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_PASS_OUTCOME_COUNT, 3);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_PASS_OUTCOME_COUNT, 4);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_PASS_NONE, 0);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_PASS_WALKED, 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_PASS_FAILED, 2);
+    /* 10.14's, and appended rather than inserted: the three older values keep their
+     * numbers, because a caller that stored one of them must not be renumbered by a
+     * phase that added a fourth. */
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_PASS_CLEAN, 3);
 
     ROBO_CHECK_EQ_INT(robo_layout_pass_outcome_is_known(ROBO_LAYOUT_PASS_NONE), 1);
     ROBO_CHECK_EQ_INT(robo_layout_pass_outcome_is_known(ROBO_LAYOUT_PASS_WALKED), 1);
     ROBO_CHECK_EQ_INT(robo_layout_pass_outcome_is_known(ROBO_LAYOUT_PASS_FAILED), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_pass_outcome_is_known((robo_layout_pass_outcome_t)3), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_pass_outcome_is_known(ROBO_LAYOUT_PASS_CLEAN), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_pass_outcome_is_known((robo_layout_pass_outcome_t)4), 0);
 
     ROBO_CHECK_STR_EQ(robo_layout_pass_outcome_name(ROBO_LAYOUT_PASS_NONE), "none");
     ROBO_CHECK_STR_EQ(robo_layout_pass_outcome_name(ROBO_LAYOUT_PASS_WALKED), "walked");
     ROBO_CHECK_STR_EQ(robo_layout_pass_outcome_name(ROBO_LAYOUT_PASS_FAILED), "failed");
+    ROBO_CHECK_STR_EQ(robo_layout_pass_outcome_name(ROBO_LAYOUT_PASS_CLEAN), "clean");
     ROBO_CHECK_STR_EQ(robo_layout_pass_outcome_name((robo_layout_pass_outcome_t)55), "unknown");
 }
 
@@ -574,7 +586,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.13.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.14.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

@@ -129,11 +129,13 @@ typedef enum robo_layout_diagnostic_domain {
     /** Positioning: the four insets, the precedence rule, the used displacement. */
     ROBO_LAYOUT_DOMAIN_POSITION = 19,
     /** Overflow: the two axes, the extents, the region and the clip rectangle. */
-    ROBO_LAYOUT_DOMAIN_OVERFLOW = 20
+    ROBO_LAYOUT_DOMAIN_OVERFLOW = 20,
+    /** Invalidation: the states, the reasons, the style classifier, the propagation. */
+    ROBO_LAYOUT_DOMAIN_INVALIDATION = 21
 } robo_layout_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_LAYOUT_DOMAIN_COUNT 21u
+#define ROBO_LAYOUT_DOMAIN_COUNT 22u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int robo_layout_diagnostic_domain_is_known(robo_layout_diagnostic_domain_t domain);

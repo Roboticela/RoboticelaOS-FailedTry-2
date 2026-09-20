@@ -548,14 +548,14 @@ static void test_overflow_kind_vocabulary(void)
     ROBO_CHECK_STR_EQ(robo_layout_overflow_kind_name((robo_layout_overflow_kind_t)3), "unknown");
     ROBO_CHECK(robo_layout_overflow_kind_name((robo_layout_overflow_kind_t)77) != NULL);
 
-    /* And the domain this phase added, spelled and counted: 21 now, with `overflow` the
-     * twentieth -- the first domain in this module about what happens when the box was
-     * the wrong size. */
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 21);
+    /* And the domain this phase added, spelled and counted: 22 since 10.14 appended its
+     * own, with `overflow` the twentieth -- the first domain in this module about what
+     * happens when the box was the wrong size. */
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 22);
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_OVERFLOW),
                       "overflow");
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_OVERFLOW,
-                      (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+                      (int)ROBO_LAYOUT_DOMAIN_INVALIDATION - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_POSITION,
                       (int)ROBO_LAYOUT_DOMAIN_OVERFLOW - 1);
 }

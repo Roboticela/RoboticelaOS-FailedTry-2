@@ -133,7 +133,7 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 10.10 Padding ✅
 10.11 Borders ✅
 10.12 Basic positioning ✅
-10.13 Overflow
+10.13 Overflow ✅
 10.14 Layout invalidation
 10.15 Layout tests
 

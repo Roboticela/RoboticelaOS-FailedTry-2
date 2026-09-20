@@ -80,6 +80,7 @@
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutInline.h"
+#include "RoboLayout/RoboLayoutInvalidation.h"
 #include "RoboLayout/RoboLayoutText.h"
 #include "RoboLayout/RoboLayoutTree.h"
 
@@ -94,11 +95,22 @@ typedef enum robo_layout_pass_outcome {
     /** The tree was walked; every result was left UNRESOLVED. */
     ROBO_LAYOUT_PASS_WALKED = 1,
     /** The pass could not complete (a NULL or unusable tree). */
-    ROBO_LAYOUT_PASS_FAILED = 2
+    ROBO_LAYOUT_PASS_FAILED = 2,
+    /**
+     * `robo_layout_context_run_incremental` found nothing to do (10.14) and skipped
+     * the walk entirely.
+     *
+     * A fourth outcome rather than a flag on WALKED, because a caller that cannot tell
+     * "nothing was stale" from "everything was recomputed" is a caller that cannot use
+     * the answer: the first means its previous results are still current, and the second
+     * means they were replaced. It is also the outcome that makes requirement 13
+     * observable rather than merely claimed -- a repaint-only change produces this one.
+     */
+    ROBO_LAYOUT_PASS_CLEAN = 3
 } robo_layout_pass_outcome_t;
 
 /** Number of defined pass outcomes. */
-#define ROBO_LAYOUT_PASS_OUTCOME_COUNT 3u
+#define ROBO_LAYOUT_PASS_OUTCOME_COUNT 4u
 
 /** Non-zero if @p outcome is a defined outcome. */
 int robo_layout_pass_outcome_is_known(robo_layout_pass_outcome_t outcome);
@@ -193,6 +205,18 @@ typedef struct robo_layout_stats {
      * text is placed along a line, and there is no line without a width.
      */
     robo_layout_text_stats_t text;
+
+    /**
+     * What was stale when this pass began, and whether it recomputed (Phase 10.14).
+     *
+     * A fourth record and not three more fields on one of the others, for the reason
+     * `text` is a record: it answers a question the other three cannot. The placement
+     * counts say where the boxes went; this says **how much of that had to be worked
+     * out again**, which is the only number that can tell a pass that recomputed a
+     * whole document from one that recomputed a document nobody had changed -- two runs
+     * with identical placement counts and completely different costs.
+     */
+    robo_layout_invalidation_stats_t invalidation;
 } robo_layout_stats_t;
 
 /** An opaque, caller-owned pass. */
@@ -341,6 +365,43 @@ void *robo_layout_context_user_data(const robo_layout_context_t *context);
 robo_result_t robo_layout_context_run(robo_layout_context_t *context,
                                       robo_layout_tree_t *tree,
                                       robo_layout_diag_t *diag);
+
+/**
+ * Run a pass only when something needs one (Phase 10.14).
+ *
+ * The one use this build makes of the invalidation model, and it is deliberately one
+ * decision rather than a partial recursion -- the brief this phase answers forbids
+ * incremental layout heuristics, and a build that guessed a dirty region would be
+ * faster and wrong.
+ *
+ * The pass is skipped, and the outcome is `ROBO_LAYOUT_PASS_CLEAN`, exactly when **all
+ * four** of these hold:
+ *
+ *   this context has already completed a pass;
+ *   it ran that pass on **this** tree;
+ *   no input it was given has changed since -- the viewport or the metrics source, the
+ *   two things that are not part of the tree and that every box's geometry depends on;
+ *   and no box carries a **layout** bit, which is `robo_layout_tree_needs_layout` and
+ *   not `!is_clean`: a document whose only change was a colour is not clean and does
+ *   not need geometry.
+ *
+ * Otherwise it is `robo_layout_context_run`, with everything that door does -- including
+ * the fresh classification, the recomputation, and clearing the layout bits it
+ * satisfied. A caller may therefore use this door everywhere and never see a
+ * difference except in the four cases above, which is the property that makes it safe
+ * to adopt.
+ *
+ * The skipped pass still updates the records a caller reads: `passes` advances (a pass
+ * that concluded "nothing to do" is a pass), `objects` is the tree's count, `visited`
+ * is 0 because nothing was walked, and `invalidation.style_only` reports how many boxes
+ * are waiting for a repaint. `recomputed` is 0, which is the whole point.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL context or tree. Failures are the
+ *         ones `robo_layout_context_run` reports, unchanged.
+ */
+robo_result_t robo_layout_context_run_incremental(robo_layout_context_t *context,
+                                                 robo_layout_tree_t *tree,
+                                                 robo_layout_diag_t *diag);
 
 /** What the last pass saw, by value. Zeros for a NULL context. */
 void robo_layout_context_stats(const robo_layout_context_t *context,

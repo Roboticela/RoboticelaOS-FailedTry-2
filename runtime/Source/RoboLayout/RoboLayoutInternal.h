@@ -361,6 +361,22 @@ struct robo_layout_tree {
     int classified;
 
     /*
+     * The invalidation count (Phase 10.14).
+     *
+     * A *count* and not a set, because every question this module asks about
+     * dirtiness is either per box (answered from the box's own record) or a total
+     * (answered here). There is deliberately no stored "dirty root": the shallowest
+     * dirty box is a function of the tree and is computed when it is asked for
+     * (`robo_layout_tree_invalidation_root`), which is O(n) once per pass instead of a
+     * field that five propagation steps have to keep in agreement.
+     *
+     * `objects` are zeroed wholesale by a clear, and a clear sets this to 0 with
+     * them. An add increments it, and nothing else can make it smaller except a mark
+     * that clears a box and a pass that consumes the layout bits.
+     */
+    size_t invalidated;
+
+    /*
      * The line-box arena (Phase 10.6). Lazily allocated like the context one, and
      * released -- with the member arena -- by the next pass and by anything that
      * releases the classification, because a line box describes a box set and a pass
@@ -382,6 +398,21 @@ struct robo_layout_tree {
     /** Slots allocated; always >= member_count. */
     size_t member_capacity;
 };
+
+/**
+ * Mark one box dirty without propagating (10.14).
+ *
+ * The door a **build** uses, and it is deliberately not one of the four public
+ * marking policies: a box that has just been created owes a recomputation, and it has
+ * no descendants and no following flow yet to tell about it -- so the full policy
+ * would be a walk over links that cannot exist. It also keeps `add` O(1) in the depth
+ * of the tree, which matters because every document build is a sequence of adds.
+ *
+ * Bumps the tree's invalidated count, so the door is the only thing a build has to
+ * remember about the phase.
+ */
+void robo_layout_invalidation_mark_new(robo_layout_tree_t *tree,
+                                       robo_layout_object_t *object);
 
 /**
  * The object as stored, or NULL when @p id names none.

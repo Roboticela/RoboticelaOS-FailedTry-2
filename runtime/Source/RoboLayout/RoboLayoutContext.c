@@ -40,6 +40,19 @@ struct robo_layout_context {
     robo_layout_text_metrics_t text_metrics;
     int has_text_metrics;
     robo_layout_stats_t stats;
+    /*
+     * Whether an **input** has changed since the last recomputing pass (10.14).
+     *
+     * The one piece of state the incremental door needs that the tree cannot answer:
+     * a recorded viewport is not part of the tree, so a caller that moves the window
+     * leaves every box's geometry stale while the invalidation model -- correctly --
+     * reports nothing dirty. Rather than compare viewports and metric records (which
+     * would mean comparing function pointers and a struct with padding in it), the
+     * setters below *say* when they change something, and a recomputing pass clears
+     * the flag. A caller that re-records the same viewport therefore pays for one
+     * unnecessary pass, which is the conservative direction and the honest one.
+     */
+    int inputs_dirty;
     robo_layout_pass_outcome_t outcome;
     /* Borrowed, and const *as read back*: the pass wrote into the boxes, not into
      * the tree, so a caller that only wants to ask "what did I run on?" has no
@@ -188,6 +201,8 @@ const char *robo_layout_pass_outcome_name(robo_layout_pass_outcome_t outcome)
         return "none";
     case ROBO_LAYOUT_PASS_WALKED:
         return "walked";
+    case ROBO_LAYOUT_PASS_CLEAN:
+        return "clean";
     case ROBO_LAYOUT_PASS_FAILED:
         return "failed";
     default:
@@ -215,6 +230,10 @@ robo_result_t robo_layout_context_create(robo_layout_context_t **out_context,
      * "empty" lives in one place rather than in the allocator's behaviour. */
     robo_layout_constraints_init(&context->constraints);
     context->outcome = ROBO_LAYOUT_PASS_NONE;
+    /* Nothing has been recorded, so nothing an input describes can be stale -- but a
+     * freshly created context has also run no pass, which the incremental door asks
+     * about separately (`outcome`). Leaving this 0 states "no *input* has changed". */
+    context->inputs_dirty = 0;
     *out_context = context;
     return ROBO_OK;
 }
@@ -241,6 +260,7 @@ void robo_layout_context_reset(robo_layout_context_t *context)
      * is the caller's and is untouched -- see the note below. */
     robo_layout_text_metrics_init(&context->text_metrics);
     context->has_text_metrics = 0;
+    context->inputs_dirty = 0;
     memset(&context->stats, 0, sizeof(context->stats));
     context->outcome = ROBO_LAYOUT_PASS_NONE;
     context->tree = NULL;
@@ -263,6 +283,9 @@ robo_result_t robo_layout_context_set_viewport(robo_layout_context_t *context,
     }
     context->viewport = size;
     context->has_viewport = 1;
+    /* A new containing block makes every conclusion beneath the root stale, and the
+     * incremental door is told so here rather than left to compare two sizes (10.14). */
+    context->inputs_dirty = 1;
     /* Recorded as the available space and nothing more -- see the header. */
     return robo_layout_constraints_set_available(&context->constraints, size, diag);
 }
@@ -286,6 +309,7 @@ robo_result_t robo_layout_context_set_text_metrics(robo_layout_context_t *contex
     if (!context) {
         return ROBO_INVALID_ARGUMENT;
     }
+    context->inputs_dirty = 1;
     if (!metrics) {
         robo_layout_text_metrics_init(&context->text_metrics);
         context->has_text_metrics = 0;
@@ -329,6 +353,7 @@ robo_result_t robo_layout_context_set_constraints(robo_layout_context_t *context
                                 "context or constraints is NULL");
     }
     context->constraints = *constraints;
+    context->inputs_dirty = 1;
     /* A caller that installs constraints has decided what the available space is,
      * so a previously recorded viewport no longer describes them. Keeping the two
      * in step matters because the viewport is read back by later goals as "the
@@ -396,6 +421,20 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
         context->stats.passes = completed;
     }
     context->stats.objects = robo_layout_tree_object_count(tree);
+    /*
+     * What was stale when this pass began (10.14), read **before** the classification
+     * release below -- that release marks the whole tree, and a snapshot taken after it
+     * would report a document nobody had invalidated as a fully dirty one. The four
+     * numbers are the phase's evidence: `invalidated` is what a partial pass would have
+     * had to redo, `root` is where it would have started, `reason` is why, and
+     * `recomputed` is the honest statement of what this build does with them.
+     */
+    context->stats.invalidation.invalidated = robo_layout_tree_invalidation_count(tree);
+    context->stats.invalidation.style_only = robo_layout_invalidation_style_only_count(tree);
+    context->stats.invalidation.root = robo_layout_tree_invalidation_root(tree);
+    context->stats.invalidation.reason =
+        robo_layout_tree_invalidation_reason(tree, context->stats.invalidation.root);
+    context->stats.invalidation.recomputed = 0;
     context->tree = tree;
     context->outcome = ROBO_LAYOUT_PASS_WALKED;
 
@@ -549,8 +588,83 @@ robo_result_t robo_layout_context_run(robo_layout_context_t *context,
      * layout to do, `objects` is already 0, and every counter is already right.
      */
 
+    /*
+     * The pass recomputed every conclusion this module reaches, so the layout bits it
+     * began with are satisfied and no longer claim anything (10.14). Two conditions,
+     * and the second is the one that would be easy to get wrong:
+     *
+     *   a pass that laid geometry out has recomputed it -- so the natural statement is
+     *   `recomputed = 1` whenever the block stage ran;
+     *
+     *   a pass with **no viewport** classified the tree and computed no coordinate, so
+     *   clearing the bits there would leave the next pass believing work had been done
+     *   that never was. Requirement 11 forbids exactly that stale-clean state, which is
+     *   why the clearing is inside this condition rather than beside `passes`.
+     *
+     * STYLE is deliberately left alone: a repaint is not something a layout pass
+     * performed, so a box holding only STYLE stays dirty *and* stops needing layout --
+     * the pair of answers the incremental door below is built on.
+     */
+    if (context->has_viewport && robo_layout_tree_root(tree) != ROBO_LAYOUT_NODE_ID_NONE) {
+        context->stats.invalidation.recomputed = 1;
+        (void)robo_layout_tree_mark_recomputed(tree);
+        context->inputs_dirty = 0;
+    }
+
     context->stats.passes++;
     return ROBO_OK;
+}
+
+robo_result_t robo_layout_context_run_incremental(robo_layout_context_t *context,
+                                                 robo_layout_tree_t *tree,
+                                                 robo_layout_diag_t *diag)
+{
+    if (!context || !tree) {
+        if (context) {
+            context->outcome = ROBO_LAYOUT_PASS_FAILED;
+        }
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_CONTEXT, ROBO_INVALID_ARGUMENT,
+                                "context or tree is NULL");
+    }
+
+    /*
+     * The decision, and every term of it is a question the model above can answer:
+     *
+     *   nothing this pass ran on before -- a context that has completed no pass has no
+     *   basis for saying anything is up to date;
+     *
+     *   a different tree -- results are per tree, so a tree this context has not seen
+     *   is entirely uncomputed;
+     *
+     *   an input changed -- the viewport or the metrics, neither of which is part of
+     *   the tree and both of which every box's geometry depends on;
+     *
+     *   a box needs layout -- the model's own answer, and the one that makes
+     *   requirement 13 true: a document whose only change was a colour is *not clean*
+     *   and *does not need layout*, so the pass is skipped and its `style_only` count
+     *   says why.
+     *
+     * Any of the four and the pass runs, because correctness beats the saving; none of
+     * them and the tree is skipped, which is the only optimization this phase claims.
+     */
+    if (context->outcome != ROBO_LAYOUT_PASS_NONE && context->tree == tree &&
+        !context->inputs_dirty && !robo_layout_tree_needs_layout(tree)) {
+        size_t completed = context->stats.passes;
+
+        memset(&context->stats, 0, sizeof(context->stats));
+        context->stats.passes = completed + 1u;
+        context->stats.objects = robo_layout_tree_object_count(tree);
+        /* `visited` stays 0: a pass that skipped the walk reached nothing, and the
+         * number a reader needs in order to tell "skipped an empty tree" from "skipped a
+         * full one" is `objects`, one field up. `outcome` says which happened. */
+        context->stats.invalidation.style_only = robo_layout_invalidation_style_only_count(tree);
+        context->stats.invalidation.recomputed = 0;
+        context->tree = tree;
+        context->outcome = ROBO_LAYOUT_PASS_CLEAN;
+        return ROBO_OK;
+    }
+
+    return robo_layout_context_run(context, tree, diag);
 }
 
 void robo_layout_context_stats(const robo_layout_context_t *context,

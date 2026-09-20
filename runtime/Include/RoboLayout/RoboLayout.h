@@ -67,7 +67,17 @@
  * does not exist and is not claimed: the phase exposes the boundary and nothing rasterises
  * anything -- so `geometry`, `block_layout`, `inline_layout`, `block_and_inline_layout`,
  * `text_layout`, `line_boxes`, `baselines`, `sizing`, `margins`, `padding`, `border`,
- * `positioning` and `overflow` are all 1, while `painting` is 0.
+ * `positioning`, `overflow` and -- since 10.14 (RoboLayoutInvalidation.h) -- `invalidation`
+ * are all 1, while `painting` is 0.
+ *
+ * Phase 10.14 is the first whose subject is **not a box's geometry but its truth**: every
+ * phase before it made an answer better, and this one makes an answer *expire*. A box now
+ * carries a state saying what about it is stale, a property name is classified into what
+ * changing it costs, and a pass can be skipped when nothing has. Nothing about any
+ * coordinate changes -- the pass still recomputes from the root, because the brief that
+ * asks for invalidation also forbids the incremental recursion that would make it
+ * faster -- so what the phase adds is a model that can *say* what is stale, the one
+ * decision built on it, and the accounting that proves the two agree.
  *
  * Chromium's LayoutObject / LayoutBox / constraint models are temporary technical
  * reference only; nothing here is a translation of them. See layout/README.md and
@@ -90,6 +100,7 @@
 #include "RoboLayout/RoboLayoutFormattingContext.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutInline.h"
+#include "RoboLayout/RoboLayoutInvalidation.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
 #include "RoboLayout/RoboLayoutOverflow.h"
@@ -305,6 +316,22 @@ typedef struct robo_layout_capabilities {
      * those if it were named for "overflow is finished".
      */
     int overflow;
+    /**
+     * Tracking which conclusions are still true, and skipping the recomputation of
+     * the ones that are (10.14). **1** since 10.14.
+     *
+     * A claim about the *build*, and one sentence short enough to be checked: a box
+     * carries an invalidation record, a style change is classified into "layout does
+     * not read it", "paint-visible only" or "feeds geometry", the three marking
+     * policies propagate to ancestors and to the following flow, and
+     * `robo_layout_context_run_incremental` skips a pass when nothing needs one. Kept
+     * narrow for the same reason the other flags are: **no partial layout exists** --
+     * the dirty root is computed and reported (`robo_layout_tree_invalidation_root`),
+     * and the pass still recomputes from the root, because a dirty region a build
+     * guesses is a wrong answer that happens to be fast. `invalidation` would be
+     * claiming that if it were named for "invalidation is finished".
+     */
+    int invalidation;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

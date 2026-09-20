@@ -278,9 +278,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 13
+#define ROBO_LAYOUT_VERSION_MINOR 14
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.13.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.14.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -606,5 +606,55 @@
  * Every absence is named in `RoboLayoutOverflow.h` where it would otherwise be assumed.
  */
 #define ROBO_LAYOUT_OVERFLOW_IMPLEMENTED 1
+
+/**
+ * 1 once this build tracks which of its conclusions are still true.
+ *
+ * A constant rather than a runtime decision for the same reason the other thirteen are: it
+ * is read by `robo_layout_get_capabilities().invalidation` and by the suite that asserts the
+ * flag against the code. What it claims, exactly:
+ *
+ *   a **state** per box -- four bits saying *what* is stale: the computed style changed in a
+ *   way layout does not read, this box's own geometry, its descendants' layout, or its
+ *   overflow extents -- with STYLE deliberately apart from the other three so that "needs a
+ *   repaint" and "needs a relayout" are two questions with two answers;
+ *
+ *   a **reason** per box, closed and short, for a reader rather than for the algorithm: was
+ *   this a geometry change, a displacement, a content change, the containing block, or
+ *   "something below you";
+ *
+ *   a **classifier** over property *names*: `robo_layout_style_effect_for_property` answers
+ *   "layout does not read it", "paint-visible only" or "feeds geometry", written out by
+ *   hand rather than derived from RoboCSS's registry, because the question is what **layout**
+ *   reads and only this module can answer it;
+ *
+ *   three **propagation policies**, each with its own shape: a box-model change marks the box
+ *   with all three layout bits, its ancestors with SUBTREE and OVERFLOW, and the *following
+ *   flow* after it -- transitively, because a later sibling moves when an earlier one reflows
+ *   and the one after *it* moves when that one did; a **displacement** change marks the box
+ *   and its ancestors' OVERFLOW and leaves the following flow clean, which is 10.12's contract
+ *   that a relatively positioned box keeps its flow space; an **overflow-mode** change marks
+ *   OVERFLOW alone and no geometry at all;
+ *
+ *   a **dirty root** -- the lowest common ancestor of the boxes whose own geometry is stale,
+ *   which is the smallest subtree a relayout could start from -- and the **counts** a pass
+ *   reports, so that "what was stale" and "what was done" are both readable;
+ *
+ *   the **pass contract**: a recomputation clears the layout bits and **leaves STYLE**, and a
+ *   pass with no viewport clears nothing at all, because it computed no coordinate;
+ *
+ *   and one **decision**: `robo_layout_context_run_incremental` skips the pass when nothing
+ *   was invalidated, when no input changed and when the tree is the one it last ran on.
+ *
+ * What it does **not** claim: **partial layout**. The dirty root is computed and reported and
+ * nothing starts from it -- this pass recomputes from the tree root exactly as it did in
+ * 10.1, because the brief that asks for invalidation also forbids the incremental recursion
+ * that would make it faster, and a build that guessed a dirty region would be quick and wrong.
+ * There are no dependency **graphs**, no per-CPU or per-thread state, no layout *dirtiness* as
+ * a performance heuristic, and no paint invalidation beyond the STYLE bit that a paint phase
+ * would consume. Every absence is named in `RoboLayoutInvalidation.h` where it would
+ * otherwise be assumed.
+ */
+#define ROBO_LAYOUT_INVALIDATION_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

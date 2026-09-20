@@ -93,6 +93,8 @@ const char *robo_layout_diagnostic_domain_name(robo_layout_diagnostic_domain_t d
         return "position";
     case ROBO_LAYOUT_DOMAIN_OVERFLOW:
         return "overflow";
+    case ROBO_LAYOUT_DOMAIN_INVALIDATION:
+        return "invalidation";
     default:
         return "unknown";
     }

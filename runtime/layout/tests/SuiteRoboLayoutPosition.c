@@ -537,10 +537,10 @@ static void test_positioning_kind_vocabulary(void)
     ROBO_CHECK_STR_EQ(robo_layout_inset_kind_name((robo_layout_inset_kind_t)4), "unknown");
     ROBO_CHECK(robo_layout_inset_kind_name((robo_layout_inset_kind_t)77) != NULL);
 
-    /* And the domain this phase added, spelled and counted: 21 now, with `position`
-     * the nineteenth -- the first domain in this module about *where* rather than
-     * about *how big*, and no longer the last since 10.13's `overflow` followed it. */
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 21);
+    /* And the domain this phase added, spelled and counted: 22 since 10.14 appended its
+     * own, with `position` the nineteenth -- the first domain in this module about *where*
+     * rather than about *how big*, and no longer the last since 10.13 and 10.14 followed it. */
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 22);
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_POSITION),
                       "position");
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_OVERFLOW,
