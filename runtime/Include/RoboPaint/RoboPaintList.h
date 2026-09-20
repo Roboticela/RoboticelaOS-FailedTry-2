@@ -27,6 +27,17 @@
  * performance, and it is not an incremental mechanism -- the next pass recomputes every
  * operation from scratch, because a partially updated list would be a cache of
  * conclusions this module has no way to validate.
+ *
+ * Since 11.6 a list owns **two** arrays, and the second one is the reason the first one's
+ * "no pointers in it" rule can still hold. A text operation carries characters, which are
+ * variable-length data no fixed record can hold, so the characters live in a **text pool**
+ * (`RoboPaintText.h`) and the record carries a span into it -- two numbers, exactly as
+ * pointer-free as the rest of the record. The pool is created with the list, cleared with
+ * it, grown as `add_text` appends, and destroyed with it, so a list is still one object
+ * with one owner and one lifetime; and the span rule is checked **here**, at the
+ * container, because "does this span name characters in this pool?" is the one question a
+ * record cannot answer about itself. Characters enter only through `add_text`, so a span
+ * in a record in a list always names the pool that list owns.
  */
 #ifndef ROBO_PAINT_LIST_H
 #define ROBO_PAINT_LIST_H
@@ -35,6 +46,7 @@
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintOperation.h"
+#include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
 
 #ifdef __cplusplus
@@ -91,10 +103,19 @@ robo_result_t robo_paint_list_reserve(robo_paint_list_t *list,
  * consumer reads a list of records, and is the "geometry safety" requirement satisfied
  * at the only place it can be satisfied once instead of at every call site.
  *
+ * A `TEXT` operation is held to a second rule, and it is the one this container is the
+ * only possible place for: its span must lie **inside this list's pool**
+ * (`robo_paint_text_pool_contains`). A record's validity is a function of the record, so
+ * a span that names nothing cannot be refused there -- but here, where the characters
+ * are, "these are the characters this operation draws" is decidable, and refusing the
+ * alternative is what makes every text operation a consumer reads one whose span names
+ * real code points rather than whatever the pool happens to hold at those two numbers.
+ *
  * The operation is copied by value; the caller keeps ownership of its argument.
  *
- * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments or an operation that is not
- *         a record (@p list is left untouched); ROBO_OUT_OF_MEMORY.
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments, an operation that is not a
+ *         record, or a `TEXT` operation whose span is not a run in this list's pool
+ *         (@p list is left untouched); ROBO_OUT_OF_MEMORY.
  */
 robo_result_t robo_paint_list_append(robo_paint_list_t *list,
                                     const robo_paint_operation_t *operation,
@@ -105,6 +126,34 @@ size_t robo_paint_list_count(const robo_paint_list_t *list);
 
 /** Operations @p list can hold before growing (0 for NULL). */
 size_t robo_paint_list_capacity(const robo_paint_list_t *list);
+
+/**
+ * Append @p count code points to the list's text pool and hand back the span naming them.
+ *
+ * The **only** way characters enter a list, so every span in every record of a list names
+ * characters that list owns. A traversal reads a text run's characters, calls this, and
+ * puts the span it returns into the operation it appends -- two calls that together state
+ * one thing, which is what makes the append's span check a rule rather than a formality.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments, a NULL @p code_points with a
+ *         non-zero count, or a count of zero (an empty span is a position, not a run);
+ *         ROBO_OUT_OF_MEMORY.
+ */
+robo_result_t robo_paint_list_add_text(robo_paint_list_t *list,
+                                      const uint32_t *code_points,
+                                      size_t count,
+                                      robo_paint_text_span_t *out_span,
+                                      robo_paint_diag_t *diag);
+
+/**
+ * The list's text pool, borrowed; NULL for a NULL list.
+ *
+ * The door a consumer needs to read a text operation's characters
+ * (`robo_paint_text_pool_read`) and the door the display list's builder needs to copy them
+ * across. It is borrowed and it is the list's: a pool that outlived its list would be a
+ * pool whose spans name nothing.
+ */
+robo_paint_text_pool_t *robo_paint_list_text_pool(const robo_paint_list_t *list);
 
 /**
  * The operation at @p index, by value.

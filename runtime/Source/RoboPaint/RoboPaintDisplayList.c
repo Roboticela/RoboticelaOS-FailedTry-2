@@ -18,13 +18,24 @@
 
 #include <string.h>
 
-/** The list: a contiguous array and its two counts. */
+/** The list: a contiguous array, its two counts, and the characters its text commands
+ *  index (11.6). */
 struct robo_paint_display_list {
     robo_paint_display_command_t *commands;
     /** Commands held. */
     size_t count;
     /** Commands the array has room for. */
     size_t capacity;
+    /**
+     * The code points this list's `DRAW_TEXT` commands name, owned here.
+     *
+     * The paint list's second array, for the same reason and with one extra one: a display
+     * command carries a **span** into a pool (`RoboPaintDisplayCommand.h`), and the pool the
+     * builder filled it from belongs to the *other* list -- so a display list that did not
+     * copy the characters would be a list whose commands named a pool that could be cleared
+     * or destroyed under it. Copying them is what makes "a display list is a snapshot" true
+     * for text as it already was for geometry. */
+    robo_paint_text_pool_t *text;
 };
 
 robo_result_t robo_paint_display_list_create(robo_paint_display_list_t **out_list,
@@ -55,6 +66,12 @@ robo_result_t robo_paint_display_list_create(robo_paint_display_list_t **out_lis
     list->commands = commands;
     list->count = 0u;
     list->capacity = ROBO_PAINT_DISPLAY_INITIAL_CAPACITY;
+    if (robo_paint_text_pool_create(&list->text, diag) != ROBO_OK) {
+        robo_free(commands);
+        robo_free(list);
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_OUT_OF_MEMORY,
+                               "could not allocate the display list's text pool");
+    }
     *out_list = list;
     return ROBO_OK;
 }
@@ -64,7 +81,9 @@ void robo_paint_display_list_destroy(robo_paint_display_list_t *list)
     if (!list) {
         return;
     }
-    /* A command has no pointers in it, so freeing the array is the whole of the release. */
+    /* A command has no pointers in it, so freeing the two arrays is the whole of the
+     * release -- including the text pool, whose code points are values too. */
+    robo_paint_text_pool_destroy(list->text);
     robo_free(list->commands);
     robo_free(list);
 }
@@ -74,8 +93,12 @@ void robo_paint_display_list_clear(robo_paint_display_list_t *list)
     if (!list) {
         return;
     }
-    /* Only the count moves: the storage is reused, and every read door clamps to it. */
+    /* Only the count moves: the storage is reused, and every read door clamps to it. The
+     * text pool is cleared with it, because the commands that named its characters are gone
+     * -- leaving them would be storage for spans nothing can read, and the next build's runs
+     * would pile up behind them. */
     list->count = 0u;
+    robo_paint_text_pool_clear(list->text);
 }
 
 robo_result_t robo_paint_display_list_reserve(robo_paint_display_list_t *list,
@@ -120,6 +143,14 @@ robo_result_t robo_paint_display_list_append(robo_paint_display_list_t *list,
                                "the command is not a record: it names no node, its "
                                "rectangle is not one, or its colour does not match its "
                                "kind");
+    }
+    /* The paint list's span rule at the same boundary, and for the same reason: a command
+     * says how many characters it draws and where they start, and this is where the
+     * characters are -- so a `DRAW_TEXT` a consumer reads can always be read through. */
+    if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT &&
+        !robo_paint_text_pool_contains(list->text, command->text.span)) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_INVALID_ARGUMENT,
+                               "the command's text span is not a run in this list's pool");
     }
     if (list->count == list->capacity) {
         size_t wanted = list->capacity < 1u ? 1u : list->capacity * 2u;
@@ -185,6 +216,11 @@ int robo_paint_display_list_equal(const robo_paint_display_list_t *a, const robo
         }
     }
     return 1;
+}
+
+robo_paint_text_pool_t *robo_paint_display_list_text_pool(const robo_paint_display_list_t *list)
+{
+    return list ? list->text : NULL;
 }
 
 size_t robo_paint_display_list_count_of_kind(const robo_paint_display_list_t *list,

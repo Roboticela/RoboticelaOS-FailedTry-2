@@ -32,6 +32,12 @@ void robo_paint_operation_init(robo_paint_operation_t *operation)
     /* A cleared record carries no border style, which is what a non-border kind requires
      * of every record -- so "nobody set it" and "this is not a border" are one state. */
     operation->style = ROBO_CSS_BORDER_STYLE_NONE;
+    /* And no text run, which is what a non-text kind requires: an empty span, no baseline
+     * and the CSS initial font inputs, so "nobody set it" and "this is not text" are one
+     * state the same way. The memset above already zeroed the storage; this is here so
+     * that "a cleared run" is `RoboPaintText.h`'s definition rather than a zero pattern
+     * this file happens to agree with. */
+    robo_paint_text_run_init(&operation->text);
 }
 
 int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
@@ -85,17 +91,35 @@ int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
          *
          * A **background** must carry `NONE`: it has no side style, and a background with
          * one would be carrying a fact about a border it is not.
+         *
+         * And the **text rule** (11.6), the same shape a third time: a `TEXT` record must
+         * carry a run -- a non-empty span, a non-negative baseline offset and font inputs
+         * that are a record -- and a kind that is not text must carry a **cleared** one.
+         * Both halves are refusals: a text record with no characters is a drawing that
+         * draws nothing, and a background that came with font inputs is a record carrying
+         * facts about characters it does not have. Nothing here checks the span against a
+         * pool, because that is a question about a container and this door takes a
+         * record (`RoboPaintList.h` asks it where the pool is).
          */
+        if (operation->kind == ROBO_PAINT_OP_TEXT) {
+            return operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
+                   robo_paint_text_run_is_valid(&operation->text);
+        }
         if (robo_paint_op_kind_is_border(operation->kind)) {
             return robo_css_border_style_generates_border(operation->style);
         }
-        return operation->style == ROBO_CSS_BORDER_STYLE_NONE;
+        return operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
+               !robo_paint_text_run_is_valid(&operation->text);
     }
-    /* A structural record draws nothing, so it carries the absence of both a colour and a
-     * style: `none` for the first, and the same for the second -- which a cleared record
-     * holds. */
+    /* A structural record draws nothing, so it carries the absence of a colour, of a style
+     * and of a text run: `none` for the first, and the cleared value for the other two --
+     * which a cleared record holds. The text half is stated as "the run is not a run"
+     * rather than as a field-by-field comparison against a cleared record, because a
+     * cleared run is exactly a run `robo_paint_text_run_is_valid` refuses and a second
+     * spelling of it would be a second place for the two to drift. */
     return operation->color.kind == ROBO_CSS_COLOR_NONE &&
-           operation->style == ROBO_CSS_BORDER_STYLE_NONE;
+           operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
+           !robo_paint_text_run_is_valid(&operation->text);
 }
 
 int robo_paint_operation_equal(const robo_paint_operation_t *a,
@@ -108,7 +132,8 @@ int robo_paint_operation_equal(const robo_paint_operation_t *a,
            robo_paint_boxes_equal(&a->boxes, &b->boxes) &&
            robo_gfx_point_equal(a->origin, b->origin) &&
            robo_paint_clip_equal(&a->clip, &b->clip) &&
-           robo_css_color_equals(a->color, b->color) && a->style == b->style;
+           robo_css_color_equals(a->color, b->color) && a->style == b->style &&
+           robo_paint_text_run_equal(&a->text, &b->text);
 }
 
 robo_paint_op_kind_t robo_paint_operation_kind(const robo_paint_operation_t *operation)
@@ -169,6 +194,17 @@ robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operat
 robo_css_border_style_t robo_paint_operation_style(const robo_paint_operation_t *operation)
 {
     return operation ? operation->style : ROBO_CSS_BORDER_STYLE_NONE;
+}
+
+robo_paint_text_run_t robo_paint_operation_text(const robo_paint_operation_t *operation)
+{
+    robo_paint_text_run_t run;
+
+    if (!operation) {
+        robo_paint_text_run_init(&run);
+        return run;
+    }
+    return operation->text;
 }
 
 int robo_paint_operation_is_structural(const robo_paint_operation_t *operation)
@@ -293,7 +329,7 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
                                          size_t *out_length,
                                          robo_paint_diag_t *diag)
 {
-    robo_paint_text_t text;
+    robo_paint_writer_t text;
     const char *name;
     char color_text[ROBO_CSS_COLOR_TEXT_MAX + 1u];
     size_t color_length = 0u;
@@ -311,37 +347,37 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
                                "not an operation kind");
     }
 
-    robo_paint_text_init(&text, buffer, capacity);
+    robo_paint_writer_init(&text, buffer, capacity);
     name = robo_paint_op_kind_name(operation->kind);
-    robo_paint_text_string(&text, name);
+    robo_paint_writer_string(&text, name);
     for (index = strlen(name); index < ROBO_PAINT_OP_NAME_COLUMN; index++) {
-        robo_paint_text_char(&text, ' ');
+        robo_paint_writer_char(&text, ' ');
     }
 
-    robo_paint_text_string(&text, "node=");
-    robo_paint_text_u64(&text, (uint64_t)operation->node);
-    robo_paint_text_string(&text, " depth=");
-    robo_paint_text_u64(&text, (uint64_t)operation->depth);
+    robo_paint_writer_string(&text, "node=");
+    robo_paint_writer_u64(&text, (uint64_t)operation->node);
+    robo_paint_writer_string(&text, " depth=");
+    robo_paint_writer_u64(&text, (uint64_t)operation->depth);
 
     /* The clip, as two modes with the interval appended only on an axis that has one:
      * `clip=hidden[0,100]/visible`. */
-    robo_paint_text_string(&text, " clip=");
-    robo_paint_text_string(&text, robo_css_overflow_name(operation->clip.horizontal.mode));
+    robo_paint_writer_string(&text, " clip=");
+    robo_paint_writer_string(&text, robo_css_overflow_name(operation->clip.horizontal.mode));
     if (robo_paint_clip_axis_is_active(&operation->clip.horizontal)) {
-        robo_paint_text_char(&text, '[');
-        robo_paint_text_i64(&text, (int64_t)operation->clip.horizontal.start);
-        robo_paint_text_char(&text, ',');
-        robo_paint_text_i64(&text, (int64_t)operation->clip.horizontal.end);
-        robo_paint_text_char(&text, ']');
+        robo_paint_writer_char(&text, '[');
+        robo_paint_writer_i64(&text, (int64_t)operation->clip.horizontal.start);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)operation->clip.horizontal.end);
+        robo_paint_writer_char(&text, ']');
     }
-    robo_paint_text_char(&text, '/');
-    robo_paint_text_string(&text, robo_css_overflow_name(operation->clip.vertical.mode));
+    robo_paint_writer_char(&text, '/');
+    robo_paint_writer_string(&text, robo_css_overflow_name(operation->clip.vertical.mode));
     if (robo_paint_clip_axis_is_active(&operation->clip.vertical)) {
-        robo_paint_text_char(&text, '[');
-        robo_paint_text_i64(&text, (int64_t)operation->clip.vertical.start);
-        robo_paint_text_char(&text, ',');
-        robo_paint_text_i64(&text, (int64_t)operation->clip.vertical.end);
-        robo_paint_text_char(&text, ']');
+        robo_paint_writer_char(&text, '[');
+        robo_paint_writer_i64(&text, (int64_t)operation->clip.vertical.start);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)operation->clip.vertical.end);
+        robo_paint_writer_char(&text, ']');
     }
 
     /* The rectangle this kind acts on: a marker and a background act on the border box,
@@ -351,11 +387,11 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
         if (robo_paint_operation_side_band(operation, &rect, NULL) == ROBO_OK) {
             have_rect = 1;
         }
-        robo_paint_text_string(&text, " band=");
+        robo_paint_writer_string(&text, " band=");
     } else if (operation->kind == ROBO_PAINT_OP_BACKGROUND) {
         rect = operation->boxes.border;
         have_rect = 1;
-        robo_paint_text_string(&text, " rect=");
+        robo_paint_writer_string(&text, " rect=");
     } else if (operation->kind == ROBO_PAINT_OP_CONTENT) {
         /* The content boundary acts on the inner rectangle: the region a box's own
          * painting ends at and its contents begin in. Printed explicitly so a reader of
@@ -363,32 +399,56 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
          * having to remember that `content` means "the content box". */
         rect = operation->boxes.content;
         have_rect = 1;
-        robo_paint_text_string(&text, " content=");
+        robo_paint_writer_string(&text, " content=");
     } else {
         rect = operation->boxes.border;
         have_rect = 1;
-        robo_paint_text_string(&text, " border=");
+        robo_paint_writer_string(&text, " border=");
     }
     if (have_rect) {
-        robo_paint_text_rect(&text, rect);
+        robo_paint_writer_rect(&text, rect);
     }
 
     if (robo_paint_operation_is_drawing(operation)) {
         if (robo_css_color_write(operation->color, color_text, sizeof(color_text),
                                  &color_length, NULL) == ROBO_OK) {
-            robo_paint_text_string(&text, " color=");
-            robo_paint_text_string(&text, color_text);
+            robo_paint_writer_string(&text, " color=");
+            robo_paint_writer_string(&text, color_text);
         }
     }
     /* Printed exactly where it means something, which is how the record states it too: a
      * border says which of the ten styles it draws, and nothing else has one to print. */
     if (robo_paint_op_kind_is_border(operation->kind)) {
-        robo_paint_text_string(&text, " style=");
-        robo_paint_text_string(&text, robo_css_border_style_name(operation->style));
+        robo_paint_writer_string(&text, " style=");
+        robo_paint_writer_string(&text, robo_css_border_style_name(operation->style));
+    }
+    /*
+     * A text record prints the **span** and not the characters, and the difference is a
+     * lifetime rather than a preference: this door is handed one record, and a record
+     * carries two numbers that name characters in a pool it does not have. The characters
+     * are printed by the two list dumps (`RoboPaintDump.h`), which do have the pool --
+     * which is also where a reader wants them, because that is the view of a whole
+     * document rather than of one line of it.
+     */
+    if (operation->kind == ROBO_PAINT_OP_TEXT) {
+        robo_paint_writer_string(&text, " code_points=");
+        robo_paint_writer_u64(&text, (uint64_t)operation->text.span.count);
+        robo_paint_writer_string(&text, " baseline=");
+        robo_paint_writer_i64(&text, (int64_t)operation->text.baseline_offset);
+        robo_paint_writer_string(&text, " font=");
+        robo_paint_writer_number(&text, operation->text.font.font_size_px, 2u);
+        robo_paint_writer_char(&text, '/');
+        robo_paint_writer_i64(&text, (int64_t)operation->text.font.font_weight);
+        robo_paint_writer_char(&text, '/');
+        robo_paint_writer_string(&text, operation->text.font.italic ? "italic" : "upright");
+        robo_paint_writer_char(&text, '/');
+        robo_paint_writer_string(&text,
+                                 operation->text.font.direction ==
+                                         ROBO_LAYOUT_TEXT_DIRECTION_RTL ? "rtl" : "ltr");
     }
 
     *out_length = text.length;
-    if (!robo_paint_text_fits(&text)) {
+    if (!robo_paint_writer_fits(&text)) {
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_OPERATION, ROBO_NOT_SUPPORTED,
                                "the operation text does not fit the buffer");
     }

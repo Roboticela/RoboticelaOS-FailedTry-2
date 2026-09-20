@@ -1,4 +1,4 @@
-# RoboPaint display list (Phase 11.3)
+# RoboPaint display list (Phase 11.3, extended by 11.6)
 
 This document states the display list: what a **display command** is, how a paint record
 resolves to one, why the conversion is not duplication, and what a consumer may rely on.
@@ -49,25 +49,31 @@ typedef enum robo_paint_display_command_kind {
     ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND = 2,  /* fill a rectangle with a colour */
     ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER     = 3,  /* fill one border side's band */
     ROBO_PAINT_DISPLAY_CMD_CONTENT         = 4,  /* the node's own drawing ends */
-    ROBO_PAINT_DISPLAY_CMD_END_NODE        = 5   /* leave a node: draws nothing */
+    ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT       = 5,  /* draw one text run's glyphs (11.6) */
+    ROBO_PAINT_DISPLAY_CMD_END_NODE        = 6   /* leave a node: draws nothing */
 } robo_paint_display_command_kind_t;
 ```
 
-**Five kinds, one narrower than the paint record's seven**, and the difference is the point:
-the **four** border kinds collapse into **one**, because the fact that distinguished them --
-which side -- is consumed into the band rectangle. A command that also carried a side would
-be carrying a fact its own geometry already states.
+**Seven kinds including `NONE` -- six above it, three fewer than the record vocabulary's nine**
+-- and the three are exactly the **four border kinds collapsing into one**, because the fact that
+distinguished them (which side) is consumed into the band rectangle. A command that also carried a
+side would be carrying a fact its own geometry already states. Nothing else collapses: 11.6's
+`TEXT` record keeps a kind of its own, because a run is not a box and its command is not a fill.
 
-One fact survives that collapse and had to be carried deliberately (11.5): the
-**`border-style`**. The side is consumed into the rectangle, which states *where* a band is, but
+Two facts survive those collapses and had to be carried deliberately. 11.5's is the
+**`border-style`**: the side is consumed into the rectangle, which states *where* a band is, but
 the style is the shape *inside* it and is not derivable from the rectangle -- so `draw-border`
 has a `style` field, it is required to be one that generates a border, and it is the reason this
-artifact is render-ready rather than merely resolved.
+artifact is render-ready rather than merely resolved. 11.6's is the **run** (`draw-text`), which
+is the one field on this model that names another container: a span into **this list's own**
+code-point pool, a baseline offset and the font inputs (`paint/docs/Text.md`). The pool is the
+list's own rather than the record list's -- the builder copies each span across -- which is what
+keeps 11.2's snapshot property true of the artifact as well as of the sequence.
 
 The vocabulary splits the operation vocabulary's way: **structural** commands
 (`BEGIN_NODE`, `CONTENT`, `END_NODE`) are emitted for **every** node and carry no colour;
-**drawing** commands (`DRAW_BACKGROUND`, `DRAW_BORDER`) are emitted **only when they draw**
-and carry a colour a rasteriser can use. `robo_paint_display_command_kind_draws` and
+**drawing** commands (`DRAW_BACKGROUND`, `DRAW_BORDER`, `DRAW_TEXT`) are emitted **only when they
+draw** and carry a colour a rasteriser can use. `robo_paint_display_command_kind_draws` and
 `robo_paint_display_command_kind_is_structural` are the partition, and the validity rule
 splits on *drawing* rather than on *marker* so `CONTENT` is held to the structural side.
 
@@ -83,10 +89,13 @@ the record vocabulary:
 | `BEGIN_BOX` | `BEGIN_NODE` | the **border box** |
 | `BACKGROUND` | `DRAW_BACKGROUND` | the **border box** |
 | `BORDER_TOP` / `BORDER_RIGHT` / `BORDER_BOTTOM` / `BORDER_LEFT` | `DRAW_BORDER` | the side's **band** |
+| `TEXT` (11.6) | `DRAW_TEXT` | the run's **advance box** |
 | `CONTENT` | `CONTENT` | the **content box** |
 | `END_BOX` | `END_NODE` | the **border box** |
 
-`node`, `depth`, `clip`, `color` and -- for a band -- `style` carry through **unchanged**.
+`node`, `depth`, `clip`, `color`, -- for a band -- `style` and, for a run, everything in `text`
+except the span itself carry through **unchanged**. The span is the one field that is not copied
+verbatim: it is re-numbered into the output's own pool.
 Because the mapping is one-to-one, a display list has the same length as the record list it was
 built from, and the two can be paired positionally -- which is how `paint.display.*` checks it.
 
@@ -172,16 +181,25 @@ command's own `depth`, in list order -- a text door into a buffer and nothing mo
 dump's shape one stage up:
 
 ```text
-#0000 BEGIN_NODE        node=1 depth=0 rect=0,0,100,40 clip=visible/visible
-#0001   DRAW_BACKGROUND node=1 depth=0 rect=0,0,100,40 clip=visible/visible color=#ff0000ff
-#0002   DRAW_BORDER     node=1 depth=0 rect=0,0,100,1  clip=visible/visible color=#000000ff style=dashed
-#0003   CONTENT         node=1 depth=0 rect=1,1,98,38  clip=visible/visible
-#0004 END_NODE          node=1 depth=0 rect=0,0,100,40 clip=visible/visible
+#0000 begin-node       node=1 depth=0 clip=visible/visible rect=0,0,100,40
+#0001 draw-background  node=1 depth=0 clip=visible/visible rect=0,0,100,40 color=#ff0000ff
+#0002 draw-border      node=1 depth=0 clip=visible/visible rect=0,0,100,1 color=#000000ff style=dashed
+#0003 content          node=1 depth=0 clip=visible/visible rect=1,1,98,38
+#0004   draw-text        node=2 depth=1 clip=visible/visible rect=1,1,16,12 color=#ff0000ff text="Hi"
+#0005 end-node         node=1 depth=0 clip=visible/visible rect=0,0,100,40
 ```
+
+The names are the vocabulary's own, lower case, exactly as `robo_paint_display_command_kind_name`
+spells them, padded to `ROBO_PAINT_DISPLAY_NAME_COLUMN` (16) so the fields after them line up. The
+ordinal is written by the dump rather than by the command's writer, which is why it is five
+characters wide (`#` plus a zero-padded four-digit number) and followed by the depth's own indent.
 
 The `style=` field appears on a `draw-border` and on nothing else, exactly as the field itself
 does: a band that could not say which of the ten styles it draws would be the one thing a reader
-of the dump could not tell apart from a `solid` one.
+of the dump could not tell apart from a `solid` one. The `text=` field appears on a `draw-text`
+and on nothing else, for the same reason one stage along: a span is two integers, and a reader of
+a dump is a reader of *characters*, so the door that has the pool appends the quoted run --
+bounded and escaped, because a line is a fixed-size buffer and a run has no bound at all.
 
 `ROBO_PAINT_DISPLAY_DUMP_LINE_MAX` is a **derived** bound, and `paint.display.dump` measures
 the widest line this build can actually produce rather than trusting the derivation.
@@ -191,19 +209,20 @@ the widest line this build can actually produce rather than trusting the derivat
 ## 8. What is deliberately not here
 
 - **No rasterisation of the whole list, no clipping architecture, no presentation.** The display
-  list is data and `raster` is 0: since 11.4–11.5 exactly the two **drawing** kinds are consumed --
-  a `draw-background` and a `draw-border` are filled into a caller's surface by
-  `robo_paint_decoration_paint` (`paint/docs/Decoration.md`, `paint/docs/Border.md`), in the
-  list's order -- while the three structural commands are still data. A fill *is* bounded by the
-  clip the command carries, but no clipping op is emitted and no clipping system exists.
+  list is data and `raster` is 0: since 11.4–11.6 exactly the three **drawing** kinds are consumed
+  -- a `draw-background` and a `draw-border` are filled into a caller's surface and a `draw-text`
+  has its glyphs stroked into it, all by `robo_paint_decoration_paint` (`paint/docs/Decoration.md`,
+  `paint/docs/Border.md`, `paint/docs/Text.md`), in the list's order -- while the three structural
+  commands are still data. A fill *is* bounded by the clip the command carries, but no clipping op
+  is emitted and no clipping system exists.
 - **No batching, merging or command reordering.** The order is the traversal's; an optimizer
   is a later goal's and would need a consumer to justify it.
 - **No transforms, opacity, save/restore or clip *operations*.** A command carries the clip
   it draws under; a rasteriser applies it from the command. A wider vocabulary waits for a
   consumer.
-- **No text or image commands.** A text run is counted, not painted (11.1); when text
-  painting arrives it is a new kind with its own snapshot fields, which is the shape the
-  record was designed for.
+- **No image commands**, and nothing behind the one text kind that does exist: no shaping, no
+  bidi, no line breaking, no fallback. What a `draw-text` states is the runs RoboLayout measured,
+  in logical order, resolvable against a font the *caller* supplies.
 - **No scroll, damage, tile or compositor concepts**, and no paint invalidation (11.11) or
   hit testing (11.10).
 

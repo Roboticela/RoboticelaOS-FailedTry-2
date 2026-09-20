@@ -116,14 +116,56 @@
  * visibly wrong picture. So the background-only door of 11.4 was **replaced**, not joined, by
  * `robo_paint_decoration_paint` -- the fence it drew (`background_painting` **1**, `raster`
  * **0**) is the same fence, moved one command kind along.
+ *
+ * **11.6 -- text painting**, and the first thing this module carries that is not a number.
+ * A text node generates a layout object of kind `TEXT` and nothing painted it, because a run's
+ * rectangle is a line fragment with no box layers and drawing one means glyphs. It now draws:
+ * a `TEXT` record and a `draw-text` command carry the run's **characters** in a pool the list
+ * owns, the **baseline** as an offset from the run rectangle's top, and the **font inputs** the
+ * run was measured with, and the same pass that fills backgrounds and bands resolves each
+ * character through a face's cmap and strokes its outline.
+ *
+ * Three decisions are worth the space, because each of them was a choice between two
+ * defensible designs and the reason to pick one is not obvious:
+ *
+ *   **characters, not glyph ids.** A glyph id is a fact about a *font*, so a display list that
+ *   stored them would be a list only that font could draw, and the face the traversal resolved
+ *   glyphs with and the face the painter drew with would be two faces nothing checks for
+ *   agreement. Storing code points keeps the display list a statement about the **document** --
+ *   independent of the font it will be drawn with, exactly as a background command is independent
+ *   of the surface it will be filled into -- and puts glyph resolution where RoboGraphics' own
+ *   bridge says it belongs: *"RoboGraphics does not shape, segment, bidi, or fall back fonts.
+ *   RoboText supplies glyph IDs + placement later."*
+ *
+ *   **a pool and a span, not a pointer.** Characters are variable-length data and no fixed
+ *   record can hold them, so the record carries two numbers that name them and the list owns
+ *   the array. That is what keeps "a value record with no pointers in it" true -- and with it
+ *   every property 11.1 built on that: a list is safe to copy, to discard and to regenerate, and
+ *   a text operation can no more dangle than a fill can.
+ *
+ *   **the font is the caller's, exactly as the surface is.** `robo_paint_decoration_paint`
+ *   takes a face, borrows it, retains nothing, resolves no `font-family` and falls nothing back;
+ *   NULL is legal and counts every text command (`no_font`) rather than failing. It is the same
+ *   argument `RoboLayoutTextFont.h` makes for its measurer: the face is handed in, and which
+ *   face a document's text should use is a selection question whose owners are elsewhere.
+ *
+ * What the release does **not** claim: shaping (no GSUB, no GPOS, no ligatures, no kerning), the
+ * bidi algorithm (an RTL run is drawn left to right, counted as `rtl`), line breaking,
+ * whitespace collapsing, font fallback, `text-decoration`, `text-shadow`, and filled or
+ * antialiased glyphs -- this build strokes glyph outlines, because that is the only glyph mode
+ * `RoboGraphicsText.h` implements (`MASK`, `ALPHA` and `COLOR` are reserved there and refused).
+ * `text_painting` says a run's glyphs reach a surface; it does not say they look the way a text
+ * renderer's output looks. Shaping is Phase 14's, and the boundary is already the right shape:
+ * this build resolves each code point through the cmap in logical order, and Phase 14 replaces
+ * that step with a glyph run and changes nothing above it.
  */
 #ifndef ROBO_PAINT_VERSION_H
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 5
+#define ROBO_PAINT_VERSION_MINOR 6
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.5.0"
+#define ROBO_PAINT_VERSION_STRING "0.6.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0
@@ -142,15 +184,17 @@
  * suite, which asserts all three together. A caller deciding whether to look for a surface
  * should read the function; a caller deciding whether to *make* one should read the field.
  *
- * What it claims is narrow and it must not be read wider: a **background** and a **border
- * band**, in the colours CSS resolved. It does **not** claim the seven pattern border styles
- * (the band is drawn, the pattern is not -- `unshaped` counts them), text, images, clipping,
- * opacity beyond the colour's own alpha, antialiasing, rounded corners, gradients, transforms
- * or a compositor, and it does **not** claim a rasteriser of the whole list -- that is
- * `raster`, which is still 0, because the structural commands are not drawings. A caller that
- * read this constant as "the document renders" would be wrong in exactly the way reading
- * `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as "layout is done" was wrong in a first release; the
- * fields beside it, `background_painting` and `border_painting`, say which drawings exist.
+ * What it claims is narrow and it must not be read wider: a **background**, a **border band**
+ * and, since 11.6, a **text run's glyphs**, in the colours CSS resolved. It does **not** claim
+ * the seven pattern border styles (the band is drawn, the pattern is not -- `unshaped` counts
+ * them), glyphs drawn as filled or antialiased shapes rather than stroked outlines, shaping or
+ * bidi (`rtl` counts what this build drew in logical order), images, clipping, opacity beyond
+ * the colour's own alpha, rounded corners, gradients, transforms or a compositor, and it does
+ * **not** claim a rasteriser of the whole list -- that is `raster`, which is still 0, because the
+ * structural commands are not drawings. A caller that read this constant as "the document
+ * renders" would be wrong in exactly the way reading `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as
+ * "layout is done" was wrong in a first release; the fields beside it -- `background_painting`,
+ * `border_painting` and `text_painting` -- say which drawings exist.
  */
 #define ROBO_PAINT_DRAWING_IMPLEMENTED 1
 

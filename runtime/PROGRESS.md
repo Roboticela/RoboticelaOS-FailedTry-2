@@ -5268,7 +5268,11 @@ the only fact about a band that its rectangle cannot state.
 ### Results
 
 `Tools/Build.ps1 -Configuration Debug/Release -Verify -Test` each report **ALL TESTS PASS**
-(2460 cases); the sanitized build is clean under ASan and UBSan with no diagnostic.
+(2460 cases, `Failed: 0` on both). The sanitized build is clean under ASan and UBSan -- no
+diagnostic of either kind in the whole run -- and reports **2458/2460**, red on exactly the two
+documented host-focus flakes (`window.host.keyboard`, `window.host.mouse`, both failing
+`robo_window_request_focus(id) == ROBO_OK (7 != 0)`), on a diff touching no `window` file and
+with those two green in the Debug and Release runs above.
 `--filter paint.border.` is **14/14**, `--filter paint.` is **99/99** (93 module cases plus the six
 `demo.paint.*` cases the substring filter also matches), `--filter layout.` is **346/346**, and
 `robo test-paint` passes. `robo check` passes with Chromium independence CLEAN, and the host visual
@@ -5286,12 +5290,117 @@ document remain, renamed as a document to `paint/docs/Decoration.md`).
 `paint/docs/Architecture.md`, `DisplayList.md`, `Operations.md`, `Tests.md`, `PROGRESS.md`,
 `ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
 
+## Goal 11.6 — Text painting
+
+**Status: complete.** The first drawing this module does whose payload is **not a number**. Every
+release before it put a value -- a colour, a rectangle, a band, a style enumerator -- into a fixed
+record, which is what made a paint list safe to copy, to discard and to rebuild. A text run carries
+**variable-length data**, and the whole of this release is what that costs: the characters live in a
+**pool** owned by exactly one list, a record carries a **span** (two integers) into it, and the
+display list owns a pool of its own so the artifact keeps 11.2's snapshot property one stage
+further along. The runs painted are the runs RoboLayout measured -- in logical order, at the font's
+own advances -- and the passage to a shaped run is left as an explicit seam for Phase 14.
+
+**Done:**
+
+| Thing | Where |
+|---|---|
+| The **code-point pool and the span**: `robo_paint_text_pool_t` is one contiguous array a list owns, and a record names characters with `first`/`count` rather than a pointer -- so a text operation is still a value record with no pointers in it and "no dangling pointer" is still true by construction. The pool is a type of its own because it has **one implementation and two owners** (the record list and the display list), and every door that consumes a span takes the pool and **refuses** one that runs past the end rather than reading whatever is there | `Include/RoboPaint/RoboPaintText.h`, `Source/RoboPaint/RoboPaintText.c` |
+| **Code points, not bytes and not glyph ids**: code points are the unit RoboLayout measures in, so a run is measured and painted in the same unit; glyph ids are deliberately not stored, because a glyph id is a fact about a *font* and a list that held them would be a list only that font could draw. Storing characters keeps the display list a statement about the **document** and puts glyph resolution at the drawing step, where RoboGraphics' own bridge says it belongs | `RoboPaintText.h` |
+| The **`TEXT` record** (kind 8, a **drawing** kind): the font inputs and the **baseline offset** beside the span. The baseline is an *offset from the run rectangle's top* and not a coordinate -- one number in one space, so there are not two spaces to keep in agreement -- read through `robo_layout_baseline_offset` and **never recomputed**, because 10.7 placed it and a painter that derived it would be a second baseline model | `RoboPaintOperation.h/.c`, `RoboPaintContext.c` |
+| A run is a **child** in the sequence, not a box: one `TEXT` record, at one depth past the box whose element owns the text node, naming itself and appearing **after that box's `CONTENT`** -- and no `BEGIN`/`END` pair, because a run has nothing to open and no children | `RoboPaintContext.c`, `RoboPaintDisplayListBuilder.c` |
+| The **`draw-text` command** (kind 5) and the builder's **pool copy**: every span is re-numbered into the output's own pool by `robo_paint_text_pool_copy`, the one door between two pools, which moves bytes from one owned array to another instead of round-tripping through a buffer sized to the longest run in the document | `RoboPaintDisplayCommand.h/.c`, `RoboPaintDisplayListBuilder.c` |
+| **Glyphs reach a surface**: the pass resolves each code point through the **caller's face** and strokes its outline with `robo_gfx_raster_draw_glyph` at the run's own pixel size, from the rectangle's left edge, on the baseline. A glyph whose metrics will not parse advances by **nothing** and is counted as a miss -- the measurer's refusal restated, because a broken font that produced a narrower run here would pile glyphs on each other in a way that reads as a rendering bug rather than a missing table | `RoboPaintDecoration.c` |
+| The pass **prepares the face's cmap**, once, before the first lookup -- a `robo_font_face_t` is created without one and `robo_font_face_lookup_glyph` answers `ROBO_NOT_SUPPORTED` for a face whose map has not been parsed, which is the same door the layout measurer calls (`RoboLayoutTextFont.c`). A face whose map will not parse is still not a refusal: every glyph becomes `.notdef` and `glyphs_missing` names the fact per code point | `RoboPaintDecoration.c` |
+| The **pass record** grows `texts`, `no_font`, `glyphs`, `glyphs_missing` and `rtl`, and the identities move with them: `draws = backgrounds + borders + texts`, `draws = filled + contextual + transparent + empty + no_font`. A text run is **exempt from the zero-area rule** -- a run's rectangle is an *advance* box and a glyph's ink can overhang it -- and `no_font` sits on the far side of `draws` from the other three because it is a fact about the **call** rather than the document | `RoboPaintDecoration.h` |
+| The dumps: a record line and a command line each carry ` text="..."`, bounded and escaped -- the one thing a record's own writer cannot produce, because a span is two integers and the characters belong to the pool, so the door that *has* the pool appends it | `RoboPaintDump.c`, `RoboPaintDisplayDump.c` |
+| Version **0.6.0**; `text_painting` is added as **1** beside `background_painting` and `border_painting`, while `raster` stays **0** | `RoboPaintVersion.h`, `RoboPaint.c` |
+| The **text suite** -- 17 cases in `paint.text.*`: the characters travelling record pool -> display pool -> pixels and read back through the pool's own door; code points against an accented word (four code points, five UTF-8 bytes); the run's boxes checked against the tree with the box suites' own helper; `draw-text` at one depth past its parent box and after its `CONTENT`; two participants in one inline context landing at two line tops; colour; glyphs stroked into a real surface from a synthetic face; an unmapped code point drawn as `.notdef` and counted; a document with text painted with **no face**; an RTL run counted; the record list freed and the display list still writing and painting identically; the validity rules and the pool doors on hand-built values; empties; determinism against an independently rebuilt tree; and the dump | `paint/tests/SuiteRoboPaintText.c` |
+| The existing suites updated for the new vocabulary: the unit suite's `text` record needs its run or the validity rule refuses it; the display list's lockstep walk gains the `TEXT` -> `DRAW_TEXT` mapping and the run's rectangle; the conformance suite's positional capabilities list gains `text_painting`; the traversal suite reads a run's characters back through the list's pool | `SuiteRoboPaint.c`, `SuiteRoboPaintDisplayList.c`, `SuiteRoboPaintConformance.c`, `SuiteRoboPaintTraversal.c` |
+
+### Completion criteria
+
+| Criterion | Evidence |
+|---|---|
+| The existing text/layout infrastructure is understood and reused | the run, its range, its baseline and its font inputs all come from RoboLayout's own doors; no shaping is re-derived |
+| Text PaintRecord exists | `ROBO_PAINT_OP_TEXT`, `robo_paint_operation_text`; `paint.text.record_shape` |
+| Text paint data is snapshot-based | the characters live in the list's pool and the span is two integers; clearing the records cannot change a character the list draws -- `paint.text.mutation_isolation` |
+| Text geometry comes from completed layout | `paint.text.order_and_depth` and the shared `paint_local_boxes_match_layout` helper on every record |
+| Baseline is preserved correctly | `paint.text.record_shape` reads it through `robo_layout_baseline_offset` |
+| Text colour uses the existing colour system | the same `robo_paint_color_to_rgba8` door; `paint.text.color` |
+| RoboFont is used for font/glyph handling | `robo_font_face_parse_cmap` + `robo_font_face_lookup_glyph` + `robo_gfx_glyph_metrics_device`; no second loader |
+| `DrawText` display command exists | `ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT`, `robo_paint_display_command_text`; `paint.text.command_and_span` |
+| PaintRecord -> DrawText conversion works | the builder's pool copy, asserted with both pools read back |
+| Multiple text runs are supported | `paint.text.multiple_runs`, `paint.text.wrapped_lines` |
+| Empty/missing-font cases are safe | `paint.text.empty_cases`, `paint.text.no_font`, `paint.text.missing_glyph` |
+| Geometry is validated | the run's own validity rule, plus the saturation every geometry door already had |
+| Mutation isolation is verified | `paint.text.mutation_isolation` |
+| Determinism is verified | `paint.text.determinism` (an independently rebuilt tree, compared by every run and both dumps) |
+| Debug dump includes text operations | `paint.text.dump`; `paint.dump.line_bound` still measures the widest real line |
+| Basic Latin text reaches the graphics path | `paint.text.pixels` -- a real surface with the run's own colour on it -- and the host visual checkpoint, whose text probes are ink at the heading, paragraph and link positions |
+| Existing tests remain passing | whole suite green |
+| No Chromium/Blink runtime dependency | boundary scan CLEAN; `robo check` PASS |
+| No out-of-scope subsystem was implemented | no shaping, no bidi, no line breaking, no fallback, no image kind, no clipping, no opacity, no rasteriser of the whole list |
+
+### Results
+
+`Tools/Build.ps1 -Configuration Debug -Verify -Test` and `-Configuration Release -Verify -Test` each
+report **ALL TESTS PASS** -- **2477 cases, `Failed: 0`** on both -- and the sanitized build (ASan +
+UBSan) is **clean with no diagnostic of either kind** over the whole run. A later full run of the
+finished tree reports **2476/2477**, red on one of the two **documented host-focus flakes** --
+`window.host.keyboard`, failing `robo_window_request_focus(id) == ROBO_OK (7 != 0)`, the signature
+11.5's report already records -- in a module this diff does not touch and green in the Debug,
+Release and sanitized runs above; the Win32 focus request depends on which process owns the desktop
+foreground when the suite runs, which is why it moves between runs and not between diffs.
+`--filter paint.text.` is
+**17/17**, `--filter paint.` is **116/116** (110 module cases plus the six `demo.paint.*` cases the
+substring filter also matches), `--filter layout.` is **346/346**, `--filter css.` is **616/616**, and
+`robo test-paint` passes. `robo check` passes with Chromium independence CLEAN, and the host visual
+checkpoint passes: **15 checks, 0 failed -- `RESULT: PASS`**, with `paint: blocks=22 rects=50 lines=3
+text_runs=19` and the five ink probes (`heading-ink`, three `paragraph-ink`, two `link-ink`) each
+finding a run's own colour at the placed position.
+
+### Files
+
+**Added:** `Include/RoboPaint/RoboPaintText.h`, `Source/RoboPaint/RoboPaintText.c`,
+`paint/tests/SuiteRoboPaintText.c`, `paint/docs/Text.md`.
+**Modified:** `RoboPaint.h`, `RoboPaintVersion.h`, `RoboPaint.c`, `RoboPaintTypes.h/.c`,
+`RoboPaintOperation.h/.c`, `RoboPaintList.h/.c`, `RoboPaintContext.h/.c`,
+`RoboPaintDisplayCommand.h/.c`, `RoboPaintDisplayList.h/.c`, `RoboPaintDisplayListBuilder.c`,
+`RoboPaintDecoration.h/.c`, `RoboPaintDump.h/.c`, `RoboPaintDisplayDump.h/.c`,
+`RoboPaintInternal.h`, `Tests/Main.c`, `Tools/Build.ps1`, the five existing paint suites,
+`paint/README.md`, `paint/docs/{Architecture,Decoration,DisplayList,Operations,Tests,Border}.md`,
+`PROGRESS.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
+
+### What 11.6 found
+
+1. **A structural check ordered before the rule it exempts is unreachable.** The display builder's
+   text branch sat *after* the generic "a record's depth is its innermost box's" check -- a rule a
+   run fails by construction, since a run is owed one level **down** from the box that owns it -- so
+   every document with text was refused with that message and the text branch could never run. The
+   fix is an ordering, not a rule.
+2. **A face is created without a cmap and the drawing layer must prepare it.** Without the
+   `robo_font_face_parse_cmap` call the pass drew nothing and reported every code point missing --
+   a rendering-shaped failure with a font-shaped cause.
+3. **A synthetic face can be *nearly* right.** The suite's hand-written format-4 cmap carried one
+   segment too many for two, which shifted `idRangeOffset` onto the wrong word; the parser read a
+   plausible glyph array out of the extra bytes, every lookup resolved past `maxp`'s `numGlyphs`,
+   and the pass reported `INVALID_FONT` while drawing nothing. Both halves are recorded because
+   they are the two ways a font test passes for the wrong reason.
+4. **A wrapped line is two participants, not one fragmented run.** RoboLayout measures a text node
+   as a **unit**, so a run wider than its line wraps whole rather than breaking; the case that
+   expected fragments was asserting a later phase's behaviour and now asserts the build's -- which
+   is the stronger statement, because it pins that the wrap is layout's rather than paint's.
+
 ## Next
 
-- **Phase 11.6 — the next RoboPaint goal.** 11.5 fills the two **drawing** command kinds and stops
-  at them: `drawing`, `background_painting` and `border_painting` are `1`, `raster` is still `0`,
-  and the seven pattern border styles, text, images, opacity, real clipping, transforms, batching,
-  rasterisation of the whole list, paint invalidation (11.11) and hit testing (11.10) are all still
-  absent. The deferred tables in `paint/README.md`, `paint/docs/Decoration.md` §11 and
-  `paint/docs/Border.md` §6 name every one of them, and `paint/docs/Architecture.md` §15 lists the
-  nineteen rules the next goal may assume. Do not start until requested
+- **Phase 11.7 — the next RoboPaint goal.** 11.6 fills the three **drawing** command kinds and stops
+  at them: `drawing`, `background_painting`, `border_painting` and `text_painting` are `1`, `raster`
+  is still `0`, and the seven pattern border styles, images, opacity, real clipping, transforms,
+  batching, rasterisation of the whole list, paint invalidation (11.11) and hit testing (11.10) are
+  all still absent. Image painting is the fourth drawing kind and the second non-numeric payload,
+  and it is where the pool question is asked again -- a pool of bytes for an encoded image, or a
+  reference to a decoded surface, which is a decision with different ownership consequences either
+  way. The deferred tables in `paint/README.md`, `paint/docs/Decoration.md` §11, `paint/docs/Text.md`
+  §10 and `paint/docs/Border.md` §6 name every one of them, and `paint/docs/Architecture.md` §15
+  lists the twenty rules the next goal may assume. Do not start until requested

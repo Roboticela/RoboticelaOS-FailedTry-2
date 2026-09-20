@@ -3,7 +3,8 @@
  *
  * One display command: a **render-ready** record a rasteriser can execute without ever
  * consulting the box model. It is the artifact Phase 11.3 adds above the paint record,
- * and the whole of the difference between the two is one field.
+ * and the whole of the difference between the two is **one resolved rectangle** -- plus,
+ * since 11.6, the one field a run needs beyond it.
  *
  * A `robo_paint_operation_t` (`RoboPaintOperation.h`) carries the box's **three
  * rectangles** -- border, padding, content -- and a **kind** out of a seven-wide
@@ -18,6 +19,8 @@
  *   a background acts on the border box;
  *   a border side acts on its **band** -- the region of the border box outside the
  *   padding box on that side;
+ *   a text run acts on the rectangle RoboLayout placed it at -- and that rectangle *is*
+ *   its border, padding and content box, because a run has no insets (11.6);
  *   the content boundary acts on the content box;
  *   the node markers act on the border box.
  *
@@ -50,6 +53,7 @@
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintText.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,12 +88,27 @@ typedef enum robo_paint_display_command_kind {
     ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER = 3,
     /** A node's own drawing is over and its contents begin. Draws nothing. */
     ROBO_PAINT_DISPLAY_CMD_CONTENT = 4,
+    /**
+     * Draw one text run's glyphs (11.6).
+     *
+     * The `TEXT` record's counterpart, and the first drawing here that is not a rectangle
+     * filled with a colour: what it acts on is the run's rectangle (the `rect`), **where on
+     * that rectangle the text sits** (the baseline, as an offset from the rect's top) and
+     * **which characters** (a span into the list's own pool).
+     *
+     * It appears **inside the box whose element owns the text node**, after that box's
+     * `CONTENT`, because a text object is a child of that box and a run has no box of its
+     * own to open. So a consumer that reads a box's own painting as
+     * `[BEGIN_NODE .. CONTENT]` and its contents as `(CONTENT .. END_NODE)` reads a
+     * `DRAW_TEXT` as one of the contents -- which is exactly what the document says.
+     */
+    ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT = 5,
     /** Leave a node: closes one box's commands. Draws nothing. */
-    ROBO_PAINT_DISPLAY_CMD_END_NODE = 5
+    ROBO_PAINT_DISPLAY_CMD_END_NODE = 6
 } robo_paint_display_command_kind_t;
 
 /** Number of defined display command kinds. */
-#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 6u
+#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 7u
 
 /** Non-zero if @p kind is a defined display command kind. */
 int robo_paint_display_command_kind_is_known(robo_paint_display_command_kind_t kind);
@@ -98,9 +117,10 @@ int robo_paint_display_command_kind_is_known(robo_paint_display_command_kind_t k
 const char *robo_paint_display_command_kind_name(robo_paint_display_command_kind_t kind);
 
 /**
- * Non-zero when @p kind **puts a pixel down**: `DRAW_BACKGROUND` or `DRAW_BORDER`. The
- * predicate the builder uses, and the drawing half of the validity rule (<-> a drawing
- * kind carries a colour a rasteriser can use, a structural kind carries `none`).
+ * Non-zero when @p kind **puts a pixel down**: `DRAW_BACKGROUND`, `DRAW_BORDER` or
+ * `DRAW_TEXT`. The predicate the builder uses, the drawing pass asks, and the drawing half
+ * of the validity rule (<-> a drawing kind carries a colour a rasteriser can use, a
+ * structural kind carries `none`).
  */
 int robo_paint_display_command_kind_draws(robo_paint_display_command_kind_t kind);
 
@@ -128,7 +148,21 @@ int robo_paint_display_command_kind_is_marker(robo_paint_display_command_kind_t 
  *           **render-ready**: a rasteriser must be able to produce the drawn shape from
  *           the command alone, and a border's shape is its style. A command that carried
  *           the band and the colour but not the style would be one its consumer could
- *           only draw as `solid` and could not know it was guessing.
+ *           only draw as `solid` and could not know it was guessing;
+ *   `text`  the run a `DRAW_TEXT` acts on (11.6): the span naming its characters in the
+ *           list's pool, the baseline's offset from `rect`'s top, and the font inputs the
+ *           run was measured with -- and a cleared record for every other kind, which is
+ *           the rule `style` follows one field along. It is the same sub-record the paint
+ *           operation carries, copied through rather than rebuilt, so "the size it was
+ *           measured at is the size it will be drawn at" is a copy rather than an
+ *           agreement to maintain.
+ *
+ * The characters themselves are **not** in the command, and that is the one place this
+ * artifact is not self-contained: they live in a pool the display list owns, and the
+ * command carries the span that names them (`RoboPaintText.h`). A command is thus as
+ * pointer-free as it was before this phase -- two numbers in place of a pointer, exactly
+ * the trade the paint record made -- and the list is still safe to copy, to discard and
+ * to rebuild.
  *
  * `node` and `depth` are the box's identity and place, carried so a command is still
  * checkable against the tree it came from and so the tree's shape is recoverable from a
@@ -151,6 +185,9 @@ typedef struct robo_paint_display_command {
     /** The `border-style` a band draws (11.5): meaningful for `DRAW_BORDER`, and required
      *  to be `NONE` for every other kind. */
     robo_css_border_style_t style;
+    /** The run a `DRAW_TEXT` acts on (11.6): the span, the baseline offset and the font
+     *  inputs, copied from the operation. A cleared record for every other kind. */
+    robo_paint_text_run_t text;
 } robo_paint_display_command_t;
 
 /** Clear @p command to a `NONE` marker with no geometry. Safe on NULL. */
@@ -171,9 +208,11 @@ void robo_paint_display_command_init(robo_paint_display_command_t *command);
  *   can use -- resolved, or `currentColor` this layer could not resolve -- for a
  *   **drawing** one. `none` on a drawing command is refused because a fill with no colour
  *   draws nothing;
- *   and the style rule (11.5): a `draw-border` carries a style that generates a border,
+ *   the style rule (11.5): a `draw-border` carries a style that generates a border,
  *   and every other kind carries `NONE`. A `draw-background` with a style, or a band with
- *   `none`, is a command whose fields disagree about what it is.
+ *   `none`, is a command whose fields disagree about what it is;
+ *   and the text rule (11.6): a `draw-text` carries a **run**, and every other kind a
+ *   cleared one.
  */
 int robo_paint_display_command_is_valid(const robo_paint_display_command_t *command);
 
@@ -203,6 +242,10 @@ robo_css_color_t robo_paint_display_command_color(const robo_paint_display_comma
 /** The `border-style`, by value. `NONE` for NULL and for every kind that is not a
  *  border band. */
 robo_css_border_style_t robo_paint_display_command_style(const robo_paint_display_command_t *command);
+
+/** The text run, by value. A cleared run for NULL and for every kind that is not
+ *  `DRAW_TEXT`. */
+robo_paint_text_run_t robo_paint_display_command_text(const robo_paint_display_command_t *command);
 
 /** Non-zero when @p command is **structural**. Safe on NULL (0). */
 int robo_paint_display_command_is_structural(const robo_paint_display_command_t *command);

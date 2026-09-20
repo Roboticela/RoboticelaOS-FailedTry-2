@@ -1,4 +1,4 @@
-# RoboPaint — architecture (through Phase 11.4)
+# RoboPaint — architecture (through Phase 11.6)
 
 RoboPaint is the fifth module in the layout stack. It sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`), and it turns the completed geometry RoboLayout
@@ -6,10 +6,10 @@ produced into a **deterministic sequence of operations** a rasteriser executes -
 11.3, into the **render-ready display list** it consumes. 11.1 established the context, the
 operation vocabulary, the list and its ownership, the deterministic traversal, the geometry a
 rasteriser reads and the clip state; 11.2 made the record sequence regular; 11.3 resolved the
-box model into one rectangle per command; and **11.4 puts the first colour on a surface** -- a
-`draw-background` command's rectangle and colour reach a RoboGraphics CPU raster. Nothing else
-draws: border bands, text, images, real clipping, opacity and a rasteriser of the whole list are
-each a later goal's.
+box model into one rectangle per command; 11.4–11.6 put the first three kinds of drawing on a
+**surface** -- a `draw-background` command's rectangle and colour, a `draw-border`'s band, and a
+`draw-text`'s glyphs, all through a RoboGraphics CPU raster. What is left is images, real
+clipping, opacity and a rasteriser of the whole list, each a later goal's.
 
 ---
 
@@ -74,7 +74,8 @@ Fourteen headers under `Include/RoboPaint/`, one umbrella:
 | `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` (11.3) |
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` (11.3) |
 | `RoboPaintColor.h` | The colour bridge: `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` (11.4) |
-| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills backgrounds and border bands (11.4–11.5) |
+| `RoboPaintText.h` | The code-point payload: `robo_paint_text_run_t`, `robo_paint_text_span_t`, `robo_paint_text_pool_t` (11.6) |
+| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that executes backgrounds, border bands and text runs (11.4–11.6) |
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
 | `RoboPaint.h` | Lifecycle, capabilities, version |
 
@@ -103,13 +104,14 @@ typedef struct robo_paint_operation {
 
 ### 4.1 The vocabulary: structural and drawing
 
-`NONE`, `BEGIN_BOX`, `BACKGROUND`, the four `BORDER_*` kinds, **`CONTENT`**, `END_BOX`. There
-is no `TEXT`, `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator, even though the
-phase's brief lists all six as things the representation must *eventually* express. The
-reason is the one RoboLayout 10.2 gives for not adding a constant for a feature it does not
-have: a name with no code behind it is a promise, not a vocabulary. What makes them
-expressible is the record's shape — adding a kind is one enumerator, one name row and one
-case in the validity rule, never a redesign of the list.
+`NONE`, `BEGIN_BOX`, `BACKGROUND`, the four `BORDER_*` kinds, **`CONTENT`**, **`TEXT`**,
+`END_BOX`. There is no `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator, even though
+the phase's brief lists them as things the representation must *eventually* express. The reason
+is the one RoboLayout 10.2 gives for not adding a constant for a feature it does not have: a
+name with no code behind it is a promise, not a vocabulary. What makes them expressible is the
+record's shape — and the shape has now been tested twice, by `CONTENT` at 11.2 and by `TEXT` at
+11.6, each of which was one enumerator, one name row and one case in the validity rule rather
+than a redesign of the list.
 
 The vocabulary splits in two, and the split is the rule a builder obeys:
 
@@ -184,11 +186,15 @@ An operation is emitted only when it draws. Concretely:
   because `RoboLayoutBorder.h` says only the layer with an element can resolve it, and this is
   that layer. A colour that could not be resolved is *counted*
   (`robo_paint_stats_t.contextual_colors`) rather than silently dropped.
-- **Text.** A text run is visited and counted (`text_runs`) and **not painted**. A run's
-  rectangle is a line fragment with no box layers, and painting one means shaping and glyph
-  positions, which a later phase owns; a painter that summed advances in logical order would
-  be claiming a text renderer it does not have. The count exists so "this document has text
-  and none of it was painted" is a number a reader sees rather than a silence.
+- **Text.** A text node generates a layout object of the one new kind the vocabulary has
+  needed, and since 11.6 it generates a **`TEXT` record** rather than a count: one drawing whose
+  payload is a **span** into the list's code-point pool. It is not a box, so it gets no
+  `BEGIN_BOX`/`CONTENT`/`END_BOX` triple -- it is emitted where the run sits, as a child of the
+  box whose element owns the text node. What it does **not** claim is stated in `Text.md` §7:
+  no shaping, no bidi, no line breaking, no fallback -- the runs painted are the runs layout
+  measured, in logical order, at the font's own advances. The counters still exist (`text_runs`
+  against `texts`), so "this document has text and none of it was painted" is a number a reader
+  sees rather than a silence.
 - **Style-less boxes.** A box with no computed style emits a marker pair and no decoration,
   and is counted (`without_style`). A fact about the build, not a failure.
 
@@ -350,17 +356,19 @@ documented rule rather than a hazard, because nothing in an operation points any
 ## 10. The capability model
 
 `robo_paint_capabilities_t` is read positionally by `paint.conformance.capabilities` against a
-list of names, so a field added without an assertion is a visible omission. Ten of its
-thirteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
+list of names, so a field added without an assertion is a visible omission. Twelve of its
+fourteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
 `box_geometry`, `clip_state`, `decoration_ops`, `display_lists` since 11.3, **`drawing`** and
-**`background_painting`** since 11.4, and **`border_painting`** since 11.5) and two are **0**:
+**`background_painting`** since 11.4, **`border_painting`** since 11.5 and **`text_painting`**
+since 11.6) and two are **0**:
 
 | Field | Value | Why |
 |---|---|---|
-| `drawing` | **1** | a **drawing** command's rectangle and colour reach a RoboGraphics surface (11.4–11.5) — the field a caller about to look for a framebuffer should read |
+| `drawing` | **1** | a **drawing** command's rectangle and colour reach a RoboGraphics surface (11.4–11.6) — the field a caller about to look for a framebuffer should read |
 | `display_lists` | **1** | a display list as a consumable artifact exists (11.3) |
 | `background_painting` | **1** | *which* drawing exists: a background over its border box (11.4) |
-| `border_painting` | **1** | the other drawing: each border side filled across its **band** (11.5). It claims a border's place and colour, not its look — the seven pattern styles are drawn as bands and counted (`unshaped`) |
+| `border_painting` | **1** | the second drawing: each border side filled across its **band** (11.5). It claims a border's place and colour, not its look — the seven pattern styles are drawn as bands and counted (`unshaped`) |
+| `text_painting` | **1** | the third drawing: a run's glyphs resolved through the caller's face and stroked into the surface (11.6). It claims a run's glyphs reach a surface, in logical order and unshaped — `rtl` counts the runs that were drawn that way |
 | `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the three structural kinds are not drawings |
 | `paint_invalidation` | 0 | 11.11; what exists instead is its *input*, `stats.style_only` |
 
@@ -368,7 +376,7 @@ thirteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversa
 this build decides *that* a background will be filled and *which* colour, and records it.
 Keeping `decoration_ops` and `drawing` apart is what stops "a background operation exists" from
 being read as "a background was painted" — and 11.4 is the release where the second of those
-became true, for one command kind, with 11.5 adding the second.
+became true, for one command kind, with 11.5 adding the second and 11.6 the third.
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED` is **1** and is read by two doors that must not disagree —
 `robo_paint_get_capabilities().drawing` and `robo_paint_drawing_is_implemented()` — and by the
@@ -418,16 +426,18 @@ test rather than overflowing a caller's buffer.
 
 What this module does **not** do, each named where it would otherwise be assumed:
 
-- **Only a box's decorations draw.** `DRAWING` is 1, `background_painting` is 1 and
-  `border_painting` is 1. The seven **pattern** border styles are drawn as their band and counted
-  (`unshaped`); text, images and everything below are absent, and the pass counts what it skips.
+- **A box's decorations and its text draw.** `DRAWING` is 1, and
+  `background_painting`/`border_painting`/`text_painting` say which three. The seven **pattern**
+  border styles are drawn as their band and counted (`unshaped`); images and everything below are
+  absent, and the pass counts what it skips.
 - **No framebuffer presentation, compositor or GPU.** A surface is an argument.
-- **No rasteriser of the whole list** — the display list is the artifact and one kind of it is
-  consumed; `raster` is 0.
-- **No text or image operations.** Text is counted, not painted.
+- **No rasteriser of the whole list** — the display list is the artifact and three of its drawing
+  kinds are consumed; `raster` is 0.
+- **No image operation**, and no shaping, bidi, line breaking or font fallback behind the text one
+  that does exist (`Text.md` §7).
 - **No opacity, transforms, `border-radius`, gradients or antialiasing.**
 - **No clipping architecture** — the clip a command carries is applied to the raster's own clip
-  (11.4–11.5); no clipping op is emitted. No scroll clipping, no compositor clipping.
+  (11.4–11.6); no clipping op is emitted. No scroll clipping, no compositor clipping.
 - **No `background-clip`/`background-origin`** — the border box is CSS's initial value.
 - **No `z-index` or stacking context.** Document order; a later stacking pass reorders.
 - **No paint invalidation (11.11) and no hit testing (11.10).** The final positioned geometry
@@ -436,7 +446,7 @@ What this module does **not** do, each named where it would otherwise be assumed
 
 ---
 
-## 14. What 11.1–11.5 found
+## 14. What 11.1–11.6 found
 
 11.1 is an architecture release, so most of what it establishes is design; 11.2 is a record
 release, and what it establishes was largely already right — an operation was already a value
@@ -507,6 +517,26 @@ And 11.4's, which are the ones a first *drawing* release finds:
     (`D:\Muhammad\...` arrives as `D:Muhammad...`). A build fix that looked like a toolchain
     bug, found because the sanitizer gate is run as part of every phase.
 
+And 11.6's, which are the ones a release whose payload is not a number finds:
+
+11. **A structural check ordered before the rule it exempts is unreachable.** The display
+    builder's text branch was written *after* the generic "a record's depth is its innermost
+    box's" check — a rule a run fails by construction, because a run is owed one level **down**
+    from the box that owns it. Every document containing text was refused with that message and
+    the text branch beneath it could never run. Nothing but a document with text could expose
+    it, because the branch was never reached to be wrong on its own.
+12. **A drawing whose rectangle is an advance box is not a fill.** A text command is exempt
+    from the zero-area rule — a glyph's ink overhangs its advance box — and it is exempt from
+    the "the rectangle's centre is its colour" expectation, because a rectangle can be valid and
+    contain no ink (an unmapped code point draws `.notdef` and nothing else). Both exemptions are
+    statements about text rather than special cases, and both are pinned.
+13. **A face is created without a character map, and the layer that draws must prepare it.**
+    `robo_font_face_lookup_glyph` answers `ROBO_NOT_SUPPORTED` on an unprepared face, so a
+    painter that resolved glyphs without calling `robo_font_face_parse_cmap` would draw nothing
+    and report every code point missing — a rendering-shaped failure with a font-shaped cause.
+    The pass now prepares the map once, through the same door the layout measurer uses, which is
+    also what keeps the two layers from disagreeing about the same face.
+
 ---
 
 ## 15. What Phase 11.3 onwards may assume
@@ -523,7 +553,9 @@ And 11.4's, which are the ones a first *drawing* release finds:
    list is safe to discard and regenerate.
 6. `robo_paint_list_append` refuses any operation `robo_paint_operation_is_valid` rejects, so
    every list is a list of records.
-7. Text runs are visited and counted; painting them is a later phase's.
+7. A text run produces one `TEXT` record rather than a structural triple, emitted as a child of
+the box that owns the text node: one depth past that box, naming itself, and after that box's
+`CONTENT`. A run wider than its line wraps whole, so two line fragments are two runs.
 8. `stats.style_only` is the input a paint-invalidation system will consume; there is no
    paint-invalidation mechanism yet and no per-list currency check.
 9. There are no new coordinate types: geometry is RoboGraphics', re-exported by layout, read
@@ -548,12 +580,12 @@ And 11.4's, which are the ones a first *drawing* release finds:
 15. A display list is **regular** — the structural skeleton is an invariant the builder
     enforced and refuses to violate; an out-of-order record list produces an empty list and
     a `ROBO_PAINT_DOMAIN_DISPLAY_LIST` diagnostic.
-16. **The colours reach a surface** (11.4–11.5): `robo_paint_decoration_paint` fills every
+16. **The drawings reach a surface** (11.4–11.6): `robo_paint_decoration_paint` executes every
     **drawing** command of a display list into a caller's `robo_gfx_surface_t` — a background's
-    border box and each border side's band, in **one walk in list order** — and **skips** the
-    three structural commands, counting them. The colour crosses through one door,
-    `robo_paint_color_to_rgba8`, which is a field-for-field copy between two 8-bit sRGB records
-    (§17).
+    border box, each border side's band, and a text run's glyphs, in **one walk in list order**
+    — and **skips** the three structural commands, counting them. The colour crosses through one
+    door, `robo_paint_color_to_rgba8`, which is a field-for-field copy between two 8-bit sRGB
+    records (§17).
 17. A fill is bounded by the command's **own** clip, per axis, applied through the raster's
     clip — and the surface belongs to the caller: nothing is retained or destroyed by the pass,
     and the list is read through `const`.
@@ -561,8 +593,13 @@ And 11.4's, which are the ones a first *drawing* release finds:
     `draw-border` command and of the `BORDER_*` record, because it is the one fact a band's
     rectangle cannot state. The band is what this build fills; the seven pattern styles are
     drawn as that band and counted (`unshaped`).
-19. **`raster` is still 0.** Nothing consumes a display command other than the two drawing
+19. **`raster` is still 0.** Nothing consumes a display command other than the three drawing
     kinds, and there is no mechanism that rasterises a list end to end.
+20. **A run's characters live in a pool** (11.6): a `TEXT` record and a `draw-text` command carry
+    a **span** — two integers — into a code-point pool their list owns, so the record stays a
+    value with no pointers in it and the snapshot property survives the one payload that is not a
+    number. The span counts **code points**, and the display list owns a pool of its own, so
+    clearing the records cannot change a character the list draws (§18).
 
 ---
 
@@ -576,6 +613,7 @@ command acts on, resolved**, so a rasteriser never reads the box model.
 | `BEGIN_BOX` | `BEGIN_NODE` | border box |
 | `BACKGROUND` | `DRAW_BACKGROUND` | border box |
 | `BORDER_*` (four) | `DRAW_BORDER` (one) | the side's **band** |
+| `TEXT` | `DRAW_TEXT` | the run's rectangle (its advance box) |
 | `CONTENT` | `CONTENT` | content box |
 | `END_BOX` | `END_NODE` | border box |
 
@@ -593,8 +631,11 @@ carries it and a command without one is refused. A `draw-background`, which has 
 `none`; the validity rule splits exactly that way (`generates_border` for a band, `none` for
 every other kind).
 
-The vocabulary is five kinds, split structural/drawing the record's way, and the validity
-rule splits on *drawing* rather than *marker* so `CONTENT` is held to the structural side.
+The vocabulary is **seven** kinds (11.6 added `DRAW_TEXT`), split structural/drawing the
+record's way, and the validity rule splits on *drawing* rather than *marker* so `CONTENT` is held
+to the structural side. A `draw-text` carries its run beside the rectangle — the span into this
+list's pool, the baseline offset and the font inputs — which is the one field on the model that
+points at another container rather than being a value.
 
 The **builder** is the phase's second claim: a paint list is a container that validates each
 operation but not their sequence, so the builder walks the records with a stack of the open
@@ -611,15 +652,19 @@ See `paint/docs/DisplayList.md` for the precise contract.
 
 ---
 
-## 17. Decoration painting (Phases 11.4–11.5)
+## 17. Decoration painting (Phases 11.4–11.6)
 
-`robo_paint_decoration_paint(list, target, out_stats, diag)` is the first door in this module
-that takes a **surface**, and the shape of the whole phase is in its signature:
+`robo_paint_decoration_paint(list, target, face, out_stats, diag)` is the first door in this
+module that takes a **surface**, and the shape of the whole phase is in its signature:
 
 - the input is a **display list**, not the records, because the display list is the artifact
-  whose geometry is resolved. A command carries the one rectangle to fill, the boundary in force
+  whose geometry is resolved. A command carries the one rectangle to draw, the boundary in force
   and, for a band, the style that shapes it -- so the painter never reads the box model, a
-  computed style or the tree, and the only conversion left is the colour;
+  computed style or the tree, and the only conversions left are the colour and, for text, the
+  characters;
+- the **face is the caller's** too (11.6), and it is nullable: a text command with no face is
+  counted (`no_font`) and skipped, so a caller that has no font still gets a painted page and is
+  *told* which of its commands needed one;
 - the output is a **caller's** surface. The painter retains nothing and destroys nothing it did
   not create: it binds a `robo_gfx_raster_t` over the target for the duration and releases it
   before returning, so the clip and the source-over blend are the graphics module's rules
@@ -632,14 +677,16 @@ that takes a **surface**, and the shape of the whole phase is in its signature:
 ### 17.0 One walk, because there is one order
 
 11.5's architectural decision, and the reason the background-only door of 11.4 was *replaced*
-rather than joined: a box's background and its four bands are both drawings, and the list
-interleaves them the way the traversal emits them. CSS's paint order is that same order, so a
+rather than joined: a box's background, its four bands and its text runs are all drawings, and the
+list interleaves them the way the traversal emits them. CSS's paint order is that same order, so a
 descendant's background is filled **after** an ancestor's border and a child that spills over its
-parent draws over the parent's band -- the suite's decisive case. Two passes, one per kind, would
-fill every background in the document before every border in it and paint the ancestor's ring
-over the child's spill: a different and visibly wrong picture. The fence 11.4 drew
-(`background_painting` 1, `raster` 0) is unchanged; what moved is that one command kind became
-two, which is why `border_painting` now sits beside `background_painting`.
+parent draws over the parent's band -- the suite's decisive case. Three passes, one per kind, would
+fill every background in the document before every border and draw every character after every
+band: a different and visibly wrong picture. The fence 11.4 drew (`background_painting` 1,
+`raster` 0) is unchanged; what moved is that one command kind became three, which is why
+`border_painting` and `text_painting` now sit beside `background_painting`. 11.6 **extended the
+door with one argument** rather than adding a fourth walk, because a second walk would have
+re-introduced exactly the ordering problem 11.5 removed.
 
 ### 17.1 The colour bridge
 
@@ -670,12 +717,31 @@ correctly without a raster clipping system existing yet.
 
 `robo_paint_decoration_stats_t`'s fields are the **pairs**, because the interesting facts are
 differences, and three identities hold by construction and are asserted:
-`commands = draws + skipped`, `draws = backgrounds + borders`, and
-`draws = filled + contextual + transparent + empty`. `transparent` and `contextual` are kept apart
-because "the author asked for nothing" and "the colour could not be resolved here" are different
-facts about a document. `unshaped` is a fourth kind of fact rather than a fourth outcome -- it is
-a subset of `filled`, and it is the number that keeps `border_painting` from being read as "every
-border looks the way it was asked to".
+`commands = draws + skipped`, `draws = backgrounds + borders + texts`, and
+`draws = filled + contextual + transparent + empty + no_font`. `transparent` and `contextual` are
+kept apart because "the author asked for nothing" and "the colour could not be resolved here" are
+different facts about a document, and `no_font` sits on the far side of `draws` from those three
+because it is a fact about the **call** rather than the document. `unshaped` is a fourth kind of
+fact rather than a fourth outcome -- it is a subset of `filled`, and it is the number that keeps
+`border_painting` from being read as "every border looks the way it was asked to".
+
+### 17.3b Glyphs, and a run that is not a rectangle
+
+A `draw-text` is the one drawing whose rectangle is its **advance box** rather than a region to
+fill, and two rules follow from that. It is **exempt from the zero-area rule** -- a glyph's ink can
+overhang its advance box, so a rectangle with no area is not "nothing to draw" for a run the way it
+is for a fill. And it is drawn by **resolving each code point through the caller's face**, at the
+face's own advances, starting at the rectangle's left edge and the baseline at
+`rect.y + baseline_offset`.
+
+The pass **prepares the face's character map** once before the first lookup, because a
+`robo_font_face_t` is created without one and a lookup on an unprepared face misses; that is the
+same door the layout measurer calls before it resolves a glyph. A face whose map will not parse is
+still not a refusal: every glyph becomes `.notdef` and `glyphs_missing` names the fact per code
+point, so a broken font degrades to the shape of a font with no glyph for the text rather than to
+a failed pass. A run is drawn in **logical order** and the RTL runs are counted (`rtl`) -- there is
+no bidi in this build and a count is how it says so. `paint/docs/Text.md` has the payload, the
+pool, the record and the deferrals.
 
 ### 17.3a The band, and the style that shapes it
 
@@ -689,12 +755,14 @@ deferrals.
 
 ### 17.4 Safety
 
-A `NULL` list or target is `ROBO_INVALID_ARGUMENT` with a diagnostic naming which; an empty list
-is a legitimate pass whose every counter is nought; a **read-only** or implementation-absent
-format is `ROBO_NOT_SUPPORTED`, the graphics layer's own refusal mapped once (`ROBO_OUT_OF_MEMORY`
-is deliberately *not* folded in, because that is this build failing rather than the caller's
-surface being wrong); and a fill or clip the graphics layer refuses is `ROBO_ERROR` with a
-diagnostic naming the step.
+A `NULL` list or target is `ROBO_INVALID_ARGUMENT` with a diagnostic naming which; a `NULL`
+**face** is legitimate and simply counts every text command `no_font`; an empty list is a
+legitimate pass whose every counter is nought; a **read-only** or implementation-absent format is
+`ROBO_NOT_SUPPORTED`, the graphics layer's own refusal mapped once (`ROBO_OUT_OF_MEMORY` is
+deliberately *not* folded in, because that is this build failing rather than the caller's surface
+being wrong); a drawing whose span names no run in the list's pool is **skipped** rather than
+read, for the reason the geometry rule is enforced at the container; and a fill, glyph or clip the
+graphics layer refuses is `ROBO_ERROR` with a diagnostic naming the step.
 
 See `paint/docs/Decoration.md` for the full contract, and `paint/docs/Border.md` for the border
 half of it.

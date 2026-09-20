@@ -46,9 +46,17 @@
  * layer below deliberately preserved, and it would drop it invisibly: a `dashed` border
  * would be drawn as a `solid` one with nothing anywhere saying so.
  *
+ * The **text run** (11.6) is the third field whose meaning varies by kind, and it is the
+ * only one that is not a scalar: a text record carries the span naming its characters in
+ * the list's pool, the baseline's offset from the run's own top, and the font inputs the
+ * run was measured with (`RoboPaintText.h`). It is a sub-record rather than six more
+ * fields on this struct for the reason `robo_paint_boxes_t` is a sub-record: the facts
+ * travel together, so a record cannot carry half of them.
+ *
  * So the rule is the colour rule's shape, stated per kind and **enforced** rather than
- * assumed: a border record carries a style that **generates** a border, and every other
- * kind carries `NONE`. `generates_border` rather than "not `NONE`" because `none` and
+ * assumed: a border record carries a style that **generates** a border, every other kind
+ * carries `NONE`, and a text record carries a run while every other kind carries a
+ * cleared one. `generates_border` rather than "not `NONE`" because `none` and
  * `hidden` both draw nothing (10.11's rule, which is why such a side's used width is
  * zero and no record is emitted for it) -- so a hand-built record claiming to draw a
  * `hidden` border is inconsistent and refused, by the same door the layout layer uses
@@ -65,6 +73,7 @@
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
 
 #ifdef __cplusplus
@@ -98,6 +107,16 @@ typedef struct robo_paint_operation {
      *  same shape @ref color has for a marker, and the reason the field is a stated
      *  absence rather than an unset value. See the header comment. */
     robo_css_border_style_t style;
+    /**
+     * The text facts of a **text** record (11.6): the span naming the run's characters in
+     * the list's pool, the baseline's offset from the run's own top, and the font inputs
+     * the run was measured with. Cleared for every other kind, which is the same rule
+     * @ref style has one field along, and it is a **sub-record** rather than six more
+     * fields here for the reason `robo_paint_boxes_t` is one: the facts a text drawing has
+     * and a fill does not arrive together, so a record cannot carry half of them
+     * (`RoboPaintText.h`).
+     */
+    robo_paint_text_run_t text;
 } robo_paint_operation_t;
 
 /** Clear @p operation to a `NONE` marker with no geometry. Safe on NULL. */
@@ -126,7 +145,18 @@ void robo_paint_operation_init(robo_paint_operation_t *operation);
  *   and the **style rule** (11.5), which is the same shape one field along: a border
  *   record's style must generate a border, and every other kind's must be `NONE`. Both
  *   halves are refusals rather than tolerances -- a background carrying a style, or a
- *   border carrying `none`, is an operation whose fields disagree about what it is.
+ *   border carrying `none`, is an operation whose fields disagree about what it is;
+ *   and the **text rule** (11.6), which is the style rule's shape a third time: a `TEXT`
+ *   record must carry **a run** -- a non-empty span, a non-negative baseline offset and
+ *   font inputs that are a record (`robo_paint_text_run_is_valid`) -- and every other
+ *   kind must carry a cleared one. So a `TEXT` record with no characters and a background
+ *   that came with font inputs are both refused, for the same reason and by the same
+ *   door.
+ *
+ *   The span is checked for shape **here** and for *membership* in a pool by the list
+ *   that owns one (`RoboPaintList.h`): a record's validity is a function of the record,
+ *   and "is this span inside the characters this list holds?" is not a question a record
+ *   can answer about itself.
  */
 int robo_paint_operation_is_valid(const robo_paint_operation_t *operation);
 
@@ -162,6 +192,11 @@ robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operat
  *  -- so a caller that wants "is this side dashed?" asks here and gets an answer it can
  *  act on rather than a value it must first check the kind against. */
 robo_css_border_style_t robo_paint_operation_style(const robo_paint_operation_t *operation);
+
+/** The text run, by value. A cleared run for NULL -- and for every kind except `TEXT`,
+ *  so a caller that reads it without asking the kind gets "no characters", which is a
+ *  statement it can act on rather than a leftover. */
+robo_paint_text_run_t robo_paint_operation_text(const robo_paint_operation_t *operation);
 
 /**
  * Non-zero when @p operation is **structural** -- draws nothing and is emitted for every

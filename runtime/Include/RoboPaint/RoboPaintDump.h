@@ -26,12 +26,21 @@
  *   #0000 BEGIN_BOX    node=1 depth=0 clip=none  border=0,0,100,40
  *   #0001   BACKGROUND node=1 depth=0 clip=none  rect=0,0,100,40 color=rgb(255,0,0)
  *   #0002   BORDER_TOP node=1 depth=0 clip=none  band=0,0,100,5 color=rgb(0,0,0)
- *   #0003 END_BOX      node=1 depth=0 clip=none  border=0,0,100,40
+ *   #0003   TEXT       node=7 depth=1 clip=none  border=1,5,80,16 color=rgb(0,0,0)
+ *   code_points=5 baseline=13 font=16.00/400/upright/ltr text="Hello"
+ *   #0004 END_BOX      node=1 depth=0 clip=none  border=0,0,100,40
  *
  * The ordinal is a 4-digit zero-padded index so that the lines sort as the list does,
  * the kind is left-aligned in a fixed column so that a two-list diff lines up, and the
  * marker lines echo the border box because that is the rectangle a reader checks a
  * box's position against.
+ *
+ * Since 11.6 a text line carries one part no record's own writer can produce: the run's
+ * **characters**, read out of the list's pool and appended ` text="..."` (the line above is
+ * wrapped here to fit this comment; a real dump writes one line per operation). That is why
+ * this door needs the list rather than only the record, and why the line's bound below is
+ * larger than it was: the characters are the one payload in a paint list that is
+ * variable-length.
  */
 #ifndef ROBO_PAINT_DUMP_H
 #define ROBO_PAINT_DUMP_H
@@ -62,12 +71,30 @@ extern "C" {
  *                                                                        ----
  *                                                                           187
  *
+ * and, for a text record (11.6), the widest printed characters:
+ *
+ *   ` text="` plus `ROBO_PAINT_DUMP_TEXT_MAX` code points, each at most ten
+ *   bytes (`\U0001F600`), plus `...` and the closing quote                    173
+ *                                                                           ----
+ *                                                                            360
+ *
  * The bound is that plus a line's worth of headroom, so a caller sizing a buffer from
  * this gets a dump it does not have to retry -- and a future field that pushes the widest
  * line past it fails `paint.dump.line_bound`, which measures the widest line this build
  * can actually produce rather than trusting this paragraph.
  */
-#define ROBO_PAINT_DUMP_LINE_MAX 224u
+#define ROBO_PAINT_DUMP_LINE_MAX 384u
+
+/**
+ * Code points of a run one dumped line prints before it stops.
+ *
+ * A **bound** and not a preference: a dump line is a fixed-size buffer, a run's length is the
+ * document's to choose, and a bound the document could exceed is not a bound. A run longer
+ * than this prints its first this-many code points and `...`, and the record's own part of the
+ * line already says how many there were in total -- so a reader of a truncated run knows
+ * exactly what they are looking at.
+ */
+#define ROBO_PAINT_DUMP_TEXT_MAX 16u
 
 /**
  * Write the whole of @p list into @p buffer.

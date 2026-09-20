@@ -854,17 +854,23 @@ static void test_traversal_clip_axis_split(void)
 /* 4. Text, counts and the pass record                                 */
 /* ------------------------------------------------------------------ */
 
-static void test_traversal_text_counted_not_painted(void)
+static void test_traversal_text_painted(void)
 {
     paint_fixture_doc_t fixture;
     paint_result_t result;
     robo_layout_node_id_t para;
+    robo_paint_operation_t text;
+    size_t index;
+    size_t text_count = 0u;
+    size_t box_count = 0u;
 
     /*
-     * A text run is *visited and counted*, and **not painted** -- a statement about this
-     * build rather than an oversight: painting a run means shaping and glyph positions,
-     * which Phase 14 owns. The count exists so that "this document has text and none of
-     * it was painted" is a number a reader sees rather than a silence.
+     * A text run is *visited, counted and painted* -- the 11.6 change stated where it can
+     * be seen. The run is a leaf and a **drawing**, so it contributes one operation and no
+     * `BEGIN_BOX`/`CONTENT`/`END_BOX` triple: the skeleton is a statement about boxes, and
+     * a text node is not one. `text_runs = texts + text_skipped` stays exact, which is
+     * what keeps "this document has text" and "this document's text drew nothing" two
+     * different numbers rather than one silence.
      */
     paint_begin_laid_out(&fixture,
                          "<html><body><p class=\"para\">Alpha beta</p></body></html>",
@@ -873,21 +879,58 @@ static void test_traversal_text_counted_not_painted(void)
 
     paint_once(&fixture, &result);
     ROBO_CHECK_EQ_INT((int)result.stats.text_runs, 1);
-    /* The paragraph itself is painted; the run inside it is not, so no operation names
-     * a text object. */
+    ROBO_CHECK_EQ_INT((int)result.stats.texts, 1);
+    ROBO_CHECK_EQ_INT((int)result.stats.text_skipped, 0);
+    ROBO_CHECK_EQ_INT((int)result.stats.text_runs,
+                      (int)(result.stats.texts + result.stats.text_skipped));
     ROBO_CHECK_EQ_INT(paint_begin_of(&result, para, NULL), 1);
-    {
-        size_t index;
+    ROBO_CHECK_EQ_INT((int)paint_count_of(&result, ROBO_PAINT_OP_TEXT), 1);
 
-        for (index = 0u; index < robo_paint_list_count(result.list); index++) {
-            robo_paint_operation_t operation;
+    /* Every operation names either a box or the one text object, and the run's node is
+     * reached through the tree as a text object rather than a box. */
+    for (index = 0u; index < robo_paint_list_count(result.list); index++) {
+        robo_paint_operation_t operation;
+        robo_layout_object_kind_t kind;
 
-            ROBO_CHECK_EQ_INT(robo_paint_list_at(result.list, index, &operation), ROBO_OK);
-            ROBO_CHECK_EQ_INT(
-                (int)robo_layout_object_kind(fixture.tree, operation.node),
-                (int)ROBO_LAYOUT_OBJECT_BOX);
+        ROBO_CHECK_EQ_INT(robo_paint_list_at(result.list, index, &operation), ROBO_OK);
+        kind = robo_layout_object_kind(fixture.tree, operation.node);
+        if (kind == ROBO_LAYOUT_OBJECT_TEXT) {
+            text_count++;
+            ROBO_CHECK_EQ_INT((int)operation.kind, (int)ROBO_PAINT_OP_TEXT);
+        } else {
+            box_count++;
+            ROBO_CHECK_EQ_INT((int)kind, (int)ROBO_LAYOUT_OBJECT_BOX);
+            ROBO_CHECK(operation.kind != ROBO_PAINT_OP_TEXT);
         }
     }
+    ROBO_CHECK_EQ_INT((int)text_count, 1);
+    ROBO_CHECK_EQ_INT((int)box_count,
+                      (int)paint_count_of(&result, ROBO_PAINT_OP_BEGIN_BOX) +
+                          (int)paint_count_of(&result, ROBO_PAINT_OP_CONTENT) +
+                          (int)paint_count_of(&result, ROBO_PAINT_OP_END_BOX));
+
+    /* The run is painted, so the record carries characters and a baseline, and its
+     * placement is layout's -- read back through the pool the list owns. */
+    text = paint_require(&result, ROBO_PAINT_OP_TEXT);
+    {
+        robo_paint_text_pool_t *pool = robo_paint_list_text_pool(result.list);
+        robo_paint_text_run_t run = robo_paint_operation_text(&text);
+        uint32_t characters[16];
+        size_t got = 0u;
+
+        ROBO_CHECK_EQ_INT(robo_paint_text_run_is_valid(&run), 1);
+        ROBO_CHECK_EQ_INT(
+            (int)robo_layout_object_kind(fixture.tree, robo_paint_operation_node(&text)),
+            (int)ROBO_LAYOUT_OBJECT_TEXT);
+        ROBO_CHECK(pool != NULL);
+        ROBO_CHECK_EQ_INT(robo_paint_text_pool_read(pool, run.span, characters, 16u, &got,
+                                                    NULL),
+                          ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)got, (int)run.span.count);
+        ROBO_CHECK(got == 10u);
+        ROBO_CHECK(characters[0] == (uint32_t)'A');
+    }
+
     paint_all_boxes_match_layout(&fixture, &result);
     paint_result_dispose(&result);
     paint_end(&fixture);
@@ -1174,8 +1217,7 @@ void robo_test_register_paint_traversal(void)
     robo_test_register("paint.traversal.clip_visible", test_traversal_clip_visible);
     robo_test_register("paint.traversal.clip_hidden", test_traversal_clip_hidden);
     robo_test_register("paint.traversal.clip_axis_split", test_traversal_clip_axis_split);
-    robo_test_register("paint.traversal.text_counted_not_painted",
-                       test_traversal_text_counted_not_painted);
+    robo_test_register("paint.traversal.text_painted", test_traversal_text_painted);
     robo_test_register("paint.traversal.counts_and_determinism",
                        test_traversal_counts_and_determinism);
     robo_test_register("paint.traversal.context_lifecycle",

@@ -66,6 +66,7 @@
 #include "RoboPaint/RoboPaintGeometry.h"
 #include "RoboPaint/RoboPaintList.h"
 #include "RoboPaint/RoboPaintOperation.h"
+#include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
 #include "RoboPaint/RoboPaintVersion.h"
 
@@ -127,10 +128,10 @@ typedef struct robo_paint_capabilities {
      * colour reach a RoboGraphics surface (`robo_paint_decoration_paint`).
      *
      * The field a caller about to look for a framebuffer should read -- and the one that says
-     * this build paints a box's **background and border bands**. It is
-     * `background_painting`/`border_painting` beside it that say *which* drawings exist,
-     * because "a colour reaches a surface" and "every command rasterises" are different claims
-     * and only the first is true.
+     * this build paints a box's **background**, its **border bands** and, since 11.6, a **text
+     * run's glyphs**. It is `background_painting`/`border_painting`/`text_painting` beside it
+     * that say *which* drawings exist, because "a colour reaches a surface" and "every command
+     * rasterises" are different claims and only the first is true.
      */
     int drawing;
     /**
@@ -144,10 +145,10 @@ typedef struct robo_paint_capabilities {
      * only `drawing` would miss that the artifact a rasteriser consumes now exists.
      */
     int display_lists;
-    /** Rasterising a paint list into a RoboGraphics surface. **0**: a later goal. The two
-     *  *drawing* command kinds reach a surface today -- see `background_painting` and
-     *  `border_painting` -- but the three structural kinds are not drawings, so a pass that
-     *  consumed a whole list is still absent. */
+    /** Rasterising a paint list into a RoboGraphics surface. **0**: a later goal. The three
+     *  *drawing* command kinds reach a surface today -- see `background_painting`,
+     *  `border_painting` and `text_painting` -- but the three structural kinds are not drawings,
+     *  so a pass that consumed a whole list is still absent. */
     int raster;
     /** Knowing which operations a change made stale. **0**: Phase 11.11. What exists
      *  instead is the *input* -- `robo_paint_stats_t.style_only` -- because a paint list
@@ -175,6 +176,22 @@ typedef struct robo_paint_capabilities {
      * border's look. `raster` above is still 0: the structural kinds are not drawings.
      */
     int border_painting;
+    /**
+     * **Text painting** (11.6), and **1**: a text run's glyphs reaching a RoboGraphics surface
+     * through a caller-supplied face.
+     *
+     * The third drawing kind, and the one a caller most needs a separate field for: it is the
+     * only claim here that needs a **resource** other than the surface, so a build can paint
+     * every background and band of a document and no text at all -- with the opposite being
+     * impossible -- and this field beside `drawing` is how a caller tells which it got.
+     *
+     * What it claims is a run's **glyphs on a surface**, not their look: the glyph mode
+     * `RoboGraphicsText.h` implements is an outline **stroke**, so this build draws text as
+     * 1-pixel outlines rather than as filled or antialiased shapes, and shaping, bidi, fallback
+     * and line breaking are all still absent (`robo_paint_decoration_stats_t` counts the RTL
+     * runs it drew in logical order and the code points it drew as `.notdef`).
+     */
+    int text_painting;
 } robo_paint_capabilities_t;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

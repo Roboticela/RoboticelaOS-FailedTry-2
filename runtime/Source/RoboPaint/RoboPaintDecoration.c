@@ -1,9 +1,9 @@
 /*
- * RoboPaint decoration painting (Phase 11.4–11.5) — see RoboPaintDecoration.h.
+ * RoboPaint decoration and text painting (Phase 11.4–11.6) — see RoboPaintDecoration.h.
  *
- * The pass: walk the display list once, in list order, and fill each **drawing** command into
- * a RoboGraphics raster -- a background's border box and a border side's band alike -- while
- * counting everything a command turns out to be. The raster is the graphics module's own
+ * The pass: walk the display list once, in list order, and draw each **drawing** command into
+ * a RoboGraphics raster -- a background's border box, a border side's band, and a text run's
+ * glyphs -- while counting everything a command turns out to be. The raster is the graphics module's own
  * immediate-mode CPU context, so the clip and the source-over blend are its, and the two
  * things this file owns are the walk and the per-command clip derived from the boundary the
  * paint pass carried.
@@ -21,15 +21,18 @@
  *
  * Nothing here reads a tree, a computed style or the box model: a display command carries the
  * one rectangle to fill, the boundary in force and, for a band, the style that shapes it. The
- * only conversion left is the colour, and that is `RoboPaintColor.h`'s.
+ * only conversions left are the colour (`RoboPaintColor.h`'s) and, since 11.6, a character into
+ * a glyph -- which is the graphics module's bridge, one call per character.
  */
 
 #include "RoboPaint/RoboPaintDecoration.h"
 
 #include "RoboGraphics/RoboGraphicsRaster.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
+#include "RoboGraphics/RoboGraphicsText.h"
 
 #include "RoboCSS/RoboCSSBorder.h"
+#include "RoboFont/RoboFontTypes.h"
 
 #include "RoboPaint/RoboPaintColor.h"
 
@@ -48,6 +51,119 @@ void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats)
 static int decoration_style_is_shaped(robo_css_border_style_t style)
 {
     return style == ROBO_CSS_BORDER_STYLE_SOLID;
+}
+
+/*
+ * Drawing a run (11.6).
+ *
+ * The whole of the glyph path is three calls per character, and each of them is a door this
+ * module does not own: the face's cmap resolves a code point to a glyph id, the graphics
+ * module's bridge scales that glyph's advance and outline, and the raster strokes the outline.
+ * A painter that measured a glyph itself would be a second font-metrics implementation with a
+ * different answer from the one the box was sized with -- which is the failure
+ * `RoboLayoutTextFont.h` names as the one no later phase could detect, arriving from the other
+ * side.
+ *
+ * **The pen is a `float` and the origin is snapped.** Advances are continuous and a run's
+ * glyphs must not drift apart, so the position is accumulated in device units and only the
+ * *drawn* origin is rounded -- by `robo_gfx_glyph_snap_point`, the graphics module's own
+ * policy rather than a local `(int)` cast. Layout's width for the same run is a **single**
+ * rounding of a font-unit sum (`RoboLayoutTextFont.h` argues why it sums first), so the pen
+ * here can differ from that width by a fraction of a pixel at the end of a long run; the last
+ * glyph may therefore sit within a sub-pixel of the width the line was justified to. That is
+ * the honest limit of two implementations of "advance" sharing one font, and it is stated
+ * rather than papered over.
+ */
+
+/**
+ * Draw @p command's run through @p face into @p raster.
+ *
+ * @param out_glyphs  receives the glyph draws attempted.
+ * @param out_missing receives the code points drawn as `.notdef` (or with unusable metrics).
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT when the command is not a drawable text command;
+ *         ROBO_NOT_FOUND when the command's span names no run in @p pool, which the list's own
+ *         append rule makes unreachable and is reported rather than trusted; whatever a glyph
+ *         draw returned when it failed.
+ */
+static robo_result_t decoration_draw_text(robo_gfx_raster_t *raster,
+                                          robo_font_face_t *face,
+                                          const robo_paint_text_pool_t *pool,
+                                          const robo_paint_display_command_t *command,
+                                          robo_gfx_color_rgba8_t color,
+                                          size_t *out_glyphs,
+                                          size_t *out_missing,
+                                          robo_paint_diag_t *diag)
+{
+    const uint32_t *code_points;
+    robo_gfx_glyph_draw_t draw;
+    robo_paint_text_run_t run;
+    float pen_x;
+    float baseline_y;
+    uint32_t index;
+
+    *out_glyphs = 0u;
+    *out_missing = 0u;
+
+    run = robo_paint_display_command_text(command);
+    if (!pool || !robo_paint_text_pool_contains(pool, run.span)) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_NOT_FOUND,
+                               "a text command's span names no run in the list's pool");
+    }
+    code_points = robo_paint_text_pool_code_points(pool);
+    if (!code_points) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_NOT_FOUND,
+                               "the list's text pool holds no characters");
+    }
+
+    /* The pen starts at the run rectangle's own left edge and the baseline is the one number
+     * the command carries beyond it -- a `TEXT` command's rectangle is the placement, so the
+     * baseline is at `rect.y + baseline_offset` in the same space. */
+    pen_x = (float)command->rect.x;
+    baseline_y = (float)robo_paint_add_saturated(command->rect.y, run.baseline_offset);
+    robo_gfx_glyph_draw_init(&draw);
+    draw.face = face;
+    draw.size_px = (float)run.font.font_size_px;
+    draw.color = color;
+
+    for (index = 0u; index < (uint32_t)run.span.count; index++) {
+        robo_font_cmap_lookup_result_t lookup;
+        robo_gfx_glyph_metrics_device_t metrics;
+        robo_glyph_id_t glyph;
+        uint32_t code_point = code_points[(size_t)run.span.first + index];
+        int mapped;
+
+        memset(&lookup, 0, sizeof(lookup));
+        mapped = robo_font_face_lookup_glyph(face, code_point, &lookup) == ROBO_OK &&
+                 lookup.status == ROBO_FONT_CMAP_MAPPED;
+        glyph = mapped ? lookup.glyph_id : ROBO_GLYPH_ID_NONE;
+        if (!mapped) {
+            /* `.notdef`, counted -- the measurer's rule and its number, one layer along. */
+            (*out_missing)++;
+        }
+
+        draw.glyph_id = glyph;
+        draw.origin = robo_gfx_point_f(pen_x, baseline_y);
+        if (robo_gfx_raster_draw_glyph(raster, &draw) != ROBO_OK) {
+            return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
+                                   "a glyph could not be drawn");
+        }
+        (*out_glyphs)++;
+
+        /*
+         * The advance takes the metrics door's own answer, and a glyph whose metrics will
+         * not parse advances by **nothing** and is counted as a miss -- the measurer's
+         * refusal, restated: a broken font that produced a narrower run here than a working
+         * one would make the glyphs pile up on each other in a way that reads as a rendering
+         * bug rather than as a missing table.
+         */
+        memset(&metrics, 0, sizeof(metrics));
+        if (robo_gfx_glyph_metrics_device(face, glyph, draw.size_px, &metrics) == ROBO_OK) {
+            pen_x += metrics.advance_width;
+        } else if (mapped) {
+            (*out_missing)++;
+        }
+    }
+    return ROBO_OK;
 }
 
 /**
@@ -109,10 +225,12 @@ static robo_result_t decoration_apply_clip(robo_gfx_raster_t *raster,
 
 robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
                                           robo_gfx_surface_t *target,
+                                          robo_font_face_t *face,
                                           robo_paint_decoration_stats_t *out_stats,
                                           robo_paint_diag_t *diag)
 {
     robo_paint_decoration_stats_t stats;
+    robo_paint_text_pool_t *pool;
     robo_gfx_raster_t *raster = NULL;
     robo_result_t status;
     size_t index;
@@ -124,6 +242,9 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
     }
 
     robo_paint_decoration_stats_init(&stats);
+    /* The list's own characters, borrowed for the pass -- the pool a `draw-text`'s span
+     * names, which is the list's because a span is meaningless apart from one. */
+    pool = robo_paint_display_list_text_pool(list);
 
     /*
      * The raster is the graphics module's, so the clip and the blend are its rules. Its
@@ -148,6 +269,23 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_NOT_SUPPORTED,
                                "the target surface cannot be rasterised (it is read-only or "
                                "of a format this build does not implement)");
+    }
+
+    /*
+     * The face's **character map**, prepared once for the pass. A `robo_font_face_t` is
+     * created without one -- `robo_font_face_lookup_glyph` answers `ROBO_NOT_SUPPORTED` for a
+     * face whose cmap has not been parsed -- so the pass asks for it here, through the same
+     * door the layout measurer uses before it resolves a single glyph
+     * (`RoboLayoutTextFont.c`). One font layer builds the map; this is the layer that says
+     * when, and it must say so before the first lookup rather than after it.
+     *
+     * A face whose cmap **will not parse** is not refused. At worst every lookup misses,
+     * every glyph is `.notdef`, and `glyphs_missing` names the fact per code point -- which is
+     * the answer this pass already gives an unmapped character, so a broken font degrades to
+     * the same shape as a font with no glyph for the text rather than to a failed pass.
+     */
+    if (face != NULL) {
+        (void)robo_font_face_parse_cmap(face);
     }
 
     count = robo_paint_display_list_count(list);
@@ -188,15 +326,29 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             stats.skipped++;
             continue;
         }
+        /*
+         * And the same rule for the one thing a text command needs that a fill does not: its
+         * characters. The list's own append refuses a span that names no run, so this is
+         * unreachable through the public API -- and it is checked here anyway, and beside the
+         * colour rather than after the counters, so that a command this pass cannot draw is
+         * reported as skipped rather than landing in a bucket that would then not add up.
+         */
+        if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT &&
+            !robo_paint_text_pool_contains(pool, command.text.span)) {
+            stats.skipped++;
+            continue;
+        }
 
         stats.draws++;
         if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND) {
             stats.backgrounds++;
-        } else {
+        } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
             stats.borders++;
             if (!decoration_style_is_shaped(command.style)) {
                 stats.unshaped++;
             }
+        } else {
+            stats.texts++;
         }
 
         /*
@@ -215,7 +367,20 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             stats.transparent++;
             continue;
         }
-        if (command.rect.width <= 0 || command.rect.height <= 0) {
+        /*
+         * A text command is **not** held to the rectangle rule, and the exception is a fact
+         * about text rather than a special case: a run's rectangle is its *advance* box, and a
+         * glyph's ink can overhang it -- so a rectangle with no area is not "nothing to draw"
+         * for a run the way it is for a fill, and the glyphs are drawn and the raster's clip
+         * decides what of them lands. The fill half keeps the rule because a fill with no area
+         * genuinely has no pixels to put a colour on.
+         */
+        if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {
+            if (face == NULL) {
+                stats.no_font++;
+                continue;
+            }
+        } else if (command.rect.width <= 0 || command.rect.height <= 0) {
             stats.empty++;
             continue;
         }
@@ -236,6 +401,27 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
         }
         if (clipped) {
             stats.clipped++;
+        }
+
+        if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {
+            size_t glyphs = 0u;
+            size_t missing = 0u;
+
+            if (command.text.font.direction == ROBO_LAYOUT_TEXT_DIRECTION_RTL) {
+                /* No bidi in this build: an RTL run's characters are drawn left to right
+                 * from its origin, and the count says how many runs that happened to. */
+                stats.rtl++;
+            }
+            status = decoration_draw_text(raster, face, pool, &command, color, &glyphs,
+                                          &missing, diag);
+            if (status != ROBO_OK) {
+                robo_gfx_raster_destroy(raster);
+                return status;
+            }
+            stats.glyphs += glyphs;
+            stats.glyphs_missing += missing;
+            stats.filled++;
+            continue;
         }
 
         /*

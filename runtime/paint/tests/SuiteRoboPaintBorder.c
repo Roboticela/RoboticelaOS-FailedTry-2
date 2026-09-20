@@ -159,7 +159,7 @@ static void border_paint(const robo_paint_display_list_t *list,
     robo_result_t status;
 
     robo_paint_diag_reset(&diag);
-    status = robo_paint_decoration_paint(list, target, out_stats, &diag);
+    status = robo_paint_decoration_paint(list, target, NULL, out_stats, &diag);
     if (status != ROBO_OK) {
         robo_test_fail(__FILE__, __LINE__, "the decoration pass refused the list: %s (%s:%d)",
                        diag.message ? diag.message : "(no message)",
@@ -1472,11 +1472,11 @@ static void test_border_empty_cases(void)
 
     /* The arguments are required, and a refusal says which. */
     robo_paint_diag_reset(&diag);
-    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(NULL, surface, NULL, &diag),
+    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(NULL, surface, NULL, NULL, &diag),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK(diag.message != NULL);
     robo_paint_diag_reset(&diag);
-    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(list, NULL, NULL, &diag),
+    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(list, NULL, NULL, NULL, &diag),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK(diag.message != NULL);
 
@@ -1484,7 +1484,7 @@ static void test_border_empty_cases(void)
      * fill is attempted -- the graphics layer's own rule, mapped once. */
     readonly = border_surface(16u, 16u, ROBO_GFX_SURFACE_ACCESS_READ);
     robo_paint_diag_reset(&diag);
-    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(list, readonly, NULL, &diag),
+    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(list, readonly, NULL, NULL, &diag),
                       ROBO_NOT_SUPPORTED);
     ROBO_CHECK(diag.message != NULL);
     robo_gfx_surface_release(readonly);

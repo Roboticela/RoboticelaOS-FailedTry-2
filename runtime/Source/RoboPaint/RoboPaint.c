@@ -6,14 +6,15 @@
  * state, and why the whole file is a flag, a version and a table of what this build does
  * and does not do.
  *
- * The table is the interesting half. Two of its thirteen fields are deliberately 0, and they
- * are the two a reader would otherwise have to discover by experiment: `raster` and
- * `paint_invalidation`. `display_lists` joined the 1s in 11.3 -- the artifact a rasteriser
- * consumes now exists -- and `drawing`, `background_painting` and, in 11.5,
- * `border_painting` joined them in 11.4: a **drawing** command's rectangle and colour now
- * reach a RoboGraphics surface. Keeping the two narrow fields apart from `raster` is what
- * stops "a colour reached a surface" from being read as "the document rasterises": the
- * painter consumes the drawing kinds and skips the structural ones.
+ * The table is the interesting half. Two of its fields are deliberately 0, and they are the two
+ * a reader would otherwise have to discover by experiment: `raster` and `paint_invalidation`.
+ * `display_lists` joined the 1s in 11.3 -- the artifact a rasteriser consumes now exists -- and
+ * `drawing`, `background_painting`, `border_painting` (11.5) and `text_painting` (11.6) joined
+ * them in 11.4: a **drawing** command's rectangle and colour -- and, for a run, its glyphs --
+ * now reach a RoboGraphics surface. Keeping the narrow fields apart from `raster` is what stops
+ * "a colour reached a surface" from being read as "the document rasterises": the painter
+ * consumes the drawing kinds and skips the structural ones, and text beside them is the one
+ * claim here that needs a resource other than the surface.
  */
 
 #include "RoboPaint/RoboPaint.h"
@@ -71,9 +72,9 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * `drawing` is read from its own constant so that the field and the two doors that
      * report it -- this one and `robo_paint_drawing_is_implemented()` -- cannot disagree.
      * `raster` is the general rasteriser that would consume *every* command; the decoration
-     * pass consumes the two **drawing** kinds and skips the three structural ones (which draw
-     * nothing), which is why `raster` is 0 while `background_painting` and `border_painting`
-     * beside it are 1.
+     * pass consumes the three **drawing** kinds and skips the three structural ones (which draw
+     * nothing), which is why `raster` is 0 while `background_painting`, `border_painting` and
+     * `text_painting` beside it are 1.
      *
      * `paint_invalidation` is 0 and what exists instead is the *input* to one:
      * `robo_paint_stats_t.style_only`. A paint list is regenerated rather than patched, so
@@ -104,6 +105,15 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * claim about `raster`.
      */
     out->border_painting = 1;
+    /*
+     * **1 since 11.6**, the third drawing kind and the first whose payload is not a number: a
+     * text run's characters are resolved to glyphs through a **caller-supplied face** and drawn
+     * through RoboGraphics' outline-stroke glyph path. One field of its own rather than folded
+     * into `drawing`, because this is the only drawing here that needs a resource other than the
+     * surface -- so a build can paint every background and band of a document and none of its
+     * text, and only this field beside `drawing` tells a caller which it got.
+     */
+    out->text_painting = 1;
     return ROBO_OK;
 }
 

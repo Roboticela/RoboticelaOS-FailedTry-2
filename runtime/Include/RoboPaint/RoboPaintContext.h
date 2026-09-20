@@ -116,17 +116,31 @@ typedef struct robo_paint_stats {
      */
     size_t unplaced;
     /**
-     * Text runs seen.
+     * Text runs the traversal reached.
      *
-     * Visited and counted, and **not painted**, which is a statement about this build
-     * rather than an oversight: a run's rectangle is a line fragment with no box layers,
-     * and painting one means shaping and glyph positions, which Phase 14 owns --
-     * RoboLayout's measurer is unshaped by design and says so, so a painter that summed
-     * advances in logical order would be claiming a text renderer it does not have. The
-     * count exists so that "this document has text and none of it was painted" is a
-     * number a reader sees rather than a silence.
+     * Since 11.6 a run **is painted** -- a `TEXT` operation carries its characters, its
+     * baseline and its font inputs -- so this counter is the first half of a pair rather
+     * than a statement about an omission, and the two halves are an identity by
+     * construction: `text_runs = texts + text_skipped`. A reader learns from it that the
+     * document has text at all, which is the fact every other counter here is silent
+     * about.
      */
     size_t text_runs;
+    /** `TEXT` operations appended: runs whose characters, colour and placement all said
+     *  "draw this". */
+    size_t texts;
+    /**
+     * Runs the traversal reached that produced **no** operation.
+     *
+     * Every reason is a statement about the document rather than a failure, which is why
+     * the pass still succeeds: nothing placed the run (its own geometry is not final), its
+     * parent element declares no usable `color`, its text is empty, or its range could not
+     * be read. It is the same rule every drawing kind follows -- an operation is emitted
+     * only when it draws (`RoboPaintTypes.h`) -- counted here so that the difference
+     * between "the document has no text" and "the document's text drew nothing" is
+     * visible, since those are very different bugs to go looking for.
+     */
+    size_t text_skipped;
     /** Operations appended. */
     size_t ops;
     /** Background operations: boxes whose declared background draws. */
@@ -208,6 +222,10 @@ void *robo_paint_context_user_data(const robo_paint_context_t *context);
  *   a `CONTENT` record marking where the box's own painting ends and its contents
  *   begin, emitted for **every** placed box whether or not it drew anything and whether
  *   or not it has children;
+ *   a `TEXT` operation for every run among those children whose colour, characters and
+ *   placement say "draw this" (11.6), carrying the span that names its characters in
+ *   `list`'s own pool -- and **no** structural triple around it, because a run is not a
+ *   box;
  *   the box's children, in order, under the boundary this box's own overflow put in
  *   force;
  *   and an `END_BOX` marker closing the box.

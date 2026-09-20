@@ -55,8 +55,8 @@ extern "C" {
  * fact about this release. A **structural** record (`BEGIN_BOX`, `CONTENT`, `END_BOX`)
  * draws nothing, carries no colour and is emitted for **every** placed box, so the
  * sequence has a regular skeleton. A **drawing** record (`BACKGROUND`, the four
- * `BORDER_*`) is emitted **only when it draws**, so the list's length is a statement
- * about the document. `robo_paint_op_kind_draws` and
+ * `BORDER_*` sides and, since 11.6, `TEXT`) is emitted **only when it draws**, so the
+ * list's length is a statement about the document. `robo_paint_op_kind_draws` and
  * `robo_paint_op_kind_is_structural` are the two predicates, and they partition the
  * vocabulary above `NONE`.
  */
@@ -109,12 +109,37 @@ typedef enum robo_paint_op_kind {
      * structural record and its colour is `none` (see the vocabulary note above).
      */
     ROBO_PAINT_OP_CONTENT = 7,
+    /**
+     * Draw one text run's glyphs (11.6).
+     *
+     * The first drawing this module has that is **not a rectangle filled with a colour**,
+     * and the only record whose payload is variable-length data. A text node generates a
+     * layout object of kind `TEXT` (`RoboLayoutTypes.h`) rather than a box, so this record
+     * is emitted where that object sits **in the sequence** -- as a child of the box whose
+     * element owns the text node, after that box's `CONTENT` and in document order among
+     * its siblings -- and a text object gets **no** `BEGIN_BOX`/`CONTENT`/`END_BOX` triple,
+     * because it is not a box and the skeleton is a statement about boxes. That there is
+     * no `TEXT_BEGIN`/`TEXT_END` pair around it is the point: a run has nothing to open,
+     * nothing to clip for and no children, so a pair would be a boundary a consumer could
+     * only skip.
+     *
+     * It is a **drawing** kind, so it carries a colour a rasteriser can use -- the run's
+     * inherited `color` -- and it is held to the same "emit only when it draws" rule every
+     * other drawing kind is: a run whose colour is transparent, whose text is empty, or
+     * whose range could not be read produces no operation rather than an invisible one.
+     *
+     * The characters live in the list's **text pool** and this record carries the
+     * **span** that names them (`RoboPaintText.h` argues why characters rather than glyph
+     * ids, and why a span rather than a pointer). The font inputs and the baseline travel
+     * beside it in the `text` member.
+     */
+    ROBO_PAINT_OP_TEXT = 8,
     /** Leave a box: the marker that closes the operations of one placed box. */
-    ROBO_PAINT_OP_END_BOX = 8
+    ROBO_PAINT_OP_END_BOX = 9
 } robo_paint_op_kind_t;
 
 /** Number of defined operation kinds. */
-#define ROBO_PAINT_OP_KIND_COUNT 9u
+#define ROBO_PAINT_OP_KIND_COUNT 10u
 
 /** Non-zero if @p kind is a defined operation kind. */
 int robo_paint_op_kind_is_known(robo_paint_op_kind_t kind);
@@ -138,8 +163,8 @@ int robo_paint_op_kind_is_border(robo_paint_op_kind_t kind);
 robo_result_t robo_paint_op_kind_side(robo_paint_op_kind_t kind, robo_css_box_side_t *out);
 
 /**
- * Non-zero when @p kind **puts a pixel down**: `BACKGROUND` or one of the four
- * `BORDER_*` sides. It is the predicate a builder asks before emitting a decoration, and
+ * Non-zero when @p kind **puts a pixel down**: `BACKGROUND`, one of the four `BORDER_*`
+ * sides, or `TEXT`. It is the predicate a builder asks before emitting a decoration, and
  * the split the validity rule uses -- a kind that draws must carry a colour a rasteriser
  * can use, and a kind that does not must carry `none`.
  */

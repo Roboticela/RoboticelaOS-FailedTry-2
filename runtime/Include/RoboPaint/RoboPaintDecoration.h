@@ -1,5 +1,5 @@
 /*
- * RoboPaint decoration painting (Phase 11.4–11.5).
+ * RoboPaint decoration and text painting (Phase 11.4–11.6).
  *
  * The place in this module where a rectangle and a colour reach a **surface**, and one
  * door rather than two because of what "two doors" would mean. The paint pipeline stays
@@ -8,8 +8,7 @@
  *   HTML / DOM → RoboCSS → RoboLayout → RoboPaint → records → display list
  *       → **drawing commands** → RoboGraphics raster fill → the caller's surface
  *
- * **A box's two decorations are its background and its border, and they are one pass
- * because they are one order.** The list interleaves them the way the traversal emits
+ * **A document's drawings are one pass because they are one order.** The list interleaves them the way the traversal emits
  * them -- a box's background, then its four border sides, then its children, whose own
  * backgrounds and borders come after -- and CSS's paint order is exactly that: a
  * descendant's background is painted *after* its ancestor's border, so a child that
@@ -19,10 +18,28 @@
  * different and visibly wrong picture. So the walk is one walk, and its order is the
  * list's.
  *
- * The two kinds are not treated alike in what they *mean*, though, and the difference is
- * worth stating because it is the phase boundary between 11.4 and 11.5:
+ * The **text** half arrives in 11.6 and does not change that argument; it *is* the argument.
+ * A text run is a drawing that can overlap what surrounds it -- a run wider than its box, a
+ * run moved by a relative offset, a following sibling's background -- so a text pass separate
+ * from the decoration pass would get the same order wrong in the same way, and the suite's
+ * `child_over_parent_border` case has a text counterpart that would fail for two passes and
+ * nothing else. A third difference comes with it: text needs a **font**, and the font is the
+ * caller's exactly as the surface is -- see the `face` parameter below.
+ *
+ * The three kinds are not treated alike in what they *mean*, though, and the difference is
+ * worth stating because it is the phase boundary between 11.4, 11.5 and 11.6:
  *
  *   a **background** is one rectangle filled with one colour, and that is the whole of it;
+ *
+ *   a **text run** is characters drawn along a baseline, and it is the first drawing here
+ *   whose payload is not a number at all: the characters live in the display list's own
+ *   pool and the command carries a span that names them, its baseline as an offset from the
+ *   rectangle's top, and the font inputs the run was measured with (`RoboPaintText.h`
+ *   argues the representation). This build draws them through RoboGraphics' own glyph
+ *   bridge, which strokes outlines -- so text appears as 1-pixel outline strokes rather than
+ *   as filled or antialiased glyphs, and `text_painting` claims a run's glyphs reach a
+ *   surface rather than claiming they look the way a text renderer's output looks. Filled
+ *   and coverage glyph modes are reserved in `RoboGraphicsText.h` and refused there;
  *
  *   a **border** is one rectangle -- the band a side occupies, already resolved from the
  *   box model -- filled with one colour *and shaped by a style*. CSS has ten styles, of
@@ -55,9 +72,11 @@
 #define ROBO_PAINT_DECORATION_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboFont/RoboFontFace.h"
 #include "RoboGraphics/RoboGraphicsSurface.h"
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
+#include "RoboPaint/RoboPaintText.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,29 +87,40 @@ extern "C" {
  *
  * A record by value, owned by nobody, and the interesting facts are the *pairs*:
  * `commands` against `skipped` is how much of the list was drawable at all; `draws`
- * against `backgrounds` and `borders` is what the document was made of; `filled` against
- * `draws` is how many of them actually put a colour down. `transparent` and `contextual`
- * are the two reasons a drawing command draws nothing, and keeping them apart is what
- * tells "the author asked for nothing" from "the colour could not be resolved"; `empty` is
- * the third reason and `unshaped` the fourth kind of fact; `clipped` is how many were
- * drawn under a boundary the command carried.
+ * against `backgrounds`, `borders` and `texts` is what the document was made of; `filled`
+ * against `draws` is how many of them actually put a colour down. `transparent` and
+ * `contextual` are the two reasons a drawing command draws nothing, and keeping them apart
+ * is what tells "the author asked for nothing" from "the colour could not be resolved";
+ * `empty` is the third reason and `no_font` the fourth -- the reason that is about the
+ * call rather than the document; `unshaped`, `glyphs`, `glyphs_missing` and `rtl` are the
+ * four numbers that say *how* the drawings that did happen were drawn; `clipped` is how many
+ * were drawn under a boundary the command carried.
  *
  * Three identities hold by construction and every one of them is asserted, so no counter
  * is a remainder nobody checked:
  *
  *   commands = draws + skipped
- *   draws    = backgrounds + borders
- *   draws    = filled + contextual + transparent + empty
+ *   draws    = backgrounds + borders + texts
+ *   draws    = filled + contextual + transparent + empty + no_font
  */
 typedef struct robo_paint_decoration_stats {
     /** Display commands visited. */
     size_t commands;
-    /** Commands that draw something: `draw-background` plus `draw-border`. */
+    /** Commands that draw something: `draw-background`, `draw-border` and `draw-text`. */
     size_t draws;
     /** `draw-background` commands seen. */
     size_t backgrounds;
     /** `draw-border` commands seen: one per border side whose used width is above zero. */
     size_t borders;
+    /**
+     * `draw-text` commands seen: one per run the record list carried (11.6).
+     *
+     * The third drawing kind, and the reason it is a counter of its own rather than folded
+     * into `draws` is that a reader who sees a document's text and borders in one number
+     * cannot tell which of them reached the surface -- and after 11.6 those are different
+     * claims, with different fences (`border_painting` and `text_painting`).
+     */
+    size_t texts;
     /** Drawing commands that put a colour on the surface. */
     size_t filled;
     /**
@@ -107,6 +137,51 @@ typedef struct robo_paint_decoration_stats {
     size_t transparent;
     /** Drawings with a zero-area rectangle (nothing to draw). */
     size_t empty;
+    /**
+     * Text commands this pass **could not attempt** because the caller supplied no font.
+     *
+     * The fifth term of the drawing partition, and the one that is a fact about the *call*
+     * rather than about the document: a run is a list of characters plus the font inputs it
+     * was measured with, and turning characters into glyphs needs a face -- which this door
+     * takes as an argument for exactly the reason it takes the surface as one. A caller that
+     * paints a textless document passes NULL and nothing changes; a caller that passes NULL
+     * for a document with text is told so by this number rather than by a silently blank
+     * frame.
+     */
+    size_t no_font;
+    /**
+     * Glyph draws attempted: one per code point of every text command that was drawn.
+     *
+     * Counted against `texts` so "the text was painted" can be read as a statement about
+     * characters rather than about commands -- a run of forty characters and a run of one
+     * are one command each, and a reader comparing this number with a document's own length
+     * is entitled to have it add up.
+     */
+    size_t glyphs;
+    /**
+     * Code points drawn as `.notdef` because the face has no glyph for them -- and, counted
+     * the same way, code points whose glyph metrics would not parse.
+     *
+     * The **same rule and the same number** as the layout measurer's `glyphs_missing`
+     * (`RoboLayoutTextFont.h`): an unmapped code point is measured and drawn at glyph 0's
+     * advance, which is what every engine does with `.notdef`, and this counter is the only
+     * thing that says the width a box was sized for is a width for text the font cannot
+     * draw. A painter that skipped such characters would leave a gap where layout expected
+     * an advance, and one that counted them as fine would hide the miss; counted here, the
+     * two layers agree.
+     */
+    size_t glyphs_missing;
+    /**
+     * Text commands whose run is **right-to-left**, drawn here in logical order.
+     *
+     * This build has no bidi algorithm, so an RTL run's characters are drawn left to right
+     * from its origin -- a run whose glyphs are in the right order in the wrong direction is
+     * not a rendering of the document. Naming the count is the same choice the seven
+     * unshaped border styles got: the fact that a simplification happened is a number a
+     * reader sees rather than a silence. The direction itself travels on the record, so the
+     * pass that implements bidi reads it from there rather than re-resolving a style.
+     */
+    size_t rtl;
     /**
      * Borders filled whose style this build does not shape yet: `dotted`, `dashed`,
      * `double`, `groove`, `ridge`, `inset` and `outset`. They are **drawn** -- the band,
@@ -144,6 +219,22 @@ void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats);
  * graphics module's, not a second compositor's) and destroys it before returning.
  * @p target is not retained and not released.
  *
+ * A **`draw-text`** command (11.6) resolves its code points to glyph ids through @p face's
+ * own cmap and draws each one with `robo_gfx_raster_draw_glyph`, advancing a pen by the
+ * glyph's device advance. The pen is accumulated in `float` and the drawn origin is snapped
+ * by the graphics module's own policy, which is the same rounding the bridge's scaled metrics
+ * use; a code point @p face has no glyph for is drawn at glyph 0 and counted
+ * (`glyphs_missing`), exactly as the layout measurer counted the same miss one layer down.
+ *
+ * @p face is **the caller's resource, exactly as @p target is**: this door retains nothing,
+ * resolves no `font-family`, falls nothing back and caches no glyph. It may be NULL, and then
+ * every text command is counted (`no_font`) and skipped -- a document with no text paints
+ * identically either way, so a caller that does not draw text never needs a font. Which face
+ * a document's text should use is a selection question with owners elsewhere (RoboFont's
+ * Goals 5.11/5.12/5.15 and CSS's `font-family`), and it is the same argument
+ * `RoboLayoutTextFont.h` makes for its measurer: the face is handed in, borrowed for the pass,
+ * and never discovered here.
+ *
  * @p out_stats may be NULL.
  *
  * An **empty list** is a legitimate pass that fills nothing, and so is a list of structural
@@ -153,10 +244,12 @@ void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats);
  * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL @p list or @p target;
  *         ROBO_NOT_SUPPORTED when @p target cannot be rasterised (a read-only or
  *         unsupported format); ROBO_OUT_OF_MEMORY when the raster cannot be allocated;
- *         ROBO_ERROR with a diagnostic when a fill or a clip application fails.
+ *         ROBO_ERROR with a diagnostic when a fill, a clip application or a glyph draw
+ *         fails.
  */
 robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
                                           robo_gfx_surface_t *target,
+                                          robo_font_face_t *face,
                                           robo_paint_decoration_stats_t *out_stats,
                                           robo_paint_diag_t *diag);
 

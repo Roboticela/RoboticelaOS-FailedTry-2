@@ -33,6 +33,7 @@ static const display_kind_row_t display_kind_rows[ROBO_PAINT_DISPLAY_CMD_KIND_CO
     { ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND, "draw-background" },
     { ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER, "draw-border" },
     { ROBO_PAINT_DISPLAY_CMD_CONTENT, "content" },
+    { ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT, "draw-text" },
     { ROBO_PAINT_DISPLAY_CMD_END_NODE, "end-node" }
 };
 
@@ -63,7 +64,9 @@ const char *robo_paint_display_command_kind_name(robo_paint_display_command_kind
 
 int robo_paint_display_command_kind_draws(robo_paint_display_command_kind_t kind)
 {
-    return kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND || kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER;
+    return kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND ||
+           kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER ||
+           kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT;
 }
 
 int robo_paint_display_command_kind_is_structural(robo_paint_display_command_kind_t kind)
@@ -102,6 +105,10 @@ void robo_paint_display_command_init(robo_paint_display_command_t *command)
     robo_paint_clip_init(&command->clip);
     command->color = robo_css_color_none();
     command->style = ROBO_CSS_BORDER_STYLE_NONE;
+    /* And no text run, which is what every kind except `draw-text` requires -- so "nobody
+     * set it" and "this command draws no characters" are one state, as they are for the
+     * style and the colour. */
+    robo_paint_text_run_init(&command->text);
 }
 
 int robo_paint_display_command_is_valid(const robo_paint_display_command_t *command)
@@ -136,7 +143,8 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
      */
     if (!robo_paint_display_command_kind_draws(command->kind)) {
         return command->color.kind == ROBO_CSS_COLOR_NONE &&
-               command->style == ROBO_CSS_BORDER_STYLE_NONE;
+               command->style == ROBO_CSS_BORDER_STYLE_NONE &&
+               !robo_paint_text_run_is_valid(&command->text);
     }
     if (!robo_css_color_is_valid(command->color)) {
         return 0;
@@ -155,7 +163,21 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
     if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
         return robo_css_border_style_generates_border(command->style);
     }
-    return command->style == ROBO_CSS_BORDER_STYLE_NONE;
+    /*
+     * And the text rule, the style rule's shape one field along and enforced from the same
+     * side. A `draw-text` carries a **run** -- a non-empty span, a non-negative baseline
+     * offset and font inputs that are a record -- because a command that draws characters
+     * must say which ones and where the baseline is; every other drawing carries a cleared
+     * one. Both halves are refusals: a `draw-text` with no characters is a drawing that
+     * draws nothing, and a band that came with font inputs is a command carrying facts
+     * about characters it does not have.
+     */
+    if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {
+        return command->style == ROBO_CSS_BORDER_STYLE_NONE &&
+               robo_paint_text_run_is_valid(&command->text);
+    }
+    return command->style == ROBO_CSS_BORDER_STYLE_NONE &&
+           !robo_paint_text_run_is_valid(&command->text);
 }
 
 int robo_paint_display_command_equal(const robo_paint_display_command_t *a,
@@ -167,7 +189,8 @@ int robo_paint_display_command_equal(const robo_paint_display_command_t *a,
     return a->kind == b->kind && a->node == b->node && a->depth == b->depth &&
            robo_gfx_rect_equal(a->rect, b->rect) &&
            robo_paint_clip_equal(&a->clip, &b->clip) &&
-           robo_css_color_equals(a->color, b->color) && a->style == b->style;
+           robo_css_color_equals(a->color, b->color) && a->style == b->style &&
+           robo_paint_text_run_equal(&a->text, &b->text);
 }
 
 robo_paint_display_command_kind_t robo_paint_display_command_kind(const robo_paint_display_command_t *command)
@@ -183,6 +206,17 @@ robo_layout_node_id_t robo_paint_display_command_node(const robo_paint_display_c
 robo_css_border_style_t robo_paint_display_command_style(const robo_paint_display_command_t *command)
 {
     return command ? command->style : ROBO_CSS_BORDER_STYLE_NONE;
+}
+
+robo_paint_text_run_t robo_paint_display_command_text(const robo_paint_display_command_t *command)
+{
+    robo_paint_text_run_t run;
+
+    if (!command) {
+        robo_paint_text_run_init(&run);
+        return run;
+    }
+    return command->text;
 }
 
 size_t robo_paint_display_command_depth(const robo_paint_display_command_t *command)
@@ -234,7 +268,7 @@ robo_result_t robo_paint_display_command_write(const robo_paint_display_command_
                                         size_t *out_length,
                                         robo_paint_diag_t *diag)
 {
-    robo_paint_text_t text;
+    robo_paint_writer_t text;
     const char *name;
     char color_text[ROBO_CSS_COLOR_TEXT_MAX + 1u];
     size_t color_length = 0u;
@@ -250,60 +284,78 @@ robo_result_t robo_paint_display_command_write(const robo_paint_display_command_
                                "not a command kind");
     }
 
-    robo_paint_text_init(&text, buffer, capacity);
+    robo_paint_writer_init(&text, buffer, capacity);
     name = robo_paint_display_command_kind_name(command->kind);
-    robo_paint_text_string(&text, name);
+    robo_paint_writer_string(&text, name);
     for (index = strlen(name); index < ROBO_PAINT_DISPLAY_NAME_COLUMN; index++) {
-        robo_paint_text_char(&text, ' ');
+        robo_paint_writer_char(&text, ' ');
     }
 
-    robo_paint_text_string(&text, "node=");
-    robo_paint_text_u64(&text, (uint64_t)command->node);
-    robo_paint_text_string(&text, " depth=");
-    robo_paint_text_u64(&text, (uint64_t)command->depth);
+    robo_paint_writer_string(&text, "node=");
+    robo_paint_writer_u64(&text, (uint64_t)command->node);
+    robo_paint_writer_string(&text, " depth=");
+    robo_paint_writer_u64(&text, (uint64_t)command->depth);
 
     /* The clip, as two modes with the interval appended only on an axis that has one:
      * `clip=hidden[0,100]/visible`. */
-    robo_paint_text_string(&text, " clip=");
-    robo_paint_text_string(&text, robo_css_overflow_name(command->clip.horizontal.mode));
+    robo_paint_writer_string(&text, " clip=");
+    robo_paint_writer_string(&text, robo_css_overflow_name(command->clip.horizontal.mode));
     if (robo_paint_clip_axis_is_active(&command->clip.horizontal)) {
-        robo_paint_text_char(&text, '[');
-        robo_paint_text_i64(&text, (int64_t)command->clip.horizontal.start);
-        robo_paint_text_char(&text, ',');
-        robo_paint_text_i64(&text, (int64_t)command->clip.horizontal.end);
-        robo_paint_text_char(&text, ']');
+        robo_paint_writer_char(&text, '[');
+        robo_paint_writer_i64(&text, (int64_t)command->clip.horizontal.start);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)command->clip.horizontal.end);
+        robo_paint_writer_char(&text, ']');
     }
-    robo_paint_text_char(&text, '/');
-    robo_paint_text_string(&text, robo_css_overflow_name(command->clip.vertical.mode));
+    robo_paint_writer_char(&text, '/');
+    robo_paint_writer_string(&text, robo_css_overflow_name(command->clip.vertical.mode));
     if (robo_paint_clip_axis_is_active(&command->clip.vertical)) {
-        robo_paint_text_char(&text, '[');
-        robo_paint_text_i64(&text, (int64_t)command->clip.vertical.start);
-        robo_paint_text_char(&text, ',');
-        robo_paint_text_i64(&text, (int64_t)command->clip.vertical.end);
-        robo_paint_text_char(&text, ']');
+        robo_paint_writer_char(&text, '[');
+        robo_paint_writer_i64(&text, (int64_t)command->clip.vertical.start);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)command->clip.vertical.end);
+        robo_paint_writer_char(&text, ']');
     }
 
     /* The one rectangle the command acts on, printed the same way for every kind: the
      * whole point of a display command is that it carries no *other* rectangle to choose
      * between. */
-    robo_paint_text_string(&text, " rect=");
-    robo_paint_text_rect(&text, command->rect);
+    robo_paint_writer_string(&text, " rect=");
+    robo_paint_writer_rect(&text, command->rect);
 
     if (robo_paint_display_command_kind_draws(command->kind)) {
         if (robo_css_color_write(command->color, color_text, sizeof(color_text),
                                  &color_length, NULL) == ROBO_OK) {
-            robo_paint_text_string(&text, " color=");
-            robo_paint_text_string(&text, color_text);
+            robo_paint_writer_string(&text, " color=");
+            robo_paint_writer_string(&text, color_text);
         }
     }
     /* A border band says which of the ten styles it is; nothing else has one to say. */
     if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
-        robo_paint_text_string(&text, " style=");
-        robo_paint_text_string(&text, robo_css_border_style_name(command->style));
+        robo_paint_writer_string(&text, " style=");
+        robo_paint_writer_string(&text, robo_css_border_style_name(command->style));
+    }
+    /* A text command prints the span, the baseline and the font inputs; its characters
+     * are printed by the list dump, which has the pool (see RoboPaintDump.h). */
+    if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {
+        robo_paint_writer_string(&text, " code_points=");
+        robo_paint_writer_u64(&text, (uint64_t)command->text.span.count);
+        robo_paint_writer_string(&text, " baseline=");
+        robo_paint_writer_i64(&text, (int64_t)command->text.baseline_offset);
+        robo_paint_writer_string(&text, " font=");
+        robo_paint_writer_number(&text, command->text.font.font_size_px, 2u);
+        robo_paint_writer_char(&text, '/');
+        robo_paint_writer_i64(&text, (int64_t)command->text.font.font_weight);
+        robo_paint_writer_char(&text, '/');
+        robo_paint_writer_string(&text, command->text.font.italic ? "italic" : "upright");
+        robo_paint_writer_char(&text, '/');
+        robo_paint_writer_string(&text,
+                                 command->text.font.direction ==
+                                         ROBO_LAYOUT_TEXT_DIRECTION_RTL ? "rtl" : "ltr");
     }
 
     *out_length = text.length;
-    if (!robo_paint_text_fits(&text)) {
+    if (!robo_paint_writer_fits(&text)) {
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_NOT_SUPPORTED,
                                "the command text does not fit the buffer");
     }

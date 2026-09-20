@@ -32,10 +32,16 @@
 #include "RoboCSS/RoboCSSComputedValue.h"
 #include "RoboCSS/RoboCSSValue.h"
 
+#include "RoboHTML/RoboHTMLNode.h"
+
+#include "RoboLayout/RoboLayoutBaseline.h"
+
 #include "RoboPaint/RoboPaintGeometry.h"
 #include "RoboPaint/RoboPaintOperation.h"
+#include "RoboPaint/RoboPaintText.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboUnicode/RoboUnicode.h"
 
 #include <string.h>
 
@@ -416,6 +422,242 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
 }
 
 /* ------------------------------------------------------------------ */
+/* One text run (11.6)                                                 */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Three facts this module had none of before this phase, and each of them is a *read*:
+ *
+ *   what characters the run holds -- the DOM's bytes, decoded through RoboUnicode into
+ *   the code points a range counts in;
+ *   how wide the placement is -- layout's own result for the object, which for a text
+ *   object is the line fragment;
+ *   where the baseline sits -- layout's own baseline record, read as an offset from the
+ *   top of that placement.
+ *
+ * Nothing here measures anything. A run's width came from the font through 10.5's seam and
+ * was consumed by the line; the painter that computed a width would be a second measurer
+ * with a different answer, and the painted text would not line up with the box that was
+ * sized for it.
+ */
+
+/** The code points of @p handle's @p range, appended to @p list's pool.
+ *
+ * @return ROBO_OK and the span; ROBO_NOT_FOUND when the node does not resolve or its bytes
+ *         do not decode; ROBO_INVALID_ARGUMENT for a range outside the text;
+ *         ROBO_OUT_OF_MEMORY.
+ */
+static robo_result_t paint_read_text(robo_paint_list_t *list,
+                                    const robo_html_node_handle_t *handle,
+                                    robo_layout_text_range_t range,
+                                    robo_paint_text_span_t *out_span,
+                                    robo_paint_diag_t *diag)
+{
+    robo_html_node_view_t view;
+    uint32_t *code_points;
+    size_t start = 0u;
+    size_t length = 0u;
+    size_t offset;
+    size_t count = 0u;
+    robo_result_t result;
+
+    *out_span = robo_paint_text_span_at(0u);
+    if (robo_html_node_get_view(handle, &view, NULL) != ROBO_OK) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_TRAVERSAL, ROBO_NOT_FOUND,
+                               "a text run's node did not resolve");
+    }
+    if (view.kind != ROBO_HTML_NODE_KIND_TEXT) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_TRAVERSAL, ROBO_NOT_FOUND,
+                               "a text object names a node that holds no text");
+    }
+    /*
+     * The range's byte window, through the bridge that owns the range type -- so "both
+     * endpoints land on code-point boundaries and inside the text" is established once, by
+     * the code that knows the convention, rather than by a second copy of the arithmetic
+     * here. The **window** is what this uses; the range's code-point endpoints were used by
+     * the measurer and are not needed to walk forward from a known boundary.
+     */
+    if (robo_layout_text_range_bytes(handle, range, &start, &length, NULL) != ROBO_OK) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_TRAVERSAL, ROBO_INVALID_ARGUMENT,
+                               "a text run's range is not inside its node");
+    }
+    if (length == 0u) {
+        /* An empty run is a legal text node and draws nothing; the caller counts it as a
+         * run that produced no command rather than as a failure. */
+        return ROBO_OK;
+    }
+    /*
+     * One scratch buffer sized by the window's **byte** length, which is an upper bound on
+     * its code points -- UTF-8 is never shorter than one byte per code point, so a window of
+     * `n` bytes holds at most `n` characters and the decode cannot overflow. The alternative
+     * -- decoding into the pool one chunk at a time -- would give a run several spans and
+     * break the one thing a span promises (a run is one contiguous `[first, first + count)`).
+     */
+    code_points = (uint32_t *)robo_calloc(length, sizeof(*code_points));
+    if (!code_points) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_TRAVERSAL, ROBO_OUT_OF_MEMORY,
+                               "could not hold a text run's characters");
+    }
+    offset = start;
+    while (offset < start + length && count < length) {
+        robo_uchar32_t code_point = 0;
+        size_t next = offset;
+
+        if (robo_unicode_utf8_decode(view.text, view.text_length, offset,
+                                    ROBO_UNICODE_REPLACE, &code_point, &next) !=
+                ROBO_UNICODE_OK ||
+            next <= offset) {
+            robo_free(code_points);
+            return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_TRAVERSAL, ROBO_NOT_FOUND,
+                                   "a text run's bytes could not be decoded");
+        }
+        code_points[count] = (uint32_t)code_point;
+        count++;
+        offset = next;
+    }
+    result = robo_paint_list_add_text(list, code_points, count, out_span, diag);
+    robo_free(code_points);
+    if (result != ROBO_OK) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_TRAVERSAL, result,
+                               "a text run's characters could not be stored");
+    }
+    return ROBO_OK;
+}
+
+/**
+ * Emit the `TEXT` operation for text object @p id, or report that there is none to emit.
+ *
+ * @param out_emitted non-NULL; set to 1 when an operation was appended, 0 when the run
+ *                    draws nothing -- which is a **statement about the document** rather
+ *                    than a failure, so the caller counts it and the pass continues. The
+ *                    reasons are the drawing rule's (`RoboPaintTypes.h`): no colour to
+ *                    draw in, no characters, nothing placed it, or a range that could not
+ *                    be read.
+ *
+ * @return ROBO_OK; a failure only when the list could not grow.
+ */
+static robo_result_t paint_emit_text(robo_paint_context_t *context,
+                                    const robo_layout_tree_t *tree,
+                                    robo_layout_node_id_t id,
+                                    size_t depth,
+                                    robo_layout_point_t origin,
+                                    const robo_paint_clip_t *clip,
+                                    robo_paint_list_t *list,
+                                    int *out_emitted,
+                                    robo_paint_diag_t *diag)
+{
+    const robo_css_computed_style_t *computed;
+    robo_layout_text_run_t run;
+    robo_layout_baseline_metrics_t baseline;
+    robo_paint_boxes_t local;
+    robo_paint_boxes_t boxes;
+    robo_paint_operation_t operation;
+    robo_paint_text_run_t text;
+    robo_html_node_handle_t handle;
+    robo_css_color_t color;
+    robo_css_color_t element_color;
+    robo_layout_text_style_t font;
+    int draws = 0;
+    int contextual = 0;
+    robo_result_t result;
+
+    *out_emitted = 0;
+
+    /* The placement, through the **same door a box's three rectangles come from**: it
+     * declines a text run's inset records and says so with `insets_measured`, so a run's
+     * border, padding and content box are one rectangle and no second derivation of "a run
+     * has no box layers" exists in this module. */
+    if (robo_paint_boxes_of(tree, id, &local, NULL) != ROBO_OK) {
+        return ROBO_OK;
+    }
+    if (robo_layout_object_text_run(tree, id, &run, NULL) != ROBO_OK) {
+        return ROBO_OK;
+    }
+    if (robo_layout_object_dom_node(tree, id, &handle) != ROBO_OK) {
+        return ROBO_OK;
+    }
+
+    /*
+     * The colour, read exactly where a box's is read: the run's style **is its parent
+     * element's**, borrowed, because every property a run needs is inherited and RoboCSS
+     * already distributed them (`RoboLayoutText.h` argues it). `currentColor` resolves
+     * against the same style, which is the element's own `color` -- and an element with no
+     * usable `color` draws no text, counted rather than guessed at.
+     */
+    computed = robo_layout_object_style(tree, id);
+    element_color = paint_element_color(computed);
+    color = paint_property_color(computed, "color");
+    /* `color`'s initial value is not "nothing": an undeclared text colour is the
+     * element's resolved colour, so the `default_for_none` flag is set here exactly as it
+     * is for a border, and for the same reason. */
+    paint_resolve_color(color, element_color, 1, &color, &draws, &contextual);
+    if (contextual) {
+        context->stats.contextual_colors++;
+    }
+    if (!draws) {
+        return ROBO_OK;
+    }
+
+    /*
+     * The font inputs, **through the layer that resolved them for measurement** rather than
+     * re-read from the computed style here: `robo_layout_text_style_resolve` is the one
+     * place a computed `font-size` becomes a pixel size with CSS's initial values applied,
+     * and a second reader would be a second answer to "what size is this text". The record
+     * then travels with the run, so the size it was measured at is the size it is drawn at
+     * by construction.
+     */
+    if (robo_layout_text_style_resolve(computed, &font) != ROBO_OK) {
+        return ROBO_OK;
+    }
+
+    if (robo_layout_object_baseline(tree, id, &baseline, NULL) != ROBO_OK) {
+        return ROBO_OK;
+    }
+
+    robo_paint_text_run_init(&text);
+    if (paint_read_text(list, &handle, run.range, &text.span, diag) != ROBO_OK ||
+        robo_paint_text_span_is_empty(text.span)) {
+        /* A run whose characters could not be read draws nothing. The failure is *this
+         * run's*, not the document's: the rest of it is painted, and `text_runs` against
+         * `texts` says one run produced no command. */
+        return ROBO_OK;
+    }
+    /*
+     * The baseline, through the offset door rather than off `ascent`: the two are equal for
+     * every value this build produces, and the door is the one that **says so** -- a painter
+     * that read `ascent` would be relying on a convention `RoboLayoutBaseline.h` states as a
+     * convention, in a module that is not allowed to know it.
+     */
+    {
+        int32_t offset = 0;
+
+        if (robo_layout_baseline_offset(&baseline, &offset) != ROBO_OK) {
+            return ROBO_OK;
+        }
+        text.baseline_offset = offset;
+    }
+    text.font = font;
+
+    (void)robo_paint_boxes_translate(&local, origin.x, origin.y, &boxes, NULL);
+
+    robo_paint_operation_init(&operation);
+    operation.kind = ROBO_PAINT_OP_TEXT;
+    operation.node = id;
+    operation.depth = depth;
+    operation.boxes = boxes;
+    operation.origin = origin;
+    operation.clip = *clip;
+    operation.color = color;
+    operation.text = text;
+    result = robo_paint_list_append(list, &operation, diag);
+    if (result != ROBO_OK) {
+        return result;
+    }
+    *out_emitted = 1;
+    return ROBO_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /* The walk                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -490,12 +732,31 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
 
     if (kind == ROBO_LAYOUT_OBJECT_TEXT) {
         /*
-         * Visited, counted, and not painted -- and the reason is stated in the stats
-         * record rather than here: a run's rectangle is a line fragment with no box
-         * layers and painting one means shaping, which Phase 14 owns. A text object is a
-         * leaf, so there is nothing below it to walk.
+         * A text run (11.6): a leaf, so there is nothing below it to walk, and one
+         * **drawing** operation rather than a structural triple -- because a run is not a
+         * box and the `BEGIN_BOX`/`CONTENT`/`END_BOX` skeleton is a statement about boxes.
+         *
+         * `placed_ancestor` is honoured here exactly as it is for a box, and for the same
+         * reason: a run's paint coordinates are its parent's content origin plus what
+         * layout wrote, so a run inside a box nothing placed has no coordinates to be
+         * emitted at. The two counters split the runs the traversal reached into the ones
+         * that produced a command and the ones that draw nothing -- an identity by
+         * construction (`RoboPaintContext.h`), so "this document has text and none of it
+         * was painted" is a number a reader sees rather than a silence.
          */
+        int emitted = 0;
+
         context->stats.text_runs++;
+        if (placed_ancestor &&
+            paint_emit_text(context, tree, id, depth, origin, clip, list, &emitted, diag) !=
+                ROBO_OK) {
+            return diag ? diag->code : ROBO_ERROR;
+        }
+        if (emitted) {
+            context->stats.texts++;
+        } else {
+            context->stats.text_skipped++;
+        }
         return ROBO_OK;
     }
 

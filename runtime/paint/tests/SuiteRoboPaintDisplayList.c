@@ -175,6 +175,12 @@ static void display_check_mapping(const paint_result_t *records,
             ROBO_CHECK_EQ_INT(robo_paint_operation_side_band(&operation, &expected, NULL),
                               ROBO_OK);
             break;
+        case ROBO_PAINT_OP_TEXT:
+            ROBO_CHECK_EQ_INT((int)command.kind, (int)ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT);
+            /* A run has no insets, so all three of its rectangles are equal and the
+             * border box is the one the command is built on. */
+            expected = operation.boxes.border;
+            break;
         case ROBO_PAINT_OP_CONTENT:
             ROBO_CHECK_EQ_INT((int)command.kind, (int)ROBO_PAINT_DISPLAY_CMD_CONTENT);
             expected = operation.boxes.content;
@@ -212,7 +218,7 @@ static void test_display_command_vocabulary(void)
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 6);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 7);
     for (index = 0u; index < (size_t)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT; index++) {
         robo_paint_display_command_kind_t kind = (robo_paint_display_command_kind_t)index;
         int is_drawing = robo_paint_display_command_kind_draws(kind);
@@ -235,8 +241,9 @@ static void test_display_command_vocabulary(void)
             ROBO_CHECK(kind != ROBO_PAINT_DISPLAY_CMD_CONTENT);
         }
     }
-    /* Two drawing kinds, three structural, and `NONE`. */
-    ROBO_CHECK_EQ_INT(drawing_total, 2);
+    /* Three drawing kinds -- background, border and text (11.6) -- three structural, and
+     * `NONE`. */
+    ROBO_CHECK_EQ_INT(drawing_total, 3);
     ROBO_CHECK_EQ_INT(structural_total, 3);
 
     ROBO_CHECK_STR_EQ(robo_paint_display_command_kind_name(ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER),

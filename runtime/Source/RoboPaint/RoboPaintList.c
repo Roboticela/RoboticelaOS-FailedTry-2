@@ -26,13 +26,23 @@
 
 #include <string.h>
 
-/** The list: a contiguous array and its two counts. */
+/** The list: a contiguous array and its two counts, plus the characters its text
+ *  operations index (11.6). */
 struct robo_paint_list {
     robo_paint_operation_t *operations;
     /** Operations held. */
     size_t count;
     /** Operations the array has room for. */
     size_t capacity;
+    /**
+     * The code points the list's `TEXT` operations name, owned here.
+     *
+     * The second array, and it is a **pool rather than a field** for the reason
+     * RoboPaintText.h argues: characters are variable-length, so a record can only name
+     * them, and the pool is the one thing that knows whether a span names anything. It is
+     * created with the list and destroyed with it, so a list is still exactly one object
+     * with one owner -- and a caller that never paints text never notices it is there. */
+    robo_paint_text_pool_t *text;
 };
 
 robo_result_t robo_paint_list_create(robo_paint_list_t **out_list, robo_paint_diag_t *diag)
@@ -69,6 +79,19 @@ robo_result_t robo_paint_list_create(robo_paint_list_t **out_list, robo_paint_di
     list->operations = operations;
     list->count = 0u;
     list->capacity = ROBO_PAINT_INITIAL_CAPACITY;
+    /*
+     * The text pool is taken at creation too, and for the same reason the first block is:
+     * a caller that sizes a list before a pass may rely on the door answering rather than
+     * on a lazily created pool that would make "add a run's characters" a call that can
+     * fail for a reason unrelated to the characters. It costs one empty allocation for a
+     * document with no text, which is the trade this module makes everywhere else.
+     */
+    if (robo_paint_text_pool_create(&list->text, diag) != ROBO_OK) {
+        robo_free(operations);
+        robo_free(list);
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_LIST, ROBO_OUT_OF_MEMORY,
+                               "could not allocate the paint list's text pool");
+    }
     *out_list = list;
     return ROBO_OK;
 }
@@ -78,9 +101,11 @@ void robo_paint_list_destroy(robo_paint_list_t *list)
     if (!list) {
         return;
     }
-    /* The operations are values with no pointers in them, so freeing the array is the
-     * whole of the release -- there is nothing to walk and nothing to unlink, which is
-     * exactly what makes a list safe to discard in any order relative to a tree. */
+    /* The operations are values with no pointers in them, so freeing the two arrays is
+     * the whole of the release -- there is nothing to walk and nothing to unlink, which is
+     * exactly what makes a list safe to discard in any order relative to a tree. The text
+     * pool is the same argument one level down: its code points are values too. */
+    robo_paint_text_pool_destroy(list->text);
     robo_free(list->operations);
     robo_free(list);
 }
@@ -96,8 +121,14 @@ void robo_paint_list_clear(robo_paint_list_t *list)
      * because every read door clamps to `count`. A `memset` here would be work whose
      * only effect is invisible, and it would make `clear` cost a document's worth of
      * bytes per frame for nothing.
+     *
+     * The text pool is cleared with it and **must** be: the operations that named its
+     * characters are gone, so leaving the code points would be storage for spans nothing
+     * can read -- and the next pass's runs would be appended after them, which is the slow
+     * leak that looks like working code.
      */
     list->count = 0u;
+    robo_paint_text_pool_clear(list->text);
 }
 
 robo_result_t robo_paint_list_reserve(robo_paint_list_t *list,
@@ -156,6 +187,17 @@ robo_result_t robo_paint_list_append(robo_paint_list_t *list,
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_LIST, ROBO_INVALID_ARGUMENT,
                                "the operation is not a record: it names no box, its boxes "
                                "are not nested, or its colour does not match its kind");
+    }
+    /*
+     * The span rule, and it is the one thing about a text record only the container can
+     * decide: the record says how many characters it draws and where they start, and this
+     * is where the characters are. A span that is not a run in this pool is refused, so a
+     * consumer that reads a text operation can read its characters and always get them.
+     */
+    if (operation->kind == ROBO_PAINT_OP_TEXT &&
+        !robo_paint_text_pool_contains(list->text, operation->text.span)) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_LIST, ROBO_INVALID_ARGUMENT,
+                               "the operation's text span is not a run in this list's pool");
     }
     if (list->count == list->capacity) {
         /* Doubled, and floored at one step so that a list somehow created with no room
@@ -226,6 +268,27 @@ int robo_paint_list_equal(const robo_paint_list_t *a, const robo_paint_list_t *b
         }
     }
     return 1;
+}
+
+robo_result_t robo_paint_list_add_text(robo_paint_list_t *list,
+                                      const uint32_t *code_points,
+                                      size_t count,
+                                      robo_paint_text_span_t *out_span,
+                                      robo_paint_diag_t *diag)
+{
+    if (!list) {
+        if (out_span) {
+            *out_span = robo_paint_text_span_at(0u);
+        }
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_LIST, ROBO_INVALID_ARGUMENT,
+                               "list is NULL");
+    }
+    return robo_paint_text_pool_append(list->text, code_points, count, out_span, diag);
+}
+
+robo_paint_text_pool_t *robo_paint_list_text_pool(const robo_paint_list_t *list)
+{
+    return list ? list->text : NULL;
 }
 
 size_t robo_paint_list_count_of_kind(const robo_paint_list_t *list, robo_paint_op_kind_t kind)

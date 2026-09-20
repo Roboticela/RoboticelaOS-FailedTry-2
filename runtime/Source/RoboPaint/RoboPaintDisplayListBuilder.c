@@ -132,10 +132,20 @@ void robo_paint_display_list_builder_reset(robo_paint_display_list_builder_t *bu
 
 /** Fill @p out with the display command @p operation resolves to.
  *
- * @return ROBO_OK; ROBO_ERROR for an operation this build has no rule for, or a border
- *         whose band cannot be derived.
+ * @param text_target the output list's text pool. A `TEXT` record's characters are copied
+ *                    into it here, because a display command names characters in **its
+ *                    own** list's pool -- the record list's pool is the other list's, and a
+ *                    span that still pointed there would be a command that stopped meaning
+ *                    anything the moment that list was cleared. Passing NULL is legal and
+ *                    makes a text record resolve to an error, which only a caller that
+ *                    built a list with no pool could do.
+ *
+ * @return ROBO_OK; ROBO_ERROR for an operation this build has no rule for, a border whose
+ *         band cannot be derived, or a text run whose characters cannot be copied.
  */
 static robo_result_t display_command_for(const robo_paint_operation_t *operation,
+                                         const robo_paint_text_pool_t *text_source,
+                                         robo_paint_text_pool_t *text_target,
                                          robo_paint_display_command_t *out,
                                          robo_paint_diag_t *diag)
 {
@@ -168,6 +178,23 @@ static robo_result_t display_command_for(const robo_paint_operation_t *operation
          * inside that rectangle, so it travels with the command (11.5). */
         out->color = operation->color;
         out->style = operation->style;
+        return ROBO_OK;
+    case ROBO_PAINT_OP_TEXT:
+        out->kind = ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT;
+        /* A run has no insets, so the one rectangle it acts on is any of the three the
+         * operation carries -- they are equal by construction (`robo_paint_boxes_of`
+         * declines a text run's inset doors and says so with `insets_measured`). */
+        out->rect = operation->boxes.border;
+        out->color = operation->color;
+        out->text = operation->text;
+        /* The characters are renumbered into this list's pool. The run's other two facts
+         * -- the baseline offset and the font inputs -- are values and copy straight
+         * across, so "the size it was measured at is the size it will be drawn at" is a
+         * copy rather than an agreement to maintain. */
+        if (robo_paint_text_pool_copy(text_target, text_source, operation->text.span,
+                                      &out->text.span, diag) != ROBO_OK) {
+            return ROBO_ERROR;
+        }
         return ROBO_OK;
     case ROBO_PAINT_OP_CONTENT:
         out->kind = ROBO_PAINT_DISPLAY_CMD_CONTENT;
@@ -202,6 +229,8 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
                                               robo_paint_diag_t *diag)
 {
     robo_paint_display_list_stats_t stats;
+    robo_paint_text_pool_t *text_target;
+    const robo_paint_text_pool_t *text_source;
     size_t count;
     size_t index;
 
@@ -209,11 +238,21 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_INVALID_ARGUMENT,
                                "the builder, the records and the output list are required");
     }
+    /* The two pools a text run crosses between: the record list's, which holds the
+     * characters the traversal read, and the output list's, which will hold the copy this
+     * artifact owns. Both are borrowed for the duration of the build and neither is
+     * retained -- an output list that kept a pointer to the record list's pool would be
+     * exactly the dangling reference the pool exists to make impossible. */
+    text_target = robo_paint_display_list_text_pool(out_list);
+    text_source = robo_paint_list_text_pool(records);
 
     /*
      * The list is cleared first, so a caller may reuse one display list across builds and a
      * refused build hands back an **empty** list rather than the previous one -- the paint
-     * pass's rule at the same boundary.
+     * pass's rule at the same boundary. It clears the list's **text pool** with it, which is
+     * what makes the copy below the only characters this artifact holds: were the pool kept
+     * across a build, the second build's runs would be appended after the first's and a
+     * reader would be able to reach code points no command names.
      */
     robo_paint_display_list_clear(out_list);
     builder->open_count = 0u;
@@ -237,6 +276,15 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
          * currently open, so a box that nests directly inside them has depth
          * `open_count`, and a record that belongs to the innermost open box has depth
          * `open_count - 1`.
+         *
+         * A **text run** is neither, and the difference is the whole of 11.6's shape in
+         * this file: it is a **child** of the box whose element owns the text node, so its
+         * depth is one past the innermost open box and its node is a *different* object --
+         * but it opens no box of its own, because a run is not one (`RoboPaintTypes.h`).
+         * So it is checked as a child and the stack is left alone, and the fact that it
+         * follows the box's content boundary is required exactly as it is for a nested box:
+         * a run emitted before its parent's own painting had finished would be a run no
+         * traversal of this build can produce.
          */
         if (operation.kind == ROBO_PAINT_OP_BEGIN_BOX) {
             if (operation.depth != builder->open_count) {
@@ -254,6 +302,38 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
                 return display_refuse(out_list, diag, "a record belongs to no open box");
             }
             top = &builder->open[builder->open_count - 1u];
+            if (operation.kind == ROBO_PAINT_OP_TEXT) {
+                /* A text child: one deeper than the box that owns it, naming itself rather
+                 * than that box, and inside the box's contents. Nothing is pushed, because
+                 * a run has nothing to put anything in. Its depth is checked *before* the
+                 * generic rule below, because that rule is what every record owned by the
+                 * innermost box obeys and a run is owned a level down from it. */
+                if (operation.depth != builder->open_count) {
+                    return display_refuse(out_list, diag,
+                                          "a text run's depth is not its parent box's plus "
+                                          "one");
+                }
+                if (operation.node == top->node) {
+                    return display_refuse(out_list, diag,
+                                          "a text run names the box that owns it");
+                }
+                if (!top->content_seen) {
+                    return display_refuse(out_list, diag,
+                                          "a text run precedes its parent box's content "
+                                          "boundary");
+                }
+                if (display_command_for(&operation, text_source, text_target, &command,
+                                        diag) != ROBO_OK) {
+                    return display_refuse(out_list, diag,
+                                          "a text run's characters could not be copied");
+                }
+                if (robo_paint_display_list_append(out_list, &command, diag) != ROBO_OK) {
+                    robo_paint_display_list_clear(out_list);
+                    return diag ? diag->code : ROBO_ERROR;
+                }
+                stats.texts++;
+                continue;
+            }
             if (operation.depth != builder->open_count - 1u) {
                 return display_refuse(out_list, diag,
                                       "a record's depth is not its innermost box's");
@@ -262,6 +342,7 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
                 return display_refuse(out_list, diag,
                                       "a record names a node other than its innermost box's");
             }
+
             switch (operation.kind) {
             case ROBO_PAINT_OP_CONTENT:
                 if (top->content_seen) {
@@ -292,7 +373,8 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
             }
         }
 
-        if (display_command_for(&operation, &command, diag) != ROBO_OK) {
+        if (display_command_for(&operation, text_source, text_target, &command, diag) !=
+            ROBO_OK) {
             return display_refuse(out_list, diag,
                                   "an operation resolves to no display command");
         }
@@ -321,7 +403,7 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
     }
 
     stats.commands = robo_paint_display_list_count(out_list);
-    stats.draws = stats.backgrounds + stats.borders;
+    stats.draws = stats.backgrounds + stats.borders + stats.texts;
     if (out_stats) {
         *out_stats = stats;
     }

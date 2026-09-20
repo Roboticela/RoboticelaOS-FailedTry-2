@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.5)
+# RoboPaint Test Organisation (through Phase 11.6)
 
-Seven suites, 93 tests, one framework. Each phase adds no test runner, no reporter and no
+Eight suites, 110 tests, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,7 +8,7 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the seven suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the eight suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
@@ -25,6 +25,7 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaintDisplayList.c` | `paint.display.*` | 13 | does the display list *resolve* the box model (one rectangle per command), *preserve* the order and identity, *refuse* a record list that is not a document, and *snapshot* what it consumes? |
 | `SuiteRoboPaintBackground.c` | `paint.background.*` | 14 | does the colour cross into RoboGraphics, does a document's `background-color` land **where the list said it would** (read back from the surface), and do the pass's counters add up on a document and on a hand-built list? |
 | `SuiteRoboPaintBorder.c` | `paint.border.*` | 14 | does a border side's **band** get filled (read back from the surface), does its **style** survive record → command, do four sides of four different widths and colours land exactly where the box model says, and does a child spilling over its parent draw over the parent's border rather than under it? |
+| `SuiteRoboPaintText.c` | `paint.text.*` | 17 | do a run's **characters** travel record → pool → display pool → pixels, are they counted in **code points**, is the baseline layout's rather than a second one, does an unmapped code point become a counted `.notdef`, and does a list keep drawing after the records it was built from are gone? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -216,13 +217,54 @@ dropped by the builder.
 - **the corner rule, pinned where it is visible** — `colors_and_corners`: the four corner pixels
   say which band was drawn last.
 
-### 1.10 — conformance (`paint.conformance.*`, 5 cases)
+### 1.10 — the text pass (`paint.text.*`, 17 cases)
+
+The Phase 11.6 suite, and the first one whose expectation is a **string** rather than a number
+or a colour:
+
+- **the characters travelled** — `record_shape` (one run produces one record, carrying a
+  non-empty span, a baseline and the measurer's font inputs), `characters_are_code_points` (an
+  accented word is four code points and five UTF-8 bytes, and the span and the pool both say
+  four), `command_and_span` (the record list's pool *and* the display list's **own** pool hold the
+  same characters, and the two runs are equal field for field), `multiple_runs` (two elements'
+  runs are two records, in document order, with disjoint spans).
+- **the geometry is layout's** — every text record's local boxes are checked against the tree
+  with the same helper the box suites use, and `order_and_depth` asserts a `draw-text` sits at
+  exactly one past its parent box's depth, names its own node, and appears after that box's
+  `CONTENT`.
+- **two lines, two placements** — `wrapped_lines`: two participants in one inline context, the
+  second unable to follow the first, land at two different line tops and read back as two runs
+  — because a text node is measured **as a unit** in this build and therefore wraps whole rather
+  than fragmenting.
+- **colour** — `color` (the record's accessor and the command's field are the document's
+  `color`) and the same `paint_color_eq` bridge the background suite uses.
+- **glyphs reach a surface** — `pixels`: a synthetic face (a cmap, an hmtx, an hhea and one
+  square outline) is supplied, the run's two code points resolve through it, their outlines
+  stroke into a real surface, and the run's own colour appears where the command said it would.
+  `missing_glyph` pins the other half: an unmapped code point draws `.notdef` and is **counted**.
+- **no face is a number** — `no_font`: a document with text painted with no face paints nothing
+  where the text was, reports `no_font`, and the structural and background commands are
+  unaffected.
+- **logical order, stated** — `rtl`: an RTL run's characters are drawn left to right from its
+  origin and the run is counted in `rtl`, which is how a build with no bidi says so.
+- **the pool is a boundary** — `mutation_isolation`: the display list is written to text, the
+  **records are freed**, and it writes again byte for byte and still paints the same pixels.
+- **empties, hand-built rules, the doors** — `empty_cases` (an empty body, an empty element, a
+  whitespace-only run, a zero-width box), `hand_built_rules` (a `text` record with an empty span,
+  a negative baseline offset or non-record font inputs is refused, and one with real characters is
+  not), `pool_doors` (append/read/contains/copy: a `count` of zero refused, a span past the end
+  refused, a too-small output buffer reporting the count it needed).
+- **determinism and dump** — `determinism` (the same document built into a *second* tree, compared
+  by every run, every span and both dumps) and `dump` (a record line and a command line each carry
+  `text="..."`, and the dump reads the characters through the pool's own door).
+
+### 1.11 — conformance (`paint.conformance.*`, 5 cases)
 
 - `capabilities` — the struct read positionally against a list of names, so a field added
   without an assertion is a visible omission.
 - `drawing_present` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
-  `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting` and
-  `border_painting` say which drawings exist and `raster` still says 0.
+  `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting`,
+  `border_painting` and `text_painting` say which drawings exist and `raster` still says 0.
 - `vocabulary_exhaustive` — every kind and every domain prints a name that is not "unknown".
 - `document_list` — a whole document's list, pinned operation by operation.
 - `hostile_inputs` — NULL and malformed records refused rather than read.
@@ -257,7 +299,14 @@ about a record. The expectation at a point is the **last** drawable command whos
 contains it and whose clip admits it, so the check is the list's own order rather than an
 assumption that every fill is visible.
 
-They still do **not** assert anything about border rasterisation, text or image painting, real
+Since 11.6 they assert **characters**, and the interesting part is where the expectation comes
+from: a run's text is compared against the *document's own* string, read back through the pool's
+door, so a suite cannot pass by agreeing with the traversal's copy of it. Glyph expectations are
+**arithmetic**, because the suite's face is synthetic and stated as numbers (`Text.md` §8 records
+why: a face never prepared, or a cmap table that is *nearly* right, both make a font test pass for
+the wrong reason).
+
+They still do **not** assert anything about border shape rasterisation, image painting, real
 clipping, opacity, transforms, scrolling, a whole-list rasteriser, paint invalidation or hit
 testing: none of those exists in this build, and a suite that asserted them would be asserting a
 later phase.
@@ -276,11 +325,12 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test   # bui
 ./Out/RoboTest.host.exe --filter paint.display.          # the display-list suite
 ./Out/RoboTest.host.exe --filter paint.background.       # the background-painting suite
 ./Out/RoboTest.host.exe --filter paint.border.           # the border-painting suite
+./Out/RoboTest.host.exe --filter paint.text.             # the text-painting suite
 ```
 
 `./scripts/robo test-paint` runs the module's group through the project pipeline. The filter is
 a **substring** match, not a prefix, so `--filter paint.` also matches the demo layer's six
-`demo.paint.*` cases: the group reports **99** for a module with **93** cases of its own. That
+`demo.paint.*` cases: the group reports **116** for a module with **110** cases of its own. That
 superset is recorded in `scripts/pipeline/commands.test.ps1` beside the group, the same way the
 `layout` group's two-case superset is.
 
@@ -402,3 +452,36 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
    assertions *about* the record. The fix is the fixture's: `paint_drawing_make` now sets the style
    the kind requires (`solid` for a border, `none` for a background), and the validity case
    asserts both halves of the rule in both directions.
+
+---
+
+## 11. What the 11.6 suite found
+
+1. **A structural check ordered before the rule it exempts is unreachable.** The display
+   builder's text branch was written *after* the generic "a record's depth is its innermost box's"
+   check — a rule a text run fails by construction, because a run is owed one level **down** from
+   the box that owns it. Every document containing text was refused with that message and the
+   text branch beneath it could never run. The fix is an ordering rather than a rule: a run's own
+   checks come first, the generic checks follow for every other kind. It is recorded because the
+   message named the rule the record was *supposed* to break, which is the most misleading a
+   refusal can be.
+2. **The pixel oracle had to learn a third kind — and the counter identities a fourth bucket.**
+   11.4's oracle knew backgrounds, 11.5's learned bands, this one learned runs; and the text pass
+   added `no_font` to `draws = filled + contextual + transparent + empty`, because "there was no
+   font to draw with" is a fact about the *call* and not about the document. Each addition was
+   caught by an identity assertion rather than by inspection.
+3. **A synthetic face needs its cmap prepared, and a hand-written format-4 table needs exactly
+   the bytes the format says.** The suite's cmap wrote one segment too many for two segments,
+   which shifted `idRangeOffset` onto the wrong word; the parser read a plausible glyph array out
+   of the extra bytes, every lookup resolved past `maxp`'s `numGlyphs`, and the pass reported
+   `INVALID_FONT` per code point while drawing nothing. Both halves are recorded because they are
+   the two ways a font test passes for the wrong reason — a face that was never prepared, and a
+   table that is *nearly* right — and because the second looks exactly like a rendering bug from
+   outside.
+4. **A wrapped line is two participants, not one fragmented run.** The wrapping case was written
+   expecting one text node to produce several line fragments. RoboLayout measures a text node **as
+   a unit** and a run wider than its line wraps whole rather than breaking, so the case was
+   asserting a line-breaking behaviour that belongs to a later phase. It now uses two participants
+   in one inline context and asserts what the build does: two runs, two line tops, two records —
+   which is a stronger statement than the original, because it pins that the wrap is layout's
+   rather than paint's.

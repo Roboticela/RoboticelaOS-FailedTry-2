@@ -69,7 +69,8 @@ static const paint_capability_row_t paint_capability_rows[] = {
     { "raster", 0 },
     { "paint_invalidation", 0 },
     { "background_painting", 1 },
-    { "border_painting", 1 }
+    { "border_painting", 1 },
+    { "text_painting", 1 }
 };
 
 static void test_paint_conformance_capabilities(void)
@@ -144,14 +145,15 @@ static void test_paint_conformance_drawing_present(void)
     ROBO_CHECK_EQ_INT(capabilities.drawing, robo_paint_drawing_is_implemented());
     ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
+    ROBO_CHECK_EQ_INT(capabilities.text_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.raster, 0);
 
-    /* The version this build reports is 0.5.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.6.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
      * still add to this surface. */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 5);
+    ROBO_CHECK_EQ_INT((int)minor, 6);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -199,7 +201,7 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
      * A phase that added an enumerator without a name row would fail here -- which is the
      * whole point of the table being a table.
      */
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 9);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 10);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 10);
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
@@ -218,11 +220,14 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
         } else {
             ROBO_CHECK_EQ_INT(is_structural + is_drawing, 1);
         }
-        /* A drawing kind is exactly the border-or-background pair the builder asks for,
-         * and the marker predicate is the strict subset of structural that excludes the
-         * content boundary. */
+        /* A drawing kind is exactly the border/background/text triple the builder asks
+         * for, and the marker predicate is the strict subset of structural that excludes
+         * the content boundary. */
         ROBO_CHECK_EQ_INT(is_drawing,
-                          is_border || kind == ROBO_PAINT_OP_BACKGROUND ? 1 : 0);
+                          is_border || kind == ROBO_PAINT_OP_BACKGROUND ||
+                                  kind == ROBO_PAINT_OP_TEXT
+                              ? 1
+                              : 0);
         if (robo_paint_op_kind_is_marker(kind)) {
             ROBO_CHECK_EQ_INT(is_structural, 1);
             ROBO_CHECK(kind != ROBO_PAINT_OP_CONTENT);

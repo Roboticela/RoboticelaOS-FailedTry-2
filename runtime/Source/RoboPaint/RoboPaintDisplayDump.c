@@ -24,19 +24,19 @@
 #define ROBO_PAINT_DISPLAY_DUMP_INDENT 2u
 
 /** Write @p ordinal as a zero-padded four-digit number, preceded by `#`. */
-static void display_dump_ordinal(robo_paint_text_t *text, size_t ordinal)
+static void display_dump_ordinal(robo_paint_writer_t *text, size_t ordinal)
 {
     char digits[ROBO_PAINT_DISPLAY_DUMP_ORDINAL_DIGITS];
     size_t index = ROBO_PAINT_DISPLAY_DUMP_ORDINAL_DIGITS;
 
-    robo_paint_text_char(text, '#');
+    robo_paint_writer_char(text, '#');
     while (index > 0u) {
         index--;
         digits[index] = (char)('0' + (int)(ordinal % 10u));
         ordinal /= 10u;
     }
     for (index = 0u; index < ROBO_PAINT_DISPLAY_DUMP_ORDINAL_DIGITS; index++) {
-        robo_paint_text_char(text, digits[index]);
+        robo_paint_writer_char(text, digits[index]);
     }
 }
 
@@ -46,7 +46,7 @@ robo_result_t robo_paint_display_list_write(const robo_paint_display_list_t *lis
                                      size_t *out_length,
                                      robo_paint_diag_t *diag)
 {
-    robo_paint_text_t text;
+    robo_paint_writer_t text;
     size_t index;
     size_t count;
 
@@ -55,7 +55,7 @@ robo_result_t robo_paint_display_list_write(const robo_paint_display_list_t *lis
                                "a buffer and an out_length are required");
     }
 
-    robo_paint_text_init(&text, buffer, capacity);
+    robo_paint_writer_init(&text, buffer, capacity);
     /* A NULL list and an empty list are the same answer -- an empty dump -- and it is a
      * legitimate one: a document that draws nothing has no commands to describe. */
     count = robo_paint_display_list_count(list);
@@ -78,18 +78,39 @@ robo_result_t robo_paint_display_list_write(const robo_paint_display_list_t *lis
             return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_NOT_SUPPORTED,
                                    "a command's line exceeded ROBO_PAINT_DISPLAY_DUMP_LINE_MAX");
         }
+        /* The run's characters, appended in the same line buffer -- the one part of a
+         * `draw-text` line that the command's own writer cannot produce, because a command
+         * names its characters through a span and the list owns the pool. */
+        if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {
+            robo_paint_writer_t tail;
+
+            robo_paint_writer_init(&tail, line + line_length,
+                                   sizeof(line) - (line_length < sizeof(line) ? line_length
+                                                                                             : sizeof(line)));
+            robo_paint_writer_text_run(&tail, robo_paint_display_list_text_pool(list),
+                                       command.text.span,
+                                       ROBO_PAINT_DISPLAY_DUMP_TEXT_MAX);
+            if (!robo_paint_writer_fits(&tail)) {
+                *out_length = text.length;
+                return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST,
+                                       ROBO_NOT_SUPPORTED,
+                                       "a command's line exceeded "
+                                       "ROBO_PAINT_DISPLAY_DUMP_LINE_MAX");
+            }
+            line_length += tail.length;
+        }
 
         display_dump_ordinal(&text, index);
-        robo_paint_text_char(&text, ' ');
+        robo_paint_writer_char(&text, ' ');
         for (indent = 0u; indent < command.depth * ROBO_PAINT_DISPLAY_DUMP_INDENT; indent++) {
-            robo_paint_text_char(&text, ' ');
+            robo_paint_writer_char(&text, ' ');
         }
-        robo_paint_text_string(&text, line);
-        robo_paint_text_char(&text, '\n');
+        robo_paint_writer_string(&text, line);
+        robo_paint_writer_char(&text, '\n');
     }
 
     *out_length = text.length;
-    if (!robo_paint_text_fits(&text)) {
+    if (!robo_paint_writer_fits(&text)) {
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_NOT_SUPPORTED,
                                "the dump does not fit the buffer");
     }

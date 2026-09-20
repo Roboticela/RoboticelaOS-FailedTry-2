@@ -18,7 +18,8 @@ typedef enum robo_paint_op_kind {
     ROBO_PAINT_OP_BORDER_BOTTOM= 5,
     ROBO_PAINT_OP_BORDER_LEFT  = 6,   /* the band between the two boxes */
     ROBO_PAINT_OP_CONTENT      = 7,   /* the box's own records end, its contents begin */
-    ROBO_PAINT_OP_END_BOX      = 8    /* leave a box: draws nothing */
+    ROBO_PAINT_OP_TEXT         = 8,   /* draw one text run's glyphs (11.6) */
+    ROBO_PAINT_OP_END_BOX      = 9    /* leave a box: draws nothing */
 } robo_paint_op_kind_t;
 ```
 
@@ -28,10 +29,13 @@ end at its **content boundary**, its children are emitted inside, and it is left
 that walked the list and ignored every `kind` would still see each box's operations
 contiguous and in paint order.
 
-The drawing vocabulary is deliberately small — one background and four border sides — and
-has no `TEXT`, `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator. A name with no
-code behind it is a promise, not a vocabulary; adding one later is one enumerator, one name
-row and one case in the validity rule. `CONTENT` (added by 11.2) is the one kind since 11.1.
+The drawing vocabulary is deliberately small — one background, four border sides and, since
+11.6, one text run — and has no `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator. A
+name with no code behind it is a promise, not a vocabulary; adding one later is one enumerator,
+one name row and one case in the validity rule. Two kinds have been added since 11.1, and each
+arrived with the consumer that needed it: `CONTENT` (11.2), the explicit boundary between a
+box's own records and its descendants', and `TEXT` (11.6), the first drawing that is not a
+rectangle filled with a colour.
 
 ### 1.0 Structural records versus drawing records
 
@@ -40,7 +44,7 @@ The vocabulary splits in two, and the split is the rule a builder obeys:
 | Half | Kinds | Emitted | Colour |
 |---|---|---|---|
 | **Structural** | `BEGIN_BOX`, `CONTENT`, `END_BOX` | for **every** placed box | `none` |
-| **Drawing** | `BACKGROUND`, the four `BORDER_*` | **only when it draws** | a rasteriser-usable colour |
+| **Drawing** | `BACKGROUND`, the four `BORDER_*`, `TEXT` | **only when it draws** | a rasteriser-usable colour |
 
 The two predicates are `robo_paint_op_kind_is_structural` and `robo_paint_op_kind_draws`, and
 they partition the vocabulary above `NONE`. Structural records are what give the sequence a
@@ -56,15 +60,16 @@ a kind per side there is no such value, and `robo_paint_op_kind_side` is a **tot
 from the four border kinds to the side each draws on and a refusal for everything else — so no
 operation can carry a side that disagrees with what it draws.
 
-### 1.1a The one field whose meaning varies by kind, and the second one (11.5)
+### 1.1a The fields whose meaning varies by kind (11.5, 11.6)
 
-A record is nearly uniform: a node, a depth, three boxes, a clip. Two fields vary by kind, and
-both are **required** to be the right thing rather than merely permitted:
+A record is nearly uniform: a node, a depth, three boxes, a clip. Three fields vary by kind, and
+each is **required** to be the right thing rather than merely permitted:
 
-| Field | A structural record | A background | A border side |
-|---|---|---|---|
-| `color` | `none` | the resolved `background-color` | the resolved `border-*-color` |
-| `style` (11.5) | `none` | `none` | the side's `border-style`, which must **generate a border** |
+| Field | A structural record | A background | A border side | A text run |
+|---|---|---|---|---|
+| `color` | `none` | the resolved `background-color` | the resolved `border-*-color` | the run's inherited `color` |
+| `style` (11.5) | `none` | `none` | the side's `border-style`, which must **generate a border** | `none` |
+| `text` (11.6) | a cleared run | a cleared run | a cleared run | the run: a non-empty span, a non-negative baseline offset and font inputs that are a record |
 
 The `style` is carried because it is not derivable one stage up: the display list resolves a
 side into the band it occupies, and the band's rectangle states *where* the border is but not
@@ -72,6 +77,12 @@ side into the band it occupies, and the band's rectangle states *where* the bord
 `robo_css_border_style_generates_border` rather than "not `none`" — a `hidden` border draws
 nothing, which is why RoboLayout gives such a side a used width of zero and no record is emitted
 at all.
+
+The `text` member is a **sub-record** rather than six more fields on the operation, for the
+reason `boxes` is one: the facts a text drawing has and a fill does not arrive together, so a
+record cannot carry half of them. A background's cleared run and a run's `style` of `none` are
+the same statement from opposite sides. `robo_paint_operation_text` is its accessor, and the
+rule is `robo_paint_text_run_is_valid` (Text.md §3).
 
 ### 1.2 Markers, and the content boundary
 
@@ -107,7 +118,9 @@ BORDER_RIGHT     iff ...
 BORDER_BOTTOM    iff ...
 BORDER_LEFT      iff ...
 CONTENT          the content box, the origin, the clip and the depth   (structural, always)
-<the box's children, in order, under the boundary this box's own overflow put in force>
+<the box's children, in order, under the boundary this box's own overflow put in force --
+ a child that is a text run is one TEXT record rather than a structural triple, because a run
+ is not a box>
 END_BOX          the same rectangles, origin, clip and depth as BEGIN_BOX (structural)
 ```
 
@@ -124,7 +137,8 @@ The invariants a consumer may rely on, and where the suite checks them:
 | An operation is emitted **only when it draws**: no declaration, no operation; a zero used width, no border side. | `paint.traversal.background`, `.border_sides` |
 | A `BACKGROUND` paints over the **border box** (CSS's initial `background-clip`). | `paint.traversal.background` |
 | A box's children are emitted between its markers, under the boundary **its** overflow put in force. | `paint.traversal.clip_hidden`, `.clip_axis_split` |
-| A text run is visited and counted and emits **no** operation. | `paint.traversal.text_counted_not_painted` |
+| A text run is emitted **after** its parent box's `CONTENT`, at one depth past that box, naming itself rather than the box. | `paint.traversal.text_painted`, `paint.text.order_and_depth` |
+| A run wider than its line wraps **whole** rather than fragmenting, so two line fragments are two runs. | `paint.text.wrapped_lines` |
 | Two passes over the same tree produce identical lists. | `paint.traversal.counts_and_determinism` |
 
 The traversal's contract is deliberately about **order and membership**, not about drawing:
@@ -180,9 +194,11 @@ has no bound to report.
 `robo_paint_operation_is_valid` requires a known kind and never `NONE`; a live node id; three
 valid boxes whose border box contains the padding box contains the content box; a valid clip;
 the colour rule (`none` for a **structural** record, a drawable colour for a **drawing** kind —
-see §1.0); and, since 11.5, the **style rule** (a border side's `style` generates a border,
-every other kind's is `none` — see §1.1a). The colour split is `robo_paint_op_kind_draws`, not
-`is_marker`, so a `CONTENT` record is held to the structural side.
+see §1.0); since 11.5, the **style rule** (a border side's `style` generates a border, every
+other kind's is `none` — see §1.1a); and, since 11.6, the **text rule** (a `TEXT` record carries
+a valid run, every other kind a cleared one — see §1.1a), which is the style rule's shape a
+third time. The colour split is `robo_paint_op_kind_draws`, not `is_marker`, so a `CONTENT`
+record is held to the structural side.
 
 `robo_paint_list_append` enforces it. The traversal is one caller; a rule enforced in the
 container is a rule no future caller can forget, and it is the "geometry safety" requirement
@@ -201,14 +217,18 @@ cannot dangle when the tree is destroyed. The two coordinate spaces it carries (
 tree out at a different viewport, paints again, and shows the first list's records did not
 move while the second list did.
 
-The one thing a record deliberately does *not* snapshot is the texture of a text run: text is
-counted, not painted (§6 below), so there is no run payload to carry. When text painting
-arrives it will be a new kind with its own snapshot fields, which is the shape the record was
-designed for.
+The one payload a record cannot hold by value is a text run's **characters**, because they are
+variable-length. Since 11.6 they live in the **list's own pool** and the record carries a
+**span** — two integers — so a record is still a value with no pointers in it and the snapshot
+property still holds by construction. A span is meaningless apart from its pool, which is why
+the doors that consume one take the pool too and **refuse** a span that runs past the end
+(`RoboPaintText.h`). The display list owns a pool of its own and the builder copies each span
+across, so clearing the records does not change a character the display list draws.
 
 ## 7. What is deliberately not here
 
-- No **text** or **image** operation (a run is counted, not painted).
+- No **image** operation, and no `text-decoration`/`text-shadow` field on the one text kind that
+  does exist.
 - No **clip**, **save**, **restore** or **opacity** operation: the clip is *carried* on every
   operation, and a rasteriser applies it from the record rather than from a separate op. The
   vocabulary stays small until a consumer exists for a wider one.

@@ -38,6 +38,7 @@
 
 #include "RoboPaint/RoboPaintDisplayCommand.h"
 #include "RoboPaint/RoboPaintDiagnostics.h"
+#include "RoboPaint/RoboPaintText.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -68,7 +69,9 @@ typedef struct robo_paint_display_list_stats {
     size_t backgrounds;
     /** Border band commands. */
     size_t borders;
-    /** Drawing commands: backgrounds plus border bands. */
+    /** Text commands: one per run the record list carried (11.6). */
+    size_t texts;
+    /** Drawing commands: backgrounds plus border bands plus text runs. */
     size_t draws;
     /** Deepest node seen. */
     uint32_t max_depth;
@@ -113,6 +116,20 @@ size_t robo_paint_display_list_count(const robo_paint_display_list_t *list);
 
 /** Commands @p list can hold before growing (0 for NULL). */
 size_t robo_paint_display_list_capacity(const robo_paint_display_list_t *list);
+
+/**
+ * The list's text pool, borrowed; NULL for a NULL list.
+ *
+ * A display list owns the characters its `DRAW_TEXT` commands index, exactly as the record
+ * list owns the characters its `TEXT` records index -- because a command carries a span and
+ * a span is meaningless without the pool it came from. The pool is filled by the builder,
+ * which copies each run's code points across so that the display list is a **snapshot** in
+ * the same sense the commands are: clearing the record list or re-laying the tree out
+ * afterwards cannot change a character this list draws.
+ *
+ * The door a consumer reads through, with `robo_paint_text_pool_read`.
+ */
+robo_paint_text_pool_t *robo_paint_display_list_text_pool(const robo_paint_display_list_t *list);
 
 /** The command at @p index, by value.
  *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments; ROBO_NOT_FOUND for an

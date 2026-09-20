@@ -1,33 +1,34 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.5, border painting**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.6, text painting**).
 
-**Version:** 0.5.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.6.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a display command's
-rectangle with its colour into a RoboGraphics surface, through the CPU raster. The claim is
-**narrow**, and the fields beside it say how narrow: a box's **background** (11.4) and each
-of its **border bands** (11.5), while `raster` stays **0**, because the three structural
-commands are not drawings and a pass that consumed a whole list does not exist.
+rectangle with its colour into a RoboGraphics surface, through the CPU raster, and strokes a
+text run's glyphs into the same surface. The claim is **narrow**, and the fields beside it say
+how narrow: a box's **background** (11.4), each of its **border bands** (11.5) and a run's
+**glyphs** (11.6), while `raster` stays **0**, because the three structural commands are not
+drawings and a pass that consumed a whole list does not exist.
 `robo_paint_drawing_is_implemented()` agrees with the constant, and
-`background_painting`/`border_painting` say *which* drawings exist — a caller deciding
-whether to look for a surface reads the function; one deciding whether to *make* one reads
-the fields.
+`background_painting`/`border_painting`/`text_painting` say *which* drawings exist — a caller
+deciding whether to look for a surface reads the function; one deciding whether to *make* one
+reads the fields.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
 RoboPaint turns those answers into a **sequence of work** a rasteriser executes, 11.3 turns
-that sequence into the **artifact** a rasteriser consumes, and 11.4–11.5 put the first
-colours on a surface.
+that sequence into the **artifact** a rasteriser consumes, and 11.4–11.6 put the first
+colours — and the first **characters** — on a surface.
 
 ```text
-HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → draw-background / draw-border → RoboGraphics raster → surface
+HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → draw-background / draw-border / draw-text → RoboGraphics raster → surface
 ```
 
-This build stops after a box's **decorations**: text, images, real clipping, opacity and a
-rasteriser of the whole list are each a later goal, and each is named in §Boundaries where it
-would otherwise be assumed.
+This build stops after a box's **decorations and its text**: images, real clipping, opacity
+and a rasteriser of the whole list are each a later goal, and each is named in §Boundaries
+where it would otherwise be assumed.
 
 ## The one structural decision
 
@@ -190,6 +191,40 @@ than a second copy of it. It bounds a band exactly as it bounds a background, be
 fill like any other. The surface belongs to the caller: the painter retains nothing, destroys
 nothing it did not create, and holds no reference after returning.
 
+## The eleventh structural decision: a run's characters live in a pool, named by a span
+
+A text run is the first thing this module carries that is **not a number**, and the whole of
+11.6 is what that costs. A fixed record cannot hold variable-length data, so the characters
+live in a **pool** — one contiguous array, owned by exactly one list — and a record carries a
+**span** into it: two integers, no pointers. That is the one shape that keeps every property
+the earlier releases established. A text operation is still a value record with no pointers in
+it; a list is still safe to copy, to discard and to rebuild; "no dangling pointer" is still
+true *by construction*.
+
+The pool is deliberately a type of its own, because it has **one implementation and two
+owners**: the record list owns one, the display list owns one, and the builder copies each span
+across — which is why clearing the records does not change a character the display list draws.
+A span is validated **against the pool it names** rather than trusted, so a consumer either gets
+the run's characters or is told they are not there.
+
+A span counts **code points**, not bytes and not glyph ids. Code points are the unit RoboLayout
+measures in, so the run is measured and painted in the same unit; and glyph ids are deliberately
+not stored, because a glyph id is a fact about a *font* — a list that held them would be a list
+only that font could draw, and "does the painter's face agree with the traversal's face?" would
+be a question nothing could answer. Characters keep the display list a statement about the
+**document**, and put glyph resolution at the drawing step, where RoboGraphics' own bridge says
+it belongs. That leaves the Phase 14 seam already the right shape:
+
+```text
+this build    text run → the font's cmap, per code point, in logical order → paint
+Phase 14      text run → RoboText shaping → a glyph run → paint
+```
+
+Text is also the third **drawing** kind in the one pass, and the pass prepares the caller's
+face, because a `robo_font_face_t` is created without a character map and a lookup on one that
+has not been parsed misses. A face whose map will not parse is still not a refusal: every glyph
+becomes `.notdef` and `glyphs_missing` names the fact per code point.
+
 ## Geometry is borrowed, not defined
 
 There are no new coordinate types. `RoboGraphicsGeometry.h` defines the canonical pixel
@@ -204,19 +239,20 @@ flip in.
 | Header | Surface |
 |---|---|
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
-| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (9), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
+| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (10, `NONE` included), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
 | `RoboPaintDiagnostics.h` | `robo_paint_diag_t` and the `ROBO_PAINT_DIAG` macro |
 | `RoboPaintGeometry.h` | `robo_paint_boxes_t`, `robo_paint_clip_t`, `robo_paint_boxes_of`, `robo_paint_clip_intersect` |
 | `RoboPaintOperation.h` | `robo_paint_operation_t` and its accessors, validity, side band and one-line writer |
 | `RoboPaintList.h` | `robo_paint_list_t` — create/clear/append/at/operations/equal |
 | `RoboPaintContext.h` | `robo_paint_context_t`, `robo_paint_stats_t`, `robo_paint_pass_outcome_t`, `robo_paint_context_run` |
 | `RoboPaintDump.h` | `robo_paint_list_write` — the developer's text view |
-| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 5-kind vocabulary, validity and writer (11.3) |
+| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 7-kind vocabulary, validity and writer (11.3, 11.6) |
 | `RoboPaintDisplayList.h` | `robo_paint_display_list_t`, `robo_paint_display_list_stats_t` — the render-ready artifact (11.3) |
 | `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` — the conversion and structural check (11.3) |
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` — the developer's view of the display list (11.3) |
 | `RoboPaintColor.h` | `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` — the one-way colour bridge to RoboGraphics (11.4) |
-| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands into a surface (11.4–11.5) |
+| `RoboPaintText.h` | `robo_paint_text_run_t`, `robo_paint_text_span_t`, `robo_paint_text_pool_t` — the code-point payload and the one container that owns it (11.6) |
+| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands and strokes a run's glyphs into a surface (11.4–11.6) |
 
 ## Lifecycle
 
@@ -242,7 +278,8 @@ because nothing in an operation points anywhere.
 | `paint/docs/DisplayList.md` | The display command, the resolved rectangle per kind, the builder's structural invariants, ordering, ownership and what is deferred (11.3) |
 | `paint/docs/Decoration.md` | The colour bridge, the one decoration pass, its geometry, clipping, counters, ownership, safety and deferrals (11.4–11.5) |
 | `paint/docs/Border.md` | The four bands, the `border-style` vocabulary and what travels where, corner ownership, and the seven pattern styles drawn as bands (11.5) |
-| `paint/docs/Tests.md` | Suite map (seven suites, 93 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.5 found |
+| `paint/docs/Text.md` | The code-point pool and its span, the text record and its baseline, where a run sits in the sequence, glyph resolution and who prepares the face, the counters, and what is deferred to 11.7 and to Phase 14 (11.6) |
+| `paint/docs/Tests.md` | Suite map (eight suites, 110 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.6 found |
 
 ## Building and testing
 
@@ -256,7 +293,9 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 
 RoboPaint must not depend on RoboWindow, RoboDisplay or RoboRender. It reads RoboLayout
 through const doors, and uses RoboGraphics for **geometry and — since 11.4 — the CPU raster it
-is handed a surface for**. A surface is always the *caller's* argument and never a query.
+is handed a surface for**, plus — since 11.6 — the glyph draw, which it asks for by **glyph id
+and outline**: RoboGraphics supplies the bridge to the font and never a shaper of its own. A
+surface and a face are always the *caller's* arguments and never a query.
 
 - **A box's background and its four border bands are painted; nothing else is.** `DRAWING` is 1,
   `background_painting` is 1 and `border_painting` is 1. Text, images, rounded corners,
