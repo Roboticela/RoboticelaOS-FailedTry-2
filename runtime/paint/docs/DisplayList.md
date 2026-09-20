@@ -58,6 +58,12 @@ the **four** border kinds collapse into **one**, because the fact that distingui
 which side -- is consumed into the band rectangle. A command that also carried a side would
 be carrying a fact its own geometry already states.
 
+One fact survives that collapse and had to be carried deliberately (11.5): the
+**`border-style`**. The side is consumed into the rectangle, which states *where* a band is, but
+the style is the shape *inside* it and is not derivable from the rectangle -- so `draw-border`
+has a `style` field, it is required to be one that generates a border, and it is the reason this
+artifact is render-ready rather than merely resolved.
+
 The vocabulary splits the operation vocabulary's way: **structural** commands
 (`BEGIN_NODE`, `CONTENT`, `END_NODE`) are emitted for **every** node and carry no colour;
 **drawing** commands (`DRAW_BACKGROUND`, `DRAW_BORDER`) are emitted **only when they draw**
@@ -80,9 +86,9 @@ the record vocabulary:
 | `CONTENT` | `CONTENT` | the **content box** |
 | `END_BOX` | `END_NODE` | the **border box** |
 
-`node`, `depth`, `clip` and `color` carry through **unchanged**. Because the mapping is
-one-to-one, a display list has the same length as the record list it was built from, and the
-two can be paired positionally -- which is how `paint.display.*` checks it.
+`node`, `depth`, `clip`, `color` and -- for a band -- `style` carry through **unchanged**.
+Because the mapping is one-to-one, a display list has the same length as the record list it was
+built from, and the two can be paired positionally -- which is how `paint.display.*` checks it.
 
 **Why this is not duplication.** The paint list says *which rectangles a decision was made
 from*; the display list says *which rectangle to fill*. The padding box, the box side and
@@ -145,9 +151,12 @@ reused across passes. It owns nothing borrowed.
 
 `robo_paint_display_command_is_valid` requires a known kind and never `NONE`; a live node
 id; a rectangle with a **non-negative** extent (empty is fine -- a zero-height box is a
-statement about the document); a valid clip; and the colour rule. `robo_paint_display_list_append`
-enforces it, so every list a consumer reads is a list of commands -- the "geometry safety"
-requirement satisfied once in the container rather than at every call site.
+statement about the document); a valid clip; the **colour rule** (`none` for a structural
+command, a colour a rasteriser can use for a drawing one); and, since 11.5, the **style rule** --
+a `draw-border` carries a style that generates a border, and every other kind carries `none`.
+`robo_paint_display_list_append` enforces it, so every list a consumer reads is a list of
+commands -- the "geometry safety" requirement satisfied once in the container rather than at
+every call site.
 
 The builder inherits its inputs' guarantees: every operation in a paint list is already a
 record, and the resolved rectangle is a difference of two rectangles the operation carried,
@@ -165,10 +174,14 @@ dump's shape one stage up:
 ```text
 #0000 BEGIN_NODE        node=1 depth=0 rect=0,0,100,40 clip=visible/visible
 #0001   DRAW_BACKGROUND node=1 depth=0 rect=0,0,100,40 clip=visible/visible color=#ff0000ff
-#0002   DRAW_BORDER     node=1 depth=0 rect=0,0,100,1  clip=visible/visible color=#000000ff
+#0002   DRAW_BORDER     node=1 depth=0 rect=0,0,100,1  clip=visible/visible color=#000000ff style=dashed
 #0003   CONTENT         node=1 depth=0 rect=1,1,98,38  clip=visible/visible
 #0004 END_NODE          node=1 depth=0 rect=0,0,100,40 clip=visible/visible
 ```
+
+The `style=` field appears on a `draw-border` and on nothing else, exactly as the field itself
+does: a band that could not say which of the ten styles it draws would be the one thing a reader
+of the dump could not tell apart from a `solid` one.
 
 `ROBO_PAINT_DISPLAY_DUMP_LINE_MAX` is a **derived** bound, and `paint.display.dump` measures
 the widest line this build can actually produce rather than trusting the derivation.
@@ -178,11 +191,11 @@ the widest line this build can actually produce rather than trusting the derivat
 ## 8. What is deliberately not here
 
 - **No rasterisation of the whole list, no clipping architecture, no presentation.** The display
-  list is data and `raster` is 0: since 11.4 exactly one command kind is consumed -- a
-  `draw-background` is filled into a caller's surface by `robo_paint_background_paint`
-  (`paint/docs/Background.md`), and a `draw-border` band, the structural commands and everything
-  else are still data. A background fill *is* bounded by the clip the command carries, but no
-  clipping op is emitted and no clipping system exists.
+  list is data and `raster` is 0: since 11.4–11.5 exactly the two **drawing** kinds are consumed --
+  a `draw-background` and a `draw-border` are filled into a caller's surface by
+  `robo_paint_decoration_paint` (`paint/docs/Decoration.md`, `paint/docs/Border.md`), in the
+  list's order -- while the three structural commands are still data. A fill *is* bounded by the
+  clip the command carries, but no clipping op is emitted and no clipping system exists.
 - **No batching, merging or command reordering.** The order is the traversal's; an optimizer
   is a later goal's and would need a consumer to justify it.
 - **No transforms, opacity, save/restore or clip *operations*.** A command carries the clip

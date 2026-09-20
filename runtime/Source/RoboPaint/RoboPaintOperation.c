@@ -29,6 +29,9 @@ void robo_paint_operation_init(robo_paint_operation_t *operation)
     operation->origin = robo_gfx_point(0, 0);
     robo_paint_clip_init(&operation->clip);
     operation->color = robo_css_color_none();
+    /* A cleared record carries no border style, which is what a non-border kind requires
+     * of every record -- so "nobody set it" and "this is not a border" are one state. */
+    operation->style = ROBO_CSS_BORDER_STYLE_NONE;
 }
 
 int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
@@ -68,9 +71,31 @@ int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
      * colour" side of the rule instead of being asked for a colour it has no use for.
      */
     if (robo_paint_op_kind_draws(operation->kind)) {
-        return robo_css_color_is_valid(operation->color);
+        if (!robo_css_color_is_valid(operation->color)) {
+            return 0;
+        }
+        /*
+         * The style rule, and it is the colour rule's shape one field along. A border
+         * must carry a style that **generates** a border, and the reason it is
+         * `generates_border` rather than "not `none`" is 10.11's own rule: `none` and
+         * `hidden` both draw nothing, which is why such a side's *used* width is zero and
+         * no record is emitted for it at all. So a border record whose style draws
+         * nothing is a record whose fields disagree about what it is, and it is refused
+         * here rather than drawn as nothing by a consumer that trusted the kind.
+         *
+         * A **background** must carry `NONE`: it has no side style, and a background with
+         * one would be carrying a fact about a border it is not.
+         */
+        if (robo_paint_op_kind_is_border(operation->kind)) {
+            return robo_css_border_style_generates_border(operation->style);
+        }
+        return operation->style == ROBO_CSS_BORDER_STYLE_NONE;
     }
-    return operation->color.kind == ROBO_CSS_COLOR_NONE;
+    /* A structural record draws nothing, so it carries the absence of both a colour and a
+     * style: `none` for the first, and the same for the second -- which a cleared record
+     * holds. */
+    return operation->color.kind == ROBO_CSS_COLOR_NONE &&
+           operation->style == ROBO_CSS_BORDER_STYLE_NONE;
 }
 
 int robo_paint_operation_equal(const robo_paint_operation_t *a,
@@ -83,7 +108,7 @@ int robo_paint_operation_equal(const robo_paint_operation_t *a,
            robo_paint_boxes_equal(&a->boxes, &b->boxes) &&
            robo_gfx_point_equal(a->origin, b->origin) &&
            robo_paint_clip_equal(&a->clip, &b->clip) &&
-           robo_css_color_equals(a->color, b->color);
+           robo_css_color_equals(a->color, b->color) && a->style == b->style;
 }
 
 robo_paint_op_kind_t robo_paint_operation_kind(const robo_paint_operation_t *operation)
@@ -139,6 +164,11 @@ void robo_paint_operation_clip(const robo_paint_operation_t *operation,
 robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operation)
 {
     return operation ? operation->color : robo_css_color_none();
+}
+
+robo_css_border_style_t robo_paint_operation_style(const robo_paint_operation_t *operation)
+{
+    return operation ? operation->style : ROBO_CSS_BORDER_STYLE_NONE;
 }
 
 int robo_paint_operation_is_structural(const robo_paint_operation_t *operation)
@@ -349,6 +379,12 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
             robo_paint_text_string(&text, " color=");
             robo_paint_text_string(&text, color_text);
         }
+    }
+    /* Printed exactly where it means something, which is how the record states it too: a
+     * border says which of the ten styles it draws, and nothing else has one to print. */
+    if (robo_paint_op_kind_is_border(operation->kind)) {
+        robo_paint_text_string(&text, " style=");
+        robo_paint_text_string(&text, robo_css_border_style_name(operation->style));
     }
 
     *out_length = text.length;

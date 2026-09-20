@@ -61,13 +61,15 @@ static const paint_capability_row_t paint_capability_rows[] = {
     { "clip_state", 1 },
     { "decoration_ops", 1 },
     /* `drawing` is read from its own constant so the field and its two doors cannot drift.
-     * 11.3's `display_lists` and 11.4's `drawing`/`background_painting` joined the 1s;
-     * `raster` and `paint_invalidation` name later phases outright. */
+     * 11.3's `display_lists` and 11.4's `drawing`/`background_painting` joined the 1s, and
+     * 11.5's `border_painting` beside them; `raster` and `paint_invalidation` name later
+     * phases outright. */
     { "drawing", ROBO_PAINT_DRAWING_IMPLEMENTED },
     { "display_lists", 1 },
     { "raster", 0 },
     { "paint_invalidation", 0 },
-    { "background_painting", 1 }
+    { "background_painting", 1 },
+    { "border_painting", 1 }
 };
 
 static void test_paint_conformance_capabilities(void)
@@ -131,24 +133,25 @@ static void test_paint_conformance_drawing_present(void)
 
     /*
      * The statement 11.4 makes, in one place: the constant is 1, the door answers 1, and
-     * the capability field reports it -- and `background_painting` beside it says *which*
-     * drawing exists while `raster` says the general rasteriser does not. A caller deciding
-     * whether to look for a surface reads the door; one deciding whether to *make* one reads
-     * `drawing`; one deciding whether the *whole* list renders reads `raster`, which is 0.
+     * the capability field reports it -- and `background_painting`/`border_painting` beside it
+     * say *which* drawings exist while `raster` says the general rasteriser does not. A caller
+     * deciding whether to look for a surface reads the door; one deciding whether to *make* one
+     * reads `drawing`; one deciding whether the *whole* list renders reads `raster`, which is 0.
      */
     ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
     ROBO_CHECK_EQ_INT(robo_paint_get_capabilities(&capabilities), ROBO_OK);
     ROBO_CHECK_EQ_INT(capabilities.drawing, robo_paint_drawing_is_implemented());
     ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
+    ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.raster, 0);
 
-    /* The version this build reports is 0.4.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.5.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
      * still add to this surface. */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 4);
+    ROBO_CHECK_EQ_INT((int)minor, 5);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -172,11 +175,13 @@ static void test_paint_conformance_drawing_present(void)
         paint_once(&fixture, &result);
         ROBO_CHECK(paint_count_of(&result, ROBO_PAINT_OP_BACKGROUND) > 0u);
         ROBO_CHECK(paint_count_of(&result, ROBO_PAINT_OP_BORDER_TOP) > 0u);
-        /* And the list is not empty while the drawing is background-only: the pass ran,
-         * the list carries the operations, and what reaches a surface is the backgrounds. */
+        /* And the list is not empty while the drawing is decoration-only: the pass ran, the
+         * list carries the operations, and what reaches a surface is the background and the
+         * four border bands. */
         ROBO_CHECK(robo_paint_list_count(result.list) > 0u);
         ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
         ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
+        ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
         paint_result_dispose(&result);
         paint_end(&fixture);
     }

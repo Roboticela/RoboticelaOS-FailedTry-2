@@ -101,6 +101,7 @@ void robo_paint_display_command_init(robo_paint_display_command_t *command)
     command->rect = robo_gfx_rect(0, 0, 0, 0);
     robo_paint_clip_init(&command->clip);
     command->color = robo_css_color_none();
+    command->style = ROBO_CSS_BORDER_STYLE_NONE;
 }
 
 int robo_paint_display_command_is_valid(const robo_paint_display_command_t *command)
@@ -133,10 +134,28 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
      * than asked for a colour it has no use for. A structural command must carry `none`;
      * a drawing command must carry a colour a rasteriser can use.
      */
-    if (robo_paint_display_command_kind_draws(command->kind)) {
-        return robo_css_color_is_valid(command->color);
+    if (!robo_paint_display_command_kind_draws(command->kind)) {
+        return command->color.kind == ROBO_CSS_COLOR_NONE &&
+               command->style == ROBO_CSS_BORDER_STYLE_NONE;
     }
-    return command->color.kind == ROBO_CSS_COLOR_NONE;
+    if (!robo_css_color_is_valid(command->color)) {
+        return 0;
+    }
+    /*
+     * The style rule, one field along from the colour's and enforced from the same side.
+     * It is here for a reason the record layer cannot state for it: this artifact is
+     * **render-ready**, which means a rasteriser must be able to produce the drawn shape
+     * from the command alone -- so a `draw-border` that did not say *which* of the ten
+     * styles it is would be a command its consumer could only guess at. A `draw-border`
+     * therefore carries a style that generates a border, and a `draw-background` carries
+     * `NONE`, because it has no side to style. `generates_border` rather than "not
+     * `none`": a `hidden` border draws nothing, which is why RoboLayout gives such a side
+     * a used width of zero and no command is built for it at all.
+     */
+    if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
+        return robo_css_border_style_generates_border(command->style);
+    }
+    return command->style == ROBO_CSS_BORDER_STYLE_NONE;
 }
 
 int robo_paint_display_command_equal(const robo_paint_display_command_t *a,
@@ -148,7 +167,7 @@ int robo_paint_display_command_equal(const robo_paint_display_command_t *a,
     return a->kind == b->kind && a->node == b->node && a->depth == b->depth &&
            robo_gfx_rect_equal(a->rect, b->rect) &&
            robo_paint_clip_equal(&a->clip, &b->clip) &&
-           robo_css_color_equals(a->color, b->color);
+           robo_css_color_equals(a->color, b->color) && a->style == b->style;
 }
 
 robo_paint_display_command_kind_t robo_paint_display_command_kind(const robo_paint_display_command_t *command)
@@ -159,6 +178,11 @@ robo_paint_display_command_kind_t robo_paint_display_command_kind(const robo_pai
 robo_layout_node_id_t robo_paint_display_command_node(const robo_paint_display_command_t *command)
 {
     return command ? command->node : ROBO_LAYOUT_NODE_ID_NONE;
+}
+
+robo_css_border_style_t robo_paint_display_command_style(const robo_paint_display_command_t *command)
+{
+    return command ? command->style : ROBO_CSS_BORDER_STYLE_NONE;
 }
 
 size_t robo_paint_display_command_depth(const robo_paint_display_command_t *command)
@@ -271,6 +295,11 @@ robo_result_t robo_paint_display_command_write(const robo_paint_display_command_
             robo_paint_text_string(&text, " color=");
             robo_paint_text_string(&text, color_text);
         }
+    }
+    /* A border band says which of the ten styles it is; nothing else has one to say. */
+    if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
+        robo_paint_text_string(&text, " style=");
+        robo_paint_text_string(&text, robo_css_border_style_name(command->style));
     }
 
     *out_length = text.length;

@@ -119,6 +119,12 @@ static robo_paint_operation_t paint_drawing_make(robo_paint_op_kind_t kind,
     operation.depth = 0u;
     operation.boxes = boxes;
     operation.color = color;
+    /* The style rule's own shape (11.5): a hand-built drawing carries the style its kind
+     * requires -- `solid` for a border side, because a side's band is its shape, and `none`
+     * for a background, which has no side to style. A record is refused otherwise, which is
+     * the assertion `test_paint_operation_record` makes on both halves. */
+    operation.style = robo_paint_op_kind_is_border(kind) ? ROBO_CSS_BORDER_STYLE_SOLID
+                                                         : ROBO_CSS_BORDER_STYLE_NONE;
     return operation;
 }
 
@@ -135,14 +141,14 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.4.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.5.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 4);
+    ROBO_CHECK_EQ_INT((int)minor, 5);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
-     * the capability field are one statement -- and since 11.4 all three say backgrounds
-     * reach a surface. */
+     * the capability field are one statement -- and since 11.4 (backgrounds) and 11.5
+     * (border bands) all three say a drawing reaches a surface. */
     ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -782,6 +788,33 @@ static void test_paint_operation_record(void)
 
         invalid.color = robo_css_color_invalid();
         ROBO_CHECK_EQ_INT(robo_paint_operation_is_valid(&invalid), 0);
+    }
+
+    /*
+     * And the style rule, one field along from the colour's (11.5). It is asserted from both
+     * sides because it has two halves that fail differently: a border record must say **which**
+     * of the ten styles shapes its band, since that fact is not derivable from the band's
+     * rectangle, and a background record must not carry a style, because it has no side to style.
+     */
+    {
+        robo_paint_operation_t border = paint_drawing_make(ROBO_PAINT_OP_BORDER_TOP, 3, boxes,
+                                                          red);
+
+        ROBO_CHECK_EQ_INT((int)robo_paint_operation_style(&border),
+                          (int)ROBO_CSS_BORDER_STYLE_SOLID);
+        ROBO_CHECK_EQ_INT(robo_paint_operation_is_valid(&border), 1);
+        border.style = ROBO_CSS_BORDER_STYLE_NONE;
+        ROBO_CHECK_EQ_INT(robo_paint_operation_is_valid(&border), 0);
+        border.style = ROBO_CSS_BORDER_STYLE_HIDDEN;
+        ROBO_CHECK_EQ_INT(robo_paint_operation_is_valid(&border), 0);
+        border.style = ROBO_CSS_BORDER_STYLE_DASHED;
+        ROBO_CHECK_EQ_INT(robo_paint_operation_is_valid(&border), 1);
+    }
+    {
+        robo_paint_operation_t wrong = operation;
+
+        wrong.style = ROBO_CSS_BORDER_STYLE_SOLID;
+        ROBO_CHECK_EQ_INT(robo_paint_operation_is_valid(&wrong), 0);
     }
 
     /* Every other refusal: a cleared kind, an unknown kind, no node, boxes that are not

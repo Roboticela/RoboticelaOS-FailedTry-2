@@ -1,27 +1,35 @@
 /*
- * RoboPaint background painting (Phase 11.4) — see RoboPaintBackground.h.
+ * RoboPaint decoration painting (Phase 11.4–11.5) — see RoboPaintDecoration.h.
  *
- * The pass: walk the display list once, fill each `draw-background` command into a
- * RoboGraphics raster, count everything else. The raster is the graphics module's own
+ * The pass: walk the display list once, in list order, and fill each **drawing** command into
+ * a RoboGraphics raster -- a background's border box and a border side's band alike -- while
+ * counting everything a command turns out to be. The raster is the graphics module's own
  * immediate-mode CPU context, so the clip and the source-over blend are its, and the two
  * things this file owns are the walk and the per-command clip derived from the boundary the
  * paint pass carried.
  *
+ * **One walk, not two.** A background-only pass followed by a border-only pass would fill
+ * every background in the document before every border in it, which paints a descendant's
+ * background *under* its ancestor's border where CSS puts it over -- so the order here is the
+ * list's own order, which is the traversal's, which is CSS's.
+ *
  * The clip is applied with the raster's own `reset_clip`/`clip`/`set_clip` rather than by
- * intersecting rectangles here, and the reason is that the raster's clip is *already* the
- * one place a draw is bounded: reset to the surface bounds, replace the axis the boundary
- * hides, and let `set_clip` intersect -- so "the boundary bounds the fill" is the graphics
- * module's arithmetic, not a second copy of it.
+ * intersecting rectangles here, and the reason is that the raster's clip is *already* the one
+ * place a draw is bounded: reset to the surface bounds, replace the axis the boundary hides,
+ * and let `set_clip` intersect -- so "the boundary bounds the fill" is the graphics module's
+ * arithmetic, not a second copy of it.
  *
  * Nothing here reads a tree, a computed style or the box model: a display command carries the
- * one rectangle to fill and the boundary in force, and the only conversion left is the colour
- * (`RoboPaintColor.h`).
+ * one rectangle to fill, the boundary in force and, for a band, the style that shapes it. The
+ * only conversion left is the colour, and that is `RoboPaintColor.h`'s.
  */
 
-#include "RoboPaint/RoboPaintBackground.h"
+#include "RoboPaint/RoboPaintDecoration.h"
 
 #include "RoboGraphics/RoboGraphicsRaster.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
+
+#include "RoboCSS/RoboCSSBorder.h"
 
 #include "RoboPaint/RoboPaintColor.h"
 
@@ -29,11 +37,17 @@
 
 #include <string.h>
 
-void robo_paint_background_stats_init(robo_paint_background_stats_t *stats)
+void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats)
 {
     if (stats) {
         memset(stats, 0, sizeof(*stats));
     }
+}
+
+/** The style a filled band was shaped by is one this build draws as `solid`. */
+static int decoration_style_is_shaped(robo_css_border_style_t style)
+{
+    return style == ROBO_CSS_BORDER_STYLE_SOLID;
 }
 
 /**
@@ -44,10 +58,10 @@ void robo_paint_background_stats_init(robo_paint_background_stats_t *stats)
  * axis it hides takes the boundary's. @p out_applied is set only when a boundary was applied,
  * so "drawn under a clip" stays a fact about the command rather than about the surface.
  */
-static robo_result_t background_apply_clip(robo_gfx_raster_t *raster,
-                                          const robo_paint_clip_t *clip,
-                                          int *out_applied,
-                                          robo_paint_diag_t *diag)
+static robo_result_t decoration_apply_clip(robo_gfx_raster_t *raster,
+                                           const robo_paint_clip_t *clip,
+                                           int *out_applied,
+                                           robo_paint_diag_t *diag)
 {
     robo_gfx_rect_t full;
     robo_gfx_rect_t wanted;
@@ -93,12 +107,12 @@ static robo_result_t background_apply_clip(robo_gfx_raster_t *raster,
     return ROBO_OK;
 }
 
-robo_result_t robo_paint_background_paint(const robo_paint_display_list_t *list,
+robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
                                           robo_gfx_surface_t *target,
-                                          robo_paint_background_stats_t *out_stats,
+                                          robo_paint_decoration_stats_t *out_stats,
                                           robo_paint_diag_t *diag)
 {
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_raster_t *raster = NULL;
     robo_result_t status;
     size_t index;
@@ -109,7 +123,7 @@ robo_result_t robo_paint_background_paint(const robo_paint_display_list_t *list,
                                "the display list and the target surface are required");
     }
 
-    robo_paint_background_stats_init(&stats);
+    robo_paint_decoration_stats_init(&stats);
 
     /*
      * The raster is the graphics module's, so the clip and the blend are its rules. Its
@@ -150,30 +164,55 @@ robo_result_t robo_paint_background_paint(const robo_paint_display_list_t *list,
         }
         stats.commands++;
 
-        if (command.kind != ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND) {
-            /* Structural records draw nothing and a border band is a later goal's -- skipped
-             * and counted, so "the backgrounds are painted and the borders are not" is a
-             * number a reader sees. */
+        /*
+         * A structural command draws nothing, by definition -- so `skipped` is a statement
+         * about the list rather than a gap in this pass.
+         */
+        if (!robo_paint_display_command_kind_draws(command.kind)) {
             stats.skipped++;
             continue;
         }
-        stats.backgrounds++;
 
-        /* The colour, before the geometry, because "there was nothing to draw" and "there was
-         * nowhere to draw it" are different facts and this is the one a document controls. */
+        /*
+         * The colour, before the geometry, because "there was nothing to draw" and "there was
+         * nowhere to draw it" are different facts and this is the one a document controls.
+         *
+         * A colour the record layer's own rule refuses (`none`, `invalid`) is not a drawing
+         * this pass can attempt at all, so it is counted with the commands that are not
+         * drawings rather than with the ones that are -- which is what keeps
+         * `commands = draws + skipped` exact for a hand-built list whose command the list's
+         * validity rule would have refused.
+         */
+        if (command.color.kind != ROBO_CSS_COLOR_RGBA &&
+            command.color.kind != ROBO_CSS_COLOR_CURRENT) {
+            stats.skipped++;
+            continue;
+        }
+
+        stats.draws++;
+        if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND) {
+            stats.backgrounds++;
+        } else {
+            stats.borders++;
+            if (!decoration_style_is_shaped(command.style)) {
+                stats.unshaped++;
+            }
+        }
+
+        /*
+         * The four reasons a *drawing* draws nothing, each named for the document fact it is:
+         * a `currentColor` this layer cannot resolve, a colour that occupies no pixel, a
+         * rectangle with no area, and the blank between them. They are the terms of
+         * `draws = filled + contextual + transparent + empty` taken in order, so every
+         * drawing lands in exactly one bucket and the counter is a statement rather than a
+         * remainder.
+         */
         if (command.color.kind == ROBO_CSS_COLOR_CURRENT) {
             stats.contextual++;
             continue;
         }
-        if (!robo_paint_color_is_drawable(command.color)) {
-            if (command.color.kind == ROBO_CSS_COLOR_RGBA) {
-                stats.transparent++;
-            } else {
-                /* A kind a valid display command cannot carry. Counted rather than drawn, and
-                 * not an error: the list's own validity rule is the door that keeps these
-                 * out, and a pass that failed on one would blame the document. */
-                stats.skipped++;
-            }
+        if (command.color.alpha == 0) {
+            stats.transparent++;
             continue;
         }
         if (command.rect.width <= 0 || command.rect.height <= 0) {
@@ -181,12 +220,16 @@ robo_result_t robo_paint_background_paint(const robo_paint_display_list_t *list,
             continue;
         }
         if (robo_paint_color_to_rgba8(command.color, &color) != ROBO_OK) {
-            /* Unreachable after `is_drawable`, reported rather than guessed at. */
-            stats.skipped++;
-            continue;
+            /* Unreachable: an opaque `RGBA` is exactly the colour `to_rgba8` copies. Reported
+             * rather than counted, because a fill that could not be prepared is this build
+             * failing and no bucket above would be telling the truth about it. */
+            robo_gfx_raster_destroy(raster);
+            return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
+                                   "a drawing command's resolved colour could not be "
+                                   "converted");
         }
 
-        status = background_apply_clip(raster, &command.clip, &clipped, diag);
+        status = decoration_apply_clip(raster, &command.clip, &clipped, diag);
         if (status != ROBO_OK) {
             robo_gfx_raster_destroy(raster);
             return status;
@@ -195,11 +238,17 @@ robo_result_t robo_paint_background_paint(const robo_paint_display_list_t *list,
             stats.clipped++;
         }
 
+        /*
+         * The band a border side occupies, and the box a background fills: the same fill,
+         * because a display command has already resolved the difference. Only the **shape**
+         * inside the band is a border's own, and this build draws it as its band -- the
+         * simplification `stats.unshaped` counts rather than hides.
+         */
         status = robo_gfx_raster_fill_rect(raster, command.rect, color);
         if (status != ROBO_OK) {
             robo_gfx_raster_destroy(raster);
             return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
-                                   "the background rectangle could not be filled");
+                                   "a drawing command's rectangle could not be filled");
         }
         stats.filled++;
     }

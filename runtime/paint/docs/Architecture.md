@@ -74,7 +74,7 @@ Fourteen headers under `Include/RoboPaint/`, one umbrella:
 | `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` (11.3) |
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` (11.3) |
 | `RoboPaintColor.h` | The colour bridge: `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` (11.4) |
-| `RoboPaintBackground.h` | `robo_paint_background_paint`, `robo_paint_background_stats_t` (11.4) |
+| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills backgrounds and border bands (11.4–11.5) |
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
 | `RoboPaint.h` | Lifecycle, capabilities, version |
 
@@ -350,32 +350,33 @@ documented rule rather than a hazard, because nothing in an operation points any
 ## 10. The capability model
 
 `robo_paint_capabilities_t` is read positionally by `paint.conformance.capabilities` against a
-list of names, so a field added without an assertion is a visible omission. Nine of its
-twelve fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
-`box_geometry`, `clip_state`, `decoration_ops`, `display_lists` since 11.3, and **`drawing`**
-plus **`background_painting`** since 11.4) and two are **0**:
+list of names, so a field added without an assertion is a visible omission. Ten of its
+thirteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
+`box_geometry`, `clip_state`, `decoration_ops`, `display_lists` since 11.3, **`drawing`** and
+**`background_painting`** since 11.4, and **`border_painting`** since 11.5) and two are **0**:
 
 | Field | Value | Why |
 |---|---|---|
-| `drawing` | **1** | a `draw-background` command's rectangle and colour reach a RoboGraphics surface (11.4) — the field a caller about to look for a framebuffer should read |
+| `drawing` | **1** | a **drawing** command's rectangle and colour reach a RoboGraphics surface (11.4–11.5) — the field a caller about to look for a framebuffer should read |
 | `display_lists` | **1** | a display list as a consumable artifact exists (11.3) |
-| `background_painting` | **1** | *which* drawing exists: the background pass, and only it (11.4) |
-| `raster` | 0 | a rasteriser that consumes **every** command is a later goal; this build consumes one kind |
+| `background_painting` | **1** | *which* drawing exists: a background over its border box (11.4) |
+| `border_painting` | **1** | the other drawing: each border side filled across its **band** (11.5). It claims a border's place and colour, not its look — the seven pattern styles are drawn as bands and counted (`unshaped`) |
+| `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the three structural kinds are not drawings |
 | `paint_invalidation` | 0 | 11.11; what exists instead is its *input*, `stats.style_only` |
 
 `decoration_ops` is **1** and is named for what it is rather than what a reader might hope:
 this build decides *that* a background will be filled and *which* colour, and records it.
 Keeping `decoration_ops` and `drawing` apart is what stops "a background operation exists" from
 being read as "a background was painted" — and 11.4 is the release where the second of those
-became true, for one command kind.
+became true, for one command kind, with 11.5 adding the second.
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED` is **1** and is read by two doors that must not disagree —
 `robo_paint_get_capabilities().drawing` and `robo_paint_drawing_is_implemented()` — and by the
 conformance suite, which asserts all three together. The condition it was written down for — *a
 build in which an operation's rectangle and colour reach a RoboGraphics surface* — is what
-happened, and the flip did **not** widen the claim: it does not claim antialiasing, rounded
-corners, gradients, opacity beyond the colour's own alpha, a compositor, or that the whole list
-rasterises.
+happened, and the flip did **not** widen the claim: it does not claim the seven pattern border
+styles, antialiasing, rounded corners, gradients, opacity beyond the colour's own alpha, a
+compositor, or that the whole list rasterises.
 
 ---
 
@@ -417,15 +418,16 @@ test rather than overflowing a caller's buffer.
 
 What this module does **not** do, each named where it would otherwise be assumed:
 
-- **Only backgrounds draw.** `DRAWING` is 1 and `background_painting` is 1 (11.4). Border
-  bands, text, images and everything below are absent, and the pass counts what it skipped.
+- **Only a box's decorations draw.** `DRAWING` is 1, `background_painting` is 1 and
+  `border_painting` is 1. The seven **pattern** border styles are drawn as their band and counted
+  (`unshaped`); text, images and everything below are absent, and the pass counts what it skips.
 - **No framebuffer presentation, compositor or GPU.** A surface is an argument.
 - **No rasteriser of the whole list** — the display list is the artifact and one kind of it is
   consumed; `raster` is 0.
 - **No text or image operations.** Text is counted, not painted.
 - **No opacity, transforms, `border-radius`, gradients or antialiasing.**
 - **No clipping architecture** — the clip a command carries is applied to the raster's own clip
-  (11.4); no clipping op is emitted. No scroll clipping, no compositor clipping.
+  (11.4–11.5); no clipping op is emitted. No scroll clipping, no compositor clipping.
 - **No `background-clip`/`background-origin`** — the border box is CSS's initial value.
 - **No `z-index` or stacking context.** Document order; a later stacking pass reorders.
 - **No paint invalidation (11.11) and no hit testing (11.10).** The final positioned geometry
@@ -434,7 +436,7 @@ What this module does **not** do, each named where it would otherwise be assumed
 
 ---
 
-## 14. What 11.1–11.4 found
+## 14. What 11.1–11.5 found
 
 11.1 is an architecture release, so most of what it establishes is design; 11.2 is a record
 release, and what it establishes was largely already right — an operation was already a value
@@ -546,16 +548,21 @@ And 11.4's, which are the ones a first *drawing* release finds:
 15. A display list is **regular** — the structural skeleton is an invariant the builder
     enforced and refuses to violate; an out-of-order record list produces an empty list and
     a `ROBO_PAINT_DOMAIN_DISPLAY_LIST` diagnostic.
-16. **Backgrounds reach a surface** (11.4): `robo_paint_background_paint` fills every
-    `draw-background` command of a display list into a caller's `robo_gfx_surface_t`, and
-    **skips** the structural commands and the border bands, counting them. The colour crosses
-    through one door, `robo_paint_color_to_rgba8`, which is a field-for-field copy between two
-    8-bit sRGB records (§17).
-17. A background fill is bounded by the command's **own** clip, per axis, applied through the
-    raster's clip — and the surface belongs to the caller: nothing is retained or destroyed by
-    the pass, and the list is read through `const`.
-18. **`raster` is still 0.** Nothing consumes a display command other than `draw-background`,
-    and there is no mechanism that rasterises a list end to end.
+16. **The colours reach a surface** (11.4–11.5): `robo_paint_decoration_paint` fills every
+    **drawing** command of a display list into a caller's `robo_gfx_surface_t` — a background's
+    border box and each border side's band, in **one walk in list order** — and **skips** the
+    three structural commands, counting them. The colour crosses through one door,
+    `robo_paint_color_to_rgba8`, which is a field-for-field copy between two 8-bit sRGB records
+    (§17).
+17. A fill is bounded by the command's **own** clip, per axis, applied through the raster's
+    clip — and the surface belongs to the caller: nothing is retained or destroyed by the pass,
+    and the list is read through `const`.
+18. **A border's style travels** (11.5): the `border-style` is a required field of a
+    `draw-border` command and of the `BORDER_*` record, because it is the one fact a band's
+    rectangle cannot state. The band is what this build fills; the seven pattern styles are
+    drawn as that band and counted (`unshaped`).
+19. **`raster` is still 0.** Nothing consumes a display command other than the two drawing
+    kinds, and there is no mechanism that rasterises a list end to end.
 
 ---
 
@@ -579,6 +586,13 @@ Two consequences are worth naming because they look like losses and are the poin
 kinds collapse into one** (the side is consumed into the band rectangle). The coordinate
 space is unchanged — paint coordinates, one page space.
 
+One field *does* travel with the collapse (11.5): the **`border-style`**. The side is consumed
+into the band rectangle, which is right — the rectangle states where the side is — but the
+style is the shape *inside* it and is not derivable from the rectangle, so a `draw-border`
+carries it and a command without one is refused. A `draw-background`, which has no side, carries
+`none`; the validity rule splits exactly that way (`generates_border` for a band, `none` for
+every other kind).
+
 The vocabulary is five kinds, split structural/drawing the record's way, and the validity
 rule splits on *drawing* rather than *marker* so `CONTENT` is held to the structural side.
 
@@ -597,24 +611,35 @@ See `paint/docs/DisplayList.md` for the precise contract.
 
 ---
 
-## 17. Background painting (Phase 11.4)
+## 17. Decoration painting (Phases 11.4–11.5)
 
-`robo_paint_background_paint(list, target, out_stats, diag)` is the first door in this module
+`robo_paint_decoration_paint(list, target, out_stats, diag)` is the first door in this module
 that takes a **surface**, and the shape of the whole phase is in its signature:
 
 - the input is a **display list**, not the records, because the display list is the artifact
-  whose geometry is resolved. A command carries the one rectangle to fill and the boundary in
-  force, so the painter never reads the box model, a computed style or the tree -- the only
-  conversion left is the colour;
+  whose geometry is resolved. A command carries the one rectangle to fill, the boundary in force
+  and, for a band, the style that shapes it -- so the painter never reads the box model, a
+  computed style or the tree, and the only conversion left is the colour;
 - the output is a **caller's** surface. The painter retains nothing and destroys nothing it did
   not create: it binds a `robo_gfx_raster_t` over the target for the duration and releases it
   before returning, so the clip and the source-over blend are the graphics module's rules
   rather than a second compositor's;
 - what it does *not* touch is as explicit as what it does. `begin-node`, `content` and
-  `end-node` draw nothing, and a `draw-border` command carries a resolved band but no
-  rasterisation yet -- all four are **skipped and counted**, which is what makes "the
-  backgrounds are painted and the borders are not" a number a reader sees (`skipped`) rather
-  than a silence.
+  `end-node` draw nothing by definition -- all three are **skipped and counted**, which is what
+  makes "the drawings reached a surface and the structural commands did not" a number a reader
+  sees (`skipped`) rather than a silence.
+
+### 17.0 One walk, because there is one order
+
+11.5's architectural decision, and the reason the background-only door of 11.4 was *replaced*
+rather than joined: a box's background and its four bands are both drawings, and the list
+interleaves them the way the traversal emits them. CSS's paint order is that same order, so a
+descendant's background is filled **after** an ancestor's border and a child that spills over its
+parent draws over the parent's band -- the suite's decisive case. Two passes, one per kind, would
+fill every background in the document before every border in it and paint the ancestor's ring
+over the child's spill: a different and visibly wrong picture. The fence 11.4 drew
+(`background_painting` 1, `raster` 0) is unchanged; what moved is that one command kind became
+two, which is why `border_painting` now sits beside `background_painting`.
 
 ### 17.1 The colour bridge
 
@@ -643,11 +668,24 @@ correctly without a raster clipping system existing yet.
 
 ### 17.3 What the pass reports
 
-`robo_paint_background_stats_t`'s fields are the **pairs**, because the interesting facts are
-differences, and two identities hold by construction: `commands = backgrounds + skipped`, and
-`backgrounds = filled + contextual + transparent + empty`. `transparent` and `contextual` are
-kept apart because "the author asked for nothing" and "the colour could not be resolved here"
-are different facts about a document.
+`robo_paint_decoration_stats_t`'s fields are the **pairs**, because the interesting facts are
+differences, and three identities hold by construction and are asserted:
+`commands = draws + skipped`, `draws = backgrounds + borders`, and
+`draws = filled + contextual + transparent + empty`. `transparent` and `contextual` are kept apart
+because "the author asked for nothing" and "the colour could not be resolved here" are different
+facts about a document. `unshaped` is a fourth kind of fact rather than a fourth outcome -- it is
+a subset of `filled`, and it is the number that keeps `border_painting` from being read as "every
+border looks the way it was asked to".
+
+### 17.3a The band, and the style that shapes it
+
+A band is the region of the border box outside the padding box on one edge, computed once at
+build time by `robo_paint_operation_side_band` and carried as the command's one rectangle. The
+four bands of a box are emitted top, right, bottom, left, each spanning its axis's full extent,
+so two bands overlap at every corner and the one drawn last owns it -- a statement about this
+build's simplification (a real renderer mitres), pinned by the suite's corner colours rather than
+left to be discovered. `paint/docs/Border.md` has the geometry, the style vocabulary and the
+deferrals.
 
 ### 17.4 Safety
 
@@ -658,4 +696,5 @@ is deliberately *not* folded in, because that is this build failing rather than 
 surface being wrong); and a fill or clip the graphics layer refuses is `ROBO_ERROR` with a
 diagnostic naming the step.
 
-See `paint/docs/Background.md` for the full contract.
+See `paint/docs/Decoration.md` for the full contract, and `paint/docs/Border.md` for the border
+half of it.

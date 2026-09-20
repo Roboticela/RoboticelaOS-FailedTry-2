@@ -163,7 +163,11 @@ static robo_result_t display_command_for(const robo_paint_operation_t *operation
         if (robo_paint_operation_side_band(operation, &out->rect, diag) != ROBO_OK) {
             return ROBO_ERROR;
         }
+        /* The **side** is consumed into the band rectangle and the four kinds collapse into
+         * one -- but the **style** is not consumed by anything: it is the shape of what is
+         * inside that rectangle, so it travels with the command (11.5). */
         out->color = operation->color;
+        out->style = operation->style;
         return ROBO_OK;
     case ROBO_PAINT_OP_CONTENT:
         out->kind = ROBO_PAINT_DISPLAY_CMD_CONTENT;

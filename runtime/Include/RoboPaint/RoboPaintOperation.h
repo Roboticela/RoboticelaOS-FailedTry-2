@@ -36,6 +36,23 @@
  * which is RoboCSS's own "no colour at all" and not a zero that might be black.
  * `robo_paint_operation_is_valid` requires exactly that, so a marker carrying a colour
  * is a refused record rather than one a consumer might draw.
+ *
+ * The **border style** (11.5) is the second field whose meaning varies by kind, and it
+ * is carried for the reason `RoboLayoutBorder.h` says the style is carried *there*: the
+ * layout layer resolved twelve declarations into four used sides that hold "the width
+ * it occupies, and the style and colour that produced it", and it states that paint
+ * "decides whether to draw, **which of the ten styles to draw** and in what colour". A
+ * paint layer that read only the width and the colour would be dropping a fact the
+ * layer below deliberately preserved, and it would drop it invisibly: a `dashed` border
+ * would be drawn as a `solid` one with nothing anywhere saying so.
+ *
+ * So the rule is the colour rule's shape, stated per kind and **enforced** rather than
+ * assumed: a border record carries a style that **generates** a border, and every other
+ * kind carries `NONE`. `generates_border` rather than "not `NONE`" because `none` and
+ * `hidden` both draw nothing (10.11's rule, which is why such a side's used width is
+ * zero and no record is emitted for it) -- so a hand-built record claiming to draw a
+ * `hidden` border is inconsistent and refused, by the same door the layout layer uses
+ * rather than by a second spelling of the same rule.
  */
 #ifndef ROBO_PAINT_OPERATION_H
 #define ROBO_PAINT_OPERATION_H
@@ -76,6 +93,11 @@ typedef struct robo_paint_operation {
     /** The colour this operation draws with. `none` for a marker, and required to be
      *  a colour a rasteriser can use for a drawing kind. */
     robo_css_color_t color;
+    /** The `border-style` of the side this operation draws (11.5). Meaningful for a
+     *  **border** record and required to be `NONE` for every other kind -- which is the
+     *  same shape @ref color has for a marker, and the reason the field is a stated
+     *  absence rather than an unset value. See the header comment. */
+    robo_css_border_style_t style;
 } robo_paint_operation_t;
 
 /** Clear @p operation to a `NONE` marker with no geometry. Safe on NULL. */
@@ -93,14 +115,18 @@ void robo_paint_operation_init(robo_paint_operation_t *operation);
  *   **three valid boxes** whose border box contains the padding box contains the
  *   content box;
  *   a **valid clip**;
- *   and the colour rule the header states: `none` for a **structural** record
+ *   the colour rule the header states: `none` for a **structural** record
  *   (`BEGIN_BOX`, `CONTENT`, `END_BOX`), and a colour a rasteriser can use -- resolved,
  *   or `currentColor` that this layer could not resolve -- for a **drawing** kind.
  *   `none` on a drawing operation is refused because a fill or a border with no colour
  *   draws nothing, and a builder that emitted one would be emitting an operation that is
  *   not a statement about the document. The split is
  *   `robo_paint_op_kind_draws`, not `is_marker`, so a `CONTENT` record -- which draws
- *   nothing and is not a box marker -- is held to the structural side of the rule.
+ *   nothing and is not a box marker -- is held to the structural side of the rule;
+ *   and the **style rule** (11.5), which is the same shape one field along: a border
+ *   record's style must generate a border, and every other kind's must be `NONE`. Both
+ *   halves are refusals rather than tolerances -- a background carrying a style, or a
+ *   border carrying `none`, is an operation whose fields disagree about what it is.
  */
 int robo_paint_operation_is_valid(const robo_paint_operation_t *operation);
 
@@ -131,6 +157,11 @@ void robo_paint_operation_clip(const robo_paint_operation_t *operation,
 
 /** The colour, by value. `none` for NULL. */
 robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operation);
+
+/** The `border-style`, by value. `NONE` for NULL, and for every kind except a border
+ *  -- so a caller that wants "is this side dashed?" asks here and gets an answer it can
+ *  act on rather than a value it must first check the kind against. */
+robo_css_border_style_t robo_paint_operation_style(const robo_paint_operation_t *operation);
 
 /**
  * Non-zero when @p operation is **structural** -- draws nothing and is emitted for every

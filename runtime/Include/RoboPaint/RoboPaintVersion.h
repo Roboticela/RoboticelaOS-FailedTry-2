@@ -1,6 +1,6 @@
 /*
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
- * display lists, 11.4 background painting.
+ * display lists, 11.4 background painting, 11.5 border painting.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -72,35 +72,58 @@
  * once and never consults the box model. `ROBO_PAINT_DRAWING_IMPLEMENTED` was *still* 0 at
  * 11.3: a display list is data, and nothing there put a colour on a surface.
  *
- * 11.4 is where the colour finally reached one. `robo_paint_background_paint` walks a
- * display list and fills each `draw-background` command into a RoboGraphics surface, so
+ * 11.4 is where the colour finally reached one. `robo_paint_decoration_paint` walks a
+ * display list and fills each **drawing** command into a RoboGraphics surface, so
  * `ROBO_PAINT_DRAWING_IMPLEMENTED` is **1** -- the condition this header wrote down for the
  * flip was exactly "a build in which an operation's rectangle and colour reach a RoboGraphics
- * surface", and that is now true for backgrounds. The fence that keeps the claim honest is
- * `raster` beside it, which stays **0**: this is a **background-only** painter that skips the
- * structural records and the border bands (and counts them), not a rasteriser of the whole
- * list. The colour crosses into RoboGraphics through one door
- * (`robo_paint_color_to_rgba8`), which is a field-for-field copy between two 8-bit sRGB
- * records rather than a conversion -- and `currentColor` is *refused* there, because only the
- * layer that owns an element's `color` can resolve it, and the background pass has already
- * done so before emitting.
+ * surface", and that is now true for a box's background and, since 11.5, for each of its
+ * border sides. The fence that keeps the claim honest is `raster` beside it, which stays **0**:
+ * the three **structural** command kinds are not drawings and are skipped (and counted), so
+ * what is filled is the drawing kinds of the list and not the list. The colour crosses into
+ * RoboGraphics through one door (`robo_paint_color_to_rgba8`), which is a field-for-field copy
+ * between two 8-bit sRGB records rather than a conversion -- and `currentColor` is *refused*
+ * there, because only the layer that owns an element's `color` can resolve it, and the paint
+ * pass has already done so before emitting.
  *
  * The colour resolution is the one place this release reads a property RoboLayout
  * deliberately ignored, and it is worth stating because it looks like a violation of
  * the boundary: 10.14 classifies a property name into "layout does not read it",
  * "paint-visible only" or "feeds geometry", and `background-color` and
- * `border-*-color` are the **paint-visible** half. So a colour is exactly what this
+ * `border-*-color` are the * * paint-visible** half. So a colour is exactly what this
  * module is *supposed* to read, and `currentColor` -- which `RoboLayoutBorder.h` says
  * "only the layer with an element can resolve" -- is resolved here, because this is
  * that layer.
+ *
+ * 11.5 is the second drawing and the first one with a **shape**, and the two halves of it are
+ * worth stating because only one of them is about a rectangle reaching a surface. The border
+ * **style** had been dropped one stage too early: 11.3 resolved the band a side occupies and
+ * collapsed the four side kinds into one command, and in doing so discarded the fact that a
+ * `dashed` band is not a `solid` one -- which is exactly the fact a rasteriser cannot
+ * reconstruct, because it is not derivable from the band's rectangle. So the style now travels
+ * record → command, and a command is render-ready in the sense this header keeps using it: its
+ * consumer can produce the drawn shape from the command alone. What this build draws for the
+ * seven *pattern* styles is their **band**, in the side's colour -- CSS's `solid` shape -- and
+ * that simplification is a **number** (`stats.unshaped`) rather than a silence, because a
+ * border drawn as a solid band when the author asked for dots is exactly the quiet wrongness
+ * a rendering module should be counting instead of shipping.
+ *
+ * The one architectural decision 11.5 had to make, and the reason there is one painter rather
+ * than a second: **backgrounds and borders are one pass, because they are one order.** The
+ * list interleaves them the way the traversal emits them, and CSS's paint order is that same
+ * order -- a descendant's background is painted *after* its ancestor's border, so a child that
+ * spills over its parent draws over the parent's border rather than under it. Two passes would
+ * paint every background in the document before every border in it, which is a different and
+ * visibly wrong picture. So the background-only door of 11.4 was **replaced**, not joined, by
+ * `robo_paint_decoration_paint` -- the fence it drew (`background_painting` **1**, `raster`
+ * **0**) is the same fence, moved one command kind along.
  */
 #ifndef ROBO_PAINT_VERSION_H
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 4
+#define ROBO_PAINT_VERSION_MINOR 5
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.4.0"
+#define ROBO_PAINT_VERSION_STRING "0.5.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0
@@ -109,22 +132,25 @@
  * 1 since 11.4: this build puts a colour on a surface.
  *
  * The flip happened exactly where this header said it would -- "a build in which an
- * operation's rectangle and colour reach a RoboGraphics surface" -- and the thing that
- * reached it is a **background**: `robo_paint_background_paint` fills a display list's
- * `draw-background` commands through the RoboGraphics CPU raster.
+ * operation's rectangle and colour reach a RoboGraphics surface" -- and the things that
+ * reached it are a box's **background** and, since 11.5, its **border bands**:
+ * `robo_paint_decoration_paint` fills a display list's drawing commands through the
+ * RoboGraphics CPU raster.
  *
  * It is read by two doors that must not disagree -- `robo_paint_get_capabilities()` with
  * its `drawing` field, and `robo_paint_drawing_is_implemented()` -- and by the conformance
  * suite, which asserts all three together. A caller deciding whether to look for a surface
  * should read the function; a caller deciding whether to *make* one should read the field.
  *
- * What it claims is narrow and it must not be read wider: **backgrounds**, and only
- * backgrounds. It does **not** claim borders, text, images, clipping, opacity beyond the
- * colour's own alpha, antialiasing, rounded corners, gradients, transforms or a compositor,
- * and it does **not** claim a rasteriser of the whole list -- that is `raster`, which is
- * still 0. A caller that read this constant as "the document renders" would be wrong in
- * exactly the way reading `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as "layout is done" was wrong
- * in a first release; the field beside it, `background_painting`, says which drawing exists.
+ * What it claims is narrow and it must not be read wider: a **background** and a **border
+ * band**, in the colours CSS resolved. It does **not** claim the seven pattern border styles
+ * (the band is drawn, the pattern is not -- `unshaped` counts them), text, images, clipping,
+ * opacity beyond the colour's own alpha, antialiasing, rounded corners, gradients, transforms
+ * or a compositor, and it does **not** claim a rasteriser of the whole list -- that is
+ * `raster`, which is still 0, because the structural commands are not drawings. A caller that
+ * read this constant as "the document renders" would be wrong in exactly the way reading
+ * `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as "layout is done" was wrong in a first release; the
+ * fields beside it, `background_painting` and `border_painting`, say which drawings exist.
  */
 #define ROBO_PAINT_DRAWING_IMPLEMENTED 1
 

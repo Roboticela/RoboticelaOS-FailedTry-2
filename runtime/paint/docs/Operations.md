@@ -56,6 +56,23 @@ a kind per side there is no such value, and `robo_paint_op_kind_side` is a **tot
 from the four border kinds to the side each draws on and a refusal for everything else — so no
 operation can carry a side that disagrees with what it draws.
 
+### 1.1a The one field whose meaning varies by kind, and the second one (11.5)
+
+A record is nearly uniform: a node, a depth, three boxes, a clip. Two fields vary by kind, and
+both are **required** to be the right thing rather than merely permitted:
+
+| Field | A structural record | A background | A border side |
+|---|---|---|---|
+| `color` | `none` | the resolved `background-color` | the resolved `border-*-color` |
+| `style` (11.5) | `none` | `none` | the side's `border-style`, which must **generate a border** |
+
+The `style` is carried because it is not derivable one stage up: the display list resolves a
+side into the band it occupies, and the band's rectangle states *where* the border is but not
+*what shape* fills it. `robo_paint_operation_style` is its accessor, and the rule is
+`robo_css_border_style_generates_border` rather than "not `none`" — a `hidden` border draws
+nothing, which is why RoboLayout gives such a side a used width of zero and no record is emitted
+at all.
+
 ### 1.2 Markers, and the content boundary
 
 `BEGIN_BOX` and `END_BOX` draw nothing and carry no colour: their `color` is
@@ -162,9 +179,10 @@ has no bound to report.
 
 `robo_paint_operation_is_valid` requires a known kind and never `NONE`; a live node id; three
 valid boxes whose border box contains the padding box contains the content box; a valid clip;
-and the colour rule (`none` for a **structural** record, a drawable colour for a **drawing**
-kind — see §1.0). The split is `robo_paint_op_kind_draws`, not `is_marker`, so a `CONTENT`
-record is held to the structural side.
+the colour rule (`none` for a **structural** record, a drawable colour for a **drawing** kind —
+see §1.0); and, since 11.5, the **style rule** (a border side's `style` generates a border,
+every other kind's is `none` — see §1.1a). The colour split is `robo_paint_op_kind_draws`, not
+`is_marker`, so a `CONTENT` record is held to the structural side.
 
 `robo_paint_list_append` enforces it. The traversal is one caller; a rule enforced in the
 container is a rule no future caller can forget, and it is the "geometry safety" requirement

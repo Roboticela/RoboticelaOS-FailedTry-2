@@ -1,14 +1,14 @@
-# RoboPaint — background painting (Phase 11.4)
+# RoboPaint — decoration painting (Phases 11.4–11.5)
 
 The first place in this module where a colour reaches a **surface**. Everything before it
 produced *decisions*: RoboLayout concluded where every box is, the paint pass ordered the
 operations, the display list resolved the box model into one rectangle per command. This phase
-fills one kind of those commands, and the pipeline it completes is the one the earlier phases
-drew with an empty last arrow:
+fills those commands, and the pipeline it completes is the one the earlier phases drew with an
+empty last arrow:
 
 ```text
 HTML / DOM → RoboCSS → RoboLayout → RoboPaint → records → display list
-    → draw-background → RoboGraphics raster fill → the caller's surface
+    → draw-background / draw-border → RoboGraphics raster fill → the caller's surface
 ```
 
 Two entry points, both under `Include/RoboPaint/`:
@@ -16,31 +16,40 @@ Two entry points, both under `Include/RoboPaint/`:
 | Door | What it is |
 |---|---|
 | `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` (`RoboPaintColor.h`) | the colour bridge: RoboCSS's colour into RoboGraphics' |
-| `robo_paint_background_paint`, `robo_paint_background_stats_t` (`RoboPaintBackground.h`) | the pass: walk a display list, fill its `draw-background` commands |
+| `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` (`RoboPaintDecoration.h`) | the pass: walk a display list, fill its **drawing** commands |
 
-`ROBO_PAINT_DRAWING_IMPLEMENTED` is **1** since this release, and the condition the version
-header wrote down for the flip is exactly what happened: *a build in which an operation's
-rectangle and colour reach a RoboGraphics surface*. The fence that keeps the claim honest is
-`raster`, which stays **0** — see §8.
+`ROBO_PAINT_DRAWING_IMPLEMENTED` is **1** since 11.4, and the condition the version header wrote
+down for the flip is exactly what happened: *a build in which an operation's rectangle and colour
+reach a RoboGraphics surface*. The fence that keeps the claim honest is `raster`, which stays
+**0** — see §8.
+
+**One pass, not two, and the reason is the order.** A box's background and its four border sides
+are both *drawings*, and the list interleaves them the way the traversal emits them: a box's
+background, then its bands, then its descendants' — whose own backgrounds come after. CSS's paint
+order is exactly that, so a child that spills over its parent draws **over** the parent's border.
+A background-only walk followed by a border-only walk would fill every background in the document
+before every border and paint the parent's ring over the child's spill. 11.4's door was
+background-only and 11.5 **replaced** it rather than adding beside it; `paint/docs/Border.md`
+documents the border half.
 
 ---
 
 ## 1. What is painted, and what is not
 
-`robo_paint_background_paint(list, target, out_stats, diag)` walks the display list **once, in
+`robo_paint_decoration_paint(list, target, out_stats, diag)` walks the display list **once, in
 order**, and for each command:
 
 | Command | What the pass does |
 |---|---|
-| `draw-background` | resolve the colour, apply the command's clip, fill the command's rectangle |
-| `begin-node`, `content`, `end-node` | **skipped** and counted — they draw nothing |
-| `draw-border` | **skipped** and counted — the band is resolved, the rasterisation is a later goal's |
+| `draw-background` | resolve the colour, apply the command's clip, fill the **border box** |
+| `draw-border` | resolve the colour, apply the command's clip, fill the side's **band** (11.5) |
+| `begin-node`, `content`, `end-node` | **skipped** and counted — they draw nothing by definition |
 
-So the pass is deliberately a **background-only painter**, and "the backgrounds are painted and
-the borders are not" is a number a reader sees (`skipped`) rather than a silence. The display
-list is the input because it is the artifact whose geometry is *resolved*: a command carries the
-one rectangle to fill, so the painter never reads the box model, a computed style or the tree.
-The only conversion left is the colour.
+So "the drawings reach a surface and the structural commands do not" is a number a reader sees
+(`skipped`) rather than a silence. The display list is the input because it is the artifact whose
+geometry is *resolved*: a command carries the one rectangle to fill, the boundary in force and,
+for a band, the style that shapes it — so the painter never reads the box model, a computed style
+or the tree. The only conversion left is the colour.
 
 ## 2. The supported background model
 
@@ -128,44 +137,54 @@ first but for that one declaration.
 
 ## 7. What the pass reports
 
-`robo_paint_background_stats_t` is a value record owned by nobody, and its fields are the
+`robo_paint_decoration_stats_t` is a value record owned by nobody, and its fields are the
 **pairs**, because the interesting facts are differences:
 
 | Field | Means |
 |---|---|
 | `commands` | display commands visited |
+| `draws` | commands that draw something: backgrounds plus border bands |
 | `backgrounds` | `draw-background` commands seen |
-| `filled` | backgrounds that put a colour on the surface |
-| `skipped` | commands that are not backgrounds: structural records and border bands |
-| `contextual` | backgrounds whose colour stayed `currentColor` |
-| `transparent` | backgrounds whose colour is fully transparent |
-| `empty` | backgrounds with a zero-area rectangle |
-| `clipped` | backgrounds drawn under a boundary the command carried |
+| `borders` | `draw-border` commands seen — one per side whose **used width** is above zero |
+| `filled` | drawings that put a colour on the surface |
+| `skipped` | commands the pass does not attempt to draw: the three structural kinds, and a drawing whose colour the record layer's own rule refuses |
+| `contextual` | drawings whose colour stayed `currentColor` |
+| `transparent` | drawings whose colour is fully transparent |
+| `empty` | drawings with a zero-area rectangle |
+| `unshaped` | borders filled whose style this build draws as a band rather than as its pattern (11.5) |
+| `clipped` | drawings filled under a boundary the command carried |
 
-Two identities hold by construction and are asserted, so no counter is a remainder nobody
+Three identities hold by construction and are asserted, so no counter is a remainder nobody
 checked:
 
 ```text
-commands = backgrounds + skipped
-backgrounds = filled + contextual + transparent + empty
+commands = draws + skipped
+draws    = backgrounds + borders
+draws    = filled + contextual + transparent + empty
 ```
 
 `transparent` can only be reached by a hand-built command, since the pass emits nothing for a
 transparent colour — and it is kept apart from `contextual` because "the author asked for
 nothing" and "the colour could not be resolved here" are different facts about a document.
+`unshaped` is a subset of `filled`, not a separate outcome: those bands **were** drawn, as their
+band, and the number says how many were drawn as a simplification.
 
 ## 8. Why `raster` is still 0, and what `drawing` claims
 
 `drawing` — and `ROBO_PAINT_DRAWING_IMPLEMENTED`, and `robo_paint_drawing_is_implemented()` — say
-**1**, because a `draw-background` command's rectangle and colour reach a RoboGraphics surface.
-That is a narrow claim and reading it wider is the mistake it is shaped to prevent:
+**1**, because a **drawing** command's rectangle and colour reach a RoboGraphics surface. That is
+a narrow claim and reading it wider is the mistake it is shaped to prevent:
 
-- it does **not** claim borders, text, images, rounded corners, gradients, transforms,
-  antialiasing or a compositor;
-- it does **not** claim a rasteriser of the whole list — that is `raster`, which is **0**,
-  because this painter consumes exactly one command kind and skips the rest;
-- `background_painting` is **1** and says *which* drawing exists, so a caller deciding whether to
-  make a surface has a field that answers it exactly.
+- it does **not** claim text, images, rounded corners, gradients, transforms, antialiasing or a
+  compositor;
+- it does **not** claim the seven pattern border styles — a band's shape for those is drawn as
+  CSS's `solid`, and `unshaped` counts them — nor that a `draw-border` command's style has any
+  consumer yet: the style travels for the rasteriser that lands later, and the band is what this
+  build fills;
+- it does **not** claim a rasteriser of the whole list — that is `raster`, which is **0**, because
+  the three structural command kinds are not drawings;
+- `background_painting` and `border_painting` are **1** and say *which* drawings exist, so a
+  caller deciding whether to make a surface has fields that answer it exactly.
 
 ## 9. Ownership and determinism
 
@@ -192,13 +211,13 @@ That is a narrow claim and reading it wider is the mistake it is shaped to preve
 | out of memory binding the raster | `ROBO_OUT_OF_MEMORY` — not folded into the line above, because that is this build failing rather than the caller's surface being wrong |
 | a fill or clip that the graphics layer refuses | `ROBO_ERROR` with a diagnostic naming the step |
 
-`robo_paint_background_stats_init(NULL)` is safe, and `out_stats` may be `NULL`.
+`robo_paint_decoration_stats_init(NULL)` is safe, and `out_stats` may be `NULL`.
 
 ## 11. Deferred, and to whom
 
 | Not here | Where it belongs |
 |---|---|
-| border band rasterisation | a later 11.x goal; the band rectangle already exists |
+| the **patterns** inside a dashed, dotted, double, groove, ridge, inset or outset band | a later 11.x goal; the style already travels on the command, and `unshaped` counts what is drawn as a band |
 | text and image painting | later 11.x goals — they need shaping and glyph positions |
 | display-list-wide rasterisation | `raster` stays 0 until a consumer handles *every* kind |
 | real clipping, scroll clipping, compositor clipping | later phases |
@@ -209,12 +228,13 @@ That is a narrow claim and reading it wider is the mistake it is shaped to preve
 
 ## 12. What the suite pins
 
-Fourteen cases under `paint.background.*` (`paint/docs/Tests.md` §1.9): the colour bridge's five
-kinds; a document's colour landing in the rectangle the display list named and nowhere else; the
-fill order proving depth-first traversal; the clip A/B against a `visible` control plus the
-axis-split mechanism read from a hand-built command; the three "nothing to paint" documents; the
-zero-area record; a relative offset moving the fill and not growing the box; the counter
-identities; the four counters and the clip on a hand-built list; determinism across two surfaces
-and a repeat pass in place; snapshot isolation across a re-layout; and the empty and refusing
-cases. Every one of them reads the surface back, because that is the strongest form of "the
-colour reached RoboGraphics" available without a screenshot.
+Fourteen cases under `paint.background.*` and fourteen under `paint.border.*`
+(`paint/docs/Tests.md` §1.8–§1.9). The background half: the colour bridge's five kinds; a
+document's colour landing in the rectangle the display list named and nowhere else; the fill
+order proving depth-first traversal; the clip A/B against a `visible` control plus the axis-split
+mechanism read from a hand-built command; the three "nothing to paint" documents; the zero-area
+record; a relative offset moving the fill and not growing the box; the counter identities; the
+counters and the clip on a hand-built list; determinism across two surfaces and a repeat pass in
+place; snapshot isolation across a re-layout; and the empty and refusing cases. The border half
+is `paint/docs/Border.md` §7. Every one of them reads the surface back, because that is the
+strongest form of "the colour reached RoboGraphics" available without a screenshot.

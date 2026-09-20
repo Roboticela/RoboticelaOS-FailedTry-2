@@ -6,14 +6,14 @@
  * state, and why the whole file is a flag, a version and a table of what this build does
  * and does not do.
  *
- * The table is the interesting half. Two of its twelve fields are deliberately 0, and they
+ * The table is the interesting half. Two of its thirteen fields are deliberately 0, and they
  * are the two a reader would otherwise have to discover by experiment: `raster` and
  * `paint_invalidation`. `display_lists` joined the 1s in 11.3 -- the artifact a rasteriser
- * consumes now exists -- and `drawing` and `background_painting` joined them in 11.4: a
- * `draw-background` command's rectangle and colour now reach a RoboGraphics surface. Keeping
- * `background_painting` apart from `raster` is what stops "a colour reached a surface" from
- * being read as "the document rasterises": the painter consumes one command kind and skips
- * the rest.
+ * consumes now exists -- and `drawing`, `background_painting` and, in 11.5,
+ * `border_painting` joined them in 11.4: a **drawing** command's rectangle and colour now
+ * reach a RoboGraphics surface. Keeping the two narrow fields apart from `raster` is what
+ * stops "a colour reached a surface" from being read as "the document rasterises": the
+ * painter consumes the drawing kinds and skips the structural ones.
  */
 
 #include "RoboPaint/RoboPaint.h"
@@ -70,9 +70,10 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      *
      * `drawing` is read from its own constant so that the field and the two doors that
      * report it -- this one and `robo_paint_drawing_is_implemented()` -- cannot disagree.
-     * `raster` is the general rasteriser that would consume *every* command; 11.4's
-     * background painter consumes one kind and skips the rest, which is why `raster` is 0
-     * while `background_painting` beside it is 1.
+     * `raster` is the general rasteriser that would consume *every* command; the decoration
+     * pass consumes the two **drawing** kinds and skips the three structural ones (which draw
+     * nothing), which is why `raster` is 0 while `background_painting` and `border_painting`
+     * beside it are 1.
      *
      * `paint_invalidation` is 0 and what exists instead is the *input* to one:
      * `robo_paint_stats_t.style_only`. A paint list is regenerated rather than patched, so
@@ -90,11 +91,19 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
     out->paint_invalidation = 0;
 
     /*
-     * **1 since 11.4**, and the narrow field beside `drawing`: this build fills backgrounds
-     * and still does not rasterise a whole list. Named for exactly what it is -- the painter
-     * skips the structural records and the border bands, and `raster` above stays 0.
+     * **1 since 11.4**, and the first of the two narrow fields beside `drawing`: this build
+     * fills a box's background and still does not rasterise a whole list -- the pass skips the
+     * structural commands, and `raster` above stays 0.
      */
     out->background_painting = 1;
+    /*
+     * **1 since 11.5**, the second drawing and the first with a shape: each border side whose
+     * used width is above zero is filled across its band, in the side's colour. It claims the
+     * band and not the pattern inside it -- seven of CSS's ten styles are counted
+     * (`unshaped`) -- which is why this is a field beside `background_painting` rather than a
+     * claim about `raster`.
+     */
+    out->border_painting = 1;
     return ROBO_OK;
 }
 

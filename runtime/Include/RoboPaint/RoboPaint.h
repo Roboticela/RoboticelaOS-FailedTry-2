@@ -1,5 +1,5 @@
 /*
- * RoboPaint — RoboticelaOS Runtime's paint architecture (Phase 11.1–11.4).
+ * RoboPaint — RoboticelaOS Runtime's paint architecture (Phase 11.1–11.5).
  *
  * Dependency:
  *   RoboBase / RoboMem → RoboGraphics → ... → RoboCSS / RoboHTML → RoboLayout
@@ -16,15 +16,16 @@
  *
  * Phase 11.1 is architecture: the paint context, the operation vocabulary, the list and
  * its ownership, the geometry boundary, the clip state, the deterministic traversal and
- * the dump. And since 11.4 it paints **backgrounds**: `robo_paint_background_paint` walks a
- * display list and fills each `draw-background` command into a RoboGraphics surface, so
- * `robo_paint_drawing_is_implemented()` answers 1 and `background_painting` is 1 -- while
- * `raster` stays 0, because a rasteriser that consumes *every* command is a later goal's.
+ * the dump. And since 11.4 it paints: `robo_paint_decoration_paint` walks a display list and
+ * fills every **drawing** command into a caller's RoboGraphics surface, so
+ * `robo_paint_drawing_is_implemented()` answers 1 -- a box's **background** (11.4) and, since
+ * 11.5, each of its **border sides** -- while `raster` stays 0, because the structural
+ * commands are not drawings and a general rasteriser that consumed them is a later goal's.
  *
  * The pipeline this module is the fourth stage of, and where this release stops:
  *
  *   HTML / DOM → RoboCSS → RoboLayout → **RoboPaint** → display list →
- *   **background fill** → RoboGraphics → RoboWindow / display
+ *   **background and border fill** → RoboGraphics → RoboWindow / display
  *
  * What this release buys the phases that follow: a tree that has been laid out can be
  * turned into an ordered list of operations, every operation carries the box it draws
@@ -34,10 +35,12 @@
  * kind is one enumerator rather than a redesign.
  *
  * What it does *not* buy is a **rasteriser**: `raster` is 0 and this header says so rather
- * than leaving a caller to find out from a blank surface. What 11.4 buys is narrower and
- * precise -- one command kind reaches a surface -- and a caller that checked only a version
- * number would conclude that 0.4.0 renders a document, when what it renders is the
- * backgrounds.
+ * than leaving a caller to find out from a blank surface. What 11.4–11.5 buy is narrower and
+ * precise -- the two *drawing* command kinds reach a surface -- and a caller that checked only
+ * a version number would conclude that 0.5.0 renders a document, when what it renders is a
+ * box's background and its four border bands (as bands: seven of CSS's ten border styles are
+ * pattern-shaped inside the band and are counted rather than shaped, see
+ * `RoboPaintDecoration.h`).
  *
  * Chromium's paint and display-list architecture -- `PaintLayer`, `DisplayItem`,
  * `PaintController`, `cc::DisplayItemList` -- is temporary technical reference only, and
@@ -55,9 +58,9 @@
 #include "RoboPaint/RoboPaintDisplayDump.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
 #include "RoboPaint/RoboPaintDisplayListBuilder.h"
-#include "RoboPaint/RoboPaintBackground.h"
 #include "RoboPaint/RoboPaintColor.h"
 #include "RoboPaint/RoboPaintContext.h"
+#include "RoboPaint/RoboPaintDecoration.h"
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintDump.h"
 #include "RoboPaint/RoboPaintGeometry.h"
@@ -120,14 +123,14 @@ typedef struct robo_paint_capabilities {
      */
     int decoration_ops;
     /**
-     * Putting a colour on a surface. **1** since 11.4: a `draw-background` command's
-     * rectangle and colour reach a RoboGraphics surface
-     * (`robo_paint_background_paint`).
+     * Putting a colour on a surface. **1** since 11.4: a drawing command's rectangle and
+     * colour reach a RoboGraphics surface (`robo_paint_decoration_paint`).
      *
-     * The field a caller about to look for a framebuffer should read -- and the one that
-     * says this build paints **backgrounds**. It is `background_painting` beside it that
-     * says *which* drawing exists, because "a colour reaches a surface" and "every command
-     * rasterises" are different claims and only the first is true.
+     * The field a caller about to look for a framebuffer should read -- and the one that says
+     * this build paints a box's **background and border bands**. It is
+     * `background_painting`/`border_painting` beside it that say *which* drawings exist,
+     * because "a colour reaches a surface" and "every command rasterises" are different claims
+     * and only the first is true.
      */
     int drawing;
     /**
@@ -141,21 +144,37 @@ typedef struct robo_paint_capabilities {
      * only `drawing` would miss that the artifact a rasteriser consumes now exists.
      */
     int display_lists;
-    /** Rasterising a paint list into a RoboGraphics surface. **0**: a later goal. */
+    /** Rasterising a paint list into a RoboGraphics surface. **0**: a later goal. The two
+     *  *drawing* command kinds reach a surface today -- see `background_painting` and
+     *  `border_painting` -- but the three structural kinds are not drawings, so a pass that
+     *  consumed a whole list is still absent. */
     int raster;
     /** Knowing which operations a change made stale. **0**: Phase 11.11. What exists
      *  instead is the *input* -- `robo_paint_stats_t.style_only` -- because a paint list
      *  is regenerated rather than patched (RoboPaintContext.h). */
     int paint_invalidation;
     /**
-     * **Background painting** (11.4), and **1**: the first drawing this build does. It
-     * walks a display list, fills each `draw-background` command into a RoboGraphics
-     * surface, and **skips** the structural records and the border bands -- so the fence
-     * between this field and `raster` is the fence between one command kind and all of
-     * them. `raster` stays **0** because a general rasteriser that consumes *every* command
-     * is a later goal's, and this one consumes exactly one.
+     * **Background painting** (11.4), and **1**: a box's `background-color` reaching its
+     * RoboGraphics **border box**.
+     *
+     * A drawing kind, and one of the two the decoration pass fills. See
+     * `RoboPaintDecoration.h` for what a background command carries and why the border box is
+     * the rectangle CSS means by it.
      */
     int background_painting;
+    /**
+     * **Border painting** (11.5), and **1**: each border side whose used width is above zero
+     * filled across its **band**. One field beside `background_painting` rather than folded
+     * into it, because the two arrived a phase apart and a caller is entitled to know which
+     * of a box's decorations a build draws.
+     *
+     * It claims the **band**, in the side's own colour -- which is CSS's `solid` shape -- and
+     * not the seven pattern styles: `dotted`, `dashed`, `double`, `groove`, `ridge`, `inset`
+     * and `outset` are counted rather than shaped (`robo_paint_decoration_stats_t.unshaped`),
+     * so "borders are painted" is true of a border's place and colour and not of every
+     * border's look. `raster` above is still 0: the structural kinds are not drawings.
+     */
+    int border_painting;
 } robo_paint_capabilities_t;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */
@@ -185,12 +204,14 @@ robo_result_t robo_paint_get_version(robo_i32 *out_major,
  *
  * It answers **1** since 11.4, and the condition the version header wrote down for the
  * flip was exactly this: "a build in which an operation's rectangle and colour reach a
- * RoboGraphics surface". A `draw-background` command's rectangle and colour now do. What it
- * still does **not** mean is that every command rasterises: `raster` is 0 and the painter
- * skips the structural records and the border bands. So the two things a caller must not
- * conclude are that borders or text reach a surface (they do not --
- * `robo_paint_background_stats_t.skipped` counts them) or that a whole document is a
- * picture (the list still prints with `robo_paint_list_write`).
+ * RoboGraphics surface". A `draw-background` command's rectangle and colour did, and since
+ * 11.5 a `draw-border` command's band and colour do too, through the same pass
+ * (`robo_paint_decoration_paint`). What it still does **not** mean is that every command
+ * rasterises: `raster` is 0, and the pass skips the three **structural** kinds -- which draw
+ * nothing by definition -- and counts them. So the two things a caller must not conclude are
+ * that a structural command reaches a surface (it does not --
+ * `robo_paint_decoration_stats_t.skipped` counts it) or that a whole document is a picture
+ * (the list still prints with `robo_paint_list_write`).
  */
 int robo_paint_drawing_is_implemented(void);
 

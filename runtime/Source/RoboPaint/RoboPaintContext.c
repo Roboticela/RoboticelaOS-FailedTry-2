@@ -237,7 +237,16 @@ static robo_result_t paint_emit_structural(robo_paint_list_t *list,
     return robo_paint_list_append(list, &operation, diag);
 }
 
-/** Append a drawing operation: a background, or one border side. */
+/**
+ * Append a drawing operation: a background, or one border side.
+ *
+ * It takes **both** of the fields whose meaning varies by kind, and takes them as
+ * parameters rather than reading them: a background passes the colour the box declared
+ * and `NONE` for the style, a border passes both of its own. That is the shape the
+ * record's validity rule enforces from the other side, so a caller cannot half-fill a
+ * drawing record by accident -- the two facts a border has and a background does not
+ * arrive together.
+ */
 static robo_result_t paint_emit_drawing(robo_paint_list_t *list,
                                        robo_paint_op_kind_t kind,
                                        robo_layout_node_id_t node,
@@ -246,6 +255,7 @@ static robo_result_t paint_emit_drawing(robo_paint_list_t *list,
                                        robo_layout_point_t origin,
                                        const robo_paint_clip_t *clip,
                                        robo_css_color_t color,
+                                       robo_css_border_style_t style,
                                        robo_paint_diag_t *diag)
 {
     robo_paint_operation_t operation;
@@ -258,6 +268,7 @@ static robo_result_t paint_emit_drawing(robo_paint_list_t *list,
     operation.origin = origin;
     operation.clip = *clip;
     operation.color = color;
+    operation.style = style;
     return robo_paint_list_append(list, &operation, diag);
 }
 
@@ -299,33 +310,35 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
                                           robo_paint_list_t *list,
                                           robo_paint_diag_t *diag)
 {
-    const robo_css_computed_style_t *style = robo_layout_object_style(tree, id);
+    const robo_css_computed_style_t *computed = robo_layout_object_style(tree, id);
     robo_css_color_t element_color;
     robo_css_color_t color;
+    robo_css_border_style_t style;
     int draws;
     int contextual;
     robo_layout_border_edges_t borders;
     size_t side;
 
-    if (!style) {
+    if (!computed) {
         /* No declaration could be read from this box at all. A fact about the build --
          * the element had no computed style -- and not a failure, so the box contributes
          * a marker pair and no decoration. */
         context->stats.without_style++;
         return ROBO_OK;
     }
-    element_color = paint_element_color(style);
+    element_color = paint_element_color(computed);
 
     /* The background: `background-color`, which is `transparent` until an author says
      * otherwise. Painted over the **border box**, CSS's initial `background-clip`. */
-    color = paint_property_color(style, "background-color");
+    color = paint_property_color(computed, "background-color");
     paint_resolve_color(color, element_color, 0, &color, &draws, &contextual);
     if (contextual) {
         context->stats.contextual_colors++;
     }
     if (draws) {
         robo_result_t result = paint_emit_drawing(list, ROBO_PAINT_OP_BACKGROUND, id,
-                                                  depth, boxes, origin, clip, color, diag);
+                                                  depth, boxes, origin, clip, color,
+                                                  ROBO_CSS_BORDER_STYLE_NONE, diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -354,18 +367,30 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
             continue;
         }
 
+        /*
+         * The colour **and** the style come off the same used side and in one switch, so
+         * they cannot be read from different sides -- the mistake a second switch would
+         * make possible. 10.11 put both on the used record for exactly this moment: the
+         * style is not a property this layer reads from a computed style but a fact the
+         * layer below already resolved, and a paint pass that read only the colour would
+         * be dropping it silently.
+         */
         switch (side) {
         case ROBO_CSS_BOX_SIDE_TOP:
             color = borders.top.color;
+            style = borders.top.style;
             break;
         case ROBO_CSS_BOX_SIDE_RIGHT:
             color = borders.right.color;
+            style = borders.right.style;
             break;
         case ROBO_CSS_BOX_SIDE_BOTTOM:
             color = borders.bottom.color;
+            style = borders.bottom.style;
             break;
         default:
             color = borders.left.color;
+            style = borders.left.style;
             break;
         }
 
@@ -379,7 +404,7 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
         {
             robo_result_t result = paint_emit_drawing(list, paint_border_kinds[side], id,
                                                       depth, boxes, origin, clip, color,
-                                                      diag);
+                                                      style, diag);
 
             if (result != ROBO_OK) {
                 return result;

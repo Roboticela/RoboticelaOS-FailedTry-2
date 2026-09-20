@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.4)
+# RoboPaint Test Organisation (through Phase 11.5)
 
-Six suites, 79 tests, one framework. Each phase adds no test runner, no reporter and no
+Seven suites, 93 tests, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,7 +8,7 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the six suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the seven suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
@@ -23,7 +23,8 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaintConformance.c` | `paint.conformance.*` | 5 | does the build's own surface — capabilities, vocabulary names, the drawing claim — say what the module claims? |
 | `SuiteRoboPaintRecords.c` | `paint.records.*` | 13 | is the record model what it claims *as a model* — a regular sequence, an explicit content boundary, a snapshot that does not move, ownership that copies? |
 | `SuiteRoboPaintDisplayList.c` | `paint.display.*` | 13 | does the display list *resolve* the box model (one rectangle per command), *preserve* the order and identity, *refuse* a record list that is not a document, and *snapshot* what it consumes? |
-| `SuiteRoboPaintBackground.c` | `paint.background.*` | 14 | does the colour cross into RoboGraphics, does a document's `background-color` land **where the list said it would** (read back from the surface), and does the pass skip everything that is not a background while counting it? |
+| `SuiteRoboPaintBackground.c` | `paint.background.*` | 14 | does the colour cross into RoboGraphics, does a document's `background-color` land **where the list said it would** (read back from the surface), and do the pass's counters add up on a document and on a hand-built list? |
+| `SuiteRoboPaintBorder.c` | `paint.border.*` | 14 | does a border side's **band** get filled (read back from the surface), does its **style** survive record → command, do four sides of four different widths and colours land exactly where the box model says, and does a child spilling over its parent draw over the parent's border rather than under it? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -146,6 +147,10 @@ The Phase 11.3 suite, and it asks the artifact's guarantees rather than a docume
   `determinism` (two independent builds equal by list and by dump), `dump` (one line per
   command, and a refusal reporting the length it needed).
 
+A `draw-border`'s line carries one field no other kind has: `style=`, the style that shapes the
+band (11.5). It is the one piece of a command a reader could not otherwise tell from a `solid`
+one, which is exactly the fact the field exists to carry.
+
 ### 1.8 — the background pass (`paint.background.*`, 14 cases)
 
 The Phase 11.4 suite, and it is the first in this module that **reads a surface back**:
@@ -164,15 +169,17 @@ The Phase 11.4 suite, and it is the first in this module that **reads a surface 
   rectangle is red under `visible` and untouched under `hidden`; plus the axis-split mechanism
   read from a hand-built command (bounded horizontally, free vertically).
 - **nothing to paint** — `nothing_to_paint` (no background declared, and `transparent`: no
-  command exists at all, so `skipped == commands`), `borders_not_painted` (a border-only
-  document whose four bands are resolved and whose surface is untouched), `zero_area` (an opaque
-  background on a zero-height box: a valid record, an `empty` non-fill).
+  command exists at all, so `skipped == commands`), `border_only_document` (a border-only
+  document: four bands, four fills, no backgrounds -- the case that used to pin the opposite and
+  now pins where the fence moved at 11.5), `zero_area` (an opaque background on a zero-height
+  box: a valid record, an `empty` non-fill).
 - **positioned rectangles** — `positions`: two documents one declaration apart, where the
   relative offset moves the fill by exactly `(20, 10)`, does not change its size, and leaves the
   control's corner untouched.
-- **the counters** — `counters`: the two identities (`commands = backgrounds + skipped`,
-  `backgrounds = filled + contextual + transparent + empty`) plus the pixels checked against the
-  list's own record of who writes where.
+- **the counters** — `counters`: the three identities (`commands = draws + skipped`,
+  `draws = backgrounds + borders`, `draws = filled + contextual + transparent + empty`) plus the
+  pixels checked against the list's own record of who writes where, through an oracle that
+  follows every **drawing** command rather than backgrounds alone.
 - **the painter's own contract** — `hand_built_kinds`: a hand-built list exercising the four
   "draws nothing" reasons and one that draws, with each counter asserted and the clip applied.
 - **determinism and isolation** — `determinism` (two surfaces, every fill's centre identical,
@@ -184,13 +191,38 @@ The Phase 11.4 suite, and it is the first in this module that **reads a surface 
 - **end to end** — `end_to_end`: the whole chain for a document using the box model, a nested
   child, a relative offset and both overflow modes.
 
-### 1.9 — conformance (`paint.conformance.*`, 5 cases)
+### 1.9 — the border pass (`paint.border.*`, 14 cases)
+
+The Phase 11.5 suite, and `paint/docs/Border.md` §7 lists what each case pins. What it adds to
+11.4's shape:
+
+- **the style, end to end** — `style_reaches_the_command`: for `solid`, `dashed`, `dotted` and
+  `double`, the **record's** accessor and the **command's** field agree on all four sides, and
+  every other kind carries `none`. This is the phase's one new field, asserted at both ends of
+  the chain because the interesting failure is a style that survives the traversal and is
+dropped by the builder.
+- **the band's geometry, derived rather than assumed** — `four_bands` and `per_side_widths`
+  compute the four expected rectangles from the box's own border box and its declared insets, so
+  the assertion is about the derivation and not about this build's default margin.
+- **the order that required one pass** — `child_over_parent_border`: a relatively offset child
+  spilling over its parent's border, asserted on the pixels. Two passes, one per drawing kind,
+  would fail this case and nothing else in the suite.
+- **what a band is not** — `absent_sides` (six documents one declaration apart: `none`, zero
+  width, `hidden`, a single-side shorthand, a per-side override) and `with_background` (the
+  ring, the interior and the outside, all probed on one box).
+- **the simplification as a number** — `pattern_styles`: each of the seven pattern styles
+  asserts both the command's style *and* that the band was still filled, which is what keeps
+  `unshaped` a count rather than a claim.
+- **the corner rule, pinned where it is visible** — `colors_and_corners`: the four corner pixels
+  say which band was drawn last.
+
+### 1.10 — conformance (`paint.conformance.*`, 5 cases)
 
 - `capabilities` — the struct read positionally against a list of names, so a field added
   without an assertion is a visible omission.
 - `drawing_present` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
-  `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting` says
-  which drawing exists and `raster` still says 0.
+  `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting` and
+  `border_painting` say which drawings exist and `raster` still says 0.
 - `vocabulary_exhaustive` — every kind and every domain prints a name that is not "unknown".
 - `document_list` — a whole document's list, pinned operation by operation.
 - `hostile_inputs` — NULL and malformed records refused rather than read.
@@ -243,11 +275,12 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test   # bui
 ./Out/RoboTest.host.exe --filter paint.records.          # the record-model suite
 ./Out/RoboTest.host.exe --filter paint.display.          # the display-list suite
 ./Out/RoboTest.host.exe --filter paint.background.       # the background-painting suite
+./Out/RoboTest.host.exe --filter paint.border.           # the border-painting suite
 ```
 
 `./scripts/robo test-paint` runs the module's group through the project pipeline. The filter is
 a **substring** match, not a prefix, so `--filter paint.` also matches the demo layer's six
-`demo.paint.*` cases: the group reports **85** for a module with **79** cases of its own. That
+`demo.paint.*` cases: the group reports **99** for a module with **93** cases of its own. That
 superset is recorded in `scripts/pipeline/commands.test.ps1` beside the group, the same way the
 `layout` group's two-case superset is.
 
@@ -339,3 +372,33 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
    refused by the graphics layer with `ROBO_INVALID_ARGUMENT` where the painter's own header
    promised `ROBO_NOT_SUPPORTED` — the *test* is what made the two statements meet. See
    `paint/docs/Architecture.md` §14.8.
+
+---
+
+## 10. What the 11.5 suite found
+
+1. **A corner belongs to whichever band is drawn last, and the assertion has to say which.**
+   The corner case was written expecting `right` to own the bottom-right corner, because that is
+   where the *right* band's edge is — but the four bands are emitted top, right, bottom, left and
+   the bottom band spans the full width, so `bottom` is drawn over it. The build was right and
+   the expectation was a guess; the four corners are now derived from the emission order and
+   stated as such, with a comment saying the whole rule is this build's simplification rather
+   than CSS's.
+2. **A generalised pass makes an old counter assertion false, and that is the point.** Three
+   cases that had pinned "a border band is skipped" (a border-only document's `skipped ==
+   commands`, and two `skipped >= borders` bounds) went red the moment bands became drawings.
+   Each was rewritten to the new truth rather than loosened, and the border-only case now pins the
+   opposite fact — four bands, four fills, one per side — which is the fence moving one command
+   kind along.
+3. **A pixel oracle has to follow *every* drawing, not just the kind it was written for.**
+   11.4's "the last command that covers this point" consulted backgrounds alone, because
+   backgrounds were the only thing that drew. With bands in the list an oracle that ignored them
+   would expect an ancestor's background *under* a band that is really drawn over it, so the
+   oracle now follows both drawing kinds — which is the same one-line predicate the pass itself
+   uses (`robo_paint_display_command_kind_draws`).
+4. **A hand-built record needs the new field, and the suite is where that shows.** 11.5's style
+   rule made `robo_paint_operation_is_valid` refuse a `BORDER_*` record with no style, which
+   failed the dump-format and accessor cases in the unit suite — records built by hand for
+   assertions *about* the record. The fix is the fixture's: `paint_drawing_make` now sets the style
+   the kind requires (`solid` for a border, `none` for a background), and the validity case
+   asserts both halves of the rule in both directions.

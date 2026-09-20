@@ -122,7 +122,13 @@ int robo_paint_display_command_kind_is_marker(robo_paint_display_command_kind_t 
  *           resolved from the operation's box model (see the header comment);
  *   `clip`  the boundary in force, carried through unchanged from the operation, because
  *           a rasteriser applies it from the command rather than from a separate op;
- *   `color` the fill colour for a drawing command, and `none` for a structural one.
+ *   `color` the fill colour for a drawing command, and `none` for a structural one;
+ *   `style` which of the ten border styles a band draws (11.5), and `none` for every
+ *           kind that is not a border. It is here because this artifact is
+ *           **render-ready**: a rasteriser must be able to produce the drawn shape from
+ *           the command alone, and a border's shape is its style. A command that carried
+ *           the band and the colour but not the style would be one its consumer could
+ *           only draw as `solid` and could not know it was guessing.
  *
  * `node` and `depth` are the box's identity and place, carried so a command is still
  * checkable against the tree it came from and so the tree's shape is recoverable from a
@@ -142,6 +148,9 @@ typedef struct robo_paint_display_command {
     robo_paint_clip_t clip;
     /** The colour a drawing command fills with; `none` for a structural one. */
     robo_css_color_t color;
+    /** The `border-style` a band draws (11.5): meaningful for `DRAW_BORDER`, and required
+     *  to be `NONE` for every other kind. */
+    robo_css_border_style_t style;
 } robo_paint_display_command_t;
 
 /** Clear @p command to a `NONE` marker with no geometry. Safe on NULL. */
@@ -158,10 +167,13 @@ void robo_paint_display_command_init(robo_paint_display_command_t *command);
  *   a **rectangle with a non-negative size** (empty is fine -- a zero-height box is a
  *   statement about the document);
  *   a **valid clip**;
- *   and the colour rule: `none` for a **structural** command, and a colour a rasteriser
+ *   the colour rule: `none` for a **structural** command, and a colour a rasteriser
  *   can use -- resolved, or `currentColor` this layer could not resolve -- for a
  *   **drawing** one. `none` on a drawing command is refused because a fill with no colour
- *   draws nothing.
+ *   draws nothing;
+ *   and the style rule (11.5): a `draw-border` carries a style that generates a border,
+ *   and every other kind carries `NONE`. A `draw-background` with a style, or a band with
+ *   `none`, is a command whose fields disagree about what it is.
  */
 int robo_paint_display_command_is_valid(const robo_paint_display_command_t *command);
 
@@ -187,6 +199,10 @@ void robo_paint_display_command_clip(const robo_paint_display_command_t *command
 
 /** The colour, by value. `none` for NULL. */
 robo_css_color_t robo_paint_display_command_color(const robo_paint_display_command_t *command);
+
+/** The `border-style`, by value. `NONE` for NULL and for every kind that is not a
+ *  border band. */
+robo_css_border_style_t robo_paint_display_command_style(const robo_paint_display_command_t *command);
 
 /** Non-zero when @p command is **structural**. Safe on NULL (0). */
 int robo_paint_display_command_is_structural(const robo_paint_display_command_t *command);

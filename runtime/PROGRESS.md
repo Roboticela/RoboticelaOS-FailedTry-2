@@ -5217,3 +5217,81 @@ the host visual checkpoint passes unchanged (15 checks, 0 failed -- `RESULT: PAS
   `paint/README.md` and `paint/docs/Background.md` §11 name every one of them, and
   `paint/docs/Architecture.md` §15 lists the eighteen rules the next goal may assume. Do not start
   until requested
+
+## Goal 11.5 — Border painting
+
+**Status: complete.** The second drawing this module does, and the first one with a **shape**. A
+box's four border sides are filled into a caller's RoboGraphics surface, in the same pass that fills
+its background -- and the pass is *one* pass because backgrounds and bands are one **order**: the
+list interleaves them the way the traversal emits them, and CSS paints a descendant's background
+*after* its ancestor's border, so a child that spills over its parent draws over the parent's ring.
+The release also fixes one thing 11.3 had dropped a stage early -- the **`border-style`** -- which is
+the only fact about a band that its rectangle cannot state.
+
+**Done:**
+
+| Thing | Where |
+|---|---|
+| The **style travels**: a `BORDER_*` record and a `draw-border` command each carry the side's `border-style`, required to be one that **generates a border** (`generates_border`, not "not `none`" -- `hidden` draws nothing, which is why RoboLayout gives such a side a used width of zero and no record exists at all), and required to be `none` for every other kind. The side is *consumed* into the band rectangle and the style is not, because the rectangle says **where** a band is and the style is the shape **inside** it | `RoboPaintOperation.h`, `RoboPaintDisplayCommand.h`, `RoboPaintContext.c`, `RoboPaintDisplayListBuilder.c` |
+| **One pass, both drawing kinds**: `robo_paint_decoration_paint` walks the display list once, in order, and fills a background's border box and a band alike -- replacing 11.4's background-only door rather than sitting beside it, because two passes (one per kind) would fill every background in the document before every border and paint an ancestor's ring over a descendant's spill | `RoboPaintDecoration.h/.c` |
+| The **band** is the region of the border box outside the padding box on one edge, derived once at build time by `robo_paint_operation_side_band` and carried as the command's one rectangle. Both faces of an axis contribute to the *other* axis's extent, so a box with two borders has two full-height bands | `RoboPaintOperation.c` (11.1), consumed here |
+| The **seven pattern styles** (`dotted`, `dashed`, `double`, `groove`, `ridge`, `inset`, `outset`) are drawn as their **band**, in the side's colour -- CSS's `solid` shape -- and counted (`stats.unshaped`), because a border drawn as a solid band when the author asked for dots is exactly the kind of quiet wrongness this module counts instead of shipping | `RoboPaintDecoration.h/.c` |
+| The **pass record** grows three fields and three identities: `draws`, `borders` and `unshaped` join `commands`/`backgrounds`/`filled`/`skipped`/`contextual`/`transparent`/`empty`/`clipped`, and `commands = draws + skipped`, `draws = backgrounds + borders`, `draws = filled + contextual + transparent + empty` all hold by construction and are asserted | `RoboPaintDecoration.h` |
+| Version **0.5.0**; `border_painting` is added as **1** beside `background_painting`, while `raster` stays **0** -- the three structural command kinds are not drawings | `RoboPaintVersion.h`, `RoboPaint.c` |
+| The **border suite** -- 14 cases in `paint.border.*`: the style end to end at both ends of the chain; the four bands' geometry derived from the box's own border box; per-side widths from a four-value shorthand; six documents one declaration apart for the sides that are *not* there; four shorthand colours and the four **corner** pixels that say which band was drawn last; background-plus-border ring/interior/outside probes; the decisive **child over its parent's border** case; the clip A/B plus the axis split; the seven pattern styles; the style rule and the counter identities on a hand-built list; determinism and snapshot isolation; the empty and refusing cases; and the whole document end to end | `paint/tests/SuiteRoboPaintBorder.c` |
+| The existing suites updated to the generalised pass: `paint.background.*` keeps its 14 cases, with the oracle now following **every** drawing kind and the counters rewritten to the three identities; the unit suite's hand-built records carry the style their kind requires, and the validity case asserts both halves of the style rule | `SuiteRoboPaintBackground.c`, `SuiteRoboPaint.c`, `SuiteRoboPaintConformance.c` |
+
+### Completion criteria
+
+| Criterion | Evidence |
+|---|---|
+| The existing CSS border representation is reused | per-side used width/style/colour from RoboLayout's record; no CSS parsing here |
+| Supported border styles are painted | `paint.border.pattern_styles` (seven styles), `paint.border.four_bands` (`solid`) |
+| Border geometry comes from completed layout | the band is a difference of two rectangles layout wrote; the painter reads no box model |
+| Border widths are handled correctly | `paint.border.per_side_widths`, `paint.border.absent_sides` |
+| Border colours use the existing colour system | `paint.border.colors_and_corners`; the same `robo_paint_color_to_rgba8` door |
+| Border records carry real drawable data | `paint.border.style_reaches_the_command` (the record's accessor) |
+| `draw-border` commands carry real drawable data | the same case (the command's field) plus `style=` in the display dump |
+| All supported sides render correctly | `paint.border.four_bands`, `paint.border.with_background` |
+| Paint ordering is correct | `paint.border.child_over_parent_border` -- the case two passes would fail |
+| Background + border integration works | `paint.border.with_background`, `paint.border.end_to_end` |
+| Zero/transparent/no-border cases are safe | `paint.border.absent_sides`, `paint.border.hand_built_kinds` |
+| Geometry validation is enforced | the command's validity rule, plus the saturating band derivation |
+| Mutation isolation is verified | `paint.border.mutation_isolation` |
+| Deterministic output is verified | `paint.border.determinism` (two passes, and an independently rebuilt list compared command for command) |
+| RoboGraphics performs the actual drawing | `robo_gfx_raster_fill_rect`, one call per drawing command |
+| A minimal visual smoke test works | the suite paints a background-plus-border document into a real surface and reads the ring, the interior and the outside back |
+| Existing tests remain passing | whole suite green |
+| No Chromium/Blink runtime dependency | boundary scan CLEAN; `robo check` PASS |
+| No out-of-scope subsystem was implemented | no mitring, no `border-radius`, no patterns, no batching, no rasteriser of the whole list |
+
+### Results
+
+`Tools/Build.ps1 -Configuration Debug/Release -Verify -Test` each report **ALL TESTS PASS**
+(2460 cases); the sanitized build is clean under ASan and UBSan with no diagnostic.
+`--filter paint.border.` is **14/14**, `--filter paint.` is **99/99** (93 module cases plus the six
+`demo.paint.*` cases the substring filter also matches), `--filter layout.` is **346/346**, and
+`robo test-paint` passes. `robo check` passes with Chromium independence CLEAN, and the host visual
+checkpoint passes (15 checks, 0 failed -- `RESULT: PASS`).
+
+### Files
+
+**Added:** `Include/RoboPaint/RoboPaintDecoration.h`, `Source/RoboPaint/RoboPaintDecoration.c`,
+`paint/tests/SuiteRoboPaintBorder.c`, `paint/docs/Border.md`.
+**Retired:** `RoboPaintBackground.h/.c` (replaced by the generalised door; its suite and its
+document remain, renamed as a document to `paint/docs/Decoration.md`).
+**Modified:** `RoboPaint.h`, `RoboPaintVersion.h`, `RoboPaint.c`, `RoboPaintOperation.h/.c`,
+`RoboPaintDisplayCommand.h/.c`, `RoboPaintDisplayListBuilder.c`, `RoboPaintContext.c`,
+`Tests/Main.c`, `Tools/Build.ps1`, the three existing paint suites, `paint/README.md`,
+`paint/docs/Architecture.md`, `DisplayList.md`, `Operations.md`, `Tests.md`, `PROGRESS.md`,
+`ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
+
+## Next
+
+- **Phase 11.6 — the next RoboPaint goal.** 11.5 fills the two **drawing** command kinds and stops
+  at them: `drawing`, `background_painting` and `border_painting` are `1`, `raster` is still `0`,
+  and the seven pattern border styles, text, images, opacity, real clipping, transforms, batching,
+  rasterisation of the whole list, paint invalidation (11.11) and hit testing (11.10) are all still
+  absent. The deferred tables in `paint/README.md`, `paint/docs/Decoration.md` §11 and
+  `paint/docs/Border.md` §6 name every one of them, and `paint/docs/Architecture.md` §15 lists the
+  nineteen rules the next goal may assume. Do not start until requested

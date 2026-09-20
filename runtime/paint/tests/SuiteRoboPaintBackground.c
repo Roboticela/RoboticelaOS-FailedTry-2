@@ -1,8 +1,13 @@
 /*
- * RoboPaint background suite (Phase 11.4) — paint.background.*
+ * RoboPaint background suite (Phase 11.4, through the 11.5 decoration pass) —
+ * paint.background.*
  *
  * The first place in this module where a colour reaches a **surface**, and the claims the
- * release makes, each pinned where it can be observed rather than argued:
+ * release makes, each pinned where it can be observed rather than argued. The door these
+ * cases walk is `robo_paint_decoration_paint`, which 11.5 generalised from the
+ * background-only painter of 11.4 to fill a box's border bands in the same pass -- the
+ * cases here are about the **background** half of it, and the border suite beside this one
+ * covers the other:
  *
  *   **the colour bridge**  one field-for-field copy between two 8-bit sRGB records, with the
  *                          three kinds that are *not* colours a surface can take decided
@@ -23,9 +28,12 @@
  *                          a descendant's fill, demonstrated against a control document with
  *                          the same boxes and `visible` overflow;
  *
- *   **the fence**          the structural records and the border bands are **skipped and
- *                          counted**: a document whose only decoration is a border paints
- *                          nothing at all, which is what `raster == 0` means;
+ *   **the fence**          the three **structural** commands are *skipped and counted*: they
+ *                          draw nothing, by definition, which is what `raster == 0` means.
+ *                          A border band is *not* skipped -- it is a drawing, and since 11.5
+ *                          it is filled by this same pass -- so the case that used to pin
+ *                          "a border-only document paints nothing" now pins the opposite,
+ *                          which is the fence moving one command kind along;
  *
  *   **snapshot**           once a display list exists, clearing the record list and laying the
  *                          tree out again does not change a single pixel it paints.
@@ -43,8 +51,8 @@
 
 #include "RoboGraphics/RoboGraphicsBitmap.h"
 
-#include "RoboPaint/RoboPaintBackground.h"
 #include "RoboPaint/RoboPaintColor.h"
+#include "RoboPaint/RoboPaintDecoration.h"
 #include "RoboPaint/RoboPaintDisplayDump.h"
 
 #include <string.h>
@@ -110,13 +118,13 @@ static void background_build(const paint_result_t *records,
  */
 static void background_paint(const robo_paint_display_list_t *list,
                              robo_gfx_surface_t *target,
-                             robo_paint_background_stats_t *out_stats)
+                             robo_paint_decoration_stats_t *out_stats)
 {
     robo_paint_diag_t diag;
     robo_result_t status;
 
     robo_paint_diag_reset(&diag);
-    status = robo_paint_background_paint(list, target, out_stats, &diag);
+    status = robo_paint_decoration_paint(list, target, out_stats, &diag);
     if (status != ROBO_OK) {
         robo_test_fail(__FILE__, __LINE__, "the background pass refused the list: %s (%s:%d)",
                        diag.message ? diag.message : "(no message)",
@@ -250,22 +258,27 @@ static void background_centre_is(robo_gfx_surface_t *surface,
     background_pixel_is(surface, x, y, expected, what);
 }
 
-/** Assert every field of two pass records agrees. */
-static void background_stats_eq(const robo_paint_background_stats_t *a,
-                                const robo_paint_background_stats_t *b,
+/** Assert every field of two pass records agrees -- all eleven, so a counter added to the
+ *  record without a line here is a field two passes could disagree about unnoticed. */
+static void background_stats_eq(const robo_paint_decoration_stats_t *a,
+                                const robo_paint_decoration_stats_t *b,
                                 const char *what)
 {
-    if (a->commands != b->commands || a->backgrounds != b->backgrounds ||
+    if (a->commands != b->commands || a->draws != b->draws ||
+        a->backgrounds != b->backgrounds || a->borders != b->borders ||
         a->filled != b->filled || a->skipped != b->skipped || a->contextual != b->contextual ||
-        a->transparent != b->transparent || a->empty != b->empty || a->clipped != b->clipped) {
+        a->transparent != b->transparent || a->empty != b->empty || a->unshaped != b->unshaped ||
+        a->clipped != b->clipped) {
         robo_test_fail(__FILE__, __LINE__,
-                       "%s: commands %d/%d backgrounds %d/%d filled %d/%d skipped %d/%d "
-                       "contextual %d/%d transparent %d/%d empty %d/%d clipped %d/%d",
-                       what, (int)a->commands, (int)b->commands, (int)a->backgrounds,
-                       (int)b->backgrounds, (int)a->filled, (int)b->filled, (int)a->skipped,
-                       (int)b->skipped, (int)a->contextual, (int)b->contextual,
-                       (int)a->transparent, (int)b->transparent, (int)a->empty, (int)b->empty,
-                       (int)a->clipped, (int)b->clipped);
+                       "%s: commands %d/%d draws %d/%d backgrounds %d/%d borders %d/%d "
+                       "filled %d/%d skipped %d/%d contextual %d/%d transparent %d/%d "
+                       "empty %d/%d unshaped %d/%d clipped %d/%d",
+                       what, (int)a->commands, (int)b->commands, (int)a->draws, (int)b->draws,
+                       (int)a->backgrounds, (int)b->backgrounds, (int)a->borders, (int)b->borders,
+                       (int)a->filled, (int)b->filled, (int)a->skipped, (int)b->skipped,
+                       (int)a->contextual, (int)b->contextual, (int)a->transparent,
+                       (int)b->transparent, (int)a->empty, (int)b->empty, (int)a->unshaped,
+                       (int)b->unshaped, (int)a->clipped, (int)b->clipped);
     }
 }
 
@@ -284,14 +297,20 @@ static int background_clip_admits(const robo_paint_clip_t *clip, int32_t x, int3
 }
 
 /**
- * The colour a pass must have left at (x, y): the **last** `draw-background` command, in list
- * order, whose rectangle contains the point and whose clip admits it.
+ * The colour a pass must have left at (x, y): the **last drawing** command -- a background or
+ * a border band -- in list order, whose rectangle contains the point and whose clip admits it.
  *
  * It is the expectation a pixel assertion needs when fills overlap, and it is an *oracle*
  * rather than a second painter: it reads only the command's own rectangle, clip and colour, and
  * does no blending or clipping arithmetic -- so it can check the pass without repeating the
  * logic the pass is being checked for. A point no drawable command covers is transparent, which
  * is what an untouched surface holds.
+ *
+ * Every **drawing** kind rather than backgrounds alone, because 11.5 made a border band a fill
+ * this pass performs: an oracle that ignored bands would expect an ancestor's background under
+ * a band that is really drawn over it. The clip is consulted exactly as the pass does -- a
+ * command whose boundary hides the point contributes nothing -- which is what makes "the
+ * clipped pixel is untouched" an assertion rather than an absence.
  */
 static robo_gfx_color_rgba8_t background_expected_at(const robo_paint_display_list_t *list,
                                                      int32_t x,
@@ -306,7 +325,7 @@ static robo_gfx_color_rgba8_t background_expected_at(const robo_paint_display_li
         if (robo_paint_display_list_at(list, index, &command) != ROBO_OK) {
             return color;
         }
-        if (command.kind != ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND) {
+        if (!robo_paint_display_command_kind_draws(command.kind)) {
             continue;
         }
         if (!robo_paint_color_is_drawable(command.color)) {
@@ -330,7 +349,7 @@ static robo_gfx_color_rgba8_t background_expected_at(const robo_paint_display_li
 }
 
 /**
- * Assert the surface against the oracle at every background command's centre.
+ * Assert the surface against the oracle at every **drawing** command's centre.
  *
  * This is the "and the pixels followed the list" claim for a document whose fills overlap: a
  * reader who wants to know which colour should be at a point asks the list, and the pass must
@@ -349,7 +368,7 @@ static void background_pixels_match(const robo_paint_display_list_t *list,
         int32_t y;
 
         ROBO_CHECK_EQ_INT(robo_paint_display_list_at(list, index, &command), ROBO_OK);
-        if (command.kind != ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND) {
+        if (!robo_paint_display_command_kind_draws(command.kind)) {
             continue;
         }
         if (command.rect.width <= 0 || command.rect.height <= 0) {
@@ -480,7 +499,7 @@ static void test_background_pixel_fill(void)
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     robo_paint_display_command_t background;
     robo_layout_node_id_t box;
@@ -535,7 +554,7 @@ static void test_background_ordering(void)
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     robo_paint_display_command_t parent;
     robo_paint_display_command_t child;
@@ -606,7 +625,7 @@ static void test_background_ordering(void)
  *  record, so the two runs can be compared rather than guessed at. */
 typedef struct background_clip_probe {
     robo_layout_rect_t spill_rect;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
 } background_clip_probe_t;
 
 /**
@@ -708,7 +727,7 @@ static void test_background_clipping(void)
      * what makes "bounded horizontally, free vertically" expressible at all. */
     {
         robo_paint_display_list_t *list = NULL;
-        robo_paint_background_stats_t stats;
+        robo_paint_decoration_stats_t stats;
         /* A surface of its own: the document's fills are on the two above, and an assertion
          * about "untouched" needs somewhere nothing has been painted yet. */
         robo_gfx_surface_t *plain = background_surface(32u, 32u, ROBO_GFX_SURFACE_ACCESS_READ_WRITE);
@@ -748,7 +767,7 @@ static void test_background_nothing_to_paint(void)
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     robo_paint_display_command_t content;
     robo_layout_node_id_t box;
@@ -796,22 +815,33 @@ static void test_background_nothing_to_paint(void)
     paint_end(&fixture);
 }
 
-static void test_background_borders_not_painted(void)
+/**
+ * A document whose only decoration is a **border**: four bands, no background, and the pass
+ * fills all four.
+ *
+ * This is the case that pins where the fence moved at 11.5. It used to state the opposite --
+ * "a border band is resolved and not painted" -- because 11.4's painter consumed exactly one
+ * command kind. The pass now consumes every **drawing** kind, so the same document that
+ * produced a full display list and an untouched surface produces a full display list and four
+ * coloured bands. What has *not* moved is the fence itself, and the two pixels below are where
+ * that is visible: the band is coloured, and the box's own middle -- which no command covers,
+ * because a border with no `background-color` draws nothing there -- still holds what the
+ * surface started with.
+ */
+static void test_background_border_only_document(void)
 {
     paint_fixture_doc_t fixture;
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     robo_paint_display_command_t band;
+    robo_paint_display_command_t content;
+    robo_layout_node_id_t framed;
     int32_t x = 0;
     int32_t y = 0;
 
-    /* The fence this release states: a border band is *resolved* -- the display list carries
-     * the exact rectangle -- and it is not painted. A document whose only decoration is a
-     * border therefore produces a display list full of border commands and a surface no
-     * different from the one it started as. */
     paint_begin_laid_out(&fixture,
                          "<html><body><div class=\"framed\"></div></body></html>",
                          BACKGROUND_BASE_CSS
@@ -821,20 +851,46 @@ static void test_background_borders_not_painted(void)
 
     ROBO_CHECK_EQ_INT((int)list_stats.borders, 4);
     ROBO_CHECK_EQ_INT((int)list_stats.backgrounds, 0);
+    ROBO_CHECK_EQ_INT((int)robo_paint_display_list_count_of_kind(
+                          list, ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND),
+                      0);
 
     surface = background_surface(800u, 600u, ROBO_GFX_SURFACE_ACCESS_READ_WRITE);
     background_paint(list, surface, &stats);
 
+    /* Four drawings, four fills, no background and no pattern: `solid` is the one style whose
+     * band *is* its shape, so nothing here is a simplification being counted. */
+    ROBO_CHECK_EQ_INT((int)stats.draws, 4);
+    ROBO_CHECK_EQ_INT((int)stats.borders, 4);
     ROBO_CHECK_EQ_INT((int)stats.backgrounds, 0);
-    ROBO_CHECK_EQ_INT((int)stats.filled, 0);
-    ROBO_CHECK_EQ_INT((int)stats.skipped, (int)stats.commands);
+    ROBO_CHECK_EQ_INT((int)stats.filled, 4);
+    ROBO_CHECK_EQ_INT((int)stats.unshaped, 0);
+    ROBO_CHECK_EQ_INT((int)stats.empty, 0);
+    ROBO_CHECK_EQ_INT((int)stats.commands, (int)(stats.draws + stats.skipped));
+    /* The document is three placed boxes -- `<html>`, `<body>` and the one `<div>` -- and each
+     * contributes its three structural commands (`begin-node`, `content`, `end-node`), which draw
+     * nothing by definition. So `skipped` is nine here, and every drawing is a band. */
+    ROBO_CHECK_EQ_INT((int)stats.skipped, 9);
+    ROBO_CHECK_EQ_INT((int)stats.skipped, (int)(stats.commands - stats.draws));
 
+    /* The first band is the top side: the full width of the border box, four pixels tall. */
     ROBO_CHECK_EQ_INT(background_nth_of_kind(list, ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER, 0u, &band),
                       1);
     ROBO_CHECK_EQ_INT((int)band.rect.height, 4);
+    ROBO_CHECK_EQ_INT((int)band.style, (int)ROBO_CSS_BORDER_STYLE_SOLID);
     background_centre(band.rect, &x, &y);
+    background_pixel_is(surface, x, y, robo_gfx_rgba8(0x00, 0xff, 0x00, 255),
+                        "the middle of the box's top band");
+
+    /* And the box's own middle, which no command draws into: a border is a ring, so what it
+     * encloses is the surface the caller handed over. */
+    framed = paint_box(&fixture, "framed");
+    ROBO_CHECK_EQ_INT(background_command_of_kind_for(list, ROBO_PAINT_DISPLAY_CMD_CONTENT,
+                                                     framed, 0u, &content),
+                      1);
+    background_centre(content.rect, &x, &y);
     background_pixel_is(surface, x, y, robo_gfx_rgba8(0, 0, 0, 0),
-                        "the middle of an unpainted border band");
+                        "inside the border ring, where no command drew");
 
     robo_gfx_surface_release(surface);
     robo_paint_display_list_destroy(list);
@@ -848,7 +904,7 @@ static void test_background_zero_area(void)
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     robo_paint_display_command_t background;
     robo_layout_node_id_t box;
@@ -899,7 +955,7 @@ static void test_background_positions(void)
         paint_result_t result;
         robo_paint_display_list_t *list = NULL;
         robo_paint_display_command_t background;
-        robo_paint_background_stats_t stats;
+        robo_paint_decoration_stats_t stats;
         robo_gfx_surface_t *surface = NULL;
         robo_layout_node_id_t box;
         robo_layout_rect_t base;
@@ -975,7 +1031,7 @@ static void test_background_counters(void)
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     size_t index;
     size_t opaque_centres = 0u;
@@ -998,24 +1054,39 @@ static void test_background_counters(void)
     surface = background_surface(800u, 600u, ROBO_GFX_SURFACE_ACCESS_READ_WRITE);
     background_paint(list, surface, &stats);
 
-    /* Every command was visited, and each was one of the two things a background pass can do
-     * with it -- which is the identity that makes `skipped` a statement rather than a
-     * remainder nobody checked. */
+    /* Every command was visited, and each was one of the two things the pass can do with it --
+     * which is the triple of identities the record's own header states, asserted here so that
+     * `skipped` is a statement rather than a remainder nobody checked:
+     *
+     *   commands = draws + skipped
+     *   draws    = backgrounds + borders
+     *   draws    = filled + contextual + transparent + empty
+     */
     ROBO_CHECK_EQ_INT((int)stats.commands, (int)robo_paint_display_list_count(list));
-    ROBO_CHECK_EQ_INT((int)stats.commands, (int)(stats.backgrounds + stats.skipped));
+    ROBO_CHECK_EQ_INT((int)stats.commands, (int)(stats.draws + stats.skipped));
+    ROBO_CHECK_EQ_INT((int)stats.draws, (int)(stats.backgrounds + stats.borders));
     ROBO_CHECK_EQ_INT((int)stats.backgrounds,
                       (int)robo_paint_display_list_count_of_kind(
                           list, ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND));
+    ROBO_CHECK_EQ_INT((int)stats.borders,
+                      (int)robo_paint_display_list_count_of_kind(
+                          list, ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER));
     ROBO_CHECK_EQ_INT((int)stats.filled + (int)stats.contextual + (int)stats.transparent +
                           (int)stats.empty,
-                      (int)stats.backgrounds);
+                      (int)stats.draws);
     ROBO_CHECK_EQ_INT((int)stats.backgrounds, 2);
-    ROBO_CHECK_EQ_INT((int)stats.filled, 2);
+    /* The card's four sides at 2px and the plain box's four at 1px: eight bands, all of them
+     * drawings, which is what 11.5 added to this pass. */
+    ROBO_CHECK_EQ_INT((int)stats.borders, 8);
+    ROBO_CHECK_EQ_INT((int)stats.filled, 10);
     ROBO_CHECK_EQ_INT((int)stats.contextual, 0);
     ROBO_CHECK_EQ_INT((int)stats.transparent, 0);
     ROBO_CHECK_EQ_INT((int)stats.empty, 0);
+    /* Every border here is `solid`, so nothing is being drawn as a simplification. */
+    ROBO_CHECK_EQ_INT((int)stats.unshaped, 0);
     ROBO_CHECK_EQ_INT((int)stats.clipped, 0);
-    ROBO_CHECK((int)stats.skipped >= (int)list_stats.borders);
+    ROBO_CHECK((int)list_stats.borders == 8);
+    ROBO_CHECK((int)stats.skipped > 0);
 
     /* And each of those two fills reached the surface -- asserted against the list's own
      * record of who writes where, rather than by a total that could be right for the wrong
@@ -1046,7 +1117,7 @@ static void test_background_counters(void)
 static void test_background_hand_built_kinds(void)
 {
     robo_paint_display_list_t *list = NULL;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
 
     paint_fixture();
@@ -1054,7 +1125,9 @@ static void test_background_hand_built_kinds(void)
     ROBO_CHECK_EQ_INT(robo_paint_display_list_create(&list, NULL), ROBO_OK);
     surface = background_surface(32u, 32u, ROBO_GFX_SURFACE_ACCESS_READ_WRITE);
 
-    /* A structural command and a border band: both valid records, neither a background. */
+    /* A structural command -- which draws nothing -- and then a border band, which is the
+     * other **drawing** kind this pass fills: it needs its style, because that is the fact a
+     * band's band-plus-colour cannot state (11.5). */
     background_append(list, background_make_structural((robo_layout_node_id_t)1u));
     {
         robo_paint_display_command_t band;
@@ -1064,10 +1137,11 @@ static void test_background_hand_built_kinds(void)
         band.node = (robo_layout_node_id_t)1u;
         band.rect = robo_gfx_rect(0, 0, 8, 2);
         band.color = robo_css_color_make(0, 255, 0, 255);
+        band.style = ROBO_CSS_BORDER_STYLE_SOLID;
         background_append(list, band);
     }
 
-    /* The four ways a background draws nothing, then one that does. */
+    /* The three ways a background draws nothing, then one that does. */
     background_append(list, background_make_draw((robo_layout_node_id_t)1u, robo_gfx_rect(0, 0, 8, 8),
                                                  robo_paint_clip_none(), robo_css_color_current()));
     background_append(list, background_make_draw((robo_layout_node_id_t)1u, robo_gfx_rect(0, 0, 8, 8),
@@ -1082,14 +1156,21 @@ static void test_background_hand_built_kinds(void)
 
     background_paint(list, surface, &stats);
     ROBO_CHECK_EQ_INT((int)stats.commands, 6);
+    ROBO_CHECK_EQ_INT((int)stats.draws, 5);
     ROBO_CHECK_EQ_INT((int)stats.backgrounds, 4);
-    ROBO_CHECK_EQ_INT((int)stats.skipped, 2);
+    ROBO_CHECK_EQ_INT((int)stats.borders, 1);
+    ROBO_CHECK_EQ_INT((int)stats.skipped, 1);
     ROBO_CHECK_EQ_INT((int)stats.contextual, 1);
     ROBO_CHECK_EQ_INT((int)stats.transparent, 1);
     ROBO_CHECK_EQ_INT((int)stats.empty, 1);
-    ROBO_CHECK_EQ_INT((int)stats.filled, 1);
+    ROBO_CHECK_EQ_INT((int)stats.filled, 2);
+    ROBO_CHECK_EQ_INT((int)stats.unshaped, 0);
     ROBO_CHECK_EQ_INT((int)stats.clipped, 0);
 
+    /* The band was filled where the command put it, and the drawable background where its own
+     * rectangle is -- a photo of the two kinds in list order. */
+    background_pixel_is(surface, 3, 0, robo_gfx_rgba8(0, 255, 0, 255),
+                        "the hand-built border band");
     background_pixel_is(surface, 3, 3, BACKGROUND_BLUE, "the one drawable background");
     background_pixel_is(surface, 9, 9, robo_gfx_rgba8(0, 0, 0, 0), "past every background");
 
@@ -1107,9 +1188,9 @@ static void test_background_determinism(void)
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t first;
-    robo_paint_background_stats_t second;
-    robo_paint_background_stats_t again;
+    robo_paint_decoration_stats_t first;
+    robo_paint_decoration_stats_t second;
+    robo_paint_decoration_stats_t again;
     robo_gfx_surface_t *one = NULL;
     robo_gfx_surface_t *two = NULL;
     size_t index;
@@ -1190,8 +1271,8 @@ static void test_background_mutation_isolation(void)
     robo_paint_display_list_t *after = NULL;
     robo_paint_display_list_stats_t before_stats;
     robo_paint_display_list_stats_t after_stats;
-    robo_paint_background_stats_t first;
-    robo_paint_background_stats_t second;
+    robo_paint_decoration_stats_t first;
+    robo_paint_decoration_stats_t second;
     robo_gfx_surface_t *one = NULL;
     robo_gfx_surface_t *two = NULL;
     size_t index;
@@ -1266,7 +1347,7 @@ static void test_background_mutation_isolation(void)
 static void test_background_empty_cases(void)
 {
     robo_paint_display_list_t *list = NULL;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     robo_gfx_surface_t *readonly = NULL;
     robo_paint_diag_t diag;
@@ -1278,7 +1359,7 @@ static void test_background_empty_cases(void)
 
     /* An empty list is a legitimate pass: nothing to do, and every counter nought. */
     memset(&stats, 0xff, sizeof(stats));
-    robo_paint_background_stats_init(NULL); /* safe */
+    robo_paint_decoration_stats_init(NULL); /* safe */
     background_paint(list, surface, &stats);
     ROBO_CHECK_EQ_INT((int)stats.commands, 0);
     ROBO_CHECK_EQ_INT((int)stats.backgrounds, 0);
@@ -1297,18 +1378,18 @@ static void test_background_empty_cases(void)
 
     /* The arguments are required, and a refusal says which. */
     robo_paint_diag_reset(&diag);
-    ROBO_CHECK_EQ_INT(robo_paint_background_paint(NULL, surface, NULL, &diag),
+    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(NULL, surface, NULL, &diag),
                       ROBO_INVALID_ARGUMENT);
     ROBO_CHECK(diag.message != NULL);
     robo_paint_diag_reset(&diag);
-    ROBO_CHECK_EQ_INT(robo_paint_background_paint(list, NULL, NULL, &diag), ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(list, NULL, NULL, &diag), ROBO_INVALID_ARGUMENT);
     ROBO_CHECK(diag.message != NULL);
 
     /* And a target that cannot take a write is refused with the code the header names, before
      * any fill is attempted -- the graphics layer's own rule, mapped once. */
     readonly = background_surface(16u, 16u, ROBO_GFX_SURFACE_ACCESS_READ);
     robo_paint_diag_reset(&diag);
-    ROBO_CHECK_EQ_INT(robo_paint_background_paint(list, readonly, NULL, &diag),
+    ROBO_CHECK_EQ_INT(robo_paint_decoration_paint(list, readonly, NULL, &diag),
                       ROBO_NOT_SUPPORTED);
     ROBO_CHECK(diag.message != NULL);
     robo_gfx_surface_release(readonly);
@@ -1327,7 +1408,7 @@ static void test_background_end_to_end(void)
     paint_result_t result;
     robo_paint_display_list_t *list = NULL;
     robo_paint_display_list_stats_t list_stats;
-    robo_paint_background_stats_t stats;
+    robo_paint_decoration_stats_t stats;
     robo_gfx_surface_t *surface = NULL;
     char dump[8192];
     size_t dump_length = 0u;
@@ -1363,21 +1444,33 @@ static void test_background_end_to_end(void)
 
     /* The pass's own identities hold for a real document, not just a hand-built one. */
     ROBO_CHECK_EQ_INT((int)stats.commands, (int)robo_paint_display_list_count(list));
-    ROBO_CHECK_EQ_INT((int)stats.commands, (int)(stats.backgrounds + stats.skipped));
+    ROBO_CHECK_EQ_INT((int)stats.commands, (int)(stats.draws + stats.skipped));
+    ROBO_CHECK_EQ_INT((int)stats.draws, (int)(stats.backgrounds + stats.borders));
+    ROBO_CHECK_EQ_INT((int)stats.backgrounds,
+                      (int)robo_paint_display_list_count_of_kind(
+                          list, ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND));
+    ROBO_CHECK_EQ_INT((int)stats.borders,
+                      (int)robo_paint_display_list_count_of_kind(
+                          list, ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER));
     ROBO_CHECK_EQ_INT((int)stats.filled + (int)stats.contextual + (int)stats.transparent +
                           (int)stats.empty,
-                      (int)stats.backgrounds);
-    ROBO_CHECK((int)stats.filled >= 2);
-    ROBO_CHECK((int)stats.skipped >= (int)list_stats.borders);
+                      (int)stats.draws);
+    /* Four backgrounds, the outer box's four bands, and every one of them opaque and of a
+     * non-empty rectangle -- so every drawing reaches the surface. */
+    ROBO_CHECK((int)stats.backgrounds >= 2);
+    ROBO_CHECK((int)stats.borders >= 4);
+    ROBO_CHECK_EQ_INT((int)stats.filled, (int)stats.draws);
+    ROBO_CHECK((int)list_stats.borders >= 4);
 
     /* Every command is a record, and the ones under an ancestor's boundary are the ones the
-     * pass counted as clipped. */
+     * pass counted as clipped -- a drawing of either kind, because a band under a hidden
+     * ancestor is bounded exactly as a background is. */
     for (index = 0u; index < robo_paint_display_list_count(list); index++) {
         robo_paint_display_command_t command;
 
         ROBO_CHECK_EQ_INT(robo_paint_display_list_at(list, index, &command), ROBO_OK);
         ROBO_CHECK_EQ_INT(robo_paint_display_command_is_valid(&command), 1);
-        if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND &&
+        if (robo_paint_display_command_kind_draws(command.kind) &&
             robo_paint_clip_is_active(&command.clip)) {
             clipped_commands++;
         }
@@ -1413,8 +1506,8 @@ void robo_test_register_paint_background(void)
     robo_test_register("paint.background.ordering", test_background_ordering);
     robo_test_register("paint.background.clipping", test_background_clipping);
     robo_test_register("paint.background.nothing_to_paint", test_background_nothing_to_paint);
-    robo_test_register("paint.background.borders_not_painted",
-                       test_background_borders_not_painted);
+    robo_test_register("paint.background.border_only_document",
+                       test_background_border_only_document);
     robo_test_register("paint.background.zero_area", test_background_zero_area);
     robo_test_register("paint.background.positions", test_background_positions);
     robo_test_register("paint.background.counters", test_background_counters);
