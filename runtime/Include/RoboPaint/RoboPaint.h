@@ -1,5 +1,5 @@
 /*
- * RoboPaint — RoboticelaOS Runtime's paint architecture (Phase 11.1–11.5).
+ * RoboPaint — RoboticelaOS Runtime's paint architecture (Phase 11.1–11.8).
  *
  * Dependency:
  *   RoboBase / RoboMem → RoboGraphics → ... → RoboCSS / RoboHTML → RoboLayout
@@ -54,6 +54,7 @@
 
 #include "RoboBase/RoboError.h"
 
+#include "RoboPaint/RoboPaintClip.h"
 #include "RoboPaint/RoboPaintDisplayCommand.h"
 #include "RoboPaint/RoboPaintDisplayDump.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
@@ -108,9 +109,16 @@ typedef struct robo_paint_capabilities {
      *  has no boxes to read, and the door says so rather than answering three zeroed
      *  rectangles. */
     int box_geometry;
-    /** The clip in force, accumulated per axis from `overflow` (11.1). A claim about
-     *  the *build* and not about clipping a pixel: the record says which axis is
-     *  bounded and where, and nothing rasterises anything. */
+    /**
+     * The clip **record**, accumulated per axis from `overflow` (11.1): the boundary in force
+     * at a point in the traversal, carried on every operation and every command.
+     *
+     * Superseded as a *claim* by `clipping` below, which is about the scopes rather than about
+     * the record: a build could accumulate this correctly and still have no way to say where one
+     * boundary ends. It stays because the record is still what carries the boundary, and a caller
+     * asking "can this build represent a clip at all?" is asking a different question from "does
+     * it know which scope a drawing is inside?".
+     */
     int clip_state;
     /**
      * The **decoration** operations: a background and a border side, emitted as records
@@ -192,6 +200,21 @@ typedef struct robo_paint_capabilities {
      * runs it drew in logical order and the code points it drew as `.notdef`).
      */
     int text_painting;
+    /**
+     * **Clipping** (11.8), and **1**: the boundary a document's `overflow` puts in force is
+     * carried by explicit **scopes** -- a `push-clip` command standing after a box's content
+     * boundary and a `pop-clip` after its last child -- the builder refuses a command inside a
+     * scope that carries a different boundary, and the drawing pass bounds each drawing by the
+     * scope it stands inside.
+     *
+     * The fourth field beside `background_painting`, `border_painting` and `text_painting`, and
+     * the first of the four that is not about a *drawing*: it is about where one stops. It does
+     * **not** claim rounded corners, clip paths, masks, filters, scroll containers' clipping or a
+     * compositor's clip, and it does not claim `SAVE_STATE`/`RESTORE_STATE` -- the raster rebuilds
+     * its clip from the command it is about to draw, so there is no graphics state for such a pair
+     * to save. `clip_state` above is 11.1's record; this is what 11.8 added above it.
+     */
+    int clipping;
 } robo_paint_capabilities_t;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

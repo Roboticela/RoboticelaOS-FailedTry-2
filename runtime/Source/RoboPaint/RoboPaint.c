@@ -72,9 +72,9 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * `drawing` is read from its own constant so that the field and the two doors that
      * report it -- this one and `robo_paint_drawing_is_implemented()` -- cannot disagree.
      * `raster` is the general rasteriser that would consume *every* command; the decoration
-     * pass consumes the three **drawing** kinds and skips the three structural ones (which draw
-     * nothing), which is why `raster` is 0 while `background_painting`, `border_painting` and
-     * `text_painting` beside it are 1.
+     * pass consumes the three **drawing** kinds and skips the five structural ones (which draw
+     * nothing), which is why `raster` is 0 while `background_painting`, `border_painting`,
+     * `text_painting` and `clipping` beside it are 1.
      *
      * `paint_invalidation` is 0 and what exists instead is the *input* to one:
      * `robo_paint_stats_t.style_only`. A paint list is regenerated rather than patched, so
@@ -114,6 +114,25 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * text, and only this field beside `drawing` tells a caller which it got.
      */
     out->text_painting = 1;
+    /*
+     * **1 since 11.8**, and the first field in this struct that bounds a drawing rather than
+     * producing one: the boundary the document's `overflow` puts in force is now a **scope the
+     * display list states** -- a `push-clip` before a box's contents and a `pop-clip` after them
+     * -- the builder refuses any command inside a scope carrying a different boundary, and the
+     * drawing pass bounds each drawing by the scope it is inside (falling back to the command's
+     * own clip for a list that carries no scopes).
+     *
+     * `clip_state` above is the field that said the *record* existed (11.1); this one says the
+     * scopes do, and the two are separate claims on purpose: a build can accumulate a clip
+     * correctly, carry it on every command, bound each fill by it and still have no idea which
+     * boundary a consumer should restore after a nested box. That gap is what this phase closed.
+     *
+     * It does **not** claim rounded corners, clip paths, masks, filters, scroll containers, tile
+     * clipping or a compositor's clip, and it does not claim `SAVE_STATE`/`RESTORE_STATE` -- the
+     * raster rebuilds its clip per drawing, so there is no graphics state for such a pair to
+     * save (RoboPaintDisplayCommand.h argues it).
+     */
+    out->clipping = 1;
     return ROBO_OK;
 }
 

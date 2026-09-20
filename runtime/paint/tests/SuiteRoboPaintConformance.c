@@ -70,7 +70,10 @@ static const paint_capability_row_t paint_capability_rows[] = {
     { "paint_invalidation", 0 },
     { "background_painting", 1 },
     { "border_painting", 1 },
-    { "text_painting", 1 }
+    { "text_painting", 1 },
+    /* 11.8's `clipping`: a boundary in force is emitted, carried and enforced, which is
+     * what the phase's own suite pins pixel by pixel. */
+    { "clipping", 1 }
 };
 
 static void test_paint_conformance_capabilities(void)
@@ -146,14 +149,15 @@ static void test_paint_conformance_drawing_present(void)
     ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.text_painting, 1);
+    ROBO_CHECK_EQ_INT(capabilities.clipping, 1);
     ROBO_CHECK_EQ_INT(capabilities.raster, 0);
 
-    /* The version this build reports is 0.6.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.7.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
      * still add to this surface. */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 6);
+    ROBO_CHECK_EQ_INT((int)minor, 7);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -201,7 +205,7 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
      * A phase that added an enumerator without a name row would fail here -- which is the
      * whole point of the table being a table.
      */
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 10);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 12);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 10);
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;

@@ -33,7 +33,9 @@ static const display_kind_row_t display_kind_rows[ROBO_PAINT_DISPLAY_CMD_KIND_CO
     { ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND, "draw-background" },
     { ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER, "draw-border" },
     { ROBO_PAINT_DISPLAY_CMD_CONTENT, "content" },
+    { ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP, "push-clip" },
     { ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT, "draw-text" },
+    { ROBO_PAINT_DISPLAY_CMD_POP_CLIP, "pop-clip" },
     { ROBO_PAINT_DISPLAY_CMD_END_NODE, "end-node" }
 };
 
@@ -89,6 +91,12 @@ int robo_paint_display_command_kind_is_marker(robo_paint_display_command_kind_t 
     return kind == ROBO_PAINT_DISPLAY_CMD_BEGIN_NODE || kind == ROBO_PAINT_DISPLAY_CMD_END_NODE;
 }
 
+int robo_paint_display_command_kind_is_clip(robo_paint_display_command_kind_t kind)
+{
+    return kind == ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP ||
+           kind == ROBO_PAINT_DISPLAY_CMD_POP_CLIP;
+}
+
 /* ------------------------------------------------------------------ */
 /* The record                                                          */
 /* ------------------------------------------------------------------ */
@@ -133,6 +141,18 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
         return 0;
     }
     if (!robo_paint_clip_is_valid(&command->clip)) {
+        return 0;
+    }
+    /*
+     * The **clip scope** rule (11.8), the record layer's rule one stage along: a command that
+     * opens or closes a scope states that a boundary is in force, so a scope whose clip bounds
+     * neither axis is a command whose fields disagree about what it is. Refused here rather
+     * than emitted and skipped, and refused *before* the colour split so that the reason a
+     * reader is given is the clip rather than the colour field a structural command leaves
+     * cleared anyway.
+     */
+    if (robo_paint_display_command_kind_is_clip(command->kind) &&
+        !robo_paint_clip_is_active(&command->clip)) {
         return 0;
     }
     /*
@@ -260,6 +280,11 @@ int robo_paint_display_command_is_marker(const robo_paint_display_command_t *com
 int robo_paint_display_command_is_drawing(const robo_paint_display_command_t *command)
 {
     return command != NULL && robo_paint_display_command_kind_draws(command->kind);
+}
+
+int robo_paint_display_command_is_clip(const robo_paint_display_command_t *command)
+{
+    return command != NULL && robo_paint_display_command_kind_is_clip(command->kind);
 }
 
 robo_result_t robo_paint_display_command_write(const robo_paint_display_command_t *command,

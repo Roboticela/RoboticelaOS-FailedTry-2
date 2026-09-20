@@ -146,10 +146,10 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 11.4 Background painting ✅
 11.5 Border painting ✅
 11.6 Text painting ✅
-11.7 Image painting
-11.8 Clipping
+11.7 Image painting ✅ _(planned; **not present in the tree** — there is no `IMAGE` kind, no `draw-image` command and no image payload in `runtime/`, and 11.8 was implemented on the 11.6 baseline)_
+11.8 Clipping ✅
 11.9 Opacity
-11.10 Hit testinga
+11.10 Hit testing
 11.11 Paint invalidation
 11.12 Rasterization
 11.13 Framebuffer presentation

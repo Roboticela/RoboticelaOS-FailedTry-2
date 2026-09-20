@@ -63,6 +63,22 @@ int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
         return 0;
     }
     /*
+     * The **clip scope** rule (11.8), and it is the "this record's fields agree about what it
+     * is" rule for a third time. A `PUSH_CLIP`/`POP_CLIP` record states that a boundary is in
+     * force; a scope whose clip bounds neither axis states the opposite, and a consumer that
+     * honoured it would push and pop a record that bounds nothing -- so it is refused here
+     * rather than emitted and skipped by every reader.
+     *
+     * It is checked *before* the colour split rather than inside the structural branch,
+     * because the fact it is about is the clip and not the colour: a clip record with a colour
+     * is refused by the structural branch below, and this rule would still be the right answer
+     * for one that reached here.
+     */
+    if (robo_paint_op_kind_is_clip(operation->kind) &&
+        !robo_paint_clip_is_active(&operation->clip)) {
+        return 0;
+    }
+    /*
      * The colour rule, and it is two rules because the two halves of the vocabulary have
      * different answers. A **structural** record draws nothing, so it must carry the
      * colour that says nothing was declared -- `robo_css_color_none()`, which is
@@ -400,6 +416,18 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
         rect = operation->boxes.content;
         have_rect = 1;
         robo_paint_writer_string(&text, " content=");
+    } else if (robo_paint_op_kind_is_clip(operation->kind)) {
+        /*
+         * A **clip scope** acts on the padding box -- the boundary the box's own `overflow`
+         * resolved to -- which is the same rectangle the display command carries, and the
+         * reason this is a branch at all is that the generic case below would print the
+         * *border* box and tell a reader the scope came from a rectangle it did not come
+         * from. The boundary itself is in the `clip` field above; this is the box it
+         * belongs to.
+         */
+        rect = operation->boxes.padding;
+        have_rect = 1;
+        robo_paint_writer_string(&text, " padding=");
     } else {
         rect = operation->boxes.border;
         have_rect = 1;

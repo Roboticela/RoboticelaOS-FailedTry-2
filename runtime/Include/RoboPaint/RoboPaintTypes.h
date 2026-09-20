@@ -8,18 +8,17 @@
  * an enumerator is *made* to add its name, rather than forgetting and shipping a
  * value that prints "unknown".
  *
- * The **drawing** vocabulary is deliberately small -- one background and four border
- * sides -- and the reason is the same one RoboLayout 10.2 gives for not adding a constant
- * for a feature it does not have: a name with no code behind it is a promise, not a
- * vocabulary. So there is no `TEXT` operation and no `IMAGE` operation and no `CLIP`,
- * `SAVE`, `RESTORE` or `OPACITY` in this release, even though the brief that asks for
- * this architecture lists all six as things the representation must *eventually* be able
- * to express. What makes them expressible is the record's shape rather than an enumerator
- * nobody emits: an operation is a tagged record with a node, a depth, three rectangles
- * and a clip, and adding a kind is one enumerator, one name row and one case in the
- * validity rule -- never a redesign of the list. `CONTENT` (11.2) is the one kind added
- * since 11.1, and it is the one the brief's record sequence names that the first release
- * did not emit.
+ * The **drawing** vocabulary is deliberately small -- one background, four border
+ * sides and one text run -- and the reason is the same one RoboLayout 10.2 gives for not
+ * adding a constant for a feature it does not have: a name with no code behind it is a
+ * promise, not a vocabulary. So there is no `IMAGE` operation and no `SAVE`, `RESTORE` or
+ * `OPACITY` in this release, even though the brief that asks for this architecture lists
+ * them as things the representation must *eventually* be able to express. What makes them
+ * expressible is the record's shape rather than an enumerator nobody emits: an operation is a
+ * tagged record with a node, a depth, three rectangles and a clip, and adding a kind is one
+ * enumerator, one name row and one case in the validity rule -- never a redesign of the
+ * list. `CONTENT` (11.2) and the two clip kinds (11.8) are the kinds added since 11.1, and
+ * each is a record the brief's sequence names that the release before it did not emit.
  *
  * The four border kinds are four enumerators rather than one kind plus a side field,
  * and that is a decision about **invalid states** rather than about verbosity: a `side`
@@ -52,13 +51,17 @@ extern "C" {
  * traversal's contract.
  *
  * The vocabulary splits in two, and the split is the rule a builder obeys rather than a
- * fact about this release. A **structural** record (`BEGIN_BOX`, `CONTENT`, `END_BOX`)
- * draws nothing, carries no colour and is emitted for **every** placed box, so the
- * sequence has a regular skeleton. A **drawing** record (`BACKGROUND`, the four
- * `BORDER_*` sides and, since 11.6, `TEXT`) is emitted **only when it draws**, so the
- * list's length is a statement about the document. `robo_paint_op_kind_draws` and
- * `robo_paint_op_kind_is_structural` are the two predicates, and they partition the
- * vocabulary above `NONE`.
+ * fact about this release. A **structural** record (`BEGIN_BOX`, `CONTENT`, `END_BOX` and,
+ * since 11.8, the two clip kinds) draws nothing, carries no colour and is emitted for
+ * **every** placed box, so the sequence has a regular skeleton. A **drawing** record
+ * (`BACKGROUND`, the four `BORDER_*` sides and, since 11.6, `TEXT`) is emitted **only when it
+ * draws**, so the list's length is a statement about the document.
+ * `robo_paint_op_kind_draws` and `robo_paint_op_kind_is_structural` are the two predicates,
+ * and they partition the vocabulary above `NONE` -- which is what puts the clip kinds on the
+ * no-colour side of the validity rule without a third branch there. A clip scope is the one
+ * structural pair that is *conditional* rather than unconditional, and the reason is stated at
+ * `PUSH_CLIP`: it is emitted when the box's own `overflow` changes the boundary, which is a
+ * fact about the box rather than about the sequence.
  */
 typedef enum robo_paint_op_kind {
     /** Nothing: a cleared record. Never appended to a list. */
@@ -110,6 +113,33 @@ typedef enum robo_paint_op_kind {
      */
     ROBO_PAINT_OP_CONTENT = 7,
     /**
+     * Enter the **clip scope** a box's `overflow` puts in force for its contents (11.8).
+     *
+     * The record that made the boundary *explicit* in the sequence. Before it, a boundary
+     * travelled as a field on every descendant's record and nothing said where one boundary
+     * began and another ended -- so "which scope is this drawing inside?" was a question only
+     * a consumer that replayed the whole list with a stack of its own could answer, and the
+     * clipping rectangle a drawing was bounded by could not be checked against anything.
+     *
+     * It is emitted **after the box's `CONTENT`** and before its first child, because the
+     * boundary a box puts in force applies to its **contents** and not to itself: CSS clips
+     * an overflowing child at the ancestor's padding edge, and the ancestor's own background
+     * and border are painted in that ancestor's own scope
+     * (`RoboPaintGeometry.h` states the interval, `paint/docs/Clipping.md` the rule).
+     *
+     * It carries the **effective** clip -- the intersection of everything already in force
+     * with this box's own boundary -- rather than the boundary alone, which is the same choice
+     * every other record makes: a consumer reads the value, it does not re-derive it. Its
+     * `boxes` are the box's own three rectangles, so the padding box the boundary came from is
+     * readable beside the answer.
+     *
+     * Emitted **only when the clip in force actually changes** for the box's contents, which is
+     * why a document of `overflow: visible` boxes carries none at all: a scope that establishes
+     * nothing is a command a consumer could only skip, and the rule is the module's own
+     * "a record is emitted only when it says something" (`RoboPaintVersion.h`).
+     */
+    ROBO_PAINT_OP_PUSH_CLIP = 8,
+    /**
      * Draw one text run's glyphs (11.6).
      *
      * The first drawing this module has that is **not a rectangle filled with a colour**,
@@ -133,13 +163,27 @@ typedef enum robo_paint_op_kind {
      * ids, and why a span rather than a pointer). The font inputs and the baseline travel
      * beside it in the `text` member.
      */
-    ROBO_PAINT_OP_TEXT = 8,
+    ROBO_PAINT_OP_TEXT = 9,
+    /**
+     * Leave the clip scope the matching `PUSH_CLIP` opened (11.8).
+     *
+     * It appears after the box's last child and before its `END_BOX`, which is what makes the
+     * scope's extent recoverable from the flat sequence: everything between a push and its pop
+     * is bounded by that clip, and a consumer that walks the list with a stack restores the
+     * enclosing boundary by popping -- no geometry, no tree, and no second copy of the
+     * intersection arithmetic.
+     *
+     * It carries **the same clip its push carried**, so a pair is self-identifying and a
+     * builder can check the pairing without a second table: a pop whose clip or node does not
+     * match the innermost open scope is refused, exactly as a `CONTENT` under the wrong box is.
+     */
+    ROBO_PAINT_OP_POP_CLIP = 10,
     /** Leave a box: the marker that closes the operations of one placed box. */
-    ROBO_PAINT_OP_END_BOX = 9
+    ROBO_PAINT_OP_END_BOX = 11
 } robo_paint_op_kind_t;
 
 /** Number of defined operation kinds. */
-#define ROBO_PAINT_OP_KIND_COUNT 10u
+#define ROBO_PAINT_OP_KIND_COUNT 12u
 
 /** Non-zero if @p kind is a defined operation kind. */
 int robo_paint_op_kind_is_known(robo_paint_op_kind_t kind);
@@ -183,6 +227,19 @@ int robo_paint_op_kind_is_structural(robo_paint_op_kind_t kind);
  * @ref robo_paint_op_kind_is_structural, which also covers `CONTENT`.
  */
 int robo_paint_op_kind_is_marker(robo_paint_op_kind_t kind);
+
+/**
+ * Non-zero when @p kind is one of the two **clip scope** records (11.8): `PUSH_CLIP` or
+ * `POP_CLIP`.
+ *
+ * Structural -- they draw nothing -- and therefore already on the "carries no colour" side of
+ * the validity rule, so this predicate is not what that rule splits on. It exists for the two
+ * consumers that care about the *pair*: the builder, which keeps a scope stack while it walks
+ * a record list, and the decoration pass, which maintains one while it walks a display list.
+ * A caller asking "does this record open or close a scope?" should not have to compare two
+ * enumerators itself, because that comparison would be a third spelling of the same set.
+ */
+int robo_paint_op_kind_is_clip(robo_paint_op_kind_t kind);
 
 /*
  * Diagnostic domains. The same discipline the modules below this one use: a call

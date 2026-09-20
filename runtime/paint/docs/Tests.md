@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.6)
+# RoboPaint Test Organisation (through Phase 11.8)
 
-Eight suites, 110 tests, one framework. Each phase adds no test runner, no reporter and no
+Nine suites, 134 tests, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,7 +8,7 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the eight suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the nine suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
@@ -26,6 +26,7 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaintBackground.c` | `paint.background.*` | 14 | does the colour cross into RoboGraphics, does a document's `background-color` land **where the list said it would** (read back from the surface), and do the pass's counters add up on a document and on a hand-built list? |
 | `SuiteRoboPaintBorder.c` | `paint.border.*` | 14 | does a border side's **band** get filled (read back from the surface), does its **style** survive record → command, do four sides of four different widths and colours land exactly where the box model says, and does a child spilling over its parent draw over the parent's border rather than under it? |
 | `SuiteRoboPaintText.c` | `paint.text.*` | 17 | do a run's **characters** travel record → pool → display pool → pixels, are they counted in **code points**, is the baseline layout's rather than a second one, does an unmapped code point become a counted `.notdef`, and does a list keep drawing after the records it was built from are gone? |
+| `SuiteRoboPaintClip.c` | `paint.clip.*` | 24 | is the boundary a **scope** — does the intersection hold, does a scope appear exactly when the boundary *changed*, is the box's own decoration outside it, is the effective clip inside a nested scope the intersection of the two, does every drawing kind stop at it, and does an empty one suppress drawing without poisoning the walk? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -258,13 +259,67 @@ or a colour:
   by every run, every span and both dumps) and `dump` (a record line and a command line each carry
   `text="..."`, and the dump reads the characters through the pool's own door).
 
-### 1.11 — conformance (`paint.conformance.*`, 5 cases)
+### 1.11 — the clip pass (`paint.clip.*`, 24 cases)
+
+The widest phase suite, because clipping is the first thing that has to be right in **four** places
+at once — the arithmetic, the traversal, the artifact and the pass — and because a boundary that is
+right in three of them draws a wrong picture.
+
+- **the arithmetic** — `intersection` (two bounded records, a contained one, one bounded axis each,
+  two unbounded, **two disjoint** with the canonical empty interval and its fixed point, touching
+  edges, a zero-size interval, negative coordinates, and the same canonicalization through the
+  boundary door), `intersection_safety` (NULL, an unknown mode on either side, a record whose
+  interval runs backwards, a boundary with a negative size — each refused, none inventing a result),
+  and `empty_predicate` (unbounded vs empty vs invalid kept apart).
+- **the stack** — `stack` (push/pop/current/depth/capacity/reset, a pop on an empty stack refused
+  rather than silently no-op, growth past the first capacity) and `stack_nested` (three scopes deep,
+  each pop restoring the one outside it, an empty scope legal and non-poisoning).
+- **what the traversal emits** — `scopes_emitted` (one push and one pop, after the box's `CONTENT`
+  and before its `END_BOX`, the push's rectangle the padding box and its clip the boundary) and
+  `scope_only_when_changed` (a `visible` box opens none; a hidden box inside a hidden ancestor that
+  already bounds the same region opens none; the two `clipped`/`clip_scopes` counters say so).
+- **nesting, recomputed** — `nested_effective`: the effective clip inside a nested scope is
+  **recomputed from the tree** through RoboLayout's own doors and compared to the pushed record, and
+  the narrowing is pinned where it is real (both starts the inner box's own, both ends the enclosing
+  boundary's).
+- **one axis** — `axis_split`: `overflow-x: hidden` beside `overflow-y: visible` bounds one axis and
+  leaves the other open, which is what one rectangle cannot say and what `robo_paint_clip_rect`
+  refuses to flatten.
+- **every drawing kind stops at the boundary** — `background`, `border` and `text` each paint the
+  same document with and without a scope and read the surface back on both sides of the edge.
+- **pixels** — `pixels`: the document is painted into a real 800×600 surface with `overflow: hidden`
+  and again with `visible`, and the *same* assertions run on both: inside the box both agree; in the
+  spill beyond the boundary only the visible one paints; the boundary's last pixel is painted and the
+  first pixel outside it is not; the hidden surface encodes to a PNG whose signature and width are
+  checked; and the visible document carries **no scope at all**, exactly two commands shorter.
+- **the empty scope** — `empty_scope`: a box placed 200px outside its ancestor's 40px boundary opens
+  a scope with an empty interval, paints nothing, and the sibling **after** it still paints — the
+  walk is not poisoned. The interval is asserted in its canonical shape (`end == start`, valid).
+- **the no-clip case** — `no_clip`: a document that declares no overflow produces byte-identical
+  lists to one built before the phase's vocabulary existed, and no clip commands at all.
+- **multiplication and malformed input** — `empty_and_malformed` (an empty document, an empty
+  element, a zero-size box, a push with no box, a pop with no push), `hand_built_scope` (a hand-built
+  list whose drawing carries **no** clip of its own, inside a scope whose clip is empty: nothing is
+  filled, and with a bounded scope the same list fills exactly inside it — which is what proves the
+  stack is load-bearing rather than decorative), `pass_refuses_unbalanced` and `builder_refusals`
+  (nine scope refusals in **eleven** separate messages -- the three pop failures are distinct -- each
+  leaving the output list **empty**).
+- **snapshots and determinism** — `determinism` (the same document built twice, twice more from a
+  second tree, compared record by record and dump by dump), `mutation_isolation` (the record list is
+  cleared and the tree is laid out again at another viewport: the stored boundary is the one the
+  first list was built with, the rebuilt list's is **different** — so the equality is a copy and not
+  a mutation that failed to bite), `dump` (a scope appears as two named lines in both dumps, in
+  order, with no addresses) and `end_to_end` (document → records → display list → surface, with both
+  counters reported).
+
+### 1.12 — conformance (`paint.conformance.*`, 5 cases)
 
 - `capabilities` — the struct read positionally against a list of names, so a field added
   without an assertion is a visible omission.
 - `drawing_present` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
   `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting`,
-  `border_painting` and `text_painting` say which drawings exist and `raster` still says 0.
+  `border_painting`, `text_painting` and `clipping` say which parts of the pipeline exist and
+  `raster` still says 0.
 - `vocabulary_exhaustive` — every kind and every domain prints a name that is not "unknown".
 - `document_list` — a whole document's list, pinned operation by operation.
 - `hostile_inputs` — NULL and malformed records refused rather than read.
@@ -485,3 +540,33 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
    in one inline context and asserts what the build does: two runs, two line tops, two records —
    which is a stronger statement than the original, because it pins that the wrap is layout's
    rather than paint's.
+
+---
+
+## 12. What the 11.8 suite found
+
+Four, and the first two are one bug seen from two sides:
+
+1. **A containment test written backwards refuses exactly the documents it was written to accept.**
+   The builder's "a scope must be at least as tight as the boundary it is inside" check was spelled
+   `narrow.start > outer.start || narrow.end < outer.end` — the *opposite* predicate. An inset child
+   (`[20, 200]` inside `[0, 200]`) satisfies `20 > 0`, so every document with a **nested** scope was
+   refused with *"a clip scope is wider than the boundary it is inside"*, while a document with a
+   single scope never reached the check and passed. The fix is eight characters
+   (`outer.start <= narrow.start && narrow.end <= outer.end`) plus the case that would have caught it
+   immediately: a document with two scopes and an expectation **recomputed from the tree**.
+2. **A disjoint intersection has to be canonicalized, or the record type lies.** An excluded box
+   produced `[200, 40]`, which `robo_paint_clip_is_valid` refuses — so "nothing can be drawn here",
+   the one cell a clip model most needs, was the one cell the model could not hold. Canonicalizing to
+   `[max(start), max(start)]` makes it a valid empty record that survives a push, a pop, a command
+   and a projection; the test pins the shape *and* the fixed point.
+3. **`filled` counts fills attempted, and an empty clip is a no-op inside the raster.** The suite's
+   empty-scope case asserted `filled == 0` and was wrong about the counter rather than about the
+   pixels — the pass executes the fill, the raster bounds it out, the pixel stays transparent. The
+   claim was rewritten to the pixel and `clipped`, and the counter's documentation now says what it
+   counts.
+4. **A no-clip case is weaker than it looks if it only checks that the clip is inactive.** The
+   visible half of the pixel showcase initially asserted an inactive `clip` field — which a document
+   carrying a redundant scope would also satisfy. It now asserts there is **no push and no pop**
+   anywhere in the list and that the list is exactly two commands shorter than the clipped one, which
+   is the fact 11.8's "avoid unnecessary clip commands" actually means.

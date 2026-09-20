@@ -71,6 +71,14 @@ typedef struct robo_paint_display_list_stats {
     size_t borders;
     /** Text commands: one per run the record list carried (11.6). */
     size_t texts;
+    /**
+     * `PUSH_CLIP` commands: one per clip scope the record list opened (11.8), and therefore
+     * one per `POP_CLIP` beside them. Counted rather than derived because the number is a
+     * statement about the *document* -- how many boxes actually change the boundary in force --
+     * and the two commands that carry it are otherwise indistinguishable from the structural
+     * skeleton a reader is entitled to ignore.
+     */
+    size_t clip_scopes;
     /** Drawing commands: backgrounds plus border bands plus text runs. */
     size_t draws;
     /** Deepest node seen. */

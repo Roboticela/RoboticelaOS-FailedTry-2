@@ -1,5 +1,5 @@
 /*
- * RoboDisplay list builder (Phase 11.3) — see RoboPaintDisplayListBuilder.h.
+ * RoboDisplay list builder (Phase 11.3–11.8) — see RoboPaintDisplayListBuilder.h.
  *
  * The conversion layer and the structural check, and the two are deliberately one pass
  * rather than two: a record is validated in the same step it is converted, so a record
@@ -14,6 +14,15 @@
  * The stack is grown on demand, and it is why the builder is a stateful object rather than
  * a function -- the capacity survives a `reset`, exactly as a paint context's reuse does.
  *
+ * **Since 11.8 there is a second stack beside it**, of the clip scopes currently open. It is
+ * the one structural fact the box stack cannot carry: a box's contents are bounded by the
+ * clip that box put in force, so a command inside an open scope must carry that scope's
+ * boundary rather than any boundary of its own -- and "what is in force here?" is answered by
+ * the innermost push, which is a fact about the *sequence* rather than about the box. The two
+ * stacks move together (a scope opens after a box's content boundary and closes before its end
+ * marker) but they are not the same stack, and merging them would mean a box that opens no
+ * scope still had to carry one.
+ *
  * Nothing here performs layout or touches the tree: the records are read through the paint
  * list's `const` doors and the conversion uses only what a record already carries (plus
  * `robo_paint_operation_side_band`, the one derivation the record leaves to its consumer).
@@ -21,22 +30,27 @@
 
 #include "RoboPaint/RoboPaintDisplayListBuilder.h"
 
+#include "RoboPaint/RoboPaintClip.h"
 #include "RoboPaint/RoboPaintOperation.h"
 
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
 
-/** One open box: its node id and whether its content boundary has passed. */
+/** One open box: its node id, whether its content boundary has passed, and whether it has
+ *  a clip scope open around its contents. */
 typedef struct display_open_box {
     robo_layout_node_id_t node;
     unsigned char content_seen;
+    unsigned char scope_open;
 } display_open_box_t;
 
 struct robo_paint_display_list_builder {
     display_open_box_t *open;
     size_t open_count;
     size_t open_capacity;
+    /** The clip scopes currently open, innermost last. */
+    robo_paint_clip_stack_t *clips;
 };
 
 /* ------------------------------------------------------------------ */
@@ -79,6 +93,7 @@ static robo_result_t display_stack_push(robo_paint_display_list_builder_t *build
     }
     builder->open[builder->open_count].node = node;
     builder->open[builder->open_count].content_seen = 0u;
+    builder->open[builder->open_count].scope_open = 0u;
     builder->open_count++;
     return ROBO_OK;
 }
@@ -104,6 +119,12 @@ robo_result_t robo_paint_display_list_builder_create(robo_paint_display_list_bui
     }
     /* No first block: the stack grows on the first box, and an empty build never allocates
      * one -- which is the honest baseline for a builder that is reused across builds. */
+    builder->clips = NULL;
+    if (robo_paint_clip_stack_create(&builder->clips, NULL) != ROBO_OK) {
+        robo_free(builder);
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_OUT_OF_MEMORY,
+                               "could not allocate the builder's clip scope stack");
+    }
     *out_builder = builder;
     return ROBO_OK;
 }
@@ -113,6 +134,7 @@ void robo_paint_display_list_builder_destroy(robo_paint_display_list_builder_t *
     if (!builder) {
         return;
     }
+    robo_paint_clip_stack_destroy(builder->clips);
     robo_free(builder->open);
     robo_free(builder);
 }
@@ -122,8 +144,11 @@ void robo_paint_display_list_builder_reset(robo_paint_display_list_builder_t *bu
     if (!builder) {
         return;
     }
-    /* The capacity survives: a builder reused per frame reuses its stack. */
+    /* The capacity survives: a builder reused per frame reuses its stack -- and so does a
+     * clip scope that was open when a build was refused, which is why the scopes are cleared
+     * here as well as at the start of every build. */
     builder->open_count = 0u;
+    robo_paint_clip_stack_reset(builder->clips);
 }
 
 /* ------------------------------------------------------------------ */
@@ -200,6 +225,23 @@ static robo_result_t display_command_for(const robo_paint_operation_t *operation
         out->kind = ROBO_PAINT_DISPLAY_CMD_CONTENT;
         out->rect = operation->boxes.content;
         return ROBO_OK;
+    case ROBO_PAINT_OP_PUSH_CLIP:
+    case ROBO_PAINT_OP_POP_CLIP:
+        out->kind = operation->kind == ROBO_PAINT_OP_PUSH_CLIP
+                            ? ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP
+                            : ROBO_PAINT_DISPLAY_CMD_POP_CLIP;
+        /*
+         * The rectangle a clip command acts on is the box's **padding box**: the boundary the
+         * box's own `overflow` resolves to, and the answer to "where did this scope come from?"
+         * when a dump is being read. It is deliberately *not* the effective clip's rectangle,
+         * and the reason is that the effective rectangle does not always exist: one bounded
+         * axis is a legal document (`overflow-x: hidden` beside `overflow-y: visible`), so
+         * `robo_paint_clip_rect` refuses exactly the case where a reader would most like a
+         * rectangle and a command that answered anyway would be inventing one. The boundary
+         * itself travels in the `clip` field, where the axis split survives.
+         */
+        out->rect = operation->boxes.padding;
+        return ROBO_OK;
     case ROBO_PAINT_OP_END_BOX:
         out->kind = ROBO_PAINT_DISPLAY_CMD_END_NODE;
         out->rect = operation->boxes.border;
@@ -220,6 +262,64 @@ static robo_result_t display_refuse(robo_paint_display_list_t *out_list,
 {
     robo_paint_display_list_clear(out_list);
     return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_ERROR, message);
+}
+
+/**
+ * Non-zero when @p narrow is at least as tight as @p outer on **every axis @p outer bounds**.
+ *
+ * The one property of a nested scope that can be checked without geometry: a scope is entered
+ * to constrain the drawing inside it, so a push whose interval is *wider* than the boundary
+ * already in force on an axis is a record the traversal cannot produce -- it would be a box
+ * whose `overflow` freed an axis an ancestor had bounded, which CSS has no way to express and
+ * this build has no way to reach. An axis @p outer leaves open constrains nothing, so @p narrow
+ * is free to bound it or not.
+ *
+ * The containment is per axis and inclusive at both ends: an interval equal to the enclosing one
+ * on that axis narrowing the *other* axis is a real scope (a document that hides `y` inside one
+ * that hides `x`), and refusing it would refuse a document the traversal does produce. The
+ * equal-on-both-axes case is refused by the caller, because a scope that changes nothing is a
+ * command a consumer can only skip.
+ *
+ * Two cases that read like violations and are not, both of which cost a debug cycle to get right:
+ *
+ *   **an inset bound**   `outer = [0, 200]` with `narrow = [20, 200]` is the *ordinary* case, a
+ *                        child box inset from its parent's edge. Containment is
+ *                        `outer.start <= narrow.start && narrow.end <= outer.end`; the spelled
+ *                        `narrow.start > outer.start` is the opposite predicate, and `20 > 0` is
+ *                        exactly what an inset child produces.
+ *
+ *   **an empty narrow**  a scope whose intersection came out disjoint is canonicalized to
+ *                        `[start, start]` -- see `paint_clip_intersect_axis` -- and a zero-length
+ *                        interval at `start` sits *outside* an outer `[0, 200]`'s start, so the
+ *                        containment test throws it out. It must not: an empty scope bounds
+ *                        nothing, so it cannot bound too much. It is accepted here and its
+ *                        emptiness does the suppressing downstream.
+ */
+static int display_clip_narrows(const robo_paint_clip_t *narrow,
+                                const robo_paint_clip_t *outer)
+{
+    if (robo_paint_clip_is_empty(narrow)) {
+        return 1;
+    }
+    if (robo_paint_clip_axis_is_active(&outer->horizontal)) {
+        if (!robo_paint_clip_axis_is_active(&narrow->horizontal)) {
+            return 0;
+        }
+        if (narrow->horizontal.start < outer->horizontal.start ||
+            narrow->horizontal.end > outer->horizontal.end) {
+            return 0;
+        }
+    }
+    if (robo_paint_clip_axis_is_active(&outer->vertical)) {
+        if (!robo_paint_clip_axis_is_active(&narrow->vertical)) {
+            return 0;
+        }
+        if (narrow->vertical.start < outer->vertical.start ||
+            narrow->vertical.end > outer->vertical.end) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_builder_t *builder,
@@ -256,6 +356,7 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
      */
     robo_paint_display_list_clear(out_list);
     builder->open_count = 0u;
+    robo_paint_clip_stack_reset(builder->clips);
     memset(&stats, 0, sizeof(stats));
 
     count = robo_paint_list_count(records);
@@ -269,6 +370,111 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
             /* Unreachable: the index came from the list's own count. Reported rather than
              * skipped so a future list that can lose a record says so here. */
             return display_refuse(out_list, diag, "the record list changed under the build");
+        }
+
+        /*
+         * The **clip scope** (11.8), handled before the box chain because a scope is not a
+         * box: it opens and closes *around* one box's contents, and the box that declared the
+         * overflow is the innermost open box in both cases.
+         *
+         * Both halves name that box and carry its own depth, exactly as the box's `CONTENT`
+         * does, so a scope can be checked against the box it belongs to rather than trusted:
+         * a scope emitted between two of a box's own records, or after its `END_BOX`, or inside
+         * a *child* that happens to be open, is a sequence no traversal of this build produces
+         * and is refused here.
+         *
+         * The push is then checked against what is already in force -- a scope that establishes
+         * nothing, or one *wider* than the boundary it is inside, is refused (the rule the
+         * in-scope check below then relies on) -- and the pop against the innermost open scope,
+         * so the pair is provably paired: a pop with no scope, a pop that closes a scope another
+         * box opened, and a pop whose boundary is not the one its push carried are three
+         * separate refusals rather than one that happens to catch all three.
+         */
+        if (robo_paint_op_kind_is_clip(operation.kind)) {
+            display_open_box_t *top;
+            robo_paint_clip_t in_force;
+
+            if (builder->open_count == 0u) {
+                return display_refuse(out_list, diag, "a clip scope belongs to no open box");
+            }
+            top = &builder->open[builder->open_count - 1u];
+            if (operation.node != top->node || operation.depth != builder->open_count - 1u) {
+                return display_refuse(out_list, diag,
+                                      "a clip scope names a box other than the innermost "
+                                      "open one");
+            }
+            if (!top->content_seen) {
+                return display_refuse(out_list, diag,
+                                      "a clip scope precedes its box's content boundary");
+            }
+            robo_paint_clip_stack_current(builder->clips, &in_force);
+            if (operation.kind == ROBO_PAINT_OP_PUSH_CLIP) {
+                if (top->scope_open) {
+                    return display_refuse(out_list, diag, "a box opens two clip scopes");
+                }
+                if (robo_paint_clip_equal(&operation.clip, &in_force)) {
+                    return display_refuse(out_list, diag,
+                                          "a clip scope establishes nothing new");
+                }
+                if (!display_clip_narrows(&operation.clip, &in_force)) {
+                    return display_refuse(out_list, diag,
+                                          "a clip scope is wider than the boundary it is "
+                                          "inside");
+                }
+                if (robo_paint_clip_stack_push(builder->clips, &operation.clip, diag) != ROBO_OK) {
+                    robo_paint_display_list_clear(out_list);
+                    return diag ? diag->code : ROBO_OUT_OF_MEMORY;
+                }
+                top->scope_open = 1u;
+                stats.clip_scopes++;
+            } else {
+                if (!top->scope_open) {
+                    return display_refuse(out_list, diag,
+                                          "a box closes a clip scope it did not open");
+                }
+                if (!robo_paint_clip_equal(&operation.clip, &in_force)) {
+                    return display_refuse(out_list, diag,
+                                          "a clip scope closes with a boundary other than the "
+                                          "one it opened");
+                }
+                (void)robo_paint_clip_stack_pop(builder->clips, NULL);
+                top->scope_open = 0u;
+            }
+            if (display_command_for(&operation, text_source, text_target, &command, diag) !=
+                ROBO_OK) {
+                return display_refuse(out_list, diag,
+                                      "a clip scope resolves to no display command");
+            }
+            if (robo_paint_display_list_append(out_list, &command, diag) != ROBO_OK) {
+                robo_paint_display_list_clear(out_list);
+                return diag ? diag->code : ROBO_ERROR;
+            }
+            continue;
+        }
+
+        /*
+         * Everything else is inside whatever scope is open, and **must carry its boundary**.
+         * This is the rule the clip commands exist to make checkable: without it a push and a
+         * pop would be two structural commands a consumer could only skip, and the boundary a
+         * drawing is bounded by would still be a field nothing cross-checks.
+         *
+         * The check is made *only* when a scope is open, and that asymmetry is deliberate: a
+         * list the traversal produced always has a scope open whenever a clip is in force, so
+         * the check catches every disagreement that can occur -- while a hand-built list with
+         * no clip records at all keeps working exactly as it did before this phase, its own
+         * commands' boundaries being the only statement of clipping it has. Requiring a scope
+         * for every bounded command would have refused a list that is merely *literal* about
+         * its clip rather than structured by one.
+         */
+        if (!robo_paint_clip_stack_is_empty(builder->clips)) {
+            robo_paint_clip_t in_force;
+
+            robo_paint_clip_stack_current(builder->clips, &in_force);
+            if (!robo_paint_clip_equal(&operation.clip, &in_force)) {
+                return display_refuse(out_list, diag,
+                                      "a command inside a clip scope carries a different "
+                                      "boundary");
+            }
         }
 
         /*
@@ -400,6 +606,18 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
     if (builder->open_count != 0u) {
         return display_refuse(out_list, diag, "the record list does not close every box it "
                                               "opens");
+    }
+    /*
+     * A scope left open at the end of a build is checked **here** as well as by the box stack,
+     * and it is not the same failure: a box stack that came back to zero with a scope still
+     * open would be a list whose last command is inside a boundary nothing closes -- a
+     * consumer replaying it would end with a clip in force it never popped. The traversal
+     * cannot produce it (a scope closes with the box that opened it) and a hand-built list
+     * can, so it is reported rather than assumed.
+     */
+    if (!robo_paint_clip_stack_is_empty(builder->clips)) {
+        return display_refuse(out_list, diag, "the record list does not close every clip scope "
+                                              "it opens");
     }
 
     stats.commands = robo_paint_display_list_count(out_list);

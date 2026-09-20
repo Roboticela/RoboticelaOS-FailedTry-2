@@ -124,11 +124,11 @@ typedef struct robo_paint_decoration_stats {
     /** Drawing commands that put a colour on the surface. */
     size_t filled;
     /**
-     * Commands this pass does not attempt to draw: the three structural kinds, which draw
-     * nothing by definition, and a drawing command whose colour is neither a resolved one nor
-     * `currentColor` -- a command the record layer's own validity rule refuses, counted here
-     * rather than drawn so that `commands = draws + skipped` stays exact even for a hand-built
-     * list.
+     * Commands this pass does not attempt to draw: the structural kinds -- the three node
+     * markers and, since 11.8, the two clip kinds, which draw nothing by definition -- and a
+     * drawing command whose colour is neither a resolved one nor `currentColor`: a command the
+     * record layer's own validity rule refuses, counted here rather than drawn so that
+     * `commands = draws + skipped` stays exact even for a hand-built list.
      */
     size_t skipped;
     /** Drawings whose colour stayed `currentColor` and so could not be drawn here. */
@@ -192,6 +192,27 @@ typedef struct robo_paint_decoration_stats {
     size_t unshaped;
     /** Drawings filled under a boundary carried by the command's clip. */
     size_t clipped;
+    /**
+     * Clip **scopes** the pass entered: one per `push-clip` command (11.8).
+     *
+     * A structural command, so it is also one of `skipped` -- and this is the count that says
+     * how many of those skips were a boundary rather than a node marker, which is the fact a
+     * reader comparing `clipped` with the document needs. `clipped` counts *drawings* bounded
+     * by a boundary; this counts *scopes* opened, and a scope with no drawing inside it (a
+     * childless `overflow: hidden` box) is a scope and not a clipped drawing -- which is why
+     * the two are not the same number even though both are about clipping.
+     */
+    size_t clip_scopes;
+    /**
+     * Deepest clip scope the pass stood inside: the high-water mark of its own stack.
+     *
+     * Counted on the pass rather than read off the list because it is a property of the
+     * *walk*: the traversal's scopes are properly nested, so this is also the depth of the
+     * deepest box whose ancestors all bounded their contents. A later rasteriser sizing a clip
+     * stack, or a compositor sizing a save/restore array, reads it from here instead of walking
+     * the list to find out.
+     */
+    size_t clip_depth_max;
 } robo_paint_decoration_stats_t;
 
 /** Clear @p stats to all zeroes. Safe on NULL. */

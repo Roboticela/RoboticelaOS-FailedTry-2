@@ -37,7 +37,9 @@ static const paint_op_row_t paint_op_rows[ROBO_PAINT_OP_KIND_COUNT] = {
     { ROBO_PAINT_OP_BORDER_BOTTOM, "border-bottom", ROBO_CSS_BOX_SIDE_BOTTOM },
     { ROBO_PAINT_OP_BORDER_LEFT, "border-left", ROBO_CSS_BOX_SIDE_LEFT },
     { ROBO_PAINT_OP_CONTENT, "content", ROBO_CSS_BOX_SIDE_COUNT },
+    { ROBO_PAINT_OP_PUSH_CLIP, "push-clip", ROBO_CSS_BOX_SIDE_COUNT },
     { ROBO_PAINT_OP_TEXT, "text", ROBO_CSS_BOX_SIDE_COUNT },
+    { ROBO_PAINT_OP_POP_CLIP, "pop-clip", ROBO_CSS_BOX_SIDE_COUNT },
     { ROBO_PAINT_OP_END_BOX, "end-box", ROBO_CSS_BOX_SIDE_COUNT }
 };
 
@@ -92,6 +94,11 @@ int robo_paint_op_kind_draws(robo_paint_op_kind_t kind)
 {
     return kind == ROBO_PAINT_OP_BACKGROUND || kind == ROBO_PAINT_OP_TEXT ||
            robo_paint_op_kind_is_border(kind);
+}
+
+int robo_paint_op_kind_is_clip(robo_paint_op_kind_t kind)
+{
+    return kind == ROBO_PAINT_OP_PUSH_CLIP || kind == ROBO_PAINT_OP_POP_CLIP;
 }
 
 int robo_paint_op_kind_is_structural(robo_paint_op_kind_t kind)

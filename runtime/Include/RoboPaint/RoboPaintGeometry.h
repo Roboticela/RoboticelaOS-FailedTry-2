@@ -247,6 +247,21 @@ int robo_paint_clip_axis_is_active(const robo_paint_clip_axis_t *axis);
 /** Non-zero when either axis of @p clip has a boundary. Safe on NULL (0). */
 int robo_paint_clip_is_active(const robo_paint_clip_t *clip);
 
+/**
+ * Non-zero when @p clip bounds **nothing at all**: an axis is bounded and its interval is
+ * empty, so no point whatsoever can be drawn inside it.
+ *
+ * The predicate a consumer asks before spending work on a scope, and the reason it is here
+ * rather than left to each of them: "a scope that draws nothing" is a fact about a document
+ * -- a box whose ancestor's boundary already excluded it -- and a consumer that answered it
+ * itself by comparing two intervals would be re-deriving `robo_paint_clip_axis_is_empty`.
+ *
+ * A record with no boundary on either axis is **not** empty; it is unbounded, which is the
+ * opposite answer, and the two are exactly the cases a caller must keep apart. Safe on NULL
+ * (0).
+ */
+int robo_paint_clip_is_empty(const robo_paint_clip_t *clip);
+
 /** Non-zero when @p clip is a record this build may read: a known mode per axis and an
  *  interval that does not run backwards on an axis that hides. */
 int robo_paint_clip_is_valid(const robo_paint_clip_t *clip);
@@ -271,6 +286,16 @@ int robo_paint_clip_equal(const robo_paint_clip_t *a, const robo_paint_clip_t *b
  * the document rather than an error, and
  * `robo_paint_clip_axis_is_empty` is how a consumer asks.
  *
+ * An intersection whose two intervals came out **disjoint** -- which is what an excluded
+ * box produces, an ancestor's upper bound below the box's lower one -- is canonicalized to
+ * the zero-length interval `[max(start), max(start)]` rather than left running backwards.
+ * That is the record model's own rule stated in one place: an interval is *never* wider
+ * than it is positioned, so "nothing is drawable here" is an empty interval and not an
+ * illegal one, and every door downstream -- `robo_paint_clip_is_valid`,
+ * `robo_paint_clip_axis_is_empty`, a clip stack push, a display command, a projection to a
+ * rectangle -- can keep trusting the type. The interval lands on the **upper start**, the
+ * near edge of the boundary that did the excluding, so equal inputs give an equal answer.
+ *
  * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments, a mode that is not one of
  *         the two, or a @p boundary with a negative size; ROBO_ERROR with a diagnostic
  *         for an @p clip that is not a record.
@@ -281,6 +306,39 @@ robo_result_t robo_paint_clip_intersect(const robo_paint_clip_t *clip,
                                        robo_css_overflow_t vertical,
                                        robo_paint_clip_t *out,
                                        robo_paint_diag_t *diag);
+
+/**
+ * The clip @p outer becomes inside the scope @p inner: their **per-axis intersection**.
+ *
+ * The door beside `robo_paint_clip_intersect` above, and the difference between them is what
+ * each one is told. That one is handed a *boundary rectangle* and the two modes an element
+ * declared, and answers "what does this element put in force?" -- the traversal's question,
+ * asked where layout's padding box is at hand. This one is handed **two records** and
+ * answers "what is in force inside a scope that is already bounded?" -- the question a
+ * consumer replaying a flat sequence has, and the one a stack of scopes makes answerable
+ * without reaching for geometry the sequence no longer carries.
+ *
+ * The rule is the smaller of two bounded intervals on each axis, and an axis @p inner leaves
+ * **open is carried from @p outer rather than cleared**: a scope that bounds only `x` does
+ * not free `y`, which is the same rule `robo_paint_clip_intersect` states one layer down and
+ * the reason both live in this module instead of one of them living in each caller.
+ *
+ * The resulting axis's `mode` is @p inner's on an axis it bounds, because the mode is the
+ * *name* of the boundary and the narrower scope is the one whose declaration is being
+ * honoured; the two modes agree about clipping by construction, since an axis that does not
+ * clip never reaches this branch.
+ *
+ * @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL arguments or a mode neither record may
+ *         carry; ROBO_ERROR with a diagnostic when either record is not one this build
+ *         produced. An intersection that comes out empty is success with an empty interval,
+ *         exactly as it is one door up -- `robo_paint_clip_is_empty` is how a caller asks,
+ *         and a *disjoint* pair of intervals is canonicalized to an empty one by the same
+ *         helper, so the result is a record either way.
+ */
+robo_result_t robo_paint_clip_intersect_clip(const robo_paint_clip_t *outer,
+                                            const robo_paint_clip_t *inner,
+                                            robo_paint_clip_t *out,
+                                            robo_paint_diag_t *diag);
 
 /** Non-zero when @p axis is bounded **and** its interval is empty: nothing inside it
  *  can be drawn. Safe on NULL (0). */

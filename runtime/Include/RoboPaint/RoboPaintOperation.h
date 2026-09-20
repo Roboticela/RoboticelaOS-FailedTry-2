@@ -269,6 +269,14 @@ robo_result_t robo_paint_operation_side_band(const robo_paint_operation_t *opera
  * a thousand would hide it. `"background node=3 depth=1 border=0,0,100,40"`, with the
  * boxes and the clip appended when they are interesting.
  *
+ * The rectangle's **label names which of the three boxes the kind acts on**, because that
+ * is the one thing a reader of a record cannot infer from the kind's name alone: `band=` for
+ * a border side, `content=` for the content boundary, `padding=` for a clip scope (11.8 --
+ * a box's boundary is defined at its padding edge, and the display command for the same
+ * record carries that rectangle as its `rect`), and `border=` for everything else. A
+ * generic box would print the border box for all four and tell a reader a scope came from a
+ * rectangle it did not come from.
+ *
  * @param buffer     destination, at least @p capacity bytes.
  * @param capacity   bytes available.
  * @param out_length non-NULL; receives the length written, excluding the NUL.

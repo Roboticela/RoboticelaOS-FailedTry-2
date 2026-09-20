@@ -185,6 +185,18 @@ static void display_check_mapping(const paint_result_t *records,
             ROBO_CHECK_EQ_INT((int)command.kind, (int)ROBO_PAINT_DISPLAY_CMD_CONTENT);
             expected = operation.boxes.content;
             break;
+        case ROBO_PAINT_OP_PUSH_CLIP:
+        case ROBO_PAINT_OP_POP_CLIP:
+            ROBO_CHECK_EQ_INT((int)command.kind,
+                              operation.kind == ROBO_PAINT_OP_PUSH_CLIP
+                                  ? (int)ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP
+                                  : (int)ROBO_PAINT_DISPLAY_CMD_POP_CLIP);
+            /* A scope command's rectangle is the box's **padding box** -- the boundary the
+             * box's `overflow` resolved to, not the effective clip's rectangle, which does
+             * not exist for a one-axis document. The boundary itself travels in `clip`, and
+             * the identity check above has already compared it. */
+            expected = operation.boxes.padding;
+            break;
         case ROBO_PAINT_OP_END_BOX:
             ROBO_CHECK_EQ_INT((int)command.kind, (int)ROBO_PAINT_DISPLAY_CMD_END_NODE);
             expected = operation.boxes.border;
@@ -218,7 +230,7 @@ static void test_display_command_vocabulary(void)
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 7);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 9);
     for (index = 0u; index < (size_t)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT; index++) {
         robo_paint_display_command_kind_t kind = (robo_paint_display_command_kind_t)index;
         int is_drawing = robo_paint_display_command_kind_draws(kind);
@@ -241,10 +253,11 @@ static void test_display_command_vocabulary(void)
             ROBO_CHECK(kind != ROBO_PAINT_DISPLAY_CMD_CONTENT);
         }
     }
-    /* Three drawing kinds -- background, border and text (11.6) -- three structural, and
-     * `NONE`. */
+    /* Three drawing kinds -- background, border and text (11.6) -- and five structural:
+     * the begin/end markers, `CONTENT`, and 11.8's push/pop pair, which draw nothing by
+     * definition and therefore live on this side of the split. */
     ROBO_CHECK_EQ_INT(drawing_total, 3);
-    ROBO_CHECK_EQ_INT(structural_total, 3);
+    ROBO_CHECK_EQ_INT(structural_total, 5);
 
     ROBO_CHECK_STR_EQ(robo_paint_display_command_kind_name(ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER),
                       "draw-border");
@@ -375,9 +388,14 @@ static void test_display_ordering(void)
      * which is exactly the invariant the builder enforced, asked here as a consumer would.
      */
     {
+        robo_paint_clip_t open_scopes[8];
+        size_t scope_owner[8];
         size_t open = 0u;
+        size_t scopes = 0u;
         int saw_content_for_open = 0;
 
+        memset(open_scopes, 0, sizeof(open_scopes));
+        memset(scope_owner, 0, sizeof(scope_owner));
         for (index = 0u; index < robo_paint_display_list_count(list); index++) {
             robo_paint_display_command_t command;
 
@@ -389,9 +407,36 @@ static void test_display_ordering(void)
             } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_CONTENT) {
                 ROBO_CHECK_EQ_INT((int)command.depth, (int)(open - 1u));
                 saw_content_for_open = 1;
+            } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP) {
+                /* A scope opens **after** its box's content boundary and inside it, which is
+                 * the two facts a consumer replaying the sequence needs to reconstruct the
+                 * nesting -- and the reason this branch cannot share the drawing one below. */
+                ROBO_CHECK_EQ_INT((int)command.depth, (int)(open - 1u));
+                ROBO_CHECK_EQ_INT(saw_content_for_open, 1);
+                ROBO_CHECK(scopes < sizeof(open_scopes) / sizeof(open_scopes[0]));
+                open_scopes[scopes] = command.clip;
+                scope_owner[scopes] = (size_t)command.depth;
+                scopes++;
+            } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_POP_CLIP) {
+                ROBO_CHECK_EQ_INT((int)command.depth, (int)(open - 1u));
+                ROBO_CHECK_EQ_INT(saw_content_for_open, 1);
+                ROBO_CHECK(scopes > 0u);
+                ROBO_CHECK_EQ_INT(robo_paint_clip_equal(&command.clip, &open_scopes[scopes - 1u]), 1);
+                ROBO_CHECK_EQ_INT((int)scope_owner[scopes - 1u], (int)command.depth);
+                scopes--;
             } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_END_NODE) {
                 ROBO_CHECK_EQ_INT((int)command.depth, (int)(open - 1u));
                 ROBO_CHECK_EQ_INT(saw_content_for_open, 1);
+                /*
+                 * **A box's scope closes before its own end-node.** Scopes still open here
+                 * belong to ancestors -- `.spill`'s marker stands inside `.clip`'s scope -- so
+                 * what is asserted is that none of them was opened *by the box being closed*,
+                 * which is the ownership half of the invariant. The scope's pop names the same
+                 * depth as its push, which is checked one branch up.
+                 */
+                for (size_t scope = 0u; scope < scopes; scope++) {
+                    ROBO_CHECK(scope_owner[scope] != (size_t)command.depth);
+                }
                 open--;
             } else {
                 ROBO_CHECK_EQ_INT((int)command.depth, (int)(open - 1u));
@@ -399,6 +444,8 @@ static void test_display_ordering(void)
             }
         }
         ROBO_CHECK_EQ_INT((int)open, 0);
+        ROBO_CHECK_EQ_INT((int)scopes, 0);
+        ROBO_CHECK(stats.clip_scopes > 0u);
     }
 
     /* The markers balance and the boundaries are one per node. */

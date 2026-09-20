@@ -18,8 +18,10 @@ typedef enum robo_paint_op_kind {
     ROBO_PAINT_OP_BORDER_BOTTOM= 5,
     ROBO_PAINT_OP_BORDER_LEFT  = 6,   /* the band between the two boxes */
     ROBO_PAINT_OP_CONTENT      = 7,   /* the box's own records end, its contents begin */
-    ROBO_PAINT_OP_TEXT         = 8,   /* draw one text run's glyphs (11.6) */
-    ROBO_PAINT_OP_END_BOX      = 9    /* leave a box: draws nothing */
+    ROBO_PAINT_OP_PUSH_CLIP    = 8,   /* from here on the box's boundary is in force (11.8) */
+    ROBO_PAINT_OP_TEXT         = 9,   /* draw one text run's glyphs (11.6) */
+    ROBO_PAINT_OP_POP_CLIP     = 10,  /* the enclosing boundary is in force again (11.8) */
+    ROBO_PAINT_OP_END_BOX      = 11   /* leave a box: draws nothing */
 } robo_paint_op_kind_t;
 ```
 
@@ -29,13 +31,16 @@ end at its **content boundary**, its children are emitted inside, and it is left
 that walked the list and ignored every `kind` would still see each box's operations
 contiguous and in paint order.
 
-The drawing vocabulary is deliberately small — one background, four border sides and, since
-11.6, one text run — and has no `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator. A
-name with no code behind it is a promise, not a vocabulary; adding one later is one enumerator,
-one name row and one case in the validity rule. Two kinds have been added since 11.1, and each
+The **drawing** vocabulary is deliberately small — one background, four border sides and, since
+11.6, one text run — and has no `IMAGE`, `SAVE`, `RESTORE`, `TRANSFORM` or `OPACITY` enumerator.
+A name with no code behind it is a promise, not a vocabulary; adding one later is one enumerator,
+one name row and one case in the validity rule. Four kinds have been added since 11.1, and each
 arrived with the consumer that needed it: `CONTENT` (11.2), the explicit boundary between a
-box's own records and its descendants', and `TEXT` (11.6), the first drawing that is not a
-rectangle filled with a colour.
+box's own records and its descendants'; `TEXT` (11.6), the first drawing that is not a rectangle
+filled with a colour; and the `PUSH_CLIP`/`POP_CLIP` pair (11.8), the two **structural** kinds
+that turn "the boundary in force" from a field repeated on every record into a **scope** -- they
+are not drawings, draw nothing, and exist so that a flat list says where one boundary begins and
+another ends (`paint/docs/Clipping.md`).
 
 ### 1.0 Structural records versus drawing records
 
@@ -43,14 +48,16 @@ The vocabulary splits in two, and the split is the rule a builder obeys:
 
 | Half | Kinds | Emitted | Colour |
 |---|---|---|---|
-| **Structural** | `BEGIN_BOX`, `CONTENT`, `END_BOX` | for **every** placed box | `none` |
+| **Structural** | `BEGIN_BOX`, `CONTENT`, `PUSH_CLIP`, `POP_CLIP`, `END_BOX` | for **every** placed box, plus one clip pair per box whose boundary **changed** | `none` |
 | **Drawing** | `BACKGROUND`, the four `BORDER_*`, `TEXT` | **only when it draws** | a rasteriser-usable colour |
 
 The two predicates are `robo_paint_op_kind_is_structural` and `robo_paint_op_kind_draws`, and
 they partition the vocabulary above `NONE`. Structural records are what give the sequence a
-regular skeleton — one triple per box — while drawing records make the list's length a
-statement about the document. Structural rather than "marker" is the right split because
-`CONTENT` is neither a drawing nor a box marker.
+regular skeleton — one triple per box, plus the clip pair of a box that clips its contents —
+while drawing records make the list's length a statement about the document. Structural rather
+than "marker" is the right split because `CONTENT` is neither a drawing nor a box marker, and
+`robo_paint_op_kind_is_marker` is the narrower predicate that picks out the two kinds that
+*are* box markers (`Clipping.md` §4).
 
 ### 1.1 Four border kinds, not one kind plus a side
 
@@ -70,6 +77,13 @@ each is **required** to be the right thing rather than merely permitted:
 | `color` | `none` | the resolved `background-color` | the resolved `border-*-color` | the run's inherited `color` |
 | `style` (11.5) | `none` | `none` | the side's `border-style`, which must **generate a border** | `none` |
 | `text` (11.6) | a cleared run | a cleared run | a cleared run | the run: a non-empty span, a non-negative baseline offset and font inputs that are a record |
+| `clip` (11.1, 11.8) | the clip in force | the clip in force | the clip in force | the clip in force |
+
+The `clip` field is on **every** record and carries the boundary in force at that point in the
+traversal — which is what lets a consumer that never looks at a `PUSH_CLIP`/`POP_CLIP` still
+bound every drawing. The two clip kinds carry the **same** value (the boundary they establish),
+so the pair is self-identifying: a builder matches a pop to the innermost open scope by comparing
+the two records rather than by trusting position.
 
 The `style` is carried because it is not derivable one stage up: the display list resolves a
 side into the band it occupies, and the band's rectangle states *where* the border is but not
@@ -227,11 +241,12 @@ across, so clearing the records does not change a character the display list dra
 
 ## 7. What is deliberately not here
 
-- No **image** operation, and no `text-decoration`/`text-shadow` field on the one text kind that
-  does exist.
-- No **clip**, **save**, **restore** or **opacity** operation: the clip is *carried* on every
-  operation, and a rasteriser applies it from the record rather than from a separate op. The
-  vocabulary stays small until a consumer exists for a wider one.
-- No **display-list** artifact: this is the operation sequence one will be built from.
+- No **image** kind: images are the fourth drawing kind and the second non-numeric payload, and
+  they belong to 11.9 (`Clipping.md` §12). Nor a `text-decoration`/`text-shadow` field on the one
+  text kind that does exist.
+- No **`SAVE`** or **`RESTORE`** operation, and no **`OPACITY`** or **`TRANSFORM`**: the only state
+  that changes in a sequence is the clip, and it is restored by the `POP_CLIP` that closes the
+  scope its `PUSH_CLIP` opened rather than by a general state stack. The vocabulary stays small
+  until a consumer exists for a wider one.
 - No **z-index** or stacking context: document order, with depths a later stacking pass
   reorders.

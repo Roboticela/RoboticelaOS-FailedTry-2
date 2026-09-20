@@ -37,10 +37,12 @@
  * as the operation's boxes were -- so the numbers a rasteriser receives are still the
  * numbers RoboLayout wrote, with no origin to flip in between.
  *
- * The vocabulary is **five kinds**, one narrower than the paint record's seven, because
- * the four border kinds have to collapse: their differences (which side) are consumed
- * into the band rectangle, and a command that carried a side would be carrying a fact
- * its own geometry already states.
+ * The vocabulary is **eight kinds**, and the shapes worth stating are the two collapses. The
+ * four border kinds become one, because their difference (which side) is consumed into the
+ * band rectangle: a command that carried a side would be carrying a fact its own geometry
+ * already states. And the two clip kinds (11.8) are the one pair whose *payload* is not a
+ * rectangle to act on but the boundary the scope establishes -- which is why a clip command
+ * carries its clip twice, in the field every command has and in nothing else.
  */
 #ifndef ROBO_PAINT_DISPLAY_COMMAND_H
 #define ROBO_PAINT_DISPLAY_COMMAND_H
@@ -64,7 +66,7 @@ extern "C" {
  *
  * A closed vocabulary in the order a linear consumer meets it, and the order is the
  * paint order: enter a node, its own drawing, its content boundary, its contents, leave
- * it. The three structural kinds (`BEGIN_NODE`, `CONTENT`, `END_NODE`) are emitted for
+ * it. The three **structural** kinds (`BEGIN_NODE`, `CONTENT`, `END_NODE`) are emitted for
  * **every** placed box and carry no colour; the two drawing kinds (`DRAW_BACKGROUND`,
  * `DRAW_BORDER`) are emitted **only when they draw**, exactly as their paint-record
  * counterparts are -- so a display list has the same regular skeleton and the same
@@ -89,6 +91,23 @@ typedef enum robo_paint_display_command_kind {
     /** A node's own drawing is over and its contents begin. Draws nothing. */
     ROBO_PAINT_DISPLAY_CMD_CONTENT = 4,
     /**
+     * Enter a **clip scope** (11.8): the boundary from here until the matching `POP_CLIP`.
+     *
+     * The `PUSH_CLIP` record's counterpart, and the command that turned the clip from a field
+     * travelling on every drawing into a **scope the stream states**. It carries the effective
+     * clip -- what is in force *inside* the scope, after the intersection -- so a consumer
+     * walks the list, pushes the value and knows the boundary without reaching for a layout
+     * tree or re-deriving an intersection; and it carries the box's padding box as its
+     * rectangle, which is the boundary the scope was derived from and the answer to "where did
+     * this come from?" when a dump is being read.
+     *
+     * It appears **after the box's `CONTENT` and before its first child**, and the matching
+     * `POP_CLIP` appears after the last child and before `END_NODE` -- so the drawing commands
+     * for a box's own background and border are outside the scope the box itself establishes,
+     * which is CSS's arrangement: the boundary clips the *contents*.
+     */
+    ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP = 5,
+    /**
      * Draw one text run's glyphs (11.6).
      *
      * The `TEXT` record's counterpart, and the first drawing here that is not a rectangle
@@ -102,13 +121,29 @@ typedef enum robo_paint_display_command_kind {
      * `[BEGIN_NODE .. CONTENT]` and its contents as `(CONTENT .. END_NODE)` reads a
      * `DRAW_TEXT` as one of the contents -- which is exactly what the document says.
      */
-    ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT = 5,
+    ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT = 6,
+    /**
+     * Leave the clip scope the matching `PUSH_CLIP` opened (11.8).
+     *
+     * It carries the **same clip its push carried**, so the pair is self-identifying: the
+     * builder refuses a pop whose clip, node or depth does not match the innermost open scope,
+     * exactly as it refuses a `CONTENT` under the wrong box, and a consumer replaying the list
+     * restores the enclosing boundary by popping rather than by consulting the payload.
+     *
+     * There is deliberately **no `SAVE_STATE`/`RESTORE_STATE` pair** around it. A rasteriser in
+     * this build rebuilds its clip from the command it is about to draw (`RoboPaintDecoration.c`),
+     * so there is no graphics state to save and a save/restore pair would be two commands whose
+     * only effect is to be skipped -- which is the shape `RoboPaintTypes.h` refuses everywhere:
+     * a record a consumer can only ignore. A later pass with real graphics state adds the pair
+     * as one more enumerator and one more row.
+     */
+    ROBO_PAINT_DISPLAY_CMD_POP_CLIP = 7,
     /** Leave a node: closes one box's commands. Draws nothing. */
-    ROBO_PAINT_DISPLAY_CMD_END_NODE = 6
+    ROBO_PAINT_DISPLAY_CMD_END_NODE = 8
 } robo_paint_display_command_kind_t;
 
 /** Number of defined display command kinds. */
-#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 7u
+#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 9u
 
 /** Non-zero if @p kind is a defined display command kind. */
 int robo_paint_display_command_kind_is_known(robo_paint_display_command_kind_t kind);
@@ -126,11 +161,21 @@ int robo_paint_display_command_kind_draws(robo_paint_display_command_kind_t kind
 
 /** Non-zero when @p kind is **structural**: `BEGIN_NODE`, `CONTENT`, `END_NODE`. The
  *  exact complement of @ref robo_paint_display_command_kind_draws above `NONE`. */
-int robo_paint_display_command_kind_is_structural(robo_paint_display_command_kind_t kind);
-
-/** Non-zero when @p kind is a **node marker**: `BEGIN_NODE`/`END_NODE`. Narrower than
- *  @ref robo_paint_display_command_kind_is_structural, which also covers `CONTENT`. */
+int robo_paint_display_command_kind_is_structural(robo_paint_display_command_kind_t kind);/** Non-zero when @p kind is a **node marker**: `BEGIN_NODE`/`END_NODE`. Narrower than
+ *  @ref robo_paint_display_command_kind_is_structural, which also covers `CONTENT`.
+ */
 int robo_paint_display_command_kind_is_marker(robo_paint_display_command_kind_t kind);
+
+/**
+ * Non-zero when @p kind is one of the two **clip scope** commands (11.8): `PUSH_CLIP` or
+ * `POP_CLIP`.
+ *
+ * The predicate the decoration pass and the structural check both ask, and the reason it is
+ * here rather than repeated: the pair is a *scope*, so every consumer that maintains a stack
+ * needs to recognise both halves, and a second comparison written at each site is a second
+ * place for one half to be forgotten.
+ */
+int robo_paint_display_command_kind_is_clip(robo_paint_display_command_kind_t kind);
 
 /**
  * One command of a display list.
@@ -253,9 +298,14 @@ int robo_paint_display_command_is_structural(const robo_paint_display_command_t 
 /** Non-zero when @p command is a `BEGIN_NODE`/`END_NODE` marker. Safe on NULL (0). */
 int robo_paint_display_command_is_marker(const robo_paint_display_command_t *command);
 
-/** Non-zero when @p command draws something: a background or a border band. Safe on
- *  NULL (0). */
+/**
+ * Non-zero when @p command draws something: a background, a border band or a text run. Safe
+ * on NULL (0).
+ */
 int robo_paint_display_command_is_drawing(const robo_paint_display_command_t *command);
+
+/** Non-zero when @p command opens or closes a clip scope (11.8). Safe on NULL (0). */
+int robo_paint_display_command_is_clip(const robo_paint_display_command_t *command);
 
 /**
  * Write a one-line description of @p command into @p buffer.

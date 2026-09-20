@@ -1,12 +1,12 @@
 /*
- * RoboPaint decoration and text painting (Phase 11.4–11.6) — see RoboPaintDecoration.h.
+ * RoboPaint decoration and text painting (Phase 11.4–11.8) — see RoboPaintDecoration.h.
  *
  * The pass: walk the display list once, in list order, and draw each **drawing** command into
  * a RoboGraphics raster -- a background's border box, a border side's band, and a text run's
  * glyphs -- while counting everything a command turns out to be. The raster is the graphics module's own
- * immediate-mode CPU context, so the clip and the source-over blend are its, and the two
- * things this file owns are the walk and the per-command clip derived from the boundary the
- * paint pass carried.
+ * immediate-mode CPU context, so the clip and the source-over blend are its, and the three
+ * things this file owns are the walk, the clip **scope stack**, and the boundary a drawing is
+ * applied under.
  *
  * **One walk, not two.** A background-only pass followed by a border-only pass would fill
  * every background in the document before every border in it, which paints a descendant's
@@ -19,6 +19,15 @@
  * and let `set_clip` intersect -- so "the boundary bounds the fill" is the graphics module's
  * arithmetic, not a second copy of it.
  *
+ * **Since 11.8 that boundary comes from the walk's own clip stack** rather than only from the
+ * command's field. A `push-clip` command pushes, a `pop-clip` pops, and a drawing inside a scope
+ * is bounded by the scope -- which is the same value its own field carries, because the builder
+ * refuses a command inside a scope that disagrees, so the two paths are one number by
+ * construction. The command's own field remains the fallback for a list with no clip commands
+ * in it (a hand-built one, or one from a document that clips nothing), where it is the only
+ * statement of clipping the list carries. The stack is what makes the *scope* the authority for
+ * what is drawn inside it, and the counters say how often that happened.
+ *
  * Nothing here reads a tree, a computed style or the box model: a display command carries the
  * one rectangle to fill, the boundary in force and, for a band, the style that shapes it. The
  * only conversions left are the colour (`RoboPaintColor.h`'s) and, since 11.6, a character into
@@ -28,6 +37,7 @@
 #include "RoboPaint/RoboPaintDecoration.h"
 
 #include "RoboGraphics/RoboGraphicsRaster.h"
+#include "RoboPaint/RoboPaintClip.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
 #include "RoboGraphics/RoboGraphicsText.h"
 
@@ -45,6 +55,24 @@ void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats)
     if (stats) {
         memset(stats, 0, sizeof(*stats));
     }
+}
+
+/**
+ * Release the pass's two owned resources and return @p status unchanged.
+ *
+ * The pass has six ways out -- five failures and the end -- and the raster and the clip stack
+ * are created together and must be released together. A helper rather than six pairs of calls,
+ * because a cleanup that is written out at every exit is a cleanup that is eventually written
+ * out at five of them: the leak a missing pair would leave is in a *failure* path, which is
+ * exactly the path a test that only paints good documents never walks.
+ */
+static robo_result_t decoration_finish(robo_gfx_raster_t *raster,
+                                       robo_paint_clip_stack_t *clips,
+                                       robo_result_t status)
+{
+    robo_paint_clip_stack_destroy(clips);
+    robo_gfx_raster_destroy(raster);
+    return status;
 }
 
 /** The style a filled band was shaped by is one this build draws as `solid`. */
@@ -231,6 +259,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
 {
     robo_paint_decoration_stats_t stats;
     robo_paint_text_pool_t *pool;
+    robo_paint_clip_stack_t *clips = NULL;
     robo_gfx_raster_t *raster = NULL;
     robo_result_t status;
     size_t index;
@@ -288,6 +317,19 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
         (void)robo_font_face_parse_cmap(face);
     }
 
+    /*
+     * The walk's clip stack (11.8). Created **after** the raster rather than before it, so
+     * that a target the graphics layer refuses costs no allocation, and empty at the start
+     * because a document that declares no overflow stands inside no scope at all.
+     */
+    status = robo_paint_clip_stack_create(&clips, NULL);
+    if (status != ROBO_OK) {
+        return decoration_finish(raster, NULL,
+                                 ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_CLIP,
+                                                 ROBO_OUT_OF_MEMORY,
+                                                 "could not allocate the pass's clip stack"));
+    }
+
     count = robo_paint_display_list_count(list);
     for (index = 0u; index < count; index++) {
         robo_paint_display_command_t command;
@@ -296,11 +338,47 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
 
         if (robo_paint_display_list_at(list, index, &command) != ROBO_OK) {
             /* Unreachable: the index came from the list's own count. */
-            robo_gfx_raster_destroy(raster);
-            return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
-                                   "the display list changed under the pass");
+            return decoration_finish(raster, clips,
+                                     ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY,
+                                                     ROBO_ERROR,
+                                                     "the display list changed under the "
+                                                     "pass"));
         }
         stats.commands++;
+
+        /*
+         * The **clip scope** (11.8) is maintained before the drawing branch, because a scope
+         * is not a drawing: a push becomes the boundary the pass stands inside and a pop
+         * restores the one outside it. Neither touches the raster -- the clip a drawing is
+         * bounded by is applied when that drawing is drawn, from the stack below -- so a scope
+         * with nothing inside it costs two commands and no graphics work at all.
+         *
+         * Both are counted with the commands this pass does not draw, so
+         * `commands = draws + skipped` stays exact; `clip_scopes` is the number that says how
+         * many of those skips were a boundary rather than a node marker.
+         *
+         * A **pop with nothing to pop** is the one list this pass can be handed that no
+         * builder produces, and it is refused rather than tolerated: a consumer that closed a
+         * scope that was never opened would go on drawing under a boundary that is not in force.
+         * The refusal is reported with the pass's own domain, which is right -- the *list* is
+         * malformed, and a caller holding it is the one who can fix it.
+         */
+        if (robo_paint_display_command_kind_is_clip(command.kind)) {
+            stats.skipped++;
+            if (command.kind == ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP) {
+                if (robo_paint_clip_stack_push(clips, &command.clip, diag) != ROBO_OK) {
+                    return decoration_finish(raster, clips,
+                                             diag ? diag->code : ROBO_ERROR);
+                }
+                stats.clip_scopes++;
+                if (robo_paint_clip_stack_depth(clips) > stats.clip_depth_max) {
+                    stats.clip_depth_max = robo_paint_clip_stack_depth(clips);
+                }
+            } else if (robo_paint_clip_stack_pop(clips, diag) != ROBO_OK) {
+                return decoration_finish(raster, clips, diag ? diag->code : ROBO_ERROR);
+            }
+            continue;
+        }
 
         /*
          * A structural command draws nothing, by definition -- so `skipped` is a statement
@@ -388,16 +466,34 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             /* Unreachable: an opaque `RGBA` is exactly the colour `to_rgba8` copies. Reported
              * rather than counted, because a fill that could not be prepared is this build
              * failing and no bucket above would be telling the truth about it. */
-            robo_gfx_raster_destroy(raster);
-            return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
-                                   "a drawing command's resolved colour could not be "
-                                   "converted");
+            return decoration_finish(raster, clips,
+                                     ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY,
+                                                     ROBO_ERROR,
+                                                     "a drawing command's resolved colour "
+                                                     "could not be converted"));
         }
 
-        status = decoration_apply_clip(raster, &command.clip, &clipped, diag);
+        /*
+         * The boundary this drawing is bounded by. Inside a scope it is the **scope's** clip --
+         * the list states it once, at the push, and every drawing under it is bounded by that
+         * one fact rather than by its own copy of it. Outside any scope it is the command's own
+         * clip, which is the only statement of clipping a list without clip commands carries
+         * (a hand-built one). The builder refuses a command inside a scope that disagrees with
+         * it, so for every list this build produced the two values are equal and this choice is
+         * not observable -- which is exactly what makes it safe to read from the stack.
+         */
+        {
+            robo_paint_clip_t effective;
+
+            if (robo_paint_clip_stack_is_empty(clips)) {
+                effective = command.clip;
+            } else {
+                robo_paint_clip_stack_current(clips, &effective);
+            }
+            status = decoration_apply_clip(raster, &effective, &clipped, diag);
+        }
         if (status != ROBO_OK) {
-            robo_gfx_raster_destroy(raster);
-            return status;
+            return decoration_finish(raster, clips, status);
         }
         if (clipped) {
             stats.clipped++;
@@ -415,8 +511,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             status = decoration_draw_text(raster, face, pool, &command, color, &glyphs,
                                           &missing, diag);
             if (status != ROBO_OK) {
-                robo_gfx_raster_destroy(raster);
-                return status;
+                return decoration_finish(raster, clips, status);
             }
             stats.glyphs += glyphs;
             stats.glyphs_missing += missing;
@@ -432,17 +527,17 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
          */
         status = robo_gfx_raster_fill_rect(raster, command.rect, color);
         if (status != ROBO_OK) {
-            robo_gfx_raster_destroy(raster);
-            return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
-                                   "a drawing command's rectangle could not be filled");
+            return decoration_finish(raster, clips,
+                                     ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY,
+                                                     ROBO_ERROR,
+                                                     "a drawing command's rectangle could "
+                                                     "not be filled"));
         }
         stats.filled++;
     }
 
-    robo_gfx_raster_destroy(raster);
-
     if (out_stats) {
         *out_stats = stats;
     }
-    return ROBO_OK;
+    return decoration_finish(raster, clips, ROBO_OK);
 }

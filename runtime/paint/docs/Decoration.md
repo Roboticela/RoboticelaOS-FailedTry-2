@@ -1,4 +1,4 @@
-# RoboPaint — decoration painting (Phases 11.4–11.6)
+# RoboPaint — decoration painting (Phases 11.4–11.8)
 
 The first place in this module where a colour reaches a **surface**. Everything before it
 produced *decisions*: RoboLayout concluded where every box is, the paint pass ordered the
@@ -8,7 +8,7 @@ empty last arrow:
 
 ```text
 HTML / DOM → RoboCSS → RoboLayout → RoboPaint → records → display list
-    → draw-background / draw-border / draw-text → RoboGraphics raster
+    → push-clip / draw-background / draw-border / draw-text / pop-clip → RoboGraphics raster
     → the caller's surface
 ```
 
@@ -44,9 +44,11 @@ order**, and for each command:
 
 | Command | What the pass does |
 |---|---|
-| `draw-background` | resolve the colour, apply the command's clip, fill the **border box** |
-| `draw-border` | resolve the colour, apply the command's clip, fill the side's **band** (11.5) |
-| `draw-text` | resolve the colour, apply the command's clip, resolve each code point through the **face's cmap** and stroke its outline at the resolved pixel size (11.6) |
+| `push-clip` | the command's clip becomes the boundary in force, on the pass's own stack (11.8). Nothing is drawn and the raster is not touched |
+| `draw-background` | resolve the colour, apply the clip in force, fill the **border box** |
+| `draw-border` | resolve the colour, apply the clip in force, fill the side's **band** (11.5) |
+| `draw-text` | resolve the colour, apply the clip in force, resolve each code point through the **face's cmap** and stroke its outline at the resolved pixel size (11.6) |
+| `pop-clip` | the enclosing boundary is in force again; a pop on an empty stack is a reported error rather than a silent no-op (11.8) |
 | `begin-node`, `content`, `end-node` | **skipped** and counted — they draw nothing by definition |
 
 So "the drawings reach a surface and the structural commands do not" is a number a reader sees
@@ -120,11 +122,27 @@ descendants', so a child's fill covers its parent's where they overlap — the c
 the sequence is depth-first rather than a set of fills. A later goal may reorder for stacking
 contexts; this phase does not.
 
-## 6. Clipping is read, not implemented
+## 6. Clipping: one stack, one application point
 
 A display command carries the boundary in force from the paint pass (Phase 11.1) as **two axes**,
 because `overflow-x: hidden` beside `overflow-y: visible` is a legal declaration and a single
-rectangle cannot express it. The painter uses it, and uses it *through the graphics layer*:
+rectangle cannot express it. Since 11.8 the pass also reads the **scope** the stream states, and
+the whole of the clipping here is one stack and one application point:
+
+```text
+push-clip  → the command's clip becomes the boundary in force (the pass's own stack)
+pop-clip   → the one outside it is in force again (a pop with nothing to pop is an error)
+drawing    → the clip in force: the scope's if one is open, else the command's own
+```
+
+Reading the scope rather than the command is not observable for any list this build produced —
+the builder refuses a command inside a scope that disagrees with it — which is exactly what makes
+it safe, and it is what makes the stack **load-bearing** for a hand-built list: a drawing that
+carries no clip of its own, inside a scope whose clip is empty, draws nothing
+(`paint.clip.hand_built_scope`). Outside any scope the command's own clip is the only statement of
+clipping a list without clip commands carries.
+
+The application itself is unchanged and stays *through the graphics layer*:
 
 1. reset the raster's clip to the surface bounds — so nothing from the previous command leaks;
 2. if neither axis is bounded, stop: the fill is bounded by the surface, exactly as it was in
@@ -134,10 +152,14 @@ rectangle cannot express it. The painter uses it, and uses it *through the graph
 4. `robo_gfx_raster_set_clip` intersects, so "the boundary bounds the fill" is the graphics
    module's arithmetic rather than a second copy of it.
 
-No raster clipping architecture is added, no scroll clipping and no compositor clipping. What
-this buys is the correct behaviour for a box's own paint: an `overflow: hidden` ancestor bounds a
-descendant's background, which the suite demonstrates against a control document identical to the
-first but for that one declaration.
+It is done in **one place for every drawing kind** — a background, a border band and a run are
+bounded by the same four steps and no painter carries its own copy of them. No raster clipping
+architecture is added, no scroll clipping and no compositor clipping. What this buys is the
+correct behaviour for a box's own paint: an `overflow: hidden` ancestor bounds a descendant's
+background, which the suite demonstrates against a control document identical to the first but for
+that one declaration — and, since 11.8, also for text runs and border bands, with a nested scope
+whose effective clip is recomputed from the tree rather than read off the list
+(`paint/docs/Clipping.md`).
 
 ## 7. What the pass reports
 
@@ -151,14 +173,16 @@ first but for that one declaration.
 | `backgrounds` | `draw-background` commands seen |
 | `borders` | `draw-border` commands seen — one per side whose **used width** is above zero |
 | `texts` | `draw-text` commands seen (11.6) |
-| `filled` | drawings that put something on the surface |
-| `skipped` | commands the pass does not attempt to draw: the three structural kinds, and a drawing whose colour the record layer's own rule refuses |
+| `filled` | fills this pass **executed** — the raster's own no-ops (an empty clip, a rectangle with no surface pixels) are bounded there rather than here |
+| `skipped` | commands the pass does not attempt to draw: the structural kinds (the markers, `content`, and since 11.8 the `push-clip`/`pop-clip` pair), and a drawing whose colour the record layer's own rule refuses |
 | `contextual` | drawings whose colour stayed `currentColor` |
 | `transparent` | drawings whose colour is fully transparent |
 | `empty` | **fills** with a zero-area rectangle — a text run is exempt, because a run's rectangle is its *advance* box and a glyph's ink can overhang it (11.6) |
 | `no_font` | text commands with no face to draw them — a fact about the **call**, not the document (11.6) |
 | `unshaped` | borders filled whose style this build draws as a band rather than as its pattern (11.5) |
-| `clipped` | drawings executed under a boundary the command carried |
+| `clipped` | drawings executed under a boundary — the scope's if one is open, the command's own otherwise (11.4, 11.8) |
+| `clip_scopes` | clip scopes the pass walked: one per `push-clip`, asserted equal to the traversal's own count (11.8) |
+| `clip_depth_max` | the deepest the pass's clip stack went — the nesting a document actually reached (11.8) |
 | `glyphs` | glyph draws attempted (11.6) |
 | `glyphs_missing` | code points that resolved to `.notdef`, or whose metrics would not parse (11.6) |
 | `rtl` | runs drawn left to right from their origin (11.6) — the count is how a build with no bidi says so |
@@ -196,9 +220,11 @@ a narrow claim and reading it wider is the mistake it is shaped to prevent:
   consumer yet: the style travels for the rasteriser that lands later, and the band is what this
   build fills;
 - it does **not** claim a rasteriser of the whole list — that is `raster`, which is **0**, because
-  the three structural command kinds are not drawings;
-- `background_painting`, `border_painting` and `text_painting` are **1** and say *which* drawings
-  exist, so a caller deciding whether to make a surface has fields that answer it exactly.
+  the structural command kinds are not drawings;
+- `background_painting`, `border_painting`, `text_painting` and `clipping` are **1** and say *which*
+  parts of the pipeline exist, so a caller deciding whether to make a surface has fields that
+  answer it exactly. `clipping` claims rectangular clipping of a box's contents and nothing more:
+  no rounding, no `clip-path`, no masks, and no clip the compositor or a scroll container owns.
 
 ## 9. Ownership and determinism
 

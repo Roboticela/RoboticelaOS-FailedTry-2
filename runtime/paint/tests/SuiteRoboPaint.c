@@ -141,14 +141,15 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.6.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.7.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 6);
+    ROBO_CHECK_EQ_INT((int)minor, 7);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement -- and since 11.4 (backgrounds), 11.5
-     * (border bands) and 11.6 (text runs) all three say a drawing reaches a surface. */
+     * (border bands), 11.6 (text runs) and 11.8 (clip scopes) all three say a drawing
+     * reaches a surface. */
     ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -177,13 +178,13 @@ static void test_paint_kind_vocabulary(void)
 {
     static const char *const expected[ROBO_PAINT_OP_KIND_COUNT] = {
         "none", "begin-box", "background", "border-top", "border-right", "border-bottom",
-        "border-left", "content", "text", "end-box"
+        "border-left", "content", "push-clip", "text", "pop-clip", "end-box"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 10);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 12);
     /* The zero of the vocabulary is `NONE`, so a cleared record is not an operation --
      * the same decision RoboLayout's border width kinds make one module down. */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_NONE, 0);
@@ -192,10 +193,14 @@ static void test_paint_kind_vocabulary(void)
     /* `CONTENT` sits between the last decoration and the closing marker, because the
      * enumerators are in the order a linear consumer meets them (RoboPaintTypes.h). */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_CONTENT, 7);
-    /* 11.6's `TEXT` is a drawing and not a marker, so it sits with the decorations
-     * and before the closing marker. */
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_TEXT, 8);
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_END_BOX, 9);
+    /* 11.8's scope pair brackets the contents of a box that clips, and 11.6's `TEXT`
+     * sits **between** them because that is where a linear consumer meets a text run
+     * inside a scope: `content`, `push-clip`, the run, `pop-clip`, `end-box`. The
+     * numbering is the meeting order, not a taxonomy. */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_PUSH_CLIP, 8);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_TEXT, 9);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_POP_CLIP, 10);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_END_BOX, 11);
 
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;

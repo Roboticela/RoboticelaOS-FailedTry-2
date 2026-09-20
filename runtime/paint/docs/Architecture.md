@@ -92,7 +92,7 @@ an enumerator is *made* to add its name.
 
 ```c
 typedef struct robo_paint_operation {
-    robo_paint_op_kind_t kind;      /* the seven, plus NONE */
+    robo_paint_op_kind_t kind;      /* the eleven, plus NONE */
     robo_layout_node_id_t node;     /* never NONE for a live operation */
     size_t depth;                   /* 0 for the root: makes the tree recoverable */
     robo_paint_boxes_t boxes;       /* the three rectangles, in paint coordinates */
@@ -286,9 +286,16 @@ intersection that comes out empty is success with an empty interval, not a failu
 whose clipping ancestor has already excluded it draws nothing, which is a statement about the
 document.
 
+An intersection that comes out **disjoint** — a box an ancestor's boundary entirely excluded — is
+canonicalized to a zero-length interval at the larger of the two starts rather than left running
+backwards, so "nothing can be drawn here" is a *record* the type can carry instead of the one case
+that has to be special-cased. §19.3 states why, and the choice of which interval it lands on.
+
 The clip edge for a box's contents is its **padding box**: CSS clips a box's overflowing
 contents at its padding edge, and RoboLayout's own clip rectangle reads the same box one layer
-down. Nothing in RoboPaint decides whether to clip beyond re-reading the box's own used modes.
+down. Nothing in RoboPaint decides whether to clip beyond re-reading the box's own used modes —
+and since 11.8 what that boundary *does* downstream is a **scope** in the artifact, not just a
+field on each command (§19).
 
 ---
 
@@ -357,10 +364,10 @@ documented rule rather than a hazard, because nothing in an operation points any
 
 `robo_paint_capabilities_t` is read positionally by `paint.conformance.capabilities` against a
 list of names, so a field added without an assertion is a visible omission. Twelve of its
-fourteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
+fifteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
 `box_geometry`, `clip_state`, `decoration_ops`, `display_lists` since 11.3, **`drawing`** and
-**`background_painting`** since 11.4, **`border_painting`** since 11.5 and **`text_painting`**
-since 11.6) and two are **0**:
+**`background_painting`** since 11.4, **`border_painting`** since 11.5, **`text_painting`**
+since 11.6 and **`clipping`** since 11.8) and two are **0**:
 
 | Field | Value | Why |
 |---|---|---|
@@ -369,7 +376,8 @@ since 11.6) and two are **0**:
 | `background_painting` | **1** | *which* drawing exists: a background over its border box (11.4) |
 | `border_painting` | **1** | the second drawing: each border side filled across its **band** (11.5). It claims a border's place and colour, not its look — the seven pattern styles are drawn as bands and counted (`unshaped`) |
 | `text_painting` | **1** | the third drawing: a run's glyphs resolved through the caller's face and stroked into the surface (11.6). It claims a run's glyphs reach a surface, in logical order and unshaped — `rtl` counts the runs that were drawn that way |
-| `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the three structural kinds are not drawings |
+| `clipping` | **1** | the boundary is a **scope**: a box whose overflow changes what is in force emits `push-clip`/`pop-clip`, and the pass bounds every drawing kind by the scope it stands in (11.8). Rectangular only — no rounding, no `clip-path`, no masks, no compositor or scroll clipping |
+| `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the structural kinds are not drawings |
 | `paint_invalidation` | 0 | 11.11; what exists instead is its *input*, `stats.style_only` |
 
 `decoration_ops` is **1** and is named for what it is rather than what a reader might hope:
@@ -430,6 +438,10 @@ What this module does **not** do, each named where it would otherwise be assumed
   `background_painting`/`border_painting`/`text_painting` say which three. The seven **pattern**
   border styles are drawn as their band and counted (`unshaped`); images and everything below are
   absent, and the pass counts what it skips.
+- **Rectangular clipping of a box's contents.** `clipping` is 1: a box whose used `overflow`
+  changes the boundary in force opens a scope, and every drawing kind stops at it. What is absent
+  is rounded clipping, `clip-path`, masks and filters, clip-aware hit testing (11.10), scrolling,
+  and any clip a compositor or a tile scheduler would own.
 - **No framebuffer presentation, compositor or GPU.** A surface is an argument.
 - **No rasteriser of the whole list** — the display list is the artifact and three of its drawing
   kinds are consumed; `raster` is 0.
@@ -446,7 +458,7 @@ What this module does **not** do, each named where it would otherwise be assumed
 
 ---
 
-## 14. What 11.1–11.6 found
+## 14. What 11.1–11.8 found
 
 11.1 is an architecture release, so most of what it establishes is design; 11.2 is a record
 release, and what it establishes was largely already right — an operation was already a value
@@ -537,6 +549,27 @@ And 11.6's, which are the ones a release whose payload is not a number finds:
     The pass now prepares the map once, through the same door the layout measurer uses, which is
     also what keeps the two layers from disagreeing about the same face.
 
+And 11.8's, which are the ones a release about the thing already carried everywhere finds:
+
+14. **A containment test written backwards refuses exactly the documents it was written to
+    accept.** The builder's "a scope is no wider than the boundary it is inside" check was
+    spelled `narrow.start > outer.start || narrow.end < outer.end` — the opposite predicate.
+    An inset child (`[20, 200]` inside `[0, 200]`) satisfies `20 > 0`, so every document with a
+    **nested** scope was refused as "wider than the boundary it is inside", while a document
+    with a single scope never reached the check and passed. It took a case whose expectation is
+    recomputed from the tree — and a second scope — to see it.
+15. **The one case a clip model most needs is the one a naive intersection refuses.** Two
+    disjoint intervals intersect to `[200, 40]`, which `robo_paint_clip_is_valid` throws out —
+    so "a box an ancestor excluded" had no representation. Canonicalizing to `[max(start),
+    max(start)]` makes it a valid empty record, and the choice of *where* the empty interval
+    lands is a decision (a function of the two inputs) rather than a clamp that hides one.
+16. **Reading the artifact's scopes makes the stack load-bearing, and only a hand-built list
+    can show it.** For every list this build produces, the command's own `clip` and the scope's
+    are equal — the builder refuses a disagreement — so a test that used documents alone could
+    not tell a pass that reads the stack from one that reads the field. The case that can is a
+    list whose drawing carries **no** clip of its own inside an empty scope: it must draw
+    nothing.
+
 ---
 
 ## 15. What Phase 11.3 onwards may assume
@@ -548,7 +581,8 @@ And 11.6's, which are the ones a release whose payload is not a number finds:
 3. The boxes nest (border ⊇ padding ⊇ content), are finite, and are saturated rather than
    wrapped.
 4. The clip is two axes and accumulates per axis; `robo_paint_clip_rect` answers only when both
-   axes are bounded.
+   axes are bounded, and a disjoint intersection is canonicalized to a valid **empty** interval
+   rather than left running backwards (11.8, §19.3).
 5. An operation is a value with no pointers, and a list owns exactly one array of them; the
    list is safe to discard and regenerate.
 6. `robo_paint_list_append` refuses any operation `robo_paint_operation_is_valid` rejects, so
@@ -563,8 +597,10 @@ the box that owns the text node: one depth past that box, naming itself, and aft
 10. **The sequence is regular**: exactly one structural triple (`BEGIN_BOX`, `CONTENT`,
     `END_BOX`) per placed box, in that order, with the box's own drawing records between the
     opening marker and the content boundary and its subtree between the boundary and the
-    closing marker. A consumer can group a box's records by `depth` and by that boundary
-    alone.
+    closing marker — plus a `PUSH_CLIP`/`POP_CLIP` pair around that subtree for a box whose
+    boundary **changed** (11.8, §19). A consumer can group a box's records by `depth` and by
+    those boundaries alone, and one that ignores the pair entirely still sees a boundary on
+    every drawing record it reads.
 11. **A record is a snapshot that does not move.** Laying the same tree out again, or
     destroying it, leaves an existing list's records byte-identical — `paint.records.snapshot_
     isolation` pins it. A display list built from these records therefore does not need to
@@ -583,12 +619,13 @@ the box that owns the text node: one depth past that box, naming itself, and aft
 16. **The drawings reach a surface** (11.4–11.6): `robo_paint_decoration_paint` executes every
     **drawing** command of a display list into a caller's `robo_gfx_surface_t` — a background's
     border box, each border side's band, and a text run's glyphs, in **one walk in list order**
-    — and **skips** the three structural commands, counting them. The colour crosses through one
+    — and **skips** the structural commands, counting them. The colour crosses through one
     door, `robo_paint_color_to_rgba8`, which is a field-for-field copy between two 8-bit sRGB
     records (§17).
-17. A fill is bounded by the command's **own** clip, per axis, applied through the raster's
-    clip — and the surface belongs to the caller: nothing is retained or destroyed by the pass,
-    and the list is read through `const`.
+17. A drawing is bounded by the **clip in force**, per axis, applied through the raster's own
+    clip at one point in the pass — the scope's clip when a `push-clip` is open, else the
+    command's own (11.8, §19). The surface belongs to the caller: nothing is retained or
+    destroyed by the pass, and the list is read through `const`.
 18. **A border's style travels** (11.5): the `border-style` is a required field of a
     `draw-border` command and of the `BORDER_*` record, because it is the one fact a band's
     rectangle cannot state. The band is what this build fills; the seven pattern styles are
@@ -613,16 +650,18 @@ command acts on, resolved**, so a rasteriser never reads the box model.
 | `BEGIN_BOX` | `BEGIN_NODE` | border box |
 | `BACKGROUND` | `DRAW_BACKGROUND` | border box |
 | `BORDER_*` (four) | `DRAW_BORDER` (one) | the side's **band** |
-| `TEXT` | `DRAW_TEXT` | the run's rectangle (its advance box) |
 | `CONTENT` | `CONTENT` | content box |
+| `PUSH_CLIP` / `POP_CLIP` (11.8) | `PUSH_CLIP` / `POP_CLIP` | the box's **padding box** |
+| `TEXT` | `DRAW_TEXT` | the run's rectangle (its advance box) |
 | `END_BOX` | `END_NODE` | border box |
 
 The mapping is a **total function** over the record vocabulary, so the two lists are the same
 length and pair positionally; `node`, `depth`, `clip` and `colour` carry through unchanged.
 Two consequences are worth naming because they look like losses and are the point: the
-**padding box disappears** (it was an input to the band derivation), and the **four border
-kinds collapse into one** (the side is consumed into the band rectangle). The coordinate
-space is unchanged — paint coordinates, one page space.
+**padding box stops being an input** (it was one to the band derivation, and since 11.8 it is the
+rectangle the two clip commands carry instead, because a box's boundary is defined at its padding
+edge), and the **four border kinds collapse into one** (the side is consumed into the band
+rectangle). The coordinate space is unchanged — paint coordinates, one page space.
 
 One field *does* travel with the collapse (11.5): the **`border-style`**. The side is consumed
 into the band rectangle, which is right — the rectangle states where the side is — but the
@@ -631,9 +670,9 @@ carries it and a command without one is refused. A `draw-background`, which has 
 `none`; the validity rule splits exactly that way (`generates_border` for a band, `none` for
 every other kind).
 
-The vocabulary is **seven** kinds (11.6 added `DRAW_TEXT`), split structural/drawing the
-record's way, and the validity rule splits on *drawing* rather than *marker* so `CONTENT` is held
-to the structural side. A `draw-text` carries its run beside the rectangle — the span into this
+The vocabulary is **nine** kinds (11.6 added `DRAW_TEXT`, 11.8 the scope pair), split
+structural/drawing the record's way, and the validity rule splits on *drawing* rather than
+*marker* so `CONTENT` and the two clip kinds are held to the structural side. A `draw-text` carries its run beside the rectangle — the span into this
 list's pool, the baseline offset and the font inputs — which is the one field on the model that
 points at another container rather than being a value.
 
@@ -711,7 +750,9 @@ surface bounds (so nothing leaks from the previous command), replace the axis a 
 while leaving the open axis at the surface's own interval, and let `robo_gfx_raster_set_clip`
 intersect. "The boundary bounds the fill" is therefore the graphics module's arithmetic rather
 than a second copy of it, and an `overflow: hidden` ancestor bounds a descendant's background
-correctly without a raster clipping system existing yet.
+correctly without a raster clipping system existing yet. Since 11.8 the boundary the pass applies
+is the **scope's** when a `push-clip` is open and the command's own otherwise (§19), which is one
+application point for every drawing kind.
 
 ### 17.3 What the pass reports
 
@@ -763,6 +804,70 @@ deliberately *not* folded in, because that is this build failing rather than the
 being wrong); a drawing whose span names no run in the list's pool is **skipped** rather than
 read, for the reason the geometry rule is enforced at the container; and a fill, glyph or clip the
 graphics layer refuses is `ROBO_ERROR` with a diagnostic naming the step.
+
+---
+
+## 19. Clipping (Phase 11.8)
+
+### 19.1 The boundary in force is a scope
+
+11.1 gave the module a clip *record* and one accumulation: a box's `overflow`/`overflow-x`/
+`overflow-y` resolved to a per-axis boundary, intersected with what an ancestor had already put in
+force, carried down the traversal as a value. That answers **what bounds this drawing** and not
+**where does this boundary begin and end** — a flat list carried the same two intervals on every
+command and nowhere said that the box under command 12 is what narrowed them.
+
+The artifact now states it. A box whose boundary for its **contents** differs from the boundary it
+was **entered** under emits `PUSH_CLIP` after its own `CONTENT` boundary and a matching `POP_CLIP`
+before its `END_BOX`, both carrying the same effective clip and the box's padding box as their
+rectangle. Consumers read a flat sequence against a `robo_paint_clip_stack_t`:
+
+| Reader | Stack | Why |
+|---|---|---|
+| the traversal | none — the clip is a **value** (a call parameter) | a recursive walk's "what is in force here" is the call's own argument |
+| the display-list builder | one | to prove every command inside a scope agrees with it and that the scopes pair, narrow and close |
+| the decoration pass | one | to know what bounds a drawing without re-deriving anything |
+
+There is no global clip state anywhere in the build, and a stack is created and destroyed by its
+reader like every other list here.
+
+### 19.2 The condition, and why `clipped` and `clip_scopes` differ
+
+A scope is opened on exactly one condition — the intersection **changed** the boundary — which is a
+comparison of two records rather than a flag. A box with `overflow: visible` narrows nothing, and a
+box with `overflow: hidden` inside an ancestor that already bounded the same region narrows nothing
+either; neither is emitted, because a scope that establishes nothing is two commands a consumer
+could only skip. `stats.clipped` counts boxes whose own modes say an axis hides; `stats.clip_scopes`
+counts the boundaries that actually changed; the difference is the number of scopes the traversal
+*declined* to open and is a property of the document rather than a rounding.
+
+### 19.3 The canonical empty interval
+
+An intersection can come out disjoint — a box entirely excluded by an ancestor's boundary gives
+`start > end` — and such a record is not one this build may read. It is canonicalized to the
+zero-length interval at the larger of the two starts, so "nothing can be drawn here" is a valid,
+empty record that survives a push, a pop, a display command and a projection to a rectangle of zero
+width. A scope whose clip is empty suppresses the drawings inside it and is popped normally: it
+poisons the drawing, never the stack.
+
+### 19.4 What the builder refuses
+
+A display list's scopes are an invariant rather than a convention. A clip command must belong to
+the innermost open box, come after that box's `CONTENT`, open at most one scope per box, and
+establish something **new** and **no wider** than what is in force; a drawing inside a scope must
+carry the same clip the scope does; a pop must match the innermost open scope in node, depth and
+clip; and every scope must close. Each failure is its own message, so a refusal names the way the
+list lies. Any refusal leaves the output list **empty**.
+
+### 19.5 Where it is claimed, and what it does not claim
+
+`clipping` is **1**: a box's overflowing contents are bounded by a rectangle the traversal derived
+and the artifact states, for every drawing kind. It does not claim rounding, `clip-path`, masks or
+filters; clip-aware hit testing (11.10); scrolling (nothing scrolls, and a clipped box is a
+boundary rather than a container); a compositor's or a tile scheduler's clip; paint invalidation
+(11.11); or a rasteriser that consumes the whole list (`raster` is still 0).
+`paint/docs/Clipping.md` is the phase's own document — the stack's doors, the intersection rules,
+the emission arrangement, the dump and the phase's findings.
 
 See `paint/docs/Decoration.md` for the full contract, and `paint/docs/Border.md` for the border
 half of it.

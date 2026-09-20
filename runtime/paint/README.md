@@ -1,34 +1,35 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.6, text painting**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.8, clipping**).
 
-**Version:** 0.6.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.7.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a display command's
 rectangle with its colour into a RoboGraphics surface, through the CPU raster, and strokes a
 text run's glyphs into the same surface. The claim is **narrow**, and the fields beside it say
 how narrow: a box's **background** (11.4), each of its **border bands** (11.5) and a run's
-**glyphs** (11.6), while `raster` stays **0**, because the three structural commands are not
+**glyphs** (11.6), while `raster` stays **0**, because the structural commands are not
 drawings and a pass that consumed a whole list does not exist.
 `robo_paint_drawing_is_implemented()` agrees with the constant, and
-`background_painting`/`border_painting`/`text_painting` say *which* drawings exist — a caller
-deciding whether to look for a surface reads the function; one deciding whether to *make* one
-reads the fields.
+`background_painting`/`border_painting`/`text_painting`/`clipping` say *which* parts of the
+pipeline exist — a caller deciding whether to look for a surface reads the function; one
+deciding whether to *make* one reads the fields.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
 RoboPaint turns those answers into a **sequence of work** a rasteriser executes, 11.3 turns
-that sequence into the **artifact** a rasteriser consumes, and 11.4–11.6 put the first
-colours — and the first **characters** — on a surface.
+that sequence into the **artifact** a rasteriser consumes, 11.4–11.6 put the first colours —
+and the first **characters** — on a surface, and 11.8 makes the **boundary** those drawings
+are bounded by an explicit, nested scope in that artifact.
 
 ```text
-HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → draw-background / draw-border / draw-text → RoboGraphics raster → surface
+HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → push-clip / draw-background / draw-border / draw-text / pop-clip → RoboGraphics raster → surface
 ```
 
-This build stops after a box's **decorations and its text**: images, real clipping, opacity
-and a rasteriser of the whole list are each a later goal, and each is named in §Boundaries
-where it would otherwise be assumed.
+This build stops after a box's **decorations, its text, and the scopes that bound them**:
+images, opacity and a rasteriser of the whole list are each a later goal, and each is named in
+§Boundaries where it would otherwise be assumed.
 
 ## The one structural decision
 
@@ -225,6 +226,33 @@ face, because a `robo_font_face_t` is created without a character map and a look
 has not been parsed misses. A face whose map will not parse is still not a refusal: every glyph
 becomes `.notdef` and `glyphs_missing` names the fact per code point.
 
+## The twelfth structural decision: the boundary in force is a *scope*, not a field
+
+Every release since 11.1 has carried a clip on each record and each command. That answers *what
+bounds this drawing* and cannot answer *where does this boundary begin and end* — a flat list said
+the same two intervals on every command and nowhere said that the box under command 12 is what
+narrowed them. 11.8 adds that statement: a box whose used `overflow` **changes** the boundary in
+force emits a `push-clip` after its own content boundary and a matching `pop-clip` before its
+`end-box`, and the pass reads a flat sequence against one **stack** (`robo_paint_clip_stack_t`).
+
+Three consequences, each a decision:
+
+- **A scope appears only when the boundary changed.** A `visible` box narrows nothing; nor does a
+  `hidden` box inside an ancestor that already bounded the same region. Both are two commands a
+  consumer could only skip, and neither is emitted — `stats.clipped - stats.clip_scopes` is exactly
+  the count of boundaries that were already in force.
+- **The box's own background and border are outside its scope.** CSS clips a box's overflowing
+  *contents*, not its own decoration, so the push stands after `content`. A flat list makes that the
+  one arrangement a reader gets backwards, so it is asserted by command index **and** by pixel.
+- **An excluded box is a valid empty interval, not an error.** An intersection that comes out
+  disjoint is canonicalized to `[max(start), max(start)]`, so "nothing can be drawn here" is a
+  record the type can hold — and a scope whose clip is empty suppresses drawing without poisoning
+  the stack.
+
+The boundary is applied in **one place** for every drawing kind — the pass's stack, reset into the
+raster per drawing — so no painter carries a second copy of the rule, and the builder refuses any
+list whose scopes do not pair up, narrow, or agree with the commands inside them.
+
 ## Geometry is borrowed, not defined
 
 There are no new coordinate types. `RoboGraphicsGeometry.h` defines the canonical pixel
@@ -239,14 +267,15 @@ flip in.
 | Header | Surface |
 |---|---|
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
-| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (10, `NONE` included), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
+| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (12, `NONE` included), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
 | `RoboPaintDiagnostics.h` | `robo_paint_diag_t` and the `ROBO_PAINT_DIAG` macro |
 | `RoboPaintGeometry.h` | `robo_paint_boxes_t`, `robo_paint_clip_t`, `robo_paint_boxes_of`, `robo_paint_clip_intersect` |
+| `RoboPaintClip.h` | `robo_paint_clip_stack_t` — the LIFO of clip records a flat sequence is read against: push, pop, current, depth, reset (11.8) |
 | `RoboPaintOperation.h` | `robo_paint_operation_t` and its accessors, validity, side band and one-line writer |
 | `RoboPaintList.h` | `robo_paint_list_t` — create/clear/append/at/operations/equal |
 | `RoboPaintContext.h` | `robo_paint_context_t`, `robo_paint_stats_t`, `robo_paint_pass_outcome_t`, `robo_paint_context_run` |
 | `RoboPaintDump.h` | `robo_paint_list_write` — the developer's text view |
-| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 7-kind vocabulary, validity and writer (11.3, 11.6) |
+| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 9-kind vocabulary, validity and writer (11.3, 11.6, 11.8) |
 | `RoboPaintDisplayList.h` | `robo_paint_display_list_t`, `robo_paint_display_list_stats_t` — the render-ready artifact (11.3) |
 | `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` — the conversion and structural check (11.3) |
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` — the developer's view of the display list (11.3) |
@@ -279,7 +308,8 @@ because nothing in an operation points anywhere.
 | `paint/docs/Decoration.md` | The colour bridge, the one decoration pass, its geometry, clipping, counters, ownership, safety and deferrals (11.4–11.5) |
 | `paint/docs/Border.md` | The four bands, the `border-style` vocabulary and what travels where, corner ownership, and the seven pattern styles drawn as bands (11.5) |
 | `paint/docs/Text.md` | The code-point pool and its span, the text record and its baseline, where a run sits in the sequence, glyph resolution and who prepares the face, the counters, and what is deferred to 11.7 and to Phase 14 (11.6) |
-| `paint/docs/Tests.md` | Suite map (eight suites, 110 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.6 found |
+| `paint/docs/Clipping.md` | The boundary as a scope: the clip stack, the canonical empty interval, where a scope is emitted and why the box's own decoration is outside it, the builder's eleven refusals, the pass's one application point, and what is deferred (11.8) |
+| `paint/docs/Tests.md` | Suite map (nine suites, 134 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.8 found |
 
 ## Building and testing
 
@@ -306,15 +336,16 @@ surface and a face are always the *caller's* arguments and never a query.
 - **No rasteriser of the whole list.** The display list exists as a render-ready artifact
   (`display_lists` is 1) and one command kind of it is consumed; `raster` is 0.
 - No framebuffer presentation, no compositor, no GPU.
-- No **text** or **image** operations. A text run is visited and counted
-  (`robo_paint_stats_t.text_runs`) and **not painted**: a run's rectangle is a line fragment
-  with no box layers, and painting one means shaping and glyph positions, which a later
-  phase owns. The count exists so "this document has text and none of it was painted" is a
-  number a reader sees rather than a silence.
+- No **image** operations. Images are the fourth drawing kind and the second non-numeric
+  payload, and they are 11.9's question — a pool of encoded bytes, or a reference to a decoded
+  surface.
 - No **opacity**, no transforms, no `border-radius`, no gradients, no antialiasing.
-- No **clipping architecture**. The clip a command carries is applied to the raster's own clip
-  (11.4–11.5); no clipping op is emitted, and there is no scroll clipping and no compositor
-  clipping.
+- **Rectangular clipping of a box's contents, and nothing else.** A box whose used `overflow`
+  *changes* the boundary in force opens a scope: `push-clip`, its contents, `pop-clip`
+  (11.8). What is not here is rounding, `clip-path`, masks and filters; clip-aware hit testing
+  (11.10); scroll clipping (nothing scrolls); and compositor- or tile-level clipping. The
+  boundary is enforced in one place — the pass's own stack — for every drawing kind, so no
+  painter carries a second copy of the rule.
 - **No scrolling**, and no scroll offsets — 10.13 recorded the overflow; nothing scrolls it.
 - No **paint invalidation** (11.11) and no **hit testing** (11.10) — the final positioned
   geometry is preserved for both, but neither is built here.

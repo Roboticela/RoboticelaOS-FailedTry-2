@@ -1,6 +1,7 @@
 /*
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
- * display lists, 11.4 background painting, 11.5 border painting.
+ * display lists, 11.4 background painting, 11.5 border painting, 11.6 text painting,
+ * 11.8 clipping.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -158,14 +159,63 @@
  * renderer's output looks. Shaping is Phase 14's, and the boundary is already the right shape:
  * this build resolves each code point through the cmap in logical order, and Phase 14 replaces
  * that step with a glyph run and changes nothing above it.
+ *
+ * **11.8 -- clipping**, and the first release of this module that is about *where a drawing
+ * stops* rather than what it puts down. The record already carried the boundary in force on
+ * every command, and the drawing pass already bounded each command by it, so the pixels were
+ * clipped before this phase began; what was missing was the **scope**. A flat list said
+ * "this command is bounded by `hidden[0,200]/visible`" on every descendant and nowhere said
+ * where one boundary began and another ended -- so a clipping rectangle could not be checked
+ * against anything, a consumer could not know what to restore after a nested box, and
+ * `overflow` was a field rather than a structure.
+ *
+ * Three decisions, and each is the kind that looks like an implementation detail until a
+ * later phase depends on it:
+ *
+ *   **a scope is a pair of commands, not a state flag.** `PUSH_CLIP` carries the effective clip
+ *   and stands after the box's `CONTENT`; `POP_CLIP` carries the same record and stands after
+ *   the box's last child. What is in force at any point is the innermost open push -- so a
+ *   consumer replaying the list needs a stack and no geometry, and the extent of a boundary is
+ *   recoverable from the sequence rather than from the tree;
+ *
+ *   **the scope is checked, not assumed.** The builder refuses a pop with no push, a pop whose
+ *   boundary is not the one its push carried, a scope opened twice by one box, a scope wider
+ *   than the boundary it is inside, a scope that establishes nothing, and any command inside a
+ *   scope carrying a different boundary. That is what makes the pair load-bearing: without the
+ *   last rule a push and a pop would be two commands a consumer could only skip, and the
+ *   rectangle a drawing is bounded by would still be a field nothing cross-checks;
+ *
+ *   **the boundary clips the contents, never the box.** A push stands *after* the box's own
+ *   background and border commands and before its children, because CSS clips an overflowing
+ *   *child* at the ancestor's padding edge -- the ancestor's own decoration is painted in the
+ *   scope the ancestor was entered under. Getting this backwards would clip a `overflow: hidden`
+ *   box's own border away, which is a rendering bug no interval assertion would catch.
+ *
+ * The clip **record** did not change: still two axes with an interval each, because a single
+ * rectangle cannot express `overflow-x: hidden` beside `overflow-y: visible` and a consumer
+ * handed four numbers would clip an axis the author left open. What is new beside the
+ * commands is the **stack** (`RoboPaintClip.h`), the clip-to-clip intersection
+ * (`robo_paint_clip_intersect_clip`), and the empty-scope predicate
+ * (`robo_paint_clip_is_empty`), which is the answer to "is there any point in drawing this?"
+ * for a box an ancestor's boundary already excluded.
+ *
+ * What the release does **not** claim: rounded corners (`border-radius` clipping), arbitrary
+ * clip paths, `clip-path`, masks, filters, scroll containers and their clipping, tile clipping,
+ * compositor-level clipping, or `overflow: auto`/`scroll` -- an `auto` or `scroll` axis resolves,
+ * in this build, exactly as `hidden` does, because scrolling is a later goal's and the *layout*
+ * answer for such an axis is already the one `RoboLayoutOverflow.h` gives. Nor does it claim
+ * `SAVE_STATE`/`RESTORE_STATE`: the raster rebuilds its clip from the command it is about to draw,
+ * so there is no graphics state for a pair like that to save, and the two commands would be ones
+ * a consumer could only skip. A later pass with real graphics state adds them as one enumerator
+ * and one row.
  */
 #ifndef ROBO_PAINT_VERSION_H
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 6
+#define ROBO_PAINT_VERSION_MINOR 7
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.6.0"
+#define ROBO_PAINT_VERSION_STRING "0.7.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0
@@ -185,16 +235,18 @@
  * should read the function; a caller deciding whether to *make* one should read the field.
  *
  * What it claims is narrow and it must not be read wider: a **background**, a **border band**
- * and, since 11.6, a **text run's glyphs**, in the colours CSS resolved. It does **not** claim
+ * and, since 11.6, a **text run's glyphs**, in the colours CSS resolved and, since 11.8, bounded
+ * by the clip **scopes** the document's `overflow` puts in force. It does **not** claim
  * the seven pattern border styles (the band is drawn, the pattern is not -- `unshaped` counts
  * them), glyphs drawn as filled or antialiased shapes rather than stroked outlines, shaping or
- * bidi (`rtl` counts what this build drew in logical order), images, clipping, opacity beyond
+ * bidi (`rtl` counts what this build drew in logical order), images, opacity beyond
  * the colour's own alpha, rounded corners, gradients, transforms or a compositor, and it does
  * **not** claim a rasteriser of the whole list -- that is `raster`, which is still 0, because the
  * structural commands are not drawings. A caller that read this constant as "the document
  * renders" would be wrong in exactly the way reading `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as
  * "layout is done" was wrong in a first release; the fields beside it -- `background_painting`,
- * `border_painting` and `text_painting` -- say which drawings exist.
+ * `border_painting`, `text_painting` and `clipping` -- say which drawings exist and what bounds
+ * them.
  */
 #define ROBO_PAINT_DRAWING_IMPLEMENTED 1
 

@@ -5392,15 +5392,102 @@ finding a run's own colour at the placed position.
    expected fragments was asserting a later phase's behaviour and now asserts the build's -- which
    is the stronger statement, because it pins that the wrap is layout's rather than paint's.
 
+## Goal 11.8 — Clipping
+
+_Implemented. RoboPaint **0.7.0**, capability `clipping` = **1**; `raster` stays **0**._
+
+11.8 turned the boundary in force from a **field** into a **scope**. Since 11.1 every record and
+every display command has carried a `robo_paint_clip_t` -- two axes, both modes, both intervals,
+because `overflow-x: hidden` beside `overflow-y: visible` is a legal declaration one rectangle
+cannot express -- and the decoration pass has bounded a drawing by it since 11.4. What was missing
+was the statement of **where a boundary begins and ends**: a flat list carried the same two
+intervals on every command and nowhere said that the box under command 12 is what narrowed them.
+
+| Piece | Where |
+|---|---|
+| `robo_paint_clip_stack_t` -- a LIFO of whole clip records: create/destroy/reset/push/pop/current/depth/capacity/is_empty | `RoboPaintClip.h/.c` |
+| The canonical **empty** interval: a disjoint intersection becomes `[max(start), max(start)]` rather than a record that runs backwards | `RoboPaintGeometry.c` (`paint_clip_intersect_axis`, both public doors) |
+| `PUSH_CLIP`/`POP_CLIP` operation kinds (8 and 10; `TEXT` moves to 9) and predicates | `RoboPaintTypes.h/.c` |
+| `PUSH_CLIP`/`POP_CLIP` display command kinds (5 and 7; `DRAW_TEXT` moves to 6) | `RoboPaintDisplayCommand.h/.c` |
+| The scope emission -- one condition, after the box's `CONTENT`, closed before its `END_BOX` -- and `stats.clip_scopes` | `RoboPaintContext.c/.h` |
+| The builder's scope stack and its **nine** refusals | `RoboPaintDisplayListBuilder.c` |
+| The pass's stack, the scope-driven application and `clip_scopes`/`clip_depth_max` | `RoboPaintDecoration.c/.h` |
+| The record dump naming the padded box an operation acts on (`padding=`), so a scope does not print as its border box | `RoboPaintOperation.c` |
+
+The load-bearing decisions are that a scope is opened **only when the intersection changed the
+boundary** (so `stats.clipped - stats.clip_scopes` is the number of scopes the traversal declined
+to push), that a box's own background and border are painted **outside** the scope it establishes
+(CSS clips the *contents*), that a pop carries the same clip its push carried so the pair is
+self-identifying, and that an empty scope suppresses drawing **without** poisoning the stack. The
+boundary is applied in **one place** for every drawing kind, so no painter carries a second copy of
+the rule.
+
+### What 11.8 found
+
+1. **A containment test written backwards refuses exactly the documents it was written to
+   accept.** The builder's "a scope is no wider than the boundary it is inside" check was spelled
+   `narrow.start > outer.start || narrow.end < outer.end` -- the opposite predicate. An inset child
+   (`[20, 200]` inside `[0, 200]`) satisfies `20 > 0`, so every document with a **nested** scope was
+   refused as "wider than the boundary it is inside", while a document with one scope never reached
+   the check and passed as green. The fix is eight characters, and the case that would have caught
+   it immediately is a document with **two** scopes whose expectation is recomputed from the tree.
+2. **A disjoint intersection has to be canonicalized, or the record type lies.** An excluded box
+   produced `[200, 40]`, which `robo_paint_clip_is_valid` refuses -- so "nothing can be drawn
+   here", the one cell a clip model most needs, was the one cell the model could not hold. It is
+   now a valid zero-length interval at the upper start, stable under further intersection.
+3. **`filled` counts fills *attempted*.** The empty-scope case asserted `filled == 0` and was
+   wrong about the counter rather than about the pixels: the pass executes the fill, the raster
+   bounds it out, the pixel stays transparent. The claim became the pixel and `clipped`, and the
+   counter's own documentation now says what it measures.
+4. **A no-clip case is weak if it only checks that the clip is inactive.** The visible half of the
+   pixel showcase now asserts there is **no push and no pop** anywhere in the list, and that the
+   list is exactly two commands shorter than the clipped one -- which is what "avoid unnecessary
+   clip commands" actually means.
+
+### Verification
+
+| Command | Result |
+|---|---|
+| `Build.ps1 -Configuration Debug -Verify -Test` | `VERIFY PASS` on every boundary scan; **2501 cases, 2499 passed** |
+| `Build.ps1 -Configuration Release -Test` | **2499/2501** |
+| `Build.ps1 -Configuration Debug -Test -Sanitize` | ASan + UBSan **clean, no diagnostics** -- 2499/2501 |
+| `--filter paint.` / `paint.clip.` / `layout.` / `css.` / `html.` | **140/140** / **24/24** / **346/346** / **616/616** / **386/386** |
+| `robo check` | PASS, Chromium independence **CLEAN** (sources + headers, and the build wiring) |
+| `robo test-paint` | PASS -- 2 steps, 0 failed |
+| `robo test-qemu-display` | PASS -- `ROBO_QEMU_DISPLAY_OK` and the visual runtime markers on the final tree; the guest is otherwise unchanged (the demo document declares no `overflow`, so no scope is emitted there and no checkpoint counter moved) |
+
+The two red cases in the Release, sanitizer and final Debug runs are `window.host.keyboard` and
+`window.host.mouse`, and both fail on the *same* assertion:
+`robo_window_request_focus(id) == ROBO_OK (7 != 0)` -- `ROBO_NOT_SUPPORTED` from the Win32 backend in
+a session whose desktop foreground the test process does not own. It is the host-platform case 11.5's
+report already records, in a module this diff does not touch, it moves between runs (the earlier
+Debug runs of this same tree were green), and the mouse case fails with it because it injects input
+through `SendInput` and shares the precondition. Nothing in the 140 `paint.*` cases is red.
+
+**Note on the baseline:** there is **no Phase 11.7 image painting in this tree** -- no `IMAGE` kind,
+no `DRAW_IMAGE` command, no image payload, `image_painting` does not exist. 11.6 is the last
+completed phase before this one, and 11.8 was implemented on that baseline.
+
+### Files
+
+**Added:** `Include/RoboPaint/RoboPaintClip.h`, `Source/RoboPaint/RoboPaintClip.c`,
+`paint/tests/SuiteRoboPaintClip.c` (24 cases), `paint/docs/Clipping.md`.
+**Modified:** `RoboPaint.h`, `RoboPaintVersion.h`, `RoboPaint.c`, `RoboPaintTypes.h/.c`,
+`RoboPaintGeometry.h/.c`, `RoboPaintOperation.c`, `RoboPaintContext.h/.c`, `RoboPaintDecoration.h/.c`,
+`RoboPaintDisplayCommand.h/.c`, `RoboPaintDisplayList.h/.c`, `RoboPaintDisplayListBuilder.c`,
+`RoboPaintInternal.h`, `Tests/Main.c`, `Tools/Build.ps1`, the five existing paint suites,
+`paint/README.md`, `paint/docs/{Architecture,Decoration,DisplayList,Operations,Tests}.md`,
+`PROGRESS.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
+
 ## Next
 
-- **Phase 11.7 — the next RoboPaint goal.** 11.6 fills the three **drawing** command kinds and stops
-  at them: `drawing`, `background_painting`, `border_painting` and `text_painting` are `1`, `raster`
-  is still `0`, and the seven pattern border styles, images, opacity, real clipping, transforms,
-  batching, rasterisation of the whole list, paint invalidation (11.11) and hit testing (11.10) are
-  all still absent. Image painting is the fourth drawing kind and the second non-numeric payload,
-  and it is where the pool question is asked again -- a pool of bytes for an encoded image, or a
-  reference to a decoded surface, which is a decision with different ownership consequences either
-  way. The deferred tables in `paint/README.md`, `paint/docs/Decoration.md` §11, `paint/docs/Text.md`
+- **Phase 11.7 — image painting, still not started.** It is the fourth drawing kind and the second
+  non-numeric payload, and it asks the pool question again: a pool of encoded bytes, or a reference
+  to a decoded surface -- a decision with different ownership consequences either way. It now
+  inherits a clip it gets for free: a `draw-image` inside a scope is bounded by the scope's clip
+  through the same one application point every other drawing uses.
+- **Phase 11.9 onwards** -- opacity and transforms, paint invalidation (11.11), hit testing (11.10),
+  and a rasteriser that consumes a whole list (`raster` is still **0**). The deferred tables in
+  `paint/README.md`, `paint/docs/Clipping.md` §12, `paint/docs/Decoration.md` §11, `paint/docs/Text.md`
   §10 and `paint/docs/Border.md` §6 name every one of them, and `paint/docs/Architecture.md` §15
-  lists the twenty rules the next goal may assume. Do not start until requested
+  lists the rules the next goal may assume. Do not start until requested.

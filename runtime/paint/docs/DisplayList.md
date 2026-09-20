@@ -10,7 +10,7 @@ is in `Architecture.md`.
 ## 1. Purpose
 
 A `robo_paint_operation_t` is a **record of a decision**: it carries the box's three
-rectangles and a kind out of a seven-wide vocabulary, and it leaves one derivation to the
+rectangles and a kind out of a twelve-wide vocabulary, and it leaves one derivation to the
 consumer -- the band a border side occupies is `robo_paint_operation_side_band`, computed on
 demand because the operation already carries the two rectangles the band is the difference
 of. That is the right shape for a record.
@@ -71,11 +71,13 @@ list's own rather than the record list's -- the builder copies each span across 
 keeps 11.2's snapshot property true of the artifact as well as of the sequence.
 
 The vocabulary splits the operation vocabulary's way: **structural** commands
-(`BEGIN_NODE`, `CONTENT`, `END_NODE`) are emitted for **every** node and carry no colour;
-**drawing** commands (`DRAW_BACKGROUND`, `DRAW_BORDER`, `DRAW_TEXT`) are emitted **only when they
-draw** and carry a colour a rasteriser can use. `robo_paint_display_command_kind_draws` and
+(`BEGIN_NODE`, `CONTENT`, `PUSH_CLIP`, `POP_CLIP`, `END_NODE`) are emitted for **every** node — plus
+one clip pair for a node whose boundary changed — and carry no colour; **drawing** commands
+(`DRAW_BACKGROUND`, `DRAW_BORDER`, `DRAW_TEXT`) are emitted **only when they draw** and carry a
+colour a rasteriser can use. `robo_paint_display_command_kind_draws` and
 `robo_paint_display_command_kind_is_structural` are the partition, and the validity rule
-splits on *drawing* rather than on *marker* so `CONTENT` is held to the structural side.
+splits on *drawing* rather than on *marker* so `CONTENT` is held to the structural side — the same
+reason the two clip kinds land there: they draw nothing (`Clipping.md` §4).
 
 ---
 
@@ -89,9 +91,18 @@ the record vocabulary:
 | `BEGIN_BOX` | `BEGIN_NODE` | the **border box** |
 | `BACKGROUND` | `DRAW_BACKGROUND` | the **border box** |
 | `BORDER_TOP` / `BORDER_RIGHT` / `BORDER_BOTTOM` / `BORDER_LEFT` | `DRAW_BORDER` | the side's **band** |
-| `TEXT` (11.6) | `DRAW_TEXT` | the run's **advance box** |
 | `CONTENT` | `CONTENT` | the **content box** |
+| `PUSH_CLIP` / `POP_CLIP` (11.8) | `PUSH_CLIP` / `POP_CLIP` | the box's **padding box** |
+| `TEXT` (11.6) | `DRAW_TEXT` | the run's **advance box** |
 | `END_BOX` | `END_NODE` | the **border box** |
+
+A clip command's rectangle is the box's **padding box** — the boundary the box's own `overflow`
+resolved to — and deliberately *not* the effective clip's rectangle, which does not always exist:
+`overflow-x: hidden` beside `overflow-y: visible` is a legal document, so `robo_paint_clip_rect`
+refuses exactly the case where a reader would most like a rectangle, and a command that answered
+anyway would be inventing one. The boundary itself travels in the `clip` field, where the axis
+split survives — and both commands of a scope carry the **same** clip, so a consumer restores the
+enclosing boundary by popping its own stack rather than by reading a second value.
 
 `node`, `depth`, `clip`, `color`, -- for a band -- `style` and, for a run, everything in `text`
 except the span itself carry through **unchanged**. The span is the one field that is not copied
@@ -111,8 +122,10 @@ coordinates**, one page space, exactly as the operation's boxes were.
 ## 4. Ordering and the structural invariant
 
 Commands preserve the record order exactly, which is the traversal's document order: per
-node, `BEGIN_NODE`, its drawing commands, `CONTENT`, its subtree, `END_NODE`. No command is
-reordered and no command is merged.
+node, `BEGIN_NODE`, its drawing commands, `CONTENT`, its subtree, `END_NODE`. A node that clips
+its contents adds a pair around its subtree — `CONTENT`, `PUSH_CLIP`, the subtree, `POP_CLIP`,
+`END_NODE` — so a box's own decoration stays *outside* the scope it establishes, which is CSS's
+arrangement (`Clipping.md` §4). No command is reordered and no command is merged.
 
 More than that, a display list is **regular**, and this is a *guarantee* rather than a hope.
 A paint list is a container that validates each operation but not their *sequence*; the
@@ -125,7 +138,12 @@ record list with a stack of the currently open boxes and **refuses** a list wher
   (its `depth` or its `node` id is not that box's);
 - a box passes its content boundary twice, closes before it, or emits a decoration *after*
   it;
-- the sequence does not close every box it opens.
+- the sequence does not close every box it opens;
+- a `PUSH_CLIP`/`POP_CLIP` pair does not hold together — a push before its box's `CONTENT`, two
+  pushes for one box, a push that establishes nothing new, a scope **wider** than the boundary it
+  is inside, a drawing inside a scope whose own clip disagrees with it, a pop with no push, a pop
+  naming another box, a pop carrying another boundary, or a scope never closed (**eleven** separate
+  messages, each its own refusal — `Clipping.md` §5).
 
 On a refusal `out_list` is left **empty** and the diagnostic names the reason, so a caller
 never holds a partially converted sequence -- the paint pass's rule at the same boundary.
@@ -208,18 +226,20 @@ the widest line this build can actually produce rather than trusting the derivat
 
 ## 8. What is deliberately not here
 
-- **No rasterisation of the whole list, no clipping architecture, no presentation.** The display
-  list is data and `raster` is 0: since 11.4–11.6 exactly the three **drawing** kinds are consumed
-  -- a `draw-background` and a `draw-border` are filled into a caller's surface and a `draw-text`
-  has its glyphs stroked into it, all by `robo_paint_decoration_paint` (`paint/docs/Decoration.md`,
-  `paint/docs/Border.md`, `paint/docs/Text.md`), in the list's order -- while the three structural
-  commands are still data. A fill *is* bounded by the clip the command carries, but no clipping op
-  is emitted and no clipping system exists.
+- **No rasterisation of the whole list, and no presentation.** The display list is data and
+  `raster` is 0: since 11.4–11.8 exactly the three **drawing** kinds are consumed — a
+  `draw-background` and a `draw-border` are filled into a caller's surface and a `draw-text` has
+  its glyphs stroked into it, all by `robo_paint_decoration_paint` (`paint/docs/Decoration.md`,
+  `paint/docs/Border.md`, `paint/docs/Text.md`), in the list's order — while the five structural
+  commands, the **clip pair included**, are still data. A drawing is bounded by the clip in force
+  (the scope's, or its own outside any scope), and every drawing kind stops at it; what is absent
+  is rounding, `clip-path`, masks, and clipping that a compositor or a scroll container owns.
 - **No batching, merging or command reordering.** The order is the traversal's; an optimizer
   is a later goal's and would need a consumer to justify it.
-- **No transforms, opacity, save/restore or clip *operations*.** A command carries the clip
-  it draws under; a rasteriser applies it from the command. A wider vocabulary waits for a
-  consumer.
+- **No transforms, opacity or save/restore.** A command carries the clip it draws under, and a
+  `push-clip`/`pop-clip` pair states the **scope** it draws inside; a rasteriser applies both from
+  the stream. A wider vocabulary waits for a consumer — which is why the pair is a pair rather
+  than a general state stack: the only state that changes is the clip.
 - **No image commands**, and nothing behind the one text kind that does exist: no shaping, no
   bidi, no line breaking, no fallback. What a `draw-text` states is the runs RoboLayout measured,
   in logical order, resolvable against a font the *caller* supplies.
@@ -237,5 +257,7 @@ the widest line this build can actually produce rather than trusting the derivat
    enforced, not a convention.
 4. A command is a value with no pointers; a list owns one array of them and is safe to
    discard and regenerate.
-5. The clip is carried per command, two axes, exactly as the operation carried it.
+5. The clip is carried per command, two axes, exactly as the operation carried it — and a
+   scope that *changes* it is stated in the stream (`push-clip` … `pop-clip`), so a consumer
+   replaying the list knows the boundary without re-deriving an intersection (11.8).
 6. An out-of-order record list is refused with an empty output list and a diagnostic.

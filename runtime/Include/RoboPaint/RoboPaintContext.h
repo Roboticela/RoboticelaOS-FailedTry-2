@@ -154,6 +154,21 @@ typedef struct robo_paint_stats {
     /** Boxes whose overflow put a **boundary** in force for their contents. */
     size_t clipped;
     /**
+     * Clip **scopes** the traversal opened: one per box whose overflow actually *changed* the
+     * boundary in force for its contents (11.8).
+     *
+     * Beside `clipped` rather than folded into it, because the two answer different questions
+     * and a document can differ on exactly the case between them. `clipped` counts boxes whose
+     * used modes say "this axis hides" -- a fact about a box's own `overflow` -- while this
+     * counts the ones where that boundary, intersected with everything already in force, came
+     * out **different**: a hidden box inside an already-hidden ancestor whose boundary is
+     * already inside its own padding box bounds nothing new, and a scope that established
+     * nothing is a command a consumer could only skip, so none is emitted. The gap between the
+     * two numbers is therefore a real property of the document rather than a rounding, and
+     * `clipped - clip_scopes` is the count of scopes the traversal *declined* to push.
+     */
+    size_t clip_scopes;
+    /**
      * Colours that could not be resolved: `currentColor` whose box had no usable
      * `color` either.
      *

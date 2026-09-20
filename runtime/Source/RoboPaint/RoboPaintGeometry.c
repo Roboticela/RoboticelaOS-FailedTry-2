@@ -417,6 +417,17 @@ int robo_paint_clip_axis_is_empty(const robo_paint_clip_axis_t *axis)
     return robo_paint_clip_axis_is_active(axis) && axis->end <= axis->start;
 }
 
+int robo_paint_clip_is_empty(const robo_paint_clip_t *clip)
+{
+    if (!clip) {
+        return 0;
+    }
+    /* Either axis is enough: an interval with no width bounds nothing, whatever the other
+     * axis says -- which is why this is an `or` and not an `and`. */
+    return robo_paint_clip_axis_is_empty(&clip->horizontal) ||
+           robo_paint_clip_axis_is_empty(&clip->vertical);
+}
+
 /**
  * One axis of the intersection: @p existing bounded by @p start/@p end when @p mode
  * hides, carried through unchanged when it does not.
@@ -424,6 +435,24 @@ int robo_paint_clip_axis_is_empty(const robo_paint_clip_axis_t *axis)
  * A helper rather than two copies because the two axes differ only in which numbers they
  * are given, and a transposed pair of copies is the classic way this arithmetic goes
  * wrong.
+ *
+ * **A disjoint result is canonicalized to a zero-length interval**, and that is a decision
+ * rather than a tidy-up. The smaller of two `max`es and the larger of two `min`es can come out
+ * backwards -- a box an ancestor's boundary entirely excluded produces exactly that -- and a
+ * record whose interval runs backwards is one `robo_paint_clip_is_valid` refuses. Left alone,
+ * the cell of the record model that means "nothing can be drawn here" would be the one cell that
+ * is not a record, and every consumer would have to choose between trusting the type and
+ * trusting the arithmetic. Canonicalized, an excluded box is an **empty interval at the
+ * boundary that excluded it** (`end == start`), which is valid, is what
+ * `robo_paint_clip_axis_is_empty` answers, and survives the whole pipeline -- a push, a pop, a
+ * stack, a display command and a projection to a rectangle of zero width -- without a caller
+ * ever having to ask whether it is holding a legal record.
+ *
+ * The placement of the empty interval is the **upper start**: the larger of the two starts, the
+ * later of the two edges either interval began at. That is a function of the two intervals and of
+ * nothing else, which is what makes it deterministic for equal inputs -- no notion of which side
+ * "did the excluding" enters the arithmetic, and a `[200, 210]` box under a `[0, 40]` boundary
+ * lands on `[200, 200]` just as a `[0, 40]` box under a `[200, 210]` boundary would.
  */
 static void paint_clip_intersect_axis(robo_paint_clip_axis_t *out,
                                       const robo_paint_clip_axis_t *existing,
@@ -446,6 +475,9 @@ static void paint_clip_intersect_axis(robo_paint_clip_axis_t *out,
         out->mode = mode;
         out->start = start;
         out->end = end;
+    }
+    if (out->end < out->start) {
+        out->end = out->start;
     }
 }
 
@@ -484,6 +516,35 @@ robo_result_t robo_paint_clip_intersect(const robo_paint_clip_t *clip,
                               boundary->x, right);
     paint_clip_intersect_axis(&out->vertical, &clip->vertical, vertical,
                               boundary->y, bottom);
+    return ROBO_OK;
+}
+
+robo_result_t robo_paint_clip_intersect_clip(const robo_paint_clip_t *outer,
+                                            const robo_paint_clip_t *inner,
+                                            robo_paint_clip_t *out,
+                                            robo_paint_diag_t *diag)
+{
+    if (!outer || !inner || !out) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_CLIP, ROBO_INVALID_ARGUMENT,
+                               "both clips and an output are required");
+    }
+    if (!robo_paint_clip_is_valid(outer) || !robo_paint_clip_is_valid(inner)) {
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_CLIP, ROBO_ERROR,
+                               "a clip in the intersection is not a record this build "
+                               "produced");
+    }
+    /*
+     * The same per-axis helper the boundary intersection uses, in the same order, for the
+     * reason it exists: the two axes differ only in which numbers they are given, and a
+     * transposed pair of copies is the classic way this arithmetic goes wrong. An axis
+     * `inner` does not bound takes the `visible` branch inside the helper and is copied from
+     * `outer` -- so "a scope that bounds only one axis does not free the other" is the
+     * helper's own rule rather than a second statement of it here.
+     */
+    paint_clip_intersect_axis(&out->horizontal, &outer->horizontal, inner->horizontal.mode,
+                              inner->horizontal.start, inner->horizontal.end);
+    paint_clip_intersect_axis(&out->vertical, &outer->vertical, inner->vertical.mode,
+                              inner->vertical.start, inner->vertical.end);
     return ROBO_OK;
 }
 

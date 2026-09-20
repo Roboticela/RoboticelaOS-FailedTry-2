@@ -716,6 +716,7 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     robo_paint_boxes_t boxes;
     robo_layout_point_t child_origin = origin;
     robo_paint_clip_t child_clip = *clip;
+    int clip_scope = 0;
 
     if (!robo_layout_object_kind_is_known(kind) || kind == ROBO_LAYOUT_OBJECT_NONE) {
         /* A child link that names nothing. Reported rather than skipped: a pass that
@@ -846,6 +847,33 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     if (paint_child_clip(context, tree, id, &boxes, clip, &child_clip, diag) != ROBO_OK) {
         return diag ? diag->code : ROBO_ERROR;
     }
+    /*
+     * The **clip scope** (11.8), and the one condition that opens one: the boundary in force
+     * for this box's contents must actually **differ** from the boundary the box itself was
+     * entered under.
+     *
+     * The two are equal in the overwhelmingly common cases, and both are worth stating because
+     * they are different documents: a box whose `overflow` is `visible` does not clip
+     * (`paint_child_clip` returns the clip unchanged), and a box whose `overflow` is `hidden`
+     * inside an ancestor that already bounded the same region does not narrow anything either.
+     * Neither establishes a scope, and the count of the scopes this traversal *declines* to
+     * push is exactly `stats.clipped` minus `stats.clip_scopes` (`RoboPaintContext.h`).
+     *
+     * It is emitted **after the box's content boundary** and left open until after the box's
+     * last child, which is the arrangement the record's own comment argues: the boundary clips
+     * the contents, and the box's own background and border are painted under the boundary it
+     * was entered under rather than its own.
+     */
+    clip_scope = !robo_paint_clip_equal(&child_clip, clip);
+    if (clip_scope) {
+        robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_PUSH_CLIP, id,
+                                                     depth, &boxes, origin, &child_clip, diag);
+
+        if (result != ROBO_OK) {
+            return result;
+        }
+        context->stats.clip_scopes++;
+    }
     /* The containing block's content **origin**, in paint coordinates: the child's
      * layout geometry is relative to this point, which is what makes `local = boxes -
      * origin` the space layout actually wrote (RoboPaintOperation.h). */
@@ -863,6 +891,25 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
             if (robo_layout_object_next_sibling(tree, child, &child) != ROBO_OK) {
                 break;
             }
+        }
+    }
+
+    /*
+     * The scope closes with the box it belongs to, and the pop carries the **same clip the
+     * push carried** -- not the boundary being restored. That is what makes the pair
+     * self-identifying: a builder checks the pop against the innermost open scope by comparing
+     * the two records, and a consumer replaying the list restores the enclosing boundary by
+     * popping its own stack rather than by reading a second value out of the payload.
+     *
+     * It is emitted before the box's `END_BOX`, so the box marker pair stays contiguous around
+     * everything the box owns -- its own records and its subtree, scope included.
+     */
+    if (clip_scope) {
+        robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_POP_CLIP, id,
+                                                     depth, &boxes, origin, &child_clip, diag);
+
+        if (result != ROBO_OK) {
+            return result;
         }
     }
 
