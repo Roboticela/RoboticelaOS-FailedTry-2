@@ -125,7 +125,8 @@ static const char *const paint_domain_names[ROBO_PAINT_DOMAIN_COUNT] = {
     "geometry",
     "traversal",
     "clip",
-    "dump"
+    "dump",
+    "display-list"
 };
 
 int robo_paint_domain_is_known(robo_paint_diagnostic_domain_t domain)

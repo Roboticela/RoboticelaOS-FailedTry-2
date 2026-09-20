@@ -1,5 +1,6 @@
 /*
- * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records.
+ * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
+ * display lists.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -58,6 +59,19 @@
  * is still 0, because a `CONTENT` record is a statement about the sequence and not a
  * pixel either.
  *
+ * 11.3 is the first release *above* the record list: the **display list**. A paint
+ * operation says which rectangles a decision was made from -- the box model, plus a kind
+ * -- and leaves one derivation to the consumer, the band a border side occupies. A
+ * display command says which **one rectangle to act on**, resolved, and makes the
+ * traversal's structural convention an invariant it enforces. Two things are worth
+ * stating so that neither is mistaken for duplication: the padding box *disappears*, and
+ * the disappearance is the point (it was an input to the band derivation, and nothing
+ * above needs it once the band is resolved); and the four border kinds *collapse into
+ * one*, because the fact that distinguished them -- which side -- is consumed into the
+ * band rectangle. A display list is therefore **render-ready**: a rasteriser walks it
+ * once and never consults the box model. `ROBO_PAINT_DRAWING_IMPLEMENTED` is *still* 0:
+ * a display list is data, and nothing here puts a colour on a surface.
+ *
  * The colour resolution is the one place this release reads a property RoboLayout
  * deliberately ignored, and it is worth stating because it looks like a violation of
  * the boundary: 10.14 classifies a property name into "layout does not read it",
@@ -71,9 +85,9 @@
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 2
+#define ROBO_PAINT_VERSION_MINOR 3
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.2.0"
+#define ROBO_PAINT_VERSION_STRING "0.3.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0

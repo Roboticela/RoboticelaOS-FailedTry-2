@@ -10,8 +10,8 @@
  *                  struct, a struct read in declaration order is the one way to assert
  *                  eleven `int` fields without writing eleven accessors, and a field added
  *                  without an assertion in that list is a visible omission rather than a
- *                  silently untested flag. Four of the fields are deliberately 0, and the
- *                  list says which four and why;
+ *                  silently untested flag. Three of the fields are deliberately 0, and the
+ *                  list says which three and why;
  *
  *   the absence    the three-place statement 11.1 makes about drawing -- the constant,
  *                  the door and the capability field -- asserted together, because a
@@ -60,10 +60,11 @@ static const paint_capability_row_t paint_capability_rows[] = {
     { "box_geometry", 1 },
     { "clip_state", 1 },
     { "decoration_ops", 1 },
-    /* The four absences. `drawing` is read from its own constant so the field and the
-     * two doors cannot drift; the other three name later phases outright. */
+    /* The absences, plus 11.3's `display_lists` which joined the 1s. `drawing` is read
+     * from its own constant so the field and its two doors cannot drift; `raster` and
+     * `paint_invalidation` name later phases outright. */
     { "drawing", ROBO_PAINT_DRAWING_IMPLEMENTED },
-    { "display_lists", 0 },
+    { "display_lists", 1 },
     { "raster", 0 },
     { "paint_invalidation", 0 }
 };
@@ -138,12 +139,12 @@ static void test_paint_conformance_drawing_absent(void)
     ROBO_CHECK_EQ_INT(robo_paint_get_capabilities(&capabilities), ROBO_OK);
     ROBO_CHECK_EQ_INT(capabilities.drawing, robo_paint_drawing_is_implemented());
 
-    /* The version this build reports is 0.2.0 and its API is not frozen -- two facts a
-     * consumer of a first release needs, and the second is the one that says a later goal
-     * may still add to this surface. */
+    /* The version this build reports is 0.3.0 and its API is not frozen -- two facts a
+     * consumer of a release needs, and the second is the one that says a later goal may
+     * still add to this surface. */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 2);
+    ROBO_CHECK_EQ_INT((int)minor, 3);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -189,7 +190,7 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
      * whole point of the table being a table.
      */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 9);
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 9);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 10);
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
         int is_structural = robo_paint_op_kind_is_structural(kind);

@@ -6,12 +6,13 @@
  * state, and why the whole file is a flag, a version and a table of what this build does
  * and does not do.
  *
- * The table is the interesting half. Four of its eleven fields are deliberately 0, and
- * they are the four a reader would otherwise have to discover by experiment:
- * `drawing`, `display_lists`, `raster` and `paint_invalidation`. `decoration_ops` beside
- * them is 1 -- this build *does* decide that a background will be filled and which
- * colour -- and keeping the two apart is what stops "a background operation exists" from
- * being read as "a background was painted".
+ * The table is the interesting half. Three of its eleven fields are deliberately 0, and
+ * they are the three a reader would otherwise have to discover by experiment: `drawing`,
+ * `raster` and `paint_invalidation`. `decoration_ops` beside them is 1 -- this build
+ * *does* decide that a background will be filled and which colour -- and `display_lists`
+ * joined it in 11.3: the artifact a rasteriser consumes now exists, and keeping it apart
+ * from `drawing` is what stops "a render-ready list exists" from being read as "a colour
+ * reached a surface".
  */
 
 #include "RoboPaint/RoboPaint.h"
@@ -78,7 +79,14 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * number would conclude otherwise.
      */
     out->drawing = ROBO_PAINT_DRAWING_IMPLEMENTED;
-    out->display_lists = 0;
+    /*
+     * **1 since 11.3**: a display list now exists as a consumable artifact -- the
+     * `RoboPaintDisplayList` the builder produces from a paint list, with the box model
+     * resolved and the traversal's structural convention enforced. It stays 1 while
+     * `drawing` is 0, and the pair is the honest statement: this build produces the list a
+     * rasteriser consumes and puts no colour on a surface.
+     */
+    out->display_lists = 1;
     out->raster = 0;
     out->paint_invalidation = 0;
     return ROBO_OK;

@@ -1,24 +1,25 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.2, paint records**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.3, display lists**).
 
-**Version:** 0.2.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.3.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
-`ROBO_PAINT_DRAWING_IMPLEMENTED=0` — this build produces an ordered list of operations
-and puts no colour on a surface. `robo_paint_drawing_is_implemented()` answers 0 with it,
-so a caller cannot mistake "the pass ran" for "the pixels are there".
+`ROBO_PAINT_DRAWING_IMPLEMENTED=0` — this build produces an ordered list of operations,
+and a render-ready display list above it, and puts no colour on a surface.
+`robo_paint_drawing_is_implemented()` answers 0 with it, so a caller cannot mistake "the
+pass ran" for "the pixels are there".
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
 RoboPaint turns those answers into a **sequence of work** a rasteriser will one day
-execute.
+execute, and 11.3 turns that sequence into the **artifact** a rasteriser consumes.
 
 ```text
-HTML / DOM → RoboCSS → RoboLayout → RoboPaint → (operations) → RoboGraphics → Display
+HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → RoboGraphics → Display
 ```
 
-This phase stops at **RoboLayout → RoboPaint**.
+This phase stops at **RoboPaint → display list**; rasterisation is a later goal.
 
 ## The one structural decision
 
@@ -106,6 +107,38 @@ is regenerated from the tree on every pass. What the phase hands a future system
 paint-visible change. There is no paint-invalidation constant, no dirty rectangle and no
 per-list currency check.
 
+## The eighth structural decision: the display list resolves the box model
+
+`robo_paint_operation_t` says which rectangles a decision was made from -- the box model,
+plus a kind -- and deliberately leaves one derivation to the consumer: the band a border
+side occupies is `robo_paint_operation_side_band`, computed on demand. Phase 11.3 adds
+`robo_display_command_t`, which says which **one rectangle to act on**, resolved:
+
+| Paint operation | Display command | Rectangle |
+|---|---|---|
+| `BEGIN_BOX` | `begin-node` | border box |
+| `BACKGROUND` | `draw-background` | border box |
+| `BORDER_*` (four kinds) | `draw-border` (one kind) | the side's **band** |
+| `CONTENT` | `content` | content box |
+| `END_BOX` | `end-node` | border box |
+
+Two things are worth stating so neither is mistaken for duplication. The **padding box
+disappears** -- it was an input to the band derivation, and nothing above needs it once the
+band is resolved. The **four border kinds collapse into one** -- the fact that
+distinguished them is consumed into the band rectangle. So a rasteriser walks a display list
+once and never consults the box model, and the coordinate space is unchanged (paint
+coordinates, one page space).
+
+## The ninth structural decision: the display list is *regular*, and the builder proves it
+
+A paint list is a **container**: `robo_paint_list_append` validates each operation, so every
+list is a list of records, but nothing sequences them -- a caller may append in any order.
+`robo_paint_list_builder_build` turns the traversal's **convention** (one structural triple
+per box, in nested order, with decorations before the content boundary) into an **invariant**
+of the display list, and **refuses** a record list that does not obey it. A consumer of a
+display list may therefore group commands by `depth` and by the `begin-node`/`content`/
+`end-node` boundaries without re-deriving anything.
+
 ## Geometry is borrowed, not defined
 
 There are no new coordinate types. `RoboGraphicsGeometry.h` defines the canonical pixel
@@ -127,6 +160,10 @@ flip in.
 | `RoboPaintList.h` | `robo_paint_list_t` — create/clear/append/at/operations/equal |
 | `RoboPaintContext.h` | `robo_paint_context_t`, `robo_paint_stats_t`, `robo_paint_pass_outcome_t`, `robo_paint_context_run` |
 | `RoboPaintDump.h` | `robo_paint_list_write` — the developer's text view |
+| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 5-kind vocabulary, validity and writer (11.3) |
+| `RoboPaintDisplayList.h` | `robo_paint_display_list_t`, `robo_paint_display_list_stats_t` — the render-ready artifact (11.3) |
+| `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` — the conversion and structural check (11.3) |
+| `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` — the developer's view of the display list (11.3) |
 
 ## Lifecycle
 
@@ -149,7 +186,8 @@ because nothing in an operation points anywhere.
 |---|---|
 | `paint/docs/Architecture.md` | The phase, the dependency position, the traversal, the coordinate model, the clip model, ownership, what 11.3 onwards may assume |
 | `paint/docs/Operations.md` | The operation vocabulary, the structural/drawing split, the traversal contract, snapshot semantics — the precise order, the coordinate spaces and the clip accumulation |
-| `paint/docs/Tests.md` | Suite map (four suites, 52 cases), fixtures, what the suites assert, running, sanitizers, what 11.1 and 11.2 found |
+| `paint/docs/DisplayList.md` | The display command, the resolved rectangle per kind, the builder's structural invariants, ordering, ownership and what is deferred (11.3) |
+| `paint/docs/Tests.md` | Suite map (five suites, 65 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.3 found |
 
 ## Building and testing
 
@@ -165,8 +203,9 @@ RoboPaint must not depend on RoboWindow, RoboDisplay or RoboRender. It reads Rob
 through const doors and may use RoboGraphics geometry **only**.
 
 - No rasterisation, no framebuffer presentation, no compositor, no GPU. `DRAWING` is 0.
-- No **display lists as the final system** — what exists is the operation sequence a
-  display list will be built from.
+- **No display-list *consumption*** — the display list exists as a render-ready artifact
+  (`display_lists` is 1), and nothing rasters it, clips it or presents it yet. Rasterisation
+  is a later goal; `raster` is 0.
 - No **text** or **image** operations. A text run is visited and counted
   (`robo_paint_stats_t.text_runs`) and **not painted**: a run's rectangle is a line fragment
   with no box layers, and painting one means shaping and glyph positions, which a later

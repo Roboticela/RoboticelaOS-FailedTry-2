@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.2)
+# RoboPaint Test Organisation (through Phase 11.3)
 
-Four suites, 52 tests, one framework. Each phase adds no test runner, no reporter and no
+Five suites, 65 tests, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,7 +8,7 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the four suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the five suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
@@ -22,6 +22,7 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaintTraversal.c` | `paint.traversal.*` | 16 | does one pass over a real document produce the operations, in the order, under the boundaries the architecture says it should? |
 | `SuiteRoboPaintConformance.c` | `paint.conformance.*` | 5 | does the build's own surface — capabilities, vocabulary names, the drawing claim — say what the module claims? |
 | `SuiteRoboPaintRecords.c` | `paint.records.*` | 13 | is the record model what it claims *as a model* — a regular sequence, an explicit content boundary, a snapshot that does not move, ownership that copies? |
+| `SuiteRoboPaintDisplayList.c` | `paint.display.*` | 13 | does the display list *resolve* the box model (one rectangle per command), *preserve* the order and identity, *refuse* a record list that is not a document, and *snapshot* what it consumes? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -115,7 +116,36 @@ The Phase 11.2 suite, and it asks the *guarantees* rather than a document's outp
   built into a *second* tree, compared by list and by dump), `dump` (one line per record, a
   `content=` line, and a refusal that reports the length it needed), `allocator_balance`.
 
-### 1.7 — conformance (`paint.conformance.*`, 5 cases)
+### 1.7 — the display list (`paint.display.*`, 13 cases)
+
+The Phase 11.3 suite, and it asks the artifact's guarantees rather than a document's output:
+
+- **the mapping and the resolution** — `single_node_mapping`, `ordering`, `end_to_end`: a real
+  document is painted and then built into a display list, and the two are walked in lockstep
+  asserting the kind mapping and, for every pair, that the command's `rect` is exactly the
+  record's resolved rectangle — the border box for a marker/background, the **band** (checked
+  against `robo_paint_operation_side_band`) for a border, the content box for `CONTENT`. A
+  concrete case pins that a 1px border's top band is exactly one high where the background is
+  the whole box.
+- **the vocabulary** — `command_vocabulary`: names, the partition into structural/drawing,
+  and the marker predicate as the strict subset that excludes `CONTENT`.
+- **the structural invariant** — `builder_refuses_malformed`: six hand-built record lists
+  (an unclosed box, a wrong-depth begin, a boundary with no box, a close before the boundary,
+  a marker naming the wrong node, a decoration after the boundary) are each **refused** with
+  an empty output list, and a well-formed hand-built list is **not** refused — so the
+  refusals are the rules rather than the builder rejecting everything it did not produce.
+- **the clip** — `clip_carried`: the boundary a box's overflow put in force travels onto the
+  descendants' commands.
+- **empty and degenerate** — `empty_list` (an empty record list builds an empty display list
+  with an empty dump), `empty_and_degenerate` (an empty body, a zero-sized box).
+- **ownership and safety** — `ownership_and_balance` (create/clear/rebuild, capacity
+  retained), `geometry_safety` (a cleared command, a negative rectangle and a colourless
+  drawing are all refused by the list), `mutation_isolation` (clear the record list and
+  re-lay-out the tree; the display list does not move, proved by a second build that *does*),
+  `determinism` (two independent builds equal by list and by dump), `dump` (one line per
+  command, and a refusal reporting the length it needed).
+
+### 1.8 — conformance (`paint.conformance.*`, 5 cases)
 
 - `capabilities` — the struct read positionally against a list of names, so a field added
   without an assertion is a visible omission.
@@ -164,11 +194,12 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test   # bui
 ./Out/RoboTest.host.exe --filter paint.geometry.         # one group
 ./Out/RoboTest.host.exe --filter paint.traversal.        # the traversal suite
 ./Out/RoboTest.host.exe --filter paint.records.          # the record-model suite
+./Out/RoboTest.host.exe --filter paint.display.          # the display-list suite
 ```
 
 `./scripts/robo test-paint` runs the module's group through the project pipeline. The filter is
 a **substring** match, not a prefix, so `--filter paint.` also matches the demo layer's six
-`demo.paint.*` cases: the group reports **58** for a module with **52** cases of its own. That
+`demo.paint.*` cases: the group reports **71** for a module with **65** cases of its own. That
 superset is recorded in `scripts/pipeline/commands.test.ps1` beside the group, the same way the
 `layout` group's two-case superset is.
 
@@ -217,3 +248,23 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
    `single_box`) named an operation total that omitted the decorations the document declares;
    the fix is to state the arithmetic in the case — structural triples plus drawing records —
    rather than a bare number, so the next kind added does not silently move it.
+
+---
+
+## 8. What the 11.3 suite found
+
+1. **`RoboDisplay` is already taken.** The obvious header names for a display list —
+   `RoboDisplayList.h` and its siblings — collide with the low-level **RoboDisplay** module's
+   namespace *and* with the boundary scan, which forbids RoboPaint from including anything
+   named `RoboDisplay`. The display list lives in RoboPaint's own namespace instead
+   (`RoboPaintDisplay*.h`, `robo_paint_display_*`), which is where it belongs: it is
+   RoboPaint's artifact, not the framebuffer module's.
+2. **The version and domain-count pins are real work.** Bumping to `0.3.0` and adding the
+   `display-list` diagnostic domain failed two existing cases (`paint.module.lifecycle`,
+   `paint.types.domain_vocabulary`) until their pins were updated — which is the pins doing
+   their job rather than a nuisance: a phase that changed a version or a vocabulary without
+   noticing would have shipped a doc that disagreed with the build.
+3. **The builder's stack is why it is an object.** The structural check needs the *node
+   identity* of every open box, not just a depth counter, so a box's content boundary and its
+   closing marker can be checked to name the box its opening marker named. That stack is the
+   real state a reused builder carries.

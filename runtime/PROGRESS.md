@@ -5076,12 +5076,73 @@ independence CLEAN, and the host visual checkpoint passes unchanged (11 probes, 
 file — the ninth consecutive phase, and the §14 proposal to fix the focus race rather than keep
 noting it is now overdue by five phases.
 
+## Goal 11.3 — Display lists
+
+**Status: complete.** The goal above the record list, and the first RoboPaint release that produces
+an **artifact** rather than a description: a `robo_paint_display_list_t` -- an ordered sequence of
+`robo_paint_display_command_t` -- that a rasteriser walks once and never consults the box model for.
+The phase's one idea is that a paint operation says *which rectangles a decision was made from* while
+a display command says *which one rectangle to act on, resolved*, and the resolution is where the
+work is.
+
+**Done:**
+
+| Thing | Where |
+|---|---|
+| `robo_paint_display_command_t` -- a value record with the **one resolved rectangle** the command acts on, plus node, depth, clip and colour. The vocabulary is **five kinds**, one narrower than the record's seven: the four border kinds collapse into one `DRAW_BORDER`, because the fact that distinguished them (which side) is consumed into the band rectangle | `RoboPaintDisplayCommand.h/.c` |
+| The **record-to-command mapping** as a total function: `BEGIN_BOX`→`BEGIN_NODE` over the border box, `BACKGROUND`→`DRAW_BACKGROUND` over the border box, `BORDER_*`→`DRAW_BORDER` over the **band** (via `robo_paint_operation_side_band`), `CONTENT`→`CONTENT` over the content box, `END_BOX`→`END_NODE` over the border box. Node, depth, clip and colour carry through unchanged, and the mapping is one-to-one so the two lists pair positionally | `RoboPaintDisplayListBuilder.c` |
+| The **padding box disappears** and that is the point: it was an input to the band derivation, and nothing above needs it once the band is resolved. The coordinate space is unchanged -- paint coordinates, one page space | `RoboPaintDisplayListBuilder.c`, `RoboPaintDisplayCommand.h` |
+| The **builder**, and the phase's second claim: a paint list is a container that validates each operation but not their *sequence*, so the builder walks the records with a stack of the open boxes and **refuses** a list that is not a traversable document -- an unclosed box, a wrong-depth begin, a boundary with no box, a close before the boundary, a marker naming the wrong node, a decoration after the boundary. A refused build leaves the output list **empty** | `RoboPaintDisplayListBuilder.c` |
+| The list and its ownership, shaped like the paint list's: one growable array of value commands, cleared first and grown in place, with `robo_paint_display_list_append` refusing any command the validity rule rejects | `RoboPaintDisplayList.c` |
+| The developer's view -- one line per command, indented by the command's own depth, with a **derived** line bound (`ROBO_PAINT_DISPLAY_DUMP_LINE_MAX`) a suite measures against a real widest line | `RoboPaintDisplayDump.c/.h` |
+| Version `0.3.0`; `display_lists` flips to **1** while `drawing` stays **0** -- a render-ready list exists and no colour reaches a surface, and keeping the two fields apart is what stops the first from being read as the second. A new `ROBO_PAINT_DOMAIN_DISPLAY_LIST` diagnostic domain (count 10) | `RoboPaintVersion.h`, `RoboPaint.c`, `RoboPaintTypes.h` |
+| The **display-list suite** -- 13 cases in `paint.display.*`: the vocabulary, the empty list, the mapping and resolved geometry checked against the records in lockstep, ordering and recoverable nesting, the clip carried, six malformed lists refused (and a well-formed hand-built one accepted), ownership and allocation balance, determinism by list and by dump, mutation isolation under a record-list clear and a re-layout, empty and degenerate documents, geometry safety, and the whole pipeline end to end | `paint/tests/SuiteRoboPaintDisplayList.c` |
+
+### Completion criteria
+
+| Criterion | Evidence |
+|---|---|
+| `RoboPaintDisplayList` exists | `RoboPaintDisplayList.h`; `robo_paint_display_list_t` |
+| DisplayCommand representation exists | `RoboPaintDisplayCommand.h`; `robo_paint_display_command_t` |
+| DisplayListBuilder/conversion layer exists | `RoboPaintDisplayListBuilder.h`; `robo_paint_display_list_builder_build` |
+| PaintRecordList converts into the display list | `paint.display.single_node_mapping`, `paint.display.end_to_end` |
+| Command payloads are snapshot-based | a command is a value with no pointers |
+| Ownership is explicit | `RoboPaintDisplayList.h`; `paint.display.ownership_and_balance` |
+| Ordering is deterministic | `paint.display.ordering`, `paint.display.determinism` |
+| Geometry is validated | `robo_paint_display_command_is_valid`; `paint.display.geometry_safety` |
+| Nested nodes work | `paint.display.ordering` walks the recovered nesting |
+| Empty cases work | `paint.display.empty_list`, `paint.display.empty_and_degenerate` |
+| Mutation isolation is tested | `paint.display.mutation_isolation` |
+| Debug dump works | `RoboPaintDisplayDump.c`; `paint.display.dump` |
+| End-to-end PaintRecord → DisplayList test passes | `paint.display.end_to_end` |
+| Existing tests remain passing | whole suite green |
+| No Chromium/Blink runtime dependency | boundary scan CLEAN; `robo check` PASS |
+| No out-of-scope subsystem was implemented | the deferral tables in `paint/README.md` and `paint/docs/DisplayList.md` §8 |
+
+### What 11.3 found
+
+Three findings, recorded in `paint/docs/Tests.md` §8. In one line each: **`RoboDisplay` is already
+taken** -- the obvious header names for a display list collide with the low-level RoboDisplay
+module's namespace *and* with the boundary scan that forbids RoboPaint from including anything named
+`RoboDisplay`, so the display list lives in RoboPaint's own namespace (`RoboPaintDisplay*.h`,
+`robo_paint_display_*`), which is where it belongs; the **version and domain-count pins are real
+work** -- bumping to `0.3.0` and adding the domain failed two existing cases until their pins were
+updated, which is the pins doing their job rather than a nuisance; and the **builder's stack is why
+it is an object** -- the structural check needs the node identity of every open box, not just a
+depth counter.
+
+The count went from **2419 to 2432**: 13 new display cases, and the module's **65 cases in five
+suites**. Debug and Release `-Verify -Test` each report `ALL TESTS PASS`; the sanitized build is
+clean under ASan and UBSan with no diagnostic. `--filter paint.` is **71/71** (65 module cases plus
+the six `demo.paint.*` cases the substring filter also matches), and `robo test-paint` passes.
+`robo check` passes with Chromium independence CLEAN, and the host visual checkpoint passes unchanged
+(11 probes, 15 checks, 0 failed -- `RESULT: PASS`).
+
 ## Next
 
-- **Phase 11.3 — the next RoboPaint goal.** 11.2 completes the record model and stops at it: the
-  `painting` capability is still `0`, `ROBO_PAINT_DRAWING_IMPLEMENTED` is `0`, and the drawing
-  vocabulary is still one background and four border sides. The deferred tables in `paint/README.md`
-  and `paint/docs/Architecture.md` §13 name every later goal — backgrounds, borders, text and image
-  operations, opacity, clipping, display lists, rasterisation, paint invalidation (11.11) and hit
-  testing (11.10) — and `paint/docs/Architecture.md` §15 lists the twelve rules the next goal may
+- **Phase 11.4 — the next RoboPaint goal.** 11.3 produces the render-ready artifact and stops at it:
+  `drawing` is still `0`, `raster` is `0`, and nothing consumes the commands yet. The deferred tables
+  in `paint/README.md` and `paint/docs/DisplayList.md` §8 name every later goal -- text and image
+  commands, opacity, clipping, transforms, batching, rasterisation, paint invalidation (11.11) and hit
+  testing (11.10) -- and `paint/docs/Architecture.md` §15 lists the sixteen rules the next goal may
   assume. Do not start until requested

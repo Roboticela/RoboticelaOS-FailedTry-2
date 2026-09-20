@@ -284,7 +284,11 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboPaint\RoboPaintOperation.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintList.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintContext.c"),
-    (Join-Path $SourceDir "RoboPaint\RoboPaintDump.c")
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDump.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayCommand.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayList.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayListBuilder.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayDump.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -491,6 +495,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintTraversal.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintConformance.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintRecords.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintDisplayList.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

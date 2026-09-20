@@ -135,10 +135,10 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.2.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.3.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 2);
+    ROBO_CHECK_EQ_INT((int)minor, 3);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement, and a caller reading only a version number
@@ -264,16 +264,17 @@ static void test_paint_domain_vocabulary(void)
 {
     static const char *const expected[ROBO_PAINT_DOMAIN_COUNT] = {
         "none", "module", "context", "operation", "list", "geometry", "traversal", "clip",
-        "dump"
+        "dump", "display-list"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 9);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 10);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_GEOMETRY, 5);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_DUMP, 8);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_DISPLAY_LIST, 9);
     for (index = 0u; index < (size_t)ROBO_PAINT_DOMAIN_COUNT; index++) {
         ROBO_CHECK_EQ_INT(robo_paint_domain_is_known((robo_paint_diagnostic_domain_t)index), 1);
         ROBO_CHECK_STR_EQ(robo_paint_domain_name((robo_paint_diagnostic_domain_t)index),

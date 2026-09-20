@@ -183,11 +183,20 @@ typedef enum robo_paint_diagnostic_domain {
     /** The clip in force: the intersection, the mode accumulation. */
     ROBO_PAINT_DOMAIN_CLIP = 7,
     /** The text dump a developer reads. */
-    ROBO_PAINT_DOMAIN_DUMP = 8
+    ROBO_PAINT_DOMAIN_DUMP = 8,
+    /**
+     * The display list and its builder (11.3): the list's growth, a record that resolves
+     * to no command, and a record list that is not a traversable document.
+     *
+     * Its own domain rather than `LIST` or `OPERATION`, because a display list that could
+     * not be built is a failure of a *different stage* than a paint list that could not
+     * grow -- and a reader sent to the wrong stage is a reader sent to the wrong phase.
+     */
+    ROBO_PAINT_DOMAIN_DISPLAY_LIST = 9
 } robo_paint_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_PAINT_DOMAIN_COUNT 9u
+#define ROBO_PAINT_DOMAIN_COUNT 10u
 
 /** Non-zero if @p domain is a defined domain. */
 int robo_paint_domain_is_known(robo_paint_diagnostic_domain_t domain);

@@ -1,11 +1,12 @@
-# RoboPaint — architecture (through Phase 11.2)
+# RoboPaint — architecture (through Phase 11.3)
 
 RoboPaint is the fifth module in the layout stack. It sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`), and it turns the completed geometry RoboLayout
-produced into a **deterministic sequence of operations** a rasteriser will one day execute.
-This release is the boundary between those two and nothing above it: it establishes the
-context, the operation vocabulary, the list and its ownership, the deterministic traversal,
-the geometry a rasteriser reads, and the clip state. It does not draw.
+produced into a **deterministic sequence of operations** a rasteriser will one day execute --
+and, since 11.3, into the **render-ready display list** it will consume. This release
+establishes the context, the operation vocabulary, the list and its ownership, the
+deterministic traversal, the geometry a rasteriser reads, the clip state, and the display
+list with its builder. It does not draw.
 
 ---
 
@@ -65,6 +66,10 @@ Eight headers under `Include/RoboPaint/`, one umbrella:
 | `RoboPaintList.h` | `robo_paint_list_t` — create/clear/append/at/operations/equal |
 | `RoboPaintContext.h` | `robo_paint_context_t`, `robo_paint_stats_t`, `robo_paint_pass_outcome_t`, `robo_paint_context_run` |
 | `RoboPaintDump.h` | `robo_paint_list_write` |
+| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its vocabulary, validity and writer (11.3) |
+| `RoboPaintDisplayList.h` | `robo_paint_display_list_t`, `robo_paint_display_list_stats_t` (11.3) |
+| `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` (11.3) |
+| `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` (11.3) |
 | `RoboPaint.h` | Lifecycle, capabilities, version |
 
 Two closed enumerations and one diagnostic domain set, in the shape every module uses: an
@@ -341,12 +346,13 @@ documented rule rather than a hazard, because nothing in an operation points any
 `robo_paint_capabilities_t` is read positionally by `paint.conformance.capabilities` against a
 list of names, so a field added without an assertion is a visible omission. Eight of its
 eleven fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
-`box_geometry`, `clip_state`, `decoration_ops`) and three are **0**:
+`box_geometry`, `clip_state`, `decoration_ops`, and **`display_lists`** since 11.3) and
+three are **0**:
 
 | Field | Value | Why |
 |---|---|---|
 | `drawing` | 0 | no colour reaches a surface; the field a caller about to look for a framebuffer should read |
-| `display_lists` | 0 | a display list as a consumable artifact is a later goal |
+| `display_lists` | **1** | a display list as a consumable artifact exists (11.3) — **1 while `drawing` is 0**, and keeping the two apart is the point: a render-ready list is not a pixel |
 | `raster` | 0 | rasterising a list into a RoboGraphics surface is a later goal |
 | `paint_invalidation` | 0 | 11.11; what exists instead is its *input*, `stats.style_only` |
 
@@ -495,3 +501,50 @@ And 11.2's own:
 12. `robo_paint_op_kind_is_structural` / `robo_paint_op_kind_draws` partition the vocabulary
     above `NONE`, so a new kind is added by choosing a side rather than by extending a
     two-member special case.
+13. **A display list exists** and is the render-ready artifact: `robo_paint_display_list_builder_build`
+    converts a paint list into a `robo_paint_display_list_t`, one command per record, in the
+    same order, with the box model resolved into a single rectangle per command (§16).
+14. A display command is a value with no pointers; a display list owns one array of them and
+    is safe to discard and regenerate, in any order relative to the records and the tree.
+15. A display list is **regular** — the structural skeleton is an invariant the builder
+    enforced and refuses to violate; an out-of-order record list produces an empty list and
+    a `ROBO_PAINT_DOMAIN_DISPLAY_LIST` diagnostic.
+16. Rasterising is still absent: `raster` is 0 and nothing consumes the commands.
+
+---
+
+## 16. The display list (Phase 11.3)
+
+`robo_display_command_t` is the layer above the record: it carries the **one rectangle a
+command acts on, resolved**, so a rasteriser never reads the box model.
+
+| Paint operation | Display command | `rect` |
+|---|---|---|
+| `BEGIN_BOX` | `BEGIN_NODE` | border box |
+| `BACKGROUND` | `DRAW_BACKGROUND` | border box |
+| `BORDER_*` (four) | `DRAW_BORDER` (one) | the side's **band** |
+| `CONTENT` | `CONTENT` | content box |
+| `END_BOX` | `END_NODE` | border box |
+
+The mapping is a **total function** over the record vocabulary, so the two lists are the same
+length and pair positionally; `node`, `depth`, `clip` and `colour` carry through unchanged.
+Two consequences are worth naming because they look like losses and are the point: the
+**padding box disappears** (it was an input to the band derivation), and the **four border
+kinds collapse into one** (the side is consumed into the band rectangle). The coordinate
+space is unchanged — paint coordinates, one page space.
+
+The vocabulary is five kinds, split structural/drawing the record's way, and the validity
+rule splits on *drawing* rather than *marker* so `CONTENT` is held to the structural side.
+
+The **builder** is the phase's second claim: a paint list is a container that validates each
+operation but not their sequence, so the builder walks the records with a stack of the open
+boxes and **refuses** a list that is not a traversable document (a box that never closes, a
+boundary in the wrong place, a marker naming the wrong node, a decoration after the content
+boundary). A refused build leaves the output list **empty**. The builder is a stateful object
+because the check needs that stack, and it is reused across builds.
+
+Ownership is the paint list's: a display list owns one array of value commands and reaches
+nothing else, so 11.2's snapshot property is the display list's too — mutating the record
+list or re-laying-out the tree leaves it byte-identical (`paint.display.mutation_isolation`).
+
+See `paint/docs/DisplayList.md` for the precise contract.

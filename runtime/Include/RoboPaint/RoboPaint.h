@@ -34,7 +34,7 @@
  * What it does *not* buy is a rasteriser, and this header says so in three places rather
  * than leaving a caller to find out: the constant is 0, the function answers 0, and the
  * capability field says `drawing` is absent. A caller that checked only a version number
- * would conclude that 0.2.0 paints; the field is the thing that says it does not.
+ * would conclude that 0.3.0 paints; the field is the thing that says it does not.
  *
  * Chromium's paint and display-list architecture -- `PaintLayer`, `DisplayItem`,
  * `PaintController`, `cc::DisplayItemList` -- is temporary technical reference only, and
@@ -49,6 +49,10 @@
 
 #include "RoboBase/RoboError.h"
 
+#include "RoboPaint/RoboPaintDisplayCommand.h"
+#include "RoboPaint/RoboPaintDisplayDump.h"
+#include "RoboPaint/RoboPaintDisplayList.h"
+#include "RoboPaint/RoboPaintDisplayListBuilder.h"
 #include "RoboPaint/RoboPaintContext.h"
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintDump.h"
@@ -116,7 +120,16 @@ typedef struct robo_paint_capabilities {
      * caller who is about to look for a framebuffer should read.
      */
     int drawing;
-    /** A display list as a consumable artifact. **0**: a later Phase 11 goal. */
+    /**
+     * A display list as a consumable artifact (**11.3**, and **1** since then): the
+     * `RoboPaintDisplayList` that resolves the box model into one rectangle per command and
+     * enforces the traversal's structural convention, built from a paint list.
+     *
+     * **1 while `drawing` is 0**, and keeping the two apart is the point: this build
+     * produces a *render-ready* list and still puts no colour on a surface. A caller
+     * that read only this field would conclude the pixels are there; a caller that read
+     * only `drawing` would miss that the artifact a rasteriser consumes now exists.
+     */
     int display_lists;
     /** Rasterising a paint list into a RoboGraphics surface. **0**: a later goal. */
     int raster;
@@ -133,7 +146,7 @@ void robo_paint_capabilities_init(robo_paint_capabilities_t *capabilities);
  *  @return ROBO_OK; ROBO_INVALID_ARGUMENT for NULL @p out. */
 robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out);
 
-/** The version this build was compiled as ("0.2.0"); never NULL. */
+/** The version this build was compiled as ("0.3.0"); never NULL. */
 const char *robo_paint_version_string(void);
 
 /**
