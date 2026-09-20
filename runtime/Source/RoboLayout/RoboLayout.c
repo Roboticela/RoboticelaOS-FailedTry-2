@@ -136,6 +136,16 @@ robo_result_t robo_layout_get_capabilities(robo_layout_capabilities_t *out)
      * order moves, and a transparent inline box and a text run carry no offset.
      */
     out->positioning = ROBO_LAYOUT_POSITIONING_IMPLEMENTED;
+    /*
+     * And 10.13's, the first capability in this struct that is about what happens when a
+     * box's contents do *not* fit. A record per measured box -- two used modes and four
+     * extents beyond the padding box -- plus a region and a clip rectangle a paint pass can
+     * consume, with every placed child's region folded into its parent's measurement. **Not**
+     * "overflow is finished": nothing scrolls, no scrollport or scrollbar exists,
+     * `scroll`/`auto`/`clip` are values this build has not added, CSS's `visible`/`auto` axis
+     * promotion does not apply (it exists for scrolling), and no pixel is touched here.
+     */
+    out->overflow = ROBO_LAYOUT_OVERFLOW_IMPLEMENTED;
     out->painting = 0;
     return ROBO_OK;
 }

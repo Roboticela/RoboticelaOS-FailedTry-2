@@ -102,10 +102,12 @@
  *   The recursion does not descend into one either, because a box inside an unplaced
  *   box has no origin to be placed relative to.
  *
- *   Positioning, overflow, floats and fragmentation are **10.12, 10.13 and
- *   later**. In particular the result's two overflow flags stay 0 even when a
- *   declared height is smaller than the content it holds: that a box overflows is
- *   a fact 10.13 owns, and setting a flag here would be answering it.
+ *   Positioning and overflow are **10.12 and 10.13**; floats, fragmentation and
+ *   scrolling are later. The result's two overflow flags are set here since 10.13,
+ *   and only from a *measured* extent: a declared height smaller than the content it
+ *   holds leaves the flags 0 unless the contents are walked and an edge is actually
+ *   passed, because "the declaration says it cannot fit" and "something is outside it"
+ *   are two statements and this pass answers the second.
  *
  * Determinism
  *
@@ -284,6 +286,25 @@ typedef struct robo_layout_block_stats {
      *  box rather than about a declaration, like `borders_drawn` -- and for the same kind
      *  of reason, since four declarations can resolve and move nothing. */
     size_t boxes_shifted;
+    /** Boxes that **clip** something (10.13): at least one axis's used mode is `hidden`.
+     *  Counted from the *used* record rather than from the declarations, and counted even
+     *  when nothing sticks out -- `overflow: hidden` on a box whose contents fit is a
+     *  boundary that happens to have nothing to hold back, and it is not the same document
+     *  as a box that declares nothing. */
+    size_t overflow_clipped;
+    /** Boxes whose contents **reached outside** their padding box on some axis (10.13):
+     *  the number the result's two flags summarise, and the reason the attribute is
+     *  `overflow` rather than `overflow-clip`: a build that counted only the boxes that
+     *  clip would say nothing about the boxes that spill. */
+    size_t overflowing;
+    /** **Axes** declared with an overflow this build cannot use (10.13): a `var()`
+     *  reference, or one of CSS's overflow values this build has not added (`scroll`,
+     *  `auto`, `clip`). Their used mode is `visible`, which is why they are counted: a
+     *  document whose clipping depends on a custom property lays out unclipped here, and
+     *  the count is what says so. Summed over axes for the reason the margin, padding and
+     *  border counters are summed over sides -- a declaration arrives one per axis and the
+     *  number that can be checked against a stylesheet by hand is the small one. */
+    size_t overflow_unresolved;
     /** Containers with no block-level child at all, so the extent this pass
      *  stacked in the block direction is zero and the height is `0` unless one was
      *  declared -- or, from 10.4, is the extent the *lines* reached. A box that

@@ -54,6 +54,7 @@
 #include "RoboLayout/RoboLayoutGeometry.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
+#include "RoboLayout/RoboLayoutOverflow.h"
 #include "RoboLayout/RoboLayoutPadding.h"
 #include "RoboLayout/RoboLayoutPosition.h"
 #include "RoboLayout/RoboLayoutResult.h"
@@ -285,6 +286,33 @@ typedef struct robo_layout_object {
      * @ref padding and @ref borders.
      */
     robo_layout_position_offset_t position_offset;
+    /**
+     * The **overflow** this box was measured with (10.13), or a cleared record.
+     *
+     * Two kinds of fact in one record, because a consumer needs them together: the two
+     * **modes** the declarations resolved to (per axis, so a paint pass knows whether
+     * there is a boundary) and the four **extents** its contents reached beyond the
+     * padding box.
+     *
+     * It is on the object rather than in the result for the reason the three insets are,
+     * and one more that is particular to this phase: a result's `position` and `size` are
+     * the box, which does **not** grow because its contents do not fit, so the second
+     * rectangle has nowhere else to live. A phase that had folded the extents into `size`
+     * would make every box as large as its contents and quietly break every layout that
+     * depends on a declared width.
+     *
+     * The two **flags** in a result say the same thing in one bit per axis
+     * (`ROBO_LAYOUT_RESULT_FLAG_OVERFLOW_X`), which is what a caller checks before it has
+     * any reason to read four numbers; this record is where the numbers are.
+     *
+     * Cleared with the geometry in the same sweep and for the same reason as @ref margins,
+     * @ref padding, @ref borders and @ref position_offset: an overflow that outlived the
+     * classification would be a plausible-looking record about a layout that no longer
+     * holds. Its cleared state is two `visible` axes and four zeros, which is a real answer
+     * -- a box with nothing sticking out -- told apart from "nothing measured" by the
+     * object's result state, exactly as everywhere else here.
+     */
+    robo_layout_overflow_edges_t overflow;
 
     /* Structural links (ROBO_LAYOUT_NODE_ID_NONE = absent). */
     robo_layout_node_id_t parent;
@@ -535,6 +563,44 @@ robo_result_t robo_layout_object_position(const robo_layout_tree_t *tree,
                                           robo_layout_node_id_t id,
                                           robo_layout_position_offset_t *out,
                                           robo_layout_diag_t *diag);
+
+/**
+ * The **overflow** @p id was measured with (Phase 10.13).
+ *
+ * The two used modes and the four extents its contents reached beyond the padding box,
+ * and the door the two consumers this phase has read:
+ *
+ *   a **paint** pass asks for the region (what may be drawn outside the box) and the clip
+ *   rectangle (what must be clipped to), through `robo_layout_overflow_edges_region` and
+ *   `robo_layout_overflow_edges_clip_rect` -- neither of which re-reads a declaration, and
+ *   the second of which refuses rather than answering when no axis clips;
+ *
+ *   a **diagnostic** asks how much of a document overflowed, which is what the extents say
+ *   and the result's two flags summarise.
+ *
+ * The door refuses the same four things `robo_layout_object_borders` refuses, and for the
+ * same reasons:
+ *
+ *   an id that names nothing                      -- `robo_layout_object_get`'s miss;
+ *   an object **nothing placed**, so nothing was measured -- a cleared overflow record is a
+ *   legal value (no overflow is the common case), so this door asks the result rather than
+ *   reading the record's silence;
+ *   a **text run**, and a **transparent inline box** with contents: neither is measured.
+ *   A text node is not a box at all, and a transparent inline box's rectangle *is* the
+ *   union of its contents, so an overflow relative to it would be a statement about a
+ *   rectangle that was already derived from the things being measured. Both are declined
+ *   rather than answered, and the reason they are declined is the reason their extents are
+ *   still folded into their parent's: the parent's measurement walks every placed child,
+ *   and these two contribute through `robo_layout_overflow_object_region`.
+ *
+ * @return ROBO_OK and the record; ROBO_INVALID_ARGUMENT for NULL arguments or a NONE id;
+ *         ROBO_NOT_FOUND for the three cases above. @p out is cleared to no overflow first,
+ *         so a caller that ignores the code reads a stated absence rather than a leftover.
+ */
+robo_result_t robo_layout_object_overflow(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_overflow_edges_t *out,
+                                         robo_layout_diag_t *diag);
 
 /**
  * The parent.

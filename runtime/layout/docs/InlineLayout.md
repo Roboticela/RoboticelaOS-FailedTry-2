@@ -177,8 +177,13 @@ participant that does not fit on an **empty** line is placed anyway and overflow
 rather than starting lines forever. `layout.inline.overflow_does_not_wrap` asserts
 it with a 400px box on a 200px line.
 
-Overflow itself is 10.13's and this pass sets no flag for it — a box that runs past
-its line is a fact the result's two flag bits deliberately still do not carry.
+*Written in 10.4, when the flags did not carry it. 10.13 is the phase that filled
+them in, and this pass sets them for an **atomic participant** from a measured extent
+— the participant's contents against its own padding box — while a box that merely
+runs past its line keeps setting none, because that is the wrapping rule above doing
+its job rather than an overflow. A text run and a transparent inline box are measured
+by nobody: the first is not a box, and the second's rectangle *is* the union of its
+contents.*
 
 ### 4.1 A preliminary line is not a line box
 
@@ -337,7 +342,7 @@ the box owns through 10.2's own door.
 | 10.11 border (outcome) | an atomic inline's `width`/`height` and therefore its **advance** are now its **border** box: the padding box plus the border, so an `inline-block` with `border-left: 5px` and `border-right: 15px` advances twenty more than its declaration says. It goes through `robo_layout_border_resolve`, the *same* door the block pass calls, and for the same reason — a border has no `auto`. One thing is this direction's own: the used width is zero unless the style **draws**, so an `inline-block` with `border: 5px none` advances exactly as far as one with no border at all. A transparent inline box takes **none** of the three insets, and `layout.borders.inline_transparent_not_applied` asserts the omission as a value |
 | 10.12 positioning (outcome) | an **atomic inline** carries the phase's displacement in two halves: the horizontal one to its `position.x` — drawn `dx` further along its line while the cursor advances by its margin box exactly as it always would — and the vertical one at **finalization**, after the baseline correction, because a member's `y` is not final until its line's floor is (10.7). A **transparent inline box** and a **text run** take neither: a transparent box's rectangle is the union of its contents, a text run is not a box at all, and `robo_layout_object_position` answers `ROBO_NOT_FOUND` for both rather than a zero (`Positioning.md` §5) |
 | a later goal | the rebase (§5) — the coordinate convention surviving nesting |
-| 10.13 overflow | the `cursor > 0` guard (§4), which is the only place overflow is decided |
+| 10.13 overflow (**done**) | the `cursor > 0` guard (§4) is still the only place *wrapping* is decided, and overflow is now a separate fact measured on top of it: an **atomic participant** is measured (`robo_layout_overflow_measure`, against its own padding box) and its result's two flags are set from the record — *before* `robo_layout_result_set_geometry` writes its position, because that door does not touch the flag word and a build that reset them at placement would report no overflow for every atomic inline and look correct in every document whose boxes fit. A **text run** and a **transparent inline box** are declined by `robo_layout_object_overflow` and still contribute their **region** to their parent's measurement, which is why the parent's record sees them and the object door will not answer for them (`Overflow.md` §8) |
 | the anonymous box | `block_level_declined` (§2.1), the count of what the wrapper will be for |
 | 11 paint | a rectangle per participant, in the coordinate space §5 defines |
 
@@ -457,8 +462,10 @@ placements: the phase changed where a member goes, not which objects are members
   resolution.** §3, and 10.8 kept the atomic fallback stated rather than guessed:
   an unresolvable declaration is read, recorded and filled from the available space
   with a source saying so (`Sizing.md`).
-- **No absolute or fixed positioning, no floats, no overflow flag, no
-  fragmentation.** §4, and 10.12–10.13.
+- **No absolute or fixed positioning, no floats, no fragmentation, and no
+  *scrolling*.** §4, and 10.12 (positioning) and 10.13 (overflow) are done — but a
+  box's overflow here is *recorded*, not scrolled, and a box that runs past its line
+  is still not an overflow at all.
 - **No paint, no rendering, no windowing, no display.** The viewport is still an
   argument (10.3 §3.1) and `Tools/Build.ps1 -Verify` enforces the boundary.
 - **No CSS parsing, and no second display predicate.** Atomicity is read from the

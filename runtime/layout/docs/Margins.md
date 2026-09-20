@@ -197,6 +197,16 @@ Two places, and they carry different things:
   so a displaced box's margins still carve its hole in the parent exactly as if it
   had not moved (`Positioning.md` §5).
 
+  *10.13's outcome row:* nothing here, and the phase is the one that finally *reports*
+  what this document has been promising since 10.9 — "the overflow is 10.13's". An
+  over-constrained box still keeps its autos at zero rather than adjusting
+  `margin-right`, and what 10.13 adds is that the overhang is no longer a fact nothing
+  writes down: the box's extent past its padding box is in its overflow record, and a
+  **negative** margin's overhang lands there too, because an extent is measured from
+  the padding box and a margin is outside it (`Overflow.md` §4). The four used values
+  this document defines are untouched — a margin still moves a box and never resizes one
+  — which is the pair `layout.overflow.pass_box_model` asserts.
+
 The parent's side of it is one number: `layout_block_box` reports
 `top + height + bottom` as the extent the cursor advances by. The containing block
 never looks at where a child's content box ended; it only asks where the next one may
@@ -300,9 +310,13 @@ Each a named later goal:
   from the sizing layer's answer rather than by this one adding a third term.
 - **borders** (10.11), still absent, and the reason a box's border box today is a
   content box plus padding and nothing else.
-- **positioning** (10.12), where a vertical `auto` and the `top`/`left` insets get
-  their meaning, and overflow (10.13), which owns an over-constrained box's overflow
-  and a negative margin's overhang.
+- ~~**positioning** (10.12)~~ **done in 10.12**, where a vertical `auto` and the
+  `top`/`left` insets get their meaning (a vertical `auto` still resolves to zero:
+  `auto` means something only for an absolutely positioned box, 18.5).
+  ~~overflow (10.13), which owns an over-constrained box's overflow and a negative
+  margin's overhang~~ **done in 10.13** — an over-constrained box's overflow and a
+  negative margin's overhang are now *recorded* rather than merely noted, though
+  neither is *acted on* until something scrolls.
 - `box-sizing`, flex/grid/table margin distribution, and `margin: inherit` arriving
   as a *keyword* rather than as four computed longhands (the classification reads a
   keyword other than `auto` as unusable, which is the honest answer until the

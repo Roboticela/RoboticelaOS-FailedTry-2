@@ -350,6 +350,22 @@ typedef struct robo_layout_inline_stats {
      *  reason the block record counts it: four declarations can resolve and move nothing,
      *  so "how many boxes did this move?" is a question only a box count answers. */
     size_t boxes_shifted;
+    /** **Atomic participants** whose used overflow clips something (10.13). Counted for
+     *  the block record's reason and with its rule: an `inline-block` with
+     *  `overflow: hidden` is a boundary, whether or not anything sticks out of it. A
+     *  transparent inline box and a text run are not counted -- neither carries an
+     *  overflow record, and the door that reads one declines them. */
+    size_t overflow_clipped;
+    /** **Atomic participants** whose contents reached outside their padding box on some
+     *  axis (10.13). The line may have to grow for such a box, and the parent block box's
+     *  measurement is what folds it in -- so this count and the block record's are two
+     *  views of one document rather than a sum. */
+    size_t overflowing;
+    /** **Axes** of an atomic participant declared with an overflow this build cannot use
+     *  (10.13), used as `visible` and counted so that a document whose clipping depends on
+     *  a `var()` is visible as one. Summed over axes, for the reason every counter above
+     *  it is summed over sides. */
+    size_t overflow_unresolved;
     /** Deepest participant placed. */
     uint32_t depth_max;
 } robo_layout_inline_stats_t;

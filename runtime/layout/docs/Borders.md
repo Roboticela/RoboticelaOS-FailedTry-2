@@ -434,6 +434,17 @@ any border on a transparent inline box
         record a paint pass reads complete -- used width, style and colour per
         side, decided once
 
+and, since 10.13, what a border DOES to an overflow
+        nothing, and that is the phase's own conclusion rather than an omission. A
+        border is outside the padding box, and the padding box is the edge an
+        overflow is measured from and the edge `overflow: hidden` clips to -- so a
+        border changes the *box* an extent sits beside without changing the extent.
+        The one thing it does change is the room: a wider border shrinks the padding
+        box, so the same child that fitted with no border can overflow with one, and
+        `layout.overflow.pass_box_model` asserts the record and the box-model numbers
+        side by side so the two cannot be confused for each other (`Overflow.md`
+        §10)
+
 visual validation
         the current demo's rendering path paints no borders (11) and does not run
         RoboLayout at all, so a border is invisible in the host checkpoint however

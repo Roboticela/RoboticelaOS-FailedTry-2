@@ -246,6 +246,25 @@ typedef struct robo_css_capabilities {
      */
     int borders;
     /**
+     * The overflow family (10.13): `overflow`, `overflow-x` and `overflow-y` as
+     * typed values of a closed two-value vocabulary — `visible` and `hidden` —
+     * each carrying whether it clips the axis it belongs to.
+     *
+     * Registered by a *layout* phase rather than by one of the 9.x value phases,
+     * and for a reason that is worth reading here: `overflow` is the first property
+     * in this build whose value changes geometry, so the phase that has a box chose
+     * to make it a value that can be refused rather than a token list carried
+     * through. The shorthand's own name takes the same shape, which is how
+     * `overflow: hidden` reaches a consumer without the shorthand expansion this
+     * build does not have.
+     *
+     * What it does not claim is scrolling or clipping. Nothing here scrolls, no
+     * scrollbar exists, and the clipping boundary — the box's padding edge — belongs
+     * to the phase that has the box. `scroll`, `auto` and `clip` are rows this build
+     * has not added rather than words it does not know.
+     */
+    int overflow;
+    /**
      * Parsing an element's `style` attribute — the 9.1 boundary, filled by the
      * 9.3 grammar. The DOM still owns the attribute; RoboCSS is handed its text.
      */

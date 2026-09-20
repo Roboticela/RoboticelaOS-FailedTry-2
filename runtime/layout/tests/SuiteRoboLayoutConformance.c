@@ -72,6 +72,7 @@ static const struct {
     { "padding", 1 },
     { "border", 1 },
     { "positioning", 1 },
+    { "overflow", 1 },
     { "painting", 0 }
 };
 
@@ -99,11 +100,11 @@ static void test_conformance_capabilities(void)
             implemented++;
         }
     }
-    /* Eighteen of nineteen. Asserted as a count as well as field by field, so a build
+    /* Twenty of twenty-one. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The nineteenth is `painting`, and it is the only one that is 0. */
-    ROBO_CHECK_EQ_INT(implemented, 19u);
+     * glance. The twenty-first is `painting`, and it is the only one that is 0. */
+    ROBO_CHECK_EQ_INT(implemented, 20u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -209,6 +210,19 @@ static void test_conformance_capabilities(void)
      */
     ROBO_CHECK_EQ_INT(caps.border, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_BORDER_IMPLEMENTED, 1);
+
+    /*
+     * And `positioning` and `overflow`, the two fields 10.12 and 10.13 added, which are
+     * the pair whose claims are about something other than the box's own size: a
+     * displacement says where the box *is* and an overflow says what its contents *did*,
+     * and neither can be read off a declaration the way a width can. `absolute`, `fixed`
+     * and `sticky` placement, stacking contexts and paint order are 18.5's; scrolling,
+     * the other three overflow values and the actual clipping are later goals'.
+     */
+    ROBO_CHECK_EQ_INT(caps.positioning, ROBO_LAYOUT_POSITIONING_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(caps.overflow, ROBO_LAYOUT_OVERFLOW_IMPLEMENTED);
+    ROBO_CHECK_EQ_INT(robo_layout_get_capabilities(&caps), ROBO_OK);
+    ROBO_CHECK_EQ_INT(caps.overflow, 1);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 }
 
@@ -1091,7 +1105,7 @@ static void test_conformance_statement(void)
      * the build claiming it does not.
      */
     ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.12.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.13.0");
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_API_FROZEN, 0);
 
     /*

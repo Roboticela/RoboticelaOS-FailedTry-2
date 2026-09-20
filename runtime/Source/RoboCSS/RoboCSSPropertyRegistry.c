@@ -185,6 +185,8 @@ const char *robo_css_property_computation_name(
         return "background-size";
     case ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE:
         return "border-style";
+    case ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW:
+        return "overflow";
     default:
         return "unknown";
     }
@@ -719,6 +721,34 @@ static const registry_standard_entry_t registry_standard_entries[] = {
       ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
     { "margin-top",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
+    /*
+     * 10.13 adds the overflow family, and it is the first family here that is
+     * *registered by a layout phase*: `overflow` changes geometry — an axis with a
+     * boundary is a different box from one without — and no phase between 9.x and
+     * 10.13 has any use for the value. It is registered rather than read from a
+     * preserved token list for the reason every closed vocabulary above it is:
+     * `overflow: banana` has to be a mistake, not a keyword carrying the text
+     * `banana` that the phase with a box silently fails to interpret.
+     *
+     * The *shorthand's own name* takes the vocabulary too, and that is the one
+     * unusual row here. Nothing in this build expands a shorthand, so `overflow`
+     * left on the generic PRESERVE shape would carry tokens no consumer reads and a
+     * document written as `overflow: hidden` would lay out exactly as if the
+     * declaration had never been written — which would be a silent wrong answer about
+     * a very common declaration. One vocabulary shared by the shorthand and its two
+     * longhands is the shorthand's meaning one step early rather than a second
+     * implementation of expansion, and the cost is stated where it is paid: the
+     * two-value form (`overflow: hidden visible`) is not read
+     * (`RoboCSSOverflow.h`). The flag records what the name is, for the phase that
+     * does expand shorthands.
+     */
+    { "overflow",      ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW,   "visible",
+      ROBO_CSS_PROPERTY_FLAG_SHORTHAND },
+    { "overflow-x",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW,   "visible",   0 },
+    { "overflow-y",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW,   "visible",   0 },
     { "padding",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_PRESERVE,   "0",
       ROBO_CSS_PROPERTY_FLAG_SHORTHAND },

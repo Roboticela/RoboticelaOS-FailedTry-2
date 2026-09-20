@@ -400,6 +400,8 @@ const char *robo_css_diagnostic_domain_name(robo_css_diagnostic_domain_t domain)
         return "background";
     case ROBO_CSS_DOMAIN_BORDER:
         return "border";
+    case ROBO_CSS_DOMAIN_OVERFLOW:
+        return "overflow";
     default:
         return "unknown";
     }

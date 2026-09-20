@@ -350,7 +350,7 @@ one source of truth for one fact, which is the rule this module applies everywhe
 | 10.10 padding (outcome) | the width is resolved against what the margins **and** the padding left, and the result's `size` is the **padding** box the padding layer derives: the sizing layer's content box plus the padding on each axis (`Padding.md` §1). The card's own size moves 200×100 → **210×110** and `<body>`'s extent 120 → **130**, while its **children** still get 200 — the `content-box` model, and the assertion that keeps the declared-width rule in §3 true |
 | 10.11 border (outcome) | one more subtraction and one more addition, and the last of each: the width is now resolved against the containing block less the **margins, the border and the padding**, and the result's `size` is the **border** box — the padding box plus the border — so the card declares `border: 4px solid black` and is **218×118** while `<body>`'s extent is **132** (`Borders.md` §1). The content origin this document defines becomes a **two-term** number, the border's `top`/`left` and then the padding's, and the `content-box` model is unmoved: the paragraph is still **200**. What the phase adds to this pass is one call in each direction, in the order the box is built |
 | 10.12 positioning (**done**) | a result's `position` is now the **final** position — flow displaced — while every number this pass stacks by stays the flow geometry; the used offset is on the object and §2's coordinate space is unchanged (`Positioning.md` §5) |
-| 10.13 overflow | the two result flags that are still 0, and the box that is the scroll container |
+| 10.13 overflow (**done**) | the two result flags that were 0 are now set by this pass, from a **measured** extent rather than from the declaration: `robo_layout_overflow_measure` runs at the point a box's padding box is known, the record is written onto the object, `overflow_clipped`/`overflowing`/`overflow_unresolved` are counted, and the result's two bits are folded from the record's per-axis answer. Nothing this pass stacks by changes — the size is what the declarations and the in-flow contents asked for, and a child that sticks out contributes its **region** to the parent's overflow record and nothing else (`Overflow.md` §8). The four numbers in §9's outcome rows above are all unmoved |
 | 11 paint | a rectangle per box, in the coordinate space §2 defines |
 
 None of these needs a change to the block model. What 10.4 added is the line box
@@ -375,8 +375,10 @@ boundary item in `Margins.md` §6.
   both resolved by the sizing layer, and everything else is read, recorded as
   unresolved and filled rather than guessed (`Sizing.md`).
 - **No percentage, relative-unit, `min-height` or `max-height` resolution.** §4.
-- **No absolute or fixed positioning, no floats, no overflow, no fragmentation.**
-  §6 and 10.12–10.13.
+- **No absolute or fixed positioning, no floats, no fragmentation, and no
+  *scrolling*.** §6, and 10.12 (positioning) and 10.13 (overflow) are done — but an
+  overflow here is *recorded* rather than scrolled, so the box that is a scroll
+  container, the scroll offset and the scrollbar are all still absent.
 - **No paint, no rendering, no windowing, no display.** The viewport is an argument
   (§3.1) and `-Verify` enforces the boundary.
 - **No CSS parsing.** Display is read through 9.12's own accessors —

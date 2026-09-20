@@ -128,9 +128,9 @@ static void test_css_registry_standard_set(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 63);
+    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 66);
     ROBO_CHECK_EQ_INT((int)inherited, 16);
-    ROBO_CHECK_EQ_INT((int)non_inherited, 47);
+    ROBO_CHECK_EQ_INT((int)non_inherited, 50);
 
     robo_css_property_registry_destroy(registry);
 }
@@ -291,7 +291,17 @@ static void test_css_registry_initial_values(void)
         {"right", "auto"},
         {"bottom", "auto"},
         {"left", "auto"},
-        {"z-index", "auto"}
+        {"z-index", "auto"},
+        /* 10.13's overflow family -- the rows a *layout* phase added rather than one
+         * of the 9.x value phases, and the whole of what it needed: all three rows
+         * take the closed overflow vocabulary, so a document written either as the
+         * shorthand or as the two longhands reaches a value RoboLayout can classify.
+         * `visible` is the initial for all three, and it is the initial a box that
+         * declares nothing gets, which is why a cleared axis record means "nobody
+         * wrote anything" rather than "an author asked to clip". */
+        {"overflow", "visible"},
+        {"overflow-x", "visible"},
+        {"overflow-y", "visible"}
     };
     robo_css_property_registry_t *registry = NULL;
     size_t index;

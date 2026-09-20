@@ -284,9 +284,37 @@ static void layout_block_expect(layout_block_fixture_t *fixture,
     ROBO_CHECK_EQ_INT(position.y, y);
     ROBO_CHECK_EQ_INT(size.width, width);
     ROBO_CHECK_EQ_INT(size.height, height);
-    /* Nothing in this build sets an overflow flag: that a box overflows is 10.13's
-     * fact, and a block pass that set one would be answering it. */
-    ROBO_CHECK_EQ_INT(result.flags & ROBO_LAYOUT_RESULT_FLAG_ALL, 0);
+    /*
+     * The two overflow flags, and since 10.13 they are set -- by 10.13. That a box's
+     * contents do not fit is a fact about contents, so the block pass does not decide it:
+     * it hands the box to the overflow layer's measurement and copies that record's two
+     * halves onto the result. What is asserted here is therefore the **agreement** rather
+     * than the silence it used to be -- the flags and the record are one answer, and a
+     * pass that set a bit the record did not justify would fail here.
+     */
+    {
+        robo_layout_overflow_edges_t overflow;
+        robo_result_t status = robo_layout_object_overflow(fixture->tree, id, &overflow, NULL);
+        int expected = 0;
+
+        /* The door declines the two kinds of box that are not measured -- a text run and a
+         * transparent inline box -- and *clears* the record when it does, so the fold below
+         * yields no flags for them, which is the honest answer: a box with no measurement
+         * cannot have an overflow flag. Nothing else may be refused. */
+        ROBO_CHECK(status == ROBO_OK || status == ROBO_NOT_FOUND);
+        if (status != ROBO_OK) {
+            robo_layout_overflow_edges_init(&overflow);
+        }
+        if (robo_layout_overflow_edges_has_overflow_axis(
+                &overflow, ROBO_LAYOUT_OVERFLOW_AXIS_HORIZONTAL)) {
+            expected |= ROBO_LAYOUT_RESULT_FLAG_OVERFLOW_X;
+        }
+        if (robo_layout_overflow_edges_has_overflow_axis(
+                &overflow, ROBO_LAYOUT_OVERFLOW_AXIS_VERTICAL)) {
+            expected |= ROBO_LAYOUT_RESULT_FLAG_OVERFLOW_Y;
+        }
+        ROBO_CHECK_EQ_INT((int)(result.flags & ROBO_LAYOUT_RESULT_FLAG_ALL), expected);
+    }
 }
 
 static void layout_block_expect_unresolved(layout_block_fixture_t *fixture,

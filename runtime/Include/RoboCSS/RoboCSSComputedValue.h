@@ -79,6 +79,7 @@
 #include "RoboCSS/RoboCSSBackground.h"
 #include "RoboCSS/RoboCSSBorder.h"
 #include "RoboCSS/RoboCSSColor.h"
+#include "RoboCSS/RoboCSSOverflow.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSDisplay.h"
 #include "RoboCSS/RoboCSSPosition.h"
@@ -171,11 +172,13 @@ typedef enum robo_css_computed_value_kind {
     /** A whole-value size keyword, or a pair of size components (9.14). */
     ROBO_CSS_COMPUTED_VALUE_BACKGROUND_SIZE = 12,
     /** One of the closed border-style vocabulary (9.15). */
-    ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE = 13
+    ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE = 13,
+    /** One of the closed overflow vocabulary (10.13). */
+    ROBO_CSS_COMPUTED_VALUE_OVERFLOW = 14
 } robo_css_computed_value_kind_t;
 
 /** Number of defined kinds. */
-#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 14u
+#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 15u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int robo_css_computed_value_kind_is_known(robo_css_computed_value_kind_t kind);
@@ -264,6 +267,19 @@ typedef struct robo_css_computed_value {
      * kind check, exactly as for @ref display.
      */
     robo_css_border_style_t border_style;
+    /**
+     * OVERFLOW: the overflow value (RoboCSSOverflow.h); VISIBLE otherwise.
+     *
+     * A typed enumerator rather than the keyword's text, for the reason @ref
+     * display, @ref position and @ref border_style are: `overflow` is what a layout
+     * pass dispatches on — whether an axis has a boundary — so it is read as a value
+     * and never as a spelling. Meaningful only when @ref kind is OVERFLOW: a cleared
+     * record holds VISIBLE, which is the property's *initial* value and therefore the
+     * safest thing a cleared record could hold — and still not something to read
+     * without the kind check, because "this element does not declare an overflow" and
+     * "this element is visible" are different answers.
+     */
+    robo_css_overflow_t overflow;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -381,6 +397,11 @@ robo_result_t robo_css_computed_value_make_border_style(robo_css_computed_value_
                                                         robo_css_border_style_t style,
                                                         robo_css_diag_t *diag);
 
+/** Make @p value an OVERFLOW holding @p overflow. */
+robo_result_t robo_css_computed_value_make_overflow(robo_css_computed_value_t *value,
+                                                    robo_css_overflow_t overflow,
+                                                    robo_css_diag_t *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
@@ -457,6 +478,19 @@ robo_css_background_size_t robo_css_computed_value_background_size(
  * a border style at all".
  */
 robo_css_border_style_t robo_css_computed_value_border_style(
+    const robo_css_computed_value_t *value);
+
+/**
+ * The overflow of an OVERFLOW value; `visible` for any other kind.
+ *
+ * Read together with a kind check, for the reason the four above are: `visible` is
+ * both a real overflow and the property's initial value, so it is the answer that
+ * would do the least damage if the two were conflated — which is exactly why it is
+ * worth saying that they must not be. A consumer that read it without the kind check
+ * would see "this axis does not clip" where the truth is "this is not an overflow
+ * value at all".
+ */
+robo_css_overflow_t robo_css_computed_value_overflow(
     const robo_css_computed_value_t *value);
 
 /**

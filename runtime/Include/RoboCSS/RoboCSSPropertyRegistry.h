@@ -294,11 +294,30 @@ typedef enum robo_css_property_computation {
      * second copy of either would be how `border-top-color: currentColor` and
      * `color: currentColor` come to be resolved differently.
      */
-    ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE = 18
+    ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE = 18,
+    /**
+     * One of the closed overflow vocabulary (10.13) — `overflow`, `overflow-x` and
+     * `overflow-y`.
+     *
+     * The same decision the display, position and border-style shapes record, for the
+     * same reason and a property family rather than a property: `overflow` is what a
+     * layout pass dispatches on — "does this axis clip?" changes geometry — so
+     * `overflow: banana` has to be a mistake rather than a keyword carrying the text
+     * `banana` that the phase with a box silently fails to interpret.
+     *
+     * All three names take this shape, and the *shorthand* doing so is deliberate: no
+     * phase in this build expands a shorthand, so a `overflow` left on the generic
+     * PRESERVE shape would carry tokens nothing reads and a document written as
+     * `overflow: hidden` would lay out exactly as if the declaration were absent. The
+     * vocabulary is the shorthand's meaning one step early rather than a second
+     * implementation of expansion, and `RoboCSSOverflow.h` states the cost: the
+     * two-value form (`overflow: hidden visible`) is not read.
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW = 19
 } robo_css_property_computation_t;
 
 /** Number of defined computations. */
-#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 19u
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 20u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int robo_css_property_computation_is_known(robo_css_property_computation_t computation);

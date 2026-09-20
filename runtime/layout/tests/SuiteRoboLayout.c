@@ -5,7 +5,7 @@
  * closed vocabulary, a version, a capability table or a type identity, and each
  * one has the same failure mode: it changes and nothing that uses it notices.
  *
- * The two capabilities that are 0 are the phase's whole point, so they are
+ * A capability that is 0 is a phase this build has not built, and each one is
  * asserted twice from two independent directions -- the struct field and the
  * function that reads the macro -- because a build that flipped one and not the
  * other would have two answers to one question.
@@ -14,6 +14,9 @@
  * checked *positionally* against the struct beside it: the table is written out by
  * hand in the struct's own order, so a phase that added a field and forgot a row
  * moves every field after it and fails here rather than at a caller.
+ *
+ * And since 10.13 only one field is 0: `painting`. Every phase through 10.13 has
+ * landed, so what is left is the one phase that has not started.
  *
  * The geometry test is not decoration either. RoboLayout declares its point,
  * size and rectangle as *aliases* of RoboGraphics', and an alias is exactly the
@@ -40,10 +43,10 @@ static void test_module_version(void)
     robo_i32 patch = -1;
 
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 12);
+    ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_MINOR, 13);
     ROBO_CHECK_EQ_INT(ROBO_LAYOUT_VERSION_PATCH, 0);
-    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.12.0");
-    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.12.0");
+    ROBO_CHECK_STR_EQ(ROBO_LAYOUT_VERSION_STRING, "0.13.0");
+    ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.13.0");
 
     ROBO_CHECK_EQ_INT(robo_layout_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT(major, ROBO_LAYOUT_VERSION_MAJOR);
@@ -117,6 +120,7 @@ static const struct {
     { "padding", 1 },
     { "border", 1 },
     { "position", 1 },
+    { "overflow", 1 },
     { "painting", 0 }
 };
 
@@ -212,6 +216,14 @@ static void test_module_capabilities(void)
      */
     ROBO_CHECK_EQ_INT(caps.border, ROBO_LAYOUT_BORDER_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.positioning, ROBO_LAYOUT_POSITIONING_IMPLEMENTED);
+    /*
+     * And `overflow`, the field 10.13 added -- the first in this struct whose claim is
+     * about something the box's own declarations did *not* produce. A size, an inset and
+     * a displacement are all statements about the box; an overflow is a statement about
+     * the contents, measured after they were placed, so a build with every field above it
+     * set and no measurement could not have satisfied this one.
+     */
+    ROBO_CHECK_EQ_INT(caps.overflow, ROBO_LAYOUT_OVERFLOW_IMPLEMENTED);
     ROBO_CHECK_EQ_INT(caps.painting, 0);
     /* Both halves of the third row, so a build that set one of the pair without the
      * other is caught here rather than by a caller that trusted the constant. */
@@ -299,7 +311,7 @@ static void test_module_diagnostic_domains(void)
     size_t index;
     size_t seen[ROBO_LAYOUT_DOMAIN_COUNT];
 
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 20);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_COUNT, 21);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_TEXT_LAYOUT), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_SIZING), 1);
@@ -307,7 +319,8 @@ static void test_module_diagnostic_domains(void)
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_PADDING), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_BORDER), 1);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_POSITION), 1);
-    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)20), 0);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known(ROBO_LAYOUT_DOMAIN_OVERFLOW), 1);
+    ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)21), 0);
     ROBO_CHECK_EQ_INT(robo_layout_diagnostic_domain_is_known((robo_layout_diagnostic_domain_t)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -365,11 +378,15 @@ static void test_module_diagnostic_domains(void)
                       "border");
     ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_POSITION),
                       "position");
-    /* 10.12's, and it is the newest: the first domain in this module about *where*
-     * a box is rather than about how big it is, which is why it ends the list rather
-     * than slotting beside the three insets it displaces. */
-    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_POSITION,
+    ROBO_CHECK_STR_EQ(robo_layout_diagnostic_domain_name(ROBO_LAYOUT_DOMAIN_OVERFLOW),
+                      "overflow");
+    /* 10.13's, and it is the newest: the first domain in this module whose subject is
+     * what happened *after* the box was placed, which is why it ends the list rather
+     * than slotting beside the geometry domains it measures. */
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_OVERFLOW,
                       (int)ROBO_LAYOUT_DOMAIN_COUNT - 1);
+    ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_POSITION,
+                      (int)ROBO_LAYOUT_DOMAIN_OVERFLOW - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_PADDING,
                       (int)ROBO_LAYOUT_DOMAIN_BORDER - 1);
     ROBO_CHECK_EQ_INT((int)ROBO_LAYOUT_DOMAIN_MARGINS,
@@ -557,7 +574,7 @@ static void test_module_allocator_balance(void)
         ROBO_CHECK_EQ_INT(robo_layout_get_version(&caps.object_model, &caps.constraints,
                                                   &caps.result_model),
                           ROBO_OK);
-        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.12.0");
+        ROBO_CHECK_STR_EQ(robo_layout_version_string(), "0.13.0");
         ROBO_CHECK_EQ_INT(robo_layout_geometry_is_implemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, robo_layout_object_kind_name(ROBO_LAYOUT_OBJECT_BOX),

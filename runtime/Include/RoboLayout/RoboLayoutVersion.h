@@ -278,9 +278,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define ROBO_LAYOUT_VERSION_MAJOR 0
-#define ROBO_LAYOUT_VERSION_MINOR 12
+#define ROBO_LAYOUT_VERSION_MINOR 13
 #define ROBO_LAYOUT_VERSION_PATCH 0
-#define ROBO_LAYOUT_VERSION_STRING "0.12.0"
+#define ROBO_LAYOUT_VERSION_STRING "0.13.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define ROBO_LAYOUT_API_FROZEN 0
@@ -567,5 +567,44 @@
  * Each is named in `RoboLayoutPosition.h` where it would otherwise be assumed.
  */
 #define ROBO_LAYOUT_POSITIONING_IMPLEMENTED 1
+
+/**
+ * 1 once this build measures what happens when a box's contents do **not** fit.
+ *
+ * A constant rather than a runtime decision for the same reason the other twelve are: it is
+ * read by `robo_layout_get_capabilities().overflow` and by the suite that asserts the flag
+ * against the code. What it claims, exactly:
+ *
+ *   the two **axes** read from a computed style -- `overflow-x`/`overflow-y` first, then
+ *   CSS's `overflow` shorthand for an axis the longhand said nothing about, which is read
+ *   rather than expanded because no phase in this build expands a shorthand -- each an axis
+ *   whose declaration is a mode this build has, a declaration it cannot use, or nothing at
+ *   all, with `visible` as the answer for the last two and the counters telling them apart;
+ *
+ *   a **used record** per measured box: two modes and four **extents**, each saying how far
+ *   the contents reached *beyond* the padding box -- non-negative, measured from the box's
+ *   own padding edge rather than the border's, and saturated rather than wrapped;
+ *
+ *   the phase's **recursion**: every placed child contributes its **region** -- its padding
+ *   box grown by its own extents and clipped back on an axis it hides -- and its region
+ *   already contains everything below it, so a measurement is O(children) and a child that
+ *   clips cannot leak the contents it kept into an ancestor;
+ *
+ *   a **region** and a **clip rectangle** exposed for the phase that paints: the region is
+ *   what the contents occupy, the clip rectangle is CSS's padding edge and is *refused*
+ *   rather than answered when no axis clips;
+ *
+ *   and two **result flags**, one bit per axis, so a consumer that only needs to know
+ *   whether a box's contents fit reads a bit rather than four numbers.
+ *
+ * What it does **not** claim: **scrolling** -- no scroll offset, no scrollport, no
+ * scrollbar, no `overflow: auto` or `scroll` behaviour; **clipping** -- the boundary is
+ * exposed and nothing rasterises anything, and display-list or compositor clipping is a
+ * later phase's; CSS's **axis promotion** (`overflow-x: visible` beside a scrolling
+ * `overflow-y` becomes `auto`), which exists for scrolling and is therefore absent here;
+ * and `text-overflow`, ellipsis, `overflow-clip-margin` and `contain`, each a later value's.
+ * Every absence is named in `RoboLayoutOverflow.h` where it would otherwise be assumed.
+ */
+#define ROBO_LAYOUT_OVERFLOW_IMPLEMENTED 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

@@ -441,6 +441,30 @@
  * `robo_css_computed_value_equals` rather than by text, so a difference in
  * formatting cannot hide one in value or the reverse.
  *
+ * 0.17.0 is the sixteenth, and it is the first version in this module added by a
+ * *layout* phase rather than by one of the 9.x value phases. Phase 10.13 found that
+ * `overflow` — the one property its whole phase is about — had no row here at all,
+ * so the layout side could not consume a computed value because there was none. The
+ * fix is the smallest one that keeps the module's own discipline: three registry
+ * rows (`overflow`, `overflow-x`, `overflow-y`), a closed two-value vocabulary with
+ * the one classification a consumer dispatches on (`clips`), and a computed-value
+ * kind — which is 9.12's, 9.13's and 9.15's move for a fourth property, made by the
+ * phase that reads it.
+ *
+ * Two facts about it are worth reading here rather than being discovered. The
+ * **shorthand's own name takes the vocabulary**, because nothing in this build
+ * expands a shorthand: `overflow` left on the generic PRESERVE shape would carry
+ * tokens no consumer reads, and `overflow: hidden` — a declaration authors write on
+ * nearly every box that looks scrollable — would lay out exactly as if it were
+ * absent. One vocabulary shared by the shorthand and its two longhands is the
+ * shorthand's *meaning* one step earlier than CSS computes it, and the cost is
+ * stated where it is paid: the two-value form (`overflow: hidden visible`) is not
+ * read. And `scroll`, `auto` and `clip` are **rows this build has not added** rather
+ * than words it does not know, for the reason `flex` and `grid` are absent from
+ * `display`: each is a behaviour — scrolling, a scrollport, a second clipping rule —
+ * that no phase in this build has, and reading one as `visible` would be a silent
+ * wrong answer about geometry.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (ROBO_CSS_API_FROZEN=0).
  */
@@ -449,9 +473,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 16
+#define ROBO_CSS_VERSION_MINOR 17
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.16.0"
+#define ROBO_CSS_VERSION_STRING "0.17.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

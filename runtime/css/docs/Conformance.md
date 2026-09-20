@@ -14,11 +14,11 @@ css/conformance.capabilities  what the build claims about itself
 
 | Goal | What it delivers |
 |---|---|
-| 9.16.1 the registry computes | All 63 registered initial values, run through the normaliser their own row declares |
+| 9.16.1 the registry computes | Every registered initial value (66 rows since 10.13's overflow family), run through the normaliser their own row declares |
 | 9.16.2 the reference initial | The four `currentColor` border colours, and the control that is not one |
 | 9.16.3 the computation vocabulary | Every row's `computation` is a known, *named* enumerator |
-| 9.16.4 the matrix | 66 representative declarations, each with its exact computed value **and kind** |
-| 9.16.5 the matrix through the pipeline | The same 66, on real elements, through the real chain |
+| 9.16.4 the matrix | 71 representative declarations, each with its exact computed value **and kind** |
+| 9.16.5 the matrix through the pipeline | The same 71, on real elements, through the real chain |
 | 9.16.6 the document | One realistic sheet, every family asserted on one element, plus the child |
 | 9.16.7 the ordering keys | Specificity, source order, importance and the inline level, across families |
 | 9.16.8 shorthand and longhand | Both orders, for all five distributing families |
@@ -71,7 +71,7 @@ ROBO_CHECK_EQ_INT(robo_css_color_is_current(value.color), 1);
 
 Beside it sits the control: `background-color`'s initial is `transparent`, which is a *colour*, so it is the same shape, same layer, and **not** unresolved. A test with only the four border colours could pass for a build that marked every colour unresolved.
 
-## 3. The matrix: 66 declarations, one answer each
+## 3. The matrix: 71 declarations, one answer each
 
 The registry's initials are one document. The matrix is the other: what an **author** writes.
 
@@ -229,4 +229,4 @@ Running the *whole* suite — the sanitized binary in particular, and from a she
 - **It is not a conformance suite against the CSS specifications.** Every assertion here is about *this build* — the shapes it chose, the refusals it words, the flags it reports. Nothing compares a computed value to a value the W3C test suite would expect, and `css.conformance.matrix.declarations` is a table of this build's contracts, not of the standard's.
 - **It does not fuzz.** The 42-document corpus is written by hand and driven once each. There is no random generator, no coverage-guided search and no property-based shrinking — the runtime has no fuzzing framework, and the phase's instruction was not to introduce one for its own sake.
 - **It does not test layout, paint or the DOM.** Those layers sit above RoboCSS; the real-DOM pipelines that exist are in `Tests/Suites/SuiteRoboCssDomSelect.c`, and this phase neither duplicates nor extends them.
-- **`ROBO_CSS_API_FROZEN` stays 0.** This phase adds no surface and freezes none; the version moves to 0.16.0 for the *promises*, not for the API.
+- **`ROBO_CSS_API_FROZEN` stays 0.** This phase adds no surface and freezes none; the version moves to 0.16.0 for the *promises*, not for the API. *(The version has moved twice since — 10.11's border family and 10.13's overflow family, which took it to 0.17.0 and grew these two tables from 49 to 63 and then to the 66 and 71 above.)*

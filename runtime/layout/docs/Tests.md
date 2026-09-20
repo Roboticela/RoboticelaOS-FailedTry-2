@@ -1,6 +1,6 @@
-# RoboLayout Test Organisation (through Phase 10.12)
+# RoboLayout Test Organisation (through Phase 10.13)
 
-Eighteen suites, 280 tests, one framework. Each phase adds no test runner, no reporter
+Nineteen suites, 307 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`ROBO_CHECK*` and `robo_test_register`), the same as
 every other subsystem.
@@ -45,7 +45,8 @@ phase that made it.
 | `SuiteRoboLayoutMargin.c` | `layout.margins.*` | 25 | does a margin move a box without resizing it, and does each of the four sides get the value its policy asks for? |
 | `SuiteRoboLayoutPadding.c` | `layout.paddings.*` | 20 | does a padding grow a box without moving it, does an `auto` width fill what it left, and is a transparent inline box left un-inflated? |
 | `SuiteRoboLayoutBorder.c` | `layout.borders.*` | 22 | is a border's *used* width zero unless its style draws, is the box a reader sees the border box, and does a content origin compose two insets? |
-| `SuiteRoboLayoutPosition.c` | `layout.positioning.*` | 19 | does a relative box move without leaving its flow space, and does `static` stay exactly what it was? |
+| `SuiteRoboLayoutPosition.c` | `layout.positioning.*` | 20 | does a relative box move without leaving its flow space, and does `static` stay exactly what it was? |
+| `SuiteRoboLayoutOverflow.c` | `layout.overflow.*` | 26 | is an overflow a *record* rather than a size, does a child contribute its region rather than its contents, and does a clipping box contribute only what it kept? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 
 ### 10.1 — the module surface (`layout.module.*`)
@@ -600,7 +601,7 @@ Seven cases, and the shape is 9.16's: ask the questions no single-module suite c
 
 | Case | Subject |
 |---|---|
-| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now nineteen fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes`, `baselines`, `sizing`, `margins`, `padding` and `border` at 1 and `painting` at 0, and the count of implemented fields asserted as eighteen |
+| `capabilities` | the capability struct walked **positionally** against a hand-written name list, with the struct's size pinned against the list's length — now twenty-one fields, with `geometry`, `formatting_contexts`, `block_layout`, `inline_layout`, the derived `block_and_inline_layout`, `text_layout`, `line_boxes`, `baselines`, `sizing`, `margins`, `padding`, `border`, `positioning` and `overflow` at 1 and `painting` at 0, and the count of implemented fields asserted as twenty |
 | `statement` | the module's central claims, each an assertion: `geometry == 1`, version `0.11.0`, API unfrozen, three object kinds and four context kinds |
 | `no_viewport` | **`geometry == 1` while nothing was placed**: a context with no recorded viewport runs no layout at all, and every box stays `UNRESOLVED` |
 | `pipeline` | the whole chain over a realistic document: tokenizer → parser → match → cascade → inheritance → computation → bridge → build → pass |
@@ -733,8 +734,8 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 
 | Filter | Cases |
 |---|---|
-| `layout.` | 282 — this module's 280, plus `demo.layout.flow` and `demo.layout.resize` |
-| `layout` (no dot) | 284 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
+| `layout.` | 309 — this module's 307, plus `demo.layout.flow` and `demo.layout.resize` |
+| `layout` (no dot) | 311 — the above, plus `font.ot.layout` and `graphics.text.layout`, which are other modules' |
 | `layout.module` | 11 |
 | `layout.tree` | 14 |
 | `layout.constraints` | 9 |
@@ -751,10 +752,11 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
 | `layout.margins` | 25 |
 | `layout.paddings` | 20 |
 | `layout.borders` | 22 |
-| `layout.positioning` | 19 |
+| `layout.positioning` | 20 |
+| `layout.overflow` | 26 |
 | `layout.conformance` | 7 |
 
-Whole suite: **2295** tests, green in both configurations.
+Whole suite: **2330** tests, green in both configurations.
 
 ```sh
 ./Out/RoboTest.host.exe --filter layout.block
@@ -769,7 +771,10 @@ Whole suite: **2295** tests, green in both configurations.
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test -Sanitize
 ```
 
-ASan and UBSan run the same 2295 cases. In 10.12's run the sanitized suite was
+ASan and UBSan run the same 2330 cases. In 10.13's run the sanitized suite was
+**2330/2330** with **no sanitizer diagnostic and no red case at all**, and
+`layout.overflow.*` was 26/26 and `css.overflow.*` 7/7 under them. In 10.12's run the
+sanitized suite was
 **2296/2296** with **no sanitizer diagnostic and no red case at all**, and
 `layout.positioning.*` was 19/19 under them. In 10.11's run the sanitized suite was
 **2277/2277** with **no sanitizer diagnostic and no red case at all**, and
@@ -802,8 +807,8 @@ to get:
 
 | How the suite was run | Result |
 |---|---|
-| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** in 10.11; **2254/2255** in 10.12 |
-| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** on 10.11's first Release run and **2277/2277** on the next; **2295/2295** in 10.12 (direct) |
+| `robo test-runtime` (the pipeline: build, then run) | **2115/2116** — three times in 10.3; **2138/2139** once in 10.4; **2177/2179** once in 10.6; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** in 10.11; **2254/2255** in 10.12; **2329/2330** twice in 10.13 |
+| the same binary, run directly afterwards | **2116/2116** — twice in 10.3; **2139/2139** twice in 10.4; **2177/2177** twice in 10.6, and **2175/2177** once when the console held the foreground; **2193/2193** in 10.7; **2254/2255** in 10.10; **2276/2277** on 10.11's first Release run and **2277/2277** on the next; **2295/2295** in 10.12 (direct); **2330/2330** in 10.13, in Debug and Release both |
 | `--filter=window.host` in isolation | **19/19** — three times in each phase |
 | the binary as a child of `pwsh` with its output captured | **passes** |
 
@@ -1402,3 +1407,98 @@ fourth consecutive phase — while the direct run of the same Debug binary was
 **2295/2295** and the sanitized run **2296/2296**, both with no red case at all. The
 diff touches no file matching `window`; the flake remains a property of the console
 holding the foreground, not of the module.
+
+**The flake, two phases on.** 10.13's `robo test-runtime` run was **2329/2330** with
+`window.host.keyboard` the only red case, in the fifth consecutive phase — the run
+itself taking seven minutes because the pipeline captures a 244 000-line DEBUG log
+through a child PowerShell. The direct run of the same Debug binary was **2330/2330**,
+Release was **2330/2330**, the sanitized run **2330/2330**, and `--filter=window.host` in
+isolation **19/19**. The diff touches no file matching `window` (`git status` reports
+`RoboCSS*`, `RoboLayout*` and the two new suite files), so there is still no causal
+path, and the suite that owns the case was not edited.
+
+---
+
+## 18. What the 10.13 suites found
+
+Four findings, and the first is a **shape** one: this phase's arithmetic was never the
+hard part, and what had to change was three long-standing *assertions* that had been
+standing in for facts they could not see.
+
+**1. An assertion of silence had to become an assertion of agreement — in sixteen
+cases at once.** Since 10.1 every block case has gone through one shared
+`layout_block_expect`, whose last line read
+
+```c
+ROBO_CHECK_EQ_INT(result.flags & ROBO_LAYOUT_RESULT_FLAG_ALL, 0);
+```
+
+and that was *right* while nothing set a flag: it was 10.3's way of saying "that a box
+overflows is a fact a later phase owns". This phase is that phase, so the line could
+no longer hold — but the honest replacement is not to delete it and not to hard-code a
+value, because a hard-coded expectation in a shared helper is sixteen cases that have
+to be re-derived by hand. It now asks the **record** and asserts the **agreement**:
+`robo_layout_object_overflow` is called for the box, its two axes are folded into a
+flag word, and the result's flags must equal it. One line, and it is a stronger
+assertion than either alternative — a pass that set a bit the record does not justify,
+or measured an extent and forgot the flag, now fails *in every block case* rather than
+in the one case written to check flags. It also had to learn the door's own contract:
+the door declines a text run and a transparent inline box, and a declined box
+contributes **no** flags, so the helper treats `ROBO_NOT_FOUND` as a cleared record
+rather than as an error. That the same helper serves boxes that are measured and boxes
+that are not, without a second code path, is the recursion of §7 seen from the test
+side.
+
+**2. The shorthand could not ride the `PRESERVED` convention, and that is a value-model
+finding rather than a registry one.** Four families registered before this phase —
+`margin`, `padding`, `border`, `background` — are shorthands that stay
+`PRESERVED`, carrying their token list while only their longhands are typed, because no
+phase here expands a shorthand. `overflow` could have taken that road and the conformance
+table would have stayed tidy. It deliberately does not: `overflow: hidden` is written on
+nearly every box an author wants clipped, and a `PRESERVED` row would make it a
+declaration nothing reads — a document that says "clip this" laying out as though nobody
+had written anything. So the shorthand's *own name* is registered **on the overflow
+vocabulary**, which is the first row in the table whose shorthand carries a typed value
+rather than tokens, and the cost is written down where it is paid:
+`overflow: hidden visible` is legal CSS this build cannot read, because reading it needs
+the expansion this registration exists to work around. The conformance table asserts the
+whole family — both longhands, both values, `banana` refused as a keyword and `20px`
+refused as a non-identifier — which is how the phase could show that its one shortcut
+has exactly one edge.
+
+**3. "The newest domain is the last one" was an invariant with three pins, and two of
+them were in other phases' suites.** `layout.module.diagnostic_domains` walks the
+vocabulary and asserts the count; `layout.positioning.kind_vocabulary` and the overflow
+suite's own vocabulary case each asserted that *their* domain was the newest. Adding
+`ROBO_LAYOUT_DOMAIN_OVERFLOW` therefore moved three suites, not one — 20 → 21 in all
+three, plus a `POSITION + 1 == OVERFLOW` pin in two of them so the two newest cannot be
+reordered by accident. The pattern is worth naming because it is the module's fifth
+re-pinning of the same kind: a *closed vocabulary* that a phase appends to is an
+assertion in every suite that ever pinned its length, and the phase that appends pays
+for all of them at once. The alternative — asserting `>= 20` — would have cost nothing
+and proved nothing, which is why the module keeps the exact number.
+
+**4. A child contributes its *region*, and only a case with a clipping child can tell.**
+The recursion is one line (`robo_layout_overflow_edges_include` on the child's region
+rather than on its contents), and it is indistinguishable from the wrong version in
+every document whose boxes fit. `layout.overflow.pass_recursion_clipped` is the case
+that separates them: a clipping child whose own contents reach 100px past it must
+contribute **its padding box** to its grandparent while its own record still says 100.
+Fold the contents in instead and the grandparent's extent comes out 100 too — the leak
+that makes a clipped subtree appear in an ancestor's scrollable area. It is the one case
+in the suite that would fail for a build whose `region` and `extents` doors were each
+individually correct.
+
+**And one arithmetic decision the suite pins rather than finds.** Extents are clamped at
+the boundary: a box whose contents reached *inside* it has an overflow of **zero**, not a
+negative extent, and `include` is a per-side **maximum** computed in 64 bits and
+saturated (`layout.overflow.include_saturates`). A signed extent would have made "reached
+5px past the left edge" and "did not reach the left edge by 5px" the same number, which
+is the mistake the non-negative rule exists to make impossible — and it is the reason a
+box that overflows on one side and not the other has a record that says exactly that.
+
+**The flake, fifth phase.** 10.13's `robo test-runtime` run was **2329/2330** with
+`window.host.keyboard` the only red case, while the direct Debug run was **2330/2330**,
+Release **2330/2330**, the sanitized run **2330/2330**, and `--filter=window.host`
+**19/19**. The diff contains no file matching `window` and does not edit the suite that
+owns the case.

@@ -4731,6 +4731,77 @@ suites are green in Debug, in Release, and under ASan and UBSan with no diagnost
 `window.host.keyboard` host-focus flake, fourth consecutive phase, on a diff touching no `window`
 file.
 
+## Goal 10.13 — Overflow
+
+**Status: complete.** The phase that admits a box's contents may not **fit** — and whose whole
+shape follows from refusing to call that a size. Every phase before it assumed the contents stayed
+inside; the tempting model is to grow the box, and it is wrong in a way no single-box test can see,
+because a *size* cannot express an overflow: a box that spills 40px left and a box that spills 40px
+right have the same width and two different records. So the box keeps the size its declarations and
+its contents asked for, and the overflow is four **extents** measured from its **padding box** —
+CSS's clipping edge, and the one rectangle a box's own declarations cannot move — recorded on the
+object beside a per-axis mode.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The RoboCSS overflow vocabulary: one *value* (`visible`, `hidden`) with the **axis belonging to the property**, the closed set with `scroll`/`auto`/`clip` named as rows this build has not added, and the **shorthand registered on the vocabulary** — read for whichever axis a longhand said nothing about, rather than kept `PRESERVED` while nothing reads it | `Include/RoboCSS/RoboCSSOverflow.h`, `Source/RoboCSS/RoboCSSOverflow.c` |
+| The computed-value kind, the three registry rows (`overflow`, `overflow-x`, `overflow-y`, all non-inherited, all `visible`), and the CSS module surface: version `0.17.0`, `capabilities.overflow`, 66 rows in the table (50 non-inherited) | `RoboCSSComputedValue.h` / `.c`, `RoboCSSPropertyRegistry.h` / `.c`, `RoboCSS.h`, `RoboCSSVersion.h` |
+| The layout vocabulary — three kinds (`ABSENT`, `RESOLVED`, `UNRESOLVED`), two **named** axes (direction, not a letter), the declared record, and the used **edges** record: two modes, four non-negative extents and three counters | `Include/RoboLayout/RoboLayoutOverflow.h`, `Source/RoboLayout/RoboLayoutOverflow.c` |
+| The one policy `robo_layout_overflow_resolve`: longhands first, then the shorthand for either axis, then `visible`; an unusable declaration used as `visible` and **counted**, so a `var()`-driven boundary is visible rather than silent | `RoboLayoutOverflow.c` |
+| `robo_layout_overflow_edges_include`: the per-side **maximum** of how far a region reaches past a padding box, computed in 64 bits and **saturated**, with no extent ever negative | `RoboLayoutOverflow.c` |
+| The two derived rectangles: the **region** (the padding box grown by the extents, clipped back on an axis whose mode clips) and the **clip rectangle** (the padding box, refused with `ROBO_NOT_FOUND` when neither axis clips) | `RoboLayoutOverflow.c` |
+| `robo_layout_overflow_measure` and `robo_layout_overflow_object_region`: a box's padding box in its own space, one loop over every placed child folding in the child's **region**, and the same door the block pass calls | `RoboLayoutOverflow.c`, `RoboLayoutInternal.h` |
+| The used overflow kept on the object, the read door `robo_layout_object_overflow` (declining an unplaced box, a text run and a transparent inline box), and its clearing with the geometry | `RoboLayoutObject.h` / `.c`, `RoboLayoutTree.c` |
+| The block pass: the measurement at the point a box's padding box is known, the record written, the three counters, and the result's two flags folded from the record's per-axis answer | `Source/RoboLayout/RoboLayoutBlock.c`, `RoboLayoutBlock.h` |
+| The inline pass: an **atomic participant** measured and its flags set **before** placement (the geometry door does not touch the flag word); text runs and transparent inline boxes declined and still contributing through `..._object_region` | `Source/RoboLayout/RoboLayoutInline.c`, `RoboLayoutInline.h` |
+| The three counters `overflow_clipped` / `overflowing` / `overflow_unresolved` in both records and both `equal()` comparisons | `RoboLayoutBlock.h`, `RoboLayoutInline.h`, and their `.c` |
+| Version `0.13.0`, `ROBO_LAYOUT_OVERFLOW_IMPLEMENTED`, the `overflow` diagnostic domain (the twenty-first), the umbrella, the build and the two suite registrations | `RoboLayoutVersion.h`, `RoboLayout.h`, `RoboLayoutDiagnostics.h`, `Tools/Build.ps1`, `Tests/Main.c` |
+
+### Completion criteria
+
+| Criterion | Where it is proved |
+|---|---|
+| A dedicated overflow representation exists | `layout.overflow.kind_vocabulary`, `layout.overflow.axis_vocabulary`, `layout.overflow.edges_record` |
+| `visible` and `hidden` are supported | `css.overflow.vocabulary`, `layout.overflow.resolve_modes` |
+| `overflow-x` and `overflow-y` are representable independently | `layout.overflow.axis_record`, `layout.overflow.pass_axis_split` |
+| Overflow bounds are tracked separately from layout geometry | `layout.overflow.pass_size_unchanged`, `layout.overflow.pass_fitting` |
+| Child overflow contributes correctly to the parent | `layout.overflow.pass_child_right`, `layout.overflow.pass_child_below`, `layout.overflow.pass_recursion_clipped` |
+| Relative positioning interacts correctly with overflow | `layout.overflow.pass_relative_child` |
+| Overflow does not silently change resolved width/height | `layout.overflow.pass_size_unchanged`, `layout.overflow.pass_extreme_width` |
+| Box-model geometry remains correct | `layout.overflow.pass_box_model` |
+| Overflow information is available for future clipping | `robo_layout_object_overflow`, `..._edges_region`, `..._edges_clip_rect` |
+| Re-layout updates overflow information | `layout.overflow.relayout` |
+| Geometry remains finite and deterministic | `layout.overflow.include_saturates`, `layout.overflow.clip_rect_refusals`, `layout.overflow.determinism` |
+| Focused overflow tests pass | `layout.overflow.*` 26/26 and `css.overflow.*` 7/7 |
+| All previous CSS/layout tests pass | 2330/2330, Debug and Release |
+| No Chromium dependency | `Tools/Build.ps1 -Verify` boundary scan |
+
+### What 10.13 found
+
+Four findings, recorded in full in `layout/docs/Tests.md` §18. In one line each: the shared block
+fixture's assertion of **silence** (`flags & ALL == 0`, right while nothing set a flag) had to become
+an assertion of **agreement** with the overflow record, in sixteen cases at once; the `overflow`
+shorthand could not ride the `PRESERVED` convention four other families use, because a declaration
+nothing reads would make "clip this" lay out as though nobody had written anything; "the newest
+domain is the last one" turned out to be an invariant pinned in **three** suites, so adding
+domain 21 moved all three and each now pins `POSITION + 1 == OVERFLOW`; and the recursion — a parent
+folds in a child's **region** rather than its contents — is the one thing only a case with a
+*clipping* child can see.
+
+The count went from **2295 pass to 2330**: 26 new layout cases and 7 new CSS cases, and the module's
+307 cases in nineteen suites are green in Debug, in Release, and under ASan and UBSan with no
+diagnostic — `layout.overflow.*` 26/26 and `css.overflow.*` 7/7 under them. The host visual
+checkpoint is 11 probes with `RESULT: PASS` and `robo test-qemu-display` passes; `robo test-runtime`
+remains red only on the documented `window.host.keyboard` host-focus flake, fifth consecutive phase,
+on a diff touching no `window` file. The visual-validation criterion is met the way 10.11 and 10.12
+met it: the demo rendering path does not run RoboLayout at all, so the geometry is what the phase
+owes and the suite is where it is proved — the checkpoint was run and passes unchanged rather than
+being extended into a paint test this phase is not allowed to write.
+
 ## Next
 
-- Goal 10.13 — overflow — do not start until requested
+- Goal 10.14 — the next layout goal; the module's own deferred tables name floats, fragmentation and
+  scrolling, and `layout/docs/Overflow.md` §12 lists what 10.13 handed on — do not start until
+  requested

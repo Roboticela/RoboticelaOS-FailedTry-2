@@ -1,4 +1,4 @@
-# RoboLayout — architecture (through Phase 10.12)
+# RoboLayout — architecture (through Phase 10.13)
 
 This is the design record for RoboLayout's architecture: what the module is, the
 decisions that shaped it, the alternatives that were rejected, and the boundaries
@@ -66,23 +66,24 @@ one-inset box into a four-box model without touching the sizing layer's seam.
 rather than leaving a caller to find out. 10.3 flipped all three, and the shape of
 that flip is the part worth keeping:
 
-| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | 10.11 | 10.12 | What it means now |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
-| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
-| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the block direction |
-| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the inline direction |
-| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | derived: their conjunction |
-| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
-| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **produce a line a caller reads** |
-| `robo_layout_capabilities_t.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | this build gives a line a **floor** and places its members on it |
-| `robo_layout_capabilities_t.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
-| `robo_layout_capabilities_t.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
-| `robo_layout_capabilities_t.padding` | — | — | — | — | — | — | — | — | `1` | `1` | `1` | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
-| `robo_layout_capabilities_t.border` | — | — | — | — | — | — | — | — | — | `1` | `1` | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
-| `robo_layout_capabilities_t.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that a percentage inset resolves |
-| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
-| `robo_layout_result_state()` | — | — | — | — | — | — | — | — | — | — | — | *this box* has one — the per-box authority |
+| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | 10.11 | 10.12 | 10.13 | What it means now |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
+| `robo_layout_capabilities_t.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
+| `robo_layout_capabilities_t.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the block direction |
+| `robo_layout_capabilities_t.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the inline direction |
+| `robo_layout_capabilities_t.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | derived: their conjunction |
+| `robo_layout_capabilities_t.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
+| `robo_layout_capabilities_t.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **produce a line a caller reads** |
+| `robo_layout_capabilities_t.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build gives a line a **floor** and places its members on it |
+| `robo_layout_capabilities_t.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
+| `robo_layout_capabilities_t.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
+| `robo_layout_capabilities_t.padding` | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
+| `robo_layout_capabilities_t.border` | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
+| `robo_layout_capabilities_t.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | `1` | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that a percentage inset resolves |
+| `robo_layout_capabilities_t.overflow` | — | — | — | — | — | — | — | — | — | — | — | `1` | the contents that do not fit are **recorded beside the box** as four extents measured from its padding box, with a mode per axis — **not** that anything scrolls, clips a pixel, or turns `visible` into `auto` |
+| `robo_layout_geometry_is_implemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
+| `robo_layout_result_state()` | — | — | — | — | — | — | — | — | — | — | — | — | *this box* has one — the per-box authority |
 
 Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
@@ -144,6 +145,21 @@ would satisfy the first half and fail the second. What it does **not** say is th
 that a percentage inset resolves, or that any stacking order moves; the positioning
 suite asserts it against the *policy* (`layout.positioning.flow_preserved` places the
 box 30/20 away and the next box exactly where it would have been).
+
+10.13 asks it about **what the contents did to the space around the box** rather than
+about the box at all, and that is the seventh kind of narrowness: `overflow == 1` is
+true of a build that measures four extents against a box's padding box and records
+them **beside** an unchanged size — and false of the tempting build that grows the box
+instead, which would satisfy every flattering reading of the word "overflow" and be
+wrong in the one place it matters. What it does **not** say is that anything scrolls
+(no scrollport, no scrollbar, no scroll offset, and `overflow: auto` is not a mode this
+build has), that CSS's axis promotion applies (`overflow-x: visible` beside a clipping
+axis stays `visible` here), that a pixel is clipped anywhere, or that a **text run** or
+a **transparent inline box** has a record of its own — the object door declines both,
+and both still contribute their region to their parent. The suite asserts the field
+against the *pair* (`layout.overflow.pass_size_unchanged` measures a 200px child inside
+a 100px box and asserts the unchanged width and the 100px extent together), because
+the two halves are the claim.
 
 10.4 added a field to that table rather than changing one, and the shape of the
 addition is the part worth keeping: `inline_layout` was written as `0` in **10.2**,
@@ -593,8 +609,11 @@ have written code is a migration.
 
 `OVERFLOW_X` and `OVERFLOW_Y` exist because the fact a consumer needs about a box
 that does not fit is **which direction** it overflowed — a scrollable axis is a
-different box from a clipped one. Both stay 0 in 10.1, and their existence means
-10.13 fills them in rather than changing the struct's layout.
+different box from a clipped one. Both stay 0 in 10.1, and their existence meant
+10.13 filled them in rather than changing the struct's layout — which is what
+happened: both are set by the block and inline passes from a *measured* extent, so a
+box whose declared height is smaller than its contents sets no bit until something is
+actually outside it. This paragraph is kept as 10.1 wrote it.
 
 `set_flags` refuses a bit outside the defined set, so a typo cannot travel through
 the pipeline looking like a laid-out fact.
@@ -780,6 +799,7 @@ of them is deliberately 0:
 | `padding` | 1 | 10.10 |
 | `border` | 1 | 10.11 |
 | `positioning` | 1 | 10.12 |
+| `overflow` | 1 | 10.13 |
 | `painting` | **0** | Phase 11 |
 
 The table is in declaration order rather than in the order fields landed, so the
@@ -850,9 +870,10 @@ rather than unfinished:
 | ~~padding~~ **done in 10.10**; still absent: `box-sizing: border-box`, a percentage padding (read, counted and used as zero), and padding on a **transparent inline box** | a later goal each | a box's `size` is its **padding** box built on the sizing layer's answer, its contents begin inside it, an `auto` width fills what the margins and the padding left, and the used padding is readable from the object (`Padding.md`) |
 | ~~border geometry~~ **done in 10.11**; still absent: `border-radius` and any corner geometry, `hidden`'s border-collapsing meaning (a table rule this build has no tables for), logical border properties, and a border on a **transparent inline box** | a later goal each | twelve longhands are read, a side's *used* width is zero unless its style draws, the border box is what a result carries, and the whole per-side record — used width, style, colour — is readable through `robo_layout_object_borders` so a paint pass re-decides nothing (`Borders.md`) |
 | ~~basic **`position: relative`**~~ **done in 10.12**; still absent: `absolute`, `fixed` and `sticky` placement, percentage insets, `z-index` and stacking contexts | 18.5, and a later goal each | the mode and four insets are read, resolved to one displacement by a stated precedence rule (`left` over `right`, `top` over `bottom`, an `auto` saying nothing), and applied so a `relative` box is drawn where its offset puts it while its size and flow contribution are untouched; the used offset is readable through `robo_layout_object_position` so the flow position is `final − offset` (`Positioning.md`) |
-| overflow, damage, invalidation | 10.13–10.14 | two result flags that stay 0 even when a participant is placed past its line or a child sits outside its box, and an invalidation that withdraws geometry rather than keeping a stale conclusion |
+| ~~overflow~~ **done in 10.13**; still absent: everything that *acts* on it — scrolling, scrollbars, a scroll offset, `overflow: auto`/`scroll`, CSS's axis promotion, `text-overflow`, and any pixel clipping | the scrolling goals, and Phase 11 for clipping | the two flags are set from a **measured** extent beside a record of four extents measured from the padding box, and both the region a parent folds in and the clip rectangle a paint pass will draw against are readable through `robo_layout_object_overflow` and the overflow doors (`Overflow.md`) |
+| damage, invalidation | a later goal | an invalidation that withdraws geometry rather than keeping a stale conclusion |
 | painting anything | Phase 11 | `painting` capability = 0 |
-| reading a property other than `display`, a declared `width`/`height`, the four margins, the four paddings, the twelve border longhands and `position` with its four insets | a later goal | the borrowed style is there; the read is the later goal's, and since 10.8 through 10.12 a read goes through the sizing, margin, padding, border or position layer rather than into a result record |
+| reading a property other than `display`, a declared `width`/`height`, the four margins, the four paddings, the twelve border longhands, `position` with its four insets, and `overflow-x`/`overflow-y` with the `overflow` shorthand | a later goal | the borrowed style is there; the read is the later goal's, and since 10.8 through 10.13 a read goes through the sizing, margin, padding, border, position or overflow layer rather than into a result record |
 
 Three of these are worth a sentence more.
 
@@ -978,7 +999,9 @@ both terms rather than one. It adds item 28, the one rule that is 10.11's own.
 10.12 re-headed it to **10.13** and adds item 29 — a box's result position is its
 **final** position, the flow position lives one subtraction away — and item 30, the
 inset reader the phase added and the one parameter by which it differs from the
-three before it.)*
+three before it. 10.13 re-headed it to **10.14** and adds item 31, the phase's own
+rule: an overflow is a record *beside* the box, measured from the padding box, and the
+thing a parent folds in is the child's region rather than its contents.)*
 
 1. A layout tree exists, is separate from the DOM, and is walked in document order.
 2. Every box has a valid id, a parent link consistent with its children, and a
@@ -1062,10 +1085,11 @@ three before it.)*
     and a build or an `add_object` releases it implicitly. A box's context id read
     across an invalidation answers `ROBO_NOT_FOUND` rather than resolving against
     the new classification.
-17. **A transparent box establishes nothing**, and that is a fact 10.9 and 10.13
-    depend on: a margin collapses *through* it and a float escapes it. A later goal
-    that needs it to be a barrier is asking for an anonymous box, which is 10.3's
-    machinery rather than a change here.
+17. **A transparent box establishes nothing**, and three phases now lean on it: a
+    margin collapses *through* it (10.9), 10.13 declines it an overflow record of its
+    own because its rectangle *is* the union of its contents, and the float goals need
+    it to let a float escape. A later goal that needs it to be a barrier is asking for
+    an anonymous box, which is 10.3's machinery rather than a change here.
 18. **Atomicity is derived, not stored.** A participant of an inline context is
     atomic exactly when it established a context of its own; there is no third flag
     and no "is this an inline-block" predicate in this module. The two facts come
@@ -1183,3 +1207,18 @@ document. `thin`, `medium` and `thick` are the three numbers this build picks (1
     replaces, and the counters (`offsets_applied` / `_auto` / `_unresolved` /
     `_declined`, plus `boxes_shifted`) are what make a later phase's change to the
     rule visible without rewriting a pass.
+31. **An overflow is a record beside the box, not a size of it**, and that is 10.13's
+    own rule. A box keeps the size its declarations and its contents asked for; what
+    the phase adds is four non-negative **extents** measured from its **padding box**
+    — CSS's clipping edge, and the one rectangle a box's own declarations cannot move
+    — plus the used mode per axis (`visible` or `hidden`, resolved longhands-first and
+    then from the `overflow` shorthand, which this build *reads* rather than expands).
+    Two rectangles follow from that, and the difference between them is the phase: the
+    **region** is the padding box grown by the extents and clipped back on an axis
+    whose mode clips, and it is what a **parent** folds in
+    (`robo_layout_overflow_edges_include`, a per-side maximum computed in 64 bits and
+    saturated), while the **clip rectangle** is what a *paint* pass will clip to
+    (`robo_layout_overflow_edges_clip_rect`, which refuses rather than answering when
+    neither axis clips). Folding in a child's *contents* instead of its region is the
+    one mistake that compiles, looks right in every fitting document, and leaks a
+    clipped subtree into an ancestor's scrollable area.

@@ -200,7 +200,8 @@ finding in §10 visible at all.
 ## 8. Capabilities
 
 `robo_layout_capabilities_t` gains **`positioning`** — 1 since 10.12, the field after
-`border`, before `painting` (the struct's positional-walk suites assert the order).
+`border` and (since 10.13) before `overflow`, which in turn sits before `painting`
+(the struct's positional-walk suites assert the order).
 `ROBO_LAYOUT_POSITIONING_IMPLEMENTED` is its macro, and the claim is stated narrowly
 like the nine before it: the mode and the four insets are read, resolved by one stated
 precedence rule, and applied so a relative box is drawn where its offset puts it while
@@ -209,9 +210,11 @@ behaviour does not exist** (their values and facts do, 9.13; placing against a
 containing block or a scrollport is 18.5's); no stacking context or paint order moves;
 no percentage inset resolves.
 
-The diagnostic-domain list ends with **`ROBO_LAYOUT_DOMAIN_POSITION`** (`"position"`,
+The diagnostic-domain list ended with **`ROBO_LAYOUT_DOMAIN_POSITION`** (`"position"`,
 the twentieth domain) — the first domain in this module about *where* rather than about
-*how big*.
+*how big* — until 10.13's `ROBO_LAYOUT_DOMAIN_OVERFLOW` (`"overflow"`, the
+twenty-first) followed it, which is why the positioning suite now pins
+`POSITION + 1 == OVERFLOW` rather than `POSITION == COUNT - 1`.
 
 ## 9. Out of scope, and where it lands
 
@@ -222,6 +225,7 @@ the twentieth domain) — the first domain in this module about *where* rather t
 | z-index, stacking contexts, paint order | paint/stacking phases |
 | hit testing against final geometry | Phase 11/12 |
 | direction-dependent over-constrained offset resolution | 18.5 |
+| what a displaced box does to its parent's **overflow** | ~~done in 10.13~~ — a displaced box contributes its **region** (its final position grown by its extents), so a child moved out of its parent's box is recorded in the parent's overflow record while its own geometry is untouched (`Overflow.md` §10) |
 
 The seam and the policy are written so 18.5 replaces the *resolution* without touching
 the passes: the offset record is the pass's whole input, and a richer rule changes what

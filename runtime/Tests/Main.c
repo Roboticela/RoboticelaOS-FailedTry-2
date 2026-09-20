@@ -179,6 +179,7 @@ void robo_test_register_css_display(void);
 void robo_test_register_css_position(void);
 void robo_test_register_css_background(void);
 void robo_test_register_css_border(void);
+void robo_test_register_css_overflow(void);
 void robo_test_register_css_conformance(void);
 void robo_test_register_css_dom_select(void);
 void robo_test_register_layout(void);
@@ -193,6 +194,7 @@ void robo_test_register_layout_margin(void);
 void robo_test_register_layout_padding(void);
 void robo_test_register_layout_border(void);
 void robo_test_register_layout_position(void);
+void robo_test_register_layout_overflow(void);
 void robo_test_register_layout_tree(void);
 void robo_test_register_layout_constraints(void);
 void robo_test_register_layout_context(void);
@@ -420,6 +422,7 @@ int main(int argc, char **argv)
     robo_test_register_css_position();
     robo_test_register_css_background();
     robo_test_register_css_border();
+    robo_test_register_css_overflow();
     robo_test_register_css_conformance();
     robo_test_register_css_dom_select();
 
@@ -435,6 +438,7 @@ int main(int argc, char **argv)
     robo_test_register_layout_padding();
     robo_test_register_layout_border();
     robo_test_register_layout_position();
+    robo_test_register_layout_overflow();
     robo_test_register_layout_tree();
     robo_test_register_layout_constraints();
     robo_test_register_layout_context();

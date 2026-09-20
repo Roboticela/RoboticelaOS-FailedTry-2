@@ -3,7 +3,7 @@
 Cascading style sheet subsystem for Roboticela Runtime (**through Phase 9.16,
 conformance**).
 
-**Version:** 0.16.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
+**Version:** 0.17.0 — `ROBO_CSS_API_FROZEN=0` (the surface grows for the whole of
 Phase 9)
 
 Public RoboCSS never depends on Chromium, and — per `DEPENDENCIES.md` — it is a
@@ -610,10 +610,11 @@ four:
   asserts the initial's *shape*; it says nothing about what it computes to. A row whose shape and
   whose initial text had drifted apart — a `display` shape on `border-top-width`, a colour shape on
   `padding` — computes `INVALID` for every element of every document whether or not the author
-  declared it, and *nothing else in the build would notice*. The table is the registry's own 63
-  rows in its own order, each carrying the kind, the canonical text and the name, so a drifted row
+  declared it, and *nothing else in the build would notice*. The table is the registry's own **66**
+  rows (63 before 10.13's overflow family, 49 before 10.11's border family) in its own order, each
+  carrying the kind, the canonical text and the name, so a drifted row
   fails as a named mismatch rather than as a count that still agreed.
-* **one declaration per property, one exact answer.** 66 representative declarations, each with its
+* **one declaration per property, one exact answer.** 71 representative declarations, each with its
   expected computed value *and kind*, first through the shape directly and then on a real element
   through the real chain.
 * **a document every family agrees on.** One realistic sheet asserted on one element and on its
@@ -628,7 +629,7 @@ Two of its assertions are **findings** rather than summaries. `caps.backgrounds`
 `caps.borders` had each been documented by their phase as having flipped to 1 and were **asserted
 nowhere in the build** — `css.capabilities` stopped at `positioning` and then tested the two flags
 that are 0 — so the capability struct is now walked field by field against a table that names every
-field. `docs/Conformance.md` has the full account, including the two-spellings question
+field, and each family since adds its own flag to that walk (`caps.overflow`, 10.13). `docs/Conformance.md` has the full account, including the two-spellings question
 (`currentcolor` in a preserved shorthand's tokens, `currentColor` in a colour value's canonical
 text) that the initial-value table is what finds.
 
@@ -688,7 +689,8 @@ runtime/
 │                             RoboCSSInherit.h, RoboCSSComputedValue.h,
 │                             RoboCSSColor.h, RoboCSSUnit.h, RoboCSSBox.h,
 │                             RoboCSSDisplay.h, RoboCSSPosition.h,
-│                             RoboCSSBackground.h and RoboCSSBorder.h)
+│                             RoboCSSBackground.h, RoboCSSBorder.h
+│                             and RoboCSSOverflow.h)
 ├── Source/RoboCSS/           production sources
 └── css/
     ├── tests/                this subsystem's suites and their shared fixtures
@@ -706,7 +708,7 @@ it.
 ## Building and testing
 
 ```bash
-scripts/robo test-css        # this subsystem's 609 cases only (`--filter css.`)
+scripts/robo test-css        # this subsystem's 616 cases only (`--filter css.`)
 scripts/robo test-runtime    # the whole runtime suite
 scripts/robo check           # build + test + validate
 pwsh -NoProfile -File runtime/Tools/Build.ps1 -Configuration Debug -Test -Sanitize
@@ -735,6 +737,7 @@ higher runtime layer: `-Verify` runs `Assert-RoboCSSChromiumIndependence` over
 | `docs/Display.md` | The 9.12 display: the four values and why the set is closed, the outer/inner halves and why `inline-block` is not "inline with a flag", the two classification questions and how `contents` will separate them, reading an identifier and the `none`-vs-unknown ambiguity, the shape's four refusals, the multi-keyword syntax and HTML defaults as drawn boundaries, the registry row and why its initial value is checked as vocabulary text, non-inheritance and the hole it leaves, and the query door a consumer uses |
 | `docs/Positioning.md` | The 9.13 positioning: the five values, flow and positioned as two separate questions, the three classification doors and why an unknown enumerator answers 0 to all of them, reading an identifier and the `static`-vs-unknown ambiguity, the shape's three refusals and the reference boundary, why the four insets reuse the box model's `EDGE_OFFSET` and take their names from the side vocabulary, `z-index` and why `0.0` is refused, the six registry rows, non-inheritance and the hole it leaves, sticky as a value rather than a behaviour, and the layout/stacking boundary |
 | `docs/Backgrounds.md` | The 9.14 backgrounds: the six longhands and why their order is load-bearing, the repeat rows' two axes and the attachment set, the edge vocabulary a keyword is spelled by, the position pair and every folding rule with its refusals, the size pair and why `auto` is a flag, `background-image`'s carried references, the classifier and its eight refusals, why the distribution *resets* while the box model's does not, the registry rows, non-inheritance and the hole it leaves, the paint/layer boundary (including why a hex colour in the shorthand is classified), and what the phase found in its own tests |
+| `docs/Overflow.md` | The `overflow` family (added by layout phase 10.13): why the value is not per axis while the *property* is, why the shorthand is read rather than expanded and exactly what that costs, the closed two-value set with `scroll`/`auto`/`clip` named and not added, the three typed registry rows and the two conformance tables they grew, every refusal including the two-value form and a `var()`-carried declaration, and the one computed kind and read door a consumer uses |
 | `docs/Borders.md` | The 9.15 borders: the grid rather than a family, why the twelve longhands have one owner and the distribution had to *move*, what stayed in the box table and why, the ten-value style set and `none`'s trap, the three kinds, the classifier and why the order of its questions is the whole logic (including why a percentage is a width), the composite/positional split over reset semantics, the four declarers the cascade orders, `currentcolor` as the only initial value that is a reference and where the query door resolves it, the fourteen registry rows, the layout/paint boundary, ownership, and what the phase found in its own tests |
-| `docs/Conformance.md` | The 9.16 conformance suite: the invariant no family suite can state, the 63-row initial-value table and the two-spellings question it is what finds, the reference initial and its control, the computation vocabulary over every row, the 66-declaration matrix twice (directly and through the pipeline), the one-document-every-family assertions, the ordering keys across families, both shorthand/longhand orders for all five distributing families, the three declarers, the five-stage chain walk, the 42-document malformed corpus, determinism by structure, lifetime, and the capability struct walked field by field (including the two flags that were asserted nowhere before) |
+| `docs/Conformance.md` | The 9.16 conformance suite: the invariant no family suite can state, the initial-value table (63 rows when written, **66** since 10.13's overflow family) and the two-spellings question it is what finds, the reference initial and its control, the computation vocabulary over every row, the declaration matrix twice (66 rows when written, **71** since 10.13), directly and through the pipeline, the one-document-every-family assertions, the ordering keys across families, both shorthand/longhand orders for all five distributing families, the three declarers, the five-stage chain walk, the 42-document malformed corpus, determinism by structure, lifetime, and the capability struct walked field by field (including the two flags that were asserted nowhere before) |
 | `../PROGRESS.md` | The Goal 9.1–9.16 records and their definitions of done |

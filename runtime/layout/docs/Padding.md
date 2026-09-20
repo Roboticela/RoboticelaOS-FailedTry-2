@@ -184,6 +184,17 @@ Two doors go from it to a number:
 
 Both are one clamp in one place, and each clamp has its own argument.
 
+*10.13's outcome row:* the `..._border_box` door does one more job than it was built
+for, and it is the job CSS gives the padding box for the same reason. When 10.13
+measures a box's overflow it does so against the **padding box** — the border box less
+the borders — because that is CSS's clipping edge (`overflow: hidden` clips to the
+padding edge, not the border edge and not the content edge) and because it is the one
+rectangle a box's own declarations cannot move: a margin is outside it, a border is
+outside it, and a padding is *inside* it. So a box with `padding: 20px` and a child
+that sticks 5px out of the content area has an overflow of 25, not 5 — the padding is
+part of the box that the child left, and it is this layer's number that says so
+(`Overflow.md` §4).
+
 `content_width` floors, because the alternative is a negative available width, and
 size arithmetic that can go negative is size arithmetic that can produce a rectangle
 nobody can draw. A border box narrower than its own padding leaves no room for
@@ -324,6 +335,10 @@ declaration and nothing else at all.
 ## 10. What is deliberately missing
 
 Each a named later goal:
+
+- ~~**overflow**~~ **done in 10.13**: the reference edge is the **padding box** this
+  layer derives, so the padding is what makes a child's overhang count — see §4's
+  outcome row.
 
 - ~~**borders**~~ **done in 10.11** (`Borders.md`). What this section got right is
   that the door is named for what it adds; what it got wrong is *which* box it adds to.

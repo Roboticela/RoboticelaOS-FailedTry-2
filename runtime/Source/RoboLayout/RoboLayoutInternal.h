@@ -37,6 +37,7 @@
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
+#include "RoboLayout/RoboLayoutOverflow.h"
 #include "RoboLayout/RoboLayoutPadding.h"
 #include "RoboLayout/RoboLayoutSizing.h"
 #include "RoboLayout/RoboLayoutText.h"
@@ -227,6 +228,57 @@ int robo_layout_style_classify(const robo_css_computed_style_t *style,
 void robo_layout_object_sizing(robo_layout_sizing_t *sizing,
                                const robo_layout_object_t *object,
                                int32_t available_width);
+
+/*
+ * The overflow seam (Phase 10.13)
+ *
+ * Two doors, and they are here rather than in the public header for the reason the
+ * walk is: they are the *pass's* arithmetic, and a caller with a box has the answer
+ * already -- the record is on the object, and `robo_layout_object_overflow` reads it
+ * back through validation. What a pass needs and a caller does not is the two below:
+ * the box's own measurement (which reads its children), and the contribution one child
+ * makes to its parent (which reads the child's own record).
+ */
+
+/**
+ * Measure @p object's overflow against its own box and write it to @p out.
+ *
+ * The one place a box's four extents are derived, so a block box and an atomic inline
+ * cannot disagree about what "my contents reached past my padding box" means. The
+ * inputs are the box's own geometry -- the border box a result carries, and the two
+ * inset records that turn it into a padding box and locate its contents -- because the
+ * two passes have those in hand at the moment they call this and neither of them owns
+ * the other's numbers.
+ *
+ * Every placed child contributes once, through its **region**: its padding box grown by
+ * its own extents and clipped back on an axis it hides. Depths below a child are already
+ * inside that child's region, which is what makes this function O(children) rather than
+ * O(subtree) and is argued at the loop that does it.
+ *
+ * @return ROBO_OK and @p out; ROBO_INVALID_ARGUMENT for a NULL argument or a negative
+ *         box; ROBO_ERROR for a child link that names no box.
+ */
+robo_result_t robo_layout_overflow_measure(const robo_layout_tree_t *tree,
+                                           const robo_layout_object_t *object,
+                                           const robo_layout_border_edges_t *borders,
+                                           const robo_layout_padding_edges_t *padding,
+                                           robo_layout_size_t border_box,
+                                           robo_layout_overflow_edges_t *out,
+                                           robo_layout_diag_t *diag);
+
+/**
+ * The **region** @p object's contents occupy, with its padding box placed at
+ * @p padding_origin.
+ *
+ * The child side of the recursion above: whatever space the caller is working in, this
+ * is the rectangle the object occupies there, and folding a rectangle into a record is
+ * `robo_layout_overflow_edges_include`'s job rather than this one's. An object with no
+ * computed result -- one a pass declined -- has no region; its padding box is empty and
+ * its extents are zero, which is the honest answer rather than a failure, because the
+ * object was already counted for the reason it has no geometry.
+ */
+robo_layout_rect_t robo_layout_overflow_object_region(const robo_layout_object_t *object,
+                                                     robo_layout_point_t padding_origin);
 
 /** The declared px length @p style holds for @p property, unrounded, or 0 when
  *  there is none this build can resolve. The reader `font-size` goes through. */

@@ -627,8 +627,9 @@ The record is by value, so the rest of it is read as **fields**: `kind`,
 
 The conformance suite (`css.conformance.registry.*`) is the only place the *whole*
 vocabulary is walked at once, and it pins three things this document states in
-prose. Every shape here is reachable from a registry row, so the 63 rows' initial
-values are run through the normaliser each row's own `computation` names — a row
+prose. Every shape here is reachable from a registry row, so every registered row's
+initial values are run through the normaliser each row's own `computation` names
+(63 rows when 9.16 wrote this, 66 since 10.13's overflow family) — a row
 whose shape and whose initial had drifted apart computes `INVALID` for every element
 of every document and would otherwise be silent. Every name in
 `robo_css_property_computation_is_known`'s table is asserted to be a *named*

@@ -147,6 +147,13 @@ static const css_conformance_initial_t css_conformance_initials[] = {
     {"margin-left", "length", "0px"},
     {"margin-right", "length", "0px"},
     {"margin-top", "length", "0px"},
+    /* Overflow (10.13): the family a *layout* phase registered, and the one whose
+     * shorthand takes the vocabulary rather than staying PRESERVED — because no phase
+     * in this build expands a shorthand, so a token list here would be a declaration
+     * nothing reads. */
+    {"overflow", "overflow", "visible"},
+    {"overflow-x", "overflow", "visible"},
+    {"overflow-y", "overflow", "visible"},
     {"padding", "preserved", "0"},
     {"padding-bottom", "length", "0px"},
     {"padding-left", "length", "0px"},
@@ -423,6 +430,13 @@ static const css_conformance_declaration_t css_conformance_declarations[] = {
     {"margin-top", "margin-top: auto", "keyword", "auto"},
     {"padding-top", "padding-top: 10px", "length", "10px"},
     {"padding-top", "padding-top: auto", "invalid", "not a padding length"},
+    /* The overflow family (10.13) — both values, both refusals, and the one
+     * declaration shape the vocabulary deliberately does not read. */
+    {"overflow-x", "overflow-x: hidden", "overflow", "hidden"},
+    {"overflow-y", "overflow-y: visible", "overflow", "visible"},
+    {"overflow", "overflow: hidden", "overflow", "hidden"},
+    {"overflow", "overflow: banana", "invalid", "not an overflow value"},
+    {"overflow", "overflow: 20px", "invalid", "not an identifier"},
     {"border-top-width", "border-top-width: 2px", "length", "2px"},
     {"border-top-width", "border-top-width: thin", "keyword", "thin"},
     /* Display (9.12) — the closed vocabulary, and the one that is not a keyword. */
@@ -1581,14 +1595,15 @@ static void test_css_conformance_capabilities_every_flag(void)
         {"declaration_model", 1},   {"selector_model", 1},
         {"rule_model", 1},          {"stylesheet_model", 1},
         {"error_model", 1},         {"tokenizer", 1},
-        {"parser", 1},              {"inline_styles", 1},
-        {"selector_parsing", 1},    {"selector_matching", 1},
+        {"parser", 1},              {"selector_parsing", 1},
+        {"selector_matching", 1},
         {"cascade", 1},             {"specificity", 1},
         {"inheritance", 1},         {"computed_values", 1},
         {"colors", 1},              {"units", 1},
         {"box_model", 1},           {"display", 1},
         {"positioning", 1},         {"backgrounds", 1},
-        {"borders", 1},             {"default_styles", 0},
+        {"borders", 1},             {"overflow", 1},
+        {"inline_styles", 1},       {"default_styles", 0},
         {"stylesheet_loading", 0}
     };
     robo_css_capabilities_t caps;
@@ -1620,7 +1635,7 @@ static void test_css_conformance_capabilities_every_flag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 16);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 17);
 }
 
 void robo_test_register_css_conformance(void);

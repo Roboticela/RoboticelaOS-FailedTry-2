@@ -873,6 +873,18 @@ void robo_layout_tree_lines_reset(robo_layout_tree_t *tree)
          * record and only the result's state tells them apart.
          */
         robo_layout_position_offset_init(&tree->objects[index].position_offset);
+        /*
+         * And the overflow (10.13), the last of the five and the one that is *not* about
+         * the box at all: four extents saying how far the contents reached past it, plus
+         * the two modes that decided whether anything was kept. Cleared here for the same
+         * reason as the four above -- an overflow that outlived the pass that measured it
+         * would be a claim about a layout that no longer holds -- and its cleared state is
+         * a *real* answer rather than a placeholder: two `visible` axes and four zeroes is
+         * a box with nothing sticking out, which is most boxes in most documents. The
+         * result's state is what tells "nothing sticks out" from "nothing measured",
+         * exactly as it does for the three insets.
+         */
+        robo_layout_overflow_edges_init(&tree->objects[index].overflow);
     }
 }
 

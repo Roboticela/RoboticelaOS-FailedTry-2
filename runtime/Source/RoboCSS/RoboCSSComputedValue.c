@@ -240,6 +240,8 @@ const char *robo_css_computed_value_kind_name(robo_css_computed_value_kind_t kin
         return "background-size";
     case ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE:
         return "border-style";
+    case ROBO_CSS_COMPUTED_VALUE_OVERFLOW:
+        return "overflow";
     default:
         return "unknown";
     }
@@ -387,6 +389,20 @@ robo_result_t robo_css_computed_value_make_display(robo_css_computed_value_t *va
     robo_css_computed_value_dispose(value);
     value->kind = ROBO_CSS_COMPUTED_VALUE_DISPLAY;
     value->display = display;
+    return ROBO_OK;
+}
+
+robo_result_t robo_css_computed_value_make_overflow(robo_css_computed_value_t *value,
+                                                    robo_css_overflow_t overflow,
+                                                    robo_css_diag_t *diag)
+{
+    if (!value || !robo_css_overflow_is_known(overflow)) {
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "output is NULL or not an overflow value");
+    }
+    robo_css_computed_value_dispose(value);
+    value->kind = ROBO_CSS_COMPUTED_VALUE_OVERFLOW;
+    value->overflow = overflow;
     return ROBO_OK;
 }
 
@@ -538,6 +554,14 @@ robo_css_positioning_t robo_css_computed_value_position(const robo_css_computed_
         return ROBO_CSS_POSITIONING_STATIC;
     }
     return value->position;
+}
+
+robo_css_overflow_t robo_css_computed_value_overflow(const robo_css_computed_value_t *value)
+{
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_OVERFLOW) {
+        return ROBO_CSS_OVERFLOW_VISIBLE;
+    }
+    return value->overflow;
 }
 
 robo_css_border_style_t robo_css_computed_value_border_style(
@@ -712,6 +736,11 @@ int robo_css_computed_value_equals(const robo_css_computed_value_t *a,
          * `hidden` and `none` are different styles that both draw nothing, and a
          * comparison on "draws nothing" would make them one value. */
         return a->border_style == b->border_style;
+    case ROBO_CSS_COMPUTED_VALUE_OVERFLOW:
+        /* The enumerator, for the same reason the four above are: `visible` and
+         * `hidden` are two different answers about one axis, and a comparison on
+         * "does this clip?" would make them one value. */
+        return a->overflow == b->overflow;
     default:
         return computed_trees_equal(&a->preserved, &b->preserved);
     }
@@ -973,6 +1002,14 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
          * of two `auto`s is the value `auto`, and prints as it. */
         ok = robo_css_background_size_write(value->background_size, buffer, capacity,
                                             &used, NULL) == ROBO_OK;
+        break;
+    case ROBO_CSS_COMPUTED_VALUE_OVERFLOW:
+        /* The overflow module's spelling, for the reason a display's, a position's
+         * and a border style's are the other modules': `visible` and `hidden` are
+         * spelled the way CSS spells them, and this layer formats lengths, numbers
+         * and token trees rather than property vocabularies. */
+        ok = robo_css_overflow_write(value->overflow, buffer, capacity, &used, NULL) ==
+             ROBO_OK;
         break;
     case ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE:
         /* The border module's spelling, so a style this build adds later prints
@@ -1490,6 +1527,19 @@ static int computed_vocabulary_border_style_known(robo_css_slice_t keyword)
     return robo_css_border_style_slice_is_known(keyword);
 }
 
+static int computed_vocabulary_overflow_known(robo_css_slice_t keyword)
+{
+    return robo_css_overflow_slice_is_known(keyword);
+}
+
+static robo_result_t computed_vocabulary_overflow_make(robo_css_computed_value_t *out,
+                                                       robo_css_slice_t keyword,
+                                                       robo_css_diag_t *diag)
+{
+    return robo_css_computed_value_make_overflow(
+        out, robo_css_overflow_from_slice(keyword), diag);
+}
+
 static robo_result_t computed_vocabulary_border_style_make(robo_css_computed_value_t *out,
                                                            robo_css_slice_t keyword,
                                                            robo_css_diag_t *diag)
@@ -1533,7 +1583,10 @@ static const computed_vocabulary_grammar_t computed_vocabulary_grammars[] = {
       "not a background attachment value" },
     { ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE, computed_vocabulary_border_style_known,
       computed_vocabulary_border_style_make, "not a single border style keyword",
-      "not a border style value" }
+      "not a border style value" },
+    { ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW, computed_vocabulary_overflow_known,
+      computed_vocabulary_overflow_make, "not a single overflow keyword",
+      "not an overflow value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -2050,6 +2103,15 @@ robo_result_t robo_css_computed_value_compute(
     /* And the border style vocabulary (9.15) is a row in the same table for the
      * same reason, which is now the fifth vocabulary to arrive that way. */
     case ROBO_CSS_PROPERTY_COMPUTATION_BORDER_STYLE:
+    /*
+     * And the overflow vocabulary (10.13) is the sixth, and the first whose row was
+     * added by a *layout* phase rather than by one of the 9.x value phases: what
+     * RoboLayout needed was not a new computation but a typed value it could classify,
+     * so the vocabulary table gained a row and this switch gained the case that reads
+     * it. Nothing else about the normaliser changed, which is the whole point of the
+     * table.
+     */
+    case ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW:
         return computed_compute_vocabulary(
             computed_vocabulary_grammar_for(computation), out, specified, diag);
     case ROBO_CSS_PROPERTY_COMPUTATION_BACKGROUND_IMAGE:

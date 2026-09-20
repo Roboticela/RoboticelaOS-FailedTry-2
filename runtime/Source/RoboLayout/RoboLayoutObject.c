@@ -392,6 +392,56 @@ robo_result_t robo_layout_object_position(const robo_layout_tree_t *tree,
     return ROBO_OK;
 }
 
+robo_result_t robo_layout_object_overflow(const robo_layout_tree_t *tree,
+                                         robo_layout_node_id_t id,
+                                         robo_layout_overflow_edges_t *out,
+                                         robo_layout_diag_t *diag)
+{
+    const robo_layout_object_t *object;
+
+    if (!out) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading an overflow needs an out");
+    }
+    /* Cleared first, so the record a caller reads after a refusal is a *stated* absence
+     * rather than whatever its stack held. */
+    robo_layout_overflow_edges_init(out);
+    if (!tree || id == ROBO_LAYOUT_NODE_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_INVALID_ARGUMENT,
+                                "reading an overflow needs a tree and an id");
+    }
+    object = robo_layout_object_slot_const(tree, id);
+    if (!object) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "the id names no object in this tree");
+    }
+
+    /*
+     * The same three refusals `robo_layout_object_borders` makes, for the same three
+     * reasons -- and the third one is particular to this phase: a transparent inline box's
+     * rectangle is its contents' union, so an overflow measured against it would be a
+     * statement about a rectangle that was *derived from* the things being measured. Its
+     * contents still contribute to its **parent**, through the region the parent's
+     * measurement reads, which is where the honest answer lives.
+     */
+    if (object->kind != ROBO_LAYOUT_OBJECT_BOX) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a text run has no overflow of its own");
+    }
+    if (robo_layout_result_state(&object->result) != ROBO_LAYOUT_RESULT_COMPUTED) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "no pass has placed this box");
+    }
+    if (robo_css_display_is_inline_level(object->display) &&
+        object->context_owned == ROBO_LAYOUT_FC_ID_NONE) {
+        return ROBO_LAYOUT_DIAG(diag, ROBO_LAYOUT_DOMAIN_OBJECT, ROBO_NOT_FOUND,
+                                "a transparent inline box has no overflow of its own");
+    }
+
+    *out = object->overflow;
+    return ROBO_OK;
+}
+
 /** Which link a caller asked for. */
 typedef enum layout_link_pick {
     LAYOUT_LINK_PARENT = 0,

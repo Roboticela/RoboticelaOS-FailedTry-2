@@ -250,6 +250,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSPosition.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSBackground.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSBorder.c"),
+    (Join-Path $SourceDir "RoboCSS\RoboCSSOverflow.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSComputedValue.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
@@ -273,7 +274,8 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboLayout\RoboLayoutMargin.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutPadding.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutBorder.c"),
-    (Join-Path $SourceDir "RoboLayout\RoboLayoutPosition.c")
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutPosition.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutOverflow.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -443,6 +445,10 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssPosition.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssBackground.c"),
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssBorder.c"),
+    # The overflow family (10.13) is the one whose phase is a *layout* phase: the
+    # value is registered by the side that consumes it, so its suite sits with the
+    # families it belongs beside rather than after the layout suites.
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssOverflow.c"),
     # The conformance suite (9.16) is the only one that spans the whole registry
     # and the whole pipeline rather than one family, so it sits last in the list
     # for the same reason it runs over everything the ones above it built.
@@ -463,6 +469,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutPadding.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutBorder.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutPosition.c"),
+    (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutOverflow.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutTree.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutConstraints.c"),
     (Join-Path $RuntimeRoot "layout\tests\SuiteRoboLayoutContext.c"),

@@ -292,6 +292,15 @@ robo_result_t robo_css_get_capabilities(robo_css_capabilities_t *out)
      * stays the keyword, which is why this is a flag for a value family and not
      * for measuring anything. */
     out->box_model = 1;
+    /* 10.13 gave the overflow family its values (RoboCSSOverflow.h): the shorthand
+     * and its two longhands on one closed vocabulary of two values, each carrying
+     * whether it clips its axis. It is the first family in this table added by a
+     * *layout* phase, because `overflow` is the first property whose value changes
+     * geometry — and the reason it is a value with a shape rather than a preserved
+     * token list is that the phase with a box dispatches on it, so an identifier it
+     * does not know has to be a mistake. What it does not claim: nothing scrolls,
+     * no scrollbar exists, and where the boundary is belongs to the box. */
+    out->overflow = 1;
     /* 9.12 gave `display` a vocabulary of its own (RoboCSSDisplay.h): a closed set
      * of four values, each a row carrying the keyword it is spelled by and what
      * CSS Display 3 calls its outer and inner halves. The property was already a

@@ -737,6 +737,68 @@ static robo_result_t layout_inline_place_leaf(robo_layout_walk_t *walk,
         object->padding = padding;
         object->borders = borders;
         object->position_offset = position_offset;
+        /*
+         * And the overflow (10.13), through the same door the block pass uses and at
+         * the same point in the box's construction: after every inset is known and after
+         * the contents have been laid out, because the measurement reads the *children*
+         * and this is the moment they all have rectangles.
+         *
+         * An atomic inline is the only inline participant with a record of its own -- a
+         * transparent box's rectangle is a union and a text run is not a box -- and the
+         * two decline at `robo_layout_object_overflow`. What is measured here is the same
+         * four extents against the same padding box, so an `inline-block` that spills its
+         * contents reports them exactly as a block box does; the *parent* then folds this
+         * participant's region in when it measures itself, which is how a spilling
+         * `inline-block` reaches the block box that contains its line.
+         */
+        {
+            robo_layout_overflow_edges_t overflow;
+
+            sizing_status = robo_layout_overflow_measure(walk->tree, object, &borders,
+                                                         &padding, border_box, &overflow,
+                                                         walk->diag);
+            if (sizing_status != ROBO_OK) {
+                return sizing_status;
+            }
+            object->overflow = overflow;
+            walk->inline_flow->overflow_clipped +=
+                robo_layout_overflow_edges_clips_any(&overflow) ? 1u : 0u;
+            walk->inline_flow->overflowing +=
+                robo_layout_overflow_edges_has_overflow(&overflow) ? 1u : 0u;
+            walk->inline_flow->overflow_unresolved += overflow.axes_unresolved;
+            /*
+             * And the flags, on the participant's own result rather than on its line's:
+             * a box that spills is a box that spills, and the two bits travel with the
+             * box a consumer is asking about. The line, the owner and the ancestors each
+             * carry their own, which is what makes "which box did this?" answerable
+             * without walking children.
+             */
+            {
+                uint32_t flags = 0u;
+
+                if (robo_layout_overflow_edges_has_overflow_axis(
+                        &overflow, ROBO_LAYOUT_OVERFLOW_AXIS_HORIZONTAL)) {
+                    flags |= ROBO_LAYOUT_RESULT_FLAG_OVERFLOW_X;
+                }
+                if (robo_layout_overflow_edges_has_overflow_axis(
+                        &overflow, ROBO_LAYOUT_OVERFLOW_AXIS_VERTICAL)) {
+                    flags |= ROBO_LAYOUT_RESULT_FLAG_OVERFLOW_Y;
+                }
+                /*
+                 * Set through the result's own door and *before* placement, which is the
+                 * one place in this pass where the order matters: the participant's
+                 * geometry is written later, by `robo_layout_result_set_geometry`, and that
+                 * door does not touch the flag word -- so the bits set here survive it. A
+                 * build that reset them at placement would report no overflow for every
+                 * atomic inline and would look correct in every document whose boxes fit.
+                 */
+                sizing_status = robo_layout_result_set_flags(&object->result, flags,
+                                                             walk->diag);
+                if (sizing_status != ROBO_OK) {
+                    return sizing_status;
+                }
+            }
+        }
     } else {
         walk->inline_flow->non_atomic_placed++;
     }
@@ -1238,6 +1300,9 @@ int robo_layout_inline_stats_equal(const robo_layout_inline_stats_t *a,
            a->offsets_declined == b->offsets_declined &&
            a->offsets_unresolved == b->offsets_unresolved &&
            a->boxes_shifted == b->boxes_shifted &&
+           a->overflow_clipped == b->overflow_clipped &&
+           a->overflowing == b->overflowing &&
+           a->overflow_unresolved == b->overflow_unresolved &&
            a->depth_max == b->depth_max;
 }
 

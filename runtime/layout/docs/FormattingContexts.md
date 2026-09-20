@@ -382,7 +382,7 @@ had only counted contexts would have shipped with both.
 | 10.6 line boxes | where a `<p>`'s lines go | the same `INLINE` context, and its owner's content origin |
 | 10.9 margin collapsing | which boxes a margin may collapse *through* | the transparency rule, §4 |
 | 10.12 containing blocks | what a positioned box's containing block is | `parent` and `depth` on the context tree |
-| 10.13 overflow | which box is a scroll container | the context a box establishes |
+| 10.13 overflow (**done**) | which box is a scroll container | 10.13 records overflow **beside** a box rather than restructuring anything, so the answer this model gives is only ever "which box *would* be one" — and the phase deliberately did not consume it: `visible` beside a clipping axis stays `visible` here because CSS's axis promotion exists for scrolling, and this build has none (`Overflow.md` §9) |
 | anonymous boxes | which containers are mixed, and so need wrapping | a block container whose children are both inline and block level — what 10.4 counts as `block_level_declined` |
 
 None of these needs a new header for the classification itself, and neither 10.3 nor
@@ -416,7 +416,9 @@ therefore no computed style.
   it is the outer/inner pair 9.12 records.
 - **No anonymous box, no text box, no fragment.** A later goal, and 10.5. Neither
   10.3 nor 10.4 added one (see §9).
-- **No float, no clearance, no `overflow`, no `position`.** 10.12 and 10.13.
+- **No float, no clearance.** A later goal. `position` (10.12) and `overflow` (10.13)
+  are done, both without a row in the classification: neither changes a box's outer
+  or inner display, which is the only thing this model reads.
 - **No geometry *of its own*.** A context still has a depth and a participant
   count; it has no rectangle, and nothing here computes one. Both directions
   compute geometry by reading this model to decide which boxes they own — the

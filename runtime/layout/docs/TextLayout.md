@@ -246,6 +246,11 @@ more for the thing that feeds the inline one.
   baseline is line geometry. `line-height` **as a resolved used value** is still
   absent, and remains a later phase's.
 - **No Unicode line breaking**, no whitespace collapsing, no bidi reordering.
-  Fragmentation is absent, so a run too wide for its line overflows.
+  Fragmentation is absent, so a run too wide for its line overflows — and since
+  10.13 that overflow is *recorded* rather than only happening: a run contributes its
+  **region** to its line's owner's overflow measurement, while the object door
+  (`robo_layout_object_overflow`) declines a run outright. The reason for the split is
+  that a run is not a box: it has a rectangle to contribute and no padding box of its
+  own to measure one against (`Overflow.md` §8).
 - **No text selection, editing, or painting.** A text object holds geometry, not a
   raster.

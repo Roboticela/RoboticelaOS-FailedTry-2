@@ -55,10 +55,19 @@
  * flow contribution are untouched, so a result's `position` is where the box is *drawn*
  * and the object keeps the offset that turns it back into where flow put it. `absolute`,
  * `fixed` and `sticky` are values 9.13 already carries and behaviour this build does not
- * have; overflow is still absent and still belongs to a named later goal -- so `geometry`,
- * `block_layout`, `inline_layout`, `block_and_inline_layout`, `text_layout`, `line_boxes`,
- * `baselines`, `sizing`, `margins`, `padding`, `border` and `positioning` are all 1, while
- * `painting` is 0.
+ * have.
+ *
+ * Phase 10.13 (RoboLayoutOverflow.h) is the first phase that admits the contents may not
+ * **fit**. An overflow is not a size -- the box keeps the size its declarations and its
+ * contents asked for -- so what the phase adds is a second rectangle *beside* the box: four
+ * extents saying how far the contents reached beyond the padding box, two modes saying which
+ * axis has a boundary, and a region and a clip rectangle a paint pass can consume. Every
+ * placed child contributes its own region to its parent's measurement, which is the phase's
+ * whole recursion, and a child that hides an axis contributes only what it kept. Scrolling
+ * does not exist and is not claimed: the phase exposes the boundary and nothing rasterises
+ * anything -- so `geometry`, `block_layout`, `inline_layout`, `block_and_inline_layout`,
+ * `text_layout`, `line_boxes`, `baselines`, `sizing`, `margins`, `padding`, `border`,
+ * `positioning` and `overflow` are all 1, while `painting` is 0.
  *
  * Chromium's LayoutObject / LayoutBox / constraint models are temporary technical
  * reference only; nothing here is a translation of them. See layout/README.md and
@@ -83,6 +92,7 @@
 #include "RoboLayout/RoboLayoutInline.h"
 #include "RoboLayout/RoboLayoutLineBox.h"
 #include "RoboLayout/RoboLayoutMargin.h"
+#include "RoboLayout/RoboLayoutOverflow.h"
 #include "RoboLayout/RoboLayoutPadding.h"
 #include "RoboLayout/RoboLayoutPosition.h"
 #include "RoboLayout/RoboLayoutObject.h"
@@ -278,6 +288,23 @@ typedef struct robo_layout_capabilities {
      * would be claiming those if it were named for "positioning is finished".
      */
     int positioning;
+    /**
+     * Measuring what happens when contents do **not** fit: the two overflow axes, the four
+     * extents a box's contents reached beyond its padding box, the region they occupy and
+     * the rectangle a paint pass would clip to (10.13). **1** since 10.13.
+     *
+     * A claim about the *build*, and one sentence short enough to be checked: the two
+     * `overflow-*` longhands and the `overflow` shorthand are read from a computed style
+     * into a mode per axis, every placed child contributes its **region** to its parent's
+     * measurement (clipped on an axis the child hides), and the results are a record on
+     * every measured box and two flags on its result. Kept narrow for the same reason the
+     * other flags are: **nothing scrolls** -- there is no scroll offset, no scrollport and
+     * no scrollbar, `scroll`/`auto`/`clip` are values this build has not added, and CSS's
+     * `visible`/`auto` axis promotion does not apply because it exists for scrolling. The
+     * phase *exposes* the clipping boundary; it does not clip. `overflow` would be claiming
+     * those if it were named for "overflow is finished".
+     */
+    int overflow;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } robo_layout_capabilities_t;

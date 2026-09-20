@@ -681,6 +681,69 @@ static robo_result_t layout_block_box(robo_layout_walk_t *walk,
      */
     object->position_offset = position_offset;
 
+    /*
+     * And the overflow (10.13), which is the *last* thing measured about a box and has to
+     * be: it is a statement about the contents, so it cannot be made until every child has
+     * a rectangle, and every child has one only after the recursion above returned. The
+     * measurement reads the children, not the box, which is why nothing earlier in this
+     * function could have produced it.
+     *
+     * Note what it is measured against: the **padding box**, which is `size` less the
+     * borders, and the four insets are relative to that -- a border is outside the boundary
+     * CSS clips to and a padding is inside it. `padding` is also what locates this box's
+     * *content* origin relative to that boundary, which is why the record is needed here
+     * rather than only the widths.
+     */
+    {
+        robo_layout_overflow_edges_t overflow;
+
+        status = robo_layout_overflow_measure(walk->tree, object, &borders, &padding, size,
+                                              &overflow, walk->diag);
+        if (status != ROBO_OK) {
+            return status;
+        }
+        object->overflow = overflow;
+        /*
+         * The three counters, and the two that count a *box* are the interesting pair: a
+         * document can declare `overflow: hidden` on every box and have nothing stick out
+         * of any of them, so "how many boxes clip" and "how many boxes overflow" are two
+         * different facts and neither implies the other. The third is about declarations
+         * this build could not use -- a `var()` reference, an identifier from CSS's other
+         * overflow values -- whose used mode is `visible` and which would otherwise be
+         * invisible in the record.
+         */
+        walk->block->overflow_clipped +=
+            robo_layout_overflow_edges_clips_any(&overflow) ? 1u : 0u;
+        walk->block->overflowing +=
+            robo_layout_overflow_edges_has_overflow(&overflow) ? 1u : 0u;
+        walk->block->overflow_unresolved += overflow.axes_unresolved;
+
+        /*
+         * And the result's two flags, which are the same fact in one bit per axis: a
+         * consumer that only needs to know *whether* a box's contents do not fit reads a
+         * bit, and a consumer that needs to know how far reads the record above. The flags
+         * are set here rather than derived later because this is the one moment both halves
+         * of the answer are in hand -- and `set_flags` replaces the whole word, which is
+         * safe because this pass is the only writer of these two bits.
+         */
+        {
+            uint32_t flags = 0u;
+
+            if (robo_layout_overflow_edges_has_overflow_axis(
+                    &overflow, ROBO_LAYOUT_OVERFLOW_AXIS_HORIZONTAL)) {
+                flags |= ROBO_LAYOUT_RESULT_FLAG_OVERFLOW_X;
+            }
+            if (robo_layout_overflow_edges_has_overflow_axis(
+                    &overflow, ROBO_LAYOUT_OVERFLOW_AXIS_VERTICAL)) {
+                flags |= ROBO_LAYOUT_RESULT_FLAG_OVERFLOW_Y;
+            }
+            status = robo_layout_result_set_flags(&object->result, flags, walk->diag);
+            if (status != ROBO_OK) {
+                return status;
+            }
+        }
+    }
+
     walk->block->blocks_placed++;
     if (object->depth > walk->block->depth_max) {
         walk->block->depth_max = object->depth;
@@ -758,6 +821,9 @@ int robo_layout_block_stats_equal(const robo_layout_block_stats_t *a,
            a->offsets_declined == b->offsets_declined &&
            a->offsets_unresolved == b->offsets_unresolved &&
            a->boxes_shifted == b->boxes_shifted &&
+           a->overflow_clipped == b->overflow_clipped &&
+           a->overflowing == b->overflowing &&
+           a->overflow_unresolved == b->overflow_unresolved &&
            a->empty_containers == b->empty_containers &&
            a->depth_max == b->depth_max;
 }

@@ -1,8 +1,8 @@
 # RoboLayout
 
-Layout subsystem for Roboticela Runtime (**through Phase 10.12, basic positioning**).
+Layout subsystem for Roboticela Runtime (**through Phase 10.13, overflow**).
 
-**Version:** 0.12.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
+**Version:** 0.13.0 — `ROBO_LAYOUT_API_FROZEN=0` (the surface grows for the whole
 of Phase 10)
 
 `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED=1` — this build computes coordinates, in both
@@ -63,6 +63,17 @@ is untouched, so the following sibling starts exactly where it always would have
 result carries the *final* position; the *flow* position stays recoverable through the
 used offset the object keeps. `static` remains the default and means no displacement;
 `absolute`, `fixed` and `sticky` are represented and declined (placing one is 18.5's).
+
+`ROBO_LAYOUT_OVERFLOW_IMPLEMENTED=1` — this build reads a box's **`overflow-x` and
+`overflow-y`** (and the `overflow` shorthand, for either axis a longhand said nothing
+about) and records what its contents reached **beside** the box: the result's size is
+untouched, and the box carries a four-extent record measured from its **padding box**
+(CSS's clipping edge) plus the used mode per axis. `visible` and `hidden` are the two
+modes; `hidden` *exposes* a clip rectangle and clips nothing here, because this phase
+does not paint. A child contributes its **region** — its padding box grown by its own
+extents and clipped back on an axis it hides — so a clipping child contributes only
+what it kept. Scrolling, scrollbars, `overflow: auto`, `text-overflow` and CSS's axis
+promotion do not exist yet.
 
 Public RoboLayout never depends on Chromium, and it does not depend on paint,
 render, compositing, JavaScript or the shell. It is the **first module in the tree
@@ -206,6 +217,23 @@ saturated, counted in four counters whose **decline** count is the one that tell
 line: an atomic inline's `dx` moves it along its line without touching the advance,
 and its `dy` lands at finalization after the baseline correction.
 
+**10.13 (overflow).** The phase that admits the contents may not **fit** — and whose
+whole shape follows from refusing to call that a size. Every phase before it assumed a
+box's contents stayed inside it; the tempting model is to grow the box, and it is wrong
+in a way that is invisible in a single-box test, because a *size* cannot express an
+overflow: a box that spills left and a box that spills right have the same width and
+two different records. So the box keeps the size its declarations and contents asked
+for and the overflow is four **extents** measured from the **padding box** — CSS's
+clipping edge, and the one rectangle a box's own declarations cannot move — recorded on
+the object beside a per-axis mode. Two rectangles fall out of that: the **region** (the
+padding box grown by the extents, clipped back on an axis whose mode clips), which is
+what a *parent* folds in, and the **clip rectangle**, which is what a *paint pass* will
+clip to. That the parent folds in the child's region rather than the child's contents is
+the recursion one line long, and the one case a suite needs a clipping child to see.
+The three counters keep two facts apart that a naive count would merge: how many boxes
+*clip* and how many boxes *overflow* are independent, since a document can declare
+`overflow: hidden` on every box and have nothing stick out of any of them.
+
 | Layer | What it delivers | What it does **not** do |
 |---|---|---|
 | tree | An owned arena of boxes, ids that are dense and tree-scoped, parent/child/sibling links by id, a reverse lookup from element to box | Edit a box, re-parent, reorder, or build incrementally |
@@ -225,6 +253,7 @@ and its `dy` lands at finalization after the baseline correction.
 | padding | The same declarations, one layer *inside*: three kinds (`absent`, `resolved` — non-negative — `unresolved`) read from a computed style, the four **used values**, and two derived numbers — the width left for a box's contents (floored at zero) and the **padding box** the result carries (summed in 64 bits and saturated) — with the read door a caller uses for where a box's contents begin | Inflate a **transparent inline box** by a declared padding, resolve a percentage against the containing *width*, apply `box-sizing: border-box`, or add a **border** to either derived number — the border layer composes above this one and calls the padding box its input |
 | border | The third inset, and the one between the padding and the margin: the twelve longhands read through **three** seams (a width's `px`-or-`thin`/`medium`/`thick` door, a style's ten-row vocabulary and its `generates_border` fact, a colour reused from 9.9), the four sides as a width + style + colour each, the **used edges** record, and the two derived numbers — the **border box** the result carries (summed in 64 bits and saturated) and the content width after borders *and* padding (floored at zero) — with the read door a caller uses for the box a paint pass draws, and the three counters that keep "declared" and "drawn" two facts | Draw a border (Phase 11), round a corner (`border-radius`), apply a border to a **transparent inline box**, resolve a percentage border width, or draw any style but `solid` — the vocabulary is ten rows wide because the *value model* is, not because a painter exists |
 | position | A box's **second coordinate**: the mode and four inset longhands in four kinds (`absent`, `resolved` — signed — `auto`, `unresolved`), the **used offset** record (a displacement plus four counters that account for every declaration), one precedence rule (`left` over `right`, `top` over `bottom`, an `auto` saying nothing), the apply in 64 bits and saturated, and the object door that separates a box's **flow** position from its **final** one | Place an `absolute`, `fixed` or `sticky` box (18.5), resolve a percentage inset, move a stacking context or a paint order, or offset a **transparent inline box** or a text run — both decline, and the doors say so rather than answering a zero |
+| overflow | What the contents reached **beside** the box: the two axes in three kinds (`absent`, `resolved`, `unresolved` — declared and unusable), one resolve policy (longhands first, then the shorthand for either axis, then `visible`), the four **extents** measured from the padding box with a per-side maximum computed in 64 bits and saturated, the two **derived rectangles** (the region a parent folds in, the clip rectangle a paint pass draws against), and the three counters that keep "declares a boundary" and "has something outside it" two facts | Scroll anything (no scroll offset, scrollport, scrollbar or `overflow: auto`), promote `visible` to `auto` beside a scrolling axis, clip a pixel, answer `text-overflow`, or measure a **text run** or a **transparent inline box** — the object door declines both, and both still contribute their region to their parent |
 
 ## The one structural decision
 
@@ -528,6 +557,39 @@ is the case paying for the model rather than documenting it. The counters comple
 other three count *declarations*, and `offsets_declined` is the number that tells a
 `static` box with four insets from a `relative` box with four autos.
 
+## The twelfth structural decision: an overflow is a record beside the box, not a size of it
+
+10.13's, and the first that is about **what a box's contents did to the space around
+them** rather than about the box. Every phase before it wrote what a box *is*; this one
+writes what got out of it, and the tempting model — let the box grow — is wrong in a way
+that is invisible:
+
+```text
+the box      the size its declarations and its contents asked for   (unchanged)
+the extents  four non-negative numbers measured FROM the padding box  (beside it)
+the region   the padding box grown by the extents, clipped per axis   (what a parent folds in)
+```
+
+A **size** cannot express an overflow: a box that spills 40px left and a box that spills
+40px right have the same width and two different records, and a model with one number per
+dimension would have to call them the same. So the record is an extent *per side*, and
+the reference edge is the padding box — CSS's clipping edge, and the only rectangle a
+box's own declarations cannot move (a margin is outside it, a border is outside it, a
+padding is inside it).
+
+The second half of the decision is that a parent folds in its child's **region** rather
+than its child's contents. A child that clips contributes only what it kept, while its
+own record still says how far its contents reached — two consumers, two answers, one
+record. Fold the contents in instead and a clipped subtree appears in an ancestor's
+scrollable area, which is the one failure this model exists to prevent and the one case
+(`layout.overflow.pass_recursion_clipped`) that can see it.
+
+And the counters complete it in the same spirit as 10.12's: `overflow_clipped` counts a
+fact about a box *declaring* a boundary while `overflowing` counts a fact about its
+*contents* — neither implies the other, since a document can clip every box and have
+nothing stick out of any of them — and `overflow_unresolved` is the number that makes a
+`var()`-driven declaration visible instead of silent.
+
 ## What "the pass ran" is allowed to mean
 
 There are two passes now, and they answer different questions about the same tree.
@@ -614,6 +676,7 @@ so the tree can borrow them.
 | `RoboLayoutPadding.h` | The four padding declarations in three kinds, the four used values, the one policy, and the two derived numbers (the content width, floored; the padding box, saturated) |
 | `RoboLayoutBorder.h` | The twelve border longhands read through three seams, the four sides, the used **edges** record, and the two derived numbers (the border box, saturated; the content width after borders and padding, floored) |
 | `RoboLayoutPosition.h` | The `position` mode and the four inset longhands in four kinds, the used **offset** record with its four counters, the one precedence rule, the apply, and the seam a computed style becomes a displacement through |
+| `RoboLayoutOverflow.h` | The two axes in three kinds, the one resolve policy, the **edges** record (two modes, four non-negative extents, three counters), the per-side-maximum accumulate, and the two derived rectangles (the region, the clip rectangle) |
 | `RoboLayoutStyle.h` | The style-source seam |
 | `RoboLayoutBuilder.h` | DOM document in, layout tree out |
 | `RoboLayoutDom.h` | The RoboHTML + RoboCSS bridge that supplies the styles |
@@ -690,7 +753,8 @@ module.
 | `docs/Padding.md` | Why a padding grows a box and never moves it, the three kinds (and why there is no `auto`), the one policy and why one door is enough where margins needed two, the two derived numbers and their two different clamps, the `content-box` model, the four earlier assertions the phase updated, and the missing transparent-inline padding |
 | `docs/Borders.md` | Why a border is an in-box inset and not a spacing, the three seams and why the three properties compute three ways, the `padding_box` rename and why the old name was the defect, the two derived numbers with opposite clamps, the `content-box` model, and the assertion that deliberately did not move |
 | `docs/Positioning.md` | Why a position is two coordinates, the four inset kinds (and why an inset is signed where a padding is not), the one precedence rule and its four counters, the apply's saturation, the two inline halves, and the object door that separates flow from final |
-| `docs/Tests.md` | The eighteen suites, what each asks, and what each phase found |
+| `docs/Overflow.md` | Why an overflow is a record rather than a size, the RoboSS vocabulary (and why the shorthand is read rather than expanded), the padding box as the reference edge, the one resolve policy and its three kinds, the per-side-maximum accumulate and its saturation, the region and the clip rectangle, the recursion that folds a child's region, where it is measured in each pass, and everything deliberately absent |
+| `docs/Tests.md` | The nineteen suites, what each asks, and what each phase found |
 
 ## Building and testing
 
@@ -698,7 +762,7 @@ module.
 # from runtime/
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Test
 pwsh -NoProfile -File Tools/Build.ps1 -Configuration Release -Test
-./Out/RoboTest.host.exe --filter layout.       # 280 cases (+2 demo cases)
+./Out/RoboTest.host.exe --filter layout.       # 307 cases (+2 demo cases)
 ```
 
 `Tools/Build.ps1 -Verify` additionally scans `Include/RoboLayout`,
@@ -765,9 +829,13 @@ module, which sits below layout in the graph but has no business in a layout pas
   A block-level box inside an inline one is counted as `block_level_declined`
   rather than placed inside something with no geometry — that box is what the
   anonymous wrapper will be for.
-- No positional, float, overflow or fragmentation behaviour. `position` is
-  readable from the borrowed style and resolved by nothing; the result's two
-  overflow flags stay 0 even when a declared height is smaller than its content.
+- No float, fragmentation or **scrolling** behaviour. `position` is resolved by 10.12
+  and overflow by 10.13, but an overflow here is *recorded* rather than scrolled: there
+  is no scroll offset, no scrollport and no scrollbar, `overflow: auto` and
+  `overflow: scroll` are not modes this build has, and CSS's axis promotion
+  (`overflow-x: visible` beside a scrolling axis) deliberately does not apply. The
+  result's two overflow flags are set by 10.13 from a *measured* extent, so a declared
+  height smaller than the content sets no bit unless something is actually outside the box.
 - No `flex`, `grid`, `table`, `ruby` or `multicol` context, and no enumerator for
   any of them. `ROBO_LAYOUT_OBJECT_KIND_COUNT` is three — `NONE`, `BOX` and `TEXT`,
   and 10.5 is the phase that widened it, with the no-property-to-derive-from

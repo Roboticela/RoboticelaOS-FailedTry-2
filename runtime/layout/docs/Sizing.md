@@ -288,8 +288,10 @@ Each a named later goal, and each stated where a reader will look for it:
   caller derives from its answer. That is why the padding layer computes
   `content + padding` (`Padding.md` §4) and the border layer computes that plus the
   border (`Borders.md` §4), rather than either being resolved here.
-- flex, grid and table sizing, and positioning (10.12), which is where `auto`
-  insets and a contained box's offset belong.
+- flex, grid and table sizing, positioning (10.12), which is where `auto` insets and
+  a contained box's offset belong, and overflow (10.13), which decides where a box's
+  contents reached — all three of them *outside* this layer, which is the phase's own
+  outcome row below.
 
 The one thing this phase does **not** change: `RoboLayoutResult.h`'s statement that
 `size` is the border-box size. Sizing decides what that number is; it does not
@@ -320,3 +322,16 @@ positioned box's `width`/`height` are exactly what this layer answered before 10
 existed, which is the assertion (`layout.positioning.block_relative`) paying for the
 boundary the two layers now have — sizing answers *how big*, positioning answers
 *where*, and neither reaches into the other.
+
+*10.13's outcome row:* nothing in this layer again, and the phase is the third that
+proves the boundary by not touching it. An overflow is the one thing in the module
+that is defined by **not** being a size: a box with `width: 100px` and 200px of
+contents is 100px wide and has a 100px extent beside it, so the rule this document
+states — a resolved size is the answer to a question, and it is what children are laid
+out into — is unchanged rather than refined.
+`layout.overflow.pass_size_unchanged` asserts the *pair* (the unchanged width and the
+extent), because either half alone would be satisfied by the build that grows the box,
+which is the mistake this boundary exists to make visible. What 10.13 needed from this
+layer is the one thing it already gave the padding and border layers: the border box a
+result carries, which is what an extent is measured against once the borders are
+subtracted.
