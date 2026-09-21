@@ -35,6 +35,8 @@ the PS/2 keyboard (via display INPUT). Started by init on normal boot.
 
 Type `help`, `robo list`, `clang --version`, `exit`.
 
-On normal boot, **terminal** is the only graphical service: it claims the
-framebuffer and draws a text console. Compositor / window-server run in
-selftest mode only so they do not hide the terminal.
+On normal boot the graphical program is **the desktop** (`/System/runtime/robo-runtime`,
+see [desktop-runtime.md](desktop-runtime.md)): it claims the display and draws the shell
+with one document window. `terminal` is a program you can run from that shell's stack of
+tools rather than a service init starts. Compositor / window-server run in selftest mode
+only, so they do not take the display from the desktop.

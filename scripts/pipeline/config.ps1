@@ -166,12 +166,12 @@ $script:RoboFlag = @{
     AssumeYes  = $false
 }
 
-# Interactive-run settings (window geometry, how long the demo window stays up).
+# Interactive-run settings (window geometry, how long the desktop window stays up).
 $script:RoboRun = @{
     Width  = (Get-RoboEnvInt "ROBO_WINDOW_WIDTH" 1280)
     Height = (Get-RoboEnvInt "ROBO_WINDOW_HEIGHT" 800)
-    HoldMs = (Get-RoboEnvInt "ROBO_DEMO_HOLD_MS" 0)
-    Shot   = (Get-RoboEnv "ROBO_DEMO_SHOT" "")
+    HoldMs = (Get-RoboEnvInt "ROBO_DESKTOP_HOLD_MS" 0)
+    Shot   = (Get-RoboEnv "ROBO_DESKTOP_SHOT" "")
 }
 
 function Initialize-RoboOutputTree {

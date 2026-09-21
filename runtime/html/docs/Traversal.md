@@ -284,22 +284,21 @@ and the walk keeps stepping (so nothing is silently skipped in a way that
 would desynchronise the rest). The old sibling-cycle truncation message is
 gone, because a cycle is now reported by the walker as the corruption it is.
 
-## The visual renderer now iterates with the cursor
+## Iterating children with the cursor
 
-The demo adapter's tree walk (`RoboDemoHtml.c`) was the fourth consumer, and
-it was the one with a cost problem rather than a duplication problem. It
-enumerated a node's children with `child_count` + `child_at`, and `child_at`
-resolves child 0 and then follows the sibling links *index* times — so
-iterating one child list was O(n²) over that list. It now opens a
-`robo_html_child_cursor_t` and asks for children one at a time, which is O(n)
-with one registry lookup per child and no index bookkeeping in the loop.
+The cursor (`robo_html_child_cursor_t`) is the API a consumer that walks a node's
+children uses, and the reason it exists is cost: `child_count` + `child_at`
+resolves child 0 and then follows the sibling links *index* times, so iterating
+one child list that way is O(n²) over that list. The cursor hands out one child
+at a time — O(n), one registry lookup per child, no index bookkeeping in the
+loop.
 
-The walk keeps its own bounded recursion because the demo recurses for a
-reason (it filters by style, and an unsupported element still has its subtree
-walked), but it no longer knows how children are stored — which is exactly the
-property the traversal API exists to provide. The rendered page is unchanged:
-the demo suite's block, title, button and element-count assertions all pinned
-the same values before and after.
+The consumer that first showed this was the deleted demo adapter's tree walk
+(`RoboDemoHtml.c`, Phase 11.13), which recursed for a reason of its own (it
+filtered by style, and an unsupported element still had its subtree walked) but
+no longer knew how children were stored. That property — a walk that does not
+know the storage — is the one this API exists to provide, and it is what the
+surviving consumers rely on.
 
 ## Lifetime
 
@@ -374,4 +373,5 @@ emoji plus untrimmed whitespace, a 1000-level tree walked and ascended, an
 empty document, defensive input (NULL arguments, cleared handles, stale
 handles, unknown filters), visitor control (early stop, refusal, reentrancy,
 destroy-from-visitor), the dump on both a parsed and an explicitly built tree,
-the capability flag and diagnostic domain, and the visual demo document.
+the capability flag and diagnostic domain, and the checkpoint document
+(`html.traverse.checkpoint_document`).

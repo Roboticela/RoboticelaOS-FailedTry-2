@@ -1,20 +1,18 @@
 /*
  * RoboRender — the module's front door (Phase 11.12).
  *
- * One release, and its table is the interesting half: **ten 1s and six 0s**, and every 0 names the
+ * One release, and its table is the interesting half: **eleven 1s and five 0s**, and every 0 names the
  * phase that would make it a 1 rather than leaving a caller to infer it. That arrangement is the one
  * RoboPaint's capability table established and the reason it works: a caller deciding what to build
  * next reads the 0s, a caller deciding whether to look for pixels reads the 1s, and neither has to
  * read the source to find out which of the two it is holding.
  *
- * The six 0s, and what each would need -- because "not implemented" is not a design, and a table that
+ * The five 0s, and what each would need -- because "not implemented" is not a design, and a table that
  * did not say why would be a table a reader has to trust:
  *
- *   `presentation`  a target reaching a window, a display or a framebuffer. Phase 11.13's:
- *                   `robo_render_target_surface` is the door it takes, and the work is a copy plus
- *                   whatever the display path needs (a format, a paced handoff, a VBlank signal);
  *   `compositor`    more than one surface, an ordering, and a place to put the result. A frame here
- *                   is one list into one target; a compositor is a *set* of frames with stacking;
+ *                   is one list into one target presented into one destination; a compositor is a
+ *                   *set* of frames with stacking, and a layer tree to hold them;
  *   `tiles`         a target divided into independently rasterisable pieces, with a decision about
  *                   which pieces a change touched. Needs the region *subtraction* 11.11 refused;
  *   `damage_tracking` a history of what a scene was, so "unchanged" is answerable without a
@@ -25,6 +23,11 @@
  *   `gpu`           a device, a command buffer, a resource manager and a fallback path. Everything
  *                   above that -- a backend boundary, a shader story, a present queue -- is absent
  *                   rather than stubbed, so a GPU backend is a module and not a branch.
+ *
+ * `presentation` was the sixth 0 and is now the eleventh 1: 11.13 added `robo_render_present`, which
+ * composites one frame into one destination surface at one offset. It is a **call and not a system** --
+ * the destination is the caller's, there is no queue, no pacing and no second buffer -- and the row
+ * that would describe a presentation *system* is `compositor`, still 0 beside it.
  *
  * What it deliberately does **not** have a 0 for is the thing it would be easy to be vague about:
  * transforms, filters, masks, blend modes and `border-radius` are not capabilities of a *rasteriser*
@@ -39,6 +42,7 @@
 #include "RoboBase/RoboError.h"
 
 #include "RoboRender/RoboRenderDiagnostics.h"
+#include "RoboRender/RoboRenderPresenter.h"
 #include "RoboRender/RoboRenderRasterizer.h"
 #include "RoboRender/RoboRenderVersion.h"
 
@@ -75,7 +79,8 @@ typedef struct robo_render_capabilities {
     int determinism;
     /** An execution record: what a run carried, executed and cost. */
     int frame_records;
-    /** Presenting a target to a window, a display or a framebuffer. **0**: Phase 11.13. */
+    /** Presenting a target to a window, a display or a framebuffer: one frame into one destination
+     *  (11.13). The destination is the caller's; see @ref robo_render_present. */
     int presentation;
     /** Compositing more than one surface. **0**: no layer tree exists yet. */
     int compositor;
@@ -115,9 +120,11 @@ robo_result_t robo_render_get_version(robo_i32 *out_major,
  * It answers **1** in this release, and the condition was written down one module down before there
  * was anything here: `RoboPaintVersion.h`'s own release note names `raster` as the flag a build in
  * which "a whole display list reaches a surface as a frame" would turn. What it does **not** mean is
- * that a frame is on a screen: it means the pixels exist in a buffer this module owns, and getting
- * them out is `robo_render_target_surface` plus Phase 11.13. `presentation` beside it in the table
- * above is the 0 that says so.
+ * that a frame is on a *screen*: it means the pixels exist in a buffer this module owns. 11.13 added
+ * the way out (`robo_render_present`, one header over, and `robo_desktop_present` above it, which is
+ * the caller that has a screen), but the two questions stay separate on purpose -- `presentation`
+ * beside this door in the table above asks whether a frame can *arrive somewhere*, and this one asks
+ * whether the pixels exist at all.
  */
 int robo_render_rasterization_is_implemented(void);
 

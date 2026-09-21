@@ -1,10 +1,16 @@
-# Rasterization (Phase 11.12)
+# Rasterization (Phase 11.12, extended by 11.13)
 
 RoboRender turns a **display list** into **pixels in a buffer it owns**, and reports what it did. This
 document is the design: the boundary the module keeps, the target and its buffer, the coordinate
 statement, the walk and how a drawing's boundary and strength reach the raster, what text and images
 amount to here, the region path, the error model, and — last, and longest, because a reader is owed the
 list rather than a shrug — **what is absent and what each absence would need**.
+
+**11.13 changed one thing in this document and no other:** the buffer gained an exit. Presentation is a
+second direction rather than a second rasteriser, so it has a document of its own
+(`render/docs/Presentation.md`) and §12 below now reports `presentation` as **present** rather than as
+the next phase. Everything else here — the target, the walk, the region path, the coordinate statement —
+describes the release exactly as it shipped, and the version that carries both is **0.2.0**.
 
 Chromium's rasterization stack (`cc::RasterSource`, `PaintOpBuffer`, tile managers, the GPU raster
 path) was read as temporary technical reference for what a rasteriser is asked to answer. Nothing in
@@ -337,7 +343,7 @@ The capability table (`RoboRender.h`) reports **six 0s**. Each is a phase, not a
 
 | Flag | What it would need |
 |---|---|
-| `presentation` | a copy path to a window, a display or a framebuffer, plus whatever the destination needs (a format, a paced handoff, a VBlank signal). Phase **11.13**. `robo_render_target_surface` is the door it takes. |
+| ~~`presentation`~~ | **Closed in 11.13** — `robo_render_present`, `robo_render_present_framebuffer` and the record beside them (`render/docs/Presentation.md`). What remains a 0 is the *system* half: a paced handoff, a VBlank signal, a queue. Those are `frame_scheduling`, still 0 below. |
 | `compositor` | more than one surface, an ordering, and a place to put the result. A frame here is one list into one target; a compositor is a *set* of frames with stacking — which needs CSS's stacking contexts, a layer tree and a blend/opacity group model that this build does not have (11.9 names the group-opacity gap it would close). |
 | `tiles` | a target divided into independently rasterisable pieces and a decision about which pieces a change touched. Needs region **subtraction**, which 11.11 refused, and a tile lifetime. |
 | `damage_tracking` | a history of what a scene was, so "unchanged" is answerable without a comparison. 11.11's set is the *per-transition* answer and has no lifetime; a history is a different structure with one. |
@@ -351,8 +357,12 @@ animations, transitions, and a partial display-list **patch** (the list is rebui
 what regions restrict). Each is named where it belongs — `RoboGraphics`' reserved doors, RoboPaint's
 absent records — because a capability row here would suggest this module is where they would arrive.
 
-One more absence is worth stating plainly: **this module does not present, and it does not pace.** A
-frame is finished when the call returns; there is no `present`, no swap chain, no VSync and no
-double-buffer management. Phase 11.13 is where a target becomes something a person can see, and it
-will need a decision this document deliberately does not pre-empt: whether the window path copies the
-target's RGBA8 pixels into its own surface, or the target's surface *is* the window's back buffer.
+One more absence is worth stating plainly, because 11.13 changed half of it: **this module presents, and
+it does not pace.** A frame reaches a destination in one synchronous call, and the two questions this
+document used to leave open were both settled in favour of the *copy* — a presentation composites the
+frame's pixels into a destination surface the caller owns, so a target is never a window's back buffer
+and two destinations can be handed the same frame (`render/docs/Presentation.md` §1 and §4 state the two
+reasons: the module must not depend on RoboWindow, and one authority must apply the clip). What is still 
+absent is everything a presentation *system* has: no swap chain, no VSync, no double-buffer management,
+no frame queue and no notion of "the previous frame". A frame is finished when the call returns, and
+`frame_scheduling` beside `presentation` in the capability table is the 0 that says so.

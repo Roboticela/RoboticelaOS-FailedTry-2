@@ -69,6 +69,37 @@ robo_vfs_init
 walk crosses `vnode->cover` when a later mount covers a directory.
 Only root mounting is implemented now. There are no mount namespaces.
 
+## The boot image and the root volume
+
+Two things are separate here, and keeping them separate is what makes the boot
+steady:
+
+* the **boot image** (`RFS1`, `kernel/fs/robofs.c`) is the archive the bootloader
+  hands the kernel — a flat list of `path=bytes` entries read through
+  `robo_fs_file_at`;
+* the **root volume** is a RoboFS filesystem in a memory block device, and
+  `robo_vfs_import_initrd` copies every image entry into it, creating the
+  directories each path names along the way. After that, paths work: a program
+  can `stat`, `open` and `read` anything the image carried.
+
+The root volume is sized from the image (`robo_fs_root_blocks`), not from a
+constant — see [filesystems/robofs.md](../filesystems/robofs.md#how-big-the-root-volume-is)
+for the arithmetic and for what that replaced.
+
+**An entry the volume cannot hold is skipped, named, and left on the image.**
+RoboFS v1 caps one file at 4.03 MiB (direct + single indirect), so an image whose
+ELF is bigger than that cannot have that file *in the filesystem*. Import prints
+`VFS_IMPORT_SKIP  <path>`, removes the part it wrote (so a half-written file is
+never left behind as a shorter one), and carries on with the next entry; the run
+ends with `VFS_IMPORT_PARTIAL  <count>`. Walking on rather than stopping is the
+point: the same run still imports the fonts and everything else after the large
+file, and the ELF is still runnable, because `robo_exec` falls back to the image
+when a path is not in the VFS (`kernel/exec/exec.c`).
+
+A negative return from the walk, reported as `VFS_IMPORT_FAIL  <error>`, is a
+different thing: the image itself could not be walked (a directory could not be
+created, an entry could not be opened).
+
 ## Path resolution
 
 `robo_vfs_lookup` / `robo_vfs_lookup_at` handle `/`, multiple slashes,

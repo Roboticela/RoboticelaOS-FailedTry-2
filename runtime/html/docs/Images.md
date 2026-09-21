@@ -1,8 +1,8 @@
 # RoboHTML Images (Phase 8.12)
 
 This document is the design record for Phase 8.12. It is normative for
-`RoboHTMLImage.h` / `RoboHTMLImage.c`, for the RoboGraphics decoder it builds
-on (`graphics/docs/ImageDecode.md`), and for the demo adapter's image painting.
+`RoboHTMLImage.h` / `RoboHTMLImage.c` and for the RoboGraphics decoder it builds
+on (`graphics/docs/ImageDecode.md`).
 
 Phase 8.11 already gave `img` a tag identity and void behaviour, so the parser
 was building `<img>` elements before this phase began. What was missing is
@@ -162,12 +162,17 @@ child, and that document order is `div, img, span, Text("After image")`.
 `html.image.parser_element` covers the raw element: tag identity, all four
 attributes, void behaviour, parent and sibling links.
 
-## 7. What the renderer does
+## 7. Where an image goes now
 
-The demo adapter gained `ROBO_DEMO_BLOCK_IMAGE`, which retains the element's
-resource and paints the real decoded bitmap at one image pixel per surface
-pixel — this adapter has no scaling. A `<div>` that holds text and nothing else
-paints as a text block, so the visual checkpoint renders
+An `<img>`'s resource is retained by the element, and a *painter* paints the real
+decoded bitmap at one image pixel per surface pixel — scaling is a paint-side
+question this build does not answer. The demo adapter that demonstrated this
+(`ROBO_DEMO_BLOCK_IMAGE`) was deleted in Phase 11.13 with the rest of the demo
+layer; the consumer now is the pipeline that turns markup into a display list
+and executes it, and the picture-level cases live where frames live
+(`render.*`, `desktop.scene.*`) rather than in an adapter of their own.
+
+What this phase's own model offers that consumer is the whole of it:
 
 ```html
 <h1>…</h1><p>…</p><div>…</div><img src="Assets/Logo.png" width="64" height="64">
@@ -208,7 +213,10 @@ network, file or `data:` access of any kind.
 | `html.image.debug_describe` | `robo_html_image_describe` output reflects real state |
 | `html.image.capability_reported` | `robo_html_dom_query_capabilities().images == 1`, with `dom_nodes`/`events` still 0 — a consumer discovers the model the way it discovers every other one, and the flag stays a narrow claim |
 
-`SuiteRoboDemoHtml.c` adds `demo.image.reaches_framebuffer`, the visual
-regression: parse, advance the lifecycle, resolve a real PNG through the asset
-resolver, render, mutate the DOM, render again, and assert the frame changed —
-proved on pixels rather than on a draw call having been made.
+The visual regression this phase used to carry — parse, advance the lifecycle,
+resolve a real PNG through the asset resolver, render, mutate the DOM, render
+again, assert the frame changed — lived in the deleted demo suite
+(`demo.image.reaches_framebuffer`). The model half is covered here; the picture
+half is now the frame path's own (`render.scene.*` executes a display list into a
+target, and `desktop.scene.*` executes one into a shell window), which is where a
+draw call that silently did nothing would show up.

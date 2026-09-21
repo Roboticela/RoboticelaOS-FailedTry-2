@@ -33,17 +33,15 @@ $script:RoboRuntimeComponents = [ordered]@{
     "display"     = @("display.")
     "html"        = @("html.")
     "css"         = @("css.")
-    # RoboLayout's own suites live in runtime/layout/tests, and report under
-    # `layout.` -- which the demo layout cases also carry as a substring
-    # (`demo.layout.*`), so this group is a superset of two cases by design
-    # rather than by accident.
+    # RoboLayout's own suites live in runtime/layout/tests and report under
+    # `layout.`.
     "layout"      = @("layout.")
     # RoboPaint's suites live in runtime/paint/tests and report under `paint.`.
-    # The match is a substring, not a prefix, so the demo layer's six paint cases
-    # (`demo.paint.*`) fall inside this group too -- the same superset the layout
-    # group carries, and by the same mechanism.
     "paint"       = @("paint.")
-    "demo"        = @("demo.")
+    # RoboRender and RoboDesktop: the rasteriser, and the shell that composites what
+    # it produces (the desktop group also carries the checkpoint-scene cases).
+    "render"      = @("render.")
+    "desktop"     = @("desktop.")
     "infra"       = @("infra.")
 }
 
@@ -283,28 +281,41 @@ $script:RoboUserSpaceFailPatterns = @(
 )
 
 #
-# The display smoke test requires the guest's checkpoint counters, not just the
-# pipeline markers. The values are asserted, not merely looked for, because the
-# document is pinned (`demo.source.default` on the host) and these are the same
-# facts on the device path: a control whose state stopped reaching the picture
-# fails here instead of passing as a picture nobody diffs.
+# The display smoke test requires the guest's own checkpoint, not just a picture:
+# the runtime program runs the shared desktop scene on the framebuffer and reports
+# what each stage of the chain did. The counters are asserted by value, because a
+# shell whose text stopped reaching the picture -- a face that did not load, a
+# document that stopped producing runs -- must fail here rather than pass as a
+# window with something in it.
 #
 $script:RoboDisplayMarkers = @(
+    # The display came up, and at the mode the checkpoint is written for.
     "ROBO_QEMU_DISPLAY_OK",
+    "ROBO_QEMU_FB_W=0x00000500",
+    "ROBO_QEMU_FB_H=0x00000320",
+    # The system face was read from the image and parsed; without it every label below is shapes-not-text.
+    "ROBO_QEMU_FACE_OK",
+    "ROBO_QEMU_DESKTOP_OK",
+    "ROBO_QEMU_DESKTOP_WINDOW=Welcome",
+    "ROBO_QEMU_DESKTOP_STATUS=1280x800",
+    # What the frame says. These are the *same numbers the host launcher prints* for the same scene
+    # (`RoboTest.host.exe --desktop --no-window`: fills=12 labels=4 unshaped=0 windows=1 content_runs=1
+    # content_pixels=652912), which is the point of one scene with two backends: a guest number that drifted
+    # from the host's would mean the two launchers had stopped drawing the same desktop. `unshaped` is 0 or
+    # the text in this checkpoint did not reach the picture.
+    "ROBO_QEMU_DESKTOP_WINDOWS=0x00000001",
+    "ROBO_QEMU_DESKTOP_CONTENT_RUNS=0x00000001",
+    "ROBO_QEMU_DESKTOP_LABELS=0x00000004",
+    "ROBO_QEMU_DESKTOP_UNSHAPED=0x00000000",
+    "ROBO_QEMU_DESKTOP_FILLS=0x0000000C",
+    "ROBO_QEMU_DESKTOP_PIXELS=0x0009F670",
+    # And it reached the screen: every pixel of the 1280x800 destination was written.
     "ROBO_QEMU_PRESENT_OK",
+    "ROBO_QEMU_PRESENT_COMPLETE=0x00000001",
+    "ROBO_QEMU_PRESENT_PIXELS=0x000FA000",
+    # Input travelled the whole way back: an injected press reached the shell as an action.
     "ROBO_QEMU_INPUT_OK",
-    "ROBO_QEMU_DISPLAY_SHUTDOWN_OK",
-    # 22 blocks, 29 supported elements, 0 ignored, from the shipped checkpoint.
-    "ROBO_QEMU_HTML_BLOCKS=0x00000016",
-    "ROBO_QEMU_HTML_SUPPORTED=0x0000001D",
-    # Phase 8.14: 14 field blocks, 7 of them controls carrying state, 2 checked,
-    # 3 with a declared value, 2 with a placeholder only, and a 2-option select.
-    "ROBO_QEMU_HTML_FIELDS=0x0000000E",
-    "ROBO_QEMU_HTML_FIELDS_STATE=0x00000007",
-    "ROBO_QEMU_HTML_FIELDS_CHECKED=0x00000002",
-    "ROBO_QEMU_HTML_FIELDS_DECLARED=0x00000003",
-    "ROBO_QEMU_HTML_FIELDS_PLACEHOLDER=0x00000002",
-    "ROBO_QEMU_HTML_FIELD_OPTIONS=0x00000002"
+    "ROBO_QEMU_DISPLAY_SHUTDOWN_OK"
 )
 
 function Assert-RoboQemuAvailable {
@@ -464,7 +475,7 @@ function Invoke-RoboQemuUserSpaceTest {
 
 function Invoke-RoboQemuDisplayTest {
     param([switch]$Continue)
-    Invoke-RoboStep -Name "QEMU: visual runtime display" -Layer "TEST" -Continue:$Continue -Action {
+    Invoke-RoboStep -Name "QEMU: the desktop shell on the display" -Layer "TEST" -Continue:$Continue -Action {
         Invoke-RoboBuildImageCommand -Flags "splash_ms 0"
         $echo = Start-RoboNetEcho
         try {
@@ -517,7 +528,7 @@ function Invoke-RoboTestAll {
     # --- 3. QEMU acceptance ----------------------------------------------
     if ($script:RoboFlag.SkipQemu) {
         foreach ($n in @("QEMU: bootloader selftest", "QEMU: kernel + OS selftest",
-                        "QEMU: user-space selftests", "QEMU: visual runtime display")) {
+                        "QEMU: user-space selftests", "QEMU: the desktop shell on the display")) {
             Add-RoboResult -Name $n -Status skip -Layer "TEST" -Detail "QEMU unavailable or --skip-qemu"
             Write-RoboSkipped $n
         }
@@ -565,11 +576,11 @@ function Invoke-RoboTestComponent {
 
 function Invoke-RoboTestE2E {
     <#
-      The real flow: build -> boot -> OS selftests -> visual runtime ->
+      The real flow: build -> boot -> OS selftests -> the desktop shell ->
       deployment validation. This is deliberately the strictest command: it
       performs a full build, so it cannot pass on stale artifacts.
     #>
-    Write-RoboSection "End-to-end: source -> build -> boot -> runtime -> shutdown"
+    Write-RoboSection "End-to-end: source -> build -> boot -> desktop -> shutdown"
 
     Invoke-RoboStep -Name "environment" -Layer "E2E" -Action {
         if (-not (Invoke-RoboCheck)) { throw "environment check failed" }

@@ -148,4 +148,4 @@ asking for it, so a dump taken mid-load says so.
 | `Source/RoboHTML/RoboHTMLTreeBuilder.c` | The parse-end transition and `build_consumed_whole_source`. |
 | `Source/RoboHTML/RoboHTMLParser.c`, `RoboHTMLDocumentModel.c` | Detach and reset settling. |
 | `html/tests/SuiteRoboHTMLLifecycle.c` | `html.lifecycle.*` — the graph, every entry point, refused transitions, observability, mutation and traversal in every state, malformed input, ownership, teardown, the dump. |
-| `demo/tests/SuiteRoboDemoHtml.c` | `demo.lifecycle.advance_keeps_picture` — a transition renders the identical picture, a reload does not. |
+| `layout/tests/SuiteRoboLayoutBuild.c` | `layout.build.rebuild` — a rebuild replaces the tree a picture was built from, which is the transition that has a visible consequence. |

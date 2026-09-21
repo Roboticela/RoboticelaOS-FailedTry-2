@@ -198,21 +198,36 @@ insertion modes and recovery are the 8.3 implementation, not a rewrite.
 
 ---
 
-## 8. The demo renderer
+## 8. The first consumer, and what it became
 
-`RoboDemoHtml.c` walks the real document tree and now identifies elements
-through the element model rather than a raw name field:
+The consumer that exercised this seam first was a visual demo adapter, and it is
+gone: Phase 11.13 deleted the demo layer when the desktop shell landed, and the
+consumer now is the desktop's document bridge (`RoboDesktopDocument.c`), which
+feeds the real pipeline — markup → style → layout → paint → display list.
+
+The model's part did not change with it. Its rules are the ones a consumer has to
+obey, and they are asserted through this module's own suites rather than through
+a renderer:
 
 - `robo_html_element_view_get` **is** the filter — it fails for text, comment,
-  doctype and stale handles, which is exactly what the walk must skip;
+  doctype and stale handles, which is exactly what a walk must skip;
 - names compare through `robo_html_element_is_named`;
-- roles come from `robo_html_element_classification`, so `<h1>` … `<h6>` all
-  paint as headings (previously only `<h1>` did) and nothing else changed;
-- non-HTML-namespace elements are not painted.
+- roles come from `robo_html_element_classification`, so `<h1>` … `<h6>` are all
+  headings to a layout pass;
+- a non-HTML-namespace element has no role in this model, and a layout pass that
+  reached one would be asking a question the model answers `UNKNOWN` to.
 
-The painted subset is otherwise the same subset, so the picture is stable:
-host `blocks=4 supported=8 ignored=0` and QEMU `ROBO_QEMU_HTML_BLOCKS=4`
-`SUPPORTED=8` `IGNORED=0`, unchanged from the 8.4 checkpoint.
+The painted subset is otherwise the same subset, so the picture is stable: the
+fixture's own reading is `blocks=4 supported=8 ignored=0`, unchanged from the 8.4
+checkpoint.
+
+The step from a tree to a picture is `RoboDesktopDocument.c` (Phase 11.13): the
+document a shell window shows, built by this model and painted through
+RoboCSS → RoboLayout → RoboPaint. The QEMU device path asserts that pipeline's
+*outcome* rather than these counts — the guest program reports what the frame
+carried (`ROBO_QEMU_DESKTOP_LABELS`, `_UNSHAPED`, `_CONTENT_RUNS`), because a
+guest that re-printed the tree's own numbers would be checking the tree against
+itself.
 
 ---
 

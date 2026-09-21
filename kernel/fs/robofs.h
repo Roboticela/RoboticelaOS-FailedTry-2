@@ -24,6 +24,8 @@ typedef struct {
 
 int robo_fs_init(const RoboBootInfo *info);
 int robo_fs_ready(void);
+uint64_t robo_fs_payload_bytes(void);
+uint32_t robo_fs_root_blocks(uint32_t block_size);
 int robo_fs_open(const char *path, const void **data, uint32_t *size);
 unsigned robo_fs_file_count(void);
 int robo_fs_file_at(unsigned index, char *name, unsigned name_max,

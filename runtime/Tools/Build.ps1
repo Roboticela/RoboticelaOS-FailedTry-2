@@ -306,15 +306,35 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboRender\RoboRender.c"),
     (Join-Path $SourceDir "RoboRender\RoboRenderDiagnostics.c"),
     (Join-Path $SourceDir "RoboRender\RoboRenderRasterizer.c"),
-    (Join-Path $SourceDir "RoboRender\RoboRenderFrameDump.c")
+    (Join-Path $SourceDir "RoboRender\RoboRenderFrameDump.c"),
+    # RoboRender 11.13: the presentation door -- one frame into one destination surface (or a
+    # framebuffer). It adds no pixel loop of its own: the destination is handed to RoboGraphics'
+    # own composite, which is where the blend and the format conversion already live.
+    (Join-Path $SourceDir "RoboRender\RoboRenderPresenter.c"),
+    # RoboDesktop (11.13) -- the native shell: an owned screen target, a background, a panel and a
+    # work area painted with graphics primitives, shell windows with decorations whose contents are
+    # display lists, a deterministic frame lifecycle, a resize path and a present door. It reads
+    # *no* markup: that is the boundary the scan below enforces, and `RoboDesktopDocument.c` is the
+    # one file exempted from it, because a document bridge is not a shell.
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktop.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopTypes.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopTheme.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopGeometry.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopWindow.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopChrome.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopText.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopDiagnostics.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopDump.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopDocument.c")
 )
-# RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
-# this is the one place in the tree that is allowed to be deleted wholesale
-# once the 8.3 tree builder and the real paint path land.
-$DemoSrcs = @(
-    (Join-Path $SourceDir "RoboDemo\RoboDemoFont.c"),
-    (Join-Path $SourceDir "RoboDemo\RoboDemoHtml.c"),
-    (Join-Path $SourceDir "RoboDemo\platform\host\RoboDemoHtmlHost.c")
+# The desktop's checkpoint scene and its host launcher (Phase 11.13). Not part of $ProdSrcs, and
+# deliberately: the shipping runtime has no scene and no launcher -- a scene is the fixture somebody looks
+# at, and the shell it draws is the product. Both files are compiled into the host suite binary, and the
+# scene is also compiled into the guest program (see `scripts/roboboot-build-common.ps1`), so the two
+# backends run one definition of the checkpoint rather than two that drift.
+$DesktopSceneSrcs = @(
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopScene.c"),
+    (Join-Path $SourceDir "RoboDesktop\platform\host\RoboDesktopHost.c")
 )
 $MainSrc = Join-Path $SourceDir "Main.c"
 $TestFrameworkSrc = Join-Path $FrameworkDir "RoboTest.c"
@@ -528,7 +548,13 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "render\tests\SuiteRoboRender.c"),
     (Join-Path $RuntimeRoot "render\tests\SuiteRoboRenderRaster.c"),
     (Join-Path $RuntimeRoot "render\tests\SuiteRoboRenderScene.c"),
-    (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
+    (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktop.c"),
+    (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopGeometry.c"),
+    (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopWindow.c"),
+    (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopFrame.c"),
+    (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopDocument.c"),
+    (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopPresent.c"),
+    (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopScene.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -681,30 +707,6 @@ function Assert-RoboWindowChromiumIndependence {
     Write-Host "RoboWindow Chromium-independence source scan: OK"
 }
 
-function Assert-RoboDemoIsolation {
-    $roots = @(
-        (Join-Path $RuntimeRoot "Include\RoboDemo"),
-        (Join-Path $RuntimeRoot "demo")
-    )
-    # The demo layer exists to prove RoboHTML + RoboGraphics + RoboWindow are
-    # alive together; it must never grow dependencies on CSS/layout/paint/JS
-    # subsystems or on Chromium, nor be depended upon by them.
-    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCSS|RoboLayout|RoboPaint|RoboRender|RoboCompositor|RoboJS|RoboText|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
-    foreach ($root in $roots) {
-        if (-not (Test-Path -LiteralPath $root)) { continue }
-        $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h |
-            Select-String -Pattern $pat -SimpleMatch:$false |
-            Where-Object {
-                $_.Line -notmatch '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium is only|Chromium reference|not a dependency|RoboCSS/|RoboLayout/|RoboPaint/|RoboJS/'
-            }
-        if ($hits) {
-            $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
-            throw "RoboDemo isolation leaked into sources:`n$sample"
-        }
-    }
-    Write-Host "RoboDemo isolation source scan: OK"
-}
-
 function Assert-RoboHTMLChromiumIndependence {
     $roots = @(
         (Join-Path $RuntimeRoot "Include\RoboHTML"),
@@ -767,7 +769,7 @@ function Assert-RoboLayoutBoundaries {
     # anything above itself -- paint, rendering, compositing, JS, the shell -- nor
     # a window or display layer, which are below it in the graph but have no
     # business in a layout pass, nor Chromium.
-    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboPaint|RoboRender|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboPaint|RoboRender|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
     foreach ($root in $roots) {
         if (-not (Test-Path -LiteralPath $root)) { continue }
         $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
@@ -795,7 +797,7 @@ function Assert-RoboPaintBoundaries {
     # above itself -- render, compositing, JS, the shell, the API layer -- nor a window
     # or display layer, which is the direction a layering argument would miss and the
     # one this scan is really for, nor Chromium.
-    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboRender|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $pat = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboRender|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
     foreach ($root in $roots) {
         if (-not (Test-Path -LiteralPath $root)) { continue }
         $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
@@ -833,8 +835,8 @@ function Assert-RoboRenderBoundaries {
     # reach for is anything above itself -- a compositor, JS, the shell, the API layer, the
     # window or the display -- nor, in the module's own sources, a document layer, because a
     # rasteriser that consulted a tree could not be tested without one. Nor Chromium.
-    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
-    $document = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|RoboHTML|RoboCSS|RoboLayout|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $document = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboWindow|RoboDisplay|RoboHTML|RoboCSS|RoboLayout|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
     $exempt = '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|has no business|does not read|reaching for|a document layer|names absent|RoboLayout''s|document-layer include'
 
     $rules = @(
@@ -854,6 +856,69 @@ function Assert-RoboRenderBoundaries {
         }
     }
     Write-Host "RoboRender boundary source scan: OK"
+}
+
+function Assert-RoboDesktopBoundaries {
+    # Two rules, and the asymmetry between them is the module's whole design.
+    #
+    # The **upward** rule is the one every module in this tree keeps: the shell may not reach for
+    # Chromium, for a compositor, for JavaScript, for the API/shell layers, for the demo layer, or
+    # for anything above itself. A desktop that could reach a compositor would stop being the thing
+    # that decides what is on the screen.
+    #
+    # The **document** rule is the interesting one, and it is deliberately narrower than the render
+    # module's: RoboDesktop must not read HTML, CSS or a layout tree, because the shell's job is to
+    # draw a panel with graphics primitives and to composite pictures it is *handed* -- a shell that
+    # needed a document pipeline to draw a taskbar would lose the screen whenever that pipeline did.
+    # Three files are exempt by name, and the filter is a name list rather than a directory so that a
+    # *third* file reaching for a document layer would be caught rather than covered by an exception
+    # written for these: `RoboDesktopDocument.c/.h`, the bridge that turns markup into a window's
+    # contents; `RoboDesktopScene.c/.h`, the checkpoint scene's own definition -- which is a
+    # *consumer* of that bridge (one window showing one document) rather than a second bridge; and
+    # `RoboDesktopHost.c`, the launcher that drives that scene into a native window, whose entire job
+    # is to run the stages the shell only composites (`Tools/Build.ps1` compiles it into the host
+    # suite binary and nothing else ships it).
+    $moduleRoots = @(
+        (Join-Path $RuntimeRoot "Include\RoboDesktop"),
+        (Join-Path $RuntimeRoot "Source\RoboDesktop")
+    )
+    $allRoots = $moduleRoots + @((Join-Path $RuntimeRoot "desktop"))
+
+    # The suites and the module's own documents are held to the upward half only, for the render
+    # scan's reason: a desktop fixture *is* a render fixture plus a shell, so it builds a document on
+    # purpose -- scanning it for a document-layer include would be scanning for the thing it exists to
+    # do, while an upward include in a suite (a suite reaching for a compositor to check its own
+    # frame) is still a leak.
+    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $document = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboHTML|RoboCSS|RoboLayout|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    # Prose that names the boundary it keeps is not a leak: these headers explain what they do not
+    # depend on in the same words the rule is written in.
+    $exempt = '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|has no business|does not read|reaching for|a document layer|names absent|document-layer include|not a document|no markup|reads \*no\* markup'
+
+    $rules = @(
+        @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost') },
+        @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost') },
+        @{ Roots = $allRoots; Pattern = $upward; Skip = $null }
+    )
+    foreach ($rule in $rules) {
+        foreach ($root in $rule.Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $skip = $rule.Skip
+            $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+                Where-Object {
+                    if ($null -eq $skip) { return $true }
+                    foreach ($name in $skip) { if ($_.Name -like "*$name*") { return $false } }
+                    return $true
+                } |
+                Select-String -Pattern $rule.Pattern -SimpleMatch:$false |
+                Where-Object { $_.Line -notmatch $exempt }
+            if ($hits) {
+                $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+                throw "RoboDesktop boundary leak (Chromium, a document layer in the shell, or a higher layer):`n$sample"
+            }
+        }
+    }
+    Write-Host "RoboDesktop boundary source scan: OK"
 }
 
 function Assert-RoboDisplayChromiumIndependence {
@@ -909,7 +974,7 @@ if ($Clean) {
     exit 0
 }
 
-foreach ($req in ($ProdSrcs + $DemoSrcs + @(
+foreach ($req in ($ProdSrcs + @(
     $MainSrc, $TestFrameworkSrc, $TestMainSrc, $IncludeDir,
     $LibcInc, $SdkInc, $LibcA, $Crt0, $Crti, $Crtn, $LdScript
 ) + $SuiteSrcs)) {
@@ -961,6 +1026,16 @@ $hostFlags = @(
     # relatively. RoboPaint's suites live there because the module reads a layout tree, so
     # its fixtures belong beside the layer they build on.
     "-I", (Join-Path $RuntimeRoot "paint\tests"),
+    # desktop/tests reaches the render fixture, because a desktop case that has to prove a window's
+    # contents reached the screen needs the whole chain -- markup, style, layout, records, display
+    # list, a synthetic face -- and `render/tests/RoboRenderTestSupport.h` already owns exactly that.
+    # Its suites resolve both headers, which is why both paths are here.
+    "-I", (Join-Path $RuntimeRoot "render\tests"),
+    "-I", (Join-Path $RuntimeRoot "desktop\tests"),
+    # html/tests carries the HTML suites' document of record (`dom_checkpoint_html`), which the CSS suite in
+    # Tests/Suites shares: its selector repertoire and element counts name this document's own elements, so
+    # both suites must read one copy of it rather than two that drift.
+    "-I", (Join-Path $RuntimeRoot "html\tests"),
     "-I", (Join-Path $SourceDir "RoboWindow\platform\win32"),
     "-I", (Join-Path $SourceDir "RoboDisplay\platform\win32"),
     "-D_CRT_SECURE_NO_WARNINGS",
@@ -1028,17 +1103,20 @@ $CollationTestBody = @"
 Set-Content -Path $CollationTestHeader -Value $CollationTestBody -Encoding ascii
 $hostFlags += "-DROBO_COLLATION_TEST_PATH_FROM_BUILD=1"
 
-$DemoAssetPath = (Join-Path $RuntimeRoot "demo\assets\Demo.html") -replace "\\", "/"
-$DemoAssetHeader = Join-Path $OutDir "robo_demo_asset_path.h"
-$DemoAssetBody = @"
+# The checkpoint's face, as an absolute path the *build* knows. The launcher reads it from here rather
+# than from a relative path so a run from any working directory finds the same bytes; the guest program
+# reads the same face out of the OS image at /System/Fonts/Inter.ttf, packed by the image build.
+$FontAssetPath = (Join-Path $RuntimeRoot "desktop\assets\Inter.ttf") -replace "\\", "/"
+$FontAssetHeader = Join-Path $OutDir "robo_font_asset_path.h"
+$FontAssetBody = @"
 /* Auto-generated by Build.ps1 - DO NOT EDIT. */
-#ifndef ROBO_DEMO_ASSET_PATH_H
-#define ROBO_DEMO_ASSET_PATH_H
-#define ROBO_DEMO_ASSET_PATH "$DemoAssetPath"
+#ifndef ROBO_FONT_ASSET_PATH_H
+#define ROBO_FONT_ASSET_PATH_H
+#define ROBO_FONT_ASSET_PATH "$FontAssetPath"
 #endif
 "@
-Set-Content -Path $DemoAssetHeader -Value $DemoAssetBody -Encoding ascii
-$hostFlags += "-DROBO_DEMO_ASSET_PATH_FROM_BUILD=1"
+Set-Content -Path $FontAssetHeader -Value $FontAssetBody -Encoding ascii
+$hostFlags += "-DROBO_FONT_ASSET_PATH_FROM_BUILD=1"
 
 $asanEnabled = $false
 $ubsanEnabled = $false
@@ -1068,7 +1146,7 @@ if ($Sanitize) {
     }
 }
 
-Assert-NoChromiumPath ($ProdSrcs + $DemoSrcs + $SuiteSrcs + @($MainSrc, $IncludeDir) + $guestFlags)
+Assert-NoChromiumPath ($ProdSrcs + $DesktopSceneSrcs + $SuiteSrcs + @($MainSrc, $IncludeDir) + $guestFlags)
 
 Write-Host "CC     $clang"
 Write-Host "LD     $ld"
@@ -1121,7 +1199,7 @@ if ($Verify) {
     Assert-RoboLayoutBoundaries
     Assert-RoboPaintBoundaries
     Assert-RoboRenderBoundaries
-    Assert-RoboDemoIsolation
+    Assert-RoboDesktopBoundaries
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 
@@ -1142,13 +1220,13 @@ $Win32BackendSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowBac
 $Win32KeyboardSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowKeyboardWin32.c"
 $Win32MouseSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowMouseWin32.c"
 $Win32DisplaySrc = Join-Path $SourceDir "RoboDisplay\platform\win32\RoboDisplayBackendWin32.c"
-$hostSrcs = $ProdSrcs + $DemoSrcs + @(
+$hostSrcs = $ProdSrcs + $DesktopSceneSrcs + @(
     $Win32BackendSrc, $Win32KeyboardSrc, $Win32MouseSrc, $Win32DisplaySrc,
     $TestFrameworkSrc, $TestMainSrc
 ) + $SuiteSrcs
 
 # The host compile is the one command here whose **argument list** is large enough to matter:
-# it names the whole runtime, the demo layer, the Win32 backends and every suite, and Windows
+# it names the whole runtime, the checkpoint scene, the Win32 backends and every suite, and Windows
 # refuses to start a process whose command line approaches 32k characters -- which a sanitizer
 # build crosses, because `-fsanitize=address -fsanitize=undefined` is two more arguments on a
 # line that was already near the edge. So the list goes in a **response file** and the process

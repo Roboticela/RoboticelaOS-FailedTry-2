@@ -35,6 +35,13 @@ int robo_vfs_readdir(RoboFile *directory, RoboDirEntry *entry);
 
 const RoboFileOps *robo_vfs_file_ops(void);
 
+/*
+ * Copy every file of the boot image into the root filesystem.
+ *
+ * @return 0 when every entry was stored; the number of entries the volume could not hold (each one named
+ *         in a `VFS_IMPORT_SKIP` line, and left off the filesystem rather than half-written) when some
+ *         were skipped; a negative error when the walk itself could not continue.
+ */
 int robo_vfs_import_initrd(void);
 
 int robo_vfs_selftest(void);

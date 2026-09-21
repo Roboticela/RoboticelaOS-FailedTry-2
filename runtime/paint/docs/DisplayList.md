@@ -268,8 +268,10 @@ the widest line this build can actually produce rather than trusting the derivat
   `begin-node`/`content`/`end-node` are skipped and counted. The artifact **does** now reach pixels as
   a whole: since 11.12 `raster` is **1** and names **RoboRender**, which executes every command of
   every kind into an owned target (`render/README.md`), driving this module's walk and its bounded
-  form rather than reimplementing either. What no module has is **presentation**: a frame is a buffer
-  until Phase 11.13 copies it somewhere a person can see. A drawing is bounded by the clip in
+  form rather than reimplementing either. **11.13 closed the last gap in that sentence**: a frame is no
+  longer only a buffer — `robo_render_present` composites it into a destination surface, and
+  `RoboDesktop` rasterises a window's list into the window's own target before compositing it under its
+  chrome, so a display list built here can now be somewhere a person is looking. A drawing is bounded by the clip in
   force (the scope's, or its own outside any scope) and drawn at the strength in force (the
   scope's, or its own), and every drawing kind does both; what is absent is rounding, `clip-path`,
   masks, and clipping that a compositor or a scroll container owns.

@@ -232,7 +232,7 @@ top of it as a source scan:
 
 | May depend on | Must not depend on |
 |---|---|
-| RoboBase, RoboMem, RoboGraphics (geometry only), RoboHTML, RoboCSS | RoboWindow, RoboDisplay, RoboPaint, RoboRender, RoboCompositor, RoboJS, RoboShell, RoboAPI, RoboDemo, Chromium |
+| RoboBase, RoboMem, RoboGraphics (geometry only), RoboHTML, RoboCSS | RoboWindow, RoboDisplay, RoboPaint, RoboRender, RoboCompositor, RoboJS, RoboShell, RoboAPI, Chromium |
 
 RoboWindow and RoboDisplay are worth naming separately: they sit **below**
 RoboLayout in the graph, so reaching them would not be an upward edge and no

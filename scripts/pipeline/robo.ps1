@@ -86,8 +86,8 @@ function Get-RoboFlagSpec {
         "--configuration" = @{ Key = "Configuration"; Kind = "string"; Help = "Debug | Release" }
         "--device"       = @{ Key = "Device"; Kind = "string"; Help = "flash target (N, or \\.\PhysicalDriveN)" }
         "--esp-flags"    = @{ Key = "EspFlags"; Kind = "string"; Help = "extra bootloader flags baked into the image" }
-        "--hold"         = @{ Key = "HoldMs"; Kind = "int"; Help = "demo window lifetime in milliseconds" }
-        "--shot"         = @{ Key = "Shot"; Kind = "string"; Help = "write the demo frame as a PNG" }
+        "--hold"         = @{ Key = "HoldMs"; Kind = "int"; Help = "desktop window lifetime in milliseconds" }
+        "--shot"         = @{ Key = "Shot"; Kind = "string"; Help = "write the desktop frame as a PNG" }
         "--width"        = @{ Key = "Width"; Kind = "int"; Help = "preview window width" }
         "--height"       = @{ Key = "Height"; Kind = "int"; Help = "preview window height" }
         "--timeout"      = @{ Key = "TimeoutSeconds"; Kind = "int"; Help = "override the command timeout" }
@@ -279,11 +279,11 @@ function Get-RoboCommands {
         -Handler { Invoke-RoboTestComponent -Component "qemu-userspace"; return $true }
 
     $cmds += New-RoboCommand -Name "test-qemu-display" -Group test `
-        -Summary "QEMU: the visual runtime rendering through the QEMU display backend" `
+        -Summary "QEMU: the desktop shell drawing through the QEMU display backend" `
         -Handler { Invoke-RoboTestComponent -Component "qemu-display"; return $true }
 
     $cmds += New-RoboCommand -Name "test-e2e" -Group test `
-        -Summary "clean build, boot, selftests, visual runtime, deployment validation" `
+        -Summary "clean build, boot, selftests, the desktop shell, deployment validation" `
         -Handler { Invoke-RoboTestE2E } -Example "scripts/robo test-e2e"
 
     foreach ($component in (Get-RoboRuntimeComponentNames)) {
@@ -303,11 +303,11 @@ function Get-RoboCommands {
         -Handler { (Invoke-RoboRunKernel) -eq 0 }
 
     $cmds += New-RoboCommand -Name "run-runtime" -Group run `
-        -Summary "run the visual runtime as a native host window" `
+        -Summary "run the desktop shell as a native host window" `
         -Handler { (Invoke-RoboRunRuntime) -eq 0 } -Example "scripts/robo run-runtime"
 
     $cmds += New-RoboCommand -Name "run-runtime-qemu" -Group run `
-        -Summary "boot the OS in QEMU and show the visual runtime" `
+        -Summary "boot the OS in QEMU and show the desktop shell" `
         -Handler { (Invoke-RoboRunRuntimeQemu) -eq 0 }
 
     $cmds += New-RoboCommand -Name "run-qemu" -Group run `

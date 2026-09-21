@@ -123,6 +123,48 @@ int robo_fs_file_at(unsigned index, char *name, unsigned name_max,
     }
 }
 
+/* Scratch for `robo_fs_payload_bytes`'s walk: it wants each file's *length*, and the accessor hands the
+ * name out beside it. Nothing reads the names there, so one file-static buffer serves every entry. */
+static char g_count_name[ROBFS_NAME];
+
+uint64_t robo_fs_payload_bytes(void)
+{
+    uint64_t total = 0;
+    uint32_t i, n, size;
+    const void *data;
+
+    if (!g_ready)
+        return 0;
+    n = rd32(g_img + 8);
+    for (i = 0; i < n; i++) {
+        if (!robo_fs_file_at(i, g_count_name, sizeof(g_count_name), &data, &size))
+            continue;
+        total += size;
+    }
+    return total;
+}
+
+uint32_t robo_fs_root_blocks(uint32_t block_size)
+{
+    uint64_t payload, blocks, overhead, slack;
+    uint32_t n;
+
+    if (!g_ready || !block_size)
+        return 0;
+    n = rd32(g_img + 8);
+    payload = robo_fs_payload_bytes();
+    blocks = (payload + block_size - 1) / block_size;
+    /* One object slot, one directory entry and the tail block each file may need, plus the format's own
+     * metadata (superblock, block bitmap, object table) and a block for each directory in the image. */
+    overhead = (uint64_t)n * 8u + 64u;
+    /* A megabyte left free, because the image is not the only writer: programs in it create files. */
+    slack = 256u;
+    blocks += overhead + slack;
+    if (blocks > 16384u)
+        blocks = 16384u; /* 64 MiB, so a hostile or corrupt length cannot ask for the whole heap. */
+    return (uint32_t)blocks;
+}
+
 void robo_fs_report(void)
 {
     uint32_t n;

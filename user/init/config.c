@@ -1,8 +1,12 @@
 #include "config.h"
 
 /*
- * Boot: RoboGraphics visual preview on the framebuffer (QEMU).
- * Compositor / window-server return when that stack is ready.
+ * Boot: the RoboticelaOS desktop on the framebuffer (QEMU). `robo-runtime` is the one
+ * program started on a normal boot -- it drives the shared checkpoint scene over the whole
+ * runtime stack (markup -> CSS -> layout -> paint -> rasteriser) and presents the shell to the
+ * display; see `user/robo-runtime/main.c` and `docs/userspace/desktop-runtime.md`.
+ *
+ * Compositor / window-server return when that stack is ready; today they are selftest-only.
  */
 static const RoboServiceConfig g_services[] = {
     {

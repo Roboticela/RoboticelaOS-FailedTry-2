@@ -29,7 +29,7 @@
  */
 
 #include "RoboBase/RoboBase.h"
-#include "RoboDemo/RoboDemoHtml.h"
+#include "RoboHTMLDomTestSupport.h" /* dom_checkpoint_html: the document of record */
 #include "RoboHTML/RoboHTML.h"
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLDom.h"
@@ -1508,10 +1508,10 @@ static void test_tv_capabilities_and_diag(void)
 }
 
 /* ------------------------------------------------------------------ */
-/* Visual demo document                                                */
+/* The document of record                                              */
 /* ------------------------------------------------------------------ */
 
-static void test_tv_demo_document(void)
+static void test_tv_checkpoint_document(void)
 {
     robo_html_document_id_t id;
     robo_html_node_handle_t body;
@@ -1522,12 +1522,12 @@ static void test_tv_demo_document(void)
     tv_fixture_begin();
 
     id = tv_doc();
-    tv_build(id, robo_demo_default_html());
+    tv_build(id, dom_checkpoint_html());
 
     body = tv_find(id, "body");
     ROBO_CHECK(robo_html_element_is_element(&body));
 
-    /* Every visual block the demo paints is reachable through traversal. */
+    /* Every element kind the checkpoint document uses is reachable through traversal. */
     tv_log_init(&log);
     ROBO_CHECK_EQ_INT(robo_html_node_walk_descendants(
                           &body, ROBO_HTML_NODE_FILTER_ELEMENTS, tv_visit,
@@ -1554,8 +1554,8 @@ static void test_tv_demo_document(void)
                       ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_html_node_last_child(&body, &last, NULL), ROBO_OK);
     ROBO_CHECK(!robo_html_node_handle_equal(&first, &last));
-    /* The demo body's first node is the leading newline; its last is the
-     * closing newline. Neither end has an outside neighbour. */
+    /* The body's first node is the leading newline; its last is the closing
+     * newline. Neither end has an outside neighbour. */
     {
         robo_html_node_handle_t neighbour;
 
@@ -1602,5 +1602,5 @@ void robo_test_register_html_traversal(void)
                        test_tv_tree_dump_on_walker);
     robo_test_register("html.traverse.capabilities_and_diag",
                        test_tv_capabilities_and_diag);
-    robo_test_register("html.traverse.demo_document", test_tv_demo_document);
+    robo_test_register("html.traverse.checkpoint_document", test_tv_checkpoint_document);
 }

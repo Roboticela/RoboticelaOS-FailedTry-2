@@ -4,8 +4,8 @@
 #
 #   run-bootloader      bootloader host preview window (no emulation)
 #   run-kernel          QEMU, real UEFI boot of kernel.elf
-#   run-runtime         host window, HTML -> RoboGraphics -> RoboWindow
-#   run-runtime-qemu    QEMU, the same visual runtime inside the OS
+#   run-runtime         host window, the desktop shell in a native Win32 window
+#   run-runtime-qemu    QEMU, the same desktop shell inside the OS
 #   run-qemu            full build of the whole OS, then boot it in QEMU
 #
 # -Headless switches the QEMU commands from a visible window to marker
@@ -107,21 +107,25 @@ function Invoke-RoboRunBootloader {
 
 function Invoke-RoboRunRuntime {
     <#
-      The host visual vertical slice: the real RoboHTML tokenizer and document
-      model feed RoboGraphics, which paints into a real native window through
-      the host display backend.
+      The host visual vertical slice: the shared desktop scene (markup → RoboHTML →
+      RoboCSS → RoboLayout → RoboPaint → RoboRender) composited by the shell into a
+      real native window through the host display backend.
+
+      This is the same scene `run-runtime-qemu` boots to: one definition of the
+      checkpoint, two launchers, so what is on screen here is what the OS shows.
     #>
     Build-RoboRuntimeForTests
     Assert-RoboHostWindowPossible
     $exe = Get-RoboRuntimeTestBinary
-    Assert-RoboFile $exe "runtime test binary (host demo launcher)" | Out-Null
+    Assert-RoboFile $exe "runtime test binary (desktop shell launcher)" | Out-Null
 
-    $cmdArgs = @("--demo-html")
+    $cmdArgs = @("--desktop")
     if ($script:RoboFlag.Headless) { $cmdArgs += "--no-window" }
     elseif ($script:RoboRun.HoldMs -gt 0) { $cmdArgs += @("--hold", "$($script:RoboRun.HoldMs)") }
     if ($script:RoboRun.Shot) { $cmdArgs += @("--shot", $script:RoboRun.Shot) }
 
     Write-RoboKeyValue "Runtime" $exe
+    Write-RoboKeyValue "Scene" "RoboDesktopScene (the desktop shell and one document window)"
     Write-RoboKeyValue "Mode" $(if ($script:RoboFlag.Headless) { "offscreen render + pixel probes" } else { "native window" })
     # A visible window wants live output; the offscreen run is captured so a
     # failed pixel probe can be diagnosed from the log.
@@ -150,7 +154,7 @@ function Invoke-RoboRunRuntimeQemu {
         Invoke-RoboBuildImageCommand -Flags "splash_ms 0"
     } | Out-Null
     if ($Continue -and $script:RoboFailed) { return 1 }
-    Write-RoboInfo "the OS boots to the visual runtime; RoboHTML renders into the QEMU display"
+    Write-RoboInfo "the OS boots to the desktop shell; its window is a real HTML document in the QEMU display"
     return (Invoke-RoboQemuVisible -Headless:$script:RoboFlag.Headless)
 }
 

@@ -347,7 +347,7 @@ a narrow claim and reading it wider is the mistake it is shaped to prevent:
 | blend modes, filters, backdrop filters, masks, shadows, gradients, transforms, `border-radius` | later phases |
 | `z-index` and stacking contexts | a later stacking pass reorders the list; this pass reads it as it stands |
 | paint invalidation (11.11) and hit testing (11.10) | both have since landed, and both read this pass's output rather than changing it: a region comes from comparing two lists or markings a box in one, and a hit test answers from the records. This module still keeps no cache and still has no dirty rectangle — a set of regions describes one transition and is owned by whoever built it |
-| framebuffer presentation, compositor, GPU | RoboRender and above; a frame is pixels in a buffer it owns, and putting one on a screen is Phase 11.13's |
+| framebuffer presentation, compositor, GPU | RoboRender and above; a frame is pixels in a buffer it owns, and since 11.13 RoboRender's presenter puts one on a destination surface and **RoboDesktop** decides what is on a screen (`render/docs/Presentation.md`, `desktop/README.md`). A compositor over more than one surface is still absent |
 
 ## 12. What the suite pins
 

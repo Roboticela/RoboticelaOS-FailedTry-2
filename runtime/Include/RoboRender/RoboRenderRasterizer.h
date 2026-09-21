@@ -92,13 +92,13 @@
  *
  * ## What this module is not
  *
- * It is not a compositor and not a presenter: a target is a buffer, and getting it onto a screen is
- * the window/display path's (`RoboWindow`, `RoboDisplay`) -- Phase 11.13's. It has no tiles, no
- * damage history, no frame scheduler, no VSync, no GPU, no thread pool, no layer tree, no transform
- * stack, no filter, no mask and no blend mode beyond the source-over the graphics raster already
- * implements. `RoboRender.h` names each of those as a capability that is **0**, and
- * `render/docs/Rasterization.md` says what each one would need and why none of them is a small
- * addition.
+ * It is not a compositor: a *run* produces a buffer, and 11.13's `robo_render_present` (in
+ * `RoboRenderPresenter.h`) is what moves one buffer into one destination -- still one frame into one
+ * place, with no layer order and no queue. It has no tiles, no damage history, no frame scheduler, no
+ * VSync, no GPU, no thread pool, no layer tree, no transform stack, no filter, no mask and no blend
+ * mode beyond the source-over the graphics raster already implements. `RoboRender.h` names each of
+ * those as a capability that is **0**, and `render/docs/Rasterization.md` says what each one would
+ * need and why none of them is a small addition.
  */
 #ifndef ROBO_RENDER_RASTERIZER_H
 #define ROBO_RENDER_RASTERIZER_H

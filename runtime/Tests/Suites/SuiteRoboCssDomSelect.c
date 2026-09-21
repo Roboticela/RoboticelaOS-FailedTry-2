@@ -17,8 +17,9 @@
  *   counting that counted *nodes* would find no adjacent pairs at all.
  *
  *   Selector matching does not disturb the document. Matching reads; the tree
- *   version and the node count are asserted unchanged, and the visual checkpoint
- *   suite re-renders the same document afterwards.
+ *   version, the node count and a fingerprint of every element's tag and id are
+ *   asserted unchanged, and the production pipeline re-renders the document
+ *   afterwards and must produce the same frame byte for byte.
  *
  *   The relations come from the DOM's own links rather than from a copy. After a
  *   structural mutation the host is rebuilt and the new shape is what matches,
@@ -38,8 +39,15 @@
 #include "RoboHTML/RoboHTMLSource.h"
 #include "RoboHTML/RoboHTMLTraversal.h"
 #include "RoboHTML/RoboHTMLTreeBuilder.h"
-#include "RoboDemo/RoboDemoHtml.h"
 #include "RoboGraphics/RoboGraphics.h"
+/* `dom_checkpoint_html`: the document of record this suite's selector repertoire and element counts are
+ * written against. It used to come from the deleted demo layer; it is a document fixture, so it lives
+ * with the HTML suites' fixtures now. */
+#include "RoboHTMLDomTestSupport.h"
+/* And the production picture: `render_scene_begin` + `robo_render_rasterize`, the same chain a window
+ * shows. The three `*_does_not_disturb_the_picture` cases compare *frames*, and this is where a frame
+ * comes from now that the demo's painter is gone. */
+#include "RoboRenderTestSupport.h"
 
 /* ------------------------------------------------------------------ */
 /* Small text helpers                                                 */
@@ -511,16 +519,16 @@ static void css_dom_is(const css_dom_host_t *dom,
 
 static void checkpoint_dom(css_dom_host_t *dom)
 {
-    css_dom_build(dom, robo_demo_default_html());
+    css_dom_build(dom, dom_checkpoint_html());
 }
 
 static void test_css_dom_checkpoint_tree(void)
 {
     css_dom_host_t dom;
 
-    /* The same source the visual checkpoint renders, through the same tree
-     * builder — so the element count here is a statement about the document the
-     * demo paints, not about a fixture of this suite's own. */
+    /* The document of record, through the real tree builder — so the element
+     * count here is a statement about the checkpoint's own markup rather than
+     * about a fixture this suite made up. */
     checkpoint_dom(&dom);
     ROBO_CHECK_EQ_INT(dom.count, 29u);
     css_dom_is(&dom, 1u, "html", NULL);
@@ -1019,35 +1027,95 @@ static void test_css_dom_rebuild_after_mutation(void)
 /* ------------------------------------------------------------------ */
 
 /** An RGBA8 surface the painter can write and the test can read. */
-static robo_gfx_surface_t *css_dom_surface(int32_t width, int32_t height)
-{
-    robo_gfx_surface_desc_t desc;
-    robo_gfx_surface_t *surface = NULL;
+/*
+ * The three `*_does_not_disturb_the_picture` cases below compare a **frame** before and after the work
+ * they are about. Until this phase they compared the deleted demo layer's own painting of the same
+ * document; now they compare the production pipeline — markup → style → layout → records → display list →
+ * rasteriser — through the render fixture, which is the chain a window shows. The claim is therefore
+ * stronger than it was: a change that reached a screen without reaching this comparison is no longer
+ * possible, because there is only one picture path left.
+ *
+ * The two frames are rendered from the document *text* rather than from the suite's own DOM, which is the
+ * one half of the original claim that has moved. It is asserted directly instead, and on the same tree: a
+ * fingerprint of the DOM (its element count, and every element's tag and id, read through the suite's own
+ * adapter) is taken before and after the work runs, so a matcher or a cascade pass that mutated the tree
+ * fails there even though the frame comparison no longer reads that tree.
+ */
+static const char *CSS_DOM_CHECKPOINT_CSS =
+    "html, body { display: block; margin: 0; padding: 0; background-color: #ffffff }\n"
+    "h1, p, form, label, a, button { display: block; color: #1d1d1f }\n"
+    "form { background-color: #f5f5f7; padding: 8px }\n"
+    "button { background-color: #0e7aff; color: #ffffff; padding: 4px }\n";
 
-    robo_gfx_surface_desc_init(&desc);
-    desc.width = (uint32_t)width;
-    desc.height = (uint32_t)height;
-    desc.format = ROBO_GFX_FORMAT_RGBA8;
-    desc.access = ROBO_GFX_SURFACE_ACCESS_READ_WRITE;
-    if (robo_gfx_surface_create(&desc, &surface) != ROBO_OK) {
-        return NULL;
+/** The checkpoint document's own frame, through the production pipeline. */
+static robo_render_target_t *css_dom_picture(void)
+{
+    robo_gfx_color_rgba8_t page = { 255u, 255u, 255u, 255u };
+    robo_render_target_t *target;
+    render_scene_t scene;
+
+    render_scene_begin(&scene, dom_checkpoint_html(), CSS_DOM_CHECKPOINT_CSS);
+    target = render_page(900u, 800u, page);
+    ROBO_CHECK_EQ_INT(robo_render_rasterize(scene.display, target, NULL, NULL, NULL), ROBO_OK);
+    /* A frame with nothing in it would make every comparison below pass for the wrong reason. */
+    render_region_has_ink_is(target, 0, 0, 900, 800, page,
+                             "the checkpoint document paints ink");
+    render_scene_end(&scene);
+    return target;
+}
+
+/** FNV-1a over the DOM's shape: the element count, and every element's tag and id. */
+static uint64_t css_dom_fingerprint_text(uint64_t hash, const char *text)
+{
+    size_t index;
+
+    for (index = 0u; text[index] != '\0'; index++) {
+        hash ^= (uint64_t)(unsigned char)text[index];
+        hash *= 1099511628211ull;
     }
-    return surface;
+    /* A separator, so a tag ending where an id begins still hashes differently from the concatenation. */
+    hash ^= 0x2Fu;
+    hash *= 1099511628211ull;
+    return hash;
+}
+
+static uint64_t css_dom_fingerprint(const css_dom_host_t *dom)
+{
+    uint64_t hash = 1469598103934665603ull; /* FNV-1a offset basis */
+    char text[64];
+    robo_css_element_ref_t ref;
+
+    hash ^= (uint64_t)dom->count;
+    hash *= 1099511628211ull;
+    for (ref = 1u; ref <= dom->count; ref++) {
+        const css_dom_element_t *element = &dom->elements[ref - 1u];
+
+        text[0] = '\0';
+        css_select_text(element->tag, text, sizeof(text));
+        hash = css_dom_fingerprint_text(hash, text);
+        text[0] = '\0';
+        if (element->has_id) {
+            css_select_text(element->id, text, sizeof(text));
+        }
+        hash = css_dom_fingerprint_text(hash, text);
+    }
+    return hash;
 }
 
 static void test_css_dom_selectors_do_not_disturb_the_picture(void)
 {
     /*
-     * The visual vertical slice, end to end, with selector matching inserted in
-     * the middle of it: the checkpoint document is built once, painted, matched
-     * against with the whole selector repertoire, and painted again from the same
-     * document. The two frames must be byte-identical.
+     * The vertical slice, end to end, with selector matching inserted in the
+     * middle of it: the checkpoint document is painted, matched against with the
+     * whole selector repertoire, and painted again. The two frames must be
+     * byte-identical, and the tree the repertoire ran over must be untouched.
      *
-     * This is the strongest form of "selectors do not change what you see",
-     * because the comparison is the pixels the demo adapter actually produces
-     * rather than a claim about the tree the adapter reads. A matcher that
-     * mutated an attribute, reordered a child or left a borrowed slice dangling
-     * long enough to corrupt the payload arena would fail here and nowhere else.
+     * Both halves are asserted, and both are needed: a matcher that left a
+     * borrowed slice dangling long enough to corrupt the payload arena fails the
+     * frame comparison, and a matcher that mutated an attribute, reordered a
+     * child or dropped an element fails the fingerprint — which is the half the
+     * frame comparison would no longer see, because the frames are rendered from
+     * the document's text (see the note above `css_dom_picture`).
      */
     static const char *const repertoire[] = {
         "*", "html", "body > *", ":root", ":first-child", ":last-child",
@@ -1062,31 +1130,15 @@ static void test_css_dom_selectors_do_not_disturb_the_picture(void)
         "form > label:first-child", "form > label:nth-child(3)"
     };
     css_dom_host_t dom;
-    robo_demo_page_t *before = NULL;
-    robo_demo_page_t *after = NULL;
-    robo_gfx_surface_t *first = NULL;
-    robo_gfx_surface_t *second = NULL;
-    size_t stride;
+    robo_render_target_t *before = NULL;
+    robo_render_target_t *after = NULL;
+    uint64_t fingerprint_before;
     size_t i;
-    uint32_t row;
 
-    css_dom_build(&dom, robo_demo_default_html());
+    css_dom_build(&dom, dom_checkpoint_html());
     ROBO_CHECK_EQ_INT(dom.count, 29u);
-
-    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(dom.document, &before, NULL),
-                      ROBO_OK);
-    ROBO_CHECK(before != NULL);
-    first = css_dom_surface(900, 800);
-    second = css_dom_surface(900, 800);
-    ROBO_CHECK(first != NULL && second != NULL);
-    if (!before || !first || !second) {
-        robo_demo_page_destroy(before);
-        robo_gfx_surface_release(first);
-        robo_gfx_surface_release(second);
-        css_dom_destroy(&dom);
-        return;
-    }
-    ROBO_CHECK_EQ_INT(robo_demo_page_paint(before, first, NULL, NULL), ROBO_OK);
+    fingerprint_before = css_dom_fingerprint(&dom);
+    before = css_dom_picture();
 
     /* The whole repertoire, against every element, twice over. */
     for (i = 0u; i < sizeof(repertoire) / sizeof(repertoire[0]); i++) {
@@ -1102,32 +1154,15 @@ static void test_css_dom_selectors_do_not_disturb_the_picture(void)
     (void)css_select_parse_rejected("[attr=");
     (void)css_select_parse_rejected(":nth-child(");
 
-    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(dom.document, &after, NULL),
-                      ROBO_OK);
-    ROBO_CHECK(after != NULL);
-    ROBO_CHECK_EQ_INT(robo_demo_page_paint(after, second, NULL, NULL), ROBO_OK);
+    /* The tree the repertoire ran over, unchanged. */
+    ROBO_CHECK_EQ_INT((int)css_dom_fingerprint(&dom), (int)fingerprint_before);
+    ROBO_CHECK_EQ_INT(dom.count, 29u);
 
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(after),
-                      robo_demo_page_block_count(before));
-    ROBO_CHECK_STR_EQ(robo_demo_page_title(after), robo_demo_page_title(before));
-    stride = robo_gfx_surface_stride(first);
-    ROBO_CHECK_EQ_INT(stride, robo_gfx_surface_stride(second));
-    for (row = 0u; row < 800u; row++) {
-        const uint8_t *left =
-            robo_gfx_surface_pixels_const(first) + (size_t)row * stride;
-        const uint8_t *right =
-            robo_gfx_surface_pixels_const(second) + (size_t)row * stride;
+    after = css_dom_picture();
+    render_targets_equal(before, after, "selector matching changed the rendered frame");
 
-        if (memcmp(left, right, stride) != 0) {
-            ROBO_CHECK_MSG(0, "selector matching changed the rendered frame");
-            break;
-        }
-    }
-
-    robo_demo_page_destroy(before);
-    robo_demo_page_destroy(after);
-    robo_gfx_surface_release(first);
-    robo_gfx_surface_release(second);
+    render_target_end(before);
+    render_target_end(after);
     css_dom_destroy(&dom);
 }
 
@@ -1492,44 +1527,26 @@ static void test_css_dom_cascade_does_not_disturb_the_picture(void)
     /*
      * Collecting a cascade for every element of the checkpoint document must
      * leave the document exactly as it found it — including its `style`
-     * attributes, which this is the first phase to read the *text* of. The
-     * comparison is the pixels the demo adapter actually paints, twice, from the
-     * same document: the strongest available form of "reading it changed
-     * nothing".
+     * attributes, which this is the first phase to read the *text* of. Both
+     * halves of that are asserted: the frame the production pipeline paints
+     * before and after, and the fingerprint of the tree itself (see the note
+     * above `css_dom_picture`).
      */
     css_dom_cascade_t fixture;
-    robo_demo_page_t *before = NULL;
-    robo_demo_page_t *after = NULL;
-    robo_gfx_surface_t *first = NULL;
-    robo_gfx_surface_t *second = NULL;
+    robo_render_target_t *before = NULL;
+    robo_render_target_t *after = NULL;
     robo_css_stylesheet_id_t sheet;
-    size_t stride;
-    uint32_t row;
+    uint64_t fingerprint_before;
     robo_css_element_ref_t ref;
     size_t collected = 0u;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     ROBO_CHECK_EQ_INT(fixture.dom.count, 29u);
     sheet = css_dom_cascade_sheet(&fixture,
                                   "* { color: red }\nhtml body > * { padding: 1px }\n"
                                   "form > label + input { color: blue }");
-
-    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(fixture.dom.document, &before,
-                                                          NULL),
-                      ROBO_OK);
-    ROBO_CHECK(before != NULL);
-    first = css_dom_surface(900, 800);
-    second = css_dom_surface(900, 800);
-    ROBO_CHECK(first != NULL && second != NULL);
-    if (!before || !first || !second) {
-        robo_demo_page_destroy(before);
-        robo_gfx_surface_release(first);
-        robo_gfx_surface_release(second);
-        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
-        css_dom_cascade_end(&fixture);
-        return;
-    }
-    ROBO_CHECK_EQ_INT(robo_demo_page_paint(before, first, NULL, NULL), ROBO_OK);
+    fingerprint_before = css_dom_fingerprint(&fixture.dom);
+    before = css_dom_picture();
 
     for (ref = 1u; ref <= fixture.dom.count; ref++) {
         robo_css_cascade_t cascade = ROBO_CSS_CLEARED;
@@ -1546,33 +1563,12 @@ static void test_css_dom_cascade_does_not_disturb_the_picture(void)
     }
     ROBO_CHECK_EQ_INT(collected, 29u);
 
-    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(fixture.dom.document, &after,
-                                                          NULL),
-                      ROBO_OK);
-    ROBO_CHECK(after != NULL);
-    ROBO_CHECK_EQ_INT(robo_demo_page_paint(after, second, NULL, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)css_dom_fingerprint(&fixture.dom), (int)fingerprint_before);
+    after = css_dom_picture();
+    render_targets_equal(before, after, "collecting a cascade changed the rendered frame");
 
-    ROBO_CHECK_STR_EQ(robo_demo_page_title(after), robo_demo_page_title(before));
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(after),
-                      robo_demo_page_block_count(before));
-    stride = robo_gfx_surface_stride(first);
-    ROBO_CHECK_EQ_INT(stride, robo_gfx_surface_stride(second));
-    for (row = 0u; row < 800u; row++) {
-        const uint8_t *left =
-            robo_gfx_surface_pixels_const(first) + (size_t)row * stride;
-        const uint8_t *right =
-            robo_gfx_surface_pixels_const(second) + (size_t)row * stride;
-
-        if (memcmp(left, right, stride) != 0) {
-            ROBO_CHECK_MSG(0, "collecting a cascade changed the rendered frame");
-            break;
-        }
-    }
-
-    robo_demo_page_destroy(before);
-    robo_demo_page_destroy(after);
-    robo_gfx_surface_release(first);
-    robo_gfx_surface_release(second);
+    render_target_end(before);
+    render_target_end(after);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
     css_dom_cascade_end(&fixture);
 }
@@ -1649,7 +1645,7 @@ static void test_css_dom_computed_pipeline(void)
     robo_css_stylesheet_id_t sheet;
     robo_css_color_t color;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "body { color: green; font-size: 20px; --theme: #0E7AFF }\n"
                                   "p { color: blue }\n"
@@ -1771,30 +1767,27 @@ static void test_css_dom_computed_pipeline(void)
  * `css.dom.computed.does_not_disturb_the_picture` — the visual vertical slice
  * with the whole CSS pipeline inserted into the middle of it.
  *
- * The checkpoint document is built once, painted, put through every stage 9.8
- * adds (a stylesheet covering most of its elements, matched, cascaded,
- * inherited and *computed* for every element in the tree), and painted again
- * from the same document. The two frames must be byte-identical.
+ * The document of record is painted, put through every stage 9.8 adds (a
+ * stylesheet covering most of its elements, matched, cascaded, inherited and
+ * *computed* for every element in the tree), and painted again. The two frames
+ * must be byte-identical, and the tree itself must be untouched.
  *
  * This is the strongest form of "computing a style does not change what you
- * see", because the comparison is the pixels the demo adapter produces rather
- * than a claim about the tree it reads. A stage that mutated an attribute,
+ * see", because the comparison is the pixels the production pipeline produces
+ * rather than a claim about the tree it reads. A stage that mutated an attribute,
  * reordered a child, borrowed a slice past its source's life or left an
  * inherited value aliasing its parent's would fail here and nowhere else.
  */
 static void test_css_dom_computed_does_not_disturb_the_picture(void)
 {
     css_dom_cascade_t fixture;
-    robo_demo_page_t *before = NULL;
-    robo_demo_page_t *after = NULL;
-    robo_gfx_surface_t *first = NULL;
-    robo_gfx_surface_t *second = NULL;
+    robo_render_target_t *before = NULL;
+    robo_render_target_t *after = NULL;
     robo_css_stylesheet_id_t sheet;
+    uint64_t fingerprint_before;
     robo_css_element_ref_t ref;
-    size_t stride;
-    uint32_t row;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "* { color: blue }\n"
                                   "html > body { font-size: 18px; line-height: 1.4 }\n"
@@ -1805,22 +1798,8 @@ static void test_css_dom_computed_does_not_disturb_the_picture(void)
                                   "input, textarea, select { width: calc(100% - 2px) }\n"
                                   "button { color: nonsense }\n"
                                   "body { --theme: blue }");
-
-    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(fixture.dom.document, &before, NULL),
-                      ROBO_OK);
-    ROBO_CHECK(before != NULL);
-    first = css_dom_surface(900, 800);
-    second = css_dom_surface(900, 800);
-    ROBO_CHECK(first != NULL && second != NULL);
-    if (!before || !first || !second) {
-        robo_demo_page_destroy(before);
-        robo_gfx_surface_release(first);
-        robo_gfx_surface_release(second);
-        ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
-        css_dom_cascade_end(&fixture);
-        return;
-    }
-    ROBO_CHECK_EQ_INT(robo_demo_page_paint(before, first, NULL, NULL), ROBO_OK);
+    fingerprint_before = css_dom_fingerprint(&fixture.dom);
+    before = css_dom_picture();
 
     /* Every element, through all seven stages, twice over. */
     for (ref = 1u; ref <= fixture.dom.count; ref++) {
@@ -1835,32 +1814,12 @@ static void test_css_dom_computed_does_not_disturb_the_picture(void)
         }
     }
 
-    ROBO_CHECK_EQ_INT(robo_demo_page_create_from_document(fixture.dom.document, &after, NULL),
-                      ROBO_OK);
-    ROBO_CHECK(after != NULL);
-    ROBO_CHECK_EQ_INT(robo_demo_page_paint(after, second, NULL, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)css_dom_fingerprint(&fixture.dom), (int)fingerprint_before);
+    after = css_dom_picture();
+    render_targets_equal(before, after, "computing a style changed the rendered frame");
 
-    ROBO_CHECK_EQ_INT(robo_demo_page_block_count(after),
-                      robo_demo_page_block_count(before));
-    ROBO_CHECK_STR_EQ(robo_demo_page_title(after), robo_demo_page_title(before));
-    stride = robo_gfx_surface_stride(first);
-    ROBO_CHECK_EQ_INT(stride, robo_gfx_surface_stride(second));
-    for (row = 0u; row < 800u; row++) {
-        const uint8_t *left =
-            robo_gfx_surface_pixels_const(first) + (size_t)row * stride;
-        const uint8_t *right =
-            robo_gfx_surface_pixels_const(second) + (size_t)row * stride;
-
-        if (memcmp(left, right, stride) != 0) {
-            ROBO_CHECK_MSG(0, "computing a style changed the rendered frame");
-            break;
-        }
-    }
-
-    robo_demo_page_destroy(before);
-    robo_demo_page_destroy(after);
-    robo_gfx_surface_release(first);
-    robo_gfx_surface_release(second);
+    render_target_end(before);
+    render_target_end(after);
     ROBO_CHECK_EQ_INT(robo_css_stylesheet_destroy(sheet, NULL), ROBO_OK);
     css_dom_cascade_end(&fixture);
 }
@@ -1889,7 +1848,7 @@ static void test_css_dom_unit_pipeline(void)
     const robo_css_computed_value_t *value;
     robo_css_stylesheet_id_t sheet;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "body { width: 30em; font-size: 1.25rem; height: 50vh }\n"
                                   "p { width: 2.54cm }\n"
@@ -2043,7 +2002,7 @@ static void test_css_dom_box_pipeline(void)
     robo_css_stylesheet_id_t sheet;
     robo_css_stylesheet_id_t acceptance_sheet;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "body { margin: 0 auto }\n"
                                   "p { padding: 8px 12px 4px }\n"
@@ -2187,7 +2146,7 @@ static void test_css_dom_display_pipeline(void)
     robo_css_stylesheet_id_t sheet;
     int from_initial = -1;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "body { display: block }\n"
                                   "a { display: inline }\n"
@@ -2311,7 +2270,7 @@ static void test_css_dom_position_pipeline(void)
     robo_css_stylesheet_id_t sheet;
     int from_initial = -1;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "body { position: relative; z-index: 0 }\n"
                                   "h1 { position: absolute; top: 25%; left: -8px;"
@@ -2486,7 +2445,7 @@ static void test_css_dom_background_pipeline(void)
     robo_css_stylesheet_id_t sheet;
     int from_initial = -1;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "body { background-color: #336699;"
                                   " background-repeat: repeat-x }\n"
@@ -2685,7 +2644,7 @@ static void test_css_dom_border_pipeline(void)
     robo_css_stylesheet_id_t sheet;
     int from_initial = -1;
 
-    css_dom_cascade_begin(&fixture, robo_demo_default_html());
+    css_dom_cascade_begin(&fixture, dom_checkpoint_html());
     sheet = css_dom_cascade_sheet(&fixture,
                                   "body { color: #336699; border: 1px solid }\n"
                                   "h1 { border: 3px double #ff0000;"

@@ -177,11 +177,18 @@ prefixes the element name (`svg:rect`).
 
 ## Consumer
 
-The visual demo adapter is the first consumer: it honours the real `hidden`
-attribute — the element is recognised and counted but paints nothing, and its
-subtree is not entered — precisely because `id`/`class` on the demo document
-have no effect on the picture, and a rule with visible consequences is the
-only way to show the seam works. `demo.tree.attribute_hidden` covers it.
+The document bridge is the consumer that shows this seam works: an element with
+the real `hidden` attribute is recognised and counted by the model, and the
+*picture* it produces is the one an element that is not there produces — which
+is what a rule with visible consequences means. `hidden` is honoured by
+`robo_layout`/`robo_paint` rather than by a markup walk of their own, so a
+consumer that read attributes by name instead of through this model would paint
+the element. The phase's own suite covers the model side; the picture side is
+covered by the layout and desktop scene suites.
+
+*(Phase 8.2 demonstrated this with a deleted demo adapter
+(`demo.tree.attribute_hidden`); the demo layer was removed in Phase 11.13, and
+this paragraph names the pipeline that carries the rule now.)*
 
 ## Not in this phase
 
@@ -198,5 +205,4 @@ styles, scripts, paths or commands.
 type, parser integration, stored order, presence vs empty, duplicates,
 lookup, the four mutation verbs, validation, the attribute limit, Unicode
 names and values, malformed input, the dump, ownership/lifetime, and rebuild
-semantics. `demo/tests/SuiteRoboDemoHtml.c` adds
-`demo.tree.attribute_hidden`.
+semantics.

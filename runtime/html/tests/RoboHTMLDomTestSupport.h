@@ -356,4 +356,68 @@ static inline const dom_unicode_sample_t *dom_unicode_samples(size_t *out_count)
     return samples;
 }
 
+/* ------------------------------------------------------------------ */
+/* The document of record                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The checkpoint document: headings, paragraphs, links, a full form and a button.
+ *
+ * This is the document several suites' expectations are written against — the traversal case that walks
+ * every element kind, and the cascade suite's selector repertoire, whose selectors name exactly these
+ * elements (`h1 + p`, `form > label`, `select > option:last-child`, `a[href$="Settings"]`) and whose
+ * element counts are the counts of *this* markup. It used to be served by the deleted demo layer
+ * (`RoboDemo/`), and it lives here now because what a document fixture is is a document: the demo's
+ * renderer went away with the demo, and the markup it happened to carry is a fact about these suites.
+ *
+ * Kept byte-for-byte identical to the document the demo carried, so no expectation moved with it.
+ */
+static inline const char *dom_checkpoint_html(void)
+{
+    static const char checkpoint[] =
+        "<!DOCTYPE html>\n"
+        "<html>\n"
+        "<head>\n"
+        "<title>RoboticelaOS Runtime</title>\n"
+        "</head>\n"
+        "<body>\n"
+        "<h1>RoboticelaOS Runtime</h1>\n"
+        "<p>Independent HTML rendering is working.</p>\n"
+        "<p>RoboGraphics + RoboWindow + RoboHTML</p>\n"
+        "<a href=\"/Settings\">Settings</a>\n"
+        "<a href=\"#Overview\">Overview</a>\n"
+        "<p id=\"Overview\">RoboHTML links resolve to real elements.</p>\n"
+        "<form action=\"/Register\" method=\"post\" "
+        "enctype=\"application/x-www-form-urlencoded\">\n"
+        "<label for=\"DisplayName\">Display name</label>\n"
+        "<input id=\"DisplayName\" type=\"text\" name=\"displayName\" "
+        "placeholder=\"Your name\" required>\n"
+        "<label for=\"Passphrase\">Passphrase</label>\n"
+        "<input id=\"Passphrase\" type=\"password\" name=\"passphrase\">\n"
+        "<label for=\"Revision\">Build revision</label>\n"
+        "<input id=\"Revision\" type=\"number\" name=\"revision\" min=\"1\" "
+        "max=\"999\" value=\"8\">\n"
+        "<label for=\"Subscribed\">Platform notes</label>\n"
+        "<input id=\"Subscribed\" type=\"checkbox\" name=\"subscribed\" "
+        "checked>\n"
+        "<label for=\"ReleaseRing\">Release ring</label>\n"
+        "<input id=\"ReleaseRing\" type=\"radio\" name=\"ring\" "
+        "value=\"Stable\" checked>\n"
+        "<label for=\"Notes\">Notes</label>\n"
+        "<textarea id=\"Notes\" name=\"notes\" rows=\"3\" cols=\"40\" "
+        "placeholder=\"Anything else\"></textarea>\n"
+        "<label for=\"Country\">Country</label>\n"
+        "<select id=\"Country\" name=\"country\">\n"
+        "<option value=\"pk\">Pakistan</option>\n"
+        "<option value=\"us\" selected>United States</option>\n"
+        "</select>\n"
+        "<button type=\"submit\">Register</button>\n"
+        "</form>\n"
+        "<button>Demo Button</button>\n"
+        "</body>\n"
+        "</html>\n";
+
+    return checkpoint;
+}
+
 #endif /* ROBO_HTML_DOM_TEST_SUPPORT_H */

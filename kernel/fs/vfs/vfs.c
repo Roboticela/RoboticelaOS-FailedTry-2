@@ -684,6 +684,7 @@ static int mkdir_p(const char *path)
 int robo_vfs_import_initrd(void)
 {
     unsigned i, n;
+    unsigned skipped = 0;
     char name[ROBFS_NAME];
     const void *data;
     uint32_t size;
@@ -706,13 +707,25 @@ int robo_vfs_import_initrd(void)
         if (size) {
             wr = robo_vfs_write(f, data, size);
             if (wr < 0 || (uint32_t)wr != size) {
+                /*
+                 * A file this filesystem cannot hold: too large for its block map, or the volume is out
+                 * of room. Abandoning the walk here would leave *every later entry* of the image missing --
+                 * one large binary would silently take the fonts, the manifest and everything after it with
+                 * it -- so the part that was written is removed, the entry is named in the log, and the walk
+                 * continues. The file is still on the image, and `robo_exec` reads an image file it cannot
+                 * find in the VFS, so a program that hit this is runnable; it is only *not* reachable by path
+                 * through the filesystem.
+                 */
                 robo_file_put(f);
-                return wr < 0 ? (int)wr : -ROBO_EIO;
+                (void)robo_vfs_unlink(name);
+                kprintf("VFS_IMPORT_SKIP  %s\n", name);
+                skipped++;
+                continue;
             }
         }
         robo_file_put(f);
     }
-    return 0;
+    return (int)skipped;
 }
 #endif
 

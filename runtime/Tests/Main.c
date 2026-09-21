@@ -3,7 +3,7 @@
  */
 
 #include "RoboBase/RoboDebug.h"
-#include "RoboDemo/RoboDemoHost.h"
+#include "RoboDesktop/RoboDesktopHost.h"
 #include "RoboTest.h"
 
 #include <stdio.h>
@@ -220,7 +220,13 @@ void robo_test_register_paint_invalidation(void);
 void robo_test_register_render(void);
 void robo_test_register_render_raster(void);
 void robo_test_register_render_scene(void);
-void robo_test_register_demo_html(void);
+void robo_test_register_desktop(void);
+void robo_test_register_desktop_geometry(void);
+void robo_test_register_desktop_window(void);
+void robo_test_register_desktop_frame(void);
+void robo_test_register_desktop_document(void);
+void robo_test_register_desktop_present(void);
+void robo_test_register_desktop_scene(void);
 
 int main(int argc, char **argv)
 {
@@ -268,10 +274,10 @@ int main(int argc, char **argv)
         robo_free(p);
         return 0;
     }
-    /* Visual checkpoint launcher (Phase 8.2 demo): renders the demo document
-     * through RoboHTML + RoboGraphics into a real host window. */
-    if (argc >= 2 && strcmp(argv[1], "--demo-html") == 0) {
-        return robo_demo_html_host_main(argc - 1, argv + 1);
+    /* The desktop shell's checkpoint (Phase 11.13): the shared scene in a real
+     * host window, with the frame read back and asserted. */
+    if (argc >= 2 && strcmp(argv[1], "--desktop") == 0) {
+        return robo_desktop_host_main(argc - 1, argv + 1);
     }
 
     robo_test_register_base();
@@ -483,8 +489,14 @@ int main(int argc, char **argv)
     robo_test_register_render();
     robo_test_register_render_raster();
     robo_test_register_render_scene();
-    /* Registered last: demo.lifetime.uninitialized intentionally shuts the
-     * RoboHTML module down and brings it back, so nothing may follow it. */
-    robo_test_register_demo_html();
+    robo_test_register_desktop();
+    robo_test_register_desktop_geometry();
+    robo_test_register_desktop_window();
+    robo_test_register_desktop_frame();
+    robo_test_register_desktop_document();
+    robo_test_register_desktop_present();
+    /* Registered last: desktop.scene.lifetime intentionally shuts the layers
+     * down and brings them back, so nothing may follow it. */
+    robo_test_register_desktop_scene();
     return robo_test_main(argc, argv);
 }

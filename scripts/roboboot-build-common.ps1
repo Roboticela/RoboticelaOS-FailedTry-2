@@ -639,92 +639,42 @@ function Invoke-RoboBuildUserland {
         @{ Name = "thread-test"; Srcs = @("thread-test\main.c"); Libc = $true },
         @{ Name = "file-test"; Srcs = @("file-test\main.c"); Libc = $true },
         @{ Name = "network-test"; Srcs = @("network-test\main.c"); Libc = $true },
+        # The guest runtime: RoboticelaOS's own desktop program, and the only program this build links
+        # that is not a service or a test. It compiles **every** source of each module the desktop pipeline
+        # touches, discovered from the module's own directory rather than re-typed here -- the same
+        # rule `Tools/Build.ps1` states file by file in `$ProdSrcs`.
+        #
+        # Discovered rather than copied because a copied list drifts, and this one did: it went on
+        # compiling the deleted RoboDemo layer, so the OS booted to a throwaway demo page for two phases
+        # after the host had a real shell. The next module added to the runtime now reaches the guest image
+        # by being a source file in a module this list names.
         @{ Name = "robo-runtime"; Srcs = @("robo-runtime\main.c"); Libc = $true;
           ExtraCFlags = @("-DROBO_WINDOW_HAS_QEMU=1");
-          RuntimeSrcs = @(
-            "Source\RoboBase\RoboBase.c",
-            "Source\RoboBase\RoboError.c",
-            "Source\RoboBase\RoboLog.c",
-            "Source\RoboBase\RoboDebug.c",
-            "Source\RoboMem\RoboMem.c",
-            "Source\RoboUnicode\RoboUnicode.c",
-            "Source\RoboGraphics\RoboGraphics.c",
-            "Source\RoboGraphics\RoboGraphicsBackend.c",
-            "Source\RoboGraphics\RoboGraphicsBitmap.c",
-            "Source\RoboGraphics\RoboGraphicsCapabilities.c",
-            "Source\RoboGraphics\RoboGraphicsColor.c",
-            # RoboGraphics 8.12: PNG decoding. The guest image needs it because
-            # RoboHTML's image resource model decodes through it.
-            "Source\RoboGraphics\RoboGraphicsDecode.c",
-            "Source\RoboGraphics\RoboGraphicsFrame.c",
-            "Source\RoboGraphics\RoboGraphicsFramebuffer.c",
-            "Source\RoboGraphics\RoboGraphicsGeometry.c",
-            "Source\RoboGraphics\RoboGraphicsImage.c",
-            "Source\RoboGraphics\RoboGraphicsPixelFormat.c",
-            "Source\RoboGraphics\RoboGraphicsSurface.c",
-            "Source\RoboDisplay\RoboDisplay.c",
-            "Source\RoboDisplay\RoboDisplayTypes.c",
-            "Source\RoboDisplay\RoboDisplayInfo.c",
-            "Source\RoboDisplay\RoboDisplayScale.c",
-            "Source\RoboDisplay\RoboDisplayBackend.c",
-            "Source\RoboDisplay\RoboQemuFramebuffer.c",
-            "Source\RoboDisplay\RoboDisplayBackendQemu.c",
-            "Source\RoboWindow\RoboWindow.c",
-            "Source\RoboWindow\RoboWindowLifecycle.c",
-            "Source\RoboWindow\RoboWindowConfig.c",
-            "Source\RoboWindow\RoboWindowState.c",
-            "Source\RoboWindow\RoboWindowDisplay.c",
-            "Source\RoboWindow\RoboWindowEvent.c",
-            "Source\RoboWindow\RoboWindowEventLoop.c",
-            "Source\RoboWindow\RoboWindowKey.c",
-            "Source\RoboWindow\RoboWindowKeyboard.c",
-            "Source\RoboWindow\RoboWindowMouse.c",
-            "Source\RoboWindow\RoboWindowBackend.c",
-            "Source\RoboWindow\RoboWindowNative.c",
-            "Source\RoboWindow\RoboWindowThread.c",
-            "Source\RoboWindow\RoboWindowPresent.c",
-            "Source\RoboWindow\RoboWindowGraphics.c",
-            "Source\RoboWindow\RoboWindowSize.c",
-            "Source\RoboWindow\RoboWindowBackendHost.c",
-            "Source\RoboDisplay\RoboDisplayBackendHost.c",
-            "Source\RoboWindow\platform\qemu\RoboWindowBackendQemu.c",
-            # RoboHTML 8.1/8.2/8.3/8.4: the guest renders the demo through
-            # the real tokenizer, tree builder and document model, so the
-            # whole HTML module ships in the guest image too.
-            "Source\RoboHTML\RoboHTML.c",
-            "Source\RoboHTML\RoboHTMLTypes.c",
-            "Source\RoboHTML\RoboHTMLDiagnostics.c",
-            "Source\RoboHTML\RoboHTMLLifecycle.c",
-            "Source\RoboHTML\RoboHTMLSource.c",
-            "Source\RoboHTML\RoboHTMLEncoding.c",
-            "Source\RoboHTML\RoboHTMLNode.c",
-            "Source\RoboHTML\RoboHTMLDom.c",
-            "Source\RoboHTML\RoboHTMLElement.c",
-            "Source\RoboHTML\RoboHTMLTag.c",
-            # RoboHTML 8.12: the image resource model behind `<img>`.
-            "Source\RoboHTML\RoboHTMLImage.c",
-            # RoboHTML 8.13: anchors and the navigation-target model.
-            "Source\RoboHTML\RoboHTMLAnchor.c",
-            # RoboHTML 8.14: the form-control model behind <form> and friends.
-            "Source\RoboHTML\RoboHTMLForm.c",
-            "Source\RoboHTML\RoboHTMLClient.c",
-            "Source\RoboHTML\RoboHTMLResource.c",
-            "Source\RoboHTML\RoboHTMLParser.c",
-            "Source\RoboHTML\RoboHTMLDocument.c",
-            "Source\RoboHTML\RoboHTMLToken.c",
-            "Source\RoboHTML\RoboHTMLCharRefData.c",
-            "Source\RoboHTML\RoboHTMLCharRef.c",
-            "Source\RoboHTML\RoboHTMLTokenizer.c",
-            "Source\RoboHTML\RoboHTMLPayload.c",
-            "Source\RoboHTML\RoboHTMLText.c",
-            "Source\RoboHTML\RoboHTMLTreeBuilder.c",
-            "Source\RoboHTML\RoboHTMLTraversal.c",
-            "Source\RoboHTML\RoboHTMLMutation.c",
-            "Source\RoboHTML\RoboHTMLDocumentModel.c",
-            # RoboDemo: the throwaway tree to picture adapter.
-            "Source\RoboDemo\RoboDemoFont.c",
-            "Source\RoboDemo\RoboDemoHtml.c"
-        ) },
+          RuntimeModules = @(
+            # The runtime's own floor: errors, memory, the containers CSS and HTML are built out of,
+            # and the Unicode tables everything that measures text reads.
+            "RoboBase",
+            "RoboMem",
+            "RoboContainers",
+            "RoboUnicode",
+            # Locale and language: RoboFont looks a face's names up through RoboI18N's locale model, so a
+            # guest that draws glyphs needs the module even though nothing here is localised yet.
+            "RoboI18N",
+            # Markup, all the way to pictures: the modules whose output the shell's window is made of.
+            # RoboDesktop's document bridge is here because a window's contents *are* a real document.
+            "RoboHTML",
+            "RoboCSS",
+            "RoboFont",
+            "RoboLayout",
+            "RoboPaint",
+            "RoboRender",
+            # And the surface those pictures land on: pixels, the display, the window, the shell.
+            "RoboGraphics",
+            "RoboDisplay",
+            "RoboWindow",
+            "RoboDesktop"
+          );
+        },
         # Legacy Chromium-engine demos — optional; skipped when sources absent.
         @{ Name = "robospark"; Root = $runtime; Optional = $true; Srcs = @(
             "robocore\src\robocore.c",
@@ -783,18 +733,41 @@ function Invoke-RoboBuildUserland {
                 $i++
             }
         }
-        if ($p.ContainsKey("RuntimeSrcs") -and $p.RuntimeSrcs) {
-            foreach ($rel in $p.RuntimeSrcs) {
-                $src = Join-Path $runtime $rel
-                if (-not (Test-Path -LiteralPath $src)) {
-                    throw ("missing runtime source for guest " + $p.Name + ": " + $src)
+        # The runtime sources this guest compiles, worked out rather than listed: every `.c` under each
+        # named module, subdirectories included, with two kinds of directory left out because a guest
+        # cannot call what is in them -- `tests`, which are the host suites, and the platform backends of
+        # the *other* platforms (`win32`, `host`; the guest's own is `platform\qemu`, which the walk keeps).
+        # What is left is exactly what `Tools/Build.ps1`'s `$ProdSrcs` names for those modules, without this
+        # file having to repeat the list and drift from it.
+        $runtimeSrcs = @()
+        if ($p.ContainsKey("RuntimeSrcs") -and $p.RuntimeSrcs) { $runtimeSrcs += $p.RuntimeSrcs }
+        if ($p.ContainsKey("RuntimeModules") -and $p.RuntimeModules) {
+            foreach ($mod in $p.RuntimeModules) {
+                $modRoot = Join-Path (Join-Path $runtime "Source") $mod
+                if (-not (Test-Path -LiteralPath $modRoot)) {
+                    throw ("missing runtime module for guest " + $p.Name + ": " + $modRoot)
                 }
-                # Path-derived object names — index-based names collide when RuntimeSrcs grows.
-                $stem = (($rel -replace '[\\/]', '_') -replace '\.c$', '')
-                $obj = Join-Path $ubuild ($p.Name + "_rt_" + $stem + ".o")
-                if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
-                $objs += $obj
+                $files = @(Get-ChildItem -LiteralPath $modRoot -Recurse -Filter "*.c" -File |
+                    Where-Object { $_.FullName -notmatch '[\\/](tests?|win32|host)[\\/]' } |
+                    Sort-Object -Property FullName)
+                if ($files.Count -eq 0) {
+                    throw ("runtime module " + $mod + " has no sources under " + $modRoot)
+                }
+                foreach ($f in $files) {
+                    $runtimeSrcs += ("Source" + "\" + $mod + $f.FullName.Substring($modRoot.Length))
+                }
             }
+        }
+        foreach ($rel in $runtimeSrcs) {
+            $src = Join-Path $runtime $rel
+            if (-not (Test-Path -LiteralPath $src)) {
+                throw ("missing runtime source for guest " + $p.Name + ": " + $src)
+            }
+            # Path-derived object names — index-based names collide when the source set grows.
+            $stem = (($rel -replace '[\\/]', '_') -replace '\.c$', '')
+            $obj = Join-Path $ubuild ($p.Name + "_rt_" + $stem + ".o")
+            if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+            $objs += $obj
         }
         $elf = Join-Path $ubuild ($p.Name + ".elf")
         $linkobjs = $objs
@@ -861,6 +834,12 @@ function Invoke-RoboBuildUserland {
     Add-Pack "/bin/network-test" $elfs["network-test"]
     Add-Pack "/bin/robo-runtime" $elfs["robo-runtime"]
     Add-Pack "/System/runtime/robo-runtime" $elfs["robo-runtime"]
+    # The desktop's face. The guest program reads `/System/Fonts/Inter.ttf`, parses it with RoboFont and
+    # draws the shell's labels with the face it builds; without the file the desktop still paints, but every
+    # label counts into `ROBO_QEMU_DESKTOP_UNSHAPED` instead of reaching the picture. Vendored in the
+    # runtime tree beside its licence (`runtime/desktop/assets/`) rather than fetched at build time, so an
+    # offline build and a build on another machine pack the same bytes.
+    Add-Pack "/System/Fonts/Inter.ttf" (Join-Path $runtime "desktop\assets\Inter.ttf")
     Add-Pack "/System/runtime/engines.manifest" $manifest
     Add-Pack "/bin/robospark" $elfs["robospark"]
     Add-Pack "/bin/robolayer-demo" $elfs["robolayer-demo"]

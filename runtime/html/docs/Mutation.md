@@ -207,14 +207,21 @@ element registry, no index, no cache, no invalidation machinery beyond the
 version counter. `remove_children` re-reads the parent's first child each time (each
 detach repairs the list) and is bounded by the node ceiling.
 
-## 12. Visual checkpoint
+## 12. The visual checkpoint this phase used to carry
 
-`robo_demo_page_create_from_document` (new in 8.9) builds the demo page from a
-document that already exists, so the same document can be rendered before and
-after a mutation with no re-parse. `demo.mutation.changes_picture` uses it:
-parse `<h1>First</h1><p>Second</p>`, render, move the paragraph ahead of the
-heading with the real mutation API, render the same document again, and assert
-both the block order and that the painted output differs.
+The demo layer, deleted in Phase 11.13, rendered a document *before and after* a
+mutation with no re-parse (`robo_demo_page_create_from_document`, `8.9`), and
+`demo.mutation.changes_picture` asserted that the picture changed when the tree
+did. That case went with the layer, and the honest record is that the
+pixel-level half of this phase's claim is **not** currently re-covered: what
+remains is the model's own mutation suites, and `layout.build.rebuild`, which
+pins that a rebuilt tree is the tree the document now holds.
+
+A case that renders a mutated document through the production pipeline
+(`robo_layout` → `robo_paint` → `robo_render`) would restore it, and it belongs
+with the pipeline rather than with this module — a render or desktop scene case
+that mutates between two frames and asserts the frames differ. That is a
+candidate for the next phase's test list rather than a claim made here.
 
 ## Definition of done
 

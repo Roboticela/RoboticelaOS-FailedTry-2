@@ -18,8 +18,9 @@ RoboHTML tokenizer (8.2) ── tokens ──▶ tree builder (8.3)
                              read accessors: RoboHTMLNode.h / RoboHTMLElement.h
                                             │
                                             ▼
-                             RoboDemo walk → RoboGraphics → RoboWindow
-                             (Phase 9/10/11 replace the walk)
+                             a document pipeline: RoboCSS → RoboLayout → RoboPaint
+                             → RoboRender → RoboDesktop (RoboDemo's stand-in
+                             walk was deleted in Phase 11.13)
 ```
 
 ## 1. Objects and ownership
@@ -205,7 +206,7 @@ Document
       p
         "Body & text"
       button
-        "Demo Button"
+        "Continue"
       img src="a.png" /
 ```
 

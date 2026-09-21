@@ -256,15 +256,24 @@ void kmain(const RoboBootInfo *info)
                 robofs_register();
                 if (tests && !robo_vfs_selftest())
                     kprintf("VFS_TEST_FAIL\n");
-                root_disk = robo_memdev_create(ROBOFS_BLOCK_SIZE, 512);
+                /*
+                 * The root volume is sized from what it has to hold. It used to be a constant 512 blocks,
+                 * which was a guess that the image outgrew: once the image passed two megabytes the walk
+                 * stopped partway through and every later file -- the fonts among them -- went missing with
+                 * no more than a `VFS_IMPORT_FAIL` line to say so.
+                 */
+                root_disk = robo_memdev_create(ROBOFS_BLOCK_SIZE,
+                                               robo_fs_root_blocks(ROBOFS_BLOCK_SIZE));
                 imported = -1;
                 if (root_disk && robofs_format(root_disk) == 0 &&
                     robo_vfs_mount_root("robofs", root_disk, 0) == 0)
                     imported = robo_vfs_import_initrd();
                 else
                     kprintf("ROBOFS_ROOT_FAIL\n");
-                if (imported != 0)
+                if (imported < 0)
                     kprintf("VFS_IMPORT_FAIL  %d\n", imported);
+                else if (imported > 0)
+                    kprintf("VFS_IMPORT_PARTIAL  %d\n", imported);
                 if (kboot_debug(info)) {
                     kfb_puts("RoboFS ready\n", 0xA1A1A6u);
                     robo_vfs_fb_report();

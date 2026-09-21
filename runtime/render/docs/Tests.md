@@ -1,6 +1,7 @@
-# RoboRender Test Organisation (Phase 11.12)
+# RoboRender Test Organisation (Phase 11.12, extended by 11.13)
 
-Three suite files, **24 cases**, one shared fixture header. The suites live in `render/tests` for the
+Three suite files, **31 cases**, one shared fixture header (24 from 11.12, seven from 11.13's
+presenter). The suites live in `render/tests` for the
 reason the paint suites live in `paint/tests`: a render fixture *is* a paint fixture plus a target, so
 the fixtures belong beside the layer they consume rather than in `Tests/Suites`, and
 `RoboRenderTestSupport.h` builds on `RoboPaintTestSupport.h` rather than restating it.
@@ -12,18 +13,18 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ```
 
 `--filter` is a substring match; no case outside this module contains `render.`, so the filter reports
-these 24 and nothing else.
+these 31 and nothing else.
 
 ---
 
 ## 1. Suite map
 
-### `SuiteRoboRender.c` — the module, the target, the record, the dump (9 cases)
+### `SuiteRoboRender.c` — the module, the target, the record, the dump (10 cases)
 
 | Case | What it pins |
 |---|---|
 | `render.version_and_capabilities` | version string and fields against the macros; `rasterization_is_implemented() == 1`; **the flag and the capability field agree**; every NULL argument of the version door refused |
-| `render.conformance.capabilities` | the 16 flag names, **by name and in declaration order**; all 16 set to 1 and every field read back; the ten 1s and six 0s, with the 0s asserted *by name* so a phase that flips one has to change this case deliberately; `robo_render_capabilities_init` zeroes everything |
+| `render.conformance.capabilities` | the **16 flag names read positionally, by name, in declaration order**, against a row table whose size is asserted to match the struct's (one `int` per row, no padding — or a row would be checking its neighbour); every field a value and every value a 0 or a 1; the **eleven 1s and five 0s**, with the 0s asserted *by name* so a phase that flips one has to change this case deliberately; `robo_render_capabilities_init` zeroes everything |
 | `render.conformance.vocabulary` | the five diagnostic domain names and their predicates, unknown and negative values reporting `unknown`, and the first and last enumerators |
 | `render.conformance.diagnostics` | `robo_render_diag_t`: reset, set, the strict and non-strict paths, the domain round-trip, and that a diagnostic is cleared rather than accumulated |
 | `render.target_facts` | every fact door on a real target (320x240: width, height, format, stride, byte size, pixel count, bounds) and the zero answers for NULL |
@@ -31,8 +32,9 @@ these 24 and nothing else.
 | `render.target_pixels_and_equality` | the zero-filled fresh target, `clear` **replacing** including the alpha channel, `checksum` moving when a byte moves, and `equal`'s rules (NULL == NULL, NULL != a target, differing sizes unequal) |
 | `render.record_rules` | `frame_init`, `is_valid`'s closed rule (a pixel count that disagrees with the size, a stride smaller than a row, a zero dimension are all invalid), `frame_equal` field by field including the embedded pass record, and a hand-built record being refused rather than read |
 | `render.dump` | the seven dump lines, the line bound, a too-small buffer reporting the length it needed, and the **no address** rule (`=0x` absent) |
+| `render.conformance.presenter` | 11.13's release shape, asserted rather than exercised: `ROBO_RENDER_PRESENTATION_IMPLEMENTED` and the function that reads it agree, `presentation` is 1 **while `compositor` is still 0** (a frame reaching a destination is not a layer order), the diagnostic vocabulary did **not** grow, and a cleared presentation record is not a valid one |
 
-### `SuiteRoboRenderRaster.c` — pixels (10 cases)
+### `SuiteRoboRenderRaster.c` — pixels (16 cases)
 
 | Case | What it pins |
 |---|---|
@@ -46,6 +48,12 @@ these 24 and nothing else.
 | `render.raster.preflight_refuses` | a list that closes a scope nothing opened and a list that leaves one open, both refused with a `LIST` diagnostic, the target byte-identical afterwards, the record not overwritten — plus the assertion that the *unknown kind* half of the rule is unreachable through the public API |
 | `render.raster.no_font_is_a_number` | a run with no face changes nothing and is counted in `no_font`; with the fixture's face, the two characters resolve through its `cmap`, two glyphs are drawn, and **ink lands inside the run's own box** |
 | `render.raster.region_clamping` | a region running off the target is executed at the intersection and the record reports the rectangle it executed; a region that misses the target entirely executes nothing; a region inside it repaints exactly the box |
+| `render.present_region` | the arithmetic door on its own: the frame's rectangle moved by the origin and cut to the destination, including a frame hanging off an edge and a **negative** origin; an off-destination frame answers with an empty rectangle rather than an error; a read-only destination is refused |
+| `render.present_pixels` | a real document's frame presented into a destination at an offset, read back from the **destination**: a named pixel of the picture at the same offset, the destination's own pixels outside the frame untouched, `presented_pixels + clipped_pixels` summing to the frame's count, and `complete == 1`; then the same frame presented twice, which is presenting twice |
+| `render.present_clipping` | a frame larger than its destination and a destination larger than the frame, both **clipped rather than refused**, with the destination's pixels proving which survived and the record's rectangle naming where the pixels went |
+| `render.present_framebuffer` | the same presentation through `robo_render_present_framebuffer`: a borrowed wrapper over an owned buffer, the pixels landing in it, and nothing retained after the call |
+| `render.present_record_and_dump` | `present_record_init`, field-for-field equality, the **closed validity rule** (a count pair that does not sum to the frame, a format that is not this build's, a `complete` that disagrees with the clipped count, an oversized frame), and the four-line dump with no address in it |
+| `render.present_refusals` | every refusal: NULL frame, NULL destination, a read-only destination, an unimplemented destination format (with its `FRAME` diagnostic), and a cleared record as the documented "nothing" state |
 
 ### `SuiteRoboRenderScene.c` — a document, end to end (5 cases)
 
@@ -155,8 +163,9 @@ than about layering: a check that is written but not run is a check that has not
 
 ```bash
 # from runtime/
-./Out/RoboTest.host.exe --filter render.            # this module, 24 cases
-./Out/RoboTest.host.exe --filter render.raster.      # pixels only, 10 cases
+./Out/RoboTest.host.exe --filter render.            # this module, 31 cases
+./Out/RoboTest.host.exe --filter render.present_    # presentation only, 6 cases
+./Out/RoboTest.host.exe --filter render.raster.      # pixels only, 16 cases
 ./Out/RoboTest.host.exe --filter render.scene.       # the document cases, 5 cases
 ./Out/RoboTest.host.exe --filter render.scene.checkpoint -VerboseTests
 ```

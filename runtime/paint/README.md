@@ -510,8 +510,11 @@ RoboGraphics' own scaled sampler.
   through `robo_paint_decoration_paint_bounded`. What this module still does **not** own is a target,
   a clear (a region run must **not** clear, or it would erase the pixels its regions were computed to
   preserve) or a lifetime: a surface, a face and a list are always the caller's argument.
-- No framebuffer presentation, no compositor, no GPU — and no **framebuffer path at all**: getting a
-  frame onto a screen is Phase 11.13's.
+- No presentation of its own, no compositor, no GPU — and no **framebuffer path at all**. Since 11.13 a
+  frame does reach a screen, and it does it one module up: **RoboRender**'s presenter composites it into
+  a destination surface, and **RoboDesktop** is the shell that decides what is on one
+  (`render/docs/Presentation.md`, `desktop/README.md`). This module still contributes the walk and
+  nothing that owns a pixel.
 - **Images are drawn from a resource the document already resolved, and nothing fetches one.**
   `image_painting` is 1 from 11.7: an `<img>`'s decoded `robo_gfx_image_t` reaches the surface at the
   rectangle layout gave its element, scaled by RoboGraphics' nearest-neighbour sampler. What is

@@ -90,12 +90,12 @@ deploy tree (build/dist) ─> artifacts + deployment manifest (build/deploy/depl
 | `test-runtime` | the whole RoboticelaOS Runtime host suite |
 | `test-bootloader` | bootloader unit + session tests |
 | `test-kernel` | every kernel host unit test binary + libc host tests |
-| `test-base` `test-memory` `test-containers` `test-unicode` `test-i18n` `test-font` `test-script` `test-graphics` `test-window` `test-display` `test-html` `test-demo` `test-infra` | one runtime subsystem each |
+| `test-base` `test-memory` `test-containers` `test-unicode` `test-i18n` `test-font` `test-script` `test-graphics` `test-window` `test-display` `test-html` `test-css` `test-layout` `test-paint` `test-render` `test-desktop` `test-infra` | one runtime subsystem each (`test-desktop` covers the shell and the checkpoint scene) |
 | `test-qemu-boot` | bootloader selftest under real UEFI in QEMU |
 | `test-qemu-kernel` | kernel + OS core selftests under real UEFI in QEMU |
 | `test-qemu-userspace` | the guest user-space selftests (window server, compositor, libc) |
-| `test-qemu-display` | the visual runtime rendering through the QEMU display backend |
-| `test-e2e` | clean build → boot → selftests → visual runtime → deployment validation |
+| `test-qemu-display` | the desktop shell drawing through the QEMU display backend |
+| `test-e2e` | clean build → boot → selftests → the desktop shell → deployment validation |
 
 ### Run
 
@@ -103,8 +103,8 @@ deploy tree (build/dist) ─> artifacts + deployment manifest (build/deploy/depl
 |---|---|
 | `run-bootloader` | bootloader host preview window (no emulation) |
 | `run-kernel` | the real kernel in QEMU |
-| `run-runtime` | the visual runtime as a native host window |
-| `run-runtime-qemu` | the OS in QEMU, booting to the visual runtime |
+| `run-runtime` | the desktop shell in a native host window (the checkpoint's scene) |
+| `run-runtime-qemu` | the OS in QEMU, booting to that same shell on the framebuffer |
 | `run-qemu` | full build, then boot the OS in QEMU |
 
 Add `--headless` to any QEMU command to run without a window; it then verifies

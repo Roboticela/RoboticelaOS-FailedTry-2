@@ -1,19 +1,22 @@
 # RoboRender
 
 Rasterization subsystem for Roboticela Runtime (**Phase 11.12 — the first release that ends in
-pixels**).
+pixels**, extended by **Phase 11.13 — presentation**, which gives those pixels a destination).
 
-**Version:** 0.1.0 — `ROBO_RENDER_API_FROZEN=0`
+**Version:** 0.2.0 — `ROBO_RENDER_API_FROZEN=0`
 
 `ROBO_RENDER_RASTERIZATION_IMPLEMENTED=1` since this module's first release: a **display list
 executed into an owned pixel target**, in the order the list states, bounded by its clip scopes and
 at the strengths its opacity scopes establish, with an execution record a caller can read and output
-that is byte-identical for identical input. The claim is **narrow**, and the fields beside it say how
-narrow: `rasterizer`, `pixel_targets`, `command_execution`, `region_runs`, `clipping`, `opacity`,
-`text`, `images`, `determinism` and `frame_records` are each **1**, while `presentation`,
-`compositor`, `tiles`, `damage_tracking`, `frame_scheduling` and `gpu` are each **0** and name the
-phase that would make them a 1. `robo_render_rasterization_is_implemented()` agrees with the
-constant, and the conformance suite asserts all three together.
+that is byte-identical for identical input. `ROBO_RENDER_PRESENTATION_IMPLEMENTED=1` since 11.13: a
+frame **composited into a destination surface** — a window's render surface, a display framebuffer, an
+offscreen surface a caller owns — at an offset, with a record whose two pixel counts sum to the
+frame's own. The claim is **narrow**, and the fields beside it say how narrow: `rasterizer`,
+`pixel_targets`, `command_execution`, `region_runs`, `clipping`, `opacity`, `text`, `images`,
+`determinism`, `frame_records` and `presentation` are each **1**, while `compositor`, `tiles`,
+`damage_tracking`, `frame_scheduling` and `gpu` are each **0** and name the phase that would make them
+a 1. Each flag is reported by a function that reads the constant, and the conformance suite asserts
+the constant, the function and the capability field together.
 
 RoboRender is the sixth module in the layout stack: it sits directly above RoboPaint and directly
 below the window/display path (`DEPENDENCIES.md`). RoboPaint answers **which work, in what order,
@@ -23,11 +26,14 @@ the whole vocabulary, a record of what the run did, and the ability to re-execut
 paint invalidation set says went stale.
 
 ```text
-HTML / DOM → RoboCSS → RoboLayout → RoboPaint → display list → RoboRender target → RoboGraphics surface → (Phase 11.13) window / display / framebuffer
+HTML / DOM → RoboCSS → RoboLayout → RoboPaint → display list → RoboRender target → present → window / display / framebuffer
 ```
 
-This build stops at the target. A frame is pixels in a buffer this module owns; getting them onto a
-screen is Phase 11.13's, and `robo_render_target_surface` is the door it takes.
+11.12 stopped at the target: a frame is pixels in a buffer this module owns. 11.13 gave that buffer an
+exit — `robo_render_present` composites one frame into one destination surface at one offset, which is
+the *door* 11.12's release note named, taken (`render/docs/Presentation.md`). Where a frame should go,
+and when, is still the caller's: a window's render surface and a display framebuffer are both just
+surfaces to this module, and which one a caller hands over is the reason it reaches into neither.
 
 ## The first structural decision: a target is owned, and it is the module's only allocation
 
@@ -147,6 +153,7 @@ are named as absent rather than assumed to be 1 forever.
 | `RoboRenderVersion.h` | Version macros, `ROBO_RENDER_API_FROZEN`, `ROBO_RENDER_RASTERIZATION_IMPLEMENTED`, and the coordinate statement |
 | `RoboRenderDiagnostics.h` | `robo_render_diag_t`, `robo_render_diagnostic_domain_t` (5, `NONE` included), the `ROBO_RENDER_DIAG` macro and the two domain doors |
 | `RoboRenderRasterizer.h` | `robo_render_target_t` and its fifteen doors, `robo_render_frame_t` and its three, `robo_render_rasterize`, `robo_render_rasterize_regions`, `robo_render_frame_write` |
+| `RoboRenderPresenter.h` | `robo_render_present_record_t` and its four doors, `robo_render_present_region`, `robo_render_present`, `robo_render_present_framebuffer`, `robo_render_present_write`, `robo_render_presentation_is_implemented` |
 | `RoboRender.h` | `robo_render_capabilities_t` (16 flags), `robo_render_get_capabilities`, `robo_render_version_string`, `robo_render_get_version`, `robo_render_rasterization_is_implemented` |
 
 ## Lifecycle
@@ -164,7 +171,8 @@ skipped).
 | Document | Contents |
 |---|---|
 | `render/docs/Rasterization.md` | The target and its pixel buffer, the coordinate statement, the walk and how the boundary and the strength reach the raster, text and images, the region path, the error model, and **what is absent** — each of the six 0s with what it would need |
-| `render/docs/Tests.md` | Suite map (three suite files, 24 cases), fixtures, what the suites assert and do not, running, sanitizers, and what the phase's suites found |
+| `render/docs/Presentation.md` | The presenter: why the destination is a surface and not a window, the three doors, the clip-not-refuse rule and the record's exhaustive counts, one authority for where pixels land, the four-line dump, and the five 0s beside `presentation` |
+| `render/docs/Tests.md` | Suite map (three suite files, 31 cases), fixtures, what the suites assert and do not, running, sanitizers, and what the phases' suites found |
 
 ## Building and testing
 
@@ -174,7 +182,7 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ./Out/RoboTest.host.exe --filter render.
 ```
 
-The filter is a substring match, so it reports this module's **24** cases and nothing else: no other
+The filter is a substring match, so it reports this module's **31** cases and nothing else: no other
 module's case name contains `render.`.
 
 ## Boundaries
@@ -185,10 +193,11 @@ refuses a higher-layer or document-layer name in this module's headers or source
 (a display list, an invalidation set, the bounded decoration walk), RoboGraphics (a clear, a byte view,
 a surface, the checksum's bytes) and RoboFont (a face it is *handed*).
 
-- **Executing a list; not presenting one.** `rasterizer`, `pixel_targets`, `command_execution`,
-  `region_runs`, `clipping`, `opacity`, `text`, `images`, `determinism` and `frame_records` are 1.
-  `presentation` is 0: a target reaches a window, a display or a framebuffer in Phase 11.13, through
-  `robo_render_target_surface`.
+- **Executing a list, and presenting one frame.** `rasterizer`, `pixel_targets`,
+  `command_execution`, `region_runs`, `clipping`, `opacity`, `text`, `images`, `determinism`,
+  `frame_records` and `presentation` are 1. `presentation` is a **call and not a system**: one frame
+  into one destination at one offset, with the destination always the caller's. The row that would
+  describe a presentation *system* is `compositor`, still 0 beside it.
 - **One list into one target.** `compositor` is 0 because a compositor is a *set* of frames with an
   ordering and a place to put the result; there is no layer tree, no stacking context and no z-index
   in this build.

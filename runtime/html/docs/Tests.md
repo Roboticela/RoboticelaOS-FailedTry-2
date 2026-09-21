@@ -55,9 +55,15 @@ deliberately shaped as invariants rather than as per-API checks.
 | `SuiteRoboHTMLForm.c` | 25 | Form control model |
 | **`SuiteRoboHTMLDom.c`** | **13** | **Cross-cutting invariants (this phase)** |
 
-`SuiteRoboHTMLPhase8.c` (3) is the phase-acceptance roll-up. `SuiteRoboDemoHtml.c`
-is not in this directory: the visual checkpoint belongs with the demo, and
-`html/README.md` documents its filters.
+`SuiteRoboHTMLPhase8.c` (3) is the phase-acceptance roll-up. The visual
+checkpoint's suite used to sit beside the demo layer and was deleted with it in
+Phase 11.13; the picture-level cases live where frames live now — `render.*`
+(`render.scene.checkpoint`) and `desktop.scene.*` in `desktop/tests`.
+
+`html/tests/RoboHTMLDomTestSupport.h` carries one fixture this table does not
+list, because it is data rather than cases: `dom_checkpoint_html()`, the document
+of record several suites' expectations are written against (the traversal case
+here, and the CSS suite's selector repertoire in `Tests/Suites`).
 
 `html.*` is 386 tests of the runtime's 1407.
 

@@ -1,8 +1,8 @@
 # RoboHTML Forms (Phase 8.14)
 
 This document is the design record for Phase 8.14. It is normative for
-`RoboHTMLForm.h` / `RoboHTMLForm.c` and for the demo adapter's form-control
-painting.
+`RoboHTMLForm.h` / `RoboHTMLForm.c` — the form-control model — and for what a
+consumer may read from it.
 
 Phase 8.11 already gave `form`, `label`, `input`, `button`, `textarea`,
 `select` and `option` a tag identity, so the parser was building them before
@@ -257,31 +257,28 @@ Only form-associated elements (`robo_html_tag_is_form_associated`) are accepted:
 a `<div>` inside a `<form>` is not owned by it, and asking would be a category
 error rather than a lookup that happens to fail.
 
-## 9. The checkpoint: a field block reports the model
+## 9. What a consumer reads, and what the picture used to report
 
-The demo adapter paints a form control as a `ROBO_DEMO_BLOCK_FIELD`. One style
-covers `<label>`, `<input>`, `<textarea>` and `<select>` because what a caller
-needs to tell apart is not the element but its *state*: whether a checkbox is
-checked, what a text field is holding, how many options a select has. That state
-is read through the Phase 8.14 API at build time — never re-derived from the
-markup — which is what makes the picture a report of the DOM rather than a
-second opinion about it.
+A consumer reads a control's *state* through this API — whether a checkbox is
+checked, what a text field is holding, how many options a select has — and never
+re-derives it from the markup, which is what makes a report of the model a fact
+about the DOM rather than a second opinion about it.
 
-- `<button>` keeps its own block style. It was a block before this phase and its
-  rect is the one the press/hover states are keyed to, so folding it into the
-  field style would change 8.13's picture for no gain.
-- An `<option>` is not painted separately; the select's selected option is what
-  the picture shows.
-- A control whose text came from a `placeholder` — or which is `disabled` — is
-  drawn in the muted colour, so "no value" is distinguishable from "this is the
-  value" rather than both reading as field text.
-- A checked checkbox draws a brand mark inside its box, and a select draws a
-  chevron a text field does not, so the two controls differ in the picture rather
-  than only in the model.
-- The metric constants (`DEMO_FIELD_HEIGHT`, `DEMO_FIELD_TEXTAREA_HEIGHT`, the
-  box size and the row gap) exist so the checkpoint document fits an 800-pixel
-  framebuffer; `demo.layout.flow` pins the result, and a demonstration that ran
-  off the bottom of the display would be a checkpoint in name only.
+Phase 8.2's visual demo adapter was the consumer that showed this in pixels: it
+painted a control as a field block whose shape differed by state (a muted colour
+for a placeholder-only or disabled control, a brand mark inside a checked box, a
+chevron on a select). That adapter was deleted in Phase 11.13 along with the rest
+of the demo layer, so the *rules* below are recorded here as what the model
+offers a painter, and the painter is now whoever consumes a display list:
+
+- a value-holding control has a declared value and a current one, and the pair is
+  what "placeholder" is distinguishable from;
+- an `<option>` is not a separate thing to paint; a select's options are its own
+  state, and the selected one is what a consumer reports;
+- `disabled` is a property of the control, not a rendering instruction — a
+  consumer decides what it looks like;
+- a control's identity (its tag, name and attributes) survives every state read,
+  which is the seam the model suite pins.
 
 ## 10. What this phase is not
 
@@ -298,7 +295,7 @@ an API call changed it.
 | Suite | Tests |
 |---|---|
 | `SuiteRoboHTMLForm.c` | `html.form.parser_element`, `form_attributes`, `method_enctype_vocabulary`, `non_form_refused`, `input_types`, `input_attributes`, `input_value_state`, `input_checked_state`, `input_numeric_constraints`, `button`, `textarea`, `select_options`, `option_value_fallback`, `label_target`, `owner_nested`, `owner_attribute`, `owner_not_supported`, `parser_malformed`, `void_input`, `mutation`, `mutation_options`, `lifecycle`, `destroyed_state`, `structure`, `unicode` |
-| `SuiteRoboDemoHtml.c` | `demo.field.checkpoint` — every control in the shipped checkpoint reports the state the model holds; `demo.field.visual` — a control reaches the picture as a shape that differs by state, asserted on pixels; `demo.field.mutation` — state is re-read from the DOM, not remembered from the build; `demo.field.unknown_type` — an unmodelled `type` degrades to `text` and keeps its identity and attributes |
+| `desktop/tests/SuiteRoboDesktopScene.c` | `desktop.scene.system_face`, `desktop.scene.open` — a document built from markup reaches a frame through the real pipeline, which is where a consumer's reading of the model becomes a picture |
 
 ## 12. Deliberate boundaries worth remembering
 

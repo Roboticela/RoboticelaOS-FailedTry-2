@@ -198,10 +198,10 @@ vocabulary does not know, which would be a behaviour change hidden inside a
 
 No CSS, selectors, layout, paint, JavaScript, events, custom-element upgrade,
 foreign-content namespace switching, accessibility mapping, or exhaustive
-element vocabulary. The renderer is the one consumer touched: the demo adapter
-now asks for `ROBO_HTML_TAG_BUTTON` / `ROBO_HTML_TAG_TITLE` by symbol instead
-of by string, and a `<div>` that holds text and nothing else paints as a text
-block. Nothing in this phase styles anything.
+element vocabulary. A consumer asks for a tag identity by *symbol*
+(`ROBO_HTML_TAG_BUTTON`, `ROBO_HTML_TAG_TITLE`) rather than by comparing a name
+string, and that is the whole of what this phase offers one. Nothing here styles
+anything.
 
 ## 10. Test coverage
 
@@ -221,7 +221,7 @@ block. Nothing in this phase styles anything.
 | | `html.tag.undefined_tag_query_is_not_unknown` |
 | | `html.tag.identity_survives_mutation` — a moved element keeps its type |
 | `SuiteRoboHTMLElements.c` | `html.elements.*` — the 32 element types through the parser (`document_structure_`, `structural_content_`, `heading_`, `list_`, `inline_semantic_`, `generic_semantic_elements`), `creation_seam` (every type created through the element seam), `full_document_tree`, `void_br`, `attributes_on_new_elements`, `text_children`, `pre_preserves_whitespace`, `unicode_text`, `unicode_through_parser`, `traversal_order`, `mutation`, `lifecycle`, `malformed_markup` (23 inputs), `unknown_element`, `tree_dump_shows_types`, `dump_reflects_mutation` |
-| `SuiteRoboDemoHtml.c` | `demo.paint.element_kinds` — the visual checkpoint renders a typed multi-element document |
+| `desktop/tests/SuiteRoboDesktopScene.c` | `desktop.scene.*` — the checkpoint document reaches a *frame* through the real pipeline, so the element vocabulary is exercised where it is actually consumed |
 
 ## 11. Deliberate boundaries worth remembering
 
@@ -235,6 +235,7 @@ block. Nothing in this phase styles anything.
   tag, which *is* its type in this architecture, so the phase adds coverage
   that every supported type appears rather than a new line format that would
   invalidate six suites to say the same thing.
-- **`<span>` is real DOM the demo does not paint.** Inline flow does not exist
-  in the adapter, so a bare inline element is counted as unsupported markup and
-  the suite asserts that count, keeping the limit stated rather than latent.
+- **`<span>` is real DOM with no style of its own.** An inline element is a
+  typed element like any other, and what it looks like is a layout and style
+  question — which is where it is answered, rather than in the parser or in the
+  element model.

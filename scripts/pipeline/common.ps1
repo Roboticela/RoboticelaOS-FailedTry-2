@@ -202,7 +202,7 @@ function Invoke-RoboProcess {
       only afterwards. With a -LogName the file is build/logs/<name>.log.
 
       With -Echo the child writes straight to the console: that is what the
-      interactive commands (host preview, demo window, visible QEMU) want, and
+      interactive commands (host preview, desktop window, visible QEMU) want, and
       it keeps their output live.
 
       Returns:

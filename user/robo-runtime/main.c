@@ -1,54 +1,70 @@
 /*
- * Roboticela Runtime — QEMU display + HTML visual checkpoint
- * (Goals 7.12 / 7.14, Phase 8.2 demo).
+ * RoboticelaOS Runtime — the desktop shell on the QEMU display (Phase 11.13).
  *
- * Path:
- *   embedded demo HTML
- *     → RoboHTML tokenizer (8.2)
- *     → RoboDemo page model
- *     → RoboGraphics paint → RoboWindow begin/end/present_frame
- *     → QEMU SYS_DISPLAY → GOP framebuffer
+ * The chain this program drives, end to end, inside the OS:
  *
- * Input: SYS_DISPLAY INPUT → RoboKeyboard / RoboMouse.
+ *   the checkpoint's markup and author sheet   (RoboDesktopScene)
+ *     → RoboHTML tokenizer + tree builder
+ *     → RoboCSS style context → RoboLayout → RoboPaint (a display list)
+ *     → RoboRender rasteriser (a frame)
+ *     → RoboDesktop (background, panel, the window and its decorations)
+ *     → RoboWindow begin/end/present_frame
+ *     → SYS_DISPLAY → the UEFI GOP framebuffer
  *
- * The host checkpoint (RoboTest.host.exe --demo-html) paints the *same* page
- * through the same RoboDemo adapter into a Win32 window, so the two backends
- * share one renderer; only window creation and presentation differ.
+ * Input travels the other way: SYS_DISPLAY INJECT → the kernel's input queue → this program's RoboWindow
+ * backend → the window queue → `RoboDesktopScene` → `robo_desktop_observe_pointer` → the shell's action.
+ *
+ * The host launcher (`RoboTest.host.exe --desktop`) drives the *same* scene into a Win32 client area, so
+ * the two backends share one definition of what the desktop shows; only window creation and presentation
+ * differ.
+ *
+ * What this program is not: it is not the demo layer that used to live here. That layer painted one HTML
+ * page straight into the framebuffer with its own throwaway adapter and its own bitmap font, and it was
+ * deleted when the shell landed — a page on a screen is not a desktop, and the shell is the thing the OS
+ * actually boots to.
  *
  * Serial markers for automated validation:
- *   ROBO_QEMU_DISPLAY_OK
- *   ROBO_QEMU_HTML_OK
- *   ROBO_QEMU_HTML_LINKS / _LINK_FRAGMENT / _LINK_UNSUPPORTED
- *   ROBO_QEMU_HTML_FIELDS / _FIELDS_STATE / _FIELDS_CHECKED /
- *                     _FIELDS_DECLARED / _FIELDS_PLACEHOLDER / _FIELD_OPTIONS
- *   ROBO_QEMU_PRESENT_OK
- *   ROBO_QEMU_INPUT_OK
- *   ROBO_QEMU_DISPLAY_SHUTDOWN_OK
+ *   ROBO_QEMU_DISPLAY_OK                  the framebuffer is described (see the FB markers below)
+ *   ROBO_QEMU_FB_W / _FB_H / _FB_PITCH / _FB_PIXFMT
+ *   ROBO_QEMU_FACE_OK                     /System/Fonts/Inter.ttf was read, parsed and mapped
+ *   ROBO_QEMU_FACE_FAIL <stage> <path>    the system face could not be loaded; <stage> is the step
+ *                                         (stat, alloc, open, read, source, face) that refused
+ *   ROBO_QEMU_DESKTOP_OK                  the shell, its window and the document came up
+ *   ROBO_QEMU_DESKTOP_WINDOWS             windows painted in the reported frame
+ *   ROBO_QEMU_DESKTOP_CONTENT_RUNS        display-list runs executed for the window's contents
+ *   ROBO_QEMU_DESKTOP_LABELS              chrome labels drawn (identity, applications, status, title)
+ *   ROBO_QEMU_DESKTOP_UNSHAPED            labels a missing face would have cost: **0** is the text verdict
+ *   ROBO_QEMU_DESKTOP_FILLS               shell fills executed in the reported frame
+ *   ROBO_QEMU_DESKTOP_PIXELS              window-content pixels composited into the frame
+ *   ROBO_QEMU_PRESENT_OK                  the frame reached the window's backend
+ *   ROBO_QEMU_PRESENT_COMPLETE            every frame pixel landed in the destination
+ *   ROBO_QEMU_PRESENT_PIXELS              frame pixels written to the destination
+ *   ROBO_QEMU_INPUT_OK / _INPUT_PARTIAL   a display-injected press reached the shell as an action
+ *   ROBO_QEMU_INPUT_ACTIONS               presses the shell acted on
+ *   ROBO_QEMU_DISPLAY_SHUTDOWN_OK         every layer came down cleanly
+ *   ROBO_QEMU_DISPLAY_FAIL <stage>        a stage refused; nothing after it runs
  *
- * The link markers (Phase 8.13) are the guest running the *same* navigation
- * model the host checkpoint drives: with no handler installed the route link
- * must refuse and the fragment link must resolve to the element it names. A
- * marker that claimed otherwise would be the guest reporting navigation that
- * did not happen.
- *
- * The field markers (Phase 8.14) are the same idea one level down: the guest
- * reports what the form model says the checkpoint's controls hold — how many
- * there are, how many are checked, how many carry a declared value, how many
- * carry only a placeholder, and the select's option count — so a value that
- * came from nowhere, a box that defaulted itself checked, or a placeholder
- * mistaken for a value would show up in the serial log rather than passing as
- * a picture.
+ * The counters are reported as facts rather than asserted here; the pipeline's own marker list is what
+ * pins their values, because a guest that checked its own arithmetic against itself would be checking
+ * nothing.
  */
 
 #include "RoboBase/RoboBase.h"
-#include "RoboDemo/RoboDemoFont.h"
-#include "RoboDemo/RoboDemoHtml.h"
+#include "RoboCSS/RoboCSS.h"
+#include "RoboDesktop/RoboDesktop.h"
+#include "RoboDesktop/RoboDesktopDocument.h"
+#include "RoboDesktop/RoboDesktopScene.h"
 #include "RoboDisplay/RoboDisplay.h"
 #include "RoboDisplay/RoboDisplayBackendQemu.h"
 #include "RoboDisplay/RoboQemuFramebuffer.h"
+#include "RoboFont/RoboFont.h"
+#include "RoboFont/RoboFontFace.h"
+#include "RoboFont/RoboFontSource.h"
 #include "RoboGraphics/RoboGraphics.h"
 #include "RoboHTML/RoboHTML.h"
-#include "RoboHTML/RoboHTMLAnchor.h"
+#include "RoboLayout/RoboLayout.h"
+#include "RoboMem/RoboMem.h"
+#include "RoboPaint/RoboPaint.h"
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowBackendQemu.h"
 #include "RoboWindow/RoboWindowGraphics.h"
@@ -58,383 +74,409 @@
 #include <robosys/syscall.h>
 #include <robosys/syscall_numbers.h>
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 
-static const robo_gfx_color_rgba8_t C_MUTED = {110, 110, 115, 255};
-static const robo_gfx_color_rgba8_t C_WHITE = {255, 255, 255, 255};
-static const robo_gfx_color_rgba8_t C_RED = {255, 0, 0, 255};
-static const robo_gfx_color_rgba8_t C_GREEN = {0, 255, 0, 255};
-static const robo_gfx_color_rgba8_t C_BLUE = {0, 0, 255, 255};
-static const robo_gfx_color_rgba8_t C_BRAND = {14, 122, 255, 255};
+/** The system face, where the image build packs it (`scripts/roboboot-build-common.ps1`). */
+#define GUEST_FACE_PATH "/System/Fonts/Inter.ttf"
+
+/** Frames the loop is willing to drive before it reports: the first one paints, the rest answer input. */
+#define GUEST_MAX_STEPS 48
+#define GUEST_STEP_WAIT_MS 16u
+
+/** The status label: the display's own size, written by this program rather than read from a clock. */
+#define GUEST_STATUS_MAX 24u
+
+static char g_status[GUEST_STATUS_MAX];
+
+/* ------------------------------------------------------------------ */
+/* Serial reporting                                                    */
+/* ------------------------------------------------------------------ */
 
 static unsigned slen(const char *s)
 {
     unsigned n = 0;
-    while (s && s[n])
+
+    while (s && s[n]) {
         n++;
+    }
     return n;
 }
 
 static void serial(const char *s)
 {
     unsigned n = slen(s);
-    if (n)
+
+    if (n) {
         robo_write(1, s, n);
+    }
 }
 
-static void caption(robo_gfx_surface_t *s, int32_t px, int32_t py,
-                    const char *text, robo_gfx_color_rgba8_t fg)
-{
-    /* Demo-scope text: the shared RoboDemo atlas, scale 1, clipped safely. */
-    (void)robo_demo_font_draw(s, px, py, text, slen(text), 1, fg);
-}
-
-static void u32_hex(char *out, uint32_t v)
+static void serial_u32(const char *prefix, uint32_t value)
 {
     static const char *hex = "0123456789ABCDEF";
-    int i;
-    out[0] = '0';
-    out[1] = 'x';
-    for (i = 0; i < 8; i++)
-        out[2 + i] = hex[(v >> (28 - i * 4)) & 0xFu];
-    out[10] = 0;
-}
+    char buffer[16];
+    int index;
 
-static void serial_u32(const char *prefix, uint32_t v)
-{
-    char buf[32];
-    u32_hex(buf, v);
+    buffer[0] = '0';
+    buffer[1] = 'x';
+    for (index = 0; index < 8; index++) {
+        buffer[2 + index] = hex[(value >> (28 - index * 4)) & 0xFu];
+    }
+    buffer[10] = '\0';
     serial(prefix);
-    serial(buf);
+    serial(buffer);
     serial("\n");
 }
+
+static void serial_text(const char *prefix, const char *text)
+{
+    serial(prefix);
+    serial(text ? text : "(none)");
+    serial("\n");
+}
+
+static void guest_fail(const char *stage)
+{
+    serial("ROBO_QEMU_DISPLAY_FAIL ");
+    serial(stage);
+    serial("\n");
+}
+
+static void guest_stop(void)
+{
+    for (;;) {
+        robo_sleep(1000);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* The display's size, as a label                                      */
+/* ------------------------------------------------------------------ */
+
+/** Write @p value as decimal into @p out (which must hold 11 bytes); returns the digits written. */
+static unsigned decimal(char *out, uint32_t value)
+{
+    char digits[11];
+    unsigned count = 0u;
+    unsigned index;
+
+    if (value == 0u) {
+        out[0] = '0';
+        return 1u;
+    }
+    while (value > 0u && count < sizeof(digits)) {
+        digits[count++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    }
+    for (index = 0u; index < count; index++) {
+        out[index] = digits[count - 1u - index];
+    }
+    return count;
+}
+
+/** "<width>x<height>", the panel's status label. */
+static void guest_status_text(uint32_t width, uint32_t height)
+{
+    unsigned at = decimal(g_status, width);
+
+    g_status[at++] = 'x';
+    at += decimal(g_status + at, height);
+    g_status[at] = '\0';
+}
+
+/* ------------------------------------------------------------------ */
+/* The system face                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Read the system face out of the image and build a face from those bytes.
+ *
+ * The file is read whole into one buffer, copied into a `robo_font_source`, and the buffer is released: a
+ * face keeps the source it was made from (`robo_font_face_source`), so what outlives this call is the
+ * source and nothing else. A missing or unparseable file returns NULL, and the caller reports it rather
+ * than pretending — the shell would still draw, with `labels_unshaped` counting every label it could not
+ * shape, which is a *worse* checkpoint and must not pass as a good one.
+ *
+ * The size comes from `robo_stat` rather than from seeking the descriptor to its end, which is the idiom
+ * every other program in this image reads a file with (`user/robo`, `user/terminal`): one syscall answers
+ * "how long is it", and the read then loops, because a single `read` is allowed to return less than was
+ * asked for.
+ *
+ * @param stage Receives the name of the step that failed, so a run that cannot load a face says *which*
+ *              part of loading failed instead of leaving the reader to guess between five of them.
+ */
+static robo_font_face_t *guest_face_load(const char **stage)
+{
+    robo_font_source_t *source = NULL;
+    robo_font_face_t *face = NULL;
+    unsigned char *bytes;
+    RoboStat info;
+    size_t size;
+    size_t got = 0u;
+    int fd;
+
+    *stage = "stat";
+    if (robo_stat(GUEST_FACE_PATH, &info) != 0 || info.size == 0u) {
+        return NULL;
+    }
+    size = (size_t)info.size;
+
+    *stage = "alloc";
+    bytes = (unsigned char *)robo_malloc(size);
+    if (!bytes) {
+        return NULL;
+    }
+
+    *stage = "open";
+    fd = open(GUEST_FACE_PATH, O_RDONLY);
+    if (fd < 0) {
+        robo_free(bytes);
+        return NULL;
+    }
+
+    *stage = "read";
+    while (got < size) {
+        ssize_t chunk = read(fd, bytes + got, size - got);
+
+        if (chunk <= 0) {
+            break;
+        }
+        got += (size_t)chunk;
+    }
+    close(fd);
+    if (got != size) {
+        robo_free(bytes);
+        return NULL;
+    }
+
+    *stage = "source";
+    if (robo_font_source_create_memory_copy(bytes, size, &source) != ROBO_OK) {
+        robo_free(bytes);
+        return NULL;
+    }
+    robo_free(bytes);
+
+    *stage = "face";
+    if (robo_font_face_create(source, 0, &face) != ROBO_OK) {
+        robo_font_source_release(source);
+        return NULL;
+    }
+    /* The face holds its own reference: the source's job here is done. */
+    robo_font_source_release(source);
+    *stage = "ok";
+    return face;
+}
+
+/* ------------------------------------------------------------------ */
+/* Input                                                               */
+/* ------------------------------------------------------------------ */
+
+/** Post one input event to the kernel's display queue, which the window backend polls. */
+static void guest_inject(uint32_t type, uint32_t code, uint32_t value, int32_t x, int32_t y)
+{
+    RoboInputEvent event;
+
+    memset(&event, 0, sizeof(event));
+    event.type = type;
+    event.device = (type == ROBO_MOUSE_MOVE || type == ROBO_MOUSE_BUTTON) ? ROBO_INPUT_MOUSE
+                                                                         : ROBO_INPUT_KEYBOARD;
+    event.code = code;
+    event.value = value;
+    event.x = x;
+    event.y = y;
+    (void)robo_display((int)ROBO_DISP_INJECT, 0, &event, sizeof(event), 0);
+}
+
+/**
+ * A press on the checkpoint window's title bar.
+ *
+ * Its job is the shell's own: a press there raises and focuses that window, and `pointer_actions` is the
+ * count of presses the shell acted on — so the marker that follows is about an *action* rather than about
+ * an event having been posted. The key press beside it travels the same queue for the same reason: this
+ * build routes keys to nothing (`RoboDesktop.h` reports `input_delivery == 0`), and a guest that claimed
+ * a shell action for a key would be claiming a feature the shell does not have.
+ */
+static void guest_inject_input(robo_desktop_scene_t *scene)
+{
+    robo_desktop_t *desktop = robo_desktop_scene_desktop(scene);
+    robo_desktop_window_id_t window = robo_desktop_scene_window(scene);
+    robo_desktop_window_metrics_t metrics;
+    robo_gfx_rect_t bounds;
+    int32_t x;
+    int32_t y;
+
+    robo_desktop_window_metrics_init(&metrics);
+    if (window == ROBO_DESKTOP_WINDOW_ID_NONE ||
+        robo_desktop_window_bounds(desktop, window, &bounds) != ROBO_OK) {
+        return;
+    }
+    /* The title band: `border .. border + title_height`, and the press belongs in the middle of it. */
+    x = bounds.x + bounds.width / 2;
+    y = bounds.y + metrics.border + metrics.title_height / 2;
+
+    guest_inject(ROBO_KEY_DOWN, ROBO_KEY_A, 0u, 0, 0);
+    guest_inject(ROBO_KEY_UP, ROBO_KEY_A, 0u, 0, 0);
+    guest_inject(ROBO_MOUSE_MOVE, 0u, 0u, x, y);
+    guest_inject(ROBO_MOUSE_BUTTON, ROBO_MBUTTON_LEFT, 1u, x, y);
+    guest_inject(ROBO_MOUSE_BUTTON, ROBO_MBUTTON_LEFT, 0u, x, y);
+}
+
+/* ------------------------------------------------------------------ */
+/* Main                                                                */
+/* ------------------------------------------------------------------ */
 
 int main(void)
 {
-    robo_window_id_t wid = ROBO_WINDOW_ID_NONE;
-    robo_window_config_t cfg;
-    robo_gfx_surface_t *surf = NULL;
-    robo_demo_page_t *page = NULL;
-    const robo_qemu_fb_info_t *fb;
-    robo_window_event_t ev;
-    robo_result_t r;
-    int saw_key = 0;
-    int saw_mouse = 0;
-    int i;
+    const robo_qemu_fb_info_t *framebuffer;
+    robo_desktop_scene_config_t config;
+    robo_desktop_scene_t *scene = NULL;
+    robo_desktop_scene_step_t step;
+    robo_font_face_t *face = NULL;
+    const char *face_stage = "(none)";
+    robo_desktop_stats_t stats;
+    robo_desktop_diag_t diag;
+    uint32_t painted_frames = 0u;
+    uint32_t steps = 0u;
+    int injected = 0;
+    int saw_action = 0;
+    robo_result_t result;
 
-    serial("robo-runtime: HTML visual checkpoint (QEMU present)\n");
-    serial_u32("ROBO_QEMU_HTML_SOURCE_BYTES=",
-               (uint32_t)robo_demo_default_html_length());
+    serial("robo-runtime: the desktop shell (QEMU display)\n");
 
-    r = robo_base_init();
-    if (r != ROBO_OK && r != ROBO_ALREADY_EXISTS) {
-        serial("ROBO_QEMU_DISPLAY_FAIL base_init\n");
-        for (;;)
-            robo_sleep(1000);
+    if (!robo_base_is_initialized() && robo_base_init() != ROBO_OK) {
+        guest_fail("base_init");
+        guest_stop();
     }
-    if (robo_graphics_init() != ROBO_OK) {
-        serial("ROBO_QEMU_DISPLAY_FAIL graphics_init\n");
-        for (;;)
-            robo_sleep(1000);
+    if (robo_graphics_init() != ROBO_OK || robo_font_init() != ROBO_OK || robo_html_init() != ROBO_OK ||
+        robo_css_init() != ROBO_OK || robo_layout_init() != ROBO_OK || robo_paint_init() != ROBO_OK) {
+        guest_fail("runtime_init");
+        guest_stop();
     }
-    if (robo_html_init() != ROBO_OK) {
-        serial("ROBO_QEMU_DISPLAY_FAIL html_init\n");
-        for (;;)
-            robo_sleep(1000);
-    }
-    if (robo_display_init() != ROBO_OK) {
-        serial("ROBO_QEMU_DISPLAY_FAIL display_init\n");
-        for (;;)
-            robo_sleep(1000);
-    }
-    if (robo_window_init() != ROBO_OK) {
-        serial("ROBO_QEMU_DISPLAY_FAIL window_init\n");
-        for (;;)
-            robo_sleep(1000);
+    if (robo_display_init() != ROBO_OK || robo_window_init() != ROBO_OK) {
+        guest_fail("display_init");
+        guest_stop();
     }
 
-    /* Guest: QEMU backend claims SYS_DISPLAY and fills FB metadata. */
-    if (robo_window_backend_use_qemu() != ROBO_OK) {
-        serial("ROBO_QEMU_DISPLAY_FAIL window_backend\n");
-        for (;;)
-            robo_sleep(1000);
-    }
-    if (robo_display_backend_use_qemu() != ROBO_OK) {
-        serial("ROBO_QEMU_DISPLAY_FAIL display_backend\n");
-        for (;;)
-            robo_sleep(1000);
+    /* The QEMU backends claim SYS_DISPLAY for this process and fill in the framebuffer's metadata. */
+    if (robo_window_backend_use_qemu() != ROBO_OK || robo_display_backend_use_qemu() != ROBO_OK) {
+        guest_fail("display_backend");
+        guest_stop();
     }
     (void)robo_display_refresh();
 
-    fb = robo_qemu_fb_current();
-    if (!fb || (!fb->ready && !fb->headless)) {
-        serial("ROBO_QEMU_DISPLAY_FAIL no_fb\n");
-        for (;;)
-            robo_sleep(1000);
+    framebuffer = robo_qemu_fb_current();
+    if (!framebuffer || (!framebuffer->ready && !framebuffer->headless)) {
+        guest_fail("no_fb");
+        guest_stop();
     }
-
     serial("ROBO_QEMU_DISPLAY_OK\n");
-    serial_u32("ROBO_QEMU_FB_W=", fb->ready ? fb->width : 0u);
-    serial_u32("ROBO_QEMU_FB_H=", fb->ready ? fb->height : 0u);
-    serial_u32("ROBO_QEMU_FB_PITCH=", fb->ready ? fb->pitch_bytes : 0u);
-    serial_u32("ROBO_QEMU_FB_PIXFMT=", fb->ready ? fb->pixfmt : 0u);
+    serial_u32("ROBO_QEMU_FB_W=", framebuffer->ready ? framebuffer->width : 0u);
+    serial_u32("ROBO_QEMU_FB_H=", framebuffer->ready ? framebuffer->height : 0u);
+    serial_u32("ROBO_QEMU_FB_PITCH=", framebuffer->ready ? framebuffer->pitch_bytes : 0u);
+    serial_u32("ROBO_QEMU_FB_PIXFMT=", framebuffer->ready ? framebuffer->pixfmt : 0u);
 
-    /* The real tokenizer runs in the guest: one page model, painted below. */
-    if (robo_demo_page_create(robo_demo_default_html(),
-                              robo_demo_default_html_length(), &page,
-                              NULL) != ROBO_OK ||
-        !page) {
-        serial("ROBO_QEMU_DISPLAY_FAIL html_page\n");
-        for (;;)
-            robo_sleep(1000);
-    }
-    serial("ROBO_QEMU_HTML_OK\n");
-    serial("ROBO_QEMU_HTML_TITLE=");
-    serial(robo_demo_page_title(page));
-    serial("\n");
-    serial_u32("ROBO_QEMU_HTML_BLOCKS=",
-               (uint32_t)robo_demo_page_block_count(page));
-    serial_u32("ROBO_QEMU_HTML_SUPPORTED=",
-               (uint32_t)robo_demo_page_supported_element_count(page));
-    serial_u32("ROBO_QEMU_HTML_IGNORED=",
-               (uint32_t)robo_demo_page_ignored_tag_count(page));
-
-    /*
-     * Phase 8.13 in the guest: hit-test every link block and activate it for
-     * real. The layout target is the framebuffer the window is about to use,
-     * so the rectangles the probe hit-tests are the ones the paint will use.
-     */
-    {
-        int32_t lw = fb->ready ? (int32_t)fb->width : 800;
-        int32_t lh = fb->ready ? (int32_t)fb->height : 600;
-        uint32_t links = 0u;
-        uint32_t fragment_hits = 0u;
-        uint32_t unsupported = 0u;
-        size_t bi;
-
-        serial_u32("ROBO_QEMU_HTML_LINKS=",
-                   (uint32_t)robo_demo_page_link_count(page));
-        if (robo_demo_page_layout(page, lw, lh) != ROBO_OK) {
-            serial("ROBO_QEMU_DISPLAY_FAIL html_layout\n");
-        }
-        for (bi = 0u; bi < robo_demo_page_block_count(page); bi++) {
-            robo_demo_block_style_t style = (robo_demo_block_style_t)0;
-            robo_gfx_rect_t rect;
-            robo_gfx_point_t p;
-            robo_html_navigation_outcome_t outcome;
-            size_t hit = 0u;
-
-            if (robo_demo_page_block_style(page, bi, &style) != ROBO_OK ||
-                style != ROBO_DEMO_BLOCK_LINK ||
-                !robo_demo_page_block_rect(page, bi, &rect)) {
-                continue;
-            }
-            p.x = rect.x + rect.width / 2;
-            p.y = rect.y + rect.height / 2;
-            if (!robo_demo_page_hit_link(page, p, &hit) || hit != bi) {
-                continue;
-            }
-            links++;
-            memset(&outcome, 0, sizeof(outcome));
-            if (robo_demo_page_activate_link(page, bi, 0, &outcome, 0) ==
-                ROBO_OK) {
-                if (outcome.kind == ROBO_HTML_NAVIGATION_FRAGMENT &&
-                    outcome.fragment_found) {
-                    fragment_hits++;
-                } else if (outcome.kind ==
-                           ROBO_HTML_NAVIGATION_UNSUPPORTED) {
-                    unsupported++;
-                }
-            }
-            robo_html_navigation_outcome_clear(&outcome);
-        }
-        serial_u32("ROBO_QEMU_HTML_LINKS_HIT=", links);
-        serial_u32("ROBO_QEMU_HTML_LINK_FRAGMENT=", fragment_hits);
-        serial_u32("ROBO_QEMU_HTML_LINK_UNSUPPORTED=", unsupported);
-    }
-
-    /*
-     * Phase 8.14 in the guest: report the state the form model holds for the
-     * checkpoint's controls. Every number below is a fact the model derived —
-     * the counts are not computed from the markup here, and a control that
-     * invented a value would change one of them.
-     *
-     *   declared       a value-holding control whose current value is non-empty
-     *   placeholder    a value-holding control with no value whose text is its
-     *                  placeholder (the picture draws that text muted, so the
-     *                  two must not be conflated). A `<label>` is a field block
-     *                  too and is excluded here: a caption carries no state, so
-     *                  counting its text as a placeholder would be the guest
-     *                  reporting a control the model does not have.
-     */
-    {
-        uint32_t fields = 0u;
-        uint32_t controls = 0u;
-        uint32_t checked = 0u;
-        uint32_t declared = 0u;
-        uint32_t placeholder = 0u;
-        uint32_t options = 0u;
-        size_t bi;
-
-        for (bi = 0u; bi < robo_demo_page_block_count(page); bi++) {
-            robo_demo_field_info_t info;
-            const char *text;
-            int holds_value;
-
-            if (!robo_demo_page_block_field(page, bi, &info))
-                continue;
-            fields++;
-            if (info.checked)
-                checked++;
-            if (info.option_count > (size_t)options)
-                options = (uint32_t)info.option_count;
-
-            holds_value = (info.tag == ROBO_HTML_TAG_INPUT ||
-                           info.tag == ROBO_HTML_TAG_TEXTAREA ||
-                           info.tag == ROBO_HTML_TAG_SELECT);
-            if (!holds_value)
-                continue;
-            controls++;
-            if (info.value_length > 0u)
-                declared++;
-            text = robo_demo_page_block_text(page, bi);
-            if (info.value_length == 0u && text && text[0])
-                placeholder++;
-        }
-        serial_u32("ROBO_QEMU_HTML_FIELDS=", fields);
-        serial_u32("ROBO_QEMU_HTML_FIELDS_STATE=", controls);
-        serial_u32("ROBO_QEMU_HTML_FIELDS_CHECKED=", checked);
-        serial_u32("ROBO_QEMU_HTML_FIELDS_DECLARED=", declared);
-        serial_u32("ROBO_QEMU_HTML_FIELDS_PLACEHOLDER=", placeholder);
-        serial_u32("ROBO_QEMU_HTML_FIELD_OPTIONS=", options);
-    }
-
-    robo_window_config_init(&cfg);
-    cfg.width = fb->ready ? (int32_t)fb->width : 800;
-    cfg.height = fb->ready ? (int32_t)fb->height : 600;
-    cfg.title = robo_demo_page_title(page);
-    cfg.visible = 1;
-    if (robo_window_create(&cfg, &wid) != ROBO_OK) {
-        serial("ROBO_QEMU_DISPLAY_FAIL create\n");
-        for (;;)
-            robo_sleep(1000);
-    }
-    (void)robo_window_show(wid);
-    (void)robo_window_observe_focus(wid, 1);
-
-    if (fb->ready) {
-        if (fb->pixfmt == ROBO_QEMU_PIX_RGBX) {
-            (void)robo_window_set_render_format(wid, ROBO_GFX_FORMAT_RGBA8);
-        } else {
-            (void)robo_window_set_render_format(wid, ROBO_GFX_FORMAT_BGRA8);
-        }
-        if (robo_window_begin_frame(wid, &surf) != ROBO_OK || !surf) {
-            serial("ROBO_QEMU_DISPLAY_FAIL begin_frame\n");
-            for (;;)
-                robo_sleep(1000);
-        }
-
-        /* The HTML-derived picture is the content. */
-        if (robo_demo_page_paint(page, surf, NULL, NULL) != ROBO_OK) {
-            serial("ROBO_QEMU_DISPLAY_FAIL html_paint\n");
-        }
-
-        /* Coordinate markers stay on top so frame-buffer probes can verify
-         * the present path independently of the page content. */
-        {
-            int32_t w = robo_gfx_surface_width(surf);
-            int32_t h = robo_gfx_surface_height(surf);
-            (void)robo_gfx_surface_fill_rect(surf, robo_gfx_rect(0, 0, 8, 8),
-                                             C_WHITE);
-            (void)robo_gfx_surface_fill_rect(
-                surf, robo_gfx_rect(w - 8, 0, 8, 8), C_RED);
-            (void)robo_gfx_surface_fill_rect(
-                surf, robo_gfx_rect(0, h - 8, 8, 8), C_GREEN);
-            (void)robo_gfx_surface_fill_rect(
-                surf, robo_gfx_rect(w - 8, h - 8, 8, 8), C_BLUE);
-            (void)robo_gfx_surface_fill_rect(
-                surf, robo_gfx_rect(0, h - 22, w, 1), C_BRAND);
-            caption(surf, 8, h - 16,
-                    "RoboHTML 8.2 to RoboGraphics to RoboWindow (QEMU)",
-                    C_MUTED);
-        }
-
-        if (robo_window_end_frame(wid) != ROBO_OK) {
-            serial("ROBO_QEMU_DISPLAY_FAIL end_frame\n");
-        }
-        if (robo_window_present_frame(wid) != ROBO_OK) {
-            serial("ROBO_QEMU_DISPLAY_FAIL present\n");
-        } else {
-            serial("ROBO_QEMU_PRESENT_OK\n");
-        }
+    face = guest_face_load(&face_stage);
+    if (!face) {
+        serial("ROBO_QEMU_FACE_FAIL ");
+        serial(face_stage);
+        serial(" ");
+        serial(GUEST_FACE_PATH);
+        serial("\n");
     } else {
-        serial("ROBO_QEMU_PRESENT_OK headless\n");
+        serial("ROBO_QEMU_FACE_OK\n");
     }
 
-    /* Deterministic input: inject via SYS_DISPLAY then poll through Robo path. */
-    {
-        RoboInputEvent in;
-        memset(&in, 0, sizeof(in));
-        in.type = ROBO_KEY_DOWN;
-        in.code = ROBO_KEY_A;
-        in.modifiers = ROBO_MOD_SHIFT;
-        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
-        in.type = ROBO_KEY_UP;
-        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
-        memset(&in, 0, sizeof(in));
-        in.type = ROBO_MOUSE_MOVE;
-        in.x = 40;
-        in.y = 50;
-        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
-        in.type = ROBO_MOUSE_BUTTON;
-        in.code = ROBO_MBUTTON_LEFT;
-        in.value = 1;
-        in.x = 40;
-        in.y = 50;
-        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
-        in.value = 0;
-        (void)robo_display((int)ROBO_DISP_INJECT, 0, &in, sizeof(in), 0);
-    }
+    guest_status_text(framebuffer->ready ? framebuffer->width : ROBO_DESKTOP_SCENE_DEFAULT_WIDTH,
+                      framebuffer->ready ? framebuffer->height : ROBO_DESKTOP_SCENE_DEFAULT_HEIGHT);
 
-    for (i = 0; i < 32; i++) {
-        (void)robo_window_event_loop_run_once(0);
-        while (robo_window_event_poll(&ev) == ROBO_OK) {
-            if (ev.type == ROBO_WINDOW_EVENT_KEY_DOWN ||
-                ev.type == ROBO_WINDOW_EVENT_KEY_UP)
-                saw_key = 1;
-            if (ev.type == ROBO_WINDOW_EVENT_MOUSE_MOVE ||
-                ev.type == ROBO_WINDOW_EVENT_MOUSE_BUTTON_DOWN ||
-                ev.type == ROBO_WINDOW_EVENT_MOUSE_BUTTON_UP)
-                saw_mouse = 1;
+    memset(&diag, 0, sizeof(diag));
+    robo_desktop_scene_config_init(&config);
+    config.width = framebuffer->ready ? (int32_t)framebuffer->width : 0;
+    config.height = framebuffer->ready ? (int32_t)framebuffer->height : 0;
+    config.face = face;
+    config.create_window = 1;
+    config.status_text = g_status;
+
+    result = robo_desktop_scene_open(&config, &scene, &diag);
+    if (result != ROBO_OK) {
+        serial_text("ROBO_QEMU_DESKTOP_FAIL ", diag.message ? diag.message : "(none)");
+        guest_fail("scene_open");
+        guest_stop();
+    }
+    serial("ROBO_QEMU_DESKTOP_OK\n");
+    serial_text("ROBO_QEMU_DESKTOP_WINDOW=", ROBO_DESKTOP_SCENE_WINDOW_TITLE);
+    serial_text("ROBO_QEMU_DESKTOP_STATUS=", g_status);
+
+    /*
+     * Drive the scene until the picture has been painted once and the injected press has been *acted* on.
+     * A press is asynchronous — it is posted into the kernel's queue and collected by the window backend on
+     * a later pump — so the loop runs on rather than checking the counter at the moment of the injection.
+     */
+    while (steps < GUEST_MAX_STEPS) {
+        steps++;
+        if (robo_desktop_scene_step(scene, GUEST_STEP_WAIT_MS, &step, &diag) != ROBO_OK) {
+            serial_text("ROBO_QEMU_DESKTOP_FAIL ", diag.message ? diag.message : "(none)");
+            guest_fail("scene_step");
+            guest_stop();
         }
-        if (saw_key && saw_mouse)
+        if (step.painted) {
+            painted_frames++;
+            serial_u32("ROBO_QEMU_DESKTOP_WINDOWS=", (uint32_t)step.frame.windows);
+            serial_u32("ROBO_QEMU_DESKTOP_CONTENT_RUNS=", (uint32_t)step.frame.content_runs);
+            serial_u32("ROBO_QEMU_DESKTOP_LABELS=", (uint32_t)step.frame.labels);
+            serial_u32("ROBO_QEMU_DESKTOP_UNSHAPED=", (uint32_t)step.frame.labels_unshaped);
+            serial_u32("ROBO_QEMU_DESKTOP_FILLS=", (uint32_t)step.frame.fills);
+            serial_u32("ROBO_QEMU_DESKTOP_PIXELS=", (uint32_t)step.frame.content_pixels);
+            if (step.presented) {
+                serial("ROBO_QEMU_PRESENT_OK\n");
+                serial_u32("ROBO_QEMU_PRESENT_COMPLETE=", (uint32_t)step.present.complete);
+                serial_u32("ROBO_QEMU_PRESENT_PIXELS=", (uint32_t)step.present.presented_pixels);
+            } else {
+                /* A scene with nowhere to present is a desktop that renders; a *windowed* one that did not
+                 * present is a failure and says so. */
+                guest_fail("present");
+                guest_stop();
+            }
+            if (!injected) {
+                injected = 1;
+                guest_inject_input(scene);
+            }
+        }
+        if (step.pointer_actions > 0u) {
+            saw_action = 1;
+        }
+        if (saw_action && painted_frames > 0u) {
             break;
-        robo_sleep(5);
+        }
     }
 
-    if (saw_key && saw_mouse)
+    memset(&stats, 0, sizeof(stats));
+    (void)robo_desktop_stats(robo_desktop_scene_desktop(scene), &stats);
+    serial_u32("ROBO_QEMU_DESKTOP_FRAMES=", (uint32_t)stats.frames);
+    serial_u32("ROBO_QEMU_INPUT_ACTIONS=", (uint32_t)stats.pointer_actions);
+    if (saw_action) {
         serial("ROBO_QEMU_INPUT_OK\n");
-    else {
+    } else {
         serial("ROBO_QEMU_INPUT_PARTIAL\n");
-        /* Still exercise inject→observe without kernel queue. */
-        (void)robo_qemu_input_inject_raw(1u, ROBO_KEY_A, 0, 0, 0, 0, 0,
-                                         ROBO_MOD_CTRL, 0);
-        (void)robo_qemu_input_inject_raw(3u, 0, 0, 10, 10, 1, 1, 0, 0);
-        serial("ROBO_QEMU_INPUT_OK\n");
     }
 
-    /* Owned by RoboWindow; destroy releases it. */
-    surf = NULL;
-    (void)robo_window_destroy(wid);
-    robo_demo_page_destroy(page);
-    robo_window_shutdown();
+    robo_desktop_scene_close(scene);
+    if (face) {
+        robo_font_face_release(face);
+    }
+    (void)robo_window_shutdown();
     robo_display_shutdown();
+    robo_paint_shutdown();
+    robo_layout_shutdown();
+    robo_css_shutdown();
     robo_html_shutdown();
+    robo_font_shutdown();
     robo_graphics_shutdown();
     serial("ROBO_QEMU_DISPLAY_SHUTDOWN_OK\n");
 
-    for (;;)
-        robo_sleep(1000);
+    guest_stop();
     return 0;
 }

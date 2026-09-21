@@ -8,17 +8,16 @@
  * copies out of habit. `RoboPaint` has one because it registers a CSS value surface on the way up;
  * this module registers nothing.
  *
- * So the whole file is a version, a flag and a table of what this build does and does not do -- and the
- * table is the interesting half, because **ten of its sixteen fields are 1 and six are 0**, and each 0
- * names the phase that would make it a 1. That is RoboPaint's device, kept for the reason it works
- * there: the 1s say what a caller can ask for today, the 0s say what exists in the road ahead rather
- * than leaving it to be inferred from a missing door, and a suite walks the table name-by-name so an
- * untested flag cannot quietly stop being true.
+ * So the whole file is a version, two flags and a table of what this build does and does not do -- and
+ * the table is the interesting half, because **eleven of its sixteen fields are 1 and five are 0**, and
+ * each 0 names the phase that would make it a 1. That is RoboPaint's device, kept for the reason it
+ * works there: the 1s say what a caller can ask for today, the 0s say what exists in the road ahead
+ * rather than leaving it to be inferred from a missing door, and a suite walks the table name-by-name so
+ * an untested flag cannot quietly stop being true.
  *
  * The **order** of the fields is the order a caller meets them: the subsystem and its target, the
  * vocabulary it executes, the two states it honours, the two resources it draws, the properties that
- * make it usable (determinism, a record), and then the six absences -- presentation first among them
- * because it is the one a reader is most likely to assume is here.
+ * make it usable (determinism, a record, and now presentation), and then the five absences.
  */
 
 #include "RoboRender/RoboRender.h"
@@ -81,21 +80,26 @@ robo_result_t robo_render_get_capabilities(robo_render_capabilities_t *out)
     out->frame_records = 1;
 
     /*
-     * The absences, in the order a reader should meet them.
+     * Presentation (11.13): a frame reaching a destination. Read from the constant beside the flag that
+     * turned it, so the table, the function and the release note cannot disagree about one fact -- the
+     * arrangement `rasterizer` above already uses.
      *
-     * `presentation` is first and it is the one that matters most: everything else here is about
-     * pixels *existing*, and this is about them being *seen*. A caller that read `rasterization` as
-     * "something appears" would be wrong in exactly the way a caller that read
-     * `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as "the page is laid out" was wrong in a first release --
-     * the pixels are real, and the thing that puts them on a screen is Phase 11.13's.
-     *
-     * The remaining five are each a *structure* rather than a feature flag: tiles need region
-     * subtraction, damage tracking needs a history with a lifetime, frame scheduling needs a clock
-     * (and this release's determinism depends on having none), a compositor needs a layer tree, and a
-     * GPU needs a device and a resource manager. None of them is a branch somebody forgot to take;
-     * each is the next phase's shape, and `RoboRender.h` names what it would need.
+     * It is a **call and not a system**, and the width of the claim is the point: one frame into one
+     * destination at one offset, described by a record whose two pixel counts sum to the frame's own.
+     * The row that would describe a presentation *system* -- a layer order, a queue, a second buffer --
+     * is `compositor` below, still 0.
      */
-    out->presentation = 0;
+    out->presentation = ROBO_RENDER_PRESENTATION_IMPLEMENTED;
+
+    /*
+     * The five absences.
+     *
+     * Each is a *structure* rather than a feature flag: tiles need region subtraction, damage tracking
+     * needs a history with a lifetime, frame scheduling needs a clock (and this release's determinism
+     * depends on having none), a compositor needs a layer tree, and a GPU needs a device and a resource
+     * manager. None of them is a branch somebody forgot to take; each is a later phase's shape, and
+     * `RoboRender.h` names what it would need.
+     */
     out->compositor = 0;
     out->tiles = 0;
     out->damage_tracking = 0;
@@ -122,6 +126,12 @@ robo_result_t robo_render_get_version(robo_i32 *out_major,
     *out_patch = (robo_i32)ROBO_RENDER_VERSION_PATCH;
     return ROBO_OK;
 }
+
+/*
+ * `robo_render_presentation_is_implemented` is defined in `RoboRenderPresenter.c`, beside the call it
+ * describes, rather than here -- this file's subject is the table and the two release flags, and a
+ * function whose answer is one of those flags belongs with the work that turned it.
+ */
 
 int robo_render_rasterization_is_implemented(void)
 {

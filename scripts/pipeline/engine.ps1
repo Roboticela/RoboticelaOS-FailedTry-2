@@ -224,7 +224,7 @@ function Get-RoboRuntimeTestGroups {
             "base", "error", "log", "debug", "mem", "memdbg", "memsys", "arena", "pool",
             "array", "string", "unicode", "ucd", "norm", "case", "grapheme", "word",
             "sentence", "line", "bidi", "emoji", "infra", "i18n", "font", "script",
-            "graphics", "window", "display", "html", "demo"
+            "graphics", "window", "display", "html", "render", "desktop"
         )
     }
     $all = @(Get-RoboRuntimeTestList)

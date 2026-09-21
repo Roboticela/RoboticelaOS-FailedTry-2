@@ -377,7 +377,8 @@ The shape an advanced phase fills in is already right:
 ```text
 this build      box overflow → per-axis record → push/pop scope → rectangle per drawing
 11.12           the same record, executed into an owned target — and a region run narrows it
-Phase 11.13+    the same record, carried into a stacking context and a display-list replay
+11.13           the same record, executed into a window's own target and composited under a shell
+Phase 12+       the same record, carried into a stacking context and a display-list replay
 ```
 
 **11.12 is where that second line landed**, and it kept this file's model rather than extending it: the
@@ -387,7 +388,13 @@ region. What 11.12 did **not** add is the thing this section's deferred list sti
 context, rounded clipping, `clip-path`, masks, scroll containers and tile-level clipping are all absent
 by design, and the phase that carried the boundary into a stacking context is a later one.
 
-**Next:** 11.13 — framebuffer presentation, which has the same two readers this module keeps honest
+**11.13 is where that third line landed too**, and it kept this file's model as well: a desktop window's
+contents are a display list executed by RoboRender into the window's **own** client target and then
+composited under the shell's chrome, so the boundary in force inside a document is bounded by that
+target's rectangle and **a document's clip cannot reach the panel** — which is the one place in this
+tree where a clip's scope is enforced by a pixel target rather than by a parent's declaration.
+
+**Next:** Phase 12 — event dispatch, which has the same readers this module keeps honest
 rather than one: a boundary that moved without invalidating the paint list would leave the hit test,
 the painter and the rasteriser agreeing about a document that is no longer there, and a region that
 ignored the boundary would repaint pixels a scope had already excluded. 11.11 answered the second of those by **narrowing against this record**

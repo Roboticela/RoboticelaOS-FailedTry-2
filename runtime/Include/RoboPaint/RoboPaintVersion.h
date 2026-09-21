@@ -28,7 +28,8 @@
  * pixels that are bounded, not the walk); it does not add `SAVE_STATE`/`RESTORE_STATE` (11.3's
  * reasoning stands: there is no graphics state to save because every drawing writes the boundary
  * and the strength it is drawn under); and it does not present anything to a window or a
- * framebuffer -- that is 11.13's.
+ * framebuffer -- 11.13 added that, one module up, and it did it without a door here: `RoboRender`
+ * gained `robo_render_present`, and `RoboDesktop` is the shell that decides what is on a screen.
  *
  * **0.11.0 (11.11) is the release that answers a question the ten before it could not**: given a
  * picture this module already produced, which of its pixels are no longer the pixels the document

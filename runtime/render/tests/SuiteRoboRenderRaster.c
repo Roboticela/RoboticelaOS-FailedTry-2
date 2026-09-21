@@ -44,7 +44,17 @@
  *   **a region is clamped, and a region that misses does nothing**  both are the arithmetic a
  *                                                   partial repaint depends on, and both are
  *                                                   asserted on the *record* (which rectangle was
- *                                                   executed) and on the pixels.
+ *                                                   executed) and on the pixels;
+ *
+ *   **a frame lands where it is told to**            11.13's half, and it is asserted the only way a
+ *                                                   presentation can be: the *destination* is read
+ *                                                   back. A frame presented at an offset puts a named
+ *                                                   pixel of the picture at the same offset in the
+ *                                                   destination, the destination's own pixels outside
+ *                                                   the frame are untouched, and the record's two pixel
+ *                                                   counts sum to the frame's own. A frame that does
+ *                                                   not fit is clipped rather than refused, and the
+ *                                                   destination proves which pixels survived.
  *
  * Every case builds a real document through the real chain and runs a real frame. Hand-built lists
  * appear only where the question *is* the list's shape. Chromium is reference only.
@@ -611,6 +621,495 @@ static void test_render_raster_region_clamping(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* Presentation (11.13)                                                */
+/* ------------------------------------------------------------------ */
+
+/** A page colour for the two destinations, deliberately not one the scenes use. */
+#define PRESENT_DESK robo_gfx_rgba8(0xf5, 0xf5, 0xf7, 255)
+
+/** An owned destination surface, cleared to @p fill. */
+static robo_gfx_surface_t *present_surface(uint32_t width,
+                                          uint32_t height,
+                                          robo_gfx_pixel_format_t format,
+                                          robo_gfx_color_rgba8_t fill)
+{
+    robo_gfx_surface_desc_t desc;
+    robo_gfx_surface_t *surface = NULL;
+
+    robo_gfx_surface_desc_init(&desc);
+    desc.width = width;
+    desc.height = height;
+    desc.format = format;
+    ROBO_CHECK_EQ_INT(robo_gfx_surface_create(&desc, &surface), ROBO_OK);
+    ROBO_CHECK(surface != NULL);
+    ROBO_CHECK_EQ_INT(robo_gfx_surface_clear_rgba8(surface, fill), ROBO_OK);
+    return surface;
+}
+
+/** A destination pixel, through the graphics layer's own read (format-independent). */
+static robo_gfx_color_rgba8_t present_pixel(const robo_gfx_surface_t *surface,
+                                           uint32_t x,
+                                           uint32_t y)
+{
+    robo_gfx_color_rgba8_t color;
+
+    memset(&color, 0, sizeof(color));
+    ROBO_CHECK_EQ_INT(robo_gfx_surface_get_pixel(surface, x, y, &color), ROBO_OK);
+    return color;
+}
+
+static void present_pixel_is(const robo_gfx_surface_t *surface,
+                            uint32_t x,
+                            uint32_t y,
+                            robo_gfx_color_rgba8_t expected,
+                            const char *what)
+{
+    robo_gfx_color_rgba8_t actual = present_pixel(surface, x, y);
+
+    if (!render_same_color(actual, expected)) {
+        robo_test_fail(__FILE__, __LINE__,
+                       "%s: destination pixel %u,%u is %u,%u,%u,%u, expected %u,%u,%u,%u", what,
+                       (unsigned)x, (unsigned)y, (unsigned)actual.r, (unsigned)actual.g,
+                       (unsigned)actual.b, (unsigned)actual.a, (unsigned)expected.r,
+                       (unsigned)expected.g, (unsigned)expected.b, (unsigned)expected.a);
+    }
+}
+
+/*
+ * The region door on its own: the arithmetic a caller asks *before* it decides to present. Every case
+ * here is one rectangle, and the point of all of them is that the answer is the frame's own rectangle
+ * moved by the origin and cut to the destination -- including the two shapes that are easy to get
+ * wrong and impossible to notice: a frame hanging off an edge, and a frame with a negative origin.
+ */
+static void test_render_present_region(void)
+{
+    robo_render_target_t *frame;
+    robo_gfx_surface_t *dest;
+    robo_layout_rect_t region;
+    robo_render_diag_t diag;
+
+    render_fixture();
+    robo_render_diag_reset(&diag);
+    frame = render_page(16u, 8u, RASTER_BLUE);
+    dest = present_surface(64u, 32u, ROBO_GFX_FORMAT_RGBA8, PRESENT_DESK);
+
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, dest, 0, 0, &region, &diag), ROBO_OK);
+    paint_rect_is(0, 0, 16, 8, region, "a frame at the destination's origin");
+
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, dest, 48, 24, &region, &diag), ROBO_OK);
+    paint_rect_is(48, 24, 16, 8, region, "a frame inside the destination");
+
+    /* Off the right edge and the bottom edge: the meeting, not the request. */
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, dest, 60, 30, &region, &diag), ROBO_OK);
+    paint_rect_is(60, 30, 4, 2, region, "a frame hanging off the destination");
+
+    /* A negative origin cuts the *left* edge, so the rectangle starts at zero and is narrower. */
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, dest, -4, -4, &region, &diag), ROBO_OK);
+    paint_rect_is(0, 0, 12, 4, region, "a frame with a negative origin");
+
+    /* Entirely off: an empty rectangle and a success, which is the answer "nothing to show here". */
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, dest, 64, 0, &region, &diag), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)robo_gfx_rect_is_empty(region), 1);
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, dest, 0, 32, &region, &diag), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)robo_gfx_rect_is_empty(region), 1);
+
+    /* The region door is a question, so it answers for a read-only destination too -- it writes
+     * nothing, and refusing to answer would make a caller allocate a surface it does not need. */
+    {
+        robo_gfx_surface_desc_t desc;
+        robo_gfx_surface_t *read_only = NULL;
+
+        robo_gfx_surface_desc_init(&desc);
+        desc.width = 8u;
+        desc.height = 8u;
+        desc.format = ROBO_GFX_FORMAT_RGBA8;
+        desc.access = ROBO_GFX_SURFACE_ACCESS_READ;
+        ROBO_CHECK_EQ_INT(robo_gfx_surface_create(&desc, &read_only), ROBO_OK);
+        ROBO_CHECK_EQ_INT(robo_render_present_region(frame, read_only, 0, 0, &region, &diag),
+                          ROBO_OK);
+        paint_rect_is(0, 0, 8, 8, region, "a frame into a read-only destination");
+        robo_gfx_surface_release(read_only);
+    }
+
+    ROBO_CHECK_EQ_INT(robo_render_present_region(NULL, dest, 0, 0, &region, &diag),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT((int)diag.domain, (int)ROBO_RENDER_DOMAIN_FRAME);
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, NULL, 0, 0, &region, &diag),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_render_present_region(frame, dest, 0, 0, NULL, &diag),
+                      ROBO_INVALID_ARGUMENT);
+
+    robo_gfx_surface_release(dest);
+    render_target_end(frame);
+}
+
+/*
+ * The presentation itself, read back from the destination. The frame is a real document's frame -- a
+ * white page with a blue box at (4, 4, 40, 24) -- so the pixel assertions are about a *picture* rather
+ * than about a fill this suite wrote itself.
+ */
+static void test_render_present_pixels(void)
+{
+    render_scene_t scene;
+    robo_render_target_t *frame;
+    robo_gfx_surface_t *dest;
+    robo_gfx_surface_t *other;
+    robo_render_present_record_t record;
+    robo_render_present_record_t again;
+    uint64_t target_checksum;
+
+    render_fixture();
+    render_scene_begin(&scene, "<html><body><div class=\"box\"></div></body></html>",
+                       RASTER_BASE_CSS
+                       "html, body { background-color: #ffffff }"
+                       " .box { width: 40px; height: 24px; margin: 4px; background-color: #3366cc }");
+    frame = render_page(64u, 40u, RASTER_WHITE);
+    ROBO_CHECK_EQ_INT(robo_render_rasterize(scene.display, frame, NULL, NULL, NULL), ROBO_OK);
+    target_checksum = robo_render_target_checksum(frame);
+
+    dest = present_surface(128u, 96u, ROBO_GFX_FORMAT_RGBA8, PRESENT_DESK);
+
+    /* The record first: four facts a caller reads, and all four are the frame's own. */
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, dest, 32, 24, &record, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&record), 1);
+    ROBO_CHECK_EQ_INT((int)record.frame_width, 64);
+    ROBO_CHECK_EQ_INT((int)record.frame_height, 40);
+    ROBO_CHECK_EQ_INT((int)record.dest_width, 128);
+    ROBO_CHECK_EQ_INT((int)record.dest_height, 96);
+    ROBO_CHECK_EQ_INT((int)record.dest_format, (int)ROBO_GFX_FORMAT_RGBA8);
+    ROBO_CHECK_EQ_INT(record.offset_x, 32);
+    ROBO_CHECK_EQ_INT(record.offset_y, 24);
+    paint_rect_is(32, 24, 64, 40, record.presented, "a frame that fits");
+    ROBO_CHECK_EQ_INT((int)record.presented_pixels, 64 * 40);
+    ROBO_CHECK_EQ_INT((int)record.clipped_pixels, 0);
+    ROBO_CHECK_EQ_INT(record.complete, 1);
+    /* The checksum is the *picture*, taken from the frame rather than re-read from the destination. */
+    ROBO_CHECK((int)record.frame_checksum == (int)target_checksum);
+
+    /* Then the pixels, at the offset: the box's corner, the page around it, and the destination's own
+     * colour everywhere the frame did not reach. */
+    present_pixel_is(dest, 32u + 10u, 24u + 10u, RASTER_BLUE, "the box, presented at an offset");
+    present_pixel_is(dest, 32u + 60u, 24u + 36u, RASTER_WHITE, "the page, presented at an offset");
+    present_pixel_is(dest, 0u, 0u, PRESENT_DESK, "the destination above the frame");
+    present_pixel_is(dest, 31u, 24u, PRESENT_DESK, "the destination one pixel left of the frame");
+    present_pixel_is(dest, 96u, 24u, PRESENT_DESK, "the destination one pixel right of the frame");
+    /* `y = 24 + 40` is the first row *past* the frame: the rectangle is half-open, so the frame's last
+     * row is 63 and 64 is the destination's own colour again. */
+    present_pixel_is(dest, 32u, 64u, PRESENT_DESK, "the destination one pixel below the frame");
+    present_pixel_is(dest, 32u, 63u, RASTER_WHITE, "the frame's own last row");
+    present_pixel_is(dest, 127u, 95u, PRESENT_DESK, "the destination's far corner");
+
+    /*
+     * Every frame pixel equals the destination pixel it was copied to -- the strong form of "the frame
+     * landed", and cheap enough at this size to do in full rather than by sampling.
+     */
+    {
+        uint32_t x;
+        uint32_t y;
+        int mismatches = 0;
+
+        for (y = 0u; y < 40u; y++) {
+            for (x = 0u; x < 64u; x++) {
+                if (!render_same_color(render_pixel(frame, x, y),
+                                       present_pixel(dest, x + 32u, y + 24u))) {
+                    mismatches++;
+                }
+            }
+        }
+        ROBO_CHECK_EQ_INT(mismatches, 0);
+    }
+
+    /* Presenting the same frame again is the same presentation: no state, no "already shown" flag,
+     * and an opaque frame over its own pixels is a fixed point. */
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, dest, 32, 24, &again, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_equal(&record, &again), 1);
+    present_pixel_is(dest, 32u + 10u, 24u + 10u, RASTER_BLUE, "a frame presented twice");
+
+    /* A second destination at a *different* offset holds the same picture, moved: the door has no
+     * memory of the first one. */
+    other = present_surface(128u, 96u, ROBO_GFX_FORMAT_RGBA8, PRESENT_DESK);
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, other, 0, 0, &again, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(again.offset_x, 0);
+    present_pixel_is(other, 10u, 10u, RASTER_BLUE, "the same picture at the origin");
+    present_pixel_is(other, 32u + 10u, 24u + 10u, RASTER_WHITE,
+                     "the page where the first destination had the box");
+
+    /* And a BGRA8 destination holds the same picture, logically: the conversion is the graphics
+     * module's, and this assertion is what proves the presenter did not lay the channels out itself. */
+    {
+        robo_gfx_surface_t *bgra = present_surface(64u, 40u, ROBO_GFX_FORMAT_BGRA8, PRESENT_DESK);
+
+        ROBO_CHECK_EQ_INT(robo_render_present(frame, bgra, 0, 0, &again, NULL), ROBO_OK);
+        ROBO_CHECK_EQ_INT(again.complete, 1);
+        present_pixel_is(bgra, 10u, 10u, RASTER_BLUE, "a box in a BGRA8 destination");
+        present_pixel_is(bgra, 60u, 36u, RASTER_WHITE, "a page in a BGRA8 destination");
+        robo_gfx_surface_release(bgra);
+    }
+
+    robo_gfx_surface_release(other);
+    robo_gfx_surface_release(dest);
+    render_target_end(frame);
+    render_scene_end(&scene);
+}
+
+/*
+ * A frame that does not fit: clipped rather than refused, and the counts have to add up. This is the
+ * resize case -- a window that shrank between the frame being rasterised and the frame being shown --
+ * and the case that would silently lose a picture if the record's arithmetic were wrong.
+ */
+static void test_render_present_clipping(void)
+{
+    render_scene_t scene;
+    robo_render_target_t *frame;
+    robo_gfx_surface_t *dest;
+    robo_render_present_record_t record;
+
+    render_fixture();
+    render_scene_begin(&scene, "<html><body><div class=\"box\"></div></body></html>",
+                       RASTER_BASE_CSS
+                       "html, body { background-color: #ffffff }"
+                       " .box { width: 40px; height: 24px; margin: 4px; background-color: #3366cc }");
+    frame = render_page(64u, 40u, RASTER_WHITE);
+    ROBO_CHECK_EQ_INT(robo_render_rasterize(scene.display, frame, NULL, NULL, NULL), ROBO_OK);
+    dest = present_surface(32u, 16u, ROBO_GFX_FORMAT_RGBA8, PRESENT_DESK);
+
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, dest, 0, 0, &record, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&record), 1);
+    paint_rect_is(0, 0, 32, 16, record.presented, "the part of the frame that fits");
+    ROBO_CHECK_EQ_INT((int)record.presented_pixels, 32 * 16);
+    ROBO_CHECK_EQ_INT((int)record.clipped_pixels, 64 * 40 - 32 * 16);
+    /* The two counts are the frame, split: a caller can check the arithmetic rather than trust it. */
+    ROBO_CHECK_EQ_INT((int)(record.presented_pixels + record.clipped_pixels),
+                      (int)robo_render_target_pixel_count(frame));
+    ROBO_CHECK_EQ_INT(record.complete, 0);
+
+    /* The surviving corner: the frame's own (31, 15), which the box covers. */
+    present_pixel_is(dest, 31u, 15u, RASTER_BLUE, "the last pixel of a clipped frame");
+    present_pixel_is(dest, 0u, 0u, RASTER_WHITE, "the frame's own origin in a small destination");
+
+    /*
+     * And a placement that puts the frame *entirely* off the destination: success, nothing written, and
+     * every pixel counted as clipped. Not a failure -- a caller that has just resized should be told
+     * "nothing of this frame is visible" rather than handed an error it cannot act on.
+     */
+    {
+        robo_gfx_surface_t *far = present_surface(32u, 16u, ROBO_GFX_FORMAT_RGBA8, PRESENT_DESK);
+
+        ROBO_CHECK_EQ_INT(robo_render_present(frame, far, 40, 20, &record, NULL), ROBO_OK);
+        ROBO_CHECK_EQ_INT((int)robo_gfx_rect_is_empty(record.presented), 1);
+        ROBO_CHECK_EQ_INT((int)record.presented_pixels, 0);
+        ROBO_CHECK_EQ_INT((int)record.clipped_pixels, 64 * 40);
+        ROBO_CHECK_EQ_INT(record.complete, 0);
+        /* A record that describes a presentation of nothing is still *valid*: the counts agree. */
+        ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&record), 1);
+        present_pixel_is(far, 0u, 0u, PRESENT_DESK, "a destination a frame fell outside of");
+        present_pixel_is(far, 31u, 15u, PRESENT_DESK, "a destination a frame fell outside of");
+        robo_gfx_surface_release(far);
+    }
+
+    robo_gfx_surface_release(dest);
+    render_target_end(frame);
+    render_scene_end(&scene);
+}
+
+/*
+ * The framebuffer door: the display-side shape, where the pixels are a mapping somebody else owns.
+ */
+static void test_render_present_framebuffer(void)
+{
+    render_scene_t scene;
+    robo_render_target_t *frame;
+    robo_gfx_framebuffer_desc_t desc;
+    robo_gfx_framebuffer_t *fb = NULL;
+    robo_render_present_record_t record;
+    robo_gfx_color_rgba8_t color;
+    const uint8_t *pixel = NULL;
+
+    render_fixture();
+    render_scene_begin(&scene, "<html><body><div class=\"box\"></div></body></html>",
+                       RASTER_BASE_CSS
+                       "html, body { background-color: #ffffff }"
+                       " .box { width: 40px; height: 24px; margin: 4px; background-color: #3366cc }");
+    frame = render_page(64u, 40u, RASTER_WHITE);
+    ROBO_CHECK_EQ_INT(robo_render_rasterize(scene.display, frame, NULL, NULL, NULL), ROBO_OK);
+
+    robo_gfx_framebuffer_desc_init(&desc);
+    desc.width = 64u;
+    desc.height = 40u;
+    desc.format = ROBO_GFX_FORMAT_RGBA8;
+    ROBO_CHECK_EQ_INT(robo_gfx_framebuffer_create(&desc, &fb), ROBO_OK);
+
+    ROBO_CHECK_EQ_INT(robo_render_present_framebuffer(frame, fb, 0, 0, &record, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(record.complete, 1);
+    paint_rect_is(0, 0, 64, 40, record.presented, "a frame filling a framebuffer");
+
+    /* Read one pixel the framebuffer's own way, so the assertion is about the mapping and not about a
+     * surface this file wrapped around it. */
+    ROBO_CHECK_EQ_INT(robo_gfx_framebuffer_pixel_const(fb, 10u, 10u, &pixel), ROBO_OK);
+    ROBO_CHECK(pixel != NULL);
+    memset(&color, 0, sizeof(color));
+    ROBO_CHECK_EQ_INT(robo_gfx_pixel_unpack(ROBO_GFX_FORMAT_RGBA8, pixel, 4u, &color), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)color.r, (int)RASTER_BLUE.r);
+    ROBO_CHECK_EQ_INT((int)color.g, (int)RASTER_BLUE.g);
+    ROBO_CHECK_EQ_INT((int)color.b, (int)RASTER_BLUE.b);
+    /* The box is a *margin* box, so its top-left pixel is at (4, 4) and the pixel one before it is
+     * the page: the same half-open rule the raster applied, seen through the display-side mapping. */
+    ROBO_CHECK_EQ_INT(robo_gfx_framebuffer_pixel_const(fb, 3u, 4u, &pixel), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_gfx_pixel_unpack(ROBO_GFX_FORMAT_RGBA8, pixel, 4u, &color), ROBO_OK);
+    ROBO_CHECK_EQ_INT((int)color.r, 255);
+    ROBO_CHECK_EQ_INT((int)color.b, 255);
+
+    ROBO_CHECK_EQ_INT(robo_render_present_framebuffer(frame, NULL, 0, 0, &record, NULL),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_render_present_framebuffer(NULL, fb, 0, 0, &record, NULL),
+                      ROBO_INVALID_ARGUMENT);
+
+    robo_gfx_framebuffer_release(fb);
+    render_target_end(frame);
+    render_scene_end(&scene);
+}
+
+/*
+ * The record's own rules and the developer's dump. A record is what a caller logs, so a record whose
+ * fields disagree has to be refusable -- and the dump is the text a person reads back.
+ */
+static void test_render_present_record_and_dump(void)
+{
+    robo_render_target_t *frame;
+    robo_gfx_surface_t *dest;
+    robo_render_present_record_t record;
+    robo_render_present_record_t bad;
+    char text[512];
+    size_t needed = 0u;
+    size_t count = 0u;
+
+    render_fixture();
+    frame = render_page(16u, 8u, RASTER_BLUE);
+    dest = present_surface(64u, 32u, ROBO_GFX_FORMAT_RGBA8, PRESENT_DESK);
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, dest, 8, 8, &record, NULL), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&record), 1);
+
+    /* Field-for-field equality, and the two rules every comparison door in this tree keeps. */
+    bad = record;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_equal(&record, &bad), 1);
+    bad.presented_pixels = 1u;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_equal(&record, &bad), 0);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_equal(&record, NULL), 0);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_equal(NULL, NULL), 1);
+
+    /* One clause at a time: each of these is a record two fields of which disagree about what it is. */
+    bad = record;
+    bad.presented_pixels = record.presented_pixels - 1u;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&bad), 0);
+    bad = record;
+    bad.clipped_pixels = 1u;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&bad), 0);
+    bad = record;
+    bad.complete = 0;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&bad), 0);
+    bad = record;
+    bad.frame_width = 0u;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&bad), 0);
+    bad = record;
+    bad.dest_format = ROBO_GFX_FORMAT_BGRA8;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&bad), 0);
+    bad = record;
+    bad.presented.width = -1;
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&bad), 0);
+
+    /* The dump: four lines, one per group of facts. */
+    ROBO_CHECK_EQ_INT(robo_render_present_write(&record, text, sizeof(text), &needed, NULL), ROBO_OK);
+    ROBO_CHECK(needed > 0u);
+    ROBO_CHECK_EQ_INT((int)needed, (int)strlen(text));
+    {
+        const char *at = text;
+
+        while (*at != '\0') {
+            if (*at == '\n') {
+                count++;
+            }
+            at++;
+        }
+    }
+    ROBO_CHECK_EQ_INT((int)count, 4);
+    /* The format names come from the pixel-format layer, which spells them in the case the frame dump
+     * beside this suite already uses -- read rather than restated. */
+    ROBO_CHECK(strstr(text, "present 16x8 RGBA8 -> 64x32 RGBA8 at 8,8") != NULL);
+    ROBO_CHECK(strstr(text, "presented=8,8,16,8") != NULL);
+    ROBO_CHECK(strstr(text, "pixels=128 clipped=0 complete=1") != NULL);
+    ROBO_CHECK(strstr(text, "record=valid") != NULL);
+    /* No address, ever -- `=0x` and not a bare `0x`, so the assertion is about a printed pointer and
+     * not about the substring `16x8` happens to contain. */
+    ROBO_CHECK(strstr(text, "=0x") == NULL);
+
+    /* A buffer that is too small reports the length it needed rather than truncating. */
+    {
+        char small[8];
+        robo_render_diag_t diag;
+
+        robo_render_diag_reset(&diag);
+        ROBO_CHECK_EQ_INT(robo_render_present_write(&record, small, sizeof(small), &count, &diag),
+                          ROBO_NOT_SUPPORTED);
+        ROBO_CHECK_EQ_INT((int)count, (int)needed);
+        ROBO_CHECK_EQ_INT((int)diag.domain, (int)ROBO_RENDER_DOMAIN_DUMP);
+        ROBO_CHECK(small[0] != '\0');
+    }
+    ROBO_CHECK_EQ_INT(robo_render_present_write(NULL, text, sizeof(text), &needed, NULL),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_render_present_write(&record, NULL, sizeof(text), &needed, NULL),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_render_present_write(&record, text, sizeof(text), NULL, NULL),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT(robo_render_present_write(&record, text, 0u, &needed, NULL),
+                      ROBO_INVALID_ARGUMENT);
+
+    robo_gfx_surface_release(dest);
+    render_target_end(frame);
+}
+
+/*
+ * What the door refuses, and the reason a read-only destination is one of them: presenting *writes*, so
+ * a destination that cannot be written is a caller mistake rather than an empty presentation.
+ */
+static void test_render_present_refusals(void)
+{
+    robo_render_target_t *frame;
+    robo_gfx_surface_t *dest;
+    robo_gfx_surface_t *read_only = NULL;
+    robo_gfx_surface_desc_t desc;
+    robo_render_present_record_t record;
+    robo_render_diag_t diag;
+
+    render_fixture();
+    robo_render_diag_reset(&diag);
+    frame = render_page(8u, 8u, RASTER_BLUE);
+    dest = present_surface(16u, 16u, ROBO_GFX_FORMAT_RGBA8, PRESENT_DESK);
+
+    ROBO_CHECK_EQ_INT(robo_render_present(NULL, dest, 0, 0, &record, &diag),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT((int)diag.domain, (int)ROBO_RENDER_DOMAIN_FRAME);
+    ROBO_CHECK(diag.message != NULL);
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, NULL, 0, 0, &record, &diag),
+                      ROBO_INVALID_ARGUMENT);
+    /* The record is optional: a caller that only wants pixels is not made to hold one. */
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, dest, 0, 0, NULL, &diag), ROBO_OK);
+
+    robo_gfx_surface_desc_init(&desc);
+    desc.width = 16u;
+    desc.height = 16u;
+    desc.format = ROBO_GFX_FORMAT_RGBA8;
+    desc.access = ROBO_GFX_SURFACE_ACCESS_READ;
+    ROBO_CHECK_EQ_INT(robo_gfx_surface_create(&desc, &read_only), ROBO_OK);
+    ROBO_CHECK_EQ_INT(robo_render_present(frame, read_only, 0, 0, &record, &diag),
+                      ROBO_INVALID_ARGUMENT);
+    ROBO_CHECK_EQ_INT((int)diag.domain, (int)ROBO_RENDER_DOMAIN_FRAME);
+    robo_gfx_surface_release(read_only);
+
+    robo_gfx_surface_release(dest);
+    render_target_end(frame);
+}
+
+/* ------------------------------------------------------------------ */
 /* Registration                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -627,4 +1126,10 @@ void robo_test_register_render_raster(void)
     robo_test_register("render.raster.no_font_is_a_number",
                        test_render_raster_no_font_is_a_number);
     robo_test_register("render.raster.region_clamping", test_render_raster_region_clamping);
+    robo_test_register("render.present_region", test_render_present_region);
+    robo_test_register("render.present_pixels", test_render_present_pixels);
+    robo_test_register("render.present_clipping", test_render_present_clipping);
+    robo_test_register("render.present_framebuffer", test_render_present_framebuffer);
+    robo_test_register("render.present_record_and_dump", test_render_present_record_and_dump);
+    robo_test_register("render.present_refusals", test_render_present_refusals);
 }

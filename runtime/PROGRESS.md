@@ -6047,7 +6047,315 @@ and the `raster` capability row), `Tools/Build.ps1` (sources, suites, boundary s
 `Tests/Main.c`, `paint/README.md` and the paint documents that named `raster` as 0, `PROGRESS.md`,
 `ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
 
+## Goal 11.13 — Framebuffer presentation and the desktop shell
+
+_Implemented, in two halves that meet at one door. A new module, **RoboDesktop 0.1.0**,
+`ROBO_DESKTOP_SHELL_IMPLEMENTED=1` and `ROBO_DESKTOP_DOCUMENTS_IMPLEMENTED=1`, with six suite files over
+**41** cases; **RoboRender 0.2.0** with `presentation` flipped to **1** — the sixth 0 11.12's own table
+declared — and seven new cases of its own. Nothing below this phase changed except one comment that was
+wrong about a rule nothing enforced._
+
+11.13 is the release that gives the pipeline somewhere to *arrive*. Every module below it answers what a
+document looks like; this one answers **what is on the display**, and it does it in two pieces that are
+deliberately different sizes:
+
+- **RoboRender's presenter** is the small half: a frame composited into a destination surface at an
+offset, with a record whose two pixel counts sum to the frame's own. It is a *call*, not a system — no
+queue, no pacing, no second buffer — and it is the door 11.12's release note named and left at 0;
+- **RoboDesktop** is the large half: a native shell that owns a screen target, paints a desktop surface,
+a panel and a work area, holds shell windows with real decorations, rasterises their contents from
+display lists and composites them under the chrome, describes each frame with a record and a checksum,
+and presents it into a window's render surface or any writable surface a caller names.
+
+The boundary between them is the phase's first decision and it is a *type* decision: the presenter takes
+a **surface**, never a window id and never a display framebuffer, because a rasteriser that could reach
+RoboWindow could not be tested without one and would have to be re-taught what a QEMU mapping is. A frame
+is pixels; where they land is the caller's choice, and the two callers this build has — the desktop's
+window path and the guest's wrapped framebuffer — reach the same door with the surface their own backend
+gave them.
+
+| Piece | Where |
+|---|---|
+| The presenter: `present_region`, `present`, `present_framebuffer`, the record, the four-line dump | `RoboRender/RoboRenderPresenter.h/.c` |
+| RoboRender **0.2.0**: `presentation` = 1, and the prose that said otherwise | `RoboRenderVersion.h`, `RoboRender.h`, `render/README.md` |
+| The shell: lifecycle, the frame triple, resize, `sync_size`, the presentation doors, hit testing and the pointer, the statistics | `RoboDesktop/RoboDesktop.c` |
+| The geometry: metrics defaults, `compute`, `panel_area`, `place`, `contain` | `RoboDesktopGeometry.h/.c` |
+| The window list: add/remove, bounds, title, contents, z-order, focus, the close request | `RoboDesktopWindow.h/.c` |
+| The chrome: the surface, the panel, its labels, decorations, the close button, a title bar's text | `RoboDesktopChrome.c` |
+| The markup bridge — the **one** file allowed to name a document layer | `RoboDesktopDocument.h/.c` |
+| The dump (seven lines, no address), the diagnostics and the vocabularies, the theme | `RoboDesktopDump.c`, `RoboDesktop{Diagnostics,Types,Theme,Text}.c` |
+| The capability table: eighteen flags, eight presences and ten absences | `RoboDesktop.h`, `RoboDesktopTypes.h` |
+| The suites: 41 cases in six files, plus the fixture header | `desktop/tests/` |
+| The module's own documents | `desktop/README.md`, `desktop/docs/{Architecture,Geometry,Windows,Frames,Documents,Tests}.md` |
+| The presenter's document | `render/docs/Presentation.md` |
+
+Seven decision-bearing rules, and each has a version that looks right.
+
+**Clip, not refusal — and the counts are exhaustive.** A frame that does not fit its destination is
+clipped, the way every drawing in this tree is clipped, because a window that shrank between the
+rasterise and the present must show the part of the picture that still fits. What would not be acceptable
+is silence about it, so `presented_pixels + clipped_pixels` sums to the frame's own count and
+`robo_render_present_record_is_valid` refuses a record where they do not — including one that claims
+`complete` for a frame that lost pixels.
+
+**One authority for where a pixel lands.** `robo_render_present` computes the destination rectangle once
+(through `present_region`) and then hands the frame's **own** bounds to the graphics composite rather
+than the intersection it just computed: the call that writes the pixels applies the clip, and the
+intersection is used only for the *record*. A presenter that pre-clipped its source rectangle would be
+re-deriving the composite's rule, and the two would drift the first time a destination had a stride, a
+format or a bounds rule this file did not think of.
+
+**A frame does not present itself.** `begin_frame`/`paint`/`end_frame` is RoboWindow's own triple, and
+`robo_desktop_render` is the shorthand — which `desktop.frame.sequence` asserts is **equal** to the
+sequence it abbreviates, because a shorthand that could drift is a second behaviour. Separating the
+presentation door is what lets a caller render a frame and look at it with no display at all
+(a test, a screenshot, a headless build) and what lets one frame be presented twice or into two
+destinations.
+
+**A document cannot break the shell, and a broken document leaves a window.** The shell paints with
+graphics fills and never reads a page; a window's contents are a display list rasterised into the
+window's **own** target and composited under the chrome, so a `push-clip` inside a document cannot reach
+the panel and a document that fails to draw still leaves a body, a title bar and a close button on
+screen — with the renderer's own message travelling out in a `WINDOW` diagnostic while the rest of the
+frame is still painted. The one file allowed to know about markup is `RoboDesktopDocument.c`, and the
+boundary scan enforces the exemption **by name** so it is visible in the build's output.
+
+**`documents == 0` beside `ROBO_DESKTOP_DOCUMENTS_IMPLEMENTED == 1`.** The two are not in conflict and
+the distinction is the module's centre: the shell builds no document, and the runtime can build one for
+an application window. A build that removed the bridge would keep a working shell and set the constant to
+0; a build that let the shell read markup would have to change the scan.
+
+**The list is the z-order, focus follows the raise, and closing is a request.** Eight slots, raising is
+one `memmove` to the end, and a press on a title bar raises *and* focuses, so there is no second focus
+model to drift from the first; removal repairs the focused index rather than letting it dangle. A window
+below its decoration minimum is **grown** (the minimum is a property of decorations the caller does not
+control) while a window below *its* constraints is refused one module down (those constraints are the
+caller's policy) — two opposite rules, each right for its own subject, stated together where they
+diverge. `request_close` marks a window `CLOSING` and leaves it in the list: the owner destroys it, which
+is what lets an application decide what a close means.
+
+**Geometry is a value; "drawable" is a different door.** `compute` is total — every rectangle inside the
+screen by construction, the work area thin rather than negative on a screen that barely holds a panel —
+and the question "does a window fit" is answered at `robo_desktop_window_add`, which refuses a work area
+thinner than `ROBO_DESKTOP_MIN_DIMENSION`. Hit testing walks **front to back** (a point over two windows
+belongs to the front one, the answer a user would give) and reports a five-member area vocabulary rather
+than a boolean, because that vocabulary is what an application will eventually be handed.
+
+**Determinism, stated as bytes.** Nothing in a frame reads a clock (the status text is the caller's
+value), the z-order is an array's order, the dump carries **no address**, and the target has a byte view,
+a checksum and a byte equality — which is how `desktop.frame.determinism` can compare two *independently
+created* desktops, each with a window built from the same markup, byte for byte, with their records and
+checksums beside them.
+
+### What 11.13 found
+
+1. **A constant nothing read, and a comment describing a rule the code did not implement.** Writing the
+   geometry document surfaced both: `ROBO_DESKTOP_MIN_DIMENSION` was read by nothing, and
+   `RoboDesktopGeometry.h` claimed that a screen below the panel's height plus that constant "leaves an
+   empty work area" while `compute` — deliberately total — returns whatever the panel leaves. The
+   constant now decides the one door where "fits" is a question (`robo_desktop_window_add`, which
+   previously refused only an *empty* work area, so a one-pixel work area would have had a window placed
+   in it), the comment states what the code guarantees, and `desktop.window.no_work_area` pins the rule
+   from the failing **and** the passing side — a rule asserted only where it refuses is a rule that could
+   be a different rule.
+2. **Arithmetic in a comment can be wrong about its own fields.** The metrics reasoning said a window's
+   minimum is "42" at these metrics; the two minima are computed from the decoration fields and come to
+   **10 by 34**. The case asserts the arithmetic rather than the numbers (which is what makes a restyle
+   safe), and the prose now states what the arithmetic yields.
+3. **A capability table's own prose drifted from its fields.** The conformance suite's header called the
+   table sixteen fields with nine absences; the struct has eighteen with ten. The assertion was never
+   the prose (the case reads every field by name), but a reader trusts the prose first — so the counts in
+   the document are stated from the struct rather than remembered.
+4. **A counter whose scope is unstated is worse than no counter.** `stats.presentations` counts the
+   **window** path — the one with a backend behind it — and a `present_to_surface` copy is a caller's own
+   handoff described by the record it returns. That distinction had to be written down: "presentations"
+   with no stated scope invites the reading that a headless build presented nothing.
+5. **The `-Verify` gate is the one that catches boundary drift, and 11.12's lesson still holds.** The
+   phase's new scan (`Assert-RoboDesktopBoundaries`) refuses Chromium, a document layer in the shell (with
+   `RoboDesktopDocument` exempt by name) and any higher layer, and it passes — but only because the gate
+   list is run in full rather than `-Test` alone.
+6. **The two host window cases remain environment-dependent.** `window.host.keyboard`/`mouse` need the
+   process to be granted foreground focus; one run of this build reported 2679/2679 and another reported
+   the same two failures, with every `desktop.` case at 41/41 each time. It is pre-existing, it is not
+   this phase's, and it is recorded so a future run's number is not read as a regression.
+
+### Suite
+
+`desktop/tests/` — six suite files, **41** cases: `SuiteRoboDesktop.c` (9: the version and the eighteen
+capability flags read by name, the two name vocabularies, the diagnostic record, the configuration
+defaults, the lifetime, the record's closed validity rule, the seven-line dump), `SuiteRoboDesktopGeometry.c`
+(7: metrics, the four rectangles, a small screen, the three panel areas, placement, containment, and a
+resize following the screen), `SuiteRoboDesktopWindow.c` (9: defaults, the decoration minimum, the
+work-area rule from both sides, capacity, title and contents, raise/focus, close and destroy, the six hit
+areas, the pointer's two actions), `SuiteRoboDesktopFrame.c` (8: the sequence and its refusals, the
+shell's pixels, a window's pixels, real contents, the label pair both ways, byte-for-byte determinism,
+resize, and the headless contract), `SuiteRoboDesktopDocument.c` (5: the report, the refusals, markup
+without a sheet, with and without a face, and a build/destroy cycle returning the allocator to its
+baseline) and `SuiteRoboDesktopPresent.c` (3: a copy with a record, a desktop with no window, and the
+end-to-end capstone).
+
+The render side gained **7**: `render.conformance.presenter` (the release shape, asserted rather than
+exercised, including that `presentation` is 1 **while `compositor` is 0**), `render.present_region`,
+`render.present_pixels`, `render.present_clipping`, `render.present_framebuffer`,
+`render.present_record_and_dump` and `render.present_refusals`.
+
+The visual checkpoint is `Out/Desktop.png` (or `$ROBO_DESKTOP_PNG`): the shell with a panel, an identity
+mark, and a window whose contents came from real markup, written by the end-to-end case as **evidence**
+rather than as a verdict — the verdict is the pixels that case asserts.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `pwsh -File Tools/Build.ps1 -Configuration Debug -Verify -Test` | **VERIFY PASS** — `RoboDesktop boundary source scan: OK`, `RoboRender` unchanged — and **2679/2679** tests passed |
+| `-Configuration Release -Test` | build OK, **2679/2679**, no failures |
+| `-Configuration Debug -Sanitize -Test` | **SANITIZE PASS**, **2679/2679**, no diagnostics |
+| `--filter desktop.` | **41/41** (Debug, and 41/41 under the sanitizer) |
+| `--filter render.` / `--filter render.present_` | **31/31** / **6/6** |
+| `robo check` | PASS — Chromium independence **CLEAN** for runtime sources and build wiring with the new module present |
+
+### Files
+
+**Added:** `Include/RoboDesktop/{RoboDesktop,RoboDesktopDiagnostics,RoboDesktopDocument,RoboDesktopGeometry,
+RoboDesktopTheme,RoboDesktopTypes,RoboDesktopVersion,RoboDesktopWindow}.h`,
+`Source/RoboDesktop/{RoboDesktop,RoboDesktopChrome,RoboDesktopDiagnostics,RoboDesktopDocument,RoboDesktopDump,
+RoboDesktopGeometry,RoboDesktopInternal.h,RoboDesktopText,RoboDesktopTheme,RoboDesktopTypes,
+RoboDesktopWindow}.c`, `Include/RoboRender/RoboRenderPresenter.h`, `Source/RoboRender/RoboRenderPresenter.c`,
+`desktop/tests/{RoboDesktopTestSupport.h,SuiteRoboDesktop,SuiteRoboDesktopDocument,SuiteRoboDesktopFrame,
+SuiteRoboDesktopGeometry,SuiteRoboDesktopPresent,SuiteRoboDesktopWindow}.c`,
+`desktop/README.md`, `desktop/docs/{Architecture,Documents,Frames,Geometry,Tests,Windows}.md`,
+`render/docs/Presentation.md`.
+The module also emits its own **debug output** at the six points a developer debugs from — shell
+create/release, window add, close request and destroy, a resize that actually changed the screen, a
+document build (with the five stage counts, so a blank window names the stage that produced nothing),
+and the two failures that would otherwise be an empty rectangle (`document refused`, `window contents
+could not be drawn`, the latter warned per frame because a broken document is a *state* the caller is in)
+— under the same rules the dump keeps: no address, no clock, nothing that is not this shell's own state.
+A paint and a presentation are deliberately **not** logged, because a driven shell would fill the output.
+`desktop/docs/Architecture.md` §6 lists every line.
+
+**Modified:** `RoboRender.h`/`RoboRenderRasterizer.h`/`RoboRenderVersion.h`/`RoboRender.c` (the
+twelfth capability row, version 0.2.0, the presenter's doors), `RoboDesktopTypes.h` and
+`RoboDesktopGeometry.c` (the constants and arithmetic the phase's documents made honest),
+`RoboDesktopWindow.c` (the work-area rule), `Tools/Build.ps1` (sources, suites, the new boundary scan),
+`Tests/Main.c`, `render/tests/{SuiteRoboRender,SuiteRoboRenderRaster}.c`, `render/README.md`,
+`render/docs/{Rasterization,Tests}.md`, `paint/README.md` and the paint documents that named 11.13 as
+future, `PROGRESS.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
+
+## The desktop on the guest display — 11.13's other half
+
+_Implemented. `user/robo-runtime/main.c` is now the desktop rather than the demo page, the demo layer is
+gone from the tree, and the guest image is built from the module sources it needs instead of a list kept
+beside them. Two kernel facts had to be fixed for the picture to be complete, and they are recorded below
+rather than worked around._
+
+11.13 landed the shell and the host launcher, and left the device path where it had been: the OS still
+booted to the **deleted demo layer's** page. `scripts/robo run-runtime-qemu` therefore showed a throwaway
+document while `run-runtime` showed the shell — two pictures, one of them from code that no longer
+existed in the source tree but was still compiled into the image.
+
+That is what this change is. The guest program drives the **same scene** the host launcher drives
+(`RoboDesktopScene`, added here), so the two backends show one definition of the checkpoint; the demo
+layer is deleted outright (sources, headers, asset, suites, host `--demo-html` route, pack entries and its
+markers); and the pipeline's display gate now asserts the desktop's own counters rather than the demo's
+HTML counts.
+
+| Piece | Where |
+|---|---|
+| The scene, shared by both launchers | `Include/RoboDesktop/RoboDesktopScene.h`, `Source/RoboDesktop/RoboDesktopScene.c` |
+| The host launcher (`RoboTest.host.exe --desktop`) | `Source/RoboDesktop/platform/host/RoboDesktopHost.{h,c}` |
+| The guest program — the OS's desktop, on the framebuffer | `user/robo-runtime/main.c` |
+| The face the text is drawn with, and its licence | `desktop/assets/Inter.ttf`, `desktop/assets/Inter-License.txt` |
+| The scene's suite (`desktop.scene.*`, 5 cases) | `desktop/tests/SuiteRoboDesktopScene.c` |
+| The guest's build rule: modules, not a file list | `scripts/roboboot-build-common.ps1` (`RuntimeModules`) |
+| The guest path's document | `docs/userspace/desktop-runtime.md` |
+
+**One scene, two launchers, and the counters agree.** A launcher is the one part that *must* differ (one
+registers the QEMU window backend, the other Win32), so the scene is defined once and each launcher
+contributes only its backend, its lifetime and its reporting. The host launcher prints its offscreen frame
+and the guest prints its own, and they are the same numbers: `fills=12 labels=4 unshaped=0 windows=1
+content_runs=1 content_pixels=652912`. The display gate pins the guest's, with that equality written down
+beside them — a guest number that drifted from the host's would mean the launchers had stopped drawing the
+desktop.
+
+**The face is what makes the labels text.** The shell's chrome and the document's text need a real face,
+and the image had none: the demo layer carried a throwaway bitmap atlas, and it went with the layer. So the
+runtime vendors one (`desktop/assets/Inter.ttf`, OFL, with its licence beside it), the image packs it at
+`/System/Fonts/Inter.ttf`, and the guest builds a `robo_font_face_t` from those bytes. Without it the
+desktop still paints — panel, chrome, document fills — and every label lands in `labels_unshaped` instead,
+which is why the gate asserts `UNSHAPED=0`. Loading reports the step it stopped at
+(`ROBO_QEMU_FACE_FAIL <stage> <path>`), because "the file is missing" and "the file will not parse" are
+different defects and a single failure marker conflated them.
+
+**Discovered sources, because the copied list drifted.** The guest build used to name every runtime source
+by hand, and that list went on compiling the deleted demo layer after the host had a real shell. It now
+names **modules** and compiles every `.c` under each one — minus `tests` and the platform backends of the
+platforms a guest is not (`win32`, `host`; the guest's own is `platform/qemu`). What the walk yields is
+exactly what `Tools/Build.ps1` names file by file for those modules. New modules reached the guest for the
+first time as a result: RoboContainers, **RoboI18N** (RoboFont looks a face's names up through its locale
+model), RoboFont, RoboCSS, RoboLayout, RoboPaint, RoboRender and RoboDesktop.
+
+### What the guest exposed, one level down
+
+The guest ELF is 6.28 MB, and the boot image grew to 14.3 MB. Two kernel limits that had been latent became
+blocking, and neither was worked around — the picture is *complete* because both were fixed:
+
+1. **The root volume was a constant 512 blocks** (2 MiB). The import walk stopped partway through the
+   image, so every entry after the stopping point — including `/System/Fonts/Inter.ttf` — was simply absent
+   from the filesystem, with one `VFS_IMPORT_FAIL -20` line printed and nothing to make a reader act on it.
+   It is now sized from the image (`robo_fs_root_blocks`: payload + 8 blocks per file + metadata + 1 MiB
+   slack, capped at 64 MiB), which is what the volume's size always should have been — a statement about
+   what it holds rather than a guess about it.
+2. **One file cannot exceed 4.03 MiB** (8 direct + 1024 single-indirect block pointers). The runtime's own
+   ELF is larger, so it cannot live in RoboFS v1 at all. The import now **skips** such a file: it removes
+   what it wrote (never leaving a shorter file behind to be loaded as a truncated ELF), names it
+   (`VFS_IMPORT_SKIP  <path>`), and carries on with the rest of the image, ending on
+   `VFS_IMPORT_PARTIAL  <count>`. Walking on is the point: the fonts and everything after the large file
+   still import, and the ELF is still *runnable* — `robo_exec` falls back to the image for a path the VFS
+   does not hold. A negative return, still reported as `VFS_IMPORT_FAIL`, now means only that the image
+   itself could not be walked.
+
+The 4.03 MiB ceiling is a real limit, not a fixed bug: it is written down in
+`docs/filesystems/robofs.md` with the shape that would raise it (a second indirect level), and the runtime's
+ELF is larger than it, so the ceiling and the runtime cannot both stay as they are forever.
+
+### Verification
+
+| Gate | Result |
+|---|---|
+| `Tools/Build.ps1 -Configuration Debug -Verify` | **VERIFY PASS** (including `RoboDesktop boundary source scan: OK`) |
+| `RoboTest.host.exe` (Debug) | **2650 / 2651** — the one failure is the pre-existing focus-dependent `window.host.keyboard` |
+| `--filter desktop.` / `--filter desktop.scene.` | **46 / 46** / **5 / 5** |
+| host launcher, offscreen (`--desktop --no-window`) | **14 checks, 0 failed — `RESULT: PASS`** |
+| `scripts/robo test-qemu-display` | **PASS** — `ROBO_QEMU_DISPLAY_OK`, `_FACE_OK`, `_DESKTOP_OK`, `_LABELS=4`, `_UNSHAPED=0`, `_PRESENT_OK`, `_INPUT_OK`, `_DISPLAY_SHUTDOWN_OK` |
+
+**Added:** `Include/RoboDesktop/RoboDesktopScene.h`, `Source/RoboDesktop/RoboDesktopScene.c`,
+`Include/RoboDesktop/RoboDesktopHost.h`, `Source/RoboDesktop/platform/host/RoboDesktopHost.c`,
+`desktop/tests/SuiteRoboDesktopScene.c`, `desktop/assets/{Inter.ttf,Inter-License.txt}`,
+`docs/userspace/desktop-runtime.md`.
+**Removed:** `Source/RoboDemo/`, `Include/RoboDemo/`, `demo/` (sources, suites and their cases), the host
+`--demo-html` route, the demo layer's paint entries, and its display markers.
+**Modified:** `user/robo-runtime/main.c` (rewritten as the desktop),
+`Source/RoboDesktop/{RoboDesktop,RoboDesktopChrome,RoboDesktopGeometry,RoboDesktopWindow}.c` and their
+headers (the logs a developer debugs from, the minimum-dimension door, the corrected metrics comment),
+`Tools/Build.ps1` (the scene's sources, its suite, the boundary scan's third exemption, the `$DemoSrcs`
+references the deletion left behind), `Tests/Main.c` (the `--desktop` route),
+`scripts/roboboot-build-common.ps1` (module discovery, the face's pack entry),
+`scripts/pipeline/{commands.run,commands.test,config,engine,robo,common}.ps1` (the desktop launcher, the
+display markers, the component groups, the `ROBO_DESKTOP_*` run settings),
+`kernel/fs/{robofs.c,robofs.h}`, `kernel/fs/vfs/vfs.{c,h}`, `kernel/src/kernel.c`,
+`user/init/config.c`, `docs/{Build.md,kernel/vfs.md,filesystems/robofs.md,userspace/terminal-and-robo.md}`,
+`html/docs/ElementModel.md`, `PROGRESS.md`.
+
 ## Next
+
+- **Phase 11.13 — framebuffer presentation and the desktop shell: landed.** The paragraph that used to
+  stand here framed two questions and named `render/docs/Rasterization.md` §12 as the place the three
+  possible shapes were stated. Both questions were answered in favour of the *copy*: a presentation
+  composites a frame into a destination surface the caller owns, so a target is never a window's back
+  buffer, and pacing was declined rather than guessed at — `frame_scheduling` and `vsync` remain **0**,
+  and a document can only say "no clock" in one way. What is left from that paragraph is now the *Next*
+  list below rather than a plan.
 
 - **Phase 11.7 — image painting: filled in.** The paragraph that used to stand here called it "the
   next drawing kind and the second non-numeric payload", and the answer this tree arrived at is the
@@ -6061,20 +6369,20 @@ and the `raster` capability row), `Tools/Build.ps1` (sources, suites, boundary s
   What 11.8's, 11.9's and 11.10's sections used to say about a missing 11.7 is now the record of the
   order the work landed in rather than of a gap: their vocabulary gained a row and a field, and the
   two suite headers and one deferral list that named the picture as untestable now name it as covered
-  *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.- **Phase 11.13 — framebuffer presentation.** The next goal, and the one 11.12 handed a target to:
-  `presentation` is the first 0 in `RoboRender.h`'s table, and `robo_render_target_surface` is the door
-  it takes. The two questions this goal left it are framed rather than open -- whether the window path
-  **copies** a target's RGBA8 pixels into its own surface or the target's surface *is* the window's
-  back buffer, and what paces a frame once nothing about this pipeline is deterministic in *time*
-  (11.12 has no clock, which is exactly why it is reproducible). RoboWindow and RoboDisplay already own
-  real surfaces and a present path, so the work is a format decision, a copy and a handoff rather than
-  a new subsystem -- and `render/docs/Rasterization.md` §12 states the three shapes it could take.
-  Then transforms, **event dispatch** (Phase 12, which consumes 11.10's result rather than replacing
-  it), `pointer-events`, group opacity (which needs an offscreen layer, and whose measured gap is
-  `paint.opacity.group_deviation`), and the region *subtraction* a tile tree would need. The deferred
+  *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.
+
+- **Phase 12 — event dispatch.** The next goal, and one 11.10 handed a result to: a hit test that
+  answers *which node is at this point* is what a dispatch walks, so the phase consumes
+  `robo_paint_hit_test`'s answer rather than replacing it -- the shell's pointer reaches a window's
+  contents for the first time, which is the `input_delivery` 0 in `RoboDesktop.h`'s table. Then
+  transforms, `pointer-events`, group opacity (which needs an offscreen layer, and whose measured gap
+  is `paint.opacity.group_deviation`), a compositor over the desktop's per-window targets (the layer
+  the phase-11.13 architecture stops one step short of), the region *subtraction* a tile tree would
+  need, and a frame scheduler with a clock, once something needs one. The deferred
 tables in
   `paint/README.md`, `paint/docs/Invalidation.md` §12, `paint/docs/Opacity.md` §12,
   `paint/docs/Clipping.md` §12, `paint/docs/HitTest.md` §11, `paint/docs/Decoration.md` §11,
   `paint/docs/Text.md` §10 and `paint/docs/Border.md` §6 name every one of them, and
-  `paint/docs/Architecture.md` §15 lists the rules the next goal may assume. Do not start until
-  requested.
+  `paint/docs/Architecture.md` §15 lists the rules the next goal may assume, and the desktop's own
+deferrals are named in `desktop/README.md`'s capability table -- ten absences, each with what it would
+need. Do not start until requested.

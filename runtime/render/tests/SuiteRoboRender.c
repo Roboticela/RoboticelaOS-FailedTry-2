@@ -68,8 +68,9 @@ static void test_render_version_and_capabilities(void)
     ROBO_CHECK_EQ_INT(robo_render_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
     /* 11.12 is the release whose subject is pixels rather than descriptions, so its first version is
-     * 0.1.0 -- the module did not exist in a form that could be wrong before it. */
-    ROBO_CHECK_EQ_INT((int)minor, 1);
+     * 0.1.0 -- the module did not exist in a form that could be wrong before it. 11.13 is the second
+     * release and adds the presentation door, which is why the minor moved and the patch did not. */
+    ROBO_CHECK_EQ_INT((int)minor, 2);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_EQ_INT(ROBO_RENDER_API_FROZEN, 0);
     ROBO_CHECK_EQ_INT(robo_render_get_version(NULL, &minor, &patch), ROBO_INVALID_ARGUMENT);
@@ -80,8 +81,13 @@ static void test_render_version_and_capabilities(void)
      * capability fields that are read from it. */
     ROBO_CHECK_EQ_INT(ROBO_RENDER_RASTERIZATION_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(robo_render_rasterization_is_implemented(), 1);
+    /* And the flag 11.13 turned, asserted the same three ways: the constant, the function, and the
+     * capability field, which are all read from each other rather than written three times. */
+    ROBO_CHECK_EQ_INT(ROBO_RENDER_PRESENTATION_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(robo_render_presentation_is_implemented(), 1);
     ROBO_CHECK_EQ_INT(robo_render_get_capabilities(&capabilities), ROBO_OK);
     ROBO_CHECK_EQ_INT(capabilities.rasterizer, robo_render_rasterization_is_implemented());
+    ROBO_CHECK_EQ_INT(capabilities.presentation, robo_render_presentation_is_implemented());
     ROBO_CHECK_EQ_INT(capabilities.pixel_targets, 1);
     ROBO_CHECK_EQ_INT(robo_render_get_capabilities(NULL), ROBO_INVALID_ARGUMENT);
 
@@ -134,10 +140,10 @@ static const render_capability_row_t render_capability_rows[] = {
     { "images", 1 },
     { "determinism", 1 },
     { "frame_records", 1 },
-    /* The six absences, and each one is *deliberate*: presentation is Phase 11.13's, and the other
-     * five are structures (a layer tree, a tile tree, a damage history, a clock, a device) rather
-     * than flags somebody forgot to set. */
-    { "presentation", 0 },
+    /* 11.13's row, and it is the one this release moves: a frame reaching a destination. */
+    { "presentation", 1 },
+    /* The five remaining absences, and each one is *deliberate*: they are structures (a layer tree, a
+     * tile tree, a damage history, a clock, a device) rather than flags somebody forgot to set. */
     { "compositor", 0 },
     { "tiles", 0 },
     { "damage_tracking", 0 },
@@ -221,6 +227,55 @@ static void test_render_conformance_vocabulary(void)
     ROBO_CHECK_EQ_INT(robo_render_domain_is_known((robo_render_diagnostic_domain_t)99), 0);
     ROBO_CHECK_STR_EQ(robo_render_domain_name((robo_render_diagnostic_domain_t)99), "unknown");
     ROBO_CHECK_STR_EQ(robo_render_domain_name((robo_render_diagnostic_domain_t)-1), "unknown");
+}
+
+/*
+ * The presentation vocabulary: what 11.13 added, asserted as the *shape* of the claim rather than by
+ * exercising it (the raster suite has the pixel cases). Three things are worth a release check.
+ *
+ * The first is that the door exists and reports the flag -- one fact, read twice.
+ *
+ * The second is the pair the release note makes, stated in the direction a reader would get wrong:
+ * presentation is **1** and compositor is still **0**, because "a frame can reach a destination" and
+ * "more than one surface has an order" are different claims, and a build that had quietly conflated
+ * them would present the second as the first. This is the same discipline the raster release applied
+ * to `RoboPaint`'s `raster` flag one module down.
+ *
+ * The third is the diagnostic vocabulary, which did **not** grow: a presentation failure is a `FRAME`
+ * failure, because that is the stage -- a frame that could not be run or could not be composited -- and
+ * a `PRESENT` domain would send a reader to a module that does not own the pixels.
+ */
+static void test_render_conformance_presenter(void)
+{
+    robo_render_capabilities_t capabilities;
+    robo_render_present_record_t record;
+
+    render_fixture();
+
+    ROBO_CHECK_EQ_INT(ROBO_RENDER_PRESENTATION_IMPLEMENTED, 1);
+    ROBO_CHECK_EQ_INT(robo_render_presentation_is_implemented(), 1);
+    ROBO_CHECK_EQ_INT(robo_render_get_capabilities(&capabilities), ROBO_OK);
+    ROBO_CHECK_EQ_INT(capabilities.presentation, 1);
+    /* A frame into one destination is not a compositor. */
+    ROBO_CHECK_EQ_INT(capabilities.compositor, 0);
+
+    /* The record's "nothing" state: no frame, no destination, nothing presented. A cleared record is
+     * *invalid* rather than valid-and-empty -- it describes no frame -- which is the same reading
+     * `robo_render_frame_is_valid` gives a zeroed frame. */
+    robo_render_present_record_init(&record);
+    ROBO_CHECK_EQ_INT((int)record.frame_width, 0);
+    ROBO_CHECK_EQ_INT((int)record.dest_format, (int)ROBO_GFX_FORMAT_UNKNOWN);
+    ROBO_CHECK_EQ_INT(record.complete, 0);
+    ROBO_CHECK_EQ_INT(record.presented_pixels, 0u);
+    ROBO_CHECK_EQ_INT(record.clipped_pixels, 0u);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(&record), 0);
+    ROBO_CHECK_EQ_INT(robo_render_present_record_is_valid(NULL), 0);
+    robo_render_present_record_init(NULL); /* safe */
+
+    /* The frame domain is the one a presentation failure names, and it is the same domain a run's own
+     * failure uses -- there is no fourth "present" row to look for. */
+    ROBO_CHECK_STR_EQ(robo_render_domain_name(ROBO_RENDER_DOMAIN_FRAME), "frame");
+    ROBO_CHECK_EQ_INT((int)ROBO_RENDER_DOMAIN_COUNT, 5);
 }
 
 static void test_render_conformance_diagnostics(void)
@@ -629,6 +684,7 @@ void robo_test_register_render(void)
                        test_render_conformance_capabilities);
     robo_test_register("render.conformance.vocabulary", test_render_conformance_vocabulary);
     robo_test_register("render.conformance.diagnostics", test_render_conformance_diagnostics);
+    robo_test_register("render.conformance.presenter", test_render_conformance_presenter);
     robo_test_register("render.target_facts", test_render_target_facts);
     robo_test_register("render.target_refusals", test_render_target_refusals);
     robo_test_register("render.target_pixels_and_equality",
