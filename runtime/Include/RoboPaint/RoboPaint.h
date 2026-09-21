@@ -160,9 +160,22 @@ typedef struct robo_paint_capabilities {
      *  `border_painting` and `text_painting` -- but the three structural kinds are not drawings,
      *  so a pass that consumed a whole list is still absent. */
     int raster;
-    /** Knowing which operations a change made stale. **0**: Phase 11.11. What exists
-     *  instead is the *input* -- `robo_paint_stats_t.style_only` -- because a paint list
-     *  is regenerated rather than patched (RoboPaintContext.h). */
+    /**
+     * **Knowing which regions a change made stale** (11.11), and **1**: an owned set of
+     * rectangles, each with why it needs repainting, the boundary it was drawn under and
+     * whether it is a conservative whole-extent answer -- filled by explicit marks (a
+     * rectangle, an old-and-new pair, a box, a subtree, the whole extent), by comparing two
+     * paint artifacts, or by reading `robo_paint_stats_t.style_only`, which this module and
+     * 11.1 document as its input.
+     *
+     * The field 11.1 declared and left 0, and the claim it makes is narrower than the word: a
+     * region is a promise that a repaint of it is **sufficient**, never that those pixels
+     * changed -- every door here widens rather than narrows when it is not certain. It does not
+     * claim a rasteriser (`raster` stays 0), a partial list *patch* (the display list is rebuilt
+     * and the set says how little of it a caller may re-execute), a tile tree, a damage
+     * history, frame scheduling or a compositor layer, and it is a *claim about regions* rather
+     * than about pixels reaching a screen -- `drawing` is the field for that.
+     */
     int paint_invalidation;
     /**
      * **Background painting** (11.4), and **1**: a box's `background-color` reaching its

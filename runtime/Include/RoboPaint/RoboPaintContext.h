@@ -28,16 +28,21 @@
  *
  * **That is where paint invalidation stops, and the boundary is deliberate.** 10.14
  * asks a per-box question -- *is this conclusion still true?* -- and its answer is a
- * state on the box. Paint invalidation asks a different question -- *is this list still
- * current?* -- and this phase's answer is not a mechanism at all: a paint list is **not
- * a cache of conclusions**, it is regenerated from the tree on every pass, so there is
- * nothing for a dirty-rect system to maintain and nothing for a second invalidation
- * vocabulary to mean. What the phase hands the future system is its **input** rather
- * than its machinery: `robo_paint_stats_t.style_only` counts the visited boxes whose
- * only staleness is a paint-visible change, which is exactly the set a Phase 11.11
- * system would repaint. Reading that number is not painting anything, and building the
- * system that consumes it is a later goal's -- which is why this module has no
- * paint-invalidation constant, no dirty rectangle and no per-list currency check.
+ * state on the box. Paint invalidation asks a different question -- *which pixels of a
+ * picture I already have are stale?* -- and 11.1's answer was not a mechanism at all: a
+ * paint list is **not a cache of conclusions**, it is regenerated from the tree on every
+ * pass, so there was nothing for a dirty-rect system to maintain and nothing for a second
+ * invalidation vocabulary to mean. What the phase handed the future system is its
+ * **input** rather than its machinery: `robo_paint_stats_t.style_only` counts the visited
+ * boxes whose only staleness is a paint-visible change, which is exactly the set a
+ * paint-invalidation system would repaint. Reading that number is not painting anything,
+ * and building the system that consumes it was a later goal's -- **11.11, which is that
+ * goal** (`RoboPaintInvalidation.h`): `robo_paint_invalidation_set_from_stats` turns a
+ * non-zero `style_only` into a conservative whole-extent region and a zero into nothing
+ * owed. The two things 11.1 declined are still declined, in the shape it described them:
+ * there is no dirty-rectangle *cache* (a set is produced from two artifacts or from a
+ * mark, never maintained across frames), and no per-list currency check -- a list is
+ * current because it was just built, not because a bit says so.
  *
  * The context owns **nothing borrowed**: the tree and the caller's user data are
  * references, the list is the caller's, and the stats are a record by value. Destroying
@@ -245,9 +250,11 @@ typedef struct robo_paint_stats {
      * Visited boxes whose only staleness is a **paint-visible** change (10.14's `STYLE`
      * bit with no layout bit).
      *
-     * The input a paint-invalidation system will read, and the whole of this phase's
-     * footprint on that question -- see the header comment. It is not a count of
-     * anything this pass did; it is a count of what a *later* pass would owe.
+     * The input a paint-invalidation system reads, and the whole of this phase's footprint
+     * on that question -- see the header comment, and `RoboPaintInvalidation.h` for the
+     * system 11.11 built on it. It is not a count of anything this pass did; it is a count
+     * of what a *later* pass would owe, which is why a non-zero value is turned into a
+     * conservative whole-extent region rather than a guess at where the boxes are.
      */
     size_t style_only;
     /** Deepest box seen. */

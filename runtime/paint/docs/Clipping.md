@@ -350,8 +350,11 @@ document with no `opacity` in it produces byte-identical output.
 `border-radius` and rounded clipping, `clip-path`, masks, filters, transforms, `mix-blend`,
 scrolling and scroll containers (a clipped box does not scroll in this build — the boundary is a
 boundary and nothing more), overflow clipping for absolute/fixed/sticky positioning (11.12+ has no
-such positioning yet), compositor-level and tile-level clipping, GPU clip scheduling, paint invalidation (11.11),
-display-list replay and rasterisation architecture. `raster` stays **0** and
+such positioning yet), compositor-level and tile-level clipping, GPU clip scheduling,
+display-list replay and rasterisation architecture. **Paint invalidation landed in 11.11** and reads
+this boundary rather than changing it: a region is narrowed by the clip a drawing was under, and one
+whose boundary excluded every pixel is *not* produced at all (`Invalidation.md` §7) — so the model
+above is what it reads, and the omission is the exclusion rule rather than a missing clip concept. `raster` stays **0** and
 `ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: this phase removes none of the drawings and adds none.
 
 **Hit testing (11.10) is no longer on that list**, and the phase added nothing to this file's subject
@@ -371,7 +374,10 @@ this build      box overflow → per-axis record → push/pop scope → rectangl
 Phase 11.12     the same record, carried into a stacking context and a display-list replay
 ```
 
-**Next:** 11.11 — paint invalidation, which has to decide what a *drawing* depends on and when a
-recorded sequence is stale, and which now has a second reader to keep honest: a boundary that moved
-without invalidating the paint list would leave the hit test and the painter agreeing about a
-document that is no longer there.
+**Next:** 11.12 — rasterization, which now has two readers to keep honest rather than one: a boundary
+that moved without invalidating the paint list would leave the hit test and the painter agreeing about
+a document that is no longer there, and a region that ignored the boundary would repaint pixels a
+scope had already excluded. 11.11 answered the second of those by **narrowing against this record**
+(`Invalidation.md` §7) and by keeping the rectangle whole whenever an axis of the boundary has no
+extent to intersect with, which is the same refusal `robo_paint_clip_rect` makes — the phase did not
+change this model, it read it.

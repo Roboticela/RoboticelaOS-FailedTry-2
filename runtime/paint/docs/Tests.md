@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.10 — with 11.7, image painting, filled in)
+# RoboPaint Test Organisation (through Phase 11.11 — with 11.7, image painting, filled in)
 
-Thirteen suite files, **203** cases, one framework. Each phase adds no test runner, no reporter and no
+Fourteen suite files, **232** cases, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,12 +8,12 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the thirteen suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the fourteen suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
 The count is the `paint.*` prefix's, read from a run rather than from this table: a `--filter`
-that matched a suite's *own* prefix reports 203, and the six `demo.paint.*` cases of the visual
+that matched a suite's *own* prefix reports 232, and the six `demo.paint.*` cases of the visual
 demo come with it because the filter is a substring match.
 
 ---
@@ -34,6 +34,7 @@ demo come with it because the filter is a substring match.
 | `SuiteRoboPaintOpacity.c` | `paint.opacity.*` | 28 | is a drawing's **strength** a product along a path rather than a replacement — does a scope appear exactly when the strength *changed*, does it open at the box's marker rather than its content boundary, does every drawing kind receive it, do the pixels equal the graphics module's own blend of the opaque ones, does a sibling stay unaffected, and is the gap from CSS's group semantics measured rather than hidden? |
 | `SuiteRoboPaintHitTest.c` | `paint.hit-test.*` | 26 | does the **inverse** query hold — is the answer the last node *drawn* at the point rather than the first in document order, is the region the border box (including a transparent one, and excluding an empty one), does a `overflow: hidden` ancestor clip its children while its own band stays hittable, does a strength not gate, and does the answer match both the painter's records and the **pixels**? |
 | `SuiteRoboPaintImage.c` | `paint.image.*` | 15 | does a document's **picture** travel resource → record → command → pixels — is the destination the box layout gave the element, is the source the whole image, is the scaling the graphics module's own mapping and alpha preserved, does every way an image can be *missing* produce a counted skip rather than a crash or a placeholder, and do the two lists each own the resource they name? |
+| `SuiteRoboPaintInvalidation.c` | `paint.invalidation.*` | 29 | given **two states of one document**, does the region set cover what changed — is a geometry change two rectangles rather than one, does a clip or an opacity change reach the set through the drawings it bounds, is a no-op no-op, do the regions survive the artifacts they came from, and does **repainting only them** reproduce a full repaint byte for byte? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -464,6 +465,52 @@ the axes, passes a solid fixture and fails this one.
   either dump; and the record's and command's lines carry the resource, `src=0,0,4x4` and
   `source_size=4x4` as text.
 
+### 1.16 — the invalidation suite (`paint.invalidation.*`, 29 cases)
+
+**29 cases**, and every one is about **two states of one document**: either two trees built from one
+HTML with two sheets (laid out and painted through the real chain, so both sides are documents and a
+region attributed to a node is a node both trees really have), or one document plus a **mark** naming
+a box in it. A hand-built list would prove the walk reads a struct rather than the walk reads a
+document, so there is not one.
+
+- **the vocabularies** (`reason_vocabulary`, `class_and_scope_vocabulary`, `classify_property`,
+  `reason_for_property`, `unconsumed_properties`) — eleven reasons, three classes and three scopes
+  each print a name that is not "unknown"; every property the module *draws from* answers `PAINT` or
+  `OPACITY` and every property layout *measures* answers `LAYOUT`; and the three properties RoboLayout
+  registers as paint-visible but **no layer consumes** (`visibility`, `text-decoration`,
+  `background-image`) answer `NONE` — the case a later goal reads to find out that consuming one of
+  them means adding a row to the table.
+- **the set on its own** (`empty_set`, `add_rect`, `bounds_union`, `narrowed`, `conservative`,
+  `zero_area_and_invalid`, `add_change_union`) — one region per call in the order they were added; a
+  boundary naming both axes **narrows**; a boundary with an axis of no extent keeps the rectangle
+  **whole** and counts it; a boundary that excludes everything produces **no** region rather than an
+  empty one; and `add_change` stores the **union** of an old and a new rectangle, as one region.
+- **a change needs repainting, and its absence does not** (`no_op`, `background_change`,
+  `border_change`, `text_change`) — a document compared with **itself** produces an empty set with
+  scope `NONE`; and a recoloured background, a recoloured border and a recoloured run each produce a
+  region whose rectangle is read back out of the artifact's own record rather than written down.
+- **the picture's own reasons** (`opacity_change`, `geometry_move`, `geometry_resize`, `insertion`,
+  `clip_change`) — a parent's `opacity` change puts the **descendant's** rectangle in the set, because
+  that is what the subtree composites to; a displacement produces **two** regions, each equal to one of
+  the box's own painted rectangles; a resize leaves the wide old rectangle covered; an element going
+  from `display: none` to visible is an insertion and the same pair asked backwards is a removal;
+  and a clipping ancestor moving reports `CLIP` rather than `GEOMETRY`, with the boundary travelling
+  on the region and `narrowed` set.
+- **pixels** (`stale_pixels`, `partial_repaint_matches_full`) — §11 of `Invalidation.md`: every pixel
+  that differs between two rendered frames lies inside a region, and clearing the regions of the first
+  frame and painting the second into it reproduces a **full** render of the second byte for byte.
+- **the doors that take an artifact** (`mark_operation_and_node`, `full_and_from_stats`,
+  `display_lists`) — a record's mark and a list's node mark read the **same** geometry out of the same
+  artifact; `from_stats` turns `style_only` into one whole-extent region and into **nothing** when the
+  count is zero; and comparing two **display lists** agrees with comparing the two record lists about
+  the same background change.
+- **snapshot · determinism · dump · ownership** (`determinism_and_isolation`, `dump`, `lifetime`) —
+  the same transition built in two independent trees produces equal sets **and equal dumps**; the
+  original pair's lists are then destroyed and the set is read again, unchanged; the dump names the
+  reason, prints no address and refuses a buffer too small by handing back the length it needed; and
+  one build/teardown cycle run twice compares the two live-block counts, so the set's ownership is
+  measured rather than assumed.
+
 ---
 
 ## 2. Fixtures
@@ -501,13 +548,15 @@ door, so a suite cannot pass by agreeing with the traversal's copy of it. Glyph 
 why: a face never prepared, or a cmap table that is *nearly* right, both make a font test pass for
 the wrong reason).
 
-They still do **not** assert anything about border *shape* rasterisation, a whole-list rasteriser,
-transforms, scrolling, `border-radius`, image **fetching** or decoding, group compositing, or paint
-invalidation: a suite that asserted one of those would be asserting a later phase. The list is
-shorter than it once was, and every removal is a phase: **image painting** left it in 11.7 (a
-document's picture is now read back as pixels), real clipping in 11.8, opacity in 11.9 and hit
-testing in 11.10 -- and each of those left the suite that already owned the mechanism reporting the
-new subject rather than a new suite being written for it.
+They still do **not** assert anything about border *shape* rasterisation, a whole-list rasteriser, a
+rasteriser **of a region**, transforms, scrolling, `border-radius`, image **fetching** or decoding,
+group compositing, damage history between frames, region merging or a compositor: a suite that
+asserted one of those would be asserting a later phase. The list is shorter than it once was, and
+every removal is a phase: **image painting** left it in 11.7 (a document's picture is now read back
+as pixels), real clipping in 11.8, opacity in 11.9, hit testing in 11.10 and **paint invalidation** in
+11.11 -- and each of those left the suite that already owned the mechanism reporting the new subject
+rather than a new suite being written for it, except 11.11, whose subject (two states of one
+document) no earlier suite owned.
 
 ---
 
@@ -717,8 +766,8 @@ so a reader following Phase 11 in order meets the picture before the boundary th
    would have passed every image assertion for the wrong reason; the hand-built case sets three
    nested rectangles and asserts `robo_paint_boxes_is_valid` on them first.
 
-**Gates:** Debug **2578/2578**; Release and ASan + UBSan **2578/2578** with no diagnostics — the
-paint module contributing **203** of them across its thirteen suite files.
+**Gates:** Debug **2607/2607**; Release and ASan + UBSan **2607/2607** with no diagnostics — the
+paint module contributing **232** of them across its fourteen suite files.
 
 ## 13. What the 11.8 suite found
 
@@ -805,4 +854,39 @@ would have been wrong about the *document*.
    refuse a point on something visibly drawn. The suite records the limitation as
    `visibility_is_not_consumed` rather than papering over it, so the phase that teaches layout and
    paint about `visibility` has a failing assertion pointing at the place that must change.
+
+## 16. What the 11.11 suite found
+
+Three, and every one is the same shape: an assertion that was *plausible* about the artifact and
+wrong about the document.
+
+1. **A box that moves is compared at three positions, and only one of them paints.** The first
+   version of the diff compared **every** record a document emits, so one moved and recoloured box
+   produced **six** regions — `BEGIN_BOX`, `BACKGROUND` and `END_BOX`, each as the old rectangle and
+   the new one — for one box that draws one thing. The walk now compares every position and only
+   *draws regions for the ones that paint* (`robo_paint_op_kind_draws`), which is why
+   `geometry_move` can assert a count of **two** and the dump can assert `regions=2`. What the case
+   had to keep is that the structural positions still appear in the *counters* (`compared`,
+   `inserted`, `removed`), so the finding is a rule about regions rather than about the walk — and
+   the rule is safe only because a scope's contents repeat the scope's own boundary and strength, so
+   nothing is lost by ignoring the scope record itself. Both halves are pinned (`clip_change`,
+   `opacity_change`).
+2. **`display: none` is not an insertion, but a box that grows a margin is not one either.** The
+   insertion case was first written as *"the box grows a bottom margin, so the records after it are
+   inserted"* — which is wrong twice: the lists then have the **same** length (one box, one style, a
+   changed rectangle), so the difference is a `GEOMETRY` region and no insertion exists to find. A
+   genuine insertion needs records that only one artifact has, and the cheapest honest way to make
+   them is an element that is `display: none` in one state and painted in the other — **last in the
+   document**, so the tail is what differs and the shared positions still pair up. The same pair read
+   backwards is the removal, which is why the case asks for both directions of one difference rather
+   than building two fixtures.
+3. **`robo_paint_boxes_of` and a region are in different coordinate spaces, and the difference is
+   exactly 20 pixels.** The subtree case compared a region against the *layout-space* boxes of a
+   descendant and failed — not because the region was wrong, but because the two spaces are not
+   interchangeable (11.1): the region is a **paint** rectangle. The suite already had the door that
+   reads the other space (`inval_box_rect`, which takes a record's own boxes) and now uses it in both
+   places that compare geometry, which is also why the doc comment on that helper says what it says.
+   A case that had asserted the *corner* alone would have passed with the wrong space and the wrong
+   box — so the subtree case checks the descendant's top-left, one pixel in, **and** its
+   bottom-right.
 

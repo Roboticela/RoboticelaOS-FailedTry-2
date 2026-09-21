@@ -62,12 +62,15 @@ static const paint_capability_row_t paint_capability_rows[] = {
     { "decoration_ops", 1 },
     /* `drawing` is read from its own constant so the field and its two doors cannot drift.
      * 11.3's `display_lists` and 11.4's `drawing`/`background_painting` joined the 1s, and
-     * 11.5's `border_painting` beside them; `raster` and `paint_invalidation` name later
-     * phases outright. */
+     * 11.5's `border_painting` beside them; `raster` names a later phase outright. */
     { "drawing", ROBO_PAINT_DRAWING_IMPLEMENTED },
     { "display_lists", 1 },
     { "raster", 0 },
-    { "paint_invalidation", 0 },
+    /* 11.11's `paint_invalidation`, the field 11.1 declared and left 0: an owned set of
+     * rectangles with a reason, a boundary and a conservative flag each, filled by explicit
+     * marks or by comparing two artifacts. It is narrower than `drawing` by design -- a region
+     * says a repaint of it is *sufficient*, and this build still rasterises no whole list. */
+    { "paint_invalidation", 1 },
     { "background_painting", 1 },
     { "border_painting", 1 },
     { "text_painting", 1 },
@@ -183,13 +186,13 @@ static void test_paint_conformance_drawing_present(void)
     ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
 
-    /* The version this build reports is 0.10.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.11.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
-     * still add to this surface (11.7 added a drawing kind, a command kind and a capability
+     * still add to this surface (11.11 added a module, a diagnostic domain and one capability
      * field without changing a meaning). */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 10);
+    ROBO_CHECK_EQ_INT((int)minor, 11);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -240,10 +243,12 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 15);
     /* 11.10 appended the hit test's domain, which was the only vocabulary that phase changed:
      * it adds a module of its own beside the traversal rather than an operation kind, because a
-     * hit test produces an **answer** and not a drawing. 11.7 then appended 11.7's `IMAGE` kind
+     * hit test produces an **answer** and not a drawing. 11.7 then appended its `IMAGE` kind
      * here and its own `image_painting` capability field, and changed no domain -- an image is a
-     * drawing of an existing module rather than a new one. */
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 12);
+     * drawing of an existing module rather than a new one. 11.11 appended the invalidation
+     * domain, because deciding *which* regions are stale is a module of its own beside the pass
+     * that produced the picture. */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 13);
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
         int is_structural = robo_paint_op_kind_is_structural(kind);

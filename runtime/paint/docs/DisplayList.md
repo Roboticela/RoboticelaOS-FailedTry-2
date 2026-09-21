@@ -279,8 +279,11 @@ the widest line this build can actually produce rather than trusting the derivat
 - **No image commands**, and nothing behind the one text kind that does exist: no shaping, no
   bidi, no line breaking, no fallback. What a `draw-text` states is the runs RoboLayout measured,
   in logical order, resolvable against a font the *caller* supplies.
-- **No scroll, damage, tile or compositor concepts**, and no paint invalidation (11.11) or
-  hit testing (11.10).
+- **No scroll, damage, tile or compositor concepts.** Paint invalidation (11.11) and hit testing
+  (11.10) have since been built, and both read this artifact rather than changing it: a diff over two
+  display lists compares command pairs position by position and reports a region per position whose
+  drawing differs, and the two lists are still rebuilt whole (`raster` is 0), so there is nothing here
+  that patches a list or tracks damage between frames.
 
 ---
 

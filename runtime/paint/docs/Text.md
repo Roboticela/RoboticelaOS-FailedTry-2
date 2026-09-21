@@ -260,10 +260,12 @@ are **derived** from those two rather than guessed.
 
 Shaping, the bidi algorithm, line breaking, whitespace collapsing, font fallback, variable-font
 instancing, `text-decoration`, `text-shadow`, text selection, text editing, transforms,
-`border-radius`, gradients, display-list replay and rasterisation architecture, compositor, paint
-invalidation (11.11), scrolling, JavaScript and networking.
-Two things left this list after it was written, and both are recorded here rather than deleted
-quietly: **image painting** (11.7 draws a document's pictures through the same pass, with a resource
+`border-radius`, gradients, display-list replay and rasterisation architecture, compositor,
+scrolling, JavaScript and networking.
+Three things left this list after it was written, and all are recorded here rather than deleted
+quietly: paint invalidation (11.11, which reads a `TEXT` record's rectangle like any other drawing —
+a run's change is a `TEXT` region covering its **advance box**, and a run added or removed is a
+`CONTENT` one), **image painting** (11.7 draws a document's pictures through the same pass, with a resource
 where a run has characters -- `Images.md`), and the element's **strength**, because since 11.9 a run
 is stroked at the opacity in force, passed in by the traversal rather than read from the run's own
 style — the run's box is the element that owns it and that element already opened the scope, so a

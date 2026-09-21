@@ -1,9 +1,9 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.10, hit testing** — with 11.7's
-**image painting** filled in after it).
+Paint subsystem for Roboticela Runtime (**through Phase 11.11, paint invalidation** — with 11.7's
+**image painting** filled in after 11.10 landed).
 
-**Version:** 0.10.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.11.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a display command's
@@ -19,7 +19,11 @@ whole list does not exist.
 function; one deciding whether to *make* one reads the fields. `hit_testing` (11.10) is the field
 after those and the first that is not about drawing at all: the module can also be asked the
 **inverse** question, and the answer carries the geometry, the boundary and the strength the
-painter would use.
+painter would use. `paint_invalidation` (11.11) is the field 11.1 declared and left **0**, and it
+flips now: the module can be asked which pixels a change made stale — a set of regions, each with a
+reason, the boundary it was drawn under and whether it is a conservative whole-extent answer. It is a
+narrower claim than the word, and the difference is the same one `drawing` and `raster` keep apart: a
+region says a repaint of it is **sufficient**, and `raster` stays 0, so nothing here executes one.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
@@ -27,16 +31,19 @@ RoboPaint turns those answers into a **sequence of work** a rasteriser executes,
 that sequence into the **artifact** a rasteriser consumes, 11.4–11.7 put the colours — the
 **characters** and the **pictures** — on a surface, 11.8 makes the **boundary** those drawings are
 bounded by an explicit, nested scope in that artifact, 11.9 gives every drawing a
-**strength** that accumulates down the tree and is applied in the same pass, and 11.10 asks
-the whole thing **backwards** — a point in, the node drawn there out.
+**strength** that accumulates down the tree and is applied in the same pass, 11.10 asks
+the whole thing **backwards** — a point in, the node drawn there out — and 11.11 asks it
+**across time**: given two states of one document, which rectangles of the first are no longer
+the second's pixels.
 
 ```text
 HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → push-clip / push-opacity / draw-background / draw-border / draw-image / draw-text / pop-opacity / pop-clip → RoboGraphics raster → surface
 ```
 
 This build stops after a box's **decorations, its text, its images, the scopes that bound them and
-the strength they are drawn at**: a rasteriser of the whole list is a later goal, and it is named
-in §Boundaries where it would otherwise be assumed.
+the strength they are drawn at**, plus — since 11.11 — the answer to **which regions of that picture
+a change made stale**: a rasteriser of the whole list, and of a region, is a later goal, and it is
+named in §Boundaries where it would otherwise be assumed.
 
 ## The one structural decision
 
@@ -114,15 +121,21 @@ boundary without inferring it from the next child's depth — and a childless bo
 as a parent does. It is why the colour rule splits on *drawing* rather than on *marker*: `CONTENT`
 is structural but is not a box marker.
 
-## The seventh structural decision: invalidation stops at the build
+## The seventh structural decision: a region is a promise of sufficiency
 
-10.14 asks a per-box question — *is this conclusion still true?* — and answers with a state
-on the box. Paint invalidation asks a different question — *is this list still current?* —
-and this phase's answer is not a mechanism: the list is **not a cache of conclusions**, it
-is regenerated from the tree on every pass. What the phase hands a future system is its
-*input*: `robo_paint_stats_t.style_only` counts the visited boxes whose only staleness is a
-paint-visible change. There is no paint-invalidation constant, no dirty rectangle and no
-per-list currency check.
+11.1 recorded that a paint list is **not a cache of conclusions** — it is regenerated from the tree
+on every pass — and 11.11 builds on that rather than around it. The list is still rebuilt whole; what
+the phase adds is an answer to *which of those pixels are stale*, and the answer's shape follows from
+one rule: **widen when the module is not certain, narrow only when the boundary is.**
+
+So a region (11.11) says that a repaint of its rectangle is **sufficient**, never that those pixels
+changed, and `narrowed`/`conservative` are the two flags that say which of the two it is. Two
+rectangles come out of a move — the old position is as stale as the new one — and a change the
+producer cannot place becomes **one whole-extent** region rather than a guess, which is what
+`scope` reports as `FULL`. There is still no dirty-rectangle *history*, no tile tree and no damage
+accumulation between frames: the set describes one transition between two states a caller hands over,
+and `robo_paint_invalidation_set_from_stats` is how 11.1's `style_only` count becomes exactly the
+coarse answer it always was.
 
 ## The eighth structural decision: the display list resolves the box model
 
@@ -449,7 +462,8 @@ because nothing in an operation points anywhere.
 | `paint/docs/Opacity.md` | The strength: the record and its two invalid directions, where a scope is emitted and why that is *not* where the clip's is, the builder's eight refusals, the pass's one application point, the counters, and the group-compositing gap stated with the case that measures it (11.9) |
 | `paint/docs/HitTest.md` | The inverse query: why it lives in RoboPaint, the coordinate model, the four rules (last drawn wins, the border box as the region, the contents' boundary versus the box's own, a strength that does not gate), the result and its flags, the counters and their three identities, what the walk refuses, the trace's five reasons, and the screen-agreement case (11.10) |
 | `paint/docs/Images.md` | The image payload: whose resource it is, the record's fields and why the destination is the content box, where the record sits in the sequence, the colour-rule split the phase forced, the new graphics primitive and its sampling/alpha rules, the missing-image policy, validation, ownership, mutation isolation, determinism, the dump, the counters and the phase's five findings (11.7) |
-| `paint/docs/Tests.md` | Suite map (thirteen suite files, 203 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.10 found (11.7 in numeric place) |
+| `paint/docs/Invalidation.md` | Paint invalidation: why it lives here, the region record and its two flags, the three vocabularies (reason, class, scope), the ten doors and what each caller must know, the rule that only drawing records produce regions, the old-and-new rectangle, the boundary and the strength, the counters and their identities, the dump, the phase's five findings, the two pixel cases and everything deliberately absent (11.11) |
+| `paint/docs/Tests.md` | Suite map (fourteen suite files, 232 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.11 found (11.7 in numeric place) |
 
 ## Building and testing
 
@@ -459,7 +473,7 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ./Out/RoboTest.host.exe --filter paint.
 ```
 
-**203** of the cases the filter reports are this module's (**thirteen** suite files); the filter is a
+**232** of the cases the filter reports are this module's (**fourteen** suite files); the filter is a
 substring match, so the six `demo.paint.*` cases of the visual demo come with them
 (`paint/docs/Tests.md` §1).
 
@@ -505,10 +519,19 @@ RoboGraphics' own scaled sampler.
   scrolls); and compositor- or tile-level clipping. The boundary is enforced in one place — the
   pass's own stack — for every drawing kind, so no painter carries a second copy of the rule.
 - **No scrolling**, and no scroll offsets — 10.13 recorded the overflow; nothing scrolls it.
-- No **paint invalidation** (11.11) — the final positioned geometry is preserved for it, but it
-  is not built here. Hit testing *is* built (11.10), and it is the first facility this module has
-  that answers a question rather than drawing an answer: the point it takes is in the **same
-  plane** the drawings land on, because there is no scroll offset, transform or zoom to undo.
+- **Regions, not a rasteriser of them.** `paint_invalidation` is 1 from 11.11: given two states of a
+  document — two record lists, two display lists, or a pass record — the module says which rectangles
+  of the first are stale, why, under which boundary, and whether the answer is conservative. What is
+  absent is everything *around* that answer: no executor for a region (`raster` is 0), no partial
+  display-list **patch** (the list is rebuilt whole), no damage history between frames, no tile tree,
+  no region merging, no compositor layer, no frame scheduling and no invalidation driven by
+  animation, transitions or input. `extent` is always the caller's, because the module owns no
+  viewport. `paint/docs/Invalidation.md` §12 is the list, and §11 is the two pixel cases that hold it
+  to its one promise: a repaint of the regions reproduces a full repaint **byte for byte**.
+- Hit testing *is* built (11.10), and it was the first facility this module had that answers a
+  question rather than drawing an answer: the point it takes is in the **same plane** the drawings
+  land on, because there is no scroll offset, transform or zoom to undo — which is the same reason an
+  invalidation region needs no coordinate mapping.
 - **No event dispatch, and no `pointer-events`.** A hit test names one node; bubbling, focus and
   delivery are Phase 12's, and `pointer-events: none` does not exist in this build — so a node at
   `opacity: 0` is still the answer, and says so through `ROBO_PAINT_HIT_FLAG_TRANSPARENT`.

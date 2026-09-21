@@ -321,8 +321,11 @@ Three narrower pixel cases pin the individual kinds, each against
 
 Blend modes and `mix-blend-mode`; filters and `backdrop-filter`; masks and `clip-path`;
 `border-radius` clipping; transforms; animations and transitions; a compositor, compositor layers,
-tile compositing and a raster scheduler; stacking contexts; scrolling; paint invalidation (11.11);
-hit testing (11.10); and group opacity, as §9 states with the case that measures the gap. The
+tile compositing and a raster scheduler; stacking contexts; scrolling; and group opacity, as §9 states
+with the case that measures the gap. (Paint invalidation and hit testing left this list after it was
+written — 11.11 and 11.10 respectively — and the first of them reads this strength rather than changing
+it: a **parent's** declaration change invalidates its **descendants'** rectangles, because the strength
+is carried on every record, which is the subtree found without a compositor. `Invalidation.md` §7.) The
 module's capability model names exactly what is here — `opacity` is **1** while `raster` stays **0**
 — and version **0.8.0** is the release that made it so.
 

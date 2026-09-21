@@ -401,11 +401,23 @@ typedef enum robo_paint_diagnostic_domain {
      * reached from a hit test is a failure of a different question than the same failure reached
      * from a paint pass, and a reader sent to the wrong walk is a reader sent to the wrong phase.
      */
-    ROBO_PAINT_DOMAIN_HIT_TEST = 11
+    ROBO_PAINT_DOMAIN_HIT_TEST = 11,
+    /**
+     * Paint invalidation (11.11): a set's growth, a region that is not a record, a mark that
+     * names no box, and the artifact comparisons.
+     *
+     * Its own domain for the reason `DISPLAY_LIST`, `OPACITY` and `HIT_TEST` have one: "no
+     * record in the list names that box" reached from an invalidation is a failure of a
+     * different question than the same failure reached from a paint pass, and a reader sent to
+     * the wrong phase is a reader sent to the wrong phase. Appended at the end because the
+     * domain vocabulary is asserted **positionally** by `paint.conformance.*` -- the same
+     * constraint `image_painting` records one vocabulary over.
+     */
+    ROBO_PAINT_DOMAIN_INVALIDATION = 12
 } robo_paint_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_PAINT_DOMAIN_COUNT 12u
+#define ROBO_PAINT_DOMAIN_COUNT 13u
 
 /** Non-zero if @p domain is a defined domain. */
 int robo_paint_domain_is_known(robo_paint_diagnostic_domain_t domain);

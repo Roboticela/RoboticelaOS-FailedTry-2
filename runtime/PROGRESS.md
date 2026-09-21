@@ -5798,6 +5798,128 @@ literal: each comes from the painter's own `BEGIN_BOX`/`TEXT` record for the nod
 `paint/README.md`, `paint/docs/{Architecture,Clipping,DisplayList,Operations,Tests}.md`,
 `PROGRESS.md`, `ARCHITECTURE.md` and `.cursor/rules/runtime-plan.mdc`.
 
+## Goal 11.11 — Paint invalidation
+
+_Implemented. RoboPaint **0.11.0**, capability `paint_invalidation` = **1**; `raster` is now the only
+field still **0**._
+
+11.11 asks the question the ten releases before it raised and could not answer: given a picture this
+module already produced, **which of its pixels are no longer the pixels the document describes?** The
+answer is a set of rectangles rather than a mechanism, and that is the release's central decision --
+11.1 recorded that a paint list is *not a cache of conclusions* but is regenerated from the tree on
+every pass, and this goal crosses the line that record drew **without** turning the list into a
+cache: the display list is still rebuilt whole, and the set says how little of it a caller may
+re-execute. The input 11.1 left behind (`robo_paint_stats_t.style_only`) is now the coarsest door in
+the new module rather than a promise about a future one.
+
+| Piece | Where |
+|---|---|
+| The region record (rectangle, node, reason, boundary, `narrowed`, `full`) and its validity rule | `RoboPaintInvalidation.h/.c` |
+| The three vocabularies -- 11 reasons, 3 classes, 3 scopes -- and their names | `RoboPaintInvalidation.h/.c` |
+| `classify_property` / `reason_for_property`: what a declaration costs **this build's picture** | `RoboPaintInvalidation.c` |
+| The owned, growable, deterministic set: add, iterate, bound, compare, count | `RoboPaintInvalidation.c` |
+| The ten producers: `add_rect`, `add_change`, `mark_operation`, `mark_node`, `mark_subtree`, `mark_node_change`, `mark_full`, `from_lists`, `from_display_lists`, `from_stats` | `RoboPaintInvalidation.c` |
+| `robo_paint_invalidation_set_write()` -- one line per region plus the summary the dump ends with | `RoboPaintInvalidation.c` |
+| `ROBO_PAINT_DOMAIN_INVALIDATION` (12, count 13) and the capability field 11.1 declared and left 0 | `RoboPaintTypes.h/.c`, `RoboPaint.h`, `RoboPaint.c`, `RoboPaintVersion.h` |
+| The suite: 29 cases built from **two states of one document**, two of them at the pixel | `paint/tests/SuiteRoboPaintInvalidation.c` |
+| The module's own document | `paint/docs/Invalidation.md` |
+
+Four load-bearing decisions.
+
+**A region promises that a repaint of it is *sufficient*, never that those pixels changed.** Every door
+widens when it is not certain and narrows only against a boundary it can **read**: a boundary naming
+both axes narrows the rectangle and sets `narrowed`, an axis with no extent keeps it whole and counts
+it `conservative`, and a boundary the module cannot read is treated the same way. The failure mode the
+goal was written against is a **missing** rectangle -- a stale pixel nobody repaints -- and the
+cheapest insurance against it is being allowed to be too large, which is also why a change the
+producer cannot place becomes **one whole-extent** region rather than a guess.
+
+**A move is two rectangles, and which doors union them is not an inconsistency.** `add_change` stores
+the **union** (one region, because the caller vouched that both rectangles came from one thing) while
+`mark_node_change` and the diff store **two** (because the two were drawn under boundaries that need
+not be the same -- a box that moved out of an `overflow: hidden` ancestor). Collapsing the second
+shape into one union narrowed by one of the two would repaint the middle of a move under a boundary
+describing only one end of it, which is the mistake the phase exists to avoid.
+
+**Only records that paint produce regions.** A marker, a content boundary or a scope draws nothing, so
+a region out of its box would be a rectangle with nothing stale inside it -- and one per moved box
+would say more about the traversal than about the document. The scopes are not lost by the rule
+because every record **inside** a scope carries the scope's boundary in its own `clip` and its
+strength in its own `opacity`, so a clip that moves and an element that fades reach the set through
+the drawings they bound. The structural positions are still **counted** (`compared`, `matched`,
+`differed`, `inserted`, `removed`), which is what leaves the pass counts as claims about the walk
+rather than about regions.
+
+**A parent's strength change invalidates the descendants' rectangles.** 11.9's accumulation is what
+makes this free: the strength is carried on every record, so the diff finds the subtree without a
+compositor and without a damage tree. `mark_subtree` is the explicit door for the same fact when the
+caller has only a list and a box id.
+
+### What 11.11 found
+
+1. **One moved box produced six regions before the drawing rule.** The first walk compared every
+position, so `BEGIN_BOX`, `BACKGROUND` and `END_BOX` each contributed an old and a new rectangle for
+a box that draws one thing. Filtering on `robo_paint_op_kind_draws` -- 11.2's own predicate, so a
+future drawing kind is covered the day it is declared -- makes the answer two, and the rule had to be
+*checked* against a moving clip and a fading element rather than argued about, because both reach the
+set only through the records they bound.
+2. **A box that grows a margin is not an insertion.** The case was first written as "the box grows a
+bottom margin, so the records after it are inserted" -- which is wrong twice: the lists then have the
+**same** length, so the difference is a `GEOMETRY` region and there is no insertion to find. A
+genuine insertion needs records only one artifact has, and the cheapest honest way to make them is an
+element that is `display: none` in one state and painted in the other, **last in the document** so the
+tail is what differs. The same pair read backwards is the removal, which is why one fixture answers
+both directions.
+3. **A layout-space box and a region are 20 pixels apart.** The subtree case compared a region against
+the *layout-space* boxes of a descendant and failed -- not because the region was wrong, but because
+the two spaces are not interchangeable (11.1): a region is a **paint** rectangle. The suite already
+had the door that reads the other space (`inval_box_rect`, a record's own boxes) and now uses it in
+the geometry comparisons, and the case grew a bottom-right probe so a corner-only assertion could not
+pass with the wrong space and the wrong box.
+4. **Three properties RoboLayout calls paint-visible are drawn by nobody, and saying `PAINT` about
+them would repaint an identical picture.** `visibility`, `text-decoration` and `background-image`
+answer `NONE` from `classify_property`, and the case that pins it
+(`paint.invalidation.unconsumed_properties`) is where the goal that consumes one of them finds out it
+has to add a row to the table. The completion criterion "no-op changes do not unnecessarily require
+repaint" is the reason the class vocabulary has three members and not two.
+5. **A set outliving the artifacts it came from is the property that makes the module usable at all.**
+Its whole purpose is to be read *after* the thing it describes has changed, so the determinism case
+builds the same transition in two independent trees, compares the sets and their dumps, then destroys
+the trees and re-reads the set: a statement no address, allocation order or clock can satisfy by
+accident.
+
+### Suite
+
+`paint/tests/SuiteRoboPaintInvalidation.c` -- **29** cases under `paint.invalidation.*`, and every one
+is about **two states of one document**: two trees built from one HTML with two sheets and painted
+through the real chain, or one document plus a mark naming a box in it. A hand-built list would prove
+the walk reads a struct rather than a document, so there is not one. The vocabularies and the
+classifier, the set's own arithmetic (narrowed / conservative / zero-area / union), the no-op, five
+change reasons read out of the artifacts' own records, an insertion and the same pair as a removal,
+seven door cases, the dump, ownership measured by two cycles, and two pixel cases: every differing
+pixel inside a region, and **clearing the regions of the first frame and painting the second into it
+reproduces a full render byte for byte**.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `pwsh -File Tools/Build.ps1 -Configuration Debug -Test` | **2607/2607** |
+| `-Configuration Release` and `-Configuration Debug -Test -Sanitize` | build OK; **2607/2607**, no diagnostics |
+| `--filter paint.` | **238/238** across the fourteen suite files (plus the six `demo.paint.*` cases, since the filter is a substring match) |
+| `robo check` | PASS -- Chromium independence **CLEAN**; the RoboPaint boundary source scan passes |
+
+### Files
+
+**Added:** `Include/RoboPaint/RoboPaintInvalidation.h`, `Source/RoboPaint/RoboPaintInvalidation.c`,
+`paint/tests/SuiteRoboPaintInvalidation.c` (29 cases), `paint/docs/Invalidation.md`.
+**Modified:** `RoboPaintTypes.h/.c` (the invalidation domain), `RoboPaint.h` (the capability field
+11.1 declared), `RoboPaint.c`, `RoboPaintContext.h` (the 11.1 note on what it left for this goal),
+`RoboPaintVersion.h`, `Tests/Main.c`, `Tools/Build.ps1`,
+`paint/tests/SuiteRoboPaint.c` and `paint/tests/SuiteRoboPaintConformance.c` (version, domain count,
+capability row), `paint/README.md`, `paint/docs/{Architecture,Tests}.md`, `PROGRESS.md`,
+`ARCHITECTURE.md` and `.cursor/rules/runtime-plan.mdc`.
+
 ## Next
 
 - **Phase 11.7 — image painting: filled in.** The paragraph that used to stand here called it "the
@@ -5812,14 +5934,17 @@ literal: each comes from the painter's own `BEGIN_BOX`/`TEXT` record for the nod
   What 11.8's, 11.9's and 11.10's sections used to say about a missing 11.7 is now the record of the
   order the work landed in rather than of a gap: their vocabulary gained a row and a field, and the
   two suite headers and one deferral list that named the picture as untestable now name it as covered
-  *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.
-- **Phase 11.11 onwards** -- paint invalidation (11.11), which is the next goal and now has a second
-  reader to keep honest: a boundary or a strength that moved without invalidating the list would
-  leave the hit test and the painter agreeing about a document that is no longer there. Then
-  transforms, **event dispatch** (Phase 12, which consumes this goal's result rather than replacing
-  it), `pointer-events`, group opacity (which needs an offscreen layer, and whose measured gap is
-  `paint.opacity.group_deviation`), and a rasteriser that consumes a whole list (`raster` is still
-  **0**). The deferred tables in `paint/README.md`, `paint/docs/Opacity.md` §12,
+  *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.- **Phase 11.12 — rasterization.** The next goal, and the one 11.11 was written to hand something to:
+  `raster` is still **0**, and the set of regions is the answer a region-sized rasteriser needs. The
+  two questions 11.12 will have to settle are already framed by this goal's decisions -- whether a
+  rasteriser consumes a **region** of the list or **patches** the list itself (11.11 rebuilt it whole
+  and says only what may be re-executed), and what a region's boundary means once something is
+  executing it rather than describing it (`narrowed` and `conservative` are two different kinds of
+  rectangle, and a rasteriser that treated them alike would be the first place the distinction is
+  lost). Then 11.13's framebuffer presentation, transforms, **event dispatch** (Phase 12, which
+  consumes 11.10's result rather than replacing it), `pointer-events`, group opacity (which needs an
+  offscreen layer, and whose measured gap is `paint.opacity.group_deviation`). The deferred tables in
+  `paint/README.md`, `paint/docs/Invalidation.md` §12, `paint/docs/Opacity.md` §12,
   `paint/docs/Clipping.md` §12, `paint/docs/HitTest.md` §11, `paint/docs/Decoration.md` §11,
   `paint/docs/Text.md` §10 and `paint/docs/Border.md` §6 name every one of them, and
   `paint/docs/Architecture.md` §15 lists the rules the next goal may assume. Do not start until

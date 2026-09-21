@@ -6,8 +6,12 @@
  * state, and why the whole file is a flag, a version and a table of what this build does
  * and does not do.
  *
- * The table is the interesting half. Two of its fields are deliberately 0, and they are the two
- * a reader would otherwise have to discover by experiment: `raster` and `paint_invalidation`.
+ * The table is the interesting half. **One** field is deliberately 0, and 11.11 is the release
+ * that left it alone: `raster`, the general rasteriser that would consume every command. What
+ * used to be 0 beside it -- `paint_invalidation` -- became 1 when this module could answer which
+ * regions a change made stale (`RoboPaintInvalidation.h`), and that is the shape the whole
+ * capability model is built to keep readable: the fields that are 1 say what exists, and the one
+ * that is 0 says what a caller still cannot ask for.
  * `display_lists` joined the 1s in 11.3 -- the artifact a rasteriser consumes now exists -- and
  * `drawing`, `background_painting`, `border_painting` (11.5) and `text_painting` (11.6) joined
  * them in 11.4: a **drawing** command's rectangle and colour -- and, for a run, its glyphs --
@@ -67,19 +71,16 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
     out->decoration_ops = 1;
 
     /*
-     * And the two that are 0, each naming a later goal rather than an omission.
+     * And the one that is 0, naming a later goal rather than an omission.
      *
      * `drawing` is read from its own constant so that the field and the two doors that
      * report it -- this one and `robo_paint_drawing_is_implemented()` -- cannot disagree.
      * `raster` is the general rasteriser that would consume *every* command; the decoration
-     * pass consumes the three **drawing** kinds and skips the five structural ones (which draw
+     * pass consumes the four **drawing** kinds and skips the structural ones (which draw
      * nothing), which is why `raster` is 0 while `background_painting`, `border_painting`,
-     * `text_painting` and `clipping` beside it are 1.
-     *
-     * `paint_invalidation` is 0 and what exists instead is the *input* to one:
-     * `robo_paint_stats_t.style_only`. A paint list is regenerated rather than patched, so
-     * there is no dirty-rect system to report here -- and a caller that read only a version
-     * number would conclude otherwise.
+     * `text_painting`, `image_painting`, `clipping`, `opacity`, `hit_testing` and
+     * `paint_invalidation` beside it are 1 -- and why the rasteriser that *would* be asked for
+     * is 11.12's rather than a gap in this release.
      */
     out->drawing = ROBO_PAINT_DRAWING_IMPLEMENTED;
     /*
@@ -89,7 +90,17 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      */
     out->display_lists = 1;
     out->raster = 0;
-    out->paint_invalidation = 0;
+    /*
+     * **1 since 11.11**, and the last of the 11.1 fields whose name the first release left
+     * with nothing behind it. What it reports is `RoboPaintInvalidation.h`: a set of regions,
+     * each with its reason, its boundary and a conservative-whole-extent flag -- filled by
+     * explicit marks, by comparing two paint artifacts, or by reading `style_only` above.
+     *
+     * It is *not* a claim about the rasteriser or about a display list being patched: `raster`
+     * is 0 beside it and the list is regenerated, which is the distinction a caller deciding
+     * between "repaint these rectangles" and "re-execute the whole list" has to read.
+     */
+    out->paint_invalidation = 1;
 
     /*
      * **1 since 11.4**, and the first of the two narrow fields beside `drawing`: this build

@@ -141,13 +141,13 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.10.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.11.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    /* 11.7 is the release that draws a document's **images**, and it moved the version without
-     * changing a single meaning in the frozen v1 surface: one more operation kind, one more
-     * display command kind and one more field on the capability record. */
-    ROBO_CHECK_EQ_INT((int)minor, 10);
+    /* 11.11 is the release that answers **which regions a change made stale**, and it moved the
+     * version without changing a single meaning in the frozen v1 surface: one more module, one
+     * more diagnostic domain and the capability field 11.1 had already declared and left 0. */
+    ROBO_CHECK_EQ_INT((int)minor, 11);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement -- and since 11.4 (backgrounds), 11.5
@@ -322,13 +322,13 @@ static void test_paint_domain_vocabulary(void)
 {
     static const char *const expected[ROBO_PAINT_DOMAIN_COUNT] = {
         "none", "module", "context", "operation", "list", "geometry", "traversal", "clip",
-        "dump", "display-list", "opacity", "hit-test"
+        "dump", "display-list", "opacity", "hit-test", "invalidation"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 12);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 13);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_GEOMETRY, 5);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_DUMP, 8);
@@ -339,6 +339,9 @@ static void test_paint_domain_vocabulary(void)
     /* And 11.10's, appended after it: the hit test's walk is not the paint pass's walk even
      * where the two report the same shape of failure. */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_HIT_TEST, 11);
+    /* 11.11's, and the last: a set that cannot be grown is a failure of the invalidation module
+     * rather than of the pass whose list it was reading. */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_INVALIDATION, 12);
     for (index = 0u; index < (size_t)ROBO_PAINT_DOMAIN_COUNT; index++) {
         ROBO_CHECK_EQ_INT(robo_paint_domain_is_known((robo_paint_diagnostic_domain_t)index), 1);
         ROBO_CHECK_STR_EQ(robo_paint_domain_name((robo_paint_diagnostic_domain_t)index),

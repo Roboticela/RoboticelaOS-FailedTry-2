@@ -1,7 +1,18 @@
 /*
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
  * display lists, 11.4 background painting, 11.5 border painting, 11.6 text painting,
- * 11.7 image painting, 11.8 clipping, 11.9 opacity, 11.10 hit testing.
+ * 11.7 image painting, 11.8 clipping, 11.9 opacity, 11.10 hit testing,
+ * 11.11 paint invalidation.
+ *
+ * **0.11.0 (11.11) is the release that answers a question the ten before it could not**: given a
+ * picture this module already produced, which of its pixels are no longer the pixels the document
+ * describes? The answer is a **set of regions** (`RoboPaintInvalidation.h`), each with a reason,
+ * the boundary it was drawn under and a flag saying whether it is a conservative whole-extent
+ * answer -- filled by explicit marks, by comparing two artifacts, or by reading the
+ * `style_only` count 11.1 left for it. The version moved and `paint_invalidation` flipped from the
+ * 0 it had been since the first release; `raster` is now the **only** field still 0, and that is
+ * the point of the pair, because "which regions changed" and "execute the whole list" are
+ * different capabilities and a caller needs both answers.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -348,9 +359,9 @@
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 10
+#define ROBO_PAINT_VERSION_MINOR 11
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.10.0"
+#define ROBO_PAINT_VERSION_STRING "0.11.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0

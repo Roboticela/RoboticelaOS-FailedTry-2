@@ -1,4 +1,4 @@
-# RoboPaint — architecture (through Phase 11.10)
+# RoboPaint — architecture (through Phase 11.11)
 
 RoboPaint is the fifth module in the layout stack. It sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`), and it turns the completed geometry RoboLayout
@@ -9,8 +9,11 @@ rasteriser reads and the clip state; 11.2 made the record sequence regular; 11.3
 box model into one rectangle per command; 11.4–11.7 put four kinds of drawing on a
 **surface** -- a `draw-background` command's rectangle and colour, a `draw-border`'s band, a
 `draw-text`'s glyphs and a `draw-image`'s resource, all through a RoboGraphics CPU raster, with the
-picture added to the three after the goals that bound and fade them had landed. What is left is real
-clipping, opacity and a rasteriser of the whole list, each a later goal's.
+picture added to the three after the goals that bound and fade them had landed; 11.8 made the
+boundary a **scope** and 11.9 gave every drawing a **strength**; 11.10 asked the whole thing
+**backwards** (a point in, the node drawn there out); and 11.11 asks it **across time** -- given two
+states of one document, which rectangles of the first are no longer the second's pixels. What is left
+is a rasteriser of the whole list, and of a region, each a later goal's.
 
 ---
 
@@ -392,11 +395,12 @@ documented rule rather than a hazard, because nothing in an operation points any
 ## 10. The capability model
 
 `robo_paint_capabilities_t` is read positionally by `paint.conformance.capabilities` against a
-list of names, so a field added without an assertion is a visible omission. Thirteen of its
-sixteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
+list of names, so a field added without an assertion is a visible omission. Seventeen of its
+eighteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
 `box_geometry`, `clip_state`, `decoration_ops`, `display_lists` since 11.3, **`drawing`** and
 **`background_painting`** since 11.4, **`border_painting`** since 11.5, **`text_painting`**
-since 11.6, **`clipping`** since 11.8 and **`opacity`** since 11.9) and two are **0**:
+since 11.6, **`clipping`** since 11.8, **`opacity`** since 11.9, **`hit_testing`** since 11.10,
+**`image_painting`** since 11.7 and **`paint_invalidation`** since 11.11) and one is **0**:
 
 | Field | Value | Why |
 |---|---|---|
@@ -407,8 +411,10 @@ since 11.6, **`clipping`** since 11.8 and **`opacity`** since 11.9) and two are 
 | `text_painting` | **1** | the third drawing: a run's glyphs resolved through the caller's face and stroked into the surface (11.6). It claims a run's glyphs reach a surface, in logical order and unshaped — `rtl` counts the runs that were drawn that way |
 | `clipping` | **1** | the boundary is a **scope**: a box whose overflow changes what is in force emits `push-clip`/`pop-clip`, and the pass bounds every drawing kind by the scope it stands in (11.8). Rectangular only — no rounding, no `clip-path`, no masks, no compositor or scroll clipping |
 | `opacity` | **1** | a drawing has a **strength** on top of its colour's alpha: a box's `opacity` is multiplied down the tree, carried on every record and applied through `robo_gfx_raster_set_opacity` at one point in the pass (11.9). **Per drawing, not per group** — CSS's flattened-subtree semantics need an offscreen layer, and the gap is asserted (`paint.opacity.group_deviation`) rather than hidden |
-| `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the structural kinds are not drawings |
-| `paint_invalidation` | 0 | 11.11; what exists instead is its *input*, `stats.style_only` |
+| `hit_testing` | **1** | the **inverse** query (§21): a point resolves to the node drawn there, in reverse paint order, under the boundary that node's own `overflow` puts in force. It claims an answer, not an event: dispatch, bubbling, focus and `pointer-events` are Phase 12's |
+| `image_painting` | **1** | a document's **picture** reaches a surface at the rectangle layout gave its element, through the graphics module's own scaled sampler (11.7). What is absent is the rest of a browser's image stack — fetching, caching, animation, `object-fit`, filters, a broken-image presentation |
+| `paint_invalidation` | **1** | **which regions a change made stale** (§22): an owned set of rectangles, each with a reason, the boundary it was drawn under and whether it is a conservative whole-extent answer, filled by explicit marks, by comparing two artifacts or by reading `stats.style_only`. A narrower claim than the word — a region promises a repaint of it is *sufficient* — and it does not claim a rasteriser, a partial list *patch*, damage history or a compositor |
+| `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the structural kinds are not drawings, and a rasteriser of a **region** is 11.12's |
 
 `decoration_ops` is **1** and is named for what it is rather than what a reader might hope:
 this build decides *that* a background will be filled and *which* colour, and records it.
@@ -426,19 +432,23 @@ or that the whole list rasterises.
 
 ---
 
-## 11. Where paint invalidation stops, and why
+## 11. Where 11.1 drew the line at invalidation, and how 11.11 crossed it
 
 10.14 asks a per-box question — *is this conclusion still true?* — and answers with a state on
 the box. Paint invalidation asks a different question — *is this list still current?* — and
-this phase's answer is not a mechanism at all: a paint list is **not a cache of conclusions**,
-it is regenerated from the tree on every pass, so there is nothing for a dirty-rect system to
-maintain and nothing for a second invalidation vocabulary to mean.
+11.1's answer was deliberately **not** a mechanism: a paint list is **not a cache of
+conclusions**, it is regenerated from the tree on every pass, so there was nothing for a
+dirty-rect system to maintain and nothing for a second invalidation vocabulary to mean. What
+11.1 handed the future system was its **input**: `robo_paint_stats_t.style_only` counts the
+visited boxes whose only staleness is a paint-visible change (10.14's `STYLE` bit with no
+layout bit), which is exactly the set a paint-invalidation system must repaint.
 
-What the phase hands the future system is its **input**: `robo_paint_stats_t.style_only` counts
-the visited boxes whose only staleness is a paint-visible change (10.14's `STYLE` bit with no
-layout bit) — exactly the set a Phase 11.11 system would repaint. Counting it is not painting
-anything, and building the system that consumes it is a later goal's, which is why this module
-has no paint-invalidation constant, no dirty rectangle and no per-list currency check.
+11.11 is that system, and it crossed the line **without** turning the list into a cache: the list
+is still regenerated whole, and what the phase adds is a **set of regions** saying how little of
+the rebuilt artifact a caller may re-execute (§22). The input 11.1 left is now the module's
+coarsest door — `robo_paint_invalidation_set_from_stats` turns the count into *nothing* (no work
+is owed) or into one whole-extent region (*something* is stale and the producer cannot say where)
+— which is a use of the number rather than a replacement for it.
 
 ---
 
@@ -464,26 +474,28 @@ test rather than overflowing a caller's buffer.
 
 What this module does **not** do, each named where it would otherwise be assumed:
 
-- **A box's decorations and its text draw.** `DRAWING` is 1, and
-  `background_painting`/`border_painting`/`text_painting` say which three. The seven **pattern**
-  border styles are drawn as their band and counted (`unshaped`); images and everything below are
-  absent, and the pass counts what it skips.
+- **Four drawing kinds draw, and nothing else does.** `DRAWING` is 1, and
+  `background_painting`/`border_painting`/`text_painting`/`image_painting` say which four: a
+decoration, a run's glyphs and a document's picture. The seven **pattern** border styles are
+drawn as their band and counted (`unshaped`), text is stroked as 1-pixel outlines rather than
+filled or antialiased, and every skipped 11.7 drawing is counted.
 - **Rectangular clipping of a box's contents.** `clipping` is 1: a box whose used `overflow`
   changes the boundary in force opens a scope, and every drawing kind stops at it. What is absent
-  is rounded clipping, `clip-path`, masks and filters, clip-aware hit testing (11.10), scrolling,
-  and any clip a compositor or a tile scheduler would own.
+  is rounded clipping, `clip-path`, masks and filters, scrolling, and any clip a compositor or a
+  tile scheduler would own.
 - **No framebuffer presentation, compositor or GPU.** A surface is an argument.
-- **No rasteriser of the whole list** — the display list is the artifact and three of its drawing
-  kinds are consumed; `raster` is 0.
-- **No image operation**, and no shaping, bidi, line breaking or font fallback behind the text one
-  that does exist (`Text.md` §7).
-- **No opacity, transforms, `border-radius`, gradients or antialiasing.**
-- **No clipping architecture** — the clip a command carries is applied to the raster's own clip
-  (11.4–11.6); no clipping op is emitted. No scroll clipping, no compositor clipping.
+- **No rasteriser of the whole list and none of a region** — the display list is the artifact and
+the four drawing kinds are consumed; `raster` is 0, and 11.11 produces the regions a region-sized
+rasteriser will one day execute rather than executing them.
+- **No shaping, bidi, line breaking or font fallback** behind the text that does draw
+  (`Text.md` §7), and **no image fetching, decoding or caching** behind the picture that does
+  (`Images.md` §9).
+- **No transforms, `border-radius`, gradients, blend modes, filters, masks or antialiasing.**
 - **No `background-clip`/`background-origin`** — the border box is CSS's initial value.
 - **No `z-index` or stacking context.** Document order; a later stacking pass reorders.
-- **No paint invalidation (11.11) and no hit testing (11.10).** The final positioned geometry
-  is preserved for both; neither is built.
+- **An invalidation region, and nothing around it** (11.11): no executor for a region, no partial
+  list patch, no damage history between frames, no tile tree, no region merging, no compositor
+  layer and no invalidation driven by animation, transitions, scrolling or input (§22).
 - **No scrolling** and no scroll offsets — 10.13 recorded the overflow; nothing scrolls it.
 
 ---
@@ -620,8 +632,9 @@ And 11.8's, which are the ones a release about the thing already carried everywh
 7. A text run produces one `TEXT` record rather than a structural triple, emitted as a child of
 the box that owns the text node: one depth past that box, naming itself, and after that box's
 `CONTENT`. A run wider than its line wraps whole, so two line fragments are two runs.
-8. `stats.style_only` is the input a paint-invalidation system will consume; there is no
-   paint-invalidation mechanism yet and no per-list currency check.
+8. `stats.style_only` is the input a paint-invalidation system consumes
+   (`robo_paint_invalidation_set_from_stats`, 11.11); there is still no per-list currency check,
+   because a list is regenerated rather than stored and a set describes one transition.
 9. There are no new coordinate types: geometry is RoboGraphics', re-exported by layout, read
    here.
 10. **The sequence is regular**: exactly one structural triple (`BEGIN_BOX`, `CONTENT`,
@@ -893,9 +906,9 @@ list lies. Any refusal leaves the output list **empty**.
 
 `clipping` is **1**: a box's overflowing contents are bounded by a rectangle the traversal derived
 and the artifact states, for every drawing kind. It does not claim rounding, `clip-path`, masks or
-filters; clip-aware hit testing (11.10); scrolling (nothing scrolls, and a clipped box is a
-boundary rather than a container); a compositor's or a tile scheduler's clip; paint invalidation
-(11.11); or a rasteriser that consumes the whole list (`raster` is still 0).
+filters; scrolling (nothing scrolls, and a clipped box is a
+boundary rather than a container); a compositor's or a tile scheduler's clip; or a rasteriser that
+consumes the whole list (`raster` is still 0).
 `paint/docs/Clipping.md` is the phase's own document — the stack's doors, the intersection rules,
 the emission arrangement, the dump and the phase's findings.
 
@@ -985,7 +998,9 @@ drawing kind. It does not claim **group** semantics — CSS composites an elemen
 flattened layer and fades that, while this build multiplies per drawing, so two overlapping
 descendant fills differ from a browser's result; `paint.opacity.group_deviation` is the document that
 measures the gap, with both answers computed through the graphics module's own blend. It alsodoes not claim blend modes, filters, masks, transforms, a compositor, compositor layers or tile
-compositing, `border-radius` clipping, scrolling or paint invalidation (11.11).
+compositing, `border-radius` clipping or scrolling — and, on the invalidation side, it does not make
+a strength change's region the box it was declared on: the region is the **subtree's** rectangle,
+because that is what the strength composites to (§22.3).
 `paint/docs/Opacity.md` is the phase's own document — the record, the stack, the placement rule, the
 refusals, the counters, the pixels and the phase's findings.
 
@@ -1068,3 +1083,98 @@ build, so reading it here would refuse a point on something visibly drawn), `bor
 device-pixel-ratio handling, or a compositor's hit testing. `paint/docs/HitTest.md` is the phase's own
 document — the four rules, the counters and their three identities, the two shapes of broken tree it
 refuses, the trace, and the screen-agreement case.
+
+---
+
+## 22. Paint invalidation (Phase 11.11)
+
+### 22.1 Why it lives here, and what it is not
+
+A region cannot be computed from the DOM (a declaration is not a rectangle), nor from layout
+(layout knows where boxes are, not what was drawn there), nor from the display list alone (a
+command has one resolved rectangle and no history). Only this module holds both the **geometry** and
+the **sequence**, and only its records carry the two fields a region's reason is read from — the
+boundary in force and the strength in force. §3's argument for the hit test applies verbatim: this
+is a **second consumer of the same artifacts**, not a second model of any of them.
+
+It is *not* RoboLayout's invalidation (10.14) extended, and the two compose without calling each
+other:
+
+| | RoboLayout 10.14 | RoboPaint 11.11 |
+|---|---|---|
+| question | *is this box's conclusion still true?* | *which pixels are stale?* |
+| answer | a state on the box | a set of rectangles, each with a reason |
+| scope | the box and its dependents | a region of the page |
+| outcome of a hit | that box is laid out again | that region is repainted |
+
+A property layout *measures* is classified `LAYOUT` rather than as a paint change: the caller owes a
+layout pass, **and then** a repaint, and this module runs neither.
+
+### 22.2 The region, and the two flags that are not the rectangle
+
+`robo_paint_invalidation_region_t` carries the rectangle, the node, the reason, the boundary in force
+and two flags. It is the first record in this module whose whole purpose is to **survive a
+mutation** — produced from a tree that is about to change, read after the change — so it holds no
+pointer to that tree, no borrowed style and no live geometry. A node id is a number, and an id that
+no longer names any box is exactly the removal case the record describes.
+
+`narrowed` and `full` are the two facts a consumer must keep apart, and neither is inferable from the
+rectangle: `narrowed` says the rectangle **is** the intersection with its boundary, and `full` says
+it is a conservative whole-extent answer (§22.4).
+
+### 22.3 Only records that paint produce regions
+
+The rule the walk is built on, and the one worth restating at this level because it is what keeps the
+answer small: a record that draws nothing cannot leave a stale pixel, so a region out of a marker's
+box would be a rectangle with nothing stale inside it — and a set that contained one per moved box
+would say more about the traversal than about the document.
+
+The scopes survive the rule because they do not need to: every record **inside** a `PUSH_CLIP`
+carries the boundary in its own `clip`, and every record inside a `PUSH_OPACITY` carries the strength
+in its own `opacity`. So a clip that moves and an element that fades both reach the set through the
+drawings they bound — which is also where a rasteriser looks — and the reasons are `CLIP` and
+`OPACITY` rather than "it moved", because the reader's question is what is drawn there *now*. The
+consequence for opacity is §20's fact one level up: a **parent's** change invalidates the
+**descendants'** rectangles, which is the difference between invalidating the box and invalidating
+what the box composites to.
+
+### 22.4 The doors, and the asymmetry they share
+
+Five producers, differing only in **how much the caller already knows**: an explicit rectangle
+(`set_add_rect`), an old-and-new pair (`set_add_change`), a record or a box in an artifact
+(`mark_operation`, `mark_node`, `mark_subtree`, `mark_node_change`), the whole extent
+(`mark_full`), or one of two artifacts compared (`from_lists`, `from_display_lists`,
+`from_stats`).
+
+Every one of them narrows a rectangle only against a boundary it can **read**, and keeps it whole
+otherwise — the rule `robo_paint_clip_rect` states by refusing to answer, applied one level up. A
+boundary naming both axes narrows the region and sets `narrowed`; an axis with no extent keeps it
+whole and counts it `conservative`; a boundary it cannot read is treated the same way. Widening when
+uncertain is the whole insurance policy, because the failure mode this phase was written against is a
+**missing** rectangle, and a repaint list cannot recover from one.
+
+`add_change` is one region where `mark_node_change` is two, and that is a decision rather than an
+inconsistency: a caller reaching the first has vouched that both rectangles came from one thing, so
+their union is one honest answer; the second is the *diff* case, where the two were drawn under
+boundaries that need not be the same — the box moved out of an `overflow: hidden` ancestor — so each
+is narrowed by its own. Collapsing those into one union narrowed by one of them would repaint the
+middle of a move under a boundary describing only one end of it. A set also reports its own
+**scope** — `NONE` (nothing owed), `PARTIAL`, `FULL` (at least one whole-extent region) — which is the
+brief's three-way distinction and the one a caller acts on.
+
+### 22.5 Where it is claimed, and what it does not claim
+
+`paint_invalidation` is **1**: given two states of a document the module produces an owned,
+deterministic set of regions in which they disagree, each with a reason, the boundary it was drawn
+under and whether it is conservative — and two pixel cases hold it to its one promise, that
+**repainting the regions reproduces a full repaint byte for byte** (`Invalidation.md` §11).
+
+What it does **not** claim: a rasteriser of the whole list or of a region (`raster` stays 0), a
+partial display-list **patch** (the list is rebuilt whole and the set says what may be re-executed),
+damage accumulation between frames, a tile tree, region merging, a compositor, layers, GPU
+scheduling, VSync, frame scheduling, scrolling, transforms, filters, masks, blend modes, or
+invalidation driven by animation, transitions, input, focus or selection. `extent` is always the
+caller's argument, because the module owns no viewport, and `visibility` has no reason of its own
+because no layer consumes it — a property that cannot change a pixel must not request a repaint.
+`paint/docs/Invalidation.md` is the phase's own document — the three vocabularies, the ten doors, the
+counter identities, the dump, the five findings and the two pixel cases.

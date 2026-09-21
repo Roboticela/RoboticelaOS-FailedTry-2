@@ -313,7 +313,7 @@ a narrow claim and reading it wider is the mistake it is shaped to prevent:
 | **group** opacity (an element's subtree composited into a layer and faded as one) | a compositor; 11.9 applies the strength per drawing, and the gap is asserted rather than hidden (`Opacity.md` §9) |
 | blend modes, filters, backdrop filters, masks, shadows, gradients, transforms, `border-radius` | later phases |
 | `z-index` and stacking contexts | a later stacking pass reorders the list; this pass reads it as it stands |
-| paint invalidation (11.11) and hit testing (11.10) | this module keeps no cache and has no dirty rectangles |
+| paint invalidation (11.11) and hit testing (11.10) | both have since landed, and both read this pass's output rather than changing it: a region comes from comparing two lists or markings a box in one, and a hit test answers from the records. This module still keeps no cache and still has no dirty rectangle — a set of regions describes one transition and is owned by whoever built it |
 | framebuffer presentation, compositor, GPU | RoboRender and above |
 
 ## 12. What the suite pins
