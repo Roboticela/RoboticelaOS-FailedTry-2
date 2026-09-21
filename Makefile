@@ -5,6 +5,7 @@
 # the pipeline actually does.
 #
 #   make                scripts/robo build-all
+# Prefer: Scripts/Build/BuildEverything.ps1
 #   make check          scripts/robo check
 #   make test           scripts/robo test-all --skip-qemu
 #   make test-all       scripts/robo test-all

@@ -1,13 +1,16 @@
-.freebuff/
-Bootloader-RefCode/
 /build/
-libc/build/*
-/runtime/Out/
-/runtime/Vendor/
-/runtime/Tools/ucd/source/
-/runtime/Tools/i18n/source/
+/Build/
+/Bootloader/build/
+/Kernel/build/
+/Libc/build/
+/Runtime/Out/
+/Runtime/Vendor/
+/Runtime/Tools/ucd/source/
+/Runtime/Tools/i18n/source/
 Chromium/
 **/__pycache__/
+.freebuff/
+Bootloader-RefCode/
 
 # Generated TZif tree (recreated by generate_tzdb.py)
-runtime/Tools/i18n/source/tzdb-*/zoneinfo/
+Runtime/Tools/i18n/source/tzdb-*/zoneinfo/

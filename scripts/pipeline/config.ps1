@@ -52,21 +52,21 @@ $script:RoboToolOverride = @{
 
 $script:RoboPaths = @{
     Root        = $script:RoboRoot
-    Bootloader  = (Join-Path $script:RoboRoot "bootloader")
-    Kernel      = (Join-Path $script:RoboRoot "kernel")
-    Libc        = (Join-Path $script:RoboRoot "libc")
-    User        = (Join-Path $script:RoboRoot "user")
-    Runtime     = (Join-Path $script:RoboRoot "runtime")
-    Tools       = (Join-Path $script:RoboRoot "tools")
-    Scripts     = (Join-Path $script:RoboRoot "scripts")
-    Docs        = (Join-Path $script:RoboRoot "docs")
+    Bootloader  = (Join-Path $script:RoboRoot "Bootloader")
+    Kernel      = (Join-Path $script:RoboRoot "Kernel")
+    Libc        = (Join-Path $script:RoboRoot "Libc")
+    User        = (Join-Path $script:RoboRoot "User")
+    Runtime     = (Join-Path $script:RoboRoot "Runtime")
+    Tools       = (Join-Path $script:RoboRoot "Tools")
+    Scripts     = (Join-Path $script:RoboRoot "Scripts")
+    Docs        = (Join-Path $script:RoboRoot "Documentation")
 }
 
 # --------------------------------------------------------------------------
 # Build output: everything generated lives under build/ (never in sources).
 # --------------------------------------------------------------------------
 
-$script:RoboBuild = Join-Path $script:RoboRoot "build"
+$script:RoboBuild = Join-Path $script:RoboRoot "Build"
 
 $script:RoboOut = @{
     Build       = $script:RoboBuild
@@ -77,10 +77,10 @@ $script:RoboOut = @{
     Logs        = Join-Path $script:RoboBuild "logs"
     Results     = Join-Path $script:RoboBuild "test-results"
     Temp        = Join-Path $script:RoboBuild "tmp"
-    Bootloader  = Join-Path (Join-Path $script:RoboRoot "bootloader") "build"
-    Kernel      = Join-Path (Join-Path $script:RoboRoot "kernel") "build"
-    Libc        = Join-Path (Join-Path $script:RoboRoot "libc") "build"
-    Runtime     = Join-Path (Join-Path $script:RoboRoot "runtime") "Out"
+    Bootloader  = Join-Path $script:RoboBuild "Bootloader"
+    Kernel      = Join-Path $script:RoboBuild "Kernel"
+    Libc        = Join-Path $script:RoboBuild "Libc"
+    Runtime     = Join-Path $script:RoboBuild "Runtime"
 }
 
 # Real, buildable artifacts (single place they are named).

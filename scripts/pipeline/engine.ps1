@@ -154,6 +154,8 @@ function Invoke-RoboEngineRuntime {
         [string]$Filter = "",
         [switch]$Clean,
         [switch]$VerboseTests,
+        [string]$Module = "",
+        [switch]$SkipGuest,
         [string]$LogName = "build-runtime",
         [switch]$Continue
     )
@@ -169,6 +171,8 @@ function Invoke-RoboEngineRuntime {
     if ($Sanitize) { $cmdArgs += "-Sanitize" }
     if ($VerboseTests) { $cmdArgs += "-VerboseTests" }
     if ($Filter) { $cmdArgs += @("-Filter", $Filter) }
+    if ($Module) { $cmdArgs += @("-Module", $Module) }
+    if ($SkipGuest) { $cmdArgs += "-SkipGuest" }
 
     $name = "runtime build"
     $detail = @()

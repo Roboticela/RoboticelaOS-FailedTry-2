@@ -292,7 +292,7 @@ function Test-RoboChromiumIndependence {
     }
 
     # --- 1. runtime sources ----------------------------------------------
-    $codeDirs = @((Join-Path $runtime "Source"), (Join-Path $runtime "Include"), (Join-Path $runtime "Tests"))
+    $codeDirs = @((Join-Path $runtime "Source"), (Join-Path $runtime "Include"), (Join-Path $script:RoboRoot "Tests"))
     $sourceHits = 0
     $sourceSamples = @()
     foreach ($d in $codeDirs) {

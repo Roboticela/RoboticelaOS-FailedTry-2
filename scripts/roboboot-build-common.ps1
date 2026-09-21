@@ -2,24 +2,24 @@
 # Shared by configure, build, host run, tests, and QEMU scripts.
 
 $script:Repo = Split-Path -Parent $PSScriptRoot
-$script:Boot = Join-Path $script:Repo "bootloader"
-$script:Build = Join-Path $script:Boot "build"
-$script:Dist = Join-Path $script:Repo "build"
-$script:KernelRoot = Join-Path $script:Repo "kernel"
-$script:KernelOut = Join-Path $script:KernelRoot "build\kernel.elf"
-$script:PmmTestOut = Join-Path $script:KernelRoot "build\test_pmm.exe"
-$script:VmmTestOut = Join-Path $script:KernelRoot "build\test_vmm.exe"
-$script:TimeTestOut = Join-Path $script:KernelRoot "build\test_time.exe"
-$script:SchedQueueTestOut = Join-Path $script:KernelRoot "build\test_sched_queue.exe"
-$script:ThreadStateTestOut = Join-Path $script:KernelRoot "build\test_thread_state.exe"
-$script:ProcessStateTestOut = Join-Path $script:KernelRoot "build\test_process_state.exe"
-$script:ProcessHostTestOut = Join-Path $script:KernelRoot "build\test_process_host.exe"
-$script:ContextLayoutTestOut = Join-Path $script:KernelRoot "build\test_context_layout.exe"
-$script:ElfTestOut = Join-Path $script:KernelRoot "build\test_elf.exe"
-$script:RfsTestOut = Join-Path $script:KernelRoot "build\test_rfs.exe"
-$script:DriverSigTestOut = Join-Path $script:KernelRoot "build\test_driver_sig.exe"
-$script:CompositorTestOut = Join-Path $script:KernelRoot "build\test_compositor.exe"
-$script:NetTestOut = Join-Path $script:KernelRoot "build\test_net.exe"
+$script:Boot = Join-Path $script:Repo "Bootloader"
+$script:Build = Join-Path $script:Repo "Build\Bootloader"
+$script:Dist = Join-Path $script:Repo "Build"
+$script:KernelRoot = Join-Path $script:Repo "Kernel"
+$script:KernelOut = Join-Path $script:Repo "Build\Kernel\kernel.elf"
+$script:PmmTestOut = Join-Path $script:Repo "Build\Kernel\test_pmm.exe"
+$script:VmmTestOut = Join-Path $script:Repo "Build\Kernel\test_vmm.exe"
+$script:TimeTestOut = Join-Path $script:Repo "Build\Kernel\test_time.exe"
+$script:SchedQueueTestOut = Join-Path $script:Repo "Build\Kernel\test_sched_queue.exe"
+$script:ThreadStateTestOut = Join-Path $script:Repo "Build\Kernel\test_thread_state.exe"
+$script:ProcessStateTestOut = Join-Path $script:Repo "Build\Kernel\test_process_state.exe"
+$script:ProcessHostTestOut = Join-Path $script:Repo "Build\Kernel\test_process_host.exe"
+$script:ContextLayoutTestOut = Join-Path $script:Repo "Build\Kernel\test_context_layout.exe"
+$script:ElfTestOut = Join-Path $script:Repo "Build\Kernel\test_elf.exe"
+$script:RfsTestOut = Join-Path $script:Repo "Build\Kernel\test_rfs.exe"
+$script:DriverSigTestOut = Join-Path $script:Repo "Build\Kernel\test_driver_sig.exe"
+$script:CompositorTestOut = Join-Path $script:Repo "Build\Kernel\test_compositor.exe"
+$script:NetTestOut = Join-Path $script:Repo "Build\Kernel\test_net.exe"
 $script:ObjHost = Join-Path $script:Build "obj\host"
 $script:ObjEfi = Join-Path $script:Build "obj\efi"
 $script:ObjTest = Join-Path $script:Build "obj\test"
@@ -37,22 +37,22 @@ $script:RoboBakedThisRun = $false
 
 function Get-RoboSources([string]$Kind) {
     $core = [string[]]@(
-        "src\rb_util.c",
-        "src\rb_crypto.c",
-        "src\rb_gfx.c",
-        "src\rb_image.c",
-        "src\rb_manifest.c",
-        "src\rb_env.c",
-        "src\rb_probe.c",
-        "src\rb_loader.c",
-        "src\rb_policy.c",
-        "src\rb_ui.c",
-        "src\rb_session.c"
+        "Source\rb_util.c",
+        "Source\rb_crypto.c",
+        "Source\rb_gfx.c",
+        "Source\Image.c",
+        "Source\rb_manifest.c",
+        "Source\Env.c",
+        "Source\Probe.c",
+        "Source\rb_loader.c",
+        "Source\rb_policy.c",
+        "Source\rb_ui.c",
+        "Source\Session.c"
     )
     $extra = @{
-        host = [string[]]@("src\host\main_host.c")
-        test = [string[]]@("tests\test_roboboot.c")
-        efi  = [string[]]@("src\efi\efi_crt.c", "src\efi\efi_plat.c", "src\efi\efi_bootmgr.c", "src\efi\efi_kexec.c", "src\efi\main_efi.c")
+        host = [string[]]@("Source\host\main_host.c")
+        test = [string[]]@("Tests\Bootloader\test_roboboot.c")
+        efi  = [string[]]@("Source\efi\efi_crt.c", "Source\efi\efi_plat.c", "Source\efi\efi_bootmgr.c", "Source\efi\efi_kexec.c", "Source\efi\main_efi.c")
     }
     if (-not $extra.ContainsKey($Kind)) { throw "unknown source set: $Kind" }
     $out = New-Object System.Collections.Generic.List[string]
@@ -62,10 +62,18 @@ function Get-RoboSources([string]$Kind) {
     return $out
 }
 
+function Resolve-RoboBootSource([string]$Rel) {
+    if ([IO.Path]::IsPathRooted($Rel)) { return $Rel }
+    if ($Rel.StartsWith("Tests\") -or $Rel.StartsWith("Tests/")) {
+        return (Join-Path $script:Repo $Rel)
+    }
+    return (Join-Path $script:Boot $Rel)
+}
+
 function Get-RoboVersion {
-    $h = Join-Path $script:Boot "include\roboboot.h"
+    $h = Join-Path $script:Boot "Include\roboboot.h"
     if (Test-Path $h) {
-        $m = Select-String -Path $h -Pattern '#define\s+RB_VERSION_STR\s+"([^"]+)"' | Select-Object -First 1
+        $m = Select-String -Path $h -Pattern '#define\s+RbVersionStr\s+"([^"]+)"' | Select-Object -First 1
         if ($m) { return $m.Matches[0].Groups[1].Value }
     }
     return "0.0.0"
@@ -254,20 +262,20 @@ function Show-RoboBuildInfo {
 function Invoke-RoboBake {
     if ($script:RoboBakedThisRun) { return }
     $py = Get-Python
-    $scriptPath = Join-Path $script:Boot "tools\bake_assets.py"
+    $scriptPath = Join-Path $script:Boot "Tools\bake_assets.py"
     $required = @(
-        (Join-Path $script:Boot "assets\logo.rbim"),
-        (Join-Path $script:Boot "assets\fonts\ui-title.rbfn"),
-        (Join-Path $script:Boot "assets\fonts\ui-body.rbfn"),
-        (Join-Path $script:Boot "assets\fonts\ui-caption.rbfn")
+        (Join-Path $script:Boot "Assets\logo.rbim"),
+        (Join-Path $script:Boot "Assets\fonts\ui-title.rbfn"),
+        (Join-Path $script:Boot "Assets\fonts\ui-body.rbfn"),
+        (Join-Path $script:Boot "Assets\fonts\ui-caption.rbfn")
     )
     $inputs = @(
         $scriptPath,
-        (Join-Path $script:Boot "assets\logo.svg"),
-        (Join-Path $script:Boot "assets\HDD.png"),
-        (Join-Path $script:Boot "assets\SSD.png"),
-        (Join-Path $script:Boot "assets\NVMe.png"),
-        (Join-Path $script:Boot "assets\USB.png")
+        (Join-Path $script:Boot "Assets\logo.svg"),
+        (Join-Path $script:Boot "Assets\HDD.png"),
+        (Join-Path $script:Boot "Assets\SSD.png"),
+        (Join-Path $script:Boot "Assets\NVMe.png"),
+        (Join-Path $script:Boot "Assets\USB.png")
     )
     $needed = $script:RoboRebuild
     if (-not $needed) {
@@ -306,13 +314,13 @@ function Invoke-RoboBuildHost {
     $cflags = @(
         "-std=c11", "-O2", "-g",
         "-D_CRT_SECURE_NO_WARNINGS",
-        "-I", (Join-Path $script:Boot "include")
+        "-I", (Join-Path $script:Boot "Include")
     )
-    $deps = Get-HeaderDeps @((Join-Path $script:Boot "include"))
+    $deps = Get-HeaderDeps @((Join-Path $script:Boot "Include"))
     $objs = @()
     $compiled = $false
     foreach ($rel in (Get-RoboSources "host")) {
-        $src = Join-Path $script:Boot $rel
+        $src = Resolve-RoboBootSource $rel
         $obj = Join-Path $script:ObjHost (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj")
         if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
         $objs += $obj
@@ -332,13 +340,13 @@ function Invoke-RoboBuildTest {
     $cflags = @(
         "-std=c11", "-O2",
         "-D_CRT_SECURE_NO_WARNINGS",
-        "-I", (Join-Path $script:Boot "include")
+        "-I", (Join-Path $script:Boot "Include")
     )
-    $deps = Get-HeaderDeps @((Join-Path $script:Boot "include"))
+    $deps = Get-HeaderDeps @((Join-Path $script:Boot "Include"))
     $objs = @()
     $compiled = $false
     foreach ($rel in (Get-RoboSources "test")) {
-        $src = Join-Path $script:Boot $rel
+        $src = Resolve-RoboBootSource $rel
         $obj = Join-Path $script:ObjTest (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj")
         if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
         $objs += $obj
@@ -362,20 +370,20 @@ function Invoke-RoboBuildEfi {
         "-ffreestanding", "-fno-stack-protector", "-fshort-wchar",
         "-mno-red-zone", "-fno-builtin",
         "-D_CRT_SECURE_NO_WARNINGS",
-        "-I", (Join-Path $script:Boot "include"),
-        "-I", (Join-Path $script:Boot "src\efi\libc"),
-        "-I", (Join-Path $script:Boot "src\efi")
+        "-I", (Join-Path $script:Boot "Include"),
+        "-I", (Join-Path $script:Boot "Source\efi\libc"),
+        "-I", (Join-Path $script:Boot "Source\efi")
     )
     $deps = Get-HeaderDeps @(
-        (Join-Path $script:Boot "include"),
-        (Join-Path $script:Boot "include\roboticela"),
-        (Join-Path $script:Boot "src\efi"),
-        (Join-Path $script:Boot "src\efi\libc")
+        (Join-Path $script:Boot "Include"),
+        (Join-Path $script:Boot "Include\roboticela"),
+        (Join-Path $script:Boot "Source\efi"),
+        (Join-Path $script:Boot "Source\efi\libc")
     )
     $objs = @()
     $compiled = $false
     foreach ($rel in (Get-RoboSources "efi")) {
-        $src = Join-Path $script:Boot $rel
+        $src = Resolve-RoboBootSource $rel
         $obj = Join-Path $script:ObjEfi (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj")
         if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
         $objs += $obj
@@ -399,12 +407,12 @@ function Get-EspFlagKey([string]$Flags) {
 function Invoke-RoboBuildLibc {
     $clang = Get-Clang
     $ar = Get-LlvmAr
-    $libc = Join-Path $script:Repo "libc"
-    $lbuild = Join-Path $libc "build"
+    $libc = Join-Path $script:Repo "Libc"
+    $lbuild = Join-Path $script:Repo "Build\Libc"
     $lobj = Join-Path $lbuild "obj"
     New-Item -ItemType Directory -Force -Path $lobj | Out-Null
     $inc = Join-Path $libc "include"
-    $sdk = Join-Path $script:Repo "sdk\include"
+    $sdk = Join-Path $script:Repo "Sdk\include"
     $cflags = @(
         "-target", "x86_64-unknown-none",
         "-std=c11", "-O2",
@@ -474,7 +482,7 @@ function Test-RoboNoHostLibc([string]$Elf) {
 }
 
 function Get-RoboRuntimeRoot {
-    return (Join-Path $script:Repo "runtime")
+    return (Join-Path $script:Repo "Runtime")
 }
 
 function Assert-RoboRuntimeEngines {
@@ -515,7 +523,7 @@ function New-RoboRuntimeManifest {
     $gfxHdr = Join-Path $rt "Include\RoboGraphics\RoboGraphicsVersion.h"
     if (Test-Path -LiteralPath $gfxHdr) {
         foreach ($line in Get-Content -LiteralPath $gfxHdr) {
-            if ($line -match 'ROBO_GRAPHICS_VERSION_STRING\s+"([^"]+)"') {
+            if ($line -match 'RoboGraphicsVersionString\s+"([^"]+)"') {
                 $gfxVer = $Matches[1]
                 break
             }
@@ -649,7 +657,7 @@ function Invoke-RoboBuildUserland {
         # after the host had a real shell. The next module added to the runtime now reaches the guest image
         # by being a source file in a module this list names.
         @{ Name = "robo-runtime"; Srcs = @("robo-runtime\main.c"); Libc = $true;
-          ExtraCFlags = @("-DROBO_WINDOW_HAS_QEMU=1");
+          ExtraCFlags = @("-DRoboWindowHasQemu=1");
           RuntimeModules = @(
             # The runtime's own floor: errors, memory, the containers CSS and HTML are built out of,
             # and the Unicode tables everything that measures text reads.
@@ -839,7 +847,7 @@ function Invoke-RoboBuildUserland {
     # label counts into `ROBO_QEMU_DESKTOP_UNSHAPED` instead of reaching the picture. Vendored in the
     # runtime tree beside its licence (`runtime/desktop/assets/`) rather than fetched at build time, so an
     # offline build and a build on another machine pack the same bytes.
-    Add-Pack "/System/Fonts/Inter.ttf" (Join-Path $runtime "desktop\assets\Inter.ttf")
+    Add-Pack "/System/Fonts/Inter.ttf" (Join-Path $runtime "Desktop\Assets\Inter.ttf")
     Add-Pack "/System/runtime/engines.manifest" $manifest
     Add-Pack "/bin/robospark" $elfs["robospark"]
     Add-Pack "/bin/robolayer-demo" $elfs["robolayer-demo"]
@@ -855,7 +863,7 @@ function Invoke-RoboBuildUserland {
 
 function Invoke-RoboBuildKernel {
     $kroot = $script:KernelRoot
-    $kbuild = Join-Path $kroot "build"
+    $kbuild = Join-Path $script:Repo "Build\Kernel"
     $kobj = Join-Path $kbuild "obj"
     $kout = $script:KernelOut
     $kfont = Join-Path $kroot "src\kfont.c"
@@ -876,7 +884,7 @@ function Invoke-RoboBuildKernel {
         "-mno-red-zone", "-mgeneral-regs-only", "-fno-builtin", "-nostdlib",
         "-I", (Join-Path $kroot "include"),
         "-I", $kroot,
-        "-I", (Join-Path $script:Boot "include"),
+        "-I", (Join-Path $script:Boot "Include"),
         "-I", (Join-Path $script:Repo "sdk\include")
     )
     $srcs = @(
@@ -1032,7 +1040,7 @@ function Invoke-RoboBuildKernel {
         (Join-Path $kroot "irq"),
         (Join-Path $kroot "arch\x86_64\acpi"),
         (Join-Path $script:Repo "sdk\include\robosys"),
-        (Join-Path $script:Boot "include\roboticela")
+        (Join-Path $script:Boot "Include\roboticela")
     )
     $objs = @()
     $compiled = $false
@@ -1068,19 +1076,19 @@ function Invoke-RoboBuildPmmTest {
         "-D_CRT_SECURE_NO_WARNINGS",
         "-I", $kroot,
         "-I", (Join-Path $kroot "include"),
-        "-I", (Join-Path $script:Boot "include")
+        "-I", (Join-Path $script:Boot "Include")
     )
     $srcs = @(
         (Join-Path $kroot "mm\page.c"),
         (Join-Path $kroot "mm\memory_map.c"),
         (Join-Path $kroot "mm\pmm.c"),
         (Join-Path $kroot "mm\pmm_test.c"),
-        (Join-Path $kroot "tests\test_pmm.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_pmm.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "mm"),
         (Join-Path $kroot "include"),
-        (Join-Path $script:Boot "include\roboticela")
+        (Join-Path $script:Boot "Include\roboticela")
     )
     $objs = @()
     $compiled = $false
@@ -1113,12 +1121,12 @@ function Invoke-RoboBuildVmmTest {
         "-D_CRT_SECURE_NO_WARNINGS",
         "-I", $kroot,
         "-I", (Join-Path $kroot "include"),
-        "-I", (Join-Path $script:Boot "include")
+        "-I", (Join-Path $script:Boot "Include")
     )
     $srcs = @(
         (Join-Path $kroot "mm\page.c"),
         (Join-Path $kroot "mm\vmm\paging.c"),
-        (Join-Path $kroot "tests\test_vmm.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_vmm.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "mm"),
@@ -1159,7 +1167,7 @@ function Invoke-RoboBuildTimeTest {
     )
     $srcs = @(
         (Join-Path $kroot "time\convert.c"),
-        (Join-Path $kroot "tests\test_time.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_time.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "time")
@@ -1198,7 +1206,7 @@ function Invoke-RoboBuildSchedQueueTest {
     )
     $srcs = @(
         (Join-Path $kroot "scheduler\queue.c"),
-        (Join-Path $kroot "tests\test_sched_queue.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_sched_queue.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "scheduler"),
@@ -1238,7 +1246,7 @@ function Invoke-RoboBuildThreadStateTest {
         "-I", $kroot
     )
     $srcs = @(
-        (Join-Path $kroot "tests\test_thread_state.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_thread_state.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "thread")
@@ -1275,7 +1283,7 @@ function Invoke-RoboBuildProcessStateTest {
         "-I", $kroot
     )
     $srcs = @(
-        (Join-Path $kroot "tests\test_process_state.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_process_state.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "process")
@@ -1314,7 +1322,7 @@ function Invoke-RoboBuildProcessHostTest {
         "-I", (Join-Path $script:Repo "sdk\include")
     )
     $srcs = @(
-        (Join-Path $kroot "tests\test_process_host.c"),
+        (Join-Path $script:Repo "Tests\Kernel\test_process_host.c"),
         (Join-Path $kroot "process\process.c"),
         (Join-Path $kroot "process\process_table.c"),
         (Join-Path $kroot "process\process_resources.c"),
@@ -1366,7 +1374,7 @@ function Invoke-RoboBuildContextLayoutTest {
         "-I", $kroot
     )
     $srcs = @(
-        (Join-Path $kroot "tests\test_context_layout.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_context_layout.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "arch\x86_64"),
@@ -1403,7 +1411,7 @@ function Invoke-RoboBuildElfTest {
         "-D_CRT_SECURE_NO_WARNINGS",
         "-I", $kroot,
         "-I", (Join-Path $kroot "include"),
-        "-I", (Join-Path $script:Boot "include")
+        "-I", (Join-Path $script:Boot "Include")
     )
     $srcs = @(
         (Join-Path $kroot "exec\elf\elf.c"),
@@ -1411,7 +1419,7 @@ function Invoke-RoboBuildElfTest {
         (Join-Path $kroot "exec\elf\elf_validate.c"),
         (Join-Path $kroot "mm\page.c"),
         (Join-Path $kroot "mm\vmm\paging.c"),
-        (Join-Path $kroot "tests\test_elf.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_elf.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "exec"),
@@ -1455,7 +1463,7 @@ function Invoke-RoboBuildRfsTest {
         "-I", (Join-Path $script:Repo "sdk\include")
     )
     $srcs = @(
-        (Join-Path $kroot "tests\test_rfs.c"),
+        (Join-Path $script:Repo "Tests\Kernel\test_rfs.c"),
         (Join-Path $kroot "fs\file.c"),
         (Join-Path $kroot "fs\file_ops.c"),
         (Join-Path $kroot "fs\vfs\vnode.c"),
@@ -1510,7 +1518,7 @@ function Invoke-RoboBuildDriverSigTest {
         "-I", (Join-Path $script:Repo "sdk\include")
     )
     $srcs = @(
-        (Join-Path $kroot "tests\test_driver_sig.c"),
+        (Join-Path $script:Repo "Tests\Kernel\test_driver_sig.c"),
         (Join-Path $kroot "drivers\registry.c"),
         (Join-Path $kroot "drivers\package.c"),
         (Join-Path $kroot "drivers\signature\sha256.c"),
@@ -1604,7 +1612,7 @@ function Invoke-RoboBuildNetTest {
         (Join-Path $kroot "net\ipv4\ipv4.c"),
         (Join-Path $kroot "net\ethernet\ethernet.c"),
         (Join-Path $kroot "net\tcp\tcp.c"),
-        (Join-Path $kroot "tests\test_net.c")
+        (Join-Path $script:Repo "Tests\Kernel\test_net.c")
     )
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "net\core"),
@@ -1635,12 +1643,12 @@ function Invoke-RoboTestNet {
 
 function Invoke-RoboTestLibc {
     $clang = Get-Clang
-    $libc = Join-Path $script:Repo "libc"
-    $out = Join-Path $libc "build\test_libc.exe"
-    New-Item -ItemType Directory -Force -Path (Join-Path $libc "build") | Out-Null
+    $libc = Join-Path $script:Repo "Libc"
+    $out = Join-Path $script:Repo "Build\Libc\test_libc.exe"
+    New-Item -ItemType Directory -Force -Path (Join-Path $script:Repo "Build\Libc") | Out-Null
     $inc = Join-Path $libc "include"
     $srcs = @(
-        (Join-Path $libc "tests\libc_host_test.c"),
+        (Join-Path $script:Repo "Tests\Libc\libc_host_test.c"),
         (Join-Path $libc "src\string\string.c"),
         (Join-Path $libc "src\errno\errno.c"),
         (Join-Path $libc "src\memory\malloc.c"),
@@ -1662,8 +1670,8 @@ function Invoke-RoboBuildImage {
     Invoke-RoboBuildKernel
     if (-not (Test-Path $script:EfiOut)) { throw "BOOTX64.EFI missing - build efi first" }
     $py = Get-Python
-    $manifest = Join-Path $script:Boot "config\roboboot.manifest"
-    $mkesp = Join-Path $script:Boot "tools\make_esp.py"
+    $manifest = Join-Path $script:Boot "Config\roboboot.manifest"
+    $mkesp = Join-Path $script:Boot "Tools\make_esp.py"
     $kern = Join-Path $script:Boot "volumes\sys\kernel.elf"
     $initrd = Join-Path $script:Boot "volumes\sys\initrd"
     $deps = @($script:EfiOut, $manifest, $mkesp, $kern, $initrd)
@@ -1679,7 +1687,7 @@ function Invoke-RoboBuildImage {
         if (-not $stale -and $haveFlags -eq $wantFlags) { return }
     }
     $imgArgs = @(
-        (Join-Path $script:Boot "tools\make_esp.py"),
+        (Join-Path $script:Boot "Tools\make_esp.py"),
         "--bootloader", $script:Boot,
         "--efi", $script:EfiOut,
         "--out", $script:EspImg
@@ -1813,14 +1821,14 @@ function Invoke-RoboClean {
         Write-Step "CLEAN" "bootloader\build"
         Remove-Item $script:Build -Recurse -Force
     }
-    $kbuild = Join-Path $script:KernelRoot "build"
+    $kbuild = Join-Path $script:Repo "Build\Kernel"
     if (Test-Path $kbuild) {
-        Write-Step "CLEAN" "kernel\build"
+        Write-Step "CLEAN" "Build\Kernel"
         Remove-Item $kbuild -Recurse -Force
     }
-    $lbuild = Join-Path $script:Repo "libc\build"
+    $lbuild = Join-Path $script:Repo "Build\Libc"
     if (Test-Path $lbuild) {
-        Write-Step "CLEAN" "libc\build"
+        Write-Step "CLEAN" "Build\Libc"
         Remove-Item $lbuild -Recurse -Force
     }
     if (Test-Path $script:Dist) {
@@ -1833,7 +1841,7 @@ function Invoke-RoboDistclean {
     Invoke-RoboClean
     $baked = @()
     $baked += Get-ChildItem (Join-Path $script:Boot "assets") -Filter *.rbim -File -ErrorAction SilentlyContinue
-    $baked += Get-ChildItem (Join-Path $script:Boot "assets\fonts") -Filter *.rbfn -File -ErrorAction SilentlyContinue
+    $baked += Get-ChildItem (Join-Path $script:Boot "Assets\fonts") -Filter *.rbfn -File -ErrorAction SilentlyContinue
     foreach ($p in @(
         (Join-Path $script:Boot "volumes\sys\kernel.elf"),
         (Join-Path $script:Boot "volumes\sys\recovery.elf"),

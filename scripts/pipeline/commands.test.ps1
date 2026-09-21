@@ -42,6 +42,7 @@ $script:RoboRuntimeComponents = [ordered]@{
     # it produces (the desktop group also carries the checkpoint-scene cases).
     "render"      = @("render.")
     "desktop"     = @("desktop.")
+    "input"       = @("input.")
     "infra"       = @("infra.")
 }
 

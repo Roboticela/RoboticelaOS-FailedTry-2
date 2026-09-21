@@ -5,6 +5,7 @@
 # the real command. It contains no build logic of its own.
 #
 #   .\build.ps1                 -> scripts/robo build-all
+# Prefer: .\Scripts\Build\BuildEverything.ps1
 #   .\build.ps1 kernel          -> scripts/robo build-kernel
 #   .\build.ps1 qemu            -> scripts/robo run-qemu
 #   .\build.ps1 test            -> scripts/robo test-all --skip-qemu

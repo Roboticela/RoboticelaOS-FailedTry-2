@@ -1,0 +1,219 @@
+/*
+ * RoboHTML future-DOM boundary (Phase 8.1) — architecture stubs only.
+ *
+ * Roboticela's dependency plan places the full DOM (nodes, elements,
+ * attributes, events, traversal, mutation) in its own module ("RoboDOM"
+ * in the planned hierarchy). Until that module exists, this header fixes
+ * the boundary RoboHTML exposes toward it, so the tokenizer (8.2) and
+ * tree builder (8.3) can be written against a stable seam:
+ *
+ *   tokenizer/tree-builder  →  RoboHTML DOM-facing operations  →  future RoboDOM
+ *
+ * What is deliberately NOT here yet: element behavior, attribute storage,
+ * live trees, event dispatch, MutationObserver. Those belong to later
+ * phases. Only the stub vocabulary needed for compilation and testing
+ * of the 8.1 architecture is defined.
+ */
+
+#ifndef ROBO_HTML_DOM_H
+#define ROBO_HTML_DOM_H
+
+#include "RoboBase/RoboError.h"
+#include "RoboHTML/RoboHTMLDiagnostics.h"
+#include "RoboHTML/RoboHTMLLifecycle.h"
+#include "RoboHTML/RoboHTMLNode.h"
+#include "RoboHTML/RoboHTMLTypes.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Creation site of a node — records which subsystem asked the document to
+ * register a node. The tree builder (8.3) will use the DOCUMENT_BUILDER
+ * origin; tests use TEST origin. Origins are diagnostic metadata only;
+ * they never change ownership rules (the owning document always owns).
+ */
+typedef enum HtmlNodeOrigin {
+    RoboHtmlNodeOriginNone = 0,
+    RoboHtmlNodeOriginDocumentRoot = 1,
+    RoboHtmlNodeOriginParser = 2,
+    RoboHtmlNodeOriginDom = 3,
+    RoboHtmlNodeOriginTest = 4
+} HtmlNodeOrigin;
+
+/** Non-zero if @p origin is a defined node origin enumerator. */
+int HtmlNodeOriginIsKnown(HtmlNodeOrigin origin);
+
+/** Human-readable node origin name; never NULL. */
+const char *HtmlNodeOriginName(HtmlNodeOrigin origin);
+
+/**
+ * Future-DOM capability flags exposed by the 8.1 architecture. All are 0
+ * in this phase; each flips to 1 only in its own phase. Callers must not
+ * assume any capability is available yet.
+ */
+typedef struct HtmlDomCapabilities {
+    /** Full node/element/attribute DOM available (DOM phase). */
+    int domNodes;
+    /**
+     * The element attribute model is available (Phase 8.6): lookup,
+     * presence, deterministic order, and add/set/remove on an element.
+     * This is not a claim of a NamedNodeMap-compatible DOM surface.
+     */
+    int attributes;
+    /**
+     * The text-node model is available (Phase 8.7): real text nodes with
+     * content access and set/append, created through one seam. This is not a
+     * claim of a CharacterData-compatible DOM surface (no splitText, no
+     * Range/Selection, no mutation observers).
+     */
+    int textNodes;
+    /**
+     * The read-only traversal model is available (Phase 8.8): relationships
+     * in both directions, deterministic pre-order enumeration, filters and
+     * bounded search over any node kind. Read-only by construction — this is
+     * not a claim that the tree can be mutated.
+     */
+    int traversal;
+    /**
+     * DOM mutation APIs are available (Phase 8.9): append, insert before,
+     * remove, replace and bulk child removal, all on a finalized document.
+     * This is not a claim of a complete DOM: creating nodes, cloning them
+     * and the ChildNode/ParentNode conveniences are later-phase work.
+     */
+    int mutation;
+    /**
+     * Element *type* identity is available (Phase 8.11): the tag vocabulary
+     * in RoboHTMLTag.h, resolved from (namespace, name) and readable per
+     * element through HtmlElementTag / HtmlElementIsTag, with
+     * the role and the intrinsic flags (void, heading, list, sectioning,
+     * text-level, ...) defined by the same rows. This is not a claim of CSS,
+     * selectors, layout, or of an exhaustive element vocabulary — an element
+     * this runtime does not recognise is UNKNOWN and still fully functional.
+     */
+    int elementTags;
+    /**
+     * The image resource model is available (Phase 8.12): `<img>` attributes
+     * (src/alt/width/height) readable as a typed view, a resource with an
+     * explicit state that holds real decoded RGBA8 pixels, a per-element
+     * resolve/get/detach and a per-document attachment table.
+     *
+     * "Available" does not mean reachable from the network: bytes arrive
+     * through a caller-installed resolver, and this build ships only an
+     * in-memory asset table. There is no CSS, layout, intrinsic sizing,
+     * srcset/<picture>, load/error event or accessibility tree.
+     */
+    int images;
+    /**
+     * The anchor and navigation model is available (Phase 8.13): `<a>`
+     * attributes readable as a typed view, a reference resolved into a
+     * navigation target (route / fragment / external / invalid) against the
+     * document's own reference, a fragment resolved to a real element in this
+     * document, and an activation that produces a deterministic outcome and
+     * consults a caller-installed handler for anything it cannot answer
+     * itself.
+     *
+     * "Available" is a narrow claim: an activation with no handler reports
+     * UNSUPPORTED, a scheme outside the permitted set is refused before the
+     * handler is consulted, and there is no network, no History API, no
+     * click/event DOM API and no download manager.
+     */
+    int links;
+    /**
+     * The forms foundation is available (Phase 8.14): `<form>`, `<label>`,
+     * `<input>`, `<button>`, `<textarea>`, `<select>` and `<option>`
+     * attributes readable as typed views, an input/button type vocabulary
+     * with a defined degradation for an unrecognised `type`, a label resolved
+     * to the control it names, a control resolved to its form owner (by
+     * `form` attribute ID, else nearest ancestor `<form>`), and per-document
+     * control state that distinguishes a control's *declared* value from its
+     * *current* value.
+     *
+     * "Available" is a narrow claim: no submission, no encoding, no
+     * validation, no user interaction and no `load`/`error`/`input` events.
+     * A value is only ever changed by an explicit API call in this phase.
+     */
+    int forms;
+    /** Event model available (DOM events phase). */
+    int events;
+    /** Tree construction from parser callbacks (Phase 8.3). */
+    int treeBuilding;
+} HtmlDomCapabilities;
+
+/** Zero all capability flags (architecture: nothing available in 8.1). */
+void HtmlDomCapabilitiesInit(HtmlDomCapabilities *caps);
+
+/**
+ * Query the DOM-facing capabilities of this runtime build.
+ * @return RoboOk; RoboInvalidArgument when @p out is NULL.
+ */
+Result HtmlDomQueryCapabilities(
+    HtmlDomCapabilities *out);
+
+/**
+ * Mutation/event hook foundation (architecture only).
+ *
+ * The future DOM mutation layer will call these hooks so applications and
+ * later subsystems (style/layout invalidation) observe node registration
+ * and document lifecycle changes. Phase 8.1 invokes the registered hook
+ * for node registration only; dispatch semantics, targeting, and
+ * propagation are later-phase work.
+ *
+ * Contract:
+ *   - Exactly one hook may be installed document-wide at a time;
+ *     installing over an existing hook returns RoboAlreadyExists.
+ *   - The hook runs synchronously, after the node is registered and the
+ *     document state is consistent.
+ *   - Hook failures are recorded as diagnostics and do NOT roll back the
+ *     triggering operation (registration remains authoritative).
+ */
+typedef enum HtmlMutationKind {
+    RoboHtmlMutationNone = 0,
+    RoboHtmlMutationNodeRegistered = 1,
+    RoboHtmlMutationDocumentLifecycle = 2,
+    /**
+     * The tree's shape changed (Phase 8.9): a node was attached, detached or
+     * moved by the DOM mutation API. @c node is the node whose position
+     * changed — the child for append/insert/replace and for a removal, and
+     * the parent for a bulk child removal, where no single child describes
+     * the change.
+     *
+     * This is the hook a future style/layout invalidation listens to. It is
+     * deliberately not a MutationObserver: it is one synchronous,
+     * document-wide notification that something changed, with no record
+     * types, no targets, no subtree options and no queued microtask — all of
+     * which belong to the event phases.
+     */
+    RoboHtmlMutationTreeMutated = 3
+} HtmlMutationKind;
+
+/** Non-zero if @p kind is a defined mutation hook kind. */
+int HtmlMutationKindIsKnown(HtmlMutationKind kind);
+
+typedef struct HtmlMutationEvent {
+    HtmlMutationKind kind;
+    HtmlDocumentId documentId;
+    HtmlNodeHandle node; /* the affected node; see each kind */
+    HtmlDocumentLifecycle lifecycle; /* for lifecycle events */
+} HtmlMutationEvent;
+
+typedef void (*HtmlMutationHookFn)(const HtmlMutationEvent *event,
+                                           void *userdata);
+
+/**
+ * Install the document-wide mutation hook (see contract above).
+ * @p hook NULL clears. Over-install → RoboAlreadyExists (clear first).
+ * Unknown document → RoboNotFound.
+ */
+Result HtmlDocumentSetMutationHook(
+    HtmlDocumentId documentId,
+    HtmlMutationHookFn hook,
+    void *userdata,
+    HtmlDiag *diag);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* ROBO_HTML_DOM_H */
