@@ -19,8 +19,12 @@
  * the dump. And since 11.4 it paints: `robo_paint_decoration_paint` walks a display list and
  * fills every **drawing** command into a caller's RoboGraphics surface, so
  * `robo_paint_drawing_is_implemented()` answers 1 -- a box's **background** (11.4) and, since
- * 11.5, each of its **border sides** -- while `raster` stays 0, because the structural
- * commands are not drawings and a general rasteriser that consumed them is a later goal's.
+ * 11.5, each of its **border sides** -- and since 11.12 `raster` is 1 as well, because the
+ * subsystem that executes a whole display list into pixels now exists directly above this module
+ * (`RoboRender`): this module owns what the list *means* -- the walk, the two scope stacks, the
+ * per-drawing boundary and strength -- and that one owns what a *frame* is. What 11.12 added here
+ * is the **bounded** door (`robo_paint_decoration_paint_bounded`), which is how a region run
+ * executes the same list inside a rectangle without a second pass existing to disagree with it.
  *
  * The pipeline this module is the fourth stage of, and where this release stops:
  *
@@ -34,13 +38,19 @@
  * record already has a node, a depth, three rectangles, a clip and a colour, and a new
  * kind is one enumerator rather than a redesign.
  *
- * What it does *not* buy is a **rasteriser**: `raster` is 0 and this header says so rather
- * than leaving a caller to find out from a blank surface. What 11.4–11.5 buy is narrower and
- * precise -- the two *drawing* command kinds reach a surface -- and a caller that checked only
- * a version number would conclude that 0.5.0 renders a document, when what it renders is a
- * box's background and its four border bands (as bands: seven of CSS's ten border styles are
- * pattern-shaped inside the band and are counted rather than shaped, see
- * `RoboPaintDecoration.h`).
+ * What it does *not* buy, at any version, is a **rasteriser of its own**, and that is a boundary
+ * rather than a gap: a pass that consumed a whole list *and* owned an execution record, a target
+ * and its byte-determinism would be two modules' jobs in one, and a renderer built on it could
+ * not be tested without a document. What the drawing doors buy is narrower and precise -- the
+ * *drawing* command kinds reach a surface, bounded by the scopes the document declares and at the
+ * strengths it declares -- and a caller that checked only a version number would conclude that
+ * 0.5.0 renders a document, when what it renders is a box's background and its four border bands
+ * (as bands: seven of CSS's ten border styles are pattern-shaped inside the band and are counted
+ * rather than shaped, see `RoboPaintDecoration.h`). Since 11.12 the claim `raster` makes is
+ * narrower than it reads, and `render/docs/Rasterization.md` says exactly how wide it is: a whole
+ * list is *executed* -- state scopes honoured, every drawing attempted -- while a `rasteriser`'s
+ * harder promises (a tile tree, damage tracking, a frame scheduler, a compositor, a GPU) are each
+ * named as absent rather than implied.
  *
  * Chromium's paint and display-list architecture -- `PaintLayer`, `DisplayItem`,
  * `PaintController`, `cc::DisplayItemList` -- is temporary technical reference only, and
@@ -149,16 +159,33 @@ typedef struct robo_paint_capabilities {
      * `RoboPaintDisplayList` that resolves the box model into one rectangle per command and
      * enforces the traversal's structural convention, built from a paint list.
      *
-     * **1 while `drawing` is 0**, and keeping the two apart is the point: this build
-     * produces a *render-ready* list and still puts no colour on a surface. A caller
-     * that read only this field would conclude the pixels are there; a caller that read
-     * only `drawing` would miss that the artifact a rasteriser consumes now exists.
+     * **1 since 11.3, and 1 while `drawing` was 0 for one release** -- the pair was the point
+     * then and still is: the *artifact* a rasteriser consumes and the *drawing* of that artifact
+     * into a surface are two facts, and a caller that read only one of them would be wrong about
+     * the other. Keeping them apart is also why `raster`, one field down, was allowed to stay 0
+     * for eight more releases while `drawing` was 1.
      */
     int display_lists;
-    /** Rasterising a paint list into a RoboGraphics surface. **0**: a later goal. The three
-     *  *drawing* command kinds reach a surface today -- see `background_painting`,
-     *  `border_painting` and `text_painting` -- but the three structural kinds are not drawings,
-     *  so a pass that consumed a whole list is still absent. */
+    /**
+     * **Executing a whole display list into pixels** (11.12), and **1** since this module's
+     * 0.12.0 -- but the field was 0 for nine releases and *what changed* is the module above rather
+     * than this one.
+     *
+     * The three *drawing* command kinds have reached a caller's surface since 11.4-11.6 (see
+     * `drawing`, `background_painting`, `border_painting`, `text_painting`, `image_painting`), and
+     * the three structural kinds are not drawings and never will be. What was missing was the
+     * subsystem that walks a list *as a frame*: an owned pixel target, a run that executes the whole
+     * vocabulary including the two scope pairs, an execution record, byte-determinism and
+     * region-limited execution. That subsystem is `RoboRender` (11.12), it sits directly above this
+     * module in `DEPENDENCIES.md`, and it drives this module's walk through the bounded door.
+     *
+     * So read this field as "a caller with a display list can obtain pixels, today, from this
+     * build", and read the sentence as the *pair*'s claim rather than this module's: RoboPaint owns
+     * what the list means and RoboRender owns what a frame is. What it does **not** claim is
+     * anything a rasteriser's harder senses imply -- tiles, damage tracking, a frame scheduler, a
+     * compositor, a GPU -- and `RoboRender.h` names each of those as a 0 beside it, which is where a
+     * caller deciding what to build next should look.
+     */
     int raster;
     /**
      * **Knowing which regions a change made stale** (11.11), and **1**: an owned set of
@@ -171,7 +198,7 @@ typedef struct robo_paint_capabilities {
      * The field 11.1 declared and left 0, and the claim it makes is narrower than the word: a
      * region is a promise that a repaint of it is **sufficient**, never that those pixels
      * changed -- every door here widens rather than narrows when it is not certain. It does not
-     * claim a rasteriser (`raster` stays 0), a partial list *patch* (the display list is rebuilt
+     * claim a partial list *patch* (the display list is rebuilt
      * and the set says how little of it a caller may re-execute), a tile tree, a damage
      * history, frame scheduling or a compositor layer, and it is a *claim about regions* rather
      * than about pixels reaching a screen -- `drawing` is the field for that.
@@ -312,12 +339,13 @@ robo_result_t robo_paint_get_version(robo_i32 *out_major,
  * flip was exactly this: "a build in which an operation's rectangle and colour reach a
  * RoboGraphics surface". A `draw-background` command's rectangle and colour did, and since
  * 11.5 a `draw-border` command's band and colour do too, through the same pass
- * (`robo_paint_decoration_paint`). What it still does **not** mean is that every command
- * rasterises: `raster` is 0, and the pass skips the three **structural** kinds -- which draw
- * nothing by definition -- and counts them. So the two things a caller must not conclude are
- * that a structural command reaches a surface (it does not --
- * `robo_paint_decoration_stats_t.skipped` counts it) or that a whole document is a picture
- * (the list still prints with `robo_paint_list_write`).
+ * (`robo_paint_decoration_paint`). What it does **not** mean is that every command draws
+ * something: the three **structural** kinds draw nothing by definition, and the pass counts them
+ * (`robo_paint_decoration_stats_t.skipped`) rather than pretending otherwise. So the two things a
+ * caller must not conclude are that a structural command reaches a surface (it does not) or that
+ * this door is a frame -- it has no target it owns, no execution record and no region execution;
+ * `robo_render_rasterize` is the door that answers a frame, and since 11.12 it is the one a caller
+ * asking "can a document become pixels?" should read.
  */
 int robo_paint_drawing_is_implemented(void);
 

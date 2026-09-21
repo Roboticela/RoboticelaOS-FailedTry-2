@@ -217,6 +217,9 @@ void robo_test_register_paint_clip(void);
 void robo_test_register_paint_opacity(void);
 void robo_test_register_paint_hit_test(void);
 void robo_test_register_paint_invalidation(void);
+void robo_test_register_render(void);
+void robo_test_register_render_raster(void);
+void robo_test_register_render_scene(void);
 void robo_test_register_demo_html(void);
 
 int main(int argc, char **argv)
@@ -477,6 +480,9 @@ int main(int argc, char **argv)
     robo_test_register_paint_opacity();
     robo_test_register_paint_hit_test();
     robo_test_register_paint_invalidation();
+    robo_test_register_render();
+    robo_test_register_render_raster();
+    robo_test_register_render_scene();
     /* Registered last: demo.lifetime.uninitialized intentionally shuts the
      * RoboHTML module down and brings it back, so nothing may follow it. */
     robo_test_register_demo_html();

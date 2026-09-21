@@ -299,7 +299,14 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboPaint\RoboPaintHitTest.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintImage.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintInvalidation.c"),
-    (Join-Path $SourceDir "RoboPaint\RoboPaintDecoration.c")
+    (Join-Path $SourceDir "RoboPaint\RoboPaintDecoration.c"),
+    # RoboRender (11.12) — the first module above the paint stack: an owned pixel target, a run over
+    # a display list, an execution record and region-limited execution. It drives the walk below it
+    # through `robo_paint_decoration_paint_bounded` and adds no second executor of its own.
+    (Join-Path $SourceDir "RoboRender\RoboRender.c"),
+    (Join-Path $SourceDir "RoboRender\RoboRenderDiagnostics.c"),
+    (Join-Path $SourceDir "RoboRender\RoboRenderRasterizer.c"),
+    (Join-Path $SourceDir "RoboRender\RoboRenderFrameDump.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
 # this is the one place in the tree that is allowed to be deleted wholesale
@@ -518,6 +525,9 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintOpacity.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintHitTest.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintInvalidation.c"),
+    (Join-Path $RuntimeRoot "render\tests\SuiteRoboRender.c"),
+    (Join-Path $RuntimeRoot "render\tests\SuiteRoboRenderRaster.c"),
+    (Join-Path $RuntimeRoot "render\tests\SuiteRoboRenderScene.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
@@ -801,6 +811,51 @@ function Assert-RoboPaintBoundaries {
     Write-Host "RoboPaint boundary source scan: OK"
 }
 
+function Assert-RoboRenderBoundaries {
+    # The module itself is held to both halves of the rule, because both are about what a
+    # *rasteriser* may consult: a display list is its input contract, so a document layer is as
+    # forbidden to it as a layer above it.
+    $moduleRoots = @(
+        (Join-Path $RuntimeRoot "Include\RoboRender"),
+        (Join-Path $RuntimeRoot "Source\RoboRender")
+    )
+    # The suites and the module's own documents are held to the upward half only, and the
+    # asymmetry is the paint scan's own, one layer down: a render fixture *is* a paint fixture
+    # plus a target, so it builds a document on purpose (HTML, CSS, a layout pass) to produce
+    # the list under test. Scanning them for a document-layer include would be scanning for the
+    # thing they exist to do -- while an upward include in a suite is still a leak, and is what
+    # would happen the day a suite reached for a window to look at its own frame.
+    $allRoots = $moduleRoots + @((Join-Path $RuntimeRoot "render"))
+
+    # RoboRender sits directly above RoboPaint and directly below RoboCompositor
+    # (DEPENDENCIES.md): it may read a display list, a paint invalidation set, the geometry
+    # those carry and the RoboGraphics surface/raster it draws through. What it must never
+    # reach for is anything above itself -- a compositor, JS, the shell, the API layer, the
+    # window or the display -- nor, in the module's own sources, a document layer, because a
+    # rasteriser that consulted a tree could not be tested without one. Nor Chromium.
+    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $document = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|RoboWindow|RoboDisplay|RoboHTML|RoboCSS|RoboLayout|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $exempt = '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|has no business|does not read|reaching for|a document layer|names absent|RoboLayout''s|document-layer include'
+
+    $rules = @(
+        @{ Roots = $moduleRoots; Pattern = $document },
+        @{ Roots = $allRoots; Pattern = $upward }
+    )
+    foreach ($rule in $rules) {
+        foreach ($root in $rule.Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+                Select-String -Pattern $rule.Pattern -SimpleMatch:$false |
+                Where-Object { $_.Line -notmatch $exempt }
+            if ($hits) {
+                $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+                throw "RoboRender boundary leak (Chromium, a higher layer or a document layer):`n$sample"
+            }
+        }
+    }
+    Write-Host "RoboRender boundary source scan: OK"
+}
+
 function Assert-RoboDisplayChromiumIndependence {
     $roots = @(
         (Join-Path $RuntimeRoot "Include\RoboDisplay"),
@@ -1065,6 +1120,7 @@ if ($Verify) {
     Assert-RoboCSSChromiumIndependence
     Assert-RoboLayoutBoundaries
     Assert-RoboPaintBoundaries
+    Assert-RoboRenderBoundaries
     Assert-RoboDemoIsolation
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }

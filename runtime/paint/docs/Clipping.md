@@ -354,8 +354,13 @@ such positioning yet), compositor-level and tile-level clipping, GPU clip schedu
 display-list replay and rasterisation architecture. **Paint invalidation landed in 11.11** and reads
 this boundary rather than changing it: a region is narrowed by the clip a drawing was under, and one
 whose boundary excluded every pixel is *not* produced at all (`Invalidation.md` §7) — so the model
-above is what it reads, and the omission is the exclusion rule rather than a missing clip concept. `raster` stays **0** and
-`ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: this phase removes none of the drawings and adds none.
+above is what it reads, and the omission is the exclusion rule rather than a missing clip concept. **11.12 landed** and
+changed neither: `raster` is now **1** and names **RoboRender**, which executes the list into an owned
+target with the clip applied per drawing exactly as this file describes, and the one door 11.12 added
+here — `robo_paint_decoration_paint_bounded` — is this section's own model used a second time: a region
+run is a **clip**, not a filter over commands, so a drawing is still executed and the raster still
+excludes the pixels, per command, per pixel. `ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: the phase
+removes none of the drawings and adds none.
 
 **Hit testing (11.10) is no longer on that list**, and the phase added nothing to this file's subject
 to take it off. It reads the boundary in force from the same record the pass does, through
@@ -371,13 +376,21 @@ The shape an advanced phase fills in is already right:
 
 ```text
 this build      box overflow → per-axis record → push/pop scope → rectangle per drawing
-Phase 11.12     the same record, carried into a stacking context and a display-list replay
+11.12           the same record, executed into an owned target — and a region run narrows it
+Phase 11.13+    the same record, carried into a stacking context and a display-list replay
 ```
 
-**Next:** 11.12 — rasterization, which now has two readers to keep honest rather than one: a boundary
-that moved without invalidating the paint list would leave the hit test and the painter agreeing about
-a document that is no longer there, and a region that ignored the boundary would repaint pixels a
-scope had already excluded. 11.11 answered the second of those by **narrowing against this record**
+**11.12 is where that second line landed**, and it kept this file's model rather than extending it: the
+same per-axis record reaches an owned pixel target, and a region run does not add a clip *kind* — it
+narrows the one in force with a rectangle, which is why a bounded pass and a full pass agree inside the
+region. What 11.12 did **not** add is the thing this section's deferred list still names: a stacking
+context, rounded clipping, `clip-path`, masks, scroll containers and tile-level clipping are all absent
+by design, and the phase that carried the boundary into a stacking context is a later one.
+
+**Next:** 11.13 — framebuffer presentation, which has the same two readers this module keeps honest
+rather than one: a boundary that moved without invalidating the paint list would leave the hit test,
+the painter and the rasteriser agreeing about a document that is no longer there, and a region that
+ignored the boundary would repaint pixels a scope had already excluded. 11.11 answered the second of those by **narrowing against this record**
 (`Invalidation.md` §7) and by keeping the rectangle whole whenever an axis of the boundary has no
 extent to intersect with, which is the same refusal `robo_paint_clip_rect` makes — the phase did not
 change this model, it read it.

@@ -5920,6 +5920,133 @@ reproduces a full render byte for byte**.
 capability row), `paint/README.md`, `paint/docs/{Architecture,Tests}.md`, `PROGRESS.md`,
 `ARCHITECTURE.md` and `.cursor/rules/runtime-plan.mdc`.
 
+## Goal 11.12 — Rasterization
+
+_Implemented. A new module, **RoboRender 0.1.0**, `ROBO_RENDER_RASTERIZATION_IMPLEMENTED=1`; RoboPaint
+**0.12.0** with `raster` flipped to **1** — the last field 11.1 declared and left at 0. The module has
+no lifecycle: it holds no global state, so there is no `init`/`shutdown` pair to write._
+
+11.12 is the release that spends the answers every module below it produced. RoboLayout says where
+every box is, RoboPaint says what to draw in what order under which boundary and at which strength,
+11.11 says which pixels went stale — and all three of those are *data*. This module makes a **frame**
+out of them: an owned pixel target, one run over the whole command vocabulary, an execution record, and
+byte-identical output for identical input. The module boundary is the phase's first decision and it is
+stated in three headers, because getting it wrong in either direction produces a worse build: RoboPaint
+owns what the list **means** (the walk, the two scope stacks, the per-drawing boundary and strength, the
+buckets that say why a drawing did not land) and RoboRender owns what a **frame** is. So 11.12 added
+exactly one door below it — `robo_paint_decoration_paint_bounded`, the same walk with the raster's clip
+narrowed by a rectangle — and no second walk exists to disagree with the first.
+
+| Piece | Where |
+|---|---|
+| The owned pixel target: 15 doors, RGBA8, `ROBO_RENDER_MAX_DIMENSION`, `bytes`, `checksum`, `equal` | `RoboRenderRasterizer.h/.c` |
+| The frame record: the pass's record **by value** plus `regions`/`limited`/`region`/`region_pixels`/`target_pixels`/`checksum` | `RoboRenderRasterizer.h/.c` |
+| `robo_render_rasterize` — the whole frame | `RoboRenderRasterizer.c` |
+| `robo_render_rasterize_regions` — the same list bounded by an invalidation set (NULL/empty = success, nothing done) | `RoboRenderRasterizer.c` |
+| The preflight: one pass over values, all-or-nothing, `ROBO_NOT_SUPPORTED` with a `LIST` diagnostic | `RoboRenderRasterizer.c` |
+| `robo_render_frame_write` — seven lines, no address in them | `RoboRenderFrameDump.c` |
+| The capability table: sixteen flags, ten 1s and six 0s, each 0 naming its phase | `RoboRender.h`, `RoboRender.c` |
+| `robo_paint_decoration_paint_bounded` + the `bounded_out` counter | `RoboPaintDecoration.h/.c` |
+| RoboPaint **0.12.0**: `raster` = 1, and the prose that said otherwise | `RoboPaintVersion.h`, `RoboPaint.h`, `RoboPaint.c` |
+| The suites: 24 cases in three files, plus the fixture header | `render/tests/` |
+| The module's own documents | `render/README.md`, `render/docs/{Rasterization,Tests}.md` |
+
+Four load-bearing decisions, and each has a version that looks right.
+
+**The bound is a *clip*, not a *filter*.** A region run executes **every** command and narrows the
+raster's clip to the region; it does not skip the commands whose rectangle misses it. Skipping looks
+like the same picture until a text run is involved: a run's rectangle is its **advance** box, so a
+glyph's ink can land inside a region its rectangle never reaches. Bounding with the clip needs no
+per-kind proof and is what makes a region run equal to a full frame *inside* the region — which
+`render.scene.region_matches_full` asserts byte for byte rather than argues.
+
+**One run per set, over the set's own bounds.** A set can name **overlapping** regions, and running the
+list once per region would composite a semi-transparent drawing **twice** where two overlap — two
+half-transparent fills over one pixel do not make one fill, and no counter would catch it. So the run
+executes once, over `robo_paint_invalidation_set_bounds`, which 11.11 documents as *sufficient* (it can
+only be too large). Merging into disjoint rectangles is the optimisation it is, not a claim.
+
+**All-or-nothing, therefore a preflight.** A run walks the list once before the first pixel: an unknown
+command kind, a pop that closes nothing, a scope left open at the end — each is refused and the target
+keeps exactly the bytes it had. Two properties follow: an unsupported command is never silently
+reinterpreted (the brief's §5 as behaviour), and a run that returns `ROBO_OK` drew the whole list it was
+given, which is what makes the region equality checkable at all. The preflight deliberately does *not*
+re-derive the display list builder's document rules: that would be a second authority on what a list
+may contain.
+
+**Clearing is the caller's.** A run never clears, because a region run *must* not: clearing would erase
+the pixels its regions were computed to preserve. The frame contract is clear-once-then-execute, and
+conflating the two would make the correct partial repaint unexpressible.
+
+### What 11.12 found
+
+1. **`position` is parsed by RoboCSS and laid out by nobody.** The scene's first draft placed an
+"overlay" with `position: absolute; left: 110px; top: 10px` and asserted a pixel there. Every box in
+this build is in **normal flow**: the declaration was accepted and ignored and the box landed 100 pixels
+lower. The scene's document comment now states its flow geometry as numbers and says why — a later
+layout phase that starts honouring `left`/`top` fails a named assertion instead of quietly moving the
+picture. It is a Phase 10 boundary, found by a Phase 11 test, and it is the reason
+`render/docs/Tests.md` §4 exists.
+2. **A glyph is an outline, so a pixel in the middle of it is background.** The no-face case asserted
+that the pixel at (8,8) had changed — the centre of a ten-pixel square at `font-size: 100px`. The glyph
+*was* drawn (the checksum moved) and the pixel was untouched: the stroke is the ink. Hence
+`render_region_has_ink_is`, and the rule that a text claim is a claim about a region.
+3. **`0x` appears inside `200x200`.** The "no address in the dump" check was written as
+`strstr(text, "0x") == NULL`: it passed at 16x8 and failed at 200x200 because it was testing the
+dimensions string. It is now `=0x`, which is what a printed pointer looks like.
+4. **A clip display command must carry an *active* boundary to be appendable.** The preflight case builds
+an unbalanced list by hand, and its first draft was refused by the **list's own** append rather than
+reaching the preflight — 11.8's validity rule refuses a scope command whose clip bounds neither axis.
+The case now states the boundary the record must carry, which is also the fact that makes the rule
+checkable: the *list* guarantees each record is a command, and the *rasteriser* is what guarantees a
+sequence of them is a frame.
+5. **`-Verify` had never been run, and it caught two things.** Every build in this phase's development
+used `-Test` (which builds and runs the suites) and `robo check` (which scans all runtime sources for
+Chromium), so `Assert-RoboRenderBoundaries` — the function 11.12 added for the new module — did not
+run until the gate list was executed in full. It flagged, first, the module's own
+`#include "RoboLayout/RoboLayoutGeometry.h"`: a direct document-layer include in the layer whose input
+contract is a display list, fixed by taking the rectangle through **RoboPaint's** geometry re-export
+(the type is RoboGraphics' canonical `robo_gfx_rect_t` either way). It then flagged the *fixture*, which
+includes RoboHTML because a render fixture **is** a paint fixture plus a target and must build a
+document to have a list to rasterise — so the rule was split, the paint scan's own asymmetry one layer
+down: the module is held to **both** halves (no document layer, no higher layer, no Chromium) and the
+suites and documents to the **upward** half only, because an upward include in a suite is the leak that
+would happen the day a suite reached for a window to look at its own frame.
+
+### Suite
+
+`render/tests/` — three suite files, **24** cases. `SuiteRoboRender.c` (9: the module, the target, the
+record, the dump — including the capability table asserted **by name**, so a phase that flips one has to
+change this case deliberately), `SuiteRoboRenderRaster.c` (10: an empty frame, argument rules, a
+filled rectangle's pixels, alpha and nested opacity, clipping and bounds, off-surface geometry, byte
+determinism, the two preflight refusals, the no-face case, and region clamping) and
+`SuiteRoboRenderScene.c` (5: the visual checkpoint, the region-equals-full capstone, nothing-owed,
+snapshot isolation, and the dump of a real frame). No golden image and no reference bitmap: the verdict
+is the pixels asserted, the PNG written to `Out/RenderScene.png` is **evidence**, and a read-only tree
+prints a note rather than failing a suite whose pixels are perfectly good.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `pwsh -File Tools/Build.ps1 -Configuration Debug -Test` | **2629/2631** — the two failures are `window.host.keyboard`/`mouse`, which fail on `SetForegroundWindow` being declined (a Windows foreground-steal refusal, pre-existing, environment-dependent and untouched by this phase) |
+| `-Configuration Debug -Verify` | **VERIFY PASS** — `RoboRender boundary source scan: OK`, and every other module's scan unchanged |
+| `-Configuration Release`, and `-Configuration Debug -Test -Sanitize` | build OK; the same 2629/2631, no sanitizer diagnostics |
+| `--filter render.` (Debug, Release, sanitize) | **24/24** each time; `--filter paint.` unchanged at **238/238** |
+| `robo check` | PASS — Chromium independence **CLEAN** with the new module present; `Assert-RoboRenderBoundaries` passes |
+
+### Files
+
+**Added:** `Include/RoboRender/{RoboRender,RoboRenderVersion,RoboRenderDiagnostics,RoboRenderRasterizer}.h`,
+`Source/RoboRender/{RoboRender,RoboRenderDiagnostics,RoboRenderRasterizer,RoboRenderFrameDump}.c`,
+`render/tests/{RoboRenderTestSupport.h,SuiteRoboRender.c,SuiteRoboRenderRaster.c,SuiteRoboRenderScene.c}`,
+`render/README.md`, `render/docs/{Rasterization,Tests}.md`.
+**Modified:** `RoboPaintDecoration.h/.c` (the bounded door and its counter), `RoboPaintVersion.h`,
+`RoboPaint.h`, `RoboPaint.c`, `paint/tests/SuiteRoboPaint.c` and `SuiteRoboPaintConformance.c` (version
+and the `raster` capability row), `Tools/Build.ps1` (sources, suites, boundary scan),
+`Tests/Main.c`, `paint/README.md` and the paint documents that named `raster` as 0, `PROGRESS.md`,
+`ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
+
 ## Next
 
 - **Phase 11.7 — image painting: filled in.** The paragraph that used to stand here called it "the
@@ -5934,16 +6061,18 @@ capability row), `paint/README.md`, `paint/docs/{Architecture,Tests}.md`, `PROGR
   What 11.8's, 11.9's and 11.10's sections used to say about a missing 11.7 is now the record of the
   order the work landed in rather than of a gap: their vocabulary gained a row and a field, and the
   two suite headers and one deferral list that named the picture as untestable now name it as covered
-  *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.- **Phase 11.12 — rasterization.** The next goal, and the one 11.11 was written to hand something to:
-  `raster` is still **0**, and the set of regions is the answer a region-sized rasteriser needs. The
-  two questions 11.12 will have to settle are already framed by this goal's decisions -- whether a
-  rasteriser consumes a **region** of the list or **patches** the list itself (11.11 rebuilt it whole
-  and says only what may be re-executed), and what a region's boundary means once something is
-  executing it rather than describing it (`narrowed` and `conservative` are two different kinds of
-  rectangle, and a rasteriser that treated them alike would be the first place the distinction is
-  lost). Then 11.13's framebuffer presentation, transforms, **event dispatch** (Phase 12, which
-  consumes 11.10's result rather than replacing it), `pointer-events`, group opacity (which needs an
-  offscreen layer, and whose measured gap is `paint.opacity.group_deviation`). The deferred tables in
+  *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.- **Phase 11.13 — framebuffer presentation.** The next goal, and the one 11.12 handed a target to:
+  `presentation` is the first 0 in `RoboRender.h`'s table, and `robo_render_target_surface` is the door
+  it takes. The two questions this goal left it are framed rather than open -- whether the window path
+  **copies** a target's RGBA8 pixels into its own surface or the target's surface *is* the window's
+  back buffer, and what paces a frame once nothing about this pipeline is deterministic in *time*
+  (11.12 has no clock, which is exactly why it is reproducible). RoboWindow and RoboDisplay already own
+  real surfaces and a present path, so the work is a format decision, a copy and a handoff rather than
+  a new subsystem -- and `render/docs/Rasterization.md` §12 states the three shapes it could take.
+  Then transforms, **event dispatch** (Phase 12, which consumes 11.10's result rather than replacing
+  it), `pointer-events`, group opacity (which needs an offscreen layer, and whose measured gap is
+  `paint.opacity.group_deviation`), and the region *subtraction* a tile tree would need. The deferred
+tables in
   `paint/README.md`, `paint/docs/Invalidation.md` §12, `paint/docs/Opacity.md` §12,
   `paint/docs/Clipping.md` §12, `paint/docs/HitTest.md` §11, `paint/docs/Decoration.md` §11,
   `paint/docs/Text.md` §10 and `paint/docs/Border.md` §6 name every one of them, and

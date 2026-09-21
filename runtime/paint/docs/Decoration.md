@@ -18,11 +18,12 @@ Two entry points, both under `Include/RoboPaint/`:
 |---|---|
 | `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` (`RoboPaintColor.h`) | the colour bridge: RoboCSS's colour into RoboGraphics' |
 | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` (`RoboPaintDecoration.h`) | the pass: walk a display list, execute its **drawing** commands |
+| `robo_paint_decoration_paint_bounded` (`RoboPaintDecoration.h`, 11.12) | the *same* walk inside a rectangle — the door a region run executes the list through; `NULL` bound is the unbounded door exactly |
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED` is **1** since 11.4, and the condition the version header wrote
 down for the flip is exactly what happened: *a build in which an operation's rectangle and colour
-reach a RoboGraphics surface*. The fence that keeps the claim honest is `raster`, which stays
-**0** — see §8.
+reach a RoboGraphics surface*. The fence that keeps the claim honest is `raster`, which since 11.12
+is **1** and names a module rather than this pass — see §8.
 
 **One pass for all four kinds, and the reason is the order.** A box's background, its four border
 sides, a run's glyphs and a document's pictures are all *drawings*, and the list interleaves them the
@@ -205,6 +206,34 @@ through the graphics module's own blend so the difference is a measured fact. Cl
 offscreen surface and one blend of that surface onto the target — a compositor, and a later goal's
 (`paint/docs/Opacity.md` §9).
 
+## 6.2 The bound: the clip one more time, and why it is not a filter (11.12)
+
+`robo_paint_decoration_paint_bounded` is this pass with one more argument — a rectangle in **paint
+coordinates**, clamped to the target — and every drawing is additionally clipped to it. That is the
+whole difference: the same walk, the same order, the same two stacks, the same drawings. A `NULL`
+bound is the unbounded pass exactly, and a bound that misses the target is a successful pass that
+draws nothing.
+
+It exists because **RoboRender** executes a display list into an owned pixel target and must be able
+to re-execute only the pixels a paint invalidation set (11.11) says went stale. Putting that bound
+here rather than in a second walk one module up is the phase's boundary decision, and the reason is
+that two implementations of one rule agree until a document makes them disagree.
+
+**The bound is a *clip*, not a *filter*, and the difference is a pixel rather than a speed.** The
+obvious optimisation — skip a command whose rectangle misses the bound — looks like the same picture
+and is not: a text run's rectangle is its **advance** box, and a glyph's ink can overhang it, so a run
+can put pixels inside a bound its rectangle never reaches. Bounding with the clip instead needs no
+per-kind proof of that kind, because every write of every kind is already clipped per pixel by the
+graphics module's own raster. It is also what makes a bounded pass equal to a full frame *inside* the
+region, which `render.scene.region_matches_full` asserts byte for byte.
+
+`bounded_out` is the counter added with the door, and its field comment is the one worth reading: it
+counts the drawings whose rectangle **missed** the bound and is a **subset** of `draws` — the drawing
+*was* executed, the clip excluded it — so `commands = draws + skipped` still holds exactly, bounded or
+not, and `bounded_out` is a statement about work rather than about pixels. It is what lets a caller
+ask "how much of the list was outside my region?" and get an answer instead of inferring one from two
+other counters.
+
 ## 7. What the pass reports
 
 `robo_paint_decoration_stats_t` is a value record owned by nobody, and its fields are the
@@ -252,7 +281,7 @@ reason a *drawing* draws nothing, and it belongs on the far side of `draws` from
 because it is about the call rather than about the document — which is exactly what makes a
 caller that forgot a face able to tell its blank frame apart from a textless page.
 
-## 8. Why `raster` is still 0, and what `drawing` claims
+## 8. What `raster` claims, and what `drawing` claims
 
 `drawing` — and `ROBO_PAINT_DRAWING_IMPLEMENTED`, and `robo_paint_drawing_is_implemented()` — say
 **1**, because a **drawing** command's rectangle and colour reach a RoboGraphics surface. That is
@@ -266,8 +295,12 @@ a narrow claim and reading it wider is the mistake it is shaped to prevent:
   CSS's `solid`, and `unshaped` counts them — nor that a `draw-border` command's style has any
   consumer yet: the style travels for the rasteriser that lands later, and the band is what this
   build fills;
-- it does **not** claim a rasteriser of the whole list — that is `raster`, which is **0**, because
-  the structural command kinds are not drawings;
+- it does **not** claim a rasteriser of the whole list — that is `raster`, which is **1** since 11.12
+  and which names **RoboRender**, one module up: an owned pixel target, a run over the whole
+  vocabulary (the structural command kinds and both scope pairs included), an execution record, byte
+  determinism and region-limited re-execution. This pass still consumes only the **drawing** kinds;
+  what 11.12 added here is the **bounded** second door, which is how a region run executes the same
+  list inside a rectangle without a second walk existing to disagree with this one;
 - `background_painting`, `border_painting`, `text_painting` and `clipping` are **1** and say *which*
   parts of the pipeline exist, so a caller deciding whether to make a surface has fields that
   answer it exactly. `clipping` claims rectangular clipping of a box's contents and nothing more:
@@ -308,13 +341,13 @@ a narrow claim and reading it wider is the mistake it is shaped to prevent:
 | the **patterns** inside a dashed, dotted, double, groove, ridge, inset or outset band | a later 11.x goal; the style already travels on the command, and `unshaped` counts what is drawn as a band |
 | shaping, bidi, line breaking, fallback fonts and every text effect | Phase 14 and RoboText; 11.6 draws the runs layout measured, in logical order (Text.md §7) |
 | image painting | **no longer here**: 11.7 draws a document's `<img>` resources, and the decision it faced (a pool of encoded bytes or a reference to a decoded surface) went to the reference (`Images.md`). What is still absent is the rest of a browser's image stack — fetching, decoding, caches, `srcset`, animation, `object-fit` — and the layout side of intrinsic sizing, which is why an unsized image is a counted `empty` |
-| display-list-wide rasterisation | `raster` stays 0 until a consumer handles *every* kind |
+| display-list-wide rasterisation | **no longer here**: 11.12 added `robo_paint_decoration_paint_bounded` for the region path and put the frame itself — an owned pixel target, the run over every kind, the record, the bytes — in **RoboRender** (`render/README.md`), because a pass that owned a target as well would be two modules' jobs in one and could not be tested without a document |
 | real clipping, scroll clipping, compositor clipping | later phases |
 | **group** opacity (an element's subtree composited into a layer and faded as one) | a compositor; 11.9 applies the strength per drawing, and the gap is asserted rather than hidden (`Opacity.md` §9) |
 | blend modes, filters, backdrop filters, masks, shadows, gradients, transforms, `border-radius` | later phases |
 | `z-index` and stacking contexts | a later stacking pass reorders the list; this pass reads it as it stands |
 | paint invalidation (11.11) and hit testing (11.10) | both have since landed, and both read this pass's output rather than changing it: a region comes from comparing two lists or markings a box in one, and a hit test answers from the records. This module still keeps no cache and still has no dirty rectangle — a set of regions describes one transition and is owned by whoever built it |
-| framebuffer presentation, compositor, GPU | RoboRender and above |
+| framebuffer presentation, compositor, GPU | RoboRender and above; a frame is pixels in a buffer it owns, and putting one on a screen is Phase 11.13's |
 
 ## 12. What the suite pins
 

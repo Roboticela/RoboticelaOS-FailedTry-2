@@ -1,18 +1,22 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.11, paint invalidation** — with 11.7's
-**image painting** filled in after 11.10 landed).
+Paint subsystem for Roboticela Runtime (**through Phase 11.12, rasterization** — with 11.7's
+**image painting** filled in after 11.10 landed, and 11.12's rasteriser living one module up).
 
-**Version:** 0.11.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.12.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a display command's
 rectangle with its colour into a RoboGraphics surface, through the CPU raster, strokes a
 text run's glyphs into the same surface, and draws a document's **images** into it. The claim is
 **narrow**, and the fields beside it say how narrow: a box's **background** (11.4), each of its
-**border bands** (11.5), a run's **glyphs** (11.6) and a decoded **image resource** (11.7), while
-`raster` stays **0**, because the structural commands are not drawings and a pass that consumed a
-whole list does not exist.
+**border bands** (11.5), a run's **glyphs** (11.6) and a decoded **image resource** (11.7) reach a
+surface; `raster` is **1** since 11.12 — and the claim that field makes is not this module's, which
+is the point of the boundary it marks: **RoboRender** (directly above) owns a *frame* (an owned pixel
+target, a run over the whole vocabulary, an execution record, byte determinism and region-limited
+re-execution), while RoboPaint owns what the list *means*. 11.12 added exactly one door here for that
+— `robo_paint_decoration_paint_bounded`, the same walk with a rectangle — because a second walk in a
+rasteriser would be a second answer to "what does this command do".
 `robo_paint_drawing_is_implemented()` agrees with the constant, and
 `background_painting`/`border_painting`/`text_painting`/`image_painting`/`clipping`/`opacity` say
 *which* parts of the pipeline exist — a caller deciding whether to look for a surface reads the
@@ -23,7 +27,8 @@ painter would use. `paint_invalidation` (11.11) is the field 11.1 declared and l
 flips now: the module can be asked which pixels a change made stale — a set of regions, each with a
 reason, the boundary it was drawn under and whether it is a conservative whole-extent answer. It is a
 narrower claim than the word, and the difference is the same one `drawing` and `raster` keep apart: a
-region says a repaint of it is **sufficient**, and `raster` stays 0, so nothing here executes one.
+region says a repaint of it is **sufficient**, and `raster` — **1** since 11.12 — says that this build
+can *execute* one, through the bounded walk one module up.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
@@ -42,8 +47,10 @@ HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display l
 
 This build stops after a box's **decorations, its text, its images, the scopes that bound them and
 the strength they are drawn at**, plus — since 11.11 — the answer to **which regions of that picture
-a change made stale**: a rasteriser of the whole list, and of a region, is a later goal, and it is
-named in §Boundaries where it would otherwise be assumed.
+a change made stale** and — since 11.12 — the **bounded** form of the same walk (`raster` is 1).
+What it does **not** do is own a frame: an owned pixel target, a run over the whole vocabulary, an
+execution record and region-limited execution live in **RoboRender**, one module up, which drives this
+walk rather than replacing it (`render/README.md`).
 
 ## The one structural decision
 
@@ -175,8 +182,9 @@ display list may therefore group commands by `depth` and by the `begin-node`/`co
 list is the artifact whose geometry is resolved — and fills each **drawing** command into a
 `robo_gfx_surface_t` through the RoboGraphics CPU raster: a background's border box (11.4) and,
 since 11.5, each border side's **band**. The three **structural** commands are **skipped and
-counted**, because they draw nothing by definition — which is why `raster` stays 0 while
-`drawing` flips to 1. "Backgrounds and border bands are painted; nothing else is" is a number a
+counted**, because they draw nothing by definition — which is why `drawing` (the claim that drawings
+reach a surface) and `raster` (the claim that a whole list does) were kept apart for eight releases.
+"Backgrounds and border bands are painted; nothing else is" is a number a
 reader sees (`robo_paint_decoration_stats_t.skipped`) rather than a silence.
 
 **The two kinds are one pass, because they are one order.** The list interleaves them the way the
@@ -431,7 +439,7 @@ flip in.
 | `RoboPaintText.h` | `robo_paint_text_run_t`, `robo_paint_text_span_t`, `robo_paint_text_pool_t` — the code-point payload and the one container that owns it (11.6) |
 | `RoboPaintImage.h` | `robo_paint_image_t` — the image payload: a retained resource, its source rectangle and its snapshot facts — with `from_resource`, the validity and comparison doors, the retain/release pair and `ROBO_PAINT_IMAGE_MAX_DIMENSION` (11.7) |
 | `RoboPaintHitTest.h` | `robo_paint_hit_test`, `robo_paint_hit_test_result_t`, `robo_paint_hit_test_stats_t`, the four outcomes and the three flags — the inverse query, and its trace (11.10) |
-| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands, strokes a run's glyphs, draws an image resource and applies the strength they are drawn at, into a surface (11.4–11.7, 11.9) |
+| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_paint_bounded`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands, strokes a run's glyphs, draws an image resource and applies the strength they are drawn at, into a surface, plus the same walk executed inside a rectangle (11.4–11.7, 11.9, 11.12) |
 
 ## Lifecycle
 
@@ -455,7 +463,7 @@ because nothing in an operation points anywhere.
 | `paint/docs/Architecture.md` | The phase, the dependency position, the traversal, the coordinate model, the clip model, ownership, what 11.3 onwards may assume |
 | `paint/docs/Operations.md` | The operation vocabulary, the structural/drawing split, the traversal contract, snapshot semantics — the precise order, the coordinate spaces and the clip accumulation |
 | `paint/docs/DisplayList.md` | The display command, the resolved rectangle per kind, the builder's structural invariants, ordering, ownership and what is deferred (11.3) |
-| `paint/docs/Decoration.md` | The colour bridge, the one decoration pass, its geometry, clipping, counters, ownership, safety and deferrals (11.4–11.5) |
+| `paint/docs/Decoration.md` | The colour bridge, the one decoration pass, its geometry, clipping, counters, ownership, safety and deferrals — and, since 11.12, the **bounded** second door a region run uses (11.4–11.5, 11.12) |
 | `paint/docs/Border.md` | The four bands, the `border-style` vocabulary and what travels where, corner ownership, and the seven pattern styles drawn as bands (11.5) |
 | `paint/docs/Text.md` | The code-point pool and its span, the text record and its baseline, where a run sits in the sequence, glyph resolution and who prepares the face, the counters, and what is deferred to 11.7 and to Phase 14 (11.6) |
 | `paint/docs/Clipping.md` | The boundary as a scope: the clip stack, the canonical empty interval, where a scope is emitted and why the box's own decoration is outside it, the builder's eleven refusals, the pass's one application point, and what is deferred (11.8) |
@@ -495,9 +503,15 @@ RoboGraphics' own scaled sampler.
   dropped. The seven **pattern border styles** are drawn as their band, in the side's colour, and
   counted (`unshaped`) — `border_painting` claims a border's place and colour, not every border's
   look.
-- **No rasteriser of the whole list.** The display list exists as a render-ready artifact
-  (`display_lists` is 1) and one command kind of it is consumed; `raster` is 0.
-- No framebuffer presentation, no compositor, no GPU.
+- **`raster` is 1, and the module it names is one layer up.** Since 11.12 a caller with a display
+  list can obtain pixels from this build: **RoboRender** owns a frame (an owned RGBA8 target, a run
+  over the whole vocabulary, an execution record, byte determinism, `robo_render_rasterize`, and
+  `robo_render_rasterize_regions` for the regions 11.11 produces) and drives this module's walk
+  through `robo_paint_decoration_paint_bounded`. What this module still does **not** own is a target,
+  a clear (a region run must **not** clear, or it would erase the pixels its regions were computed to
+  preserve) or a lifetime: a surface, a face and a list are always the caller's argument.
+- No framebuffer presentation, no compositor, no GPU — and no **framebuffer path at all**: getting a
+  frame onto a screen is Phase 11.13's.
 - **Images are drawn from a resource the document already resolved, and nothing fetches one.**
   `image_painting` is 1 from 11.7: an `<img>`'s decoded `robo_gfx_image_t` reaches the surface at the
   rectangle layout gave its element, scaled by RoboGraphics' nearest-neighbour sampler. What is
@@ -522,7 +536,10 @@ RoboGraphics' own scaled sampler.
 - **Regions, not a rasteriser of them.** `paint_invalidation` is 1 from 11.11: given two states of a
   document — two record lists, two display lists, or a pass record — the module says which rectangles
   of the first are stale, why, under which boundary, and whether the answer is conservative. What is
-  absent is everything *around* that answer: no executor for a region (`raster` is 0), no partial
+  absent is everything *around* that answer: the executor is **RoboRender** rather than this module
+  (`robo_render_rasterize_regions` runs the list once over the set's own bounds, because a set may name
+  overlapping regions and a second pass over an overlap would composite a semi-transparent drawing
+  twice), no partial
   display-list **patch** (the list is rebuilt whole), no damage history between frames, no tile tree,
   no region merging, no compositor layer, no frame scheduling and no invalidation driven by
   animation, transitions or input. `extent` is always the caller's, because the module owns no

@@ -62,14 +62,20 @@ static const paint_capability_row_t paint_capability_rows[] = {
     { "decoration_ops", 1 },
     /* `drawing` is read from its own constant so the field and its two doors cannot drift.
      * 11.3's `display_lists` and 11.4's `drawing`/`background_painting` joined the 1s, and
-     * 11.5's `border_painting` beside them; `raster` names a later phase outright. */
+     * 11.5's `border_painting` beside them. */
     { "drawing", ROBO_PAINT_DRAWING_IMPLEMENTED },
     { "display_lists", 1 },
-    { "raster", 0 },
+    /* 11.12's `raster`, the last field in this table to turn and the only one whose flip is about
+     * the module **above**: `RoboRender` executes a whole display list into an owned pixel target,
+     * and what this module added for it is the bounded walk. The row is still `1` here rather than a
+     * reference to `RoboRender`'s table because the two modules' capability sets are asserted
+     * separately, by their own suites -- a paint suite that had to build a frame would be a paint
+     * suite that needs a renderer to test paint. */
+    { "raster", 1 },
     /* 11.11's `paint_invalidation`, the field 11.1 declared and left 0: an owned set of
      * rectangles with a reason, a boundary and a conservative flag each, filled by explicit
-     * marks or by comparing two artifacts. It is narrower than `drawing` by design -- a region
-     * says a repaint of it is *sufficient*, and this build still rasterises no whole list. */
+     * marks or by comparing two artifacts. As of 11.12 both halves of the pair it belongs to are
+     * true: a caller can ask which regions changed *and* re-execute just those. */
     { "paint_invalidation", 1 },
     { "background_painting", 1 },
     { "border_painting", 1 },
@@ -155,9 +161,11 @@ static void test_paint_conformance_drawing_present(void)
     /*
      * The statement 11.4 makes, in one place: the constant is 1, the door answers 1, and
      * the capability field reports it -- and `background_painting`/`border_painting` beside it
-     * say *which* drawings exist while `raster` says the general rasteriser does not. A caller
-     * deciding whether to look for a surface reads the door; one deciding whether to *make* one
-     * reads `drawing`; one deciding whether the *whole* list renders reads `raster`, which is 0.
+     * say *which* drawings exist, while `raster` (1 since 11.12) says a whole list can be
+     * executed -- by `RoboRender`, which is the module this one's walk feeds. A caller deciding
+     * whether to look for a surface reads the door; one deciding whether to *make* one reads
+     * `drawing`; one deciding whether the whole list renders reads `raster` **and** that module's
+     * own table, which is where a rasteriser's harder claims are named as 0.
      */
     ROBO_CHECK_EQ_INT(ROBO_PAINT_DRAWING_IMPLEMENTED, 1);
     ROBO_CHECK_EQ_INT(robo_paint_drawing_is_implemented(), 1);
@@ -179,20 +187,23 @@ static void test_paint_conformance_drawing_present(void)
      * **resource** rather than a number: an image reaches the surface through the graphics layer's
      * own sampler, at the destination layout concluded. */
     ROBO_CHECK_EQ_INT(capabilities.image_painting, 1);
-    ROBO_CHECK_EQ_INT(capabilities.raster, 0);
-    /* A hit test is not a drawing, so the two do not move together: `raster` stays 0 while
-     * `background_painting`, `border_painting`, `text_painting`, `clipping`, `opacity` and
-     * `hit_testing` are all 1. */
+    /* The ninth and last claim, and the one 11.12 turned: a whole display list is executed into
+     * pixels by this build -- across this module and `RoboRender` together, which is the pair the
+     * field is a statement about. */
+    ROBO_CHECK_EQ_INT(capabilities.raster, 1);
+    /* The drawing claims are independent of it, which is what keeps either side honest: a hit test
+     * is not a drawing and a rasteriser is not a drawing kind, so the fields below move with their
+     * own phases rather than with `raster`. */
     ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
 
-    /* The version this build reports is 0.11.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.12.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
      * still add to this surface (11.11 added a module, a diagnostic domain and one capability
      * field without changing a meaning). */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 11);
+    ROBO_CHECK_EQ_INT((int)minor, 12);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);

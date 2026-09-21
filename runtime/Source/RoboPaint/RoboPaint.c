@@ -6,12 +6,16 @@
  * state, and why the whole file is a flag, a version and a table of what this build does
  * and does not do.
  *
- * The table is the interesting half. **One** field is deliberately 0, and 11.11 is the release
- * that left it alone: `raster`, the general rasteriser that would consume every command. What
- * used to be 0 beside it -- `paint_invalidation` -- became 1 when this module could answer which
- * regions a change made stale (`RoboPaintInvalidation.h`), and that is the shape the whole
- * capability model is built to keep readable: the fields that are 1 say what exists, and the one
- * that is 0 says what a caller still cannot ask for.
+ * The table is the interesting half. **Every field is 1 as of 0.12.0**, and the last one to turn
+ * was `raster` -- in 11.12, and the flip is a statement about the module *above* this one rather
+ * than about this file: `RoboRender` executes a whole display list into an owned pixel target, so
+ * "a caller with a list can obtain pixels, today" is now true of the pair. What this module gained
+ * for it is one door, the **bounded** walk (`robo_paint_decoration_paint_bounded`), which is what
+ * makes a region run equal to a full frame *inside* the region instead of merely close to it.
+ * Before that, `paint_invalidation` became 1 when this module could answer which regions a change
+ * made stale (`RoboPaintInvalidation.h`), and that is the shape the whole capability model is built
+ * to keep readable: the fields say what a caller can ask for, and a field that turned early is a
+ * claim with a fence beside it rather than a hope.
  * `display_lists` joined the 1s in 11.3 -- the artifact a rasteriser consumes now exists -- and
  * `drawing`, `background_painting`, `border_painting` (11.5) and `text_painting` (11.6) joined
  * them in 11.4: a **drawing** command's rectangle and colour -- and, for a run, its glyphs --
@@ -71,16 +75,8 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
     out->decoration_ops = 1;
 
     /*
-     * And the one that is 0, naming a later goal rather than an omission.
-     *
-     * `drawing` is read from its own constant so that the field and the two doors that
+     * The drawing claim, read from its own constant so that the field and the two doors that
      * report it -- this one and `robo_paint_drawing_is_implemented()` -- cannot disagree.
-     * `raster` is the general rasteriser that would consume *every* command; the decoration
-     * pass consumes the four **drawing** kinds and skips the structural ones (which draw
-     * nothing), which is why `raster` is 0 while `background_painting`, `border_painting`,
-     * `text_painting`, `image_painting`, `clipping`, `opacity`, `hit_testing` and
-     * `paint_invalidation` beside it are 1 -- and why the rasteriser that *would* be asked for
-     * is 11.12's rather than a gap in this release.
      */
     out->drawing = ROBO_PAINT_DRAWING_IMPLEMENTED;
     /*
@@ -89,23 +85,36 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * resolved and the traversal's structural convention enforced.
      */
     out->display_lists = 1;
-    out->raster = 0;
     /*
-     * **1 since 11.11**, and the last of the 11.1 fields whose name the first release left
-     * with nothing behind it. What it reports is `RoboPaintInvalidation.h`: a set of regions,
+     * **1 since 11.12**, and the flip is a statement about the module above rather than about
+     * this one -- `RoboRender` is the subsystem that executes a display list into an owned pixel
+     * target, with a frame record, byte-determinism and region execution
+     * (`RoboRenderRasterizer.h`, `render/docs/Rasterization.md`). What this module owns is what
+     * the list *means*: the walk, the two scope stacks, and the boundary and strength each
+     * drawing is executed under -- which is why the bounded door beside the walk is what 11.12
+     * actually added here, and why a caller reading this field should read `RoboRender.h`'s
+     * capability table for the width of the claim (a rasteriser's harder senses -- tiles, damage
+     * tracking, a frame scheduler, a compositor, a GPU -- are each a named 0 there).
+     */
+    out->raster = 1;
+    /*
+     * **1 since 11.11**, and the first of the 11.1 fields whose name the first release left with
+     * nothing behind it to turn. What it reports is `RoboPaintInvalidation.h`: a set of regions,
      * each with its reason, its boundary and a conservative-whole-extent flag -- filled by
      * explicit marks, by comparing two paint artifacts, or by reading `style_only` above.
      *
-     * It is *not* a claim about the rasteriser or about a display list being patched: `raster`
-     * is 0 beside it and the list is regenerated, which is the distinction a caller deciding
-     * between "repaint these rectangles" and "re-execute the whole list" has to read.
+     * It is *not* a claim about a display list being patched: the list is regenerated, and the
+     * set says how little of it a caller *may* re-execute -- which is the distinction a caller
+     * deciding between "repaint these rectangles" and "re-execute the whole list" has to read.
+     * As of 11.12 both of those are things this build can do.
      */
     out->paint_invalidation = 1;
 
     /*
-     * **1 since 11.4**, and the first of the two narrow fields beside `drawing`: this build
-     * fills a box's background and still does not rasterise a whole list -- the pass skips the
-     * structural commands, and `raster` above stays 0.
+     * **1 since 11.4**, and the first of the narrow fields beside `drawing`: this build fills a
+     * box's background. The claim is about the *drawing kind*, not about the list -- a background
+     * command's rectangle and colour reach a surface, and the three structural kinds draw nothing
+     * and are counted.
      */
     out->background_painting = 1;
     /*
@@ -232,7 +241,8 @@ int robo_paint_drawing_is_implemented(void)
      * **1** since 11.4, where the condition the version header wrote down for the flip was
      * met: a `draw-background` command's rectangle and colour reach a RoboGraphics surface.
      *
-     * It does not mean a whole list rasterises -- `raster` is 0 -- so a caller must not read
+     * It does not mean a whole list is a frame -- `robo_render_rasterize` is the door for that --
+     * so a caller must not read
      * it as "the document renders". What it renders is the backgrounds.
      */
     return ROBO_PAINT_DRAWING_IMPLEMENTED;

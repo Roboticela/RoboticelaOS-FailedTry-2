@@ -41,6 +41,16 @@
  * here, only one more kind of appearance. The sampling, the scaling and the alpha are all
  * `robo_gfx_raster_draw_image`'s, because pixels are RoboGraphics' business and a caller that
  * sampled an image itself would be re-deciding the blend and the clip this module already owns.
+ *
+ * **Since 11.12 the pass can be bounded.** The same walk takes an optional rectangle and executes
+ * the whole list inside it -- every drawing visited, every scope honoured, every strength applied
+ * -- with the raster's own clip narrowed by the rectangle as well as by the command's boundary. It
+ * is a second door onto *this* code rather than a second pass, and the three functions that make
+ * that work are the two arithmetic helpers above (`decoration_apply_bound`, the four-edge
+ * intersection, and `decoration_rect_reaches_bound`, the diagnosis that feeds `bounded_out`) plus
+ * the `bound` parameter threaded through `decoration_apply_clip`. The decision to bound with the
+ * clip rather than to skip on the rectangle is argued in `RoboPaintDecoration.h`; the frame that
+ * drives it is `RoboRender` (`render/docs/Rasterization.md`).
  */
 
 #include "RoboPaint/RoboPaintDecoration.h"
@@ -210,20 +220,86 @@ static robo_result_t decoration_draw_text(robo_gfx_raster_t *raster,
 }
 
 /**
- * Reset @p raster to the surface bounds and, when @p clip bounds an axis, bound that axis.
+ * Narrow @p wanted -- the interval the command's boundary establishes -- by @p bound.
+ *
+ * The whole of a bounded pass's extra geometry (11.12), and it is arithmetic rather than a
+ * second `set_clip` because the raster's clip is *already* the intersection of everything
+ * applied to it: setting it twice would be the same subtraction written twice, and the second
+ * call could only narrow what the first established. A NULL @p bound is the unbounded pass and
+ * returns having touched nothing, which is why the unbounded door costs one comparison per
+ * drawing.
+ *
+ * **An empty bound is applied as an empty interval** rather than refused, which is the rule
+ * every rectangle in this module follows: "there is nowhere to draw" is a caller's or a
+ * document's shape rather than a failure, and a fill against an empty clip is the graphics
+ * module's own no-op. The four edges are subtracted in 64 bits and the extents saturate for the
+ * reason every accumulation here does -- each operand is a bounded `int32` and none of the sums
+ * is (`RoboPaintInternal.h`).
+ */
+static void decoration_apply_bound(const robo_layout_rect_t *bound, robo_gfx_rect_t *inout_wanted)
+{
+    int64_t left;
+    int64_t top;
+    int64_t right;
+    int64_t bottom;
+
+    if (bound == NULL) {
+        return;
+    }
+    left = (int64_t)robo_paint_max(inout_wanted->x, bound->x);
+    top = (int64_t)robo_paint_max(inout_wanted->y, bound->y);
+    right = (int64_t)robo_paint_min((int64_t)inout_wanted->x + (int64_t)inout_wanted->width,
+                                    (int64_t)bound->x + (int64_t)bound->width);
+    bottom = (int64_t)robo_paint_min((int64_t)inout_wanted->y + (int64_t)inout_wanted->height,
+                                     (int64_t)bound->y + (int64_t)bound->height);
+
+    inout_wanted->x = robo_paint_clamp_i64(left);
+    inout_wanted->y = robo_paint_clamp_i64(top);
+    inout_wanted->width = robo_paint_extent(right - left);
+    inout_wanted->height = robo_paint_extent(bottom - top);
+}
+
+/**
+ * Non-zero when @p rect shares any area with @p bound: whether a bounded pass has anything to
+ * do for this drawing (11.12).
+ *
+ * The test behind `bounded_out`, and it is deliberately a *diagnosis of work* rather than a
+ * decision about drawing: the walk executes the drawing either way and lets the raster's clip
+ * decide, because a text run's ink can overhang the advance box this rectangle is. An empty
+ * rectangle on either side shares nothing.
+ */
+static int decoration_rect_reaches_bound(robo_layout_rect_t rect, const robo_layout_rect_t *bound)
+{
+    int64_t left = (int64_t)robo_paint_max(rect.x, bound->x);
+    int64_t top = (int64_t)robo_paint_max(rect.y, bound->y);
+    int64_t right = (int64_t)robo_paint_min((int64_t)rect.x + (int64_t)rect.width,
+                                            (int64_t)bound->x + (int64_t)bound->width);
+    int64_t bottom = (int64_t)robo_paint_min((int64_t)rect.y + (int64_t)rect.height,
+                                             (int64_t)bound->y + (int64_t)bound->height);
+
+    return right > left && bottom > top;
+}
+
+/**
+ * Reset @p raster to the surface bounds, then narrow it by the command's boundary and, in a
+ * bounded pass, by @p bound (11.12).
  *
  * Reset-then-replace rather than intersect, because the raster's own clip is the one place a
  * fill is bounded: the axis the boundary leaves open keeps the surface's own interval, and the
- * axis it hides takes the boundary's. @p out_applied is set only when a boundary was applied,
- * so "drawn under a clip" stays a fact about the command rather than about the surface.
+ * axis it hides takes the boundary's. @p out_applied is set only when a **boundary** was
+ * applied, so "drawn under a clip" stays a fact about the command rather than about the surface
+ * -- the bound a region run carries is not a boundary the document declared, and the counter it
+ * belongs to is `bounded_out` rather than `clipped`.
  */
 static robo_result_t decoration_apply_clip(robo_gfx_raster_t *raster,
                                            const robo_paint_clip_t *clip,
+                                           const robo_layout_rect_t *bound,
                                            int *out_applied,
                                            robo_paint_diag_t *diag)
 {
     robo_gfx_rect_t full;
     robo_gfx_rect_t wanted;
+    int boundary = robo_paint_clip_is_active(clip);
 
     *out_applied = 0;
 
@@ -233,7 +309,7 @@ static robo_result_t decoration_apply_clip(robo_gfx_raster_t *raster,
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
                                "the raster could not reset its clip to the surface bounds");
     }
-    if (!robo_paint_clip_is_active(clip)) {
+    if (!boundary && bound == NULL) {
         return ROBO_OK;
     }
     if (robo_gfx_raster_clip(raster, &full) != ROBO_OK) {
@@ -258,19 +334,32 @@ static robo_result_t decoration_apply_clip(robo_gfx_raster_t *raster,
         wanted.height = robo_paint_extent((int64_t)clip->vertical.end -
                                           (int64_t)clip->vertical.start);
     }
+    decoration_apply_bound(bound, &wanted);
     if (robo_gfx_raster_set_clip(raster, wanted) != ROBO_OK) {
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY, ROBO_ERROR,
                                "the boundary could not be applied to the raster clip");
     }
-    *out_applied = 1;
+    *out_applied = boundary;
     return ROBO_OK;
 }
 
-robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
-                                          robo_gfx_surface_t *target,
-                                          robo_font_face_t *face,
-                                          robo_paint_decoration_stats_t *out_stats,
-                                          robo_paint_diag_t *diag)
+/**
+ * The one walk both doors are (11.12).
+ *
+ * @p bound is the region a bounded pass executes inside, in paint coordinates, or NULL for the
+ * unbounded pass -- and the two doors below differ in nothing else, which is the decision rather
+ * than an economy: a filtered list, a second loop or a per-kind skip would each be a *second*
+ * statement of "what this pass does" and the two could disagree about a document. Passing the
+ * rectangle down to `decoration_apply_clip` makes a partial repaint the same pass with a smaller
+ * window, so everything the unbounded pass guarantees -- the order, the scopes, the strengths,
+ * the bucket identities -- holds unchanged inside the window by construction.
+ */
+static robo_result_t decoration_paint(const robo_paint_display_list_t *list,
+                                      robo_gfx_surface_t *target,
+                                      robo_font_face_t *face,
+                                      const robo_layout_rect_t *bound,
+                                      robo_paint_decoration_stats_t *out_stats,
+                                      robo_paint_diag_t *diag)
 {
     robo_paint_decoration_stats_t stats;
     robo_paint_text_pool_t *pool;
@@ -582,7 +671,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             } else {
                 robo_paint_clip_stack_current(clips, &effective);
             }
-            status = decoration_apply_clip(raster, &effective, &clipped, diag);
+            status = decoration_apply_clip(raster, &effective, bound, &clipped, diag);
         }
         if (status != ROBO_OK) {
             return decoration_finish(raster, clips, opacities, status);
@@ -629,6 +718,22 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             if (byte != 255u) {
                 stats.faded++;
             }
+        }
+
+        /*
+         * The **bound** this drawing is executed inside (11.12), counted rather than acted on.
+         *
+         * A drawing whose rectangle cannot reach the bound is still executed -- the clip applied
+         * a few lines above is what decides that it puts nothing down -- and the reason it is
+         * still executed is the reason this counter is a number rather than a filter: a text
+         * run's rectangle is its advance box, so a run can ink inside a bound its rectangle never
+         * reaches, and a pass that skipped on the rectangle would be wrong about a document
+         * rather than about a rectangle. So the decision stays with the pixels and the *work* is
+         * what is reported, which is exactly the comparison a caller weighing "repaint
+         * everything" against "repaint this region" is making.
+         */
+        if (bound != NULL && !decoration_rect_reaches_bound(command.rect, bound)) {
+            stats.bounded_out++;
         }
 
         /*
@@ -698,4 +803,23 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
         *out_stats = stats;
     }
     return decoration_finish(raster, clips, opacities, ROBO_OK);
+}
+
+robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
+                                          robo_gfx_surface_t *target,
+                                          robo_font_face_t *face,
+                                          robo_paint_decoration_stats_t *out_stats,
+                                          robo_paint_diag_t *diag)
+{
+    return decoration_paint(list, target, face, NULL, out_stats, diag);
+}
+
+robo_result_t robo_paint_decoration_paint_bounded(const robo_paint_display_list_t *list,
+                                                  robo_gfx_surface_t *target,
+                                                  robo_font_face_t *face,
+                                                  const robo_layout_rect_t *bound,
+                                                  robo_paint_decoration_stats_t *out_stats,
+                                                  robo_paint_diag_t *diag)
+{
+    return decoration_paint(list, target, face, bound, out_stats, diag);
 }

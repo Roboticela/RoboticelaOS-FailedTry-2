@@ -272,8 +272,10 @@ style — the run's box is the element that owns it and that element already ope
 run reading its own declaration would square it (`Opacity.md` §7, `paint.opacity.text`). The same
 pass since 11.8 bounds a run by the clip scopes in force, and 11.10's hit test answers about text
 without a line of this document changing.
-`raster` remains **0** and `ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: four kinds of drawing exist
-and text is one of them, while the rasteriser is still RoboGraphics'.
+`ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1** and `raster` is **1** since 11.12: four kinds of drawing
+exist and text is one of them, and the run reaches pixels through **RoboRender's** run over the list —
+while the glyphs themselves are still stroked by RoboGraphics' raster, from a face the **caller**
+supplies, which is the part 11.12 did not change.
 
 **Since then:** 11.7 landed as the phase this section predicted — the fourth drawing kind and the
 second non-numeric payload — and it answered the question it was left with in favour of a

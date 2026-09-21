@@ -259,12 +259,17 @@ the widest line this build can actually produce rather than trusting the derivat
 
 ## 8. What is deliberately not here
 
-- **No rasterisation of the whole list, and no presentation.** The display list is data and
-  `raster` is 0: since 11.4–11.8 exactly the three **drawing** kinds are consumed — a
-  `draw-background` and a `draw-border` are filled into a caller's surface and a `draw-text` has
-  its glyphs stroked into it, all by `robo_paint_decoration_paint` (`paint/docs/Decoration.md`,
-  `paint/docs/Border.md`, `paint/docs/Text.md`), in the list's order — while the seven structural
-  commands, **both scope pairs included**, are still data. A drawing is bounded by the clip in
+- **No rasterisation in *this* module, and no presentation anywhere yet.** The display list is data,
+  and the pass that consumes it executes exactly the **drawing** kinds — a `draw-background` and a
+  `draw-border` are filled into a caller's surface and a `draw-text` has its glyphs stroked into it,
+  all by `robo_paint_decoration_paint` (`paint/docs/Decoration.md`, `paint/docs/Border.md`,
+  `paint/docs/Text.md`), in the list's order. The four commands that carry no pixels —
+  `push-clip`/`pop-clip`, `push-opacity`/`pop-opacity` — are *state* the walk applies, and
+  `begin-node`/`content`/`end-node` are skipped and counted. The artifact **does** now reach pixels as
+  a whole: since 11.12 `raster` is **1** and names **RoboRender**, which executes every command of
+  every kind into an owned target (`render/README.md`), driving this module's walk and its bounded
+  form rather than reimplementing either. What no module has is **presentation**: a frame is a buffer
+  until Phase 11.13 copies it somewhere a person can see. A drawing is bounded by the clip in
   force (the scope's, or its own outside any scope) and drawn at the strength in force (the
   scope's, or its own), and every drawing kind does both; what is absent is rounding, `clip-path`,
   masks, and clipping that a compositor or a scroll container owns.
@@ -282,8 +287,9 @@ the widest line this build can actually produce rather than trusting the derivat
 - **No scroll, damage, tile or compositor concepts.** Paint invalidation (11.11) and hit testing
   (11.10) have since been built, and both read this artifact rather than changing it: a diff over two
   display lists compares command pairs position by position and reports a region per position whose
-  drawing differs, and the two lists are still rebuilt whole (`raster` is 0), so there is nothing here
-  that patches a list or tracks damage between frames.
+  drawing differs, and the two lists are still rebuilt whole, so there is nothing here that patches a
+  list or tracks damage between frames — the regions bound a **re-execution** of the pixels
+  (`robo_render_rasterize_regions`) and never an edit to the list.
 
 ---
 

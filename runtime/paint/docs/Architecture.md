@@ -414,7 +414,7 @@ since 11.6, **`clipping`** since 11.8, **`opacity`** since 11.9, **`hit_testing`
 | `hit_testing` | **1** | the **inverse** query (§21): a point resolves to the node drawn there, in reverse paint order, under the boundary that node's own `overflow` puts in force. It claims an answer, not an event: dispatch, bubbling, focus and `pointer-events` are Phase 12's |
 | `image_painting` | **1** | a document's **picture** reaches a surface at the rectangle layout gave its element, through the graphics module's own scaled sampler (11.7). What is absent is the rest of a browser's image stack — fetching, caching, animation, `object-fit`, filters, a broken-image presentation |
 | `paint_invalidation` | **1** | **which regions a change made stale** (§22): an owned set of rectangles, each with a reason, the boundary it was drawn under and whether it is a conservative whole-extent answer, filled by explicit marks, by comparing two artifacts or by reading `stats.style_only`. A narrower claim than the word — a region promises a repaint of it is *sufficient* — and it does not claim a rasteriser, a partial list *patch*, damage history or a compositor |
-| `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the structural kinds are not drawings, and a rasteriser of a **region** is 11.12's |
+| `raster` | **1** | since 11.12, and it names **RoboRender** rather than this module: a display list executed into an owned RGBA8 target — every command kind, both scope pairs included — with an execution record, byte determinism and region-limited re-execution, driven through this module's own walk by `robo_paint_decoration_paint_bounded`. It does **not** claim presentation (Phase 11.13), a compositor, tiles, damage history, a frame scheduler or a GPU; `RoboRender.h`'s capability table is the list |
 
 `decoration_ops` is **1** and is named for what it is rather than what a reader might hope:
 this build decides *that* a background will be filled and *which* colour, and records it.
@@ -484,9 +484,13 @@ filled or antialiased, and every skipped 11.7 drawing is counted.
   is rounded clipping, `clip-path`, masks and filters, scrolling, and any clip a compositor or a
   tile scheduler would own.
 - **No framebuffer presentation, compositor or GPU.** A surface is an argument.
-- **No rasteriser of the whole list and none of a region** — the display list is the artifact and
-the four drawing kinds are consumed; `raster` is 0, and 11.11 produces the regions a region-sized
-rasteriser will one day execute rather than executing them.
+- **No frame, and no target of its own** — `raster` is **1** since 11.12, and it names **RoboRender**
+rather than this module: an owned pixel target, a run over the whole vocabulary (both scope pairs and
+the structural kinds included), an execution record, byte determinism and region-limited execution
+live there, and they drive this module's walk through `robo_paint_decoration_paint_bounded` — the one
+door 11.12 added here. What this module still owns is the **walk**: the order, the clips, the
+strengths and the drawings. 11.11 produces the regions a region run executes, and the execution is
+the bounded door rather than a second pass.
 - **No shaping, bidi, line breaking or font fallback** behind the text that does draw
   (`Text.md` §7), and **no image fetching, decoding or caching** behind the picture that does
   (`Images.md` §9).
@@ -1169,8 +1173,9 @@ deterministic set of regions in which they disagree, each with a reason, the bou
 under and whether it is conservative — and two pixel cases hold it to its one promise, that
 **repainting the regions reproduces a full repaint byte for byte** (`Invalidation.md` §11).
 
-What it does **not** claim: a rasteriser of the whole list or of a region (`raster` stays 0), a
-partial display-list **patch** (the list is rebuilt whole and the set says what may be re-executed),
+What it does **not** claim: a rasteriser of its own (`raster` is **1** since 11.12 and names
+**RoboRender**, which owns the target, the run and the record and drives this module's bounded walk),
+a partial display-list **patch** (the list is rebuilt whole and the set says what may be re-executed),
 damage accumulation between frames, a tile tree, region merging, a compositor, layers, GPU
 scheduling, VSync, frame scheduling, scrolling, transforms, filters, masks, blend modes, or
 invalidation driven by animation, transitions, input, focus or selection. `extent` is always the

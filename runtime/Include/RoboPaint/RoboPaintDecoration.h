@@ -67,6 +67,14 @@
  *
  * **Ownership is the caller's.** The surface belongs to whoever made it; this door retains
  * nothing and destroys nothing. The list is read through `const` and never mutated.
+ *
+ * **The pass can be bounded (11.12).** A second door takes a rectangle and executes the same
+ * list inside it: every drawing is still walked, but the **raster's own clip** is intersected
+ * with that rectangle as well as with the command's own boundary, so a partial repaint is the
+ * same pass over the same list with a smaller window rather than a filtered list or a
+ * re-derived one (`RoboRenderRasterizer.h` is the frame that drives it, and
+ * `render/docs/Rasterization.md` argues why the bound is a clip rather than a skip). The
+ * unbounded door is the same walk with no rectangle, and the two are the same code.
  */
 #ifndef ROBO_PAINT_DECORATION_H
 #define ROBO_PAINT_DECORATION_H
@@ -278,6 +286,22 @@ typedef struct robo_paint_decoration_stats {
      * that would be worth removing if the phase were ever optimised.
      */
     size_t faded;
+    /**
+     * Drawings the pass **executed** whose own rectangle does not reach the bound (11.12).
+     *
+     * Zero for every unbounded pass -- there is no bound to miss -- and for a bounded one it is
+     * the number that tells a reader which part of the list was still relevant to the
+     * rectangle, which is the question a caller comparing "repaint everything" with "repaint
+     * this region" is asking. It is a diagnosis of *work* and deliberately **not** a claim
+     * about pixels: the raster's clip is what decides what lands, so a drawing counted here put
+     * nothing down -- except, possibly, a text run, whose ink can overhang the advance box its
+     * rectangle is (`RoboRenderRasterizer.h` states why text is never skipped for that reason).
+     *
+     * It is a subset of `draws` rather than a fourth bucket, because the drawing *was*
+     * executed: the clip excluded it, which is a different fact from a command the pass could
+     * not attempt. So `commands = draws + skipped` still holds exactly, bounded or not.
+     */
+    size_t bounded_out;
 } robo_paint_decoration_stats_t;
 
 /** Clear @p stats to all zeroes. Safe on NULL. */
@@ -345,6 +369,46 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
                                           robo_font_face_t *face,
                                           robo_paint_decoration_stats_t *out_stats,
                                           robo_paint_diag_t *diag);
+
+/**
+ * The same pass, executed inside @p bound (11.12).
+ *
+ * One walk of @p list, the same order, the same clips, the same strengths and the same
+ * drawings as the unbounded door above -- with **one** difference: every drawing is clipped
+ * to @p bound as well as to its own boundary, so nothing outside the rectangle is touched.
+ * A NULL @p bound is the unbounded pass exactly (`robo_paint_decoration_paint` is this door
+ * with NULL), and a bound that misses the target entirely is a successful pass that draws
+ * nothing.
+ *
+ * **The bound is a bound, not a filter**, and that is the phase's decision rather than an
+ * implementation choice. Skipping a drawing whose rectangle misses the bound looks like the
+ * same picture and is not: a text run's rectangle is its **advance** box and a glyph's ink can
+ * overhang it, so a run can put pixels inside a bound its rectangle does not reach. Bounding
+ * with the clip instead needs no per-kind proof of that kind -- every write of every kind is
+ * already clipped per pixel by the graphics module's own raster -- and it is what makes
+ * region-limited execution equal to a full frame *inside* the region rather than merely
+ * plausibly close to it.
+ *
+ * `bounded_out` counts the drawings whose rectangle missed @p bound, which is a statement
+ * about work rather than about pixels (see its field comment).
+ *
+ * @p bound's coordinates are **paint coordinates**, the same space a command's rectangle and
+ * a clip axis are in, and it is clamped to the target's own pixel bounds -- so a region that
+ * runs off the surface is a smaller drawing area rather than an error. A negative extent is
+ * *accepted as empty* (nothing draws), for the reason every rectangle rule in this module
+ * accepts an empty one: "there is nowhere to draw" is a document's shape rather than a
+ * caller mistake.
+ *
+ * @return as the unbounded door: ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL @p list or
+ *         @p target; ROBO_NOT_SUPPORTED when @p target cannot be rasterised;
+ *         ROBO_OUT_OF_MEMORY; ROBO_ERROR with a diagnostic when a drawing fails.
+ */
+robo_result_t robo_paint_decoration_paint_bounded(const robo_paint_display_list_t *list,
+                                                  robo_gfx_surface_t *target,
+                                                  robo_font_face_t *face,
+                                                  const robo_layout_rect_t *bound,
+                                                  robo_paint_decoration_stats_t *out_stats,
+                                                  robo_paint_diag_t *diag);
 
 #ifdef __cplusplus
 }

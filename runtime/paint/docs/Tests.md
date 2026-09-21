@@ -1,4 +1,4 @@
-# RoboPaint Test Organisation (through Phase 11.11 — with 11.7, image painting, filled in)
+# RoboPaint Test Organisation (through Phase 11.12 — with 11.7, image painting, filled in)
 
 Fourteen suite files, **232** cases, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
@@ -360,10 +360,13 @@ One suite, four levels, each pinning a layer of the claim rather than a document
   without an assertion is a visible omission.
 - `drawing_present` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
   `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting`,
-  `border_painting`, `text_painting`, `clipping` and `opacity` say which parts of the pipeline exist
-  and `raster` still says 0. `hit_testing` joined the 1s at 11.10, and the case asserts it is 1
-  while `raster` is still 0 — which is the point: the query does not draw, so the two fields do not
-  move together.
+  `border_painting`, `text_painting`, `clipping`, `opacity`, `hit_testing` and `paint_invalidation`
+  say which parts of the pipeline exist. `hit_testing` joined the 1s at 11.10 — asserted as 1 while
+  `paint_invalidation` was still 0, which was the point: the query does not draw, so the two fields do
+  not move together — and `raster` joined them at **11.12**, where the case now asserts it is 1 and
+  names **RoboRender** rather than this module: the version and the row move together, and the row's
+  prose says what the claim is *not* (no presentation, no compositor, no tiles, no damage history, no
+  frame scheduler, no GPU).
 - The `capabilities` row list carries a `hit_testing` entry of its own, so a field added without an
   assertion stays a visible omission rather than a silent one.
 
@@ -890,3 +893,20 @@ wrong about the document.
    box — so the subtree case checks the descendant's top-left, one pixel in, **and** its
    bottom-right.
 
+## 17. What 11.12 changed here
+
+Two cases in §1.13, and no suite file was added: the phase that flipped `raster` left this module's
+tests alone by design, because the module gained one **door** and no behaviour.
+`paint.conformance.drawing_present` now asserts `raster` is **1** and reads the capability row's prose
+against what the claim is *not* (no presentation, no compositor, no tiles, no damage history, no frame
+scheduler, no GPU), and `paint.conformance.capabilities` carries the row by name in declaration order,
+so a later phase that flips another field has to change this file deliberately rather than pass.
+
+The door itself — `robo_paint_decoration_paint_bounded` — is exercised where its consumer lives, in
+`render/tests/SuiteRoboRenderRaster.c` (`render.raster.region_clamping`) and
+`render/tests/SuiteRoboRenderScene.c` (`render.scene.region_matches_full`, the byte-for-byte equality
+between a bounded pass and a full frame). A paint-side case for it would have had to build a second
+oracle for the same walk, and the paint suites' §3 rule — a suite asserts its own module's subject —
+is the reason it does not. What *is* asserted here is the invariant the door did not break:
+`paint.conformance.*` and the two version-reading cases agree with the headers, so the paint module's
+own claims and the render module's claim about the paint module cannot drift apart.

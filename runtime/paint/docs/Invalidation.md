@@ -413,11 +413,18 @@ Neither case paints through a second rendering path: both use the ordinary
 
 ## 12. What is absent, on purpose
 
-- **No rasteriser of a region.** `raster` is still **0**. `drawing` is 1 for the three drawing kinds,
-  but a pass that consumes a whole list — and a fortiori one that consumes *part* of one — does not
-  exist. This phase produces the regions; executing them is a caller's loop today.
-- **No partial display-list mutation.** The list is rebuilt whole and the set says what may be
-  re-executed. Patching a list in place is Phase 11.12's question, not this one's.
+- **No rasteriser here — and one above.** `raster` is **1** since 11.12, and it names **RoboRender**:
+  an owned pixel target, a run over the whole command vocabulary, an execution record and
+  region-limited execution (`robo_render_rasterize_regions`), driven through this module's own walk by
+  the **bounded** door `robo_paint_decoration_paint_bounded`. This phase still produces the regions
+  and executes nothing; what changed is that the caller's loop now has a name, and that the bound is a
+  **clip** rather than a filter over the set's own **union** — one run, never one per region, because a
+  set may name overlapping regions and a second pass over an overlap would composite a
+  semi-transparent drawing twice.
+- **No partial display-list mutation — and 11.12 did not add one either**, which is the answer to
+  the question this paragraph used to leave open: the list is rebuilt whole, and a region bounds the
+  **pixels** that are re-executed (`robo_render_rasterize_regions`, one run over the set's union) and
+  never an edit to the list.
 - **No damage tracking, no tile tree, no frame history.** The set describes **one transition** between
   two states a caller hands over. There is no accumulation across frames, no notion of what is
   currently on screen, no tile size and no damage region merging.

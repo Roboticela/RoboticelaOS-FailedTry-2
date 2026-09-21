@@ -2,7 +2,33 @@
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
  * display lists, 11.4 background painting, 11.5 border painting, 11.6 text painting,
  * 11.7 image painting, 11.8 clipping, 11.9 opacity, 11.10 hit testing,
- * 11.11 paint invalidation.
+ * 11.11 paint invalidation, 11.12 rasterization (the bounded door and `raster`).
+ *
+ * **0.12.0 (11.12) is the release that closes this module's own capability table**, and it does it
+ * with a change to *one door* rather than with a rasteriser of its own: the decoration pass gained
+ * a **bound**. `robo_paint_decoration_paint_bounded` executes the same list inside a rectangle the
+ * caller names -- the same walk, the same scopes, the same strengths, the same drawings, with the
+ * raster's clip narrowed by that rectangle -- and `robo_paint_decoration_paint` is now *that door
+ * with no rectangle*, so the two are one code path and cannot disagree about a document.
+ *
+ * The capability this release flips is `raster`, and the honest reading of the flip matters more
+ * than the flip: **RoboPaint still has no rasteriser, and it should not have one.** What the field
+ * has always asked -- "is there a subsystem that executes a whole display list into pixels?" -- is
+ * now answered by the module directly above this one, `RoboRender` (11.12), whose version header
+ * and `render/docs/Rasterization.md` argue the arrangement: this module owns *what the list means*
+ * (the command vocabulary, the two scope stacks, the per-drawing boundary and strength) and that
+ * module owns *what a frame is* (an owned target, a run, an execution record, byte-determinism,
+ * region execution). A caller asking whether a document can be turned into pixels is asking about
+ * the pair, and a capability table that left this field at 0 while `RoboRender` existed would be
+ * the one lie in a table whose whole purpose is to be readable.
+ *
+ * What 11.12 does **not** do, and each is named where a reader would look for it: it does not add
+ * a tile tree, a damage history, frame scheduling, a compositor or a GPU backend; it does not
+ * make a partial repaint cheaper *as a whole frame* (a region run walks the whole list -- it is the
+ * pixels that are bounded, not the walk); it does not add `SAVE_STATE`/`RESTORE_STATE` (11.3's
+ * reasoning stands: there is no graphics state to save because every drawing writes the boundary
+ * and the strength it is drawn under); and it does not present anything to a window or a
+ * framebuffer -- that is 11.13's.
  *
  * **0.11.0 (11.11) is the release that answers a question the ten before it could not**: given a
  * picture this module already produced, which of its pixels are no longer the pixels the document
@@ -10,9 +36,11 @@
  * the boundary it was drawn under and a flag saying whether it is a conservative whole-extent
  * answer -- filled by explicit marks, by comparing two artifacts, or by reading the
  * `style_only` count 11.1 left for it. The version moved and `paint_invalidation` flipped from the
- * 0 it had been since the first release; `raster` is now the **only** field still 0, and that is
+ * 0 it had been since the first release; `raster` was then the **only** field still 0, and that was
  * the point of the pair, because "which regions changed" and "execute the whole list" are
- * different capabilities and a caller needs both answers.
+ * different capabilities and a caller needs both answers. **11.12 answered the second one**, in the
+ * module above this one (`RoboRender`), so `raster` is 1 as of 0.12.0 -- see that release's note
+ * above and `RoboPaint.h`'s field comment for the width of the claim.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -359,9 +387,9 @@
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 11
+#define ROBO_PAINT_VERSION_MINOR 12
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.11.0"
+#define ROBO_PAINT_VERSION_STRING "0.12.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0

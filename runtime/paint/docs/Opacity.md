@@ -326,8 +326,9 @@ with the case that measures the gap. (Paint invalidation and hit testing left th
 written — 11.11 and 11.10 respectively — and the first of them reads this strength rather than changing
 it: a **parent's** declaration change invalidates its **descendants'** rectangles, because the strength
 is carried on every record, which is the subtree found without a compositor. `Invalidation.md` §7.) The
-module's capability model names exactly what is here — `opacity` is **1** while `raster` stays **0**
-— and version **0.8.0** is the release that made it so.
+module's capability model names exactly what is here — `opacity` is **1**, and `raster` joined it in
+11.12 when **RoboRender** became the module that executes the list into an owned target, at exactly the
+strength this file describes — and version **0.8.0** is the release that made the strength an element's.
 
 Nothing in this phase reads a Chromium header, links a Chromium library, or translates a Blink
 class: the clip-and-strength model is two intervals and a real, and every door it is reached

@@ -141,13 +141,14 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.11.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.12.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    /* 11.11 is the release that answers **which regions a change made stale**, and it moved the
-     * version without changing a single meaning in the frozen v1 surface: one more module, one
-     * more diagnostic domain and the capability field 11.1 had already declared and left 0. */
-    ROBO_CHECK_EQ_INT((int)minor, 11);
+    /* 11.12 is the release that turned the **last** field of the capability table, and it turned it
+     * with one door rather than with a rasteriser of this module's own: the decoration pass gained a
+     * bound (`robo_paint_decoration_paint_bounded`) and the unbounded door became that door with no
+     * rectangle. No meaning in the frozen v1 surface changed. */
+    ROBO_CHECK_EQ_INT((int)minor, 12);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement -- and since 11.4 (backgrounds), 11.5
