@@ -55,6 +55,7 @@
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintText.h"
 
 #ifdef __cplusplus
@@ -139,11 +140,43 @@ typedef enum robo_paint_display_command_kind {
      */
     ROBO_PAINT_DISPLAY_CMD_POP_CLIP = 7,
     /** Leave a node: closes one box's commands. Draws nothing. */
-    ROBO_PAINT_DISPLAY_CMD_END_NODE = 8
+    ROBO_PAINT_DISPLAY_CMD_END_NODE = 8,
+    /**
+     * Enter an **opacity scope** (11.9): the strength in force from here until the matching
+     * `POP_OPACITY`.
+     *
+     * The `PUSH_OPACITY` record's counterpart, and the command that makes an element's opacity a
+     * **scope the stream states** rather than a field on every descendant's drawing. It carries
+     * the effective opacity -- the product, already accumulated -- so a consumer walks the list,
+     * pushes the value and knows the strength without reaching for a tree; and it carries the
+     * box's border box as its rectangle, which is where the scope came from and the answer to "who
+     * declared this?" when a dump is being read.
+     *
+     * It appears **after the box's `BEGIN_NODE` and before its first drawing command**, which is
+     * where it differs from `PUSH_CLIP` and for a reason CSS states: an element's opacity applies
+     * to its own background and border as much as to its contents, so the scope must open *before*
+     * the box draws anything, where a clip boundary applies only to the contents and opens after
+     * the content boundary.
+     */
+    ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY = 9,
+    /**
+     * Leave the opacity scope the matching `PUSH_OPACITY` opened (11.9).
+     *
+     * It carries the **same opacity its push carried**, so the pair is self-identifying: the
+     * builder refuses a pop whose opacity, node or depth does not match the innermost open scope, 
+     * exactly as it refuses a mismatched clip scope. A consumer replaying the list restores the
+     * enclosing strength by popping rather than by consulting the payload.
+     *
+     * Like the clip pair, there is deliberately **no `SAVE_STATE`/`RESTORE_STATE`** around it: the
+     * drawing pass sets the raster's opacity from the command it is about to draw, so there is no
+     * graphics state to save and a save/restore pair would be two commands whose only effect is to
+     * be skipped.
+     */
+    ROBO_PAINT_DISPLAY_CMD_POP_OPACITY = 10
 } robo_paint_display_command_kind_t;
 
 /** Number of defined display command kinds. */
-#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 9u
+#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 11u
 
 /** Non-zero if @p kind is a defined display command kind. */
 int robo_paint_display_command_kind_is_known(robo_paint_display_command_kind_t kind);
@@ -176,6 +209,16 @@ int robo_paint_display_command_kind_is_marker(robo_paint_display_command_kind_t 
  * place for one half to be forgotten.
  */
 int robo_paint_display_command_kind_is_clip(robo_paint_display_command_kind_t kind);
+
+/**
+ * Non-zero when @p kind is one of the two **opacity scope** commands (11.9): `PUSH_OPACITY` or
+ * `POP_OPACITY`.
+ *
+ * The clip pair's sibling, and the predicate the drawing pass and the structural check both ask
+ * for the same reason: the pair is a *scope*, so a consumer maintaining a stack has to recognise
+ * both halves, and a second comparison at each site is a second place for one half to be forgotten.
+ */
+int robo_paint_display_command_kind_is_opacity(robo_paint_display_command_kind_t kind);
 
 /**
  * One command of a display list.
@@ -225,6 +268,17 @@ typedef struct robo_paint_display_command {
     robo_layout_rect_t rect;
     /** The boundary in force, carried from the operation. */
     robo_paint_clip_t clip;
+    /**
+     * The **opacity in force** (11.9), copied from the operation: the factor a rasteriser
+     * composites this command's drawing with.
+     *
+     * Carried on every kind, like @ref clip and for the same reason -- a consumer reading a flat
+     * sequence must be able to know what is in force without replaying it -- and it is also what the
+     * command's own `push-opacity`/`pop-opacity` payload is, so the pair is self-identifying. A
+     * cleared command carries the fully **opaque** value, which is the state in which a document that
+     * declares no opacity draws.
+     */
+    robo_paint_opacity_t opacity;
     /** The colour a drawing command fills with; `none` for a structural one. */
     robo_css_color_t color;
     /** The `border-style` a band draws (11.5): meaningful for `DRAW_BORDER`, and required
@@ -281,6 +335,12 @@ robo_layout_rect_t robo_paint_display_command_rect(const robo_paint_display_comm
 void robo_paint_display_command_clip(const robo_paint_display_command_t *command,
                               robo_paint_clip_t *out);
 
+/** The opacity in force, by value. The fully opaque record for NULL -- so a consumer that
+ *  reads a command without asking anything draws it at full strength, which is what a document
+ *  that declared no opacity means. */
+void robo_paint_display_command_opacity(const robo_paint_display_command_t *command,
+                                       robo_paint_opacity_t *out);
+
 /** The colour, by value. `none` for NULL. */
 robo_css_color_t robo_paint_display_command_color(const robo_paint_display_command_t *command);
 
@@ -306,6 +366,9 @@ int robo_paint_display_command_is_drawing(const robo_paint_display_command_t *co
 
 /** Non-zero when @p command opens or closes a clip scope (11.8). Safe on NULL (0). */
 int robo_paint_display_command_is_clip(const robo_paint_display_command_t *command);
+
+/** Non-zero when @p command opens or closes an opacity scope (11.9). Safe on NULL (0). */
+int robo_paint_display_command_is_opacity(const robo_paint_display_command_t *command);
 
 /**
  * Write a one-line description of @p command into @p buffer.

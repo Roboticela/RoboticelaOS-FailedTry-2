@@ -79,6 +79,16 @@ typedef struct robo_paint_display_list_stats {
      * skeleton a reader is entitled to ignore.
      */
     size_t clip_scopes;
+    /**
+     * `PUSH_OPACITY` commands: one per opacity scope the record list opened (11.9), and
+     * therefore one per `POP_OPACITY` beside them.
+     *
+     * Beside `clip_scopes` rather than folded into it, because the two are statements about
+     * two different properties of the document and a document can have one without the other.
+     * It is the display-list half of the paint pass's `opacity_scopes`, and the two agree by
+     * construction -- this build converts one record per command and drops none.
+     */
+    size_t opacity_scopes;
     /** Drawing commands: backgrounds plus border bands plus text runs. */
     size_t draws;
     /** Deepest node seen. */

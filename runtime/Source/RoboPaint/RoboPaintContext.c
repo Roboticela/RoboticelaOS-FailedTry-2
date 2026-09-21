@@ -37,6 +37,7 @@
 #include "RoboLayout/RoboLayoutBaseline.h"
 
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintOperation.h"
 #include "RoboPaint/RoboPaintText.h"
 
@@ -115,6 +116,51 @@ static robo_css_color_t paint_property_color(const robo_css_computed_style_t *st
 static robo_css_color_t paint_element_color(const robo_css_computed_style_t *style)
 {
     return paint_property_color(style, "color");
+}
+
+/* ------------------------------------------------------------------ */
+/* Reading the opacity out of a computed style (11.9)                  */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The second property this module reads that RoboLayout deliberately ignores, read through
+ * the same door and for the same reason `background-color` is: `opacity` is paint-visible
+ * and layout-invisible, so it is 10.14's `STYLE` bit without a layout bit and this layer is
+ * where it is consumed.
+ *
+ * Three rules are worth stating here, because each one is a trap:
+ *
+ *   **the kind is checked, not the magnitude**   the value arrives as
+ *   `ROBO_CSS_COMPUTED_VALUE_OPACITY` and only that kind is read. A `200px` width is a
+ *   *number* too, so a reader that took the real out of whatever it found would read a
+ *   width as an opacity of `200` -- `RoboCSSComputedValue.h` gives opacity its own kind for
+ *   exactly this reason, and this is the reader that would have made it necessary.
+ *
+ *   **absent and present-and-one are different answers, and both mean opaque**   no
+ *   declaration and `opacity: 1` reach the same drawing, and
+ *   `robo_css_computed_value_opacity` is the door that answers *one* for a value that is not
+ *   an opacity rather than zero -- because zero would make every element of every document
+ *   that never mentions `opacity` invisible.
+ *
+ *   **it does not inherit, and the run is where that matters**   this function is called for
+ *   **boxes only**. A text run's style is its parent element's, borrowed (`RoboLayoutText.h`),
+ *   and that element has already opened an opacity scope around it -- so a run that read its
+ *   own style's opacity would apply the same declaration a second time and square it.
+ */
+
+/** The opacity @p style declares, or the fully opaque record when it declares none. */
+static robo_paint_opacity_t paint_element_opacity(const robo_css_computed_style_t *style)
+{
+    const robo_css_computed_value_t *value;
+
+    if (!style) {
+        return robo_paint_opacity_opaque();
+    }
+    value = robo_css_computed_style_computed_by_name(style, robo_css_slice_from_text("opacity"));
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_OPACITY) {
+        return robo_paint_opacity_opaque();
+    }
+    return robo_paint_opacity_from_value(robo_css_computed_value_opacity(value));
 }
 
 /**
@@ -220,7 +266,17 @@ static const robo_paint_op_kind_t paint_border_kinds[ROBO_CSS_BOX_SIDE_COUNT] = 
  * other's helper.
  */
 
-/** Append a **structural** record: a `BEGIN_BOX`/`CONTENT`/`END_BOX`. */
+/**
+ * Append a **structural** record: a `BEGIN_BOX`/`CONTENT`/`END_BOX`, or one of the two
+ * **scope** kinds the same shape carries (`PUSH_CLIP`/`POP_CLIP` from 11.8, and
+ * `PUSH_OPACITY`/`POP_OPACITY` from 11.9).
+ *
+ * The **opacity in force** is a parameter beside the clip rather than a field filled later,
+ * and the rule it is filled by is the one rule that makes every record in the list read the
+ * same way: a record carries the clip **and** the opacity in force at its own position in the
+ * sequence. For a scope pair that means both halves carry the value the pair establishes --
+ * which is what makes a pair self-identifying, and what a builder checks the pop against.
+ */
 static robo_result_t paint_emit_structural(robo_paint_list_t *list,
                                       robo_paint_op_kind_t kind,
                                       robo_layout_node_id_t node,
@@ -228,6 +284,7 @@ static robo_result_t paint_emit_structural(robo_paint_list_t *list,
                                       const robo_paint_boxes_t *boxes,
                                       robo_layout_point_t origin,
                                       const robo_paint_clip_t *clip,
+                                      const robo_paint_opacity_t *opacity,
                                       robo_paint_diag_t *diag)
 {
     robo_paint_operation_t operation;
@@ -239,6 +296,7 @@ static robo_result_t paint_emit_structural(robo_paint_list_t *list,
     operation.boxes = *boxes;
     operation.origin = origin;
     operation.clip = *clip;
+    operation.opacity = *opacity;
     operation.color = robo_css_color_none();
     return robo_paint_list_append(list, &operation, diag);
 }
@@ -260,6 +318,7 @@ static robo_result_t paint_emit_drawing(robo_paint_list_t *list,
                                        const robo_paint_boxes_t *boxes,
                                        robo_layout_point_t origin,
                                        const robo_paint_clip_t *clip,
+                                       const robo_paint_opacity_t *opacity,
                                        robo_css_color_t color,
                                        robo_css_border_style_t style,
                                        robo_paint_diag_t *diag)
@@ -273,6 +332,7 @@ static robo_result_t paint_emit_drawing(robo_paint_list_t *list,
     operation.boxes = *boxes;
     operation.origin = origin;
     operation.clip = *clip;
+    operation.opacity = *opacity;
     operation.color = color;
     operation.style = style;
     return robo_paint_list_append(list, &operation, diag);
@@ -313,6 +373,7 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
                                           const robo_paint_boxes_t *boxes,
                                           robo_layout_point_t origin,
                                           const robo_paint_clip_t *clip,
+                                          const robo_paint_opacity_t *opacity,
                                           robo_paint_list_t *list,
                                           robo_paint_diag_t *diag)
 {
@@ -343,7 +404,7 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
     }
     if (draws) {
         robo_result_t result = paint_emit_drawing(list, ROBO_PAINT_OP_BACKGROUND, id,
-                                                  depth, boxes, origin, clip, color,
+                                                  depth, boxes, origin, clip, opacity, color,
                                                   ROBO_CSS_BORDER_STYLE_NONE, diag);
 
         if (result != ROBO_OK) {
@@ -409,7 +470,7 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
         }
         {
             robo_result_t result = paint_emit_drawing(list, paint_border_kinds[side], id,
-                                                      depth, boxes, origin, clip, color,
+                                                      depth, boxes, origin, clip, opacity, color,
                                                       style, diag);
 
             if (result != ROBO_OK) {
@@ -542,6 +603,7 @@ static robo_result_t paint_emit_text(robo_paint_context_t *context,
                                     size_t depth,
                                     robo_layout_point_t origin,
                                     const robo_paint_clip_t *clip,
+                                    const robo_paint_opacity_t *opacity,
                                     robo_paint_list_t *list,
                                     int *out_emitted,
                                     robo_paint_diag_t *diag)
@@ -647,6 +709,16 @@ static robo_result_t paint_emit_text(robo_paint_context_t *context,
     operation.boxes = boxes;
     operation.origin = origin;
     operation.clip = *clip;
+    /*
+     * The opacity **in force**, passed in rather than read from `computed` -- and this is the
+     * one place in this file where a style is deliberately *not* consulted. A run borrows the
+     * style of the element that owns the text node, and that element opened its own opacity
+     * scope around this run before the run was reached. Reading the declaration again here
+     * would apply it twice, so a `0.5` element's text would draw at `0.25` while its
+     * background drew at `0.5`. The value the traversal is carrying is the answer; the style
+     * is the question that was already asked one level up.
+     */
+    operation.opacity = *opacity;
     operation.color = color;
     operation.text = text;
     result = robo_paint_list_append(list, &operation, diag);
@@ -685,10 +757,47 @@ static robo_result_t paint_child_clip(robo_paint_context_t *context,
     }
     if (!robo_layout_overflow_edges_clips_any(&overflow)) {
         return ROBO_OK;
-    }
-    context->stats.clipped++;
+    }    context->stats.clipped++;
     return robo_paint_clip_intersect(clip, &boxes->padding, overflow.horizontal,
                                     overflow.vertical, out, diag);
+}
+
+/**
+ * The opacity @p box's own declaration puts in force for **itself and everything under it**.
+ *
+ * The product of the strength already in force and this box's own, which is the whole of the
+ * arithmetic: opacity composes along a path, so a `0.5` box inside a `0.5` box is a `0.25`
+ * subtree. Nothing here decides *whether* to open a scope -- the caller compares the result
+ * against what was in force, exactly as the clip's caller does, so both state kinds open a
+ * scope under one rule: **only when the value in force actually changes**.
+ *
+ * `opacity_declared` is counted here, beside the read that finds it, and it counts a fact
+ * about the *document* -- boxes whose declaration is not fully opaque -- in exactly the way
+ * `clipped` counts boxes whose used modes hide an axis. Both are counted only for a **placed**
+ * box, because both are reached on the path this pass paints; an unplaced box is counted in
+ * `unplaced` and nothing below it is asked about.
+ *
+ * Two cases that are not failures and are worth naming, since this is where a reader will look
+ * for them: a box with **no computed style** declares nothing and is opaque (the same answer
+ * `without_style` gives one layer down), and a declaration that arrived **out of range** was
+ * already clamped where it was computed (`RoboCSSOpacity.h`), so what reaches the product is a
+ * record this build can draw with.
+ *
+ * The one deviation from CSS this inherits is `RoboPaintOpacity.h`'s and not this call's: the
+ * value is applied per drawing rather than to a flattened subtree, because the group form
+ * needs an offscreen layer this build has no compositor for.
+ */
+static robo_paint_opacity_t paint_child_opacity(robo_paint_context_t *context,
+                                               const robo_layout_tree_t *tree,
+                                               robo_layout_node_id_t id,
+                                               const robo_paint_opacity_t *opacity)
+{
+    robo_paint_opacity_t declared = paint_element_opacity(robo_layout_object_style(tree, id));
+
+    if (!robo_paint_opacity_is_opaque(&declared)) {
+        context->stats.opacity_declared++;
+    }
+    return robo_paint_opacity_multiply(opacity, &declared);
 }
 
 /**
@@ -706,6 +815,7 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
                                 int placed_ancestor,
                                 robo_layout_point_t origin,
                                 const robo_paint_clip_t *clip,
+                                const robo_paint_opacity_t *opacity,
                                 robo_paint_list_t *list,
                                 robo_paint_diag_t *diag)
 {
@@ -716,7 +826,9 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     robo_paint_boxes_t boxes;
     robo_layout_point_t child_origin = origin;
     robo_paint_clip_t child_clip = *clip;
+    robo_paint_opacity_t child_opacity = *opacity;
     int clip_scope = 0;
+    int opacity_scope = 0;
 
     if (!robo_layout_object_kind_is_known(kind) || kind == ROBO_LAYOUT_OBJECT_NONE) {
         /* A child link that names nothing. Reported rather than skipped: a pass that
@@ -749,8 +861,8 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
 
         context->stats.text_runs++;
         if (placed_ancestor &&
-            paint_emit_text(context, tree, id, depth, origin, clip, list, &emitted, diag) !=
-                ROBO_OK) {
+            paint_emit_text(context, tree, id, depth, origin, clip, opacity, list, &emitted,
+                            diag) != ROBO_OK) {
             return diag ? diag->code : ROBO_ERROR;
         }
         if (emitted) {
@@ -787,7 +899,7 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
         }
         while (child != ROBO_LAYOUT_NODE_ID_NONE) {
             robo_result_t result = paint_walk(context, tree, child, depth + 1u, 0, origin,
-                                              clip, list, diag);
+                                              clip, opacity, list, diag);
 
             if (result != ROBO_OK) {
                 return result;
@@ -802,9 +914,19 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     /* Into one page space: the accumulated origin added to what layout wrote. */
     (void)robo_paint_boxes_translate(&local, origin.x, origin.y, &boxes, NULL);
 
+    /*
+     * The box's **own** opacacity, and the whole of what this site decides: the strength in
+     * force for the box and everything under it is the outer strength times the box's
+     * declaration, and the scope below opens only when that product differs from what was
+     * already in force.
+     */
+    child_opacity = paint_child_opacity(context, tree, id, opacity);
+    opacity_scope = !robo_paint_opacity_equal(&child_opacity, opacity);
+
     {
         robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_BEGIN_BOX, id,
-                                                     depth, &boxes, origin, clip, diag);
+                                                     depth, &boxes, origin, clip, opacity,
+                                                     diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -813,12 +935,45 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     context->stats.boxes++;
 
     /*
+     * The **opacity scope** (11.9), opened immediately after the box's own marker and before
+     * anything the box draws.
+     *
+     * Its placement is the one structural departure from the clip scope, and it is not a style
+     * choice: **a clip belongs to a box's contents and an opacity belongs to the box itself.**
+     * CSS paints an element's own `background-color` and borders at the element's opacity --
+     * a `0.5` red box is a half-transparent red box -- so the scope must already be open when
+     * the first decoration is emitted. The clip cannot be, because the same CSS paints that
+     * box's own background under its *parent's* boundary; that is why the one pair opens at the
+     * box's content boundary and the other at its marker.
+     *
+     * The two pairs therefore nest differently around the same box, and the rule a reader can
+     * use on both is a single rule: **every record carries the state in force at its own
+     * position in the sequence.** `BEGIN_BOX` stands before the push, so it carries the
+     * enclosing strength; the decorations, the content boundary, the subtree and the pop all
+     * stand inside it and carry the box's; and `END_BOX` stands after the pop, so it carries
+     * the enclosing strength again. That is the same rule that makes `POP_CLIP` and `END_BOX`
+     * disagree about the clip, and the same rule that makes a pair self-identifying -- both
+     * halves of a scope carry the value the pair establishes.
+     */
+    if (opacity_scope) {
+        robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_PUSH_OPACITY, id,
+                                                     depth, &boxes, origin, clip,
+                                                     &child_opacity, diag);
+
+        if (result != ROBO_OK) {
+            return result;
+        }
+        context->stats.opacity_scopes++;
+    }
+
+    /*
      * The decorations carry the box's own depth, so that a decoration and its marker can
-     * never disagree about how deep the box is.
+     * never disagree about how deep the box is, and they carry the **box's own** opacity
+     * rather than the enclosing one -- see the scope above.
      */
     {
         robo_result_t result = paint_box_decorations(context, tree, id, depth, &boxes,
-                                                     origin, clip, list, diag);
+                                                     origin, clip, &child_opacity, list, diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -837,7 +992,8 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
      */
     {
         robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_CONTENT, id, depth,
-                                                     &boxes, origin, clip, diag);
+                                                     &boxes, origin, clip, &child_opacity,
+                                                     diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -867,7 +1023,8 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     clip_scope = !robo_paint_clip_equal(&child_clip, clip);
     if (clip_scope) {
         robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_PUSH_CLIP, id,
-                                                     depth, &boxes, origin, &child_clip, diag);
+                                                     depth, &boxes, origin, &child_clip,
+                                                     &child_opacity, diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -883,7 +1040,8 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
     if (robo_layout_object_first_child(tree, id, &child) == ROBO_OK) {
         while (child != ROBO_LAYOUT_NODE_ID_NONE) {
             robo_result_t result = paint_walk(context, tree, child, depth + 1u, placed,
-                                              child_origin, &child_clip, list, diag);
+                                              child_origin, &child_clip, &child_opacity, list,
+                                              diag);
 
             if (result != ROBO_OK) {
                 return result;
@@ -906,7 +1064,31 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
      */
     if (clip_scope) {
         robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_POP_CLIP, id,
-                                                     depth, &boxes, origin, &child_clip, diag);
+                                                     depth, &boxes, origin, &child_clip,
+                                                     &child_opacity, diag);
+
+        if (result != ROBO_OK) {
+            return result;
+        }
+    }
+
+    /*
+     * The opacity scope closes with the box it belongs to, immediately before the box's own
+     * `END_BOX` -- so the marker pair `[BEGIN_BOX .. END_BOX]` brackets the scope and its
+     * contents exactly as it brackets the clip scope inside it.
+     *
+     * Both halves of the pair carry **the same record the push carried**: the pop's value is
+     * what the scope established, not what it restores. That is what makes a pair checkable
+     * from a stream -- a builder compares the pop against the innermost open scope and a
+     * consumer restores the enclosing strength by popping its own stack -- and it is the rule
+     * the clip pair already states one field along. A debug dump resolves that the pop's value
+     * matches the push's, both are the scope's strength, and the enclosing strength is
+     * whatever the sibling before it used.
+     */
+    if (opacity_scope) {
+        robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_POP_OPACITY, id,
+                                                     depth, &boxes, origin, clip,
+                                                     &child_opacity, diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -915,7 +1097,8 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
 
     {
         robo_result_t result = paint_emit_structural(list, ROBO_PAINT_OP_END_BOX, id,
-                                                     depth, &boxes, origin, clip, diag);
+                                                     depth, &boxes, origin, clip, opacity,
+                                                     diag);
 
         if (result != ROBO_OK) {
             return result;
@@ -1054,10 +1237,27 @@ robo_result_t robo_paint_context_run(robo_paint_context_t *context,
         return ROBO_OK;
     }
 
-    result = paint_walk(context, tree, root, 0u, 1, robo_gfx_point(0, 0),
-                        &(robo_paint_clip_t){ { ROBO_CSS_OVERFLOW_VISIBLE, 0, 0 },
-                                              { ROBO_CSS_OVERFLOW_VISIBLE, 0, 0 } },
-                        list, diag);
+    /*
+     * The root is entered under the two states a document starts in: a boundary that hides
+     * neither axis, and full strength. Neither is a *scope* -- both are what an empty stack
+     * answers -- so they are stated here as the initial values rather than pushed as commands,
+     * which is exactly why a document that declares no opacity anywhere produces a list with
+     * no opacity command in it.
+     *
+     * The strength comes from the opacity module's own door rather than from a written `1.0`,
+     * for the reason the clip's modes come from the overflow vocabulary: "fully opaque" is a
+     * fact about CSS that the layer owning the property states, and a build that changed the
+     * property's initial value would change one number rather than one number and a copy here.
+     */
+    {
+        robo_paint_opacity_t opaque = robo_paint_opacity_opaque();
+
+        result = paint_walk(context, tree, root, 0u, 1, robo_gfx_point(0, 0),
+                            &(robo_paint_clip_t){ { ROBO_CSS_OVERFLOW_VISIBLE, 0, 0 },
+                                                  { ROBO_CSS_OVERFLOW_VISIBLE, 0, 0 } },
+                            &opaque,
+                            list, diag);
+    }
     if (result != ROBO_OK) {
         context->outcome = ROBO_PAINT_PASS_FAILED;
         return result;

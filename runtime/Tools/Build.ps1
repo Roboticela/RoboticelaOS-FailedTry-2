@@ -251,6 +251,9 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCSS\RoboCSSBackground.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSBorder.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSOverflow.c"),
+    # The opacity family (11.9) is the second value surface a non-9.x phase
+    # registered -- `overflow` was 10.13's, this one is the paint stack's.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSOpacity.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSComputedValue.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
@@ -282,6 +285,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboPaint\RoboPaintDiagnostics.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintGeometry.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintClip.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintOpacity.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintOperation.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintList.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintContext.c"),
@@ -466,6 +470,9 @@ $SuiteSrcs = @(
     # value is registered by the side that consumes it, so its suite sits with the
     # families it belongs beside rather than after the layout suites.
     (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssOverflow.c"),
+    # And the opacity family (11.9), registered by the paint stack's phase for the
+    # same reason: the value exists because something downstream reads it.
+    (Join-Path $RuntimeRoot "css\tests\SuiteRoboCssOpacity.c"),
     # The conformance suite (9.16) is the only one that spans the whole registry
     # and the whole pipeline rather than one family, so it sits last in the list
     # for the same reason it runs over everything the ones above it built.
@@ -504,6 +511,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintBorder.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintText.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintClip.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintOpacity.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

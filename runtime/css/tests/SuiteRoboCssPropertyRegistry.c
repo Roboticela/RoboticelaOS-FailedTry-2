@@ -128,9 +128,9 @@ static void test_css_registry_standard_set(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 66);
+    ROBO_CHECK_EQ_INT((int)robo_css_property_registry_count(registry), 67);
     ROBO_CHECK_EQ_INT((int)inherited, 16);
-    ROBO_CHECK_EQ_INT((int)non_inherited, 50);
+    ROBO_CHECK_EQ_INT((int)non_inherited, 51);
 
     robo_css_property_registry_destroy(registry);
 }
@@ -251,6 +251,10 @@ static void test_css_registry_initial_values(void)
          * starting where its four longhands start rather than at zero. */
         {"margin-top", "0"},
         {"margin-right", "0"},
+        /* 11.9's one row, and its initial value is the reason it is in this table at
+         * all: every other property here starts at the zero of its own vocabulary, and
+         * an `opacity` that did would draw nothing. */
+        {"opacity", "1"},
         {"margin-bottom", "0"},
         {"margin-left", "0"},
         {"padding-top", "0"},

@@ -27,6 +27,7 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaintBorder.c` | `paint.border.*` | 14 | does a border side's **band** get filled (read back from the surface), does its **style** survive record → command, do four sides of four different widths and colours land exactly where the box model says, and does a child spilling over its parent draw over the parent's border rather than under it? |
 | `SuiteRoboPaintText.c` | `paint.text.*` | 17 | do a run's **characters** travel record → pool → display pool → pixels, are they counted in **code points**, is the baseline layout's rather than a second one, does an unmapped code point become a counted `.notdef`, and does a list keep drawing after the records it was built from are gone? |
 | `SuiteRoboPaintClip.c` | `paint.clip.*` | 24 | is the boundary a **scope** — does the intersection hold, does a scope appear exactly when the boundary *changed*, is the box's own decoration outside it, is the effective clip inside a nested scope the intersection of the two, does every drawing kind stop at it, and does an empty one suppress drawing without poisoning the walk? |
+| `SuiteRoboPaintOpacity.c` | `paint.opacity.*` | 28 | is a drawing's **strength** a product along a path rather than a replacement — does a scope appear exactly when the strength *changed*, does it open at the box's marker rather than its content boundary, does every drawing kind receive it, do the pixels equal the graphics module's own blend of the opaque ones, does a sibling stay unaffected, and is the gap from CSS's group semantics measured rather than hidden? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -312,14 +313,48 @@ right in three of them draws a wrong picture.
   order, with no addresses) and `end_to_end` (document → records → display list → surface, with both
   counters reported).
 
-### 1.12 — conformance (`paint.conformance.*`, 5 cases)
+### 1.12 — the opacity pass (`paint.opacity.*`, 28 cases)
+
+One suite, four levels, each pinning a layer of the claim rather than a document:
+
+- **the record** (`record`, `record_safety`, `byte_conversion`) — the value, the cleared record is
+  **opaque** rather than zero, the clamp at both ends, and the three doors' *different* answers for
+  a value they cannot read.
+- **the stack** (`stack`, `stack_growth`) — push, pop, current, depth, capacity, reset, and the
+  refusals a caller can provoke.
+- **the declaration** (`default`, `explicit_one`, `declared`) — a document that declares nothing, a
+  box that declares `1`, and a box that declares `0.5`: which of the three opens a scope and which
+  does not, pinned by the counters as well as by the commands.
+- **the placement** (`scope_placement`, `nested`, `nesting_table`, `sibling_isolation`, `zero`,
+  `text`) — the one structural decision: the push stands **after the marker and before the first
+  decoration**, both halves of a pair carry the value the pair establishes, a box's own painting
+  carries the box's strength while its markers carry the enclosing one, and a sibling never inherits
+  another sibling's. `nesting_table` is the six-row parent/child table the brief asks for
+  (`1·1`, `1·0.5`, `0.5·1`, `0.5·0.5`, `0·0.5`, `0.5·0`), each row's effective strength read off the
+  records rather than computed by the test.
+- **the artifact** (`display_commands`, `hand_built_scope`, `builder_refusals`, `pass_refusals`) —
+  the two command kinds, and the **eight** ways a record list can lie about a document, plus the
+  pass's own refusals for a malformed stream.
+- **the pixels** (`background_pixels`, `border_pixels`, `text_pixels`, `no_opacity_unchanged`,
+  `group_deviation`, `end_to_end`) — three drawing kinds read back from a surface against
+  `robo_gfx_composite_src_over_opacity`, the control that a document with no `opacity` is
+  **byte-identical** to a build without this phase, the document where per-drawing differs from
+  per-group with both answers computed through the graphics module's own blend, and the capstone:
+  nested opacity, both kinds of scope, three drawing kinds and a **PNG** through RoboGraphics' own
+  encoder.
+- **the invariants** (`determinism`, `mutation_isolation`, `dump`, `empty_and_malformed`) — two
+  passes produce byte-identical lists, a record's strength does not move when the tree is re-laid-out
+  or the records cleared, both dumps carry the field, and every empty or malformed case is a
+  counted answer rather than a crash.
+
+### 1.13 — conformance (`paint.conformance.*`, 5 cases)
 
 - `capabilities` — the struct read positionally against a list of names, so a field added
   without an assertion is a visible omission.
 - `drawing_present` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
   `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting`,
-  `border_painting`, `text_painting` and `clipping` say which parts of the pipeline exist and
-  `raster` still says 0.
+  `border_painting`, `text_painting`, `clipping` and `opacity` say which parts of the pipeline exist
+  and `raster` still says 0.
 - `vocabulary_exhaustive` — every kind and every domain prints a name that is not "unknown".
 - `document_list` — a whole document's list, pinned operation by operation.
 - `hostile_inputs` — NULL and malformed records refused rather than read.
@@ -567,6 +602,37 @@ Four, and the first two are one bug seen from two sides:
    counts.
 4. **A no-clip case is weaker than it looks if it only checks that the clip is inactive.** The
    visible half of the pixel showcase initially asserted an inactive `clip` field — which a document
-   carrying a redundant scope would also satisfy. It now asserts there is **no push and no pop**
+   carrying a redundant scope would also satisfy. It now asserts there   is **no push and no pop**
    anywhere in the list and that the list is exactly two commands shorter than the clipped one, which
    is the fact 11.8's "avoid unnecessary clip commands" actually means.
+
+## 13. What the 11.9 suite found
+
+Four, and the first is the one that would have shipped a wrong *picture* rather than a wrong number.
+
+1. **A run that reads its own declaration applies it twice.** The strength has to reach the text
+   emitter as a **parameter**, not be read from the style the run belongs to: a text node's box is
+   the element that owns it, and that element has already opened the scope around it, so a run that
+   looked up its own `opacity` would square the declaration it is standing inside. The case that
+   would catch a regression is a **count of faded drawings** — nested `0.5`/`0.5` with a run inside
+   produces three, the third at `0.25` rather than `0.125` — and it is a count rather than a pixel
+   because at those strengths the two answers are two pixels apart and a count is unambiguous.
+2. **The safe direction is *two* decisions, and they point opposite ways.** A record built from a
+   value nothing can read must be **opaque** (the alternative makes every element that never
+   mentions `opacity` invisible, silently, with correct geometry), while a record *consumed* at the
+   last gate before a pixel must answer **no ink** (the alternative turns a caller's arithmetic bug
+   into a fully drawn document). Both directions are asserted, and the asymmetry is documented where
+   it lives rather than averaged into one rule.
+3. **A derived bound is not a bound until something measures it.** The dump's two line bounds are
+   header arithmetic, and this phase's `opacity=` field made the **display** line 13 characters
+   wider — 362 → 375 — while the operation line already had the room. The suite builds the widest
+   line each kind can produce, rather than trusting the derivation, which is the only reason the
+   growth was noticed at all.
+4. **The sanitizer run found two defects outside this module.** Neither is a paint bug and neither
+   was reachable from a non-sanitized build, which is exactly why they are recorded here: the HTML
+   tokenizer suite allocated a 20000-byte buffer with the markup filling it exactly and passed it to
+   `robo_html_source_string`, which scans for a `NUL` — so the terminator it found was ASan's
+   redzone — and the tree-builder suite asserted that a **second** `destroy` of the same builder is a
+   no-op, which cannot be a contract when the first call frees the struct the magic-word guard lives
+   in. A one-byte buffer and a line of prose; the phase's whole suite is clean under
+   ASan + UBSan now (`Tests.md` §5).

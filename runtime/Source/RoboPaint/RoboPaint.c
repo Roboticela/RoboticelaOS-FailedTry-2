@@ -133,6 +133,24 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * save (RoboPaintDisplayCommand.h argues it).
      */
     out->clipping = 1;
+    /*
+     * **1 since 11.9**, and the second field that bounds a drawing rather than producing one --
+     * the first that bounds it in *strength* rather than in space. An element's `opacity` is
+     * accumulated along the path that reaches it, the display list states the accumulation as a
+     * **scope** (`push-opacity` after a box's marker, `pop-opacity` before its end marker), the
+     * builder refuses any command inside a scope carrying a different strength and any scope
+     * that would raise it, and the drawing pass sets the raster's own global opacity per drawing
+     * from the scope it is inside.
+     *
+     * `clip_state` above is 11.1's record and `clipping` is 11.8's scopes; this field is the same
+     * pair of claims for a second state, and they are again separate on purpose. What it does
+     * **not** claim is the group compositing CSS specifies: this build multiplies the effective
+     * opacity per drawing, which is exact for a subtree whose contents do not overlap and
+     * differs from group opacity where they do (`RoboPaintOpacity.h` states the deviation and
+     * what would replace it -- a flag and a layer id on the record). Nor does it claim
+     * `mix-blend-mode`, filters, `backdrop-filter`, masks, transforms or a compositor layer.
+     */
+    out->opacity = 1;
     return ROBO_OK;
 }
 

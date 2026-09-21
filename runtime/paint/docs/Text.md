@@ -259,9 +259,13 @@ are **derived** from those two rather than guessed.
 ## 10. What is absent, on purpose
 
 Shaping, the bidi algorithm, line breaking, whitespace collapsing, font fallback, variable-font
-instancing, `text-decoration`, `text-shadow`, text selection, text editing, opacity, transforms,
+instancing, `text-decoration`, `text-shadow`, text selection, text editing, transforms,
 `border-radius`, real clipping, image painting, display-list replay, rasterisation architecture,
 compositor, paint invalidation (11.11), hit testing (11.10), scrolling, JavaScript and networking.
+What is **no longer** absent is the element's strength: since 11.9 a run is stroked at the opacity in
+force, passed in by the traversal rather than read from the run's own style — the run's box is the
+element that owns it and that element already opened the scope, so a run reading its own declaration
+would square it (`Opacity.md` §7, `paint.opacity.text`).
 `raster` remains **0** and `ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: three kinds of drawing exist
 and text is one of them, while the rasteriser is still RoboGraphics'.
 

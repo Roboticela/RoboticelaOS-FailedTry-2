@@ -208,14 +208,73 @@
  * so there is no graphics state for a pair like that to save, and the two commands would be ones
  * a consumer could only skip. A later pass with real graphics state adds them as one enumerator
  * and one row.
+ *
+ * **11.9 — opacity.** The first release whose subject is not *what* is drawn or *where it
+ * stops*, but **how strongly it lands**, and the second state this module carries that is not a
+ * colour. It arrived with an unusual amount of the work already done and in the right shape: an
+ * element's `opacity` was a computed value RoboCSS already represented (11.9 added the property
+ * and its `OPACITY` computed-value kind, because a build that read a *number* out of whatever
+ * value it found would read a `200px` width as an opacity of `200`), and RoboGraphics already
+ * had a raster-wide global opacity that multiplies a source alpha before the blend. So the
+ * phase is almost entirely about the **path between them** -- and about one decision that had
+ * to be made before any of it could be written.
+ *
+ * That decision is what `opacity` means, and getting it wrong produces a build that looks right
+ * on every single-element test and is wrong on every nested one. **Opacity does not inherit**
+ * (`RoboCSSPropertyRegistry.c` registers it non-inherited and argues why): inheritance copies a
+ * value down to a child that declared nothing, so an inherited opacity would let a child at
+ * `opacity: 1` inside a parent at `0.5` become fully opaque again. What actually happens is that
+ * the parent's opacity applies to **everything the parent contains** -- so the child is drawn at
+ * `0.5`, and a grandchild at `0.25`. That is an accumulation along a **path**, which is why it
+ * lives in the traversal and in a record (`RoboPaintOpacity.h`) rather than in the cascade, and
+ * why every operation and every command carries the **effective** strength rather than the
+ * declared one.
+ *
+ * The record is the clip record's shape and the scope is the clip scope's shape, and the *one*
+ * structural difference between the two pairs is worth stating because it looks like an
+ * inconsistency and is the opposite: **a clip belongs to a box's contents, an opacity belongs to
+ * the box itself.** CSS paints a `0.5` box's own `background-color` at half strength and paints
+ * that same box's background under its *parent's* clip -- so the opacity pair opens at the box's
+ * marker and before its first decoration, while the clip pair opens at its content boundary and
+ * after them. Both are the same rule read at two points: every record carries the state in force
+ * at its own position in the sequence, and both halves of a pair carry the value the pair
+ * establishes, which is what makes a pair checkable from the stream.
+ *
+ * Three further decisions, each of which had a plausible alternative:
+ *
+ *   **a real value, not a "zero means unset" literal.** `robo_paint_opacity_init` clears to
+ *   *fully opaque*, so a record this module never asked about draws at full strength -- the
+ *   opposite direction from a clip record's cleared state, and stated as a door for exactly
+ *   that reason. A cleared record that meant "invisible" would make every element of every
+ *   document that never mentions `opacity` disappear;
+ *
+ *   **per drawing, not per subtree.** CSS composites an element's whole subtree as a group and
+ *   applies the opacity to the flattened result; this build multiplies per drawing, which is
+ *   exact for a subtree whose contents do not overlap and differs where they do (two overlapping
+ *   children of a `0.5` parent composite as `0.5*(a over b)` under CSS and as
+ *   `(0.5*a) over (0.5*b)` here). Group opacity needs an offscreen layer to composite into, which
+ *   is a compositor and a later phase's, so this build carries the multiplication and **says so**
+ *   -- the record's shape is what a group implementation will replace, a flag and a layer id, and
+ *   nothing above it has to change;
+ *
+ *   **alpha stays alpha.** A colour's own alpha and an element's opacity are two numbers and
+ *   neither is rewritten into the other: `final_alpha = colour_alpha * effective_opacity` is the
+ *   raster's arithmetic (`robo_paint_opacity_to_byte` crosses the `[0, 1]`-to-`[0, 255]` gap once,
+ *   in the paint module, and the raster multiplies), so a half-transparent fill inside a half
+ *   opaque element composites the way both numbers say it should.
+ *
+ * What the release does **not** claim: group compositing (below), `mix-blend-mode`, filters,
+ * `backdrop-filter`, masks, `transform`, `transition`, `animation`, a compositor or its layers,
+ * or opacity on anything but the drawings this build has -- images, gradients and shadows are
+ * still absent, so a faded gradient is not a thing this build can be asked for yet.
  */
 #ifndef ROBO_PAINT_VERSION_H
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 7
+#define ROBO_PAINT_VERSION_MINOR 8
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.7.0"
+#define ROBO_PAINT_VERSION_STRING "0.8.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0
@@ -239,10 +298,11 @@
  * by the clip **scopes** the document's `overflow` puts in force. It does **not** claim
  * the seven pattern border styles (the band is drawn, the pattern is not -- `unshaped` counts
  * them), glyphs drawn as filled or antialiased shapes rather than stroked outlines, shaping or
- * bidi (`rtl` counts what this build drew in logical order), images, opacity beyond
- * the colour's own alpha, rounded corners, gradients, transforms or a compositor, and it does
- * **not** claim a rasteriser of the whole list -- that is `raster`, which is still 0, because the
- * structural commands are not drawings. A caller that read this constant as "the document
+ * bidi (`rtl` counts what this build drew in logical order), images, rounded corners, gradients,
+ * transforms or a compositor, and it does **not** claim a rasteriser of the whole list -- that is
+ * `raster`, which is still 0, because the structural commands are not drawings. Since **11.9** it
+ * does claim an element's `opacity`, applied on top of the colour's own alpha per drawing (see
+ * `opacity` in `RoboPaint.h` and the group-opacity deviation `RoboPaintOpacity.h` states). A caller that read this constant as "the document
  * renders" would be wrong in exactly the way reading `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as
  * "layout is done" was wrong in a first release; the fields beside it -- `background_painting`,
  * `border_painting`, `text_painting` and `clipping` -- say which drawings exist and what bounds

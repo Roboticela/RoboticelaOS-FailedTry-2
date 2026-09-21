@@ -313,11 +313,30 @@ typedef enum robo_css_property_computation {
      * implementation of expansion, and `RoboCSSOverflow.h` states the cost: the
      * two-value form (`overflow: hidden visible`) is not read.
      */
-    ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW = 19
+    ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW = 19,
+    /**
+     * An `opacity`: a number or a percentage, clamped to `[0, 1]` (11.9).
+     *
+     * The first shape here that is neither a closed vocabulary nor a length family, and the
+     * first added by a phase of the *paint* stack rather than by a 9.x value phase or by a
+     * layout phase: `opacity` is the one property a painter reads that changes neither the
+     * geometry of a box nor its colour, and what it changes is the *strength* at which the box
+     * and everything inside it reaches a surface.
+     *
+     * A shape of its own rather than the NUMBER family, and the difference is the range rather
+     * than the syntax: `opacity` is the only property in this build whose value is bounded on
+     * both sides, and reading it as a bare number would put the clamp in every consumer
+     * instead of in one place. The initial value is `1` rather than `0`, which is the one thing
+     * about this row worth reading twice: every other property's initial value is the zero of
+     * its own enumerator (`visible`, `static`, `inline`), and a build that let the zeroing of a
+     * record stand in for this one would render every element of a document that never mentions
+     * `opacity` invisible (RoboCSSOpacity.h argues it).
+     */
+    ROBO_CSS_PROPERTY_COMPUTATION_OPACITY = 20
 } robo_css_property_computation_t;
 
 /** Number of defined computations. */
-#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 20u
+#define ROBO_CSS_PROPERTY_COMPUTATION_COUNT 21u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int robo_css_property_computation_is_known(robo_css_property_computation_t computation);

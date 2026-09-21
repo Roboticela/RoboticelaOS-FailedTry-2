@@ -73,6 +73,7 @@
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
 
@@ -99,6 +100,22 @@ typedef struct robo_paint_operation {
     robo_layout_point_t origin;
     /** The boundary in force. */
     robo_paint_clip_t clip;
+    /**
+     * The **opacity in force** (11.9): the factor this operation's drawing is composited with,
+     * already multiplied by every ancestor's declared `opacity`.
+     *
+     * Carried on **every** kind rather than only on the two scopes, for the reason @ref clip is: a
+     * consumer that walks a flat list reads what is in force from the record it is looking at, and
+     * a value that arrived only on a push would make every drawing under it unreadable without
+     * replaying the list from the beginning. A cleared record carries the fully **opaque** value, so
+     * "nothing was declared" and "a drawing at full strength" are one state -- which is the
+     * direction this field must fail in, because the other one draws nothing (RoboPaintOpacity.h).
+     *
+     * It is not the *declared* value of the box this operation draws: that is a property of one
+     * element, read once from its computed style, and what travels here is the product along the
+     * path that reached it.
+     */
+    robo_paint_opacity_t opacity;
     /** The colour this operation draws with. `none` for a marker, and required to be
      *  a colour a rasteriser can use for a drawing kind. */
     robo_css_color_t color;
@@ -184,6 +201,12 @@ void robo_paint_operation_origin(const robo_paint_operation_t *operation,
 /** The clip, by value. A cleared clip for NULL. */
 void robo_paint_operation_clip(const robo_paint_operation_t *operation,
                               robo_paint_clip_t *out);
+
+/** The opacity in force, by value. The fully opaque record for NULL -- so a caller that reads
+ *  a record without asking anything draws it at full strength, which is the answer a document
+ *  that declared no opacity would give. */
+void robo_paint_operation_opacity(const robo_paint_operation_t *operation,
+                                 robo_paint_opacity_t *out);
 
 /** The colour, by value. `none` for NULL. */
 robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operation);

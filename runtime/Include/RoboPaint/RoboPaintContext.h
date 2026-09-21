@@ -169,6 +169,33 @@ typedef struct robo_paint_stats {
      */
     size_t clip_scopes;
     /**
+     * Placed boxes whose declared `opacity` is **not** fully opaque (11.9) -- a fact about a
+     * box's own style, counted where the declaration is read.
+     *
+     * The `clipped` half of a second pair, and it pairs with `opacity_scopes` the same way:
+     * a document can declare a strength that changes nothing, and the interesting fact is
+     * usually which of the two numbers is larger. A declaration of `1` counts nowhere, because
+     * `1` is what an element that says nothing already has -- and the reason this is *not*
+     * "boxes with an `opacity` declaration" is that `opacity: 1` and no declaration produce the
+     * same picture, so a counter that distinguished them would be counting syntax.
+     */
+    size_t opacity_declared;
+    /**
+     * Opacity **scopes** the traversal opened: one per box whose declaration actually
+     * *changed* the strength in force for itself and its subtree (11.9).
+     *
+     * The gap against `opacity_declared` is a real property of the document rather than a
+     * rounding, and a document reaches it the ordinary way: a `0.5` box inside a `0` ancestor
+     * is already drawn at nothing, so its product does not change the strength in force and no
+     * scope is emitted -- a scope that established nothing is a command a consumer could only
+     * skip.
+     *
+     * Read against `boxes` it is how a reader learns whether a faint document is faint because
+     * of one heavy ancestor or because every box declared its own faintness, which are two very
+     * different documents to be looking at.
+     */
+    size_t opacity_scopes;
+    /**
      * Colours that could not be resolved: `currentColor` whose box had no usable
      * `color` either.
      *

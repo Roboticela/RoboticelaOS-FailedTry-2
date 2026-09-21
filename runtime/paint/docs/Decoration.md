@@ -45,9 +45,11 @@ order**, and for each command:
 | Command | What the pass does |
 |---|---|
 | `push-clip` | the command's clip becomes the boundary in force, on the pass's own stack (11.8). Nothing is drawn and the raster is not touched |
-| `draw-background` | resolve the colour, apply the clip in force, fill the **border box** |
-| `draw-border` | resolve the colour, apply the clip in force, fill the side's **band** (11.5) |
-| `draw-text` | resolve the colour, apply the clip in force, resolve each code point through the **face's cmap** and stroke its outline at the resolved pixel size (11.6) |
+| `push-opacity` | the command's strength becomes the strength in force, on its own stack (11.9). Nothing is drawn and the raster is not touched *here* |
+| `draw-background` | resolve the colour, apply the clip in force and the strength in force, fill the **border box** |
+| `draw-border` | resolve the colour, apply the clip in force and the strength in force, fill the side's **band** (11.5) |
+| `draw-text` | resolve the colour, apply the clip in force and the strength in force, resolve each code point through the **face's cmap** and stroke its outline at the resolved pixel size (11.6) |
+| `pop-opacity` | the enclosing strength is in force again; a pop on an empty stack is a reported error rather than a silent no-op (11.9) |
 | `pop-clip` | the enclosing boundary is in force again; a pop on an empty stack is a reported error rather than a silent no-op (11.8) |
 | `begin-node`, `content`, `end-node` | **skipped** and counted — they draw nothing by definition |
 
@@ -161,6 +163,48 @@ that one declaration — and, since 11.8, also for text runs and border bands, w
 whose effective clip is recomputed from the tree rather than read off the list
 (`paint/docs/Clipping.md`).
 
+## 6.1 The strength: the same stack, one field along (11.9)
+
+Since 11.9 a drawing also has a **strength**, and the whole of it is that same shape read one
+field along:
+
+```text
+push-opacity  → the command's strength becomes the strength in force (the pass's own stack)
+pop-opacity   → the one outside it is in force again (a pop with nothing to pop is an error)
+drawing       → the strength in force: the scope's if one is open, else the command's own
+                 → robo_gfx_raster_set_opacity(raster, robo_paint_opacity_to_byte(&that))
+```
+
+The value applied is the **stack's** when a scope is open and the **command's own** when none is,
+and the second half is what makes the arrangement forgiving rather than fragile: a list that
+carries no opacity commands at all still draws every fading command at the strength on its own
+record, so a consumer can ignore the pair and be *right*. What it cannot ignore is the nesting —
+which is what the pair is in the stream for.
+
+Three properties are worth stating because each is a way this could have been wrong:
+
+- **A document that declares nothing never touches the raster's opacity.** An `opacity: 1` box and
+  a box with no declaration both leave the strength at `255`, so `robo_gfx_raster_set_opacity` is
+  never called with anything else and the pass's output for a document without `opacity` is
+  byte-identical to 11.8's.
+- **The colour's alpha is not touched.** The raster multiplies its global opacity into every blend
+  it performs, so a `rgba(255, 0, 0, 0.5)` fill at `opacity: 0.5` composites at a quarter without
+  this pass doing arithmetic on either factor — the combination is the graphics module's, and
+  `paint.opacity.background_pixels` checks the result against
+  `robo_gfx_composite_src_over_opacity`, that same door.
+- **`faded` counts drawings, not declarations.** It is the number of drawings that reached the
+  raster at a strength other than `255`. A `0.5` box whose fill is already fully transparent is
+  not faded, because no pixel was drawn weaker: the counter is a statement about the raster rather
+  than about the document.
+
+**Per drawing, not per group.** CSS composites an element's whole subtree into a flattened layer
+and applies the opacity to the result, and this pass multiplies each drawing as it is drawn. The
+two agree unless two descendant drawings overlap, and they disagree visibly when they do;
+`paint.opacity.group_deviation` is the document where they part, with both answers computed
+through the graphics module's own blend so the difference is a measured fact. Closing it needs an
+offscreen surface and one blend of that surface onto the target — a compositor, and a later goal's
+(`paint/docs/Opacity.md` §9).
+
 ## 7. What the pass reports
 
 `robo_paint_decoration_stats_t` is a value record owned by nobody, and its fields are the
@@ -174,7 +218,7 @@ whose effective clip is recomputed from the tree rather than read off the list
 | `borders` | `draw-border` commands seen — one per side whose **used width** is above zero |
 | `texts` | `draw-text` commands seen (11.6) |
 | `filled` | fills this pass **executed** — the raster's own no-ops (an empty clip, a rectangle with no surface pixels) are bounded there rather than here |
-| `skipped` | commands the pass does not attempt to draw: the structural kinds (the markers, `content`, and since 11.8 the `push-clip`/`pop-clip` pair), and a drawing whose colour the record layer's own rule refuses |
+| `skipped` | commands the pass does not attempt to draw: the structural kinds (the markers, `content`, and since 11.8 the `push-clip`/`pop-clip` pair, and since 11.9 the `push-opacity`/`pop-opacity` pair), and a drawing whose colour the record layer's own rule refuses |
 | `contextual` | drawings whose colour stayed `currentColor` |
 | `transparent` | drawings whose colour is fully transparent |
 | `empty` | **fills** with a zero-area rectangle — a text run is exempt, because a run's rectangle is its *advance* box and a glyph's ink can overhang it (11.6) |
@@ -183,6 +227,9 @@ whose effective clip is recomputed from the tree rather than read off the list
 | `clipped` | drawings executed under a boundary — the scope's if one is open, the command's own otherwise (11.4, 11.8) |
 | `clip_scopes` | clip scopes the pass walked: one per `push-clip`, asserted equal to the traversal's own count (11.8) |
 | `clip_depth_max` | the deepest the pass's clip stack went — the nesting a document actually reached (11.8) |
+| `opacity_scopes` | opacity scopes the pass walked: one per `push-opacity`, asserted equal to the traversal's own count (11.9) |
+| `opacity_depth_max` | the deepest the pass's opacity stack went. Not `max(clip_depth_max)`: an opacity pair opens at a box's marker and a clip pair at its content boundary, so a document can be one deeper in one than the other (11.9) |
+| `faded` | drawings that reached the raster at a strength other than `255` — a minority of `draws`, and the number that keeps `opacity` from being read as "every drawing is translucent" (11.9) |
 | `glyphs` | glyph draws attempted (11.6) |
 | `glyphs_missing` | code points that resolved to `.notdef`, or whose metrics would not parse (11.6) |
 | `rtl` | runs drawn left to right from their origin (11.6) — the count is how a build with no bidi says so |
@@ -260,10 +307,11 @@ a narrow claim and reading it wider is the mistake it is shaped to prevent:
 |---|---|
 | the **patterns** inside a dashed, dotted, double, groove, ridge, inset or outset band | a later 11.x goal; the style already travels on the command, and `unshaped` counts what is drawn as a band |
 | shaping, bidi, line breaking, fallback fonts and every text effect | Phase 14 and RoboText; 11.6 draws the runs layout measured, in logical order (Text.md §7) |
-| image painting | 11.7 — it needs a decoded surface or an encoded payload, which is the next kind's decision |
+| image painting | a later goal — it needs a decoded surface or an encoded payload, which is the next kind's decision |
 | display-list-wide rasterisation | `raster` stays 0 until a consumer handles *every* kind |
 | real clipping, scroll clipping, compositor clipping | later phases |
-| opacity, transforms, filters, shadows, gradients, `border-radius` | later phases |
+| **group** opacity (an element's subtree composited into a layer and faded as one) | a compositor; 11.9 applies the strength per drawing, and the gap is asserted rather than hidden (`Opacity.md` §9) |
+| blend modes, filters, backdrop filters, masks, shadows, gradients, transforms, `border-radius` | later phases |
 | `z-index` and stacking contexts | a later stacking pass reorders the list; this pass reads it as it stands |
 | paint invalidation (11.11) and hit testing (11.10) | this module keeps no cache and has no dirty rectangles |
 | framebuffer presentation, compositor, GPU | RoboRender and above |

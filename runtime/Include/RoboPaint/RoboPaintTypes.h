@@ -62,6 +62,24 @@ extern "C" {
  * structural pair that is *conditional* rather than unconditional, and the reason is stated at
  * `PUSH_CLIP`: it is emitted when the box's own `overflow` changes the boundary, which is a
  * fact about the box rather than about the sequence.
+ *
+ * **The enumerators are append-only, and since 11.9 they are no longer in paint order.** Up to
+ * and including `END_BOX` the list above *is* the order a linear consumer meets the kinds in,
+ * and that was worth having: a reader could read the vocabulary and know the sequence. The two
+ * opacity kinds break it in one direction, because an opacity scope opens **before** the box's
+ * decorations where a clip scope opens after them -- so the true order is
+ *
+ *   BEGIN_BOX  (PUSH_OPACITY)  BACKGROUND  BORDER_*  CONTENT
+ *              (PUSH_CLIP)  TEXT  children  (POP_CLIP)  (POP_OPACITY)  END_BOX
+ *
+ * with both scopes conditional and the clip inside the opacity. Reordering the enumerators to
+ * match was available and rejected, and the reason is the one `RoboCSSOverflow.h` gives for
+ * `scroll` joining a vocabulary as a new row: **a stored enumerator is a contract**. A list holds
+ * operations, a record holds a kind, and inserting two kinds in the middle of this list would
+ * silently change what 8, 9, 10 and 11 mean for every record that already carries one. So the
+ * pair is appended, the rows below follow the enumerators rather than the sequence, and the
+ * order that actually matters -- the one the traversal emits and the builder enforces -- is
+ * stated here and asserted by the suites rather than left to be inferred from a numbering.
  */
 typedef enum robo_paint_op_kind {
     /** Nothing: a cleared record. Never appended to a list. */
@@ -179,11 +197,46 @@ typedef enum robo_paint_op_kind {
      */
     ROBO_PAINT_OP_POP_CLIP = 10,
     /** Leave a box: the marker that closes the operations of one placed box. */
-    ROBO_PAINT_OP_END_BOX = 11
+    ROBO_PAINT_OP_END_BOX = 11,
+    /**
+     * Enter the **opacity scope** a box's own `opacity` puts in force for everything it draws
+     * (11.9): its background, its border, its text and its descendants.
+     *
+     * The record that makes an element's *strength* a scope rather than a field. `opacity` is
+     * not a colour and not a geometry: it is the factor a drawing is composited with, and it
+     * applies to an element's **entire** rendering -- so unlike `PUSH_CLIP`, which stands after
+     * the box's own records because CSS clips a box's *contents*, this one stands **before**
+     * them, immediately after the box's `BEGIN_BOX`.
+     *
+     * It carries the **effective** opacity -- the product of everything already in force with
+     * this box's own declaration -- which is the same choice every other record makes: a
+     * consumer reads the value rather than re-multiplying a path. Its `boxes` are the box's own
+     * three rectangles, so the element whose `opacity` produced the scope is readable beside
+     * the answer.
+     *
+     * Emitted **only when the multiplication changes what is in force**, which is the same rule
+     * `PUSH_CLIP` follows and has a case worth naming: a box at `opacity: 0.5` inside a scope
+     * already reduced to `0` pushes nothing, because `0 * 0.5` is still `0` and a scope that
+     * establishes nothing is a command a consumer could only skip. So a document of fully
+     * opaque boxes carries none of these at all.
+     */
+    ROBO_PAINT_OP_PUSH_OPACITY = 12,
+    /**
+     * Leave the opacity scope the matching `PUSH_OPACITY` opened (11.9).
+     *
+     * It appears after the box's last child -- and after any clip scope that box opened -- and
+     * before its `END_BOX`, which is what makes the scope's extent recoverable from the flat
+     * sequence: everything between a push and its pop is drawn at that strength, and a consumer
+     * that walks the list with a stack restores the enclosing one by popping.
+     *
+     * It carries **the same record its push carried**, so a pair is self-identifying and a
+     * builder can check the pairing without a second table.
+     */
+    ROBO_PAINT_OP_POP_OPACITY = 13
 } robo_paint_op_kind_t;
 
 /** Number of defined operation kinds. */
-#define ROBO_PAINT_OP_KIND_COUNT 12u
+#define ROBO_PAINT_OP_KIND_COUNT 14u
 
 /** Non-zero if @p kind is a defined operation kind. */
 int robo_paint_op_kind_is_known(robo_paint_op_kind_t kind);
@@ -241,6 +294,18 @@ int robo_paint_op_kind_is_marker(robo_paint_op_kind_t kind);
  */
 int robo_paint_op_kind_is_clip(robo_paint_op_kind_t kind);
 
+/**
+ * Non-zero when @p kind is one of the two **opacity scope** records (11.9): `PUSH_OPACITY` or
+ * `POP_OPACITY`.
+ *
+ * `is_clip`'s sibling, and its own door for the same reason: the pair is a *scope*, so every
+ * consumer that maintains a stack of them has to recognise both halves, and a second
+ * comparison written at each site is a second place for one half to be forgotten. Structural --
+ * they draw nothing -- and therefore already on the "carries no colour" side of the validity
+ * rule, exactly as the clip kinds are.
+ */
+int robo_paint_op_kind_is_opacity(robo_paint_op_kind_t kind);
+
 /*
  * Diagnostic domains. The same discipline the modules below this one use: a call
  * returns a plain robo_result_t and an optional caller-owned record refines the failure
@@ -274,11 +339,21 @@ typedef enum robo_paint_diagnostic_domain {
      * not be built is a failure of a *different stage* than a paint list that could not
      * grow -- and a reader sent to the wrong stage is a reader sent to the wrong phase.
      */
-    ROBO_PAINT_DOMAIN_DISPLAY_LIST = 9
+    ROBO_PAINT_DOMAIN_DISPLAY_LIST = 9,
+    /**
+     * The opacity in force: the accumulation, the scopes, and the conversion to a rasteriser's
+     * own unit (11.9).
+     *
+     * Its own domain rather than `CLIP` or `CONTEXT`, for the reason `DISPLAY_LIST` has one: a
+     * reader sent to the wrong stage is a reader sent to the wrong phase, and "a scope was
+     * pushed that narrows nothing" and "a boundary could not be intersected" are failures of
+     * different arithmetic in different modules.
+     */
+    ROBO_PAINT_DOMAIN_OPACITY = 10
 } robo_paint_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_PAINT_DOMAIN_COUNT 10u
+#define ROBO_PAINT_DOMAIN_COUNT 11u
 
 /** Non-zero if @p domain is a defined domain. */
 int robo_paint_domain_is_known(robo_paint_diagnostic_domain_t domain);

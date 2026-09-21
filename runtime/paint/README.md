@@ -1,8 +1,8 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.8, clipping**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.9, opacity**).
 
-**Version:** 0.7.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.8.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a display command's
@@ -12,24 +12,25 @@ how narrow: a box's **background** (11.4), each of its **border bands** (11.5) a
 **glyphs** (11.6), while `raster` stays **0**, because the structural commands are not
 drawings and a pass that consumed a whole list does not exist.
 `robo_paint_drawing_is_implemented()` agrees with the constant, and
-`background_painting`/`border_painting`/`text_painting`/`clipping` say *which* parts of the
-pipeline exist — a caller deciding whether to look for a surface reads the function; one
+`background_painting`/`border_painting`/`text_painting`/`clipping`/`opacity` say *which* parts of
+the pipeline exist — a caller deciding whether to look for a surface reads the function; one
 deciding whether to *make* one reads the fields.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
 RoboPaint turns those answers into a **sequence of work** a rasteriser executes, 11.3 turns
 that sequence into the **artifact** a rasteriser consumes, 11.4–11.6 put the first colours —
-and the first **characters** — on a surface, and 11.8 makes the **boundary** those drawings
-are bounded by an explicit, nested scope in that artifact.
+and the first **characters** — on a surface, 11.8 makes the **boundary** those drawings are
+bounded by an explicit, nested scope in that artifact, and 11.9 gives every drawing a
+**strength** that accumulates down the tree and is applied in the same pass.
 
 ```text
-HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → push-clip / draw-background / draw-border / draw-text / pop-clip → RoboGraphics raster → surface
+HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → push-clip / push-opacity / draw-background / draw-border / draw-text / pop-opacity / pop-clip → RoboGraphics raster → surface
 ```
 
-This build stops after a box's **decorations, its text, and the scopes that bound them**:
-images, opacity and a rasteriser of the whole list are each a later goal, and each is named in
-§Boundaries where it would otherwise be assumed.
+This build stops after a box's **decorations, its text, the scopes that bound them and the
+strength they are drawn at**: images and a rasteriser of the whole list are each a later goal, and
+each is named in §Boundaries where it would otherwise be assumed.
 
 ## The one structural decision
 
@@ -253,6 +254,45 @@ The boundary is applied in **one place** for every drawing kind — the pass's s
 raster per drawing — so no painter carries a second copy of the rule, and the builder refuses any
 list whose scopes do not pair up, narrow, or agree with the commands inside them.
 
+## The thirteenth structural decision: a drawing has a *strength*, and the box owns it
+
+A colour's alpha and an element's `opacity` are two facts, and every release before 11.9 had only
+the first. `rgba(255, 0, 0, 0.5)` makes a *colour* half transparent; `opacity: 0.5` makes a **box**
+half transparent — its background, its border, its text and every descendant it contains all
+composite at half strength, and the colours they were declared with are untouched. 11.9 adds the
+second factor: the traversal multiplies each box's declared value into the strength in force and
+carries it on every record, and the pass applies it through `robo_gfx_raster_set_opacity` — the
+graphics module's *global* multiplier, which is multiplied into every blend it performs.
+
+Three consequences, each a decision:
+
+- **The scope opens at the box's marker, not at its content boundary** — the one place 11.9 and
+  11.8 deliberately differ, and not a style choice. CSS paints an element's own background and
+  borders *at the element's own opacity*, so the scope has to be open before the first decoration;
+  the same CSS paints that box's own background under its **parent's** clip, so the clip cannot be.
+  The two pairs therefore nest differently around one box, and one rule holds both:
+  **every record carries the state in force at its own position.**
+- **A scope appears only when the declaration changed the strength**, exactly as a clip scope
+  appears only when the boundary changed. `stats.opacity_declared - stats.opacity_scopes` is the
+  count of declarations that established nothing.
+- **The strength is on the record *and* in the scope.** A consumer that ignores the two new command
+  kinds still draws every fading box at the strength on its own command; the scope is how a
+  consumer that walks with state gets the nesting right. It is not the only place the strength
+  lives.
+
+Two things are worth stating because they are easy to get backwards. **A cleared record is fully
+opaque**, not transparent: zeroing a record that meant "invisible" would make every element of
+every document that never mentions `opacity` disappear, silently, with correct geometry and a
+blank page. And **a text run never reads its own declaration**: the run's box is the element that
+owns it, and that element has already opened a scope around it — so the strength is *passed in*,
+and a run that read its own style would apply the same declaration twice and square it.
+
+What this build does **not** do the way CSS says is composite the subtree as a group: the strength
+is applied **per drawing**, so two overlapping descendant fills differ from a browser's flattened
+result. That gap is asserted rather than hidden (`paint.opacity.group_deviation` computes both
+answers through the graphics module's own blend), and closing it needs an offscreen layer, which
+is a compositor.
+
 ## Geometry is borrowed, not defined
 
 There are no new coordinate types. `RoboGraphicsGeometry.h` defines the canonical pixel
@@ -267,21 +307,22 @@ flip in.
 | Header | Surface |
 |---|---|
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
-| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (12, `NONE` included), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
+| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (14, `NONE` included), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
 | `RoboPaintDiagnostics.h` | `robo_paint_diag_t` and the `ROBO_PAINT_DIAG` macro |
 | `RoboPaintGeometry.h` | `robo_paint_boxes_t`, `robo_paint_clip_t`, `robo_paint_boxes_of`, `robo_paint_clip_intersect` |
 | `RoboPaintClip.h` | `robo_paint_clip_stack_t` — the LIFO of clip records a flat sequence is read against: push, pop, current, depth, reset (11.8) |
+| `RoboPaintOpacity.h` | `robo_paint_opacity_t` — the strength a drawing is drawn at, its arithmetic and its defaults — and `robo_paint_opacity_stack_t`, the same LIFO one field along (11.9) |
 | `RoboPaintOperation.h` | `robo_paint_operation_t` and its accessors, validity, side band and one-line writer |
 | `RoboPaintList.h` | `robo_paint_list_t` — create/clear/append/at/operations/equal |
 | `RoboPaintContext.h` | `robo_paint_context_t`, `robo_paint_stats_t`, `robo_paint_pass_outcome_t`, `robo_paint_context_run` |
 | `RoboPaintDump.h` | `robo_paint_list_write` — the developer's text view |
-| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 9-kind vocabulary, validity and writer (11.3, 11.6, 11.8) |
+| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 11-kind vocabulary, validity and writer (11.3, 11.6, 11.8, 11.9) |
 | `RoboPaintDisplayList.h` | `robo_paint_display_list_t`, `robo_paint_display_list_stats_t` — the render-ready artifact (11.3) |
 | `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` — the conversion and structural check (11.3) |
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` — the developer's view of the display list (11.3) |
 | `RoboPaintColor.h` | `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` — the one-way colour bridge to RoboGraphics (11.4) |
 | `RoboPaintText.h` | `robo_paint_text_run_t`, `robo_paint_text_span_t`, `robo_paint_text_pool_t` — the code-point payload and the one container that owns it (11.6) |
-| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands and strokes a run's glyphs into a surface (11.4–11.6) |
+| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands, strokes a run's glyphs and applies the strength they are drawn at, into a surface (11.4–11.6, 11.9) |
 
 ## Lifecycle
 
@@ -309,7 +350,8 @@ because nothing in an operation points anywhere.
 | `paint/docs/Border.md` | The four bands, the `border-style` vocabulary and what travels where, corner ownership, and the seven pattern styles drawn as bands (11.5) |
 | `paint/docs/Text.md` | The code-point pool and its span, the text record and its baseline, where a run sits in the sequence, glyph resolution and who prepares the face, the counters, and what is deferred to 11.7 and to Phase 14 (11.6) |
 | `paint/docs/Clipping.md` | The boundary as a scope: the clip stack, the canonical empty interval, where a scope is emitted and why the box's own decoration is outside it, the builder's eleven refusals, the pass's one application point, and what is deferred (11.8) |
-| `paint/docs/Tests.md` | Suite map (nine suites, 134 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.8 found |
+| `paint/docs/Opacity.md` | The strength: the record and its two invalid directions, where a scope is emitted and why that is *not* where the clip's is, the builder's eight refusals, the pass's one application point, the counters, and the group-compositing gap stated with the case that measures it (11.9) |
+| `paint/docs/Tests.md` | Suite map (ten suites, 162 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.9 found |
 
 ## Building and testing
 
@@ -319,6 +361,10 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ./Out/RoboTest.host.exe --filter paint.
 ```
 
+**162** of the cases the filter reports are this module's (**ten** suites); the filter is a
+substring match, so the six `demo.paint.*` cases of the visual demo come with them
+(`paint/docs/Tests.md` §1).
+
 ## Boundaries
 
 RoboPaint must not depend on RoboWindow, RoboDisplay or RoboRender. It reads RoboLayout
@@ -327,19 +373,25 @@ is handed a surface for**, plus — since 11.6 — the glyph draw, which it asks
 and outline**: RoboGraphics supplies the bridge to the font and never a shaper of its own. A
 surface and a face are always the *caller's* arguments and never a query.
 
-- **A box's background and its four border bands are painted; nothing else is.** `DRAWING` is 1,
-  `background_painting` is 1 and `border_painting` is 1. Text, images, rounded corners,
-  gradients, transforms, opacity beyond the colour's own alpha and antialiasing are all absent,
-  and every one of them is counted by the pass rather than silently dropped. The seven **pattern
-  border styles** are drawn as their band, in the side's colour, and counted (`unshaped`) —
-  `border_painting` claims a border's place and colour, not every border's look.
+- **A box's background, its four border bands and a run's glyphs are painted; nothing else is.**
+  `DRAWING` is 1, `background_painting` is 1, `border_painting` is 1 and `text_painting` is 1.
+  Images, rounded corners, gradients, transforms and antialiasing are all absent, and every one of
+  them is counted by the pass rather than silently dropped. The seven **pattern border styles** are
+  drawn as their band, in the side's colour, and counted (`unshaped`) — `border_painting` claims a
+  border's place and colour, not every border's look.
 - **No rasteriser of the whole list.** The display list exists as a render-ready artifact
   (`display_lists` is 1) and one command kind of it is consumed; `raster` is 0.
 - No framebuffer presentation, no compositor, no GPU.
-- No **image** operations. Images are the fourth drawing kind and the second non-numeric
-  payload, and they are 11.9's question — a pool of encoded bytes, or a reference to a decoded
+- No **image** operations. Images are the next drawing kind and the second non-numeric payload,
+  and they are a later goal's question — a pool of encoded bytes, or a reference to a decoded
   surface.
-- No **opacity**, no transforms, no `border-radius`, no gradients, no antialiasing.
+- **A strength per element, applied per drawing — not a group.** An element's `opacity` is
+  accumulated along the path that reaches it and applied to every drawing that path produces
+  (11.9). What is absent is CSS's *group* semantics: the subtree is not composited into an
+  offscreen layer and faded as one, so two overlapping descendant fills differ from a browser's
+  result. The gap is asserted (`paint.opacity.group_deviation`) rather than hidden, and closing it
+  needs a compositor. Also absent: transforms, `border-radius`, gradients, antialiasing, blend
+  modes, filters and masks.
 - **Rectangular clipping of a box's contents, and nothing else.** A box whose used `overflow`
   *changes* the boundary in force opens a scope: `push-clip`, its contents, `pop-clip`
   (11.8). What is not here is rounding, `clip-path`, masks and filters; clip-aware hit testing

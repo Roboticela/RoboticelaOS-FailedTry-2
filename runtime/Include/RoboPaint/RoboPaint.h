@@ -66,6 +66,7 @@
 #include "RoboPaint/RoboPaintDump.h"
 #include "RoboPaint/RoboPaintGeometry.h"
 #include "RoboPaint/RoboPaintList.h"
+#include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintOperation.h"
 #include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
@@ -215,6 +216,21 @@ typedef struct robo_paint_capabilities {
      * to save. `clip_state` above is 11.1's record; this is what 11.8 added above it.
      */
     int clipping;
+    /**
+     * **Opacity** (11.9), and **1**: an element's `opacity` is accumulated along the path that
+     * reaches it, carried by explicit **scopes** -- a `push-opacity` command standing after a
+     * box's `begin-node` and a `pop-opacity` before its `end-node` -- and applied to every
+     * drawing inside them, on top of the colour's own alpha.
+     *
+     * The fifth field, the second that is not about a *drawing*, and the first that is about
+     * something a drawing is made *of* rather than where it is put. It does **not** claim group
+     * opacity: CSS composites an element's whole subtree and applies the opacity to the flattened
+     * result, and this build multiplies per drawing (`RoboPaintOpacity.h` argues the deviation in
+     * full), which is exact for a subtree whose contents do not overlap. It does not claim
+     * `mix-blend-mode`, filters, `backdrop-filter`, masks, transforms or a compositor layer --
+     * every one of which needs the offscreen buffer the group form would need as well.
+     */
+    int opacity;
 } robo_paint_capabilities_t;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

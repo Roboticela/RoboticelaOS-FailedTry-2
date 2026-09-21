@@ -187,6 +187,8 @@ const char *robo_css_property_computation_name(
         return "border-style";
     case ROBO_CSS_PROPERTY_COMPUTATION_OVERFLOW:
         return "overflow";
+    case ROBO_CSS_PROPERTY_COMPUTATION_OPACITY:
+        return "opacity";
     default:
         return "unknown";
     }
@@ -721,6 +723,34 @@ static const registry_standard_entry_t registry_standard_entries[] = {
       ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
     { "margin-top",    ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
       ROBO_CSS_PROPERTY_COMPUTATION_EDGE_OFFSET, "0",         0 },
+    /*
+     * 11.9 adds `opacity`, the first property here registered by a phase of the *paint*
+     * stack -- and therefore the first whose row a phase added without that phase having any
+     * effect on geometry or on a colour.
+     *
+     * Three facts about the row are worth reading here rather than being discovered.
+     *
+     * It is **non-inherited**, which is CSS's classification and is *not* the same fact as
+     * "a child is drawn at its parent's strength". Those look alike and are opposites: an
+     * inherited `opacity` would make a child at `opacity: 1` inside a parent at `0.5` fully
+     * opaque again, where CSS renders it at `0.5` because the parent's group opacity applies
+     * to everything the parent contains. Inheritance copies a *value down*; opacity
+     * *multiplies along a path*, which is an accumulation rather than an inheritance, and it
+     * belongs to the layer that walks the path (RoboPaintOpacity.h) rather than to the
+     * cascade. Registering it as inherited would be the mistake that produced the wrong
+     * picture.
+     *
+     * Its initial value is `1`, written as text, and it is the only row here whose initial
+     * value is not the zero of its own vocabulary -- see the shape's note above for what a
+     * build that let a zeroed record stand in for it would render.
+     *
+     * And it is **not** a shorthand, unlike the `overflow` family below it. `opacity` is a
+     * single longhand in CSS with nothing to expand into, so there is no second name for a
+     * consumer to read and no partial form this build declines -- which is why the row is one
+     * line rather than the three the overflow family needed to work around expansion.
+     */
+    { "opacity",       ROBO_CSS_PROPERTY_INHERITANCE_NON_INHERITED,
+      ROBO_CSS_PROPERTY_COMPUTATION_OPACITY,    "1",         0 },
     /*
      * 10.13 adds the overflow family, and it is the first family here that is
      * *registered by a layout phase*: `overflow` changes geometry — an axis with a

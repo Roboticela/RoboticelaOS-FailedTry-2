@@ -28,6 +28,12 @@ void robo_paint_operation_init(robo_paint_operation_t *operation)
     robo_paint_boxes_init(&operation->boxes);
     operation->origin = robo_gfx_point(0, 0);
     robo_paint_clip_init(&operation->clip);
+    /* And nothing in force, which is *fully opaque* rather than zero -- the one field here
+     * whose cleared state a `memset` does not produce, and the reason it is written by a
+     * door. A zeroed opacity record is a valid, meaningful, fully transparent one, so a
+     * record nothing set would be a drawing at zero strength rather than a drawing at full
+     * strength (RoboPaintOpacity.h). */
+    robo_paint_opacity_init(&operation->opacity);
     operation->color = robo_css_color_none();
     /* A cleared record carries no border style, which is what a non-border kind requires
      * of every record -- so "nobody set it" and "this is not a border" are one state. */
@@ -76,6 +82,27 @@ int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
      */
     if (robo_paint_op_kind_is_clip(operation->kind) &&
         !robo_paint_clip_is_active(&operation->clip)) {
+        return 0;
+    }
+    /*
+     * The **opacity scope** rule (11.9), the clip rule's sibling one field along, and it is the
+     * same shape for the same reason: a `PUSH_OPACITY`/`POP_OPACITY` record states that a
+     * strength is in force, so a scope that is fully **opaque** states the opposite -- a
+     * consumer that honoured it would push and pop a record that changes nothing about what is
+     * inside it, which is a record a consumer could only skip.
+     *
+     * The range is checked for **every** kind rather than only for the two scopes, and that is
+     * the one place this rule is wider than the clip's: the clip is a well-formed value on every
+     * record whatever it bounds, while an opacity outside `[0, 1]` is not a value at all -- so a
+     * drawing carrying `2` would be a drawing whose strength a rasteriser cannot apply. A
+     * structural record is held to the same rule, because "what strength was in force here" is
+     * a question every record answers.
+     */
+    if (!robo_paint_opacity_is_valid(&operation->opacity)) {
+        return 0;
+    }
+    if (robo_paint_op_kind_is_opacity(operation->kind) &&
+        robo_paint_opacity_is_opaque(&operation->opacity)) {
         return 0;
     }
     /*
@@ -148,6 +175,7 @@ int robo_paint_operation_equal(const robo_paint_operation_t *a,
            robo_paint_boxes_equal(&a->boxes, &b->boxes) &&
            robo_gfx_point_equal(a->origin, b->origin) &&
            robo_paint_clip_equal(&a->clip, &b->clip) &&
+           robo_paint_opacity_equal(&a->opacity, &b->opacity) &&
            robo_css_color_equals(a->color, b->color) && a->style == b->style &&
            robo_paint_text_run_equal(&a->text, &b->text);
 }
@@ -200,6 +228,21 @@ void robo_paint_operation_clip(const robo_paint_operation_t *operation,
         return;
     }
     *out = operation->clip;
+}
+
+void robo_paint_operation_opacity(const robo_paint_operation_t *operation,
+                                 robo_paint_opacity_t *out)
+{
+    if (!out) {
+        return;
+    }
+    if (!operation) {
+        /* Nothing in force, which is full strength -- the same answer an empty scope stack
+         * gives, so the two states a caller can be in read alike. */
+        robo_paint_opacity_init(out);
+        return;
+    }
+    *out = operation->opacity;
 }
 
 robo_css_color_t robo_paint_operation_color(const robo_paint_operation_t *operation)
@@ -395,6 +438,18 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
         robo_paint_writer_i64(&text, (int64_t)operation->clip.vertical.end);
         robo_paint_writer_char(&text, ']');
     }
+
+    /*
+     * The **opacity in force** (11.9), printed for every kind exactly as the clip is, and the
+     * reason is the same one: what is in force is a question every record answers, so a field
+     * that appeared only on a scope would make a drawing's strength unreadable from the drawing
+     * a dump is being read for. Two decimals, because a record's value is in `[0, 1]` and two
+     * are enough to tell every value a document is likely to declare from its neighbours --
+     * `opacity=0.50` beside `opacity=1.00`. The writer is this module's own, so the spelling is
+     * deterministic and locale-independent rather than `printf`'s.
+     */
+    robo_paint_writer_string(&text, " opacity=");
+    robo_paint_writer_number(&text, robo_paint_opacity_value(&operation->opacity), 2u);
 
     /* The rectangle this kind acts on: a marker and a background act on the border box,
      * a border acts on its band. Which one is printed is the kind's business, so a reader

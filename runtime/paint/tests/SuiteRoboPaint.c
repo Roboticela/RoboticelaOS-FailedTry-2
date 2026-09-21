@@ -141,10 +141,10 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.7.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.8.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 7);
+    ROBO_CHECK_EQ_INT((int)minor, 8);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement -- and since 11.4 (backgrounds), 11.5
@@ -178,13 +178,14 @@ static void test_paint_kind_vocabulary(void)
 {
     static const char *const expected[ROBO_PAINT_OP_KIND_COUNT] = {
         "none", "begin-box", "background", "border-top", "border-right", "border-bottom",
-        "border-left", "content", "push-clip", "text", "pop-clip", "end-box"
+        "border-left", "content", "push-clip", "text", "pop-clip", "end-box",
+        "push-opacity", "pop-opacity"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 12);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 14);
     /* The zero of the vocabulary is `NONE`, so a cleared record is not an operation --
      * the same decision RoboLayout's border width kinds make one module down. */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_NONE, 0);
@@ -201,6 +202,31 @@ static void test_paint_kind_vocabulary(void)
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_TEXT, 9);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_POP_CLIP, 10);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_END_BOX, 11);
+    /*
+     * 11.9's pair is **appended** rather than inserted, and this is the assertion that says so:
+     * every enumerator up to and including `END_BOX` kept the value it had, because a stored
+     * enumerator is a contract (RoboPaintTypes.h argues it). The cost is that the numbering is
+     * no longer the order a consumer meets the kinds in -- an opacity scope opens *before* a
+     * box's decorations -- and the benefit is that no record already carrying a kind silently
+     * means something else.
+     */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_PUSH_OPACITY, 12);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_POP_OPACITY, 13);
+    /* Both are **structural**: a scope opens and closes and draws nothing. That is what keeps
+     * the vocabulary's own partition -- `draws` plus `is_structural` above `NONE` -- true, and
+     * it is why the validity rule needs no third branch for them. */
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_draws(ROBO_PAINT_OP_PUSH_OPACITY), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_structural(ROBO_PAINT_OP_PUSH_OPACITY), 1);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_draws(ROBO_PAINT_OP_POP_OPACITY), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_structural(ROBO_PAINT_OP_POP_OPACITY), 1);
+    /* And the two predicates that name the pairs are disjoint: a kind is a clip scope or an
+     * opacity scope or neither, never both. */
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_opacity(ROBO_PAINT_OP_PUSH_OPACITY), 1);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_opacity(ROBO_PAINT_OP_POP_OPACITY), 1);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_clip(ROBO_PAINT_OP_PUSH_OPACITY), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_opacity(ROBO_PAINT_OP_PUSH_CLIP), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_opacity(ROBO_PAINT_OP_BACKGROUND), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_opacity(ROBO_PAINT_OP_NONE), 0);
 
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
@@ -278,17 +304,20 @@ static void test_paint_domain_vocabulary(void)
 {
     static const char *const expected[ROBO_PAINT_DOMAIN_COUNT] = {
         "none", "module", "context", "operation", "list", "geometry", "traversal", "clip",
-        "dump", "display-list"
+        "dump", "display-list", "opacity"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 10);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 11);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_GEOMETRY, 5);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_DUMP, 8);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_DISPLAY_LIST, 9);
+    /* 11.9's domain, appended beside the display list's for the same reason: the module's own
+     * failures are reported by the module that owns the failing thing. */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_OPACITY, 10);
     for (index = 0u; index < (size_t)ROBO_PAINT_DOMAIN_COUNT; index++) {
         ROBO_CHECK_EQ_INT(robo_paint_domain_is_known((robo_paint_diagnostic_domain_t)index), 1);
         ROBO_CHECK_STR_EQ(robo_paint_domain_name((robo_paint_diagnostic_domain_t)index),

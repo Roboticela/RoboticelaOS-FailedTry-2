@@ -38,6 +38,7 @@
 
 #include "RoboGraphics/RoboGraphicsRaster.h"
 #include "RoboPaint/RoboPaintClip.h"
+#include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
 #include "RoboGraphics/RoboGraphicsText.h"
 
@@ -58,18 +59,23 @@ void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats)
 }
 
 /**
- * Release the pass's two owned resources and return @p status unchanged.
+ * Release the pass's three owned resources and return @p status unchanged.
  *
- * The pass has six ways out -- five failures and the end -- and the raster and the clip stack
- * are created together and must be released together. A helper rather than six pairs of calls,
- * because a cleanup that is written out at every exit is a cleanup that is eventually written
- * out at five of them: the leak a missing pair would leave is in a *failure* path, which is
- * exactly the path a test that only paints good documents never walks.
+ * The pass has many ways out -- every failure plus the end -- and the raster and the two scope
+ * stacks are created together and must be released together. A helper rather than a pair of
+ * calls at every exit, because a cleanup that is written out at every exit is a cleanup that is
+ * eventually written out at all but one of them: the leak a missing pair would leave is in a
+ * *failure* path, which is exactly the path a test that only paints good documents never walks.
+ *
+ * Both stacks are released here, and the second one's arrival in 11.9 is why this signature
+ * grew rather than why a second helper appeared: the three resources have one end.
  */
 static robo_result_t decoration_finish(robo_gfx_raster_t *raster,
                                        robo_paint_clip_stack_t *clips,
+                                       robo_paint_opacity_stack_t *opacities,
                                        robo_result_t status)
 {
+    robo_paint_opacity_stack_destroy(opacities);
     robo_paint_clip_stack_destroy(clips);
     robo_gfx_raster_destroy(raster);
     return status;
@@ -260,6 +266,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
     robo_paint_decoration_stats_t stats;
     robo_paint_text_pool_t *pool;
     robo_paint_clip_stack_t *clips = NULL;
+    robo_paint_opacity_stack_t *opacities = NULL;
     robo_gfx_raster_t *raster = NULL;
     robo_result_t status;
     size_t index;
@@ -324,10 +331,26 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
      */
     status = robo_paint_clip_stack_create(&clips, NULL);
     if (status != ROBO_OK) {
-        return decoration_finish(raster, NULL,
+        return decoration_finish(raster, NULL, NULL,
                                  ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_CLIP,
                                                  ROBO_OUT_OF_MEMORY,
                                                  "could not allocate the pass's clip stack"));
+    }
+    /*
+     * The walk's opacity stack (11.9), for the strength the same reason the clip stack is for the
+     * boundary: a scope is stated **once**, at its push, and every drawing under it is drawn at
+     * the strength in force rather than at a copy of it. Empty at the start, because a document
+     * that declares no opacity stands inside no scope at all -- which is the state in which the
+     * raster's own opacity is untouched for the whole pass, and a document that reads exactly as
+     * it did before this phase.
+     */
+    status = robo_paint_opacity_stack_create(&opacities, NULL);
+    if (status != ROBO_OK) {
+        return decoration_finish(raster, clips, opacities,
+                                 ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_OPACITY,
+                                                 ROBO_OUT_OF_MEMORY,
+                                                 "could not allocate the pass's opacity "
+                                                 "stack"));
     }
 
     count = robo_paint_display_list_count(list);
@@ -338,7 +361,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
 
         if (robo_paint_display_list_at(list, index, &command) != ROBO_OK) {
             /* Unreachable: the index came from the list's own count. */
-            return decoration_finish(raster, clips,
+            return decoration_finish(raster, clips, opacities,
                                      ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY,
                                                      ROBO_ERROR,
                                                      "the display list changed under the "
@@ -367,7 +390,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             stats.skipped++;
             if (command.kind == ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP) {
                 if (robo_paint_clip_stack_push(clips, &command.clip, diag) != ROBO_OK) {
-                    return decoration_finish(raster, clips,
+                    return decoration_finish(raster, clips, opacities,
                                              diag ? diag->code : ROBO_ERROR);
                 }
                 stats.clip_scopes++;
@@ -375,7 +398,38 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
                     stats.clip_depth_max = robo_paint_clip_stack_depth(clips);
                 }
             } else if (robo_paint_clip_stack_pop(clips, diag) != ROBO_OK) {
-                return decoration_finish(raster, clips, diag ? diag->code : ROBO_ERROR);
+                return decoration_finish(raster, clips, opacities, diag ? diag->code : ROBO_ERROR);
+            }
+            continue;
+        }
+
+        /*
+         * The **opacity scope** (11.9) is the same shape one field along: a structural command,
+         * so it draws nothing and is one of `skipped`; a push becomes the strength the pass
+         * stands inside and a pop restores the one outside it; and neither touches the raster,
+         * because the strength a drawing is drawn at is applied **when that drawing is drawn**,
+         * from the stack below. A scope with nothing inside it therefore costs two commands and
+         * no graphics work at all -- and, because the raster's own default is full strength, a
+         * document that declares no opacity never has its opacity touched once.
+         *
+         * A push of an **invalid** record cannot arrive: the display list's own append refuses
+         * one, so this is the list's rule rather than a check to repeat. A **pop with nothing to
+         * pop** is refused, for the clip's reason: a consumer that closed a strength that was
+         * never established would go on drawing at a strength that is not in force.
+         */
+        if (robo_paint_display_command_kind_is_opacity(command.kind)) {
+            stats.skipped++;
+            if (command.kind == ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY) {
+                if (robo_paint_opacity_stack_push(opacities, &command.opacity, diag) != ROBO_OK) {
+                    return decoration_finish(raster, clips, opacities,
+                                             diag ? diag->code : ROBO_ERROR);
+                }
+                stats.opacity_scopes++;
+                if (robo_paint_opacity_stack_depth(opacities) > stats.opacity_depth_max) {
+                    stats.opacity_depth_max = robo_paint_opacity_stack_depth(opacities);
+                }
+            } else if (robo_paint_opacity_stack_pop(opacities, diag) != ROBO_OK) {
+                return decoration_finish(raster, clips, opacities, diag ? diag->code : ROBO_ERROR);
             }
             continue;
         }
@@ -466,7 +520,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             /* Unreachable: an opaque `RGBA` is exactly the colour `to_rgba8` copies. Reported
              * rather than counted, because a fill that could not be prepared is this build
              * failing and no bucket above would be telling the truth about it. */
-            return decoration_finish(raster, clips,
+            return decoration_finish(raster, clips, opacities,
                                      ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY,
                                                      ROBO_ERROR,
                                                      "a drawing command's resolved colour "
@@ -493,10 +547,50 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             status = decoration_apply_clip(raster, &effective, &clipped, diag);
         }
         if (status != ROBO_OK) {
-            return decoration_finish(raster, clips, status);
+            return decoration_finish(raster, clips, opacities, status);
         }
         if (clipped) {
             stats.clipped++;
+        }
+
+        /*
+         * The **strength** this drawing reaches the surface at, read from the same place the
+         * boundary is and for the same reason: inside a scope it is the **scope's** record --
+         * the list states it once, at the push -- and outside any scope it is the command's own,
+         * which is the only statement of opacity a list without opacity commands carries. The
+         * builder refuses a command inside a scope that disagrees with it, so for every list
+         * this build produced the two are equal and the choice is not observable -- which is
+         * what makes reading from the stack safe.
+         *
+         * It is set **per drawing** rather than saved and restored around a scope, and that is
+         * a decision worth stating: the raster's opacity is one number, so leaving it at whatever
+         * the last scope set is impossible to get wrong only if every drawing writes it. A
+         * drawing therefore never inherits a strength from the drawing before it, and a scope
+         * that contains nothing leaves the raster exactly as it found it. Setting it to `255` --
+         * what an unscoped drawing gets -- is the raster's own default, so a document with no
+         * opacity in it performs the same store a document with none would have skipped, and
+         * `faded` counts the stores that were not to `255`.
+         *
+         * The colour's own alpha is **not** touched here. `final_alpha = colour_alpha *
+         * effective_opacity` is the raster's arithmetic (`RoboGraphicsRaster.h`: global opacity
+         * multiplies source alpha before the blend), so a half-transparent fill inside a half
+         * opaque element composites the way both numbers say it should, and neither number is
+         * rewritten into the other.
+         */
+        {
+            robo_paint_opacity_t effective;
+            uint8_t byte;
+
+            if (robo_paint_opacity_stack_is_empty(opacities)) {
+                effective = command.opacity;
+            } else {
+                robo_paint_opacity_stack_current(opacities, &effective);
+            }
+            byte = robo_paint_opacity_to_byte(&effective);
+            robo_gfx_raster_set_opacity(raster, byte);
+            if (byte != 255u) {
+                stats.faded++;
+            }
         }
 
         if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {
@@ -511,7 +605,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             status = decoration_draw_text(raster, face, pool, &command, color, &glyphs,
                                           &missing, diag);
             if (status != ROBO_OK) {
-                return decoration_finish(raster, clips, status);
+                return decoration_finish(raster, clips, opacities, status);
             }
             stats.glyphs += glyphs;
             stats.glyphs_missing += missing;
@@ -527,7 +621,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
          */
         status = robo_gfx_raster_fill_rect(raster, command.rect, color);
         if (status != ROBO_OK) {
-            return decoration_finish(raster, clips,
+            return decoration_finish(raster, clips, opacities,
                                      ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY,
                                                      ROBO_ERROR,
                                                      "a drawing command's rectangle could "
@@ -539,5 +633,5 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
     if (out_stats) {
         *out_stats = stats;
     }
-    return decoration_finish(raster, clips, ROBO_OK);
+    return decoration_finish(raster, clips, opacities, ROBO_OK);
 }

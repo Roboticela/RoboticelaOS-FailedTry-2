@@ -5479,15 +5479,123 @@ completed phase before this one, and 11.8 was implemented on that baseline.
 `paint/README.md`, `paint/docs/{Architecture,Decoration,DisplayList,Operations,Tests}.md`,
 `PROGRESS.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md` and `.cursor/rules/runtime-plan.mdc`.
 
+## Goal 11.9 — Opacity
+
+_Implemented. RoboPaint **0.8.0**, capability `opacity` = **1**; `raster` stays **0**. RoboCSS
+**0.18.0** -- the `opacity` property family is this goal's prerequisite and is registered by it._
+
+11.9 gave a drawing a **strength**. Every release since 11.1 had a colour's alpha and nothing else:
+`rgba(255, 0, 0, 0.5)` makes a *colour* half transparent, and an element's `opacity` makes a **box**
+half transparent -- its background, its border, its text and every descendant it contains composite
+at that strength while the colours they were declared with are untouched. The phase adds the second
+factor, and it is deliberately **not** a compositor: the strength is multiplied per drawing as each
+one is drawn, and the gap from CSS's group semantics is asserted rather than hidden.
+
+| Piece | Where |
+|---|---|
+| The CSS value: the `[0, 1]` range, the clamp, the percentage conversion, the fixed-point text, and the initial value as a **door** | `RoboCSSOpacity.h/.c` |
+| The computed-value kind `OPACITY` (15), its make door, its read door and its equality | `RoboCSSComputedValue.h/.c` |
+| The registry row: `NON_INHERITED`, computation `OPACITY`, initial `"1"`, not a shorthand | `RoboCSSPropertyRegistry.c/.h` |
+| `robo_paint_opacity_t` -- one real, the arithmetic, and the three doors that answer for a value they cannot read | `RoboPaintOpacity.h/.c` |
+| `robo_paint_opacity_stack_t` -- the same LIFO shape as the clip's, one field along | `RoboPaintOpacity.h/.c` |
+| `PUSH_OPACITY`/`POP_OPACITY` operation kinds (12 and 13) and predicates | `RoboPaintTypes.h/.c` |
+| `PUSH_OPACITY`/`POP_OPACITY` display command kinds (9 and 10) | `RoboPaintDisplayCommand.h/.c` |
+| Where the scope is emitted -- **at the box's marker, before its first decoration** -- and `stats.opacity_declared`/`opacity_scopes` | `RoboPaintContext.c/.h` |
+| The builder's opacity stack and its **eight** refusals | `RoboPaintDisplayListBuilder.c` |
+| The pass's stack, the one application point (`robo_gfx_raster_set_opacity`) and `opacity_scopes`/`opacity_depth_max`/`faded` | `RoboPaintDecoration.c/.h` |
+| The strength in both dumps (`opacity=0.50`), written by each type's own `write` door | `RoboPaintOperation.c`, `RoboPaintDisplayCommand.c` |
+| The declaration matrix grew three rows: a number, a percentage and a refusal | `SuiteRoboCssConformance.c` |
+
+The load-bearing decisions are that **the push stands at the box's marker rather than at its
+content boundary** (CSS paints a box's own background and border at the box's own opacity, and its
+overflow clips only the box's *contents* -- so the two pairs nest differently around one box), that
+a scope opens **only when the declaration changed the strength**, that **both halves of a pair carry
+the value the pair establishes**, that the strength is on the **record** as well as in the scope (so
+a consumer that ignores the two command kinds still draws every fading command correctly), and that
+the strength is **passed in** to a text run rather than read from the run's own style.
+
+### What 11.9 found
+
+1. **A run that reads its own declaration applies it twice.** A text node's box is the element that
+ows it, and that element has already opened the scope around it -- so a run reading its own
+`opacity` would square the declaration it stands inside. The fix is that the traversal passes the
+strength to the text emitter as a value, and the case that would catch a regression is a **count of
+faded drawings** (three for nested `0.5`/`0.5` with a run inside, the third at `0.25` rather than
+`0.125`) rather than a pixel: at those strengths the two answers are two pixels apart and a count is
+unambiguous.
+2. **The safe direction is two decisions, and they point opposite ways.** A record *constructed*
+from a value nothing can read must be **opaque** -- a zeroed record that meant "invisible" would
+make every element of every document that never mentions `opacity` disappear, silently, with correct
+geometry and a blank page -- while a record *consumed* at the last gate before a pixel must answer
+**no ink**, because the alternative turns a caller's arithmetic bug into a fully drawn document.
+Both directions are asserted, and the asymmetry is documented where it lives rather than averaged
+into one rule.
+3. **A derived bound is not a bound until something measures it.** The dump's two line bounds are
+header arithmetic, and this goal's `opacity=` field made the **display** line 13 characters wider
+(362 -> 375) while the operation line already had the room. The suite builds the widest line each
+kind can produce rather than trusting the derivation, which is the only reason the growth was seen.
+4. **The sanitizer run found two defects outside this module.** Neither is a paint bug and neither was
+reachable without ASan, which is why both are recorded: the HTML tokenizer suite allocated a
+20000-byte buffer with the markup filling it exactly and passed it to `robo_html_source_string`,
+which scans for a `NUL` -- so the terminator it found lived in ASan's redzone; and the tree-builder
+suite asserted that a **second** `destroy` of the same builder is a no-op, which cannot be a contract
+when the first call frees the struct the magic-word guard lives in. A one-byte allocation and a line
+of prose; both are fixed and the whole suite is clean under ASan + UBSan.
+
+### Suite
+
+`paint/tests/SuiteRoboPaintOpacity.c` -- **28** cases under `paint.opacity.*`: the record and its
+byte conversion, the stack and its growth, the default and `opacity: 1` (neither opens a scope), the
+declaration, the scope's **placement**, nesting and the six-row parent/child table, sibling
+isolation, zero, text, the display commands, a hand-built scope, the **eight** builder refusals and
+the pass's own, three drawing kinds read back from a surface against
+`robo_gfx_composite_src_over_opacity`, a control that a document with no `opacity` is unchanged, the
+group-deviation document (both answers through the graphics module's own blend), determinism,
+mutation isolation, both dumps and the empty/malformed cases. `css/tests/SuiteRoboCssOpacity.c` adds
+**8** under `css.opacity.*`, and the capstone paints nested opacity with three drawing kinds and
+encodes the result as a **PNG** through RoboGraphics' own encoder, so the blend is inspectable rather
+than merely asserted.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `pwsh -File Tools/Build.ps1 -Configuration Debug -Test` | **2537/2537** |
+| `-Configuration Release -Test -Sanitize` (ASan + UBSan) | **2537/2537**, no diagnostics |
+| `--filter paint.` / `css.opacity.` / `css.conformance.` | **168/168** / **8/8** / **14/14** (the filter is a substring match, so the 168 is the ten paint suites' 162 plus the six `demo.paint.*` cases) |
+| `robo check` | PASS -- Chromium independence **CLEAN**; the RoboPaint boundary source scan passes |
+
+### Files
+
+**Added:** `Include/RoboCSS/RoboCSSOpacity.h`, `Source/RoboCSS/RoboCSSOpacity.c`,
+`css/tests/SuiteRoboCssOpacity.c` (8 cases), `css/docs/Opacity.md`, `Include/RoboPaint/RoboPaintOpacity.h`,
+`Source/RoboPaint/RoboPaintOpacity.c`, `paint/tests/SuiteRoboPaintOpacity.c` (28 cases),
+`paint/docs/Opacity.md`.
+**Modified:** `RoboCSSComputedValue.h/.c`, `RoboCSSPropertyRegistry.h/.c`, `RoboCSSVersion.h`,
+`RoboPaint.h`, `RoboPaintVersion.h`, `RoboPaint.c`, `RoboPaintTypes.h/.c`, `RoboPaintOperation.h/.c`,
+`RoboPaintContext.h/.c`, `RoboPaintDecoration.h/.c`, `RoboPaintDisplayCommand.h/.c`,
+`RoboPaintDisplayList.h`, `RoboPaintDisplayListBuilder.c`, `Tests/Main.c`, `Tools/Build.ps1`, the
+three existing CSS suites, the three existing paint suites, `html/tests/SuiteRoboHTMLToken.c` and
+`html/tests/SuiteRoboHTMLTreeBuilder.c` (the two sanitizer findings), `paint/README.md`,
+`css/README.md`, `paint/docs/{Architecture,Border,Clipping,Decoration,DisplayList,Operations,Text,Tests}.md`,
+`css/docs/{Opacity,Tests}.md`, `PROGRESS.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md` and
+`.cursor/rules/runtime-plan.mdc`.
+
 ## Next
 
-- **Phase 11.7 — image painting, still not started.** It is the fourth drawing kind and the second
+- **Phase 11.7 — image painting, still not started.** It is the next drawing kind and the second
   non-numeric payload, and it asks the pool question again: a pool of encoded bytes, or a reference
-  to a decoded surface -- a decision with different ownership consequences either way. It now
-  inherits a clip it gets for free: a `draw-image` inside a scope is bounded by the scope's clip
-  through the same one application point every other drawing uses.
-- **Phase 11.9 onwards** -- opacity and transforms, paint invalidation (11.11), hit testing (11.10),
+  to a decoded surface -- a decision with different ownership consequences either way. It inherits
+  two things for free: a `draw-image` inside a clip scope is bounded by the scope's clip and drawn
+  at the scope's strength, through the same one application point every other drawing uses.
+
+  It is also the one goal that can now **measure** what it lacks: `paint.opacity.group_deviation`
+  already states, in pixels, what per-drawing strength does where a browser's flattened layer does
+  something else -- so an image drawn inside a faded box is a case that already has an oracle.
+- **Phase 11.10 onwards** -- transforms, paint invalidation (11.11), hit testing (11.10), group
+  opacity (which needs an offscreen layer, and whose measured gap is `paint.opacity.group_deviation`),
   and a rasteriser that consumes a whole list (`raster` is still **0**). The deferred tables in
-  `paint/README.md`, `paint/docs/Clipping.md` §12, `paint/docs/Decoration.md` §11, `paint/docs/Text.md`
-  §10 and `paint/docs/Border.md` §6 name every one of them, and `paint/docs/Architecture.md` §15
-  lists the rules the next goal may assume. Do not start until requested.
+  `paint/README.md`, `paint/docs/Opacity.md` §12, `paint/docs/Clipping.md` §12,
+  `paint/docs/Decoration.md` §11, `paint/docs/Text.md` §10 and `paint/docs/Border.md` §6 name every
+  one of them, and `paint/docs/Architecture.md` §15 lists the rules the next goal may assume. Do not
+  start until requested.

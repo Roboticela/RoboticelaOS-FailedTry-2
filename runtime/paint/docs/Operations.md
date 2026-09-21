@@ -21,7 +21,9 @@ typedef enum robo_paint_op_kind {
     ROBO_PAINT_OP_PUSH_CLIP    = 8,   /* from here on the box's boundary is in force (11.8) */
     ROBO_PAINT_OP_TEXT         = 9,   /* draw one text run's glyphs (11.6) */
     ROBO_PAINT_OP_POP_CLIP     = 10,  /* the enclosing boundary is in force again (11.8) */
-    ROBO_PAINT_OP_END_BOX      = 11   /* leave a box: draws nothing */
+    ROBO_PAINT_OP_END_BOX      = 11,  /* leave a box: draws nothing */
+    ROBO_PAINT_OP_PUSH_OPACITY = 12,  /* from here on the box's strength is in force (11.9) */
+    ROBO_PAINT_OP_POP_OPACITY  = 13   /* the enclosing strength is in force again (11.9) */
 } robo_paint_op_kind_t;
 ```
 
@@ -32,15 +34,20 @@ that walked the list and ignored every `kind` would still see each box's operati
 contiguous and in paint order.
 
 The **drawing** vocabulary is deliberately small — one background, four border sides and, since
-11.6, one text run — and has no `IMAGE`, `SAVE`, `RESTORE`, `TRANSFORM` or `OPACITY` enumerator.
-A name with no code behind it is a promise, not a vocabulary; adding one later is one enumerator,
-one name row and one case in the validity rule. Four kinds have been added since 11.1, and each
-arrived with the consumer that needed it: `CONTENT` (11.2), the explicit boundary between a
-box's own records and its descendants'; `TEXT` (11.6), the first drawing that is not a rectangle
-filled with a colour; and the `PUSH_CLIP`/`POP_CLIP` pair (11.8), the two **structural** kinds
-that turn "the boundary in force" from a field repeated on every record into a **scope** -- they
-are not drawings, draw nothing, and exist so that a flat list says where one boundary begins and
-another ends (`paint/docs/Clipping.md`).
+11.6, one text run — and has no `IMAGE`, `SAVE`, `RESTORE`, `TRANSFORM` or bare `OPACITY`
+enumerator. A name with no code behind it is a promise, not a vocabulary; adding one later is one
+enumerator, one name row and one case in the validity rule. Six kinds have been added since 11.1,
+and each arrived with the consumer that needed it: `CONTENT` (11.2), the explicit boundary between
+a box's own records and its descendants'; `TEXT` (11.6), the first drawing that is not a rectangle
+filled with a colour; the `PUSH_CLIP`/`POP_CLIP` pair (11.8), which turn "the boundary in force"
+from a field repeated on every record into a **scope** (`paint/docs/Clipping.md`); and the
+`PUSH_OPACITY`/`POP_OPACITY` pair (11.9), the same shape one field along, whose placement differs
+for a reason CSS states (`paint/docs/Opacity.md`).
+
+**A scope pair is two kinds rather than one kind plus a flag**, and both releases made that choice.
+The flag would be a field a consumer could get wrong where two kinds are two entries in a switch it
+already has to write — and the two scopes sit at *different points* in a box's life, so a single
+`SCOPE` kind would need a second field to say which of the two it was opening.
 
 ### 1.0 Structural records versus drawing records
 
@@ -48,13 +55,13 @@ The vocabulary splits in two, and the split is the rule a builder obeys:
 
 | Half | Kinds | Emitted | Colour |
 |---|---|---|---|
-| **Structural** | `BEGIN_BOX`, `CONTENT`, `PUSH_CLIP`, `POP_CLIP`, `END_BOX` | for **every** placed box, plus one clip pair per box whose boundary **changed** | `none` |
+| **Structural** | `BEGIN_BOX`, `CONTENT`, `PUSH_CLIP`, `POP_CLIP`, `PUSH_OPACITY`, `POP_OPACITY`, `END_BOX` | for **every** placed box, plus one pair per box whose boundary or strength **changed** | `none` |
 | **Drawing** | `BACKGROUND`, the four `BORDER_*`, `TEXT` | **only when it draws** | a rasteriser-usable colour |
 
 The two predicates are `robo_paint_op_kind_is_structural` and `robo_paint_op_kind_draws`, and
 they partition the vocabulary above `NONE`. Structural records are what give the sequence a
-regular skeleton — one triple per box, plus the clip pair of a box that clips its contents —
-while drawing records make the list's length a statement about the document. Structural rather
+regular skeleton — one triple per box, plus the pair of a box that clips its contents or fades
+them — while drawing records make the list's length a statement about the document. Structural rather
 than "marker" is the right split because `CONTENT` is neither a drawing nor a box marker, and
 `robo_paint_op_kind_is_marker` is the narrower predicate that picks out the two kinds that
 *are* box markers (`Clipping.md` §4).
@@ -125,18 +132,27 @@ and for each box emits:
 
 ```text
 BEGIN_BOX        the box's three rectangles in paint coordinates, the accumulated
-                 origin, the clip in force, the box's depth       (structural, always)
+                 origin, the clip in force, the strength in force, the depth  (structural)
+PUSH_OPACITY     iff the box's own declaration CHANGED the strength        (structural, 11.9)
 BACKGROUND       iff the declared background draws
 BORDER_TOP       iff the top side's used width is above zero and its colour draws
 BORDER_RIGHT     iff ...
 BORDER_BOTTOM    iff ...
 BORDER_LEFT      iff ...
 CONTENT          the content box, the origin, the clip and the depth   (structural, always)
-<the box's children, in order, under the boundary this box's own overflow put in force --
- a child that is a text run is one TEXT record rather than a structural triple, because a run
- is not a box>
+PUSH_CLIP        iff this box's own overflow CHANGED the boundary          (structural, 11.8)
+<the box's children, in order -- a child that is a text run is one TEXT record rather than a
+ structural triple, because a run is not a box>
+POP_CLIP         carrying the boundary its push carried                     (structural, 11.8)
+POP_OPACITY      carrying the strength its push carried                    (structural, 11.9)
 END_BOX          the same rectangles, origin, clip and depth as BEGIN_BOX (structural)
 ```
+
+Note where the two scope pairs sit relative to one another, because it is the phase's one
+structural decision and it is CSS's: the **opacity** push stands *before* the box's first
+decoration (a box's own background and border are painted at the box's own opacity) while the
+**clip** push stands *after* the content boundary (a box's own background and border are painted
+under its **parent's** boundary). `paint/docs/Opacity.md` §3 has the argument.
 
 The invariants a consumer may rely on, and where the suite checks them:
 
@@ -151,6 +167,10 @@ The invariants a consumer may rely on, and where the suite checks them:
 | An operation is emitted **only when it draws**: no declaration, no operation; a zero used width, no border side. | `paint.traversal.background`, `.border_sides` |
 | A `BACKGROUND` paints over the **border box** (CSS's initial `background-clip`). | `paint.traversal.background` |
 | A box's children are emitted between its markers, under the boundary **its** overflow put in force. | `paint.traversal.clip_hidden`, `.clip_axis_split` |
+| A box whose strength **changed** emits exactly one `PUSH_OPACITY`/`POP_OPACITY` pair, and both halves carry the value the pair establishes. | `paint.opacity.scope_placement`, `.declared`, `.nested` |
+| A `PUSH_OPACITY` precedes the box's first decoration; a `PUSH_CLIP` follows its content boundary. | `paint.opacity.scope_placement`, `paint.clip.scope_placement` |
+| Every record of a box's own painting carries the box's strength; its markers carry the enclosing one. | `paint.opacity.scope_placement`, `.text` |
+| A sibling never inherits another sibling's strength. | `paint.opacity.sibling_isolation` |
 | A text run is emitted **after** its parent box's `CONTENT`, at one depth past that box, naming itself rather than the box. | `paint.traversal.text_painted`, `paint.text.order_and_depth` |
 | A run wider than its line wraps **whole** rather than fragmenting, so two line fragments are two runs. | `paint.text.wrapped_lines` |
 | Two passes over the same tree produce identical lists. | `paint.traversal.counts_and_determinism` |
@@ -203,6 +223,28 @@ has no bound to report.
 
 ---
 
+## 4.1 The strength in force (11.9)
+
+One number, accumulated by **multiplication** rather than by intersection, and carried on every
+record for the same reason the clip is: a consumer with only the list must not have to re-walk the
+tree to discover it.
+
+- the value a box puts in force is `multiply(in_force, declared)`, where `declared` is what its own
+  computed style says (`1.0` when it says nothing);
+- it applies to the box **itself** and to everything under it — its decorations, its content
+  boundary and its subtree — which is why its push stands before its first decoration;
+- a box whose product **equals** what was already in force emits no pair at all, so an `opacity: 1`
+  box and a document that declares nothing are byte-identical to the 11.8 output;
+- `robo_paint_opacity_value` answers `1.0` for a `NULL`, so "nothing is in force" and "a
+  full-strength scope" read alike: both are states in which nothing inside changes.
+
+A **text run does not read its own declaration.** The run's box is the element that owns it, and
+that element already opened the scope around it — so the strength is *passed in* to the text
+emitter, and a run that read its own style would apply the same declaration twice and square it.
+That is `paint.opacity.text`'s claim and `paint.opacity.end_to_end`'s three-drawing count.
+
+---
+
 ## 5. Validity, and where it is enforced
 
 `robo_paint_operation_is_valid` requires a known kind and never `NONE`; a live node id; three
@@ -241,12 +283,13 @@ across, so clearing the records does not change a character the display list dra
 
 ## 7. What is deliberately not here
 
-- No **image** kind: images are the fourth drawing kind and the second non-numeric payload, and
-  they belong to 11.9 (`Clipping.md` §12). Nor a `text-decoration`/`text-shadow` field on the one
-  text kind that does exist.
-- No **`SAVE`** or **`RESTORE`** operation, and no **`OPACITY`** or **`TRANSFORM`**: the only state
-  that changes in a sequence is the clip, and it is restored by the `POP_CLIP` that closes the
-  scope its `PUSH_CLIP` opened rather than by a general state stack. The vocabulary stays small
-  until a consumer exists for a wider one.
+- No **image** kind: images are the next drawing kind and the second non-numeric payload, and
+  they belong to a later goal (`Clipping.md` §12). Nor a `text-decoration`/`text-shadow` field on
+  the one text kind that does exist.
+- No **`SAVE`** or **`RESTORE`** operation, and no **`TRANSFORM`**: the two states that change in a
+  sequence are the clip and the strength, each restored by the pop that closes the scope its push
+  opened rather than by a general state stack. The vocabulary stays small until a consumer exists
+  for a wider one — and "a `PUSH_OPACITY` is not an `OPACITY`" is the distinction that keeps the
+  pair two **structural** kinds rather than a drawing one.
 - No **z-index** or stacking context: document order, with depths a later stacking pass
   reorders.

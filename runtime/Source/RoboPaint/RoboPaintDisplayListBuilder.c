@@ -31,18 +31,31 @@
 #include "RoboPaint/RoboPaintDisplayListBuilder.h"
 
 #include "RoboPaint/RoboPaintClip.h"
+#include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintOperation.h"
 
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
 
-/** One open box: its node id, whether its content boundary has passed, and whether it has
- *  a clip scope open around its contents. */
+/**
+ * One open box: its node id, whether its content boundary has passed, and which of the two
+ * scopes it has open.
+ *
+ * **Two flags rather than one**, because a box can open both and they are two different
+ * facts: `scope_open` is the clip scope around its *contents* (11.8) and `opacity_open` is
+ * the opacity scope around the box *itself* (11.9). They also live at different points in
+ * the box's life -- the clip pair opens after the content boundary and the opacity pair
+ * opens before the box's first decoration -- so a single flag would make one of the two
+ * checks read the other's state.
+ */
 typedef struct display_open_box {
     robo_layout_node_id_t node;
     unsigned char content_seen;
     unsigned char scope_open;
+    unsigned char opacity_open;
+    /** Whether anything the box draws for **itself** has been emitted yet. */
+    unsigned char painted;
 } display_open_box_t;
 
 struct robo_paint_display_list_builder {
@@ -51,6 +64,8 @@ struct robo_paint_display_list_builder {
     size_t open_capacity;
     /** The clip scopes currently open, innermost last. */
     robo_paint_clip_stack_t *clips;
+    /** The opacity scopes currently open, innermost last. */
+    robo_paint_opacity_stack_t *opacities;
 };
 
 /* ------------------------------------------------------------------ */
@@ -94,6 +109,8 @@ static robo_result_t display_stack_push(robo_paint_display_list_builder_t *build
     builder->open[builder->open_count].node = node;
     builder->open[builder->open_count].content_seen = 0u;
     builder->open[builder->open_count].scope_open = 0u;
+    builder->open[builder->open_count].opacity_open = 0u;
+    builder->open[builder->open_count].painted = 0u;
     builder->open_count++;
     return ROBO_OK;
 }
@@ -120,10 +137,17 @@ robo_result_t robo_paint_display_list_builder_create(robo_paint_display_list_bui
     /* No first block: the stack grows on the first box, and an empty build never allocates
      * one -- which is the honest baseline for a builder that is reused across builds. */
     builder->clips = NULL;
+    builder->opacities = NULL;
     if (robo_paint_clip_stack_create(&builder->clips, NULL) != ROBO_OK) {
         robo_free(builder);
         return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_OUT_OF_MEMORY,
                                "could not allocate the builder's clip scope stack");
+    }
+    if (robo_paint_opacity_stack_create(&builder->opacities, NULL) != ROBO_OK) {
+        robo_paint_clip_stack_destroy(builder->clips);
+        robo_free(builder);
+        return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_OUT_OF_MEMORY,
+                               "could not allocate the builder's opacity scope stack");
     }
     *out_builder = builder;
     return ROBO_OK;
@@ -135,6 +159,7 @@ void robo_paint_display_list_builder_destroy(robo_paint_display_list_builder_t *
         return;
     }
     robo_paint_clip_stack_destroy(builder->clips);
+    robo_paint_opacity_stack_destroy(builder->opacities);
     robo_free(builder->open);
     robo_free(builder);
 }
@@ -145,10 +170,13 @@ void robo_paint_display_list_builder_reset(robo_paint_display_list_builder_t *bu
         return;
     }
     /* The capacity survives: a builder reused per frame reuses its stack -- and so does a
-     * clip scope that was open when a build was refused, which is why the scopes are cleared
-     * here as well as at the start of every build. */
+     * scope that was open when a build was refused, which is why **both** scope stacks are
+     * cleared here as well as at the start of every build. A second stack that were left
+     * holding a scope would make the next build's first drawing disagree with a strength
+     * nothing in that build had established. */
     builder->open_count = 0u;
     robo_paint_clip_stack_reset(builder->clips);
+    robo_paint_opacity_stack_reset(builder->opacities);
 }
 
 /* ------------------------------------------------------------------ */
@@ -177,7 +205,14 @@ static robo_result_t display_command_for(const robo_paint_operation_t *operation
     robo_paint_display_command_init(out);
     out->node = operation->node;
     out->depth = operation->depth;
+    /*
+     * Both states in force carry across for **every** kind, scope kinds included -- a push
+     * command's own strength is the strength it establishes, and the pair's second half carries
+     * the same one so that a consumer can check it against the first. See the scope comments in
+     * this file for what each of the two is checked against.
+     */
     out->clip = operation->clip;
+    out->opacity = operation->opacity;
 
     switch (operation->kind) {
     case ROBO_PAINT_OP_BEGIN_BOX:
@@ -242,6 +277,23 @@ static robo_result_t display_command_for(const robo_paint_operation_t *operation
          */
         out->rect = operation->boxes.padding;
         return ROBO_OK;
+    case ROBO_PAINT_OP_PUSH_OPACITY:
+    case ROBO_PAINT_OP_POP_OPACITY:
+        out->kind = operation->kind == ROBO_PAINT_OP_PUSH_OPACITY
+                            ? ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY
+                            : ROBO_PAINT_DISPLAY_CMD_POP_OPACITY;
+        /*
+         * The rectangle is the box's **border box**, and it is the same box the clip pair names
+         * for the *other* of its two rectangles -- deliberately. A clip command's rectangle is
+         * the padding box because that is the boundary the box's overflow resolves to ("where
+         * did this scope come from?"); an opacity command's is the border box because the
+         * scope belongs to the box *itself*, decorations included, and the border box is the
+         * whole of what it tints. A reader comparing the two commands of one box's two scopes
+         * sees them name its two different rectangles, and each name is the true answer to its
+         * own question.
+         */
+        out->rect = operation->boxes.border;
+        return ROBO_OK;
     case ROBO_PAINT_OP_END_BOX:
         out->kind = ROBO_PAINT_DISPLAY_CMD_END_NODE;
         out->rect = operation->boxes.border;
@@ -262,6 +314,85 @@ static robo_result_t display_refuse(robo_paint_display_list_t *out_list,
 {
     robo_paint_display_list_clear(out_list);
     return ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_DISPLAY_LIST, ROBO_ERROR, message);
+}
+
+/*
+ * The **opacity scope** (11.9), checked before the clip's because the two pairs sit at
+ * different points in a box's life and each check depends on where its own pair sits.
+ *
+ * **Why the pair is here and not after the content boundary.** A clip belongs to a box's
+ * *contents* -- CSS paints the box's own background under its parent's boundary -- so the clip
+ * pair opens when the contents begin. An opacity belongs to the box *itself*: CSS paints the
+ * box's own background and borders at its own `opacity`, so the pair opens before the box's
+ * first decoration. That is why the push requires `!painted && !content_seen` while the clip's
+ * push requires `content_seen`, and why the two checks are near mirror images of each other
+ * rather than one rule with a flag.
+ *
+ * Three things are checked on a push, and each is a way a list can lie about the document it
+ * came from: the scope names the innermost **open** box and sits at that box's depth (so the
+ * box it belongs to is the box it names, not a child that happens to be open); it establishes
+ * a strength **different** from the one in force (a scope that establishes nothing is a command
+ * a consumer could only skip); and it does not *raise* the strength (opacity composes by
+ * multiplication, so a scope an ancestor reduced can only reduce further -- a push that raised
+ * it would be a box whose `opacity` cancelled an ancestor's, which CSS has no way to express).
+ *
+ * The pop is checked against the innermost open scope rather than against a value the pop
+ * carries alone, so the pair is provably paired: a pop with nothing open, a pop that closes a
+ * scope another box opened, and a pop whose strength is not the one its push carried are three
+ * separate refusals rather than one that happens to catch all three.
+ */
+static robo_result_t display_opacity_scopes(robo_paint_display_list_builder_t *builder,
+                                            const robo_paint_operation_t *operation,
+                                            robo_paint_display_list_stats_t *stats,
+                                            const char **refusal)
+{
+    display_open_box_t *top;
+    robo_paint_opacity_t in_force;
+
+    *refusal = NULL;
+    if (builder->open_count == 0u) {
+        *refusal = "an opacity scope belongs to no open box";
+        return ROBO_ERROR;
+    }
+    top = &builder->open[builder->open_count - 1u];
+    if (operation->node != top->node || operation->depth != builder->open_count - 1u) {
+        *refusal = "an opacity scope names a box other than the innermost open one";
+        return ROBO_ERROR;
+    }
+    robo_paint_opacity_stack_current(builder->opacities, &in_force);
+
+    if (operation->kind == ROBO_PAINT_OP_PUSH_OPACITY) {
+        if (top->opacity_open) {
+            *refusal = "a box opens two opacity scopes";
+            return ROBO_ERROR;
+        }
+        if (top->painted || top->content_seen) {
+            *refusal = "an opacity scope opens after the box it belongs to has begun drawing";
+            return ROBO_ERROR;
+        }
+        if (robo_paint_opacity_equal(&operation->opacity, &in_force)) {
+            *refusal = "an opacity scope establishes nothing new";
+            return ROBO_ERROR;
+        }
+        if (robo_paint_opacity_value(&operation->opacity) > robo_paint_opacity_value(&in_force)) {
+            *refusal = "an opacity scope is stronger than the strength it is inside";
+            return ROBO_ERROR;
+        }
+        if (stats != NULL) {
+            stats->opacity_scopes++;
+        }
+        return ROBO_OK;
+    }
+
+    if (!top->opacity_open) {
+        *refusal = "a box closes an opacity scope it did not open";
+        return ROBO_ERROR;
+    }
+    if (!robo_paint_opacity_equal(&operation->opacity, &in_force)) {
+        *refusal = "an opacity scope closes with a strength other than the one it opened";
+        return ROBO_ERROR;
+    }
+    return ROBO_OK;
 }
 
 /**
@@ -357,6 +488,7 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
     robo_paint_display_list_clear(out_list);
     builder->open_count = 0u;
     robo_paint_clip_stack_reset(builder->clips);
+    robo_paint_opacity_stack_reset(builder->opacities);
     memset(&stats, 0, sizeof(stats));
 
     count = robo_paint_list_count(records);
@@ -370,6 +502,48 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
             /* Unreachable: the index came from the list's own count. Reported rather than
              * skipped so a future list that can lose a record says so here. */
             return display_refuse(out_list, diag, "the record list changed under the build");
+        }
+
+        /*
+         * The **opacity scope** (11.9), handled before the clip's -- see `display_opacity_scopes`
+         * for why the two pairs sit at different points in a box's life -- and before the box
+         * chain for the reason a scope is not a box: it opens and closes around one box's own
+         * painting and contents, and the box that declared the opacity is the innermost open box
+         * in both cases.
+         *
+         * The push's strength is pushed onto the builder's opacity stack here, at the push, and
+         * the pop's is compared against it at the pop -- so `in_force` for a drawing the box
+         * makes is the box's own effective opacity rather than an ancestor's, which is the same
+         * arrangement the clip stack has one field along.
+         */
+        if (robo_paint_op_kind_is_opacity(operation.kind)) {
+            const char *refusal = NULL;
+            robo_result_t scoped = display_opacity_scopes(builder, &operation, &stats, &refusal);
+
+            if (scoped != ROBO_OK) {
+                return display_refuse(out_list, diag, refusal);
+            }
+            if (operation.kind == ROBO_PAINT_OP_PUSH_OPACITY) {
+                if (robo_paint_opacity_stack_push(builder->opacities, &operation.opacity, diag) !=
+                    ROBO_OK) {
+                    robo_paint_display_list_clear(out_list);
+                    return diag ? diag->code : ROBO_OUT_OF_MEMORY;
+                }
+                builder->open[builder->open_count - 1u].opacity_open = 1u;
+            } else {
+                (void)robo_paint_opacity_stack_pop(builder->opacities, NULL);
+                builder->open[builder->open_count - 1u].opacity_open = 0u;
+            }
+            if (display_command_for(&operation, text_source, text_target, &command, diag) !=
+                ROBO_OK) {
+                return display_refuse(out_list, diag,
+                                      "an opacity scope resolves to no display command");
+            }
+            if (robo_paint_display_list_append(out_list, &command, diag) != ROBO_OK) {
+                robo_paint_display_list_clear(out_list);
+                return diag ? diag->code : ROBO_ERROR;
+            }
+            continue;
         }
 
         /*
@@ -476,6 +650,23 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
                                       "boundary");
             }
         }
+        /*
+         * And the same rule for the strength in force (11.9), with the same asymmetry and for
+         * the same reason: a list the traversal produced always has an opacity scope open
+         * whenever a strength other than full is in force, so the check catches every
+         * disagreement that can occur -- while a hand-built list with no opacity records at all
+         * keeps working, its own commands' strengths being the only statement of opacity it has.
+         */
+        if (!robo_paint_opacity_stack_is_empty(builder->opacities)) {
+            robo_paint_opacity_t in_force;
+
+            robo_paint_opacity_stack_current(builder->opacities, &in_force);
+            if (!robo_paint_opacity_equal(&operation.opacity, &in_force)) {
+                return display_refuse(out_list, diag,
+                                      "a command inside an opacity scope carries a "
+                                      "different strength");
+            }
+        }
 
         /*
          * The structural check, kind by kind. `open_count` is the number of boxes
@@ -562,6 +753,16 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
                     return display_refuse(out_list, diag,
                                           "a box closes before its content boundary");
                 }
+                /* A box's opacity scope closes before its marker -- the traversal emits the
+                 * pop and then the `END_BOX` -- so a box that closes while one is still open
+                 * is a box whose own strength leaked onto whatever follows it. The box stack
+                 * alone would not catch it: the frame is about to be discarded, and the scope
+                 * it left open is a command in the list with no matching pop until the end of
+                 * the build, which is a different and later failure. */
+                if (top->opacity_open) {
+                    return display_refuse(out_list, diag,
+                                          "a box closes with an opacity scope still open");
+                }
                 builder->open_count--;
                 break;
             default:
@@ -575,6 +776,9 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
                     return display_refuse(out_list, diag, "an operation this build cannot "
                                                           "convert");
                 }
+                /* The box has begun drawing for itself, which is what an opacity push may not
+                 * follow -- see `display_opacity_scopes`. */
+                top->painted = 1u;
                 break;
             }
         }
@@ -618,6 +822,14 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
     if (!robo_paint_clip_stack_is_empty(builder->clips)) {
         return display_refuse(out_list, diag, "the record list does not close every clip scope "
                                               "it opens");
+    }
+    /* The same check for the strength (11.9), and here the failure is sharper than the clip's:
+     * a strength left in force would make every drawing after it faint for a reason no command
+     * in the list states. The per-box check above catches a box that closed with one open; this
+     * one catches a list whose box stack balanced while a scope did not. */
+    if (!robo_paint_opacity_stack_is_empty(builder->opacities)) {
+        return display_refuse(out_list, diag, "the record list does not close every opacity "
+                                              "scope it opens");
     }
 
     stats.commands = robo_paint_display_list_count(out_list);

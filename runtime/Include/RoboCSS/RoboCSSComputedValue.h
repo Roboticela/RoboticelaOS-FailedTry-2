@@ -174,11 +174,26 @@ typedef enum robo_css_computed_value_kind {
     /** One of the closed border-style vocabulary (9.15). */
     ROBO_CSS_COMPUTED_VALUE_BORDER_STYLE = 13,
     /** One of the closed overflow vocabulary (10.13). */
-    ROBO_CSS_COMPUTED_VALUE_OVERFLOW = 14
+    ROBO_CSS_COMPUTED_VALUE_OVERFLOW = 14,
+    /**
+     * An `opacity` value (11.9): a real in `[0, 1]`, already clamped.
+     *
+     * The first kind here whose value is a **range** rather than a closed set -- so it is
+     * the first whose spelling is arithmetic rather than one row of a table -- and the first
+     * added by a phase of the *paint* stack rather than by one of the 9.x value phases or by
+     * RoboLayout. It has a kind of its own rather than riding on NUMBER for the reason every
+     * closed vocabulary above has one: `opacity` is a value the paint layer dispatches on,
+     * and a NUMBER that happened to be a number would be a value whose *property* is the only
+     * thing that says it is an opacity.
+     *
+     * The initial value is `1`, which is why `robo_css_computed_value_opacity` answers *one*
+     * for any other kind rather than zero (RoboCSSOpacity.h argues the direction).
+     */
+    ROBO_CSS_COMPUTED_VALUE_OPACITY = 15
 } robo_css_computed_value_kind_t;
 
 /** Number of defined kinds. */
-#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 15u
+#define ROBO_CSS_COMPUTED_VALUE_KIND_COUNT 16u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int robo_css_computed_value_kind_is_known(robo_css_computed_value_kind_t kind);
@@ -280,6 +295,20 @@ typedef struct robo_css_computed_value {
      * "this element is visible" are different answers.
      */
     robo_css_overflow_t overflow;
+    /**
+     * OPACITY: the value (RoboCSSOpacity.h); `1` otherwise.
+     *
+     * A `double` in `[0, 1]` -- already clamped, so a consumer never applies the range rule
+     * itself -- and a **separate field from @ref number** even though a cleared record leaves
+     * both at zero-or-linear. That is deliberate: a length's magnitude and an opacity are
+     * different facts about different things, and sharing one slot is how a consumer that
+     * switched on the kind would come to read a `200px` width as an opacity of `200`. A
+     * cleared record holds `1`, which is the property's *initial* value: "this element does
+     * not declare an opacity" and "this element is fully opaque" are different answers, and
+     * `1` is the one that renders the same way, which is exactly why it is worth saying that
+     * they must not be conflated.
+     */
+    double opacity;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -402,6 +431,21 @@ robo_result_t robo_css_computed_value_make_overflow(robo_css_computed_value_t *v
                                                     robo_css_overflow_t overflow,
                                                     robo_css_diag_t *diag);
 
+/**
+ * Make @p value an OPACITY holding @p opacity.
+ *
+ * @p opacity must be a value (`robo_css_opacity_is_valid`): finite and inside `[0, 1]`. A
+ * value **outside** the range is refused rather than clamped here, and the two are different
+ * mistakes: CSS's clamp is the *compute* layer's rule for a declaration an author wrote
+ * (`opacity: 2` is legal CSS meaning `1`), while a caller handing this door `2` is a caller
+ * that skipped the rule. The clamp is one call away when that is what was meant, and a
+ * make-door that silently fixed an out-of-range argument would be one whose output a caller
+ * could not predict from its input.
+ */
+robo_result_t robo_css_computed_value_make_opacity(robo_css_computed_value_t *value,
+                                                  double opacity,
+                                                  robo_css_diag_t *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 robo_result_t robo_css_computed_value_make_preserved(robo_css_computed_value_t *value,
                                                      const robo_css_value_t *specified,
@@ -492,6 +536,20 @@ robo_css_border_style_t robo_css_computed_value_border_style(
  */
 robo_css_overflow_t robo_css_computed_value_overflow(
     const robo_css_computed_value_t *value);
+
+/**
+ * The value of an OPACITY value; `1` (fully opaque) for any other kind.
+ *
+ * Read together with a kind check, for the reason the five above are -- and this is the one
+ * where the choice of default is load-bearing rather than tidy. Every other accessor here
+ * answers its property's initial value, which is the answer that would do the least damage
+ * if a caller conflated "nothing was declared" with "it was declared and is the initial
+ * value". For opacity that is **one**, and a build that answered zero would make every
+ * element of every document that never mentions `opacity` invisible -- a failure that is
+ * silent, because the geometry would still be right and only the page would be blank.
+ * `RoboCSSOpacity.h` names that trap; this door is where it is closed.
+ */
+double robo_css_computed_value_opacity(const robo_css_computed_value_t *value);
 
 /**
  * Non-zero when @p a and @p b are the same computed value.

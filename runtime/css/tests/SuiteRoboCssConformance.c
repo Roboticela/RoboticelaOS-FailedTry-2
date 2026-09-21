@@ -147,6 +147,10 @@ static const css_conformance_initial_t css_conformance_initials[] = {
     {"margin-left", "length", "0px"},
     {"margin-right", "length", "0px"},
     {"margin-top", "length", "0px"},
+    /* Opacity (11.9): the row a *paint* phase registered, and the only one here whose
+     * initial value is not the zero of its own vocabulary -- so its computed text is `1`
+     * where every property around it computes to an initial spelling of nothing-ness. */
+    {"opacity", "opacity", "1"},
     /* Overflow (10.13): the family a *layout* phase registered, and the one whose
      * shorthand takes the vocabulary rather than staying PRESERVED — because no phase
      * in this build expands a shorthand, so a token list here would be a declaration
@@ -483,7 +487,18 @@ static const css_conformance_declaration_t css_conformance_declarations[] = {
     {"font-weight", "font-weight: 700", "number", "700"},
     {"letter-spacing", "letter-spacing: 2px", "length", "2px"},
     {"visibility", "visibility: hidden", "keyword", "hidden"},
-    {"box-sizing", "box-sizing: border-box", "keyword", "border-box"}
+    {"box-sizing", "box-sizing: border-box", "keyword", "border-box"},
+    /*
+     * Opacity (11.9's prerequisite) — the one property whose value is a **range** rather
+     * than a closed set, so the three shapes worth pinning are its number, its
+     * percentage, and the clamp that makes `150%` an answer rather than a refusal.
+     * `opacity: 2` and `opacity: -1` are in the dedicated suite (`css.opacity.*`); these
+     * three are here because the matrix is the whole surface and not the half of it that
+     * happens to own a syntax family.
+     */
+    {"opacity", "opacity: 0.5", "opacity", "0.5"},
+    {"opacity", "opacity: 150%", "opacity", "1"},
+    {"opacity", "opacity: banana", "invalid", "not a number or a percentage"}
 };
 
 /** A shape string for a computed value's diagnostic text. */
@@ -1635,7 +1650,7 @@ static void test_css_conformance_capabilities_every_flag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     ROBO_CHECK_EQ_INT(ROBO_CSS_API_FROZEN, 0);
     ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MAJOR, 0);
-    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 17);
+    ROBO_CHECK_EQ_INT(ROBO_CSS_VERSION_MINOR, 18);
 }
 
 void robo_test_register_css_conformance(void);

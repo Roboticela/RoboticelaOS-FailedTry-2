@@ -230,7 +230,7 @@ static void test_display_command_vocabulary(void)
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 9);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 11);
     for (index = 0u; index < (size_t)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT; index++) {
         robo_paint_display_command_kind_t kind = (robo_paint_display_command_kind_t)index;
         int is_drawing = robo_paint_display_command_kind_draws(kind);
@@ -253,14 +253,30 @@ static void test_display_command_vocabulary(void)
             ROBO_CHECK(kind != ROBO_PAINT_DISPLAY_CMD_CONTENT);
         }
     }
-    /* Three drawing kinds -- background, border and text (11.6) -- and five structural:
-     * the begin/end markers, `CONTENT`, and 11.8's push/pop pair, which draw nothing by
-     * definition and therefore live on this side of the split. */
+    /* Three drawing kinds -- background, border and text (11.6) -- and **seven** structural:
+     * the begin/end markers, `CONTENT`, 11.8's push/pop pair and, since 11.9, the opacity
+     * pair, which draw nothing by definition and therefore live on this side of the split.
+     * The split is unchanged by the phase: 11.9 added two commands, not a drawing kind. */
     ROBO_CHECK_EQ_INT(drawing_total, 3);
-    ROBO_CHECK_EQ_INT(structural_total, 5);
+    ROBO_CHECK_EQ_INT(structural_total, 7);
 
     ROBO_CHECK_STR_EQ(robo_paint_display_command_kind_name(ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER),
                       "draw-border");
+    ROBO_CHECK_STR_EQ(robo_paint_display_command_kind_name(ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY),
+                      "push-opacity");
+    ROBO_CHECK_STR_EQ(robo_paint_display_command_kind_name(ROBO_PAINT_DISPLAY_CMD_POP_OPACITY),
+                      "pop-opacity");
+    /* The two scope predicates are disjoint and both refuse a drawing kind. */
+    ROBO_CHECK_EQ_INT(robo_paint_display_command_kind_is_opacity(
+                          ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY), 1);
+    ROBO_CHECK_EQ_INT(robo_paint_display_command_kind_is_opacity(
+                          ROBO_PAINT_DISPLAY_CMD_POP_OPACITY), 1);
+    ROBO_CHECK_EQ_INT(robo_paint_display_command_kind_is_clip(
+                          ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_display_command_kind_is_opacity(
+                          ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_display_command_kind_is_opacity(
+                          ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND), 0);
     ROBO_CHECK_STR_EQ(robo_paint_display_command_kind_name((robo_paint_display_command_kind_t)99),
                       "unknown");
 }

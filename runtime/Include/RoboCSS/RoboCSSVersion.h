@@ -465,6 +465,41 @@
  * that no phase in this build has, and reading one as `visible` would be a silent
  * wrong answer about geometry.
  *
+ * 0.18.0 is the seventeenth, and it is the **second** version in this module added by a
+ * phase that does not belong to Phase 9. Phase 11.9 needed `opacity` -- the one property a
+ * painter reads that changes neither a box's geometry nor a colour, but the strength at
+ * which the box and everything inside it reaches a surface -- and it found no row here, so
+ * the smallest fix that keeps the module's discipline is one registry row, one computation
+ * shape and one computed-value kind.
+ *
+ * Three facts about it are worth the space, because two of them are ways this property is
+ * unlike every other one in the table.
+ *
+ * The shape is the first here that is neither a closed vocabulary nor a length family. Its
+ * set is every real in `[0, 1]`, so its questions are arithmetic rather than a table
+ * lookup, and it is the first property in this build whose value is bounded on **both**
+ * sides -- which is why the range rule lives in one place (`RoboCSSOpacity.h`) instead of
+ * in every consumer. An out-of-range declaration is **clamped** rather than refused, which
+ * is CSS's own rule and is a deliberate exception to this module's habit of making a wrong
+ * value a diagnostic: `opacity: 2` is legal CSS meaning `1`, and refusing it would make a
+ * document that every browser renders correctly render here as if the declaration had
+ * never been written.
+ *
+ * Its initial value is `1`, and that is the row to read twice. Every other property's
+ * initial value is the zero of its own enumerator -- `visible`, `static`, `inline`, an
+ * absent colour -- so a zeroed record holds the right answer by accident of the enumerator
+ * order. Opacity's initial value is **one**, so the accident would hold "fully transparent"
+ * and every element of every document that never mentions the property would be invisible.
+ * The record therefore writes its initial value explicitly (`robo_css_computed_value_init`)
+ * and the accessor answers it for any other kind, which closes the trap from both sides.
+ *
+ * And it is classified non-inherited, which is not the same fact as "a child is drawn at
+ * its parent's strength" and is deliberately the opposite of it. Inheritance copies a value
+ * *down*; opacity *multiplies along a path*, which is an accumulation and belongs to the
+ * layer that walks the path. Registering it as inherited would make a child at `opacity: 1`
+ * inside a parent at `0.5` fully opaque again, where CSS renders it at `0.5` -- the mistake
+ * that produces the wrong picture rather than a missing one.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (ROBO_CSS_API_FROZEN=0).
  */
@@ -473,9 +508,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define ROBO_CSS_VERSION_MAJOR 0
-#define ROBO_CSS_VERSION_MINOR 17
+#define ROBO_CSS_VERSION_MINOR 18
 #define ROBO_CSS_VERSION_PATCH 0
-#define ROBO_CSS_VERSION_STRING "0.17.0"
+#define ROBO_CSS_VERSION_STRING "0.18.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define ROBO_CSS_API_FROZEN 0

@@ -36,7 +36,13 @@ static const display_kind_row_t display_kind_rows[ROBO_PAINT_DISPLAY_CMD_KIND_CO
     { ROBO_PAINT_DISPLAY_CMD_PUSH_CLIP, "push-clip" },
     { ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT, "draw-text" },
     { ROBO_PAINT_DISPLAY_CMD_POP_CLIP, "pop-clip" },
-    { ROBO_PAINT_DISPLAY_CMD_END_NODE, "end-node" }
+    { ROBO_PAINT_DISPLAY_CMD_END_NODE, "end-node" },
+    /* 11.9's pair. Appended rather than inserted, for the reason `RoboPaintTypes.h` states at
+     * the operation vocabulary: a stored enumerator is a contract, and the *paint* order these
+     * two have -- an opacity scope opening before its box draws and closing before its end
+     * marker -- is asserted by the structural check rather than encoded in a numbering. */
+    { ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY, "push-opacity" },
+    { ROBO_PAINT_DISPLAY_CMD_POP_OPACITY, "pop-opacity" }
 };
 
 /** The row for @p kind, or NULL when @p kind names none. */
@@ -97,6 +103,12 @@ int robo_paint_display_command_kind_is_clip(robo_paint_display_command_kind_t ki
            kind == ROBO_PAINT_DISPLAY_CMD_POP_CLIP;
 }
 
+int robo_paint_display_command_kind_is_opacity(robo_paint_display_command_kind_t kind)
+{
+    return kind == ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY ||
+           kind == ROBO_PAINT_DISPLAY_CMD_POP_OPACITY;
+}
+
 /* ------------------------------------------------------------------ */
 /* The record                                                          */
 /* ------------------------------------------------------------------ */
@@ -111,6 +123,9 @@ void robo_paint_display_command_init(robo_paint_display_command_t *command)
     command->node = ROBO_LAYOUT_NODE_ID_NONE;
     command->rect = robo_gfx_rect(0, 0, 0, 0);
     robo_paint_clip_init(&command->clip);
+    /* Nothing in force, which is *fully opaque* -- the one field here a `memset` cannot clear
+     * correctly, because zeroing it would be a valid, meaningful, fully transparent record. */
+    robo_paint_opacity_init(&command->opacity);
     command->color = robo_css_color_none();
     command->style = ROBO_CSS_BORDER_STYLE_NONE;
     /* And no text run, which is what every kind except `draw-text` requires -- so "nobody
@@ -153,6 +168,21 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
      */
     if (robo_paint_display_command_kind_is_clip(command->kind) &&
         !robo_paint_clip_is_active(&command->clip)) {
+        return 0;
+    }
+    /*
+     * And the **opacity** rules (11.9), which are the clip rule's shape one field along plus the
+     * range, and the range applies to **every** kind: an opacity outside `[0, 1]` is not a value a
+     * rasteriser can apply, and a command carrying one would be a drawing whose strength its
+     * consumer could not honour. A fully **opaque** scope command is refused for the same reason a
+     * clip that bounds nothing is -- it states that a strength is in force and then states the
+     * strength that changes nothing, which is a command a consumer could only skip.
+     */
+    if (!robo_paint_opacity_is_valid(&command->opacity)) {
+        return 0;
+    }
+    if (robo_paint_display_command_kind_is_opacity(command->kind) &&
+        robo_paint_opacity_is_opaque(&command->opacity)) {
         return 0;
     }
     /*
@@ -209,6 +239,7 @@ int robo_paint_display_command_equal(const robo_paint_display_command_t *a,
     return a->kind == b->kind && a->node == b->node && a->depth == b->depth &&
            robo_gfx_rect_equal(a->rect, b->rect) &&
            robo_paint_clip_equal(&a->clip, &b->clip) &&
+           robo_paint_opacity_equal(&a->opacity, &b->opacity) &&
            robo_css_color_equals(a->color, b->color) && a->style == b->style &&
            robo_paint_text_run_equal(&a->text, &b->text);
 }
@@ -262,6 +293,21 @@ void robo_paint_display_command_clip(const robo_paint_display_command_t *command
     *out = command->clip;
 }
 
+void robo_paint_display_command_opacity(const robo_paint_display_command_t *command,
+                                       robo_paint_opacity_t *out)
+{
+    if (!out) {
+        return;
+    }
+    if (!command) {
+        /* Nothing in force, which is full strength -- the same answer an empty scope stack
+         * gives. */
+        robo_paint_opacity_init(out);
+        return;
+    }
+    *out = command->opacity;
+}
+
 robo_css_color_t robo_paint_display_command_color(const robo_paint_display_command_t *command)
 {
     return command ? command->color : robo_css_color_none();
@@ -285,6 +331,11 @@ int robo_paint_display_command_is_drawing(const robo_paint_display_command_t *co
 int robo_paint_display_command_is_clip(const robo_paint_display_command_t *command)
 {
     return command != NULL && robo_paint_display_command_kind_is_clip(command->kind);
+}
+
+int robo_paint_display_command_is_opacity(const robo_paint_display_command_t *command)
+{
+    return command != NULL && robo_paint_display_command_kind_is_opacity(command->kind);
 }
 
 robo_result_t robo_paint_display_command_write(const robo_paint_display_command_t *command,
@@ -341,6 +392,13 @@ robo_result_t robo_paint_display_command_write(const robo_paint_display_command_
         robo_paint_writer_i64(&text, (int64_t)command->clip.vertical.end);
         robo_paint_writer_char(&text, ']');
     }
+
+    /* The **opacity in force** (11.9), beside the clip and for the reason the clip is beside
+     * it: a command that produces visible pixels answers `how strongly` as well as `where`,
+     * and a dump that omitted it would leave the one number a reader needs to explain a
+     * faint rectangle the one number it does not show. */
+    robo_paint_writer_string(&text, " opacity=");
+    robo_paint_writer_number(&text, robo_paint_opacity_value(&command->opacity), 2u);
 
     /* The one rectangle the command acts on, printed the same way for every kind: the
      * whole point of a display command is that it carries no *other* rectangle to choose

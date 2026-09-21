@@ -33,6 +33,8 @@
 
 #include "RoboCSS/RoboCSSComputedValue.h"
 
+#include "RoboCSS/RoboCSSOpacity.h"
+
 #include "RoboCSSInternal.h"
 #include "RoboMem/RoboMem.h"
 
@@ -125,6 +127,15 @@ void robo_css_computed_value_init(robo_css_computed_value_t *value)
     memset(value, 0, sizeof(*value));
     value->kind = ROBO_CSS_COMPUTED_VALUE_NONE;
     value->unit = ROBO_CSS_UNIT_NONE;
+    /*
+     * The opacity's initial value, written explicitly because zeroing the struct does not
+     * produce it. Every other property's initial value happens to *be* zero -- `visible` is
+     * 0, `static` is 0, an absent colour is a zeroed record -- so a cleared record holds the
+     * right thing by accident of the enumerator order. Opacity's initial value is **one**, so
+     * an accident would hold "fully transparent", and this is the one place where the
+     * difference between those two answers is a blank page (RoboCSSOpacity.h).
+     */
+    value->opacity = robo_css_opacity_initial();
     robo_css_value_init(&value->preserved);
 }
 
@@ -242,6 +253,8 @@ const char *robo_css_computed_value_kind_name(robo_css_computed_value_kind_t kin
         return "border-style";
     case ROBO_CSS_COMPUTED_VALUE_OVERFLOW:
         return "overflow";
+    case ROBO_CSS_COMPUTED_VALUE_OPACITY:
+        return "opacity";
     default:
         return "unknown";
     }
@@ -403,6 +416,23 @@ robo_result_t robo_css_computed_value_make_overflow(robo_css_computed_value_t *v
     robo_css_computed_value_dispose(value);
     value->kind = ROBO_CSS_COMPUTED_VALUE_OVERFLOW;
     value->overflow = overflow;
+    return ROBO_OK;
+}
+
+robo_result_t robo_css_computed_value_make_opacity(robo_css_computed_value_t *value,
+                                                   double opacity,
+                                                   robo_css_diag_t *diag)
+{
+    if (!value || !robo_css_opacity_is_valid(opacity)) {
+        /* Out of range is refused rather than clamped -- see the header: the clamp is the
+         * *compute* layer's rule for a declaration an author wrote, and a caller that
+         * reached this door with `2` skipped it. */
+        return ROBO_CSS_DIAG(diag, ROBO_CSS_DOMAIN_COMPUTED, ROBO_INVALID_ARGUMENT,
+                             "output is NULL or not an opacity value");
+    }
+    robo_css_computed_value_dispose(value);
+    value->kind = ROBO_CSS_COMPUTED_VALUE_OPACITY;
+    value->opacity = opacity;
     return ROBO_OK;
 }
 
@@ -573,6 +603,16 @@ robo_css_border_style_t robo_css_computed_value_border_style(
     return value->border_style;
 }
 
+double robo_css_computed_value_opacity(const robo_css_computed_value_t *value)
+{
+    if (!value || value->kind != ROBO_CSS_COMPUTED_VALUE_OPACITY) {
+        /* The initial value, which is the direction that matters: "not an opacity" must
+         * render the way "no opacity declared" does, and that way is *visible*. */
+        return robo_css_opacity_initial();
+    }
+    return value->opacity;
+}
+
 robo_css_background_position_t robo_css_computed_value_background_position(
     const robo_css_computed_value_t *value)
 {
@@ -741,6 +781,16 @@ int robo_css_computed_value_equals(const robo_css_computed_value_t *a,
          * `hidden` are two different answers about one axis, and a comparison on
          * "does this clip?" would make them one value. */
         return a->overflow == b->overflow;
+    case ROBO_CSS_COMPUTED_VALUE_OPACITY:
+        /* The number, exactly -- and the exactness is the point rather than a
+         * shortcut. Two opacities that differ by one part in a million are two
+         * different values with two different pictures, and a comparison with a
+         * tolerance would report a determinism failure as a pass. This is also the
+         * one comparison here that a *test* relies on in that direction: the suite
+         * that proves `0.5 * 0.5` is `0.25` reads the answer back through this
+         * door, so any rounding anywhere between the two would show up as an
+         * inequality rather than as a slightly wrong picture. */
+        return a->opacity == b->opacity;
     default:
         return computed_trees_equal(&a->preserved, &b->preserved);
     }
@@ -1016,6 +1066,15 @@ robo_result_t robo_css_computed_value_write(const robo_css_computed_value_t *val
          * its own keyword rather than falling to a default here. */
         ok = robo_css_border_style_write(value->border_style, buffer, capacity, &used,
                                         NULL) == ROBO_OK;
+        break;
+    case ROBO_CSS_COMPUTED_VALUE_OPACITY:
+        /* The opacity module's spelling, for the reason a display's, a position's, a
+         * border style's and an overflow's are the other modules': this layer formats
+         * lengths, numbers and token trees, and an opacity is one of those three
+         * *shapes* but not one of its rules -- its range, its percentage conversion and
+         * its formatter are the property's own. */
+        ok = robo_css_opacity_write(value->opacity, buffer, capacity, &used, NULL) ==
+             ROBO_OK;
         break;
     case ROBO_CSS_COMPUTED_VALUE_PRESERVED:
         if (value->preserved.kind == ROBO_CSS_VALUE_KIND_TOKEN) {
@@ -1863,6 +1922,68 @@ static robo_result_t computed_compute_z_index(robo_css_computed_value_t *out,
 }
 
 /**
+ * Compute an `opacity`: a number or a percentage, clamped to `[0, 1]` (11.9).
+ *
+ * Two value kinds in one property, and the second is why the conversion lives in the property
+ * module rather than here: CSS's `<alpha-value>` accepts `50%` and `0.5` as the same value,
+ * and the division that makes them the same is a fact about *this* property
+ * (`robo_css_opacity_from_percentage`) rather than about numbers in general -- a percentage
+ * means a proportion of a box everywhere else in CSS.
+ *
+ * Three refusals, and the one that is **not** among them is the point: `opacity: 2` is not a
+ * mistake. CSS clamps a computed opacity rather than rejecting it, and it does so because an
+ * author who wrote `200%` or `1.5` meant "as opaque as it goes" -- so refusing would make a
+ * document that every browser renders correctly render here as if the declaration had never
+ * been written, which is a worse failure than the one being prevented. The clamp is applied
+ * once, here, and to both spellings, so there is one place the range appears on the way in.
+ *
+ * What *is* refused tells an author three different things: `opacity: banana` is not a number
+ * at all, `1e999` is a number the tokenizer could not make finite (arithmetic that went wrong
+ * rather than a value anyone writes), and `10px` is a number of the wrong *kind* -- the
+ * truthful answer for a property whose grammar has no length in it, and the same answer
+ * `computed_compute_z_index` gives a dimension. `calc()` and `var()` are neither: they are
+ * legal CSS this build does not evaluate, so they are **carried** with the unresolved flag
+ * rather than refused.
+ */
+static robo_result_t computed_compute_opacity(robo_css_computed_value_t *out,
+                                              const robo_css_value_t *specified,
+                                              robo_css_diag_t *diag)
+{
+    static const char *const reason_not_alpha = "not a number or a percentage";
+    robo_css_property_computation_t computation = ROBO_CSS_PROPERTY_COMPUTATION_OPACITY;
+    robo_css_numeric_t numeric = robo_css_numeric_none();
+    double magnitude;
+
+    switch (robo_css_numeric_from_value(specified, &numeric)) {
+    case ROBO_CSS_NUMERIC_PARSE_RESOLVED:
+        break;
+    case ROBO_CSS_NUMERIC_PARSE_DEFERRED:
+        return computed_keep(out, specified, 1, diag);
+    case ROBO_CSS_NUMERIC_PARSE_NON_FINITE:
+        return computed_reject(out, computation, "not a finite number", diag);
+    default:
+        return computed_reject(out, computation, reason_not_alpha, diag);
+    }
+
+    switch (numeric.kind) {
+    case ROBO_CSS_NUMERIC_INTEGER:
+    case ROBO_CSS_NUMERIC_NUMBER:
+        /* An integer is a number here, and the two are one case rather than two because
+         * nothing about this property distinguishes `opacity: 1` from `opacity: 1.0` -- the
+         * spelling is not part of the value, which is what makes `<alpha-value>` unlike
+         * `z-index`'s `<integer>` in exactly the place where being unlike it matters. */
+        magnitude = numeric.number;
+        break;
+    case ROBO_CSS_NUMERIC_PERCENTAGE:
+        magnitude = robo_css_opacity_from_percentage(numeric.number);
+        break;
+    default:
+        return computed_reject(out, computation, reason_not_alpha, diag);
+    }
+    return robo_css_computed_value_make_opacity(out, robo_css_opacity_clamp(magnitude), diag);
+}
+
+/**
  * Compute a font family list: identifiers and strings, comma separated.
  *
  * Two passes over the children, and the reason is the shape check. A family
@@ -2122,6 +2243,14 @@ robo_result_t robo_css_computed_value_compute(
         return computed_compute_background_size(out, specified, diag);
     case ROBO_CSS_PROPERTY_COMPUTATION_Z_INDEX:
         return computed_compute_z_index(out, specified, diag);
+    /*
+     * And the opacity property (11.9), which is the first row here added by a phase of the
+     * *paint* stack -- and the first shape in this switch that is not a closed vocabulary: an
+     * α-value is every real in a range, so its computation is arithmetic and its refusals are
+     * about the kind of number rather than about a spelling.
+     */
+    case ROBO_CSS_PROPERTY_COMPUTATION_OPACITY:
+        return computed_compute_opacity(out, specified, diag);
     default:
         return computed_keep(out, specified, computed_function_is_unresolved(
                                              robo_css_value_single(specified)),

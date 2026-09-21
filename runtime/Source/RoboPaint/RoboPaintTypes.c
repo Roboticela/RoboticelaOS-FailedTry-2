@@ -40,7 +40,15 @@ static const paint_op_row_t paint_op_rows[ROBO_PAINT_OP_KIND_COUNT] = {
     { ROBO_PAINT_OP_PUSH_CLIP, "push-clip", ROBO_CSS_BOX_SIDE_COUNT },
     { ROBO_PAINT_OP_TEXT, "text", ROBO_CSS_BOX_SIDE_COUNT },
     { ROBO_PAINT_OP_POP_CLIP, "pop-clip", ROBO_CSS_BOX_SIDE_COUNT },
-    { ROBO_PAINT_OP_END_BOX, "end-box", ROBO_CSS_BOX_SIDE_COUNT }
+    { ROBO_PAINT_OP_END_BOX, "end-box", ROBO_CSS_BOX_SIDE_COUNT },
+    /* 11.9's pair, appended in enumerator order. It is the first pair in this table whose
+     * *paint* order is not its enumerator order -- an opacity scope opens before a box's
+     * decorations and closes before its end marker, where a clip scope opens after the content
+     * boundary -- and the vocabulary note in the header states the sequence the traversal
+     * actually emits. The table is searched rather than indexed, so the order of these rows is
+     * about a reader's eye and nothing else. */
+    { ROBO_PAINT_OP_PUSH_OPACITY, "push-opacity", ROBO_CSS_BOX_SIDE_COUNT },
+    { ROBO_PAINT_OP_POP_OPACITY, "pop-opacity", ROBO_CSS_BOX_SIDE_COUNT }
 };
 
 /** The row for @p kind, or NULL when @p kind names none. */
@@ -101,6 +109,11 @@ int robo_paint_op_kind_is_clip(robo_paint_op_kind_t kind)
     return kind == ROBO_PAINT_OP_PUSH_CLIP || kind == ROBO_PAINT_OP_POP_CLIP;
 }
 
+int robo_paint_op_kind_is_opacity(robo_paint_op_kind_t kind)
+{
+    return kind == ROBO_PAINT_OP_PUSH_OPACITY || kind == ROBO_PAINT_OP_POP_OPACITY;
+}
+
 int robo_paint_op_kind_is_structural(robo_paint_op_kind_t kind)
 {
     /*
@@ -135,7 +148,8 @@ static const char *const paint_domain_names[ROBO_PAINT_DOMAIN_COUNT] = {
     "traversal",
     "clip",
     "dump",
-    "display-list"
+    "display-list",
+    "opacity"
 };
 
 int robo_paint_domain_is_known(robo_paint_diagnostic_domain_t domain)

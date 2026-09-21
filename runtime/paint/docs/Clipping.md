@@ -336,7 +336,16 @@ emitted there.
 
 ## 12. What is absent, on purpose
 
-`border-radius` and rounded clipping, `clip-path`, masks, filters, transforms, opacity, `mix-blend`,
+**11.9 is the one release since this document was written that touches the same machinery**, and it
+is worth saying what it did and did not do here: it added a *second* scope pair
+(`push-opacity`/`pop-opacity`) read against its own stack, with the same self-identifying rule and
+the same one-application-point discipline — and it opened at the box's **marker** rather than at its
+content boundary, because an opacity belongs to the box itself where a clip belongs to its contents
+(`Opacity.md` §3). Nothing in this file's own subject changed: the clip stack, the canonical empty
+interval, the eleven refusals and the reset-then-replace enforcement are exactly as they were, and a
+document with no `opacity` in it produces byte-identical output.
+
+`border-radius` and rounded clipping, `clip-path`, masks, filters, transforms, `mix-blend`,
 scrolling and scroll containers (a clipped box does not scroll in this build — the boundary is a
 boundary and nothing more), overflow clipping for absolute/fixed/sticky positioning (11.12+ has no
 such positioning yet), compositor-level and tile-level clipping, GPU clip scheduling, hit testing

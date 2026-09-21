@@ -641,7 +641,14 @@ static void test_tok_long_input(void)
     size_t tag_count = 0u;
 
     tok_fixture_begin();
-    big = (char *)robo_malloc(20000u);
+    /*
+     * 20000 bytes of markup **plus the terminator**: `robo_html_source_string` takes a C string and
+     * derives its length by scanning for the NUL, so the buffer has to hold one. Sizing this at
+     * exactly 20000 made the scan read the byte past the allocation -- the terminator was the
+     * 20001st, and it lived in ASan's redzone rather than in the buffer. The markup is still the
+     * 20000 bytes the case is about; only the terminator is new.
+     */
+    big = (char *)robo_malloc(20001u);
     ROBO_CHECK(big != NULL);
     for (i = 0u; i < 20000u;) {
         big[i++] = '<';
@@ -653,6 +660,7 @@ static void test_tok_long_input(void)
         big[i++] = 'p';
         big[i++] = '>';
     }
+    big[i] = '\0';
     ROBO_CHECK_EQ_INT(tok_from_string(big, &t), ROBO_OK);
     for (;;) {
         tok_next_ok(t, &tok);

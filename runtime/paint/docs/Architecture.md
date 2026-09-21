@@ -58,11 +58,11 @@ that position, and which the module honours as a signature rather than as a chec
 
 ## 3. The module surface
 
-Fourteen headers under `Include/RoboPaint/`, one umbrella:
+Seventeen headers under `Include/RoboPaint/`, one umbrella:
 
 | Header | What it holds |
 |---|---|
-| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (8 values), `robo_paint_diagnostic_domain_t` (9), their predicates and name doors |
+| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (14 values), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
 | `RoboPaintDiagnostics.h` | `robo_paint_diag_t` and `ROBO_PAINT_DIAG` |
 | `RoboPaintGeometry.h` | `robo_paint_boxes_t`, `robo_paint_clip_t`, `robo_paint_boxes_of`, `robo_paint_clip_intersect` |
 | `RoboPaintOperation.h` | `robo_paint_operation_t`, its accessors, validity, side band, one-line writer |
@@ -75,6 +75,8 @@ Fourteen headers under `Include/RoboPaint/`, one umbrella:
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` (11.3) |
 | `RoboPaintColor.h` | The colour bridge: `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` (11.4) |
 | `RoboPaintText.h` | The code-point payload: `robo_paint_text_run_t`, `robo_paint_text_span_t`, `robo_paint_text_pool_t` (11.6) |
+| `RoboPaintClip.h` | `robo_paint_clip_stack_t` — the clip scopes a flat sequence is read against (11.8) |
+| `RoboPaintOpacity.h` | `robo_paint_opacity_t` and `robo_paint_opacity_stack_t` — the strength a drawing is drawn at, and the same LIFO one field along (11.9) |
 | `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that executes backgrounds, border bands and text runs (11.4–11.6) |
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
 | `RoboPaint.h` | Lifecycle, capabilities, version |
@@ -92,26 +94,39 @@ an enumerator is *made* to add its name.
 
 ```c
 typedef struct robo_paint_operation {
-    robo_paint_op_kind_t kind;      /* the eleven, plus NONE */
+    robo_paint_op_kind_t kind;      /* the thirteen, plus NONE */
     robo_layout_node_id_t node;     /* never NONE for a live operation */
     size_t depth;                   /* 0 for the root: makes the tree recoverable */
     robo_paint_boxes_t boxes;       /* the three rectangles, in paint coordinates */
     robo_layout_point_t origin;     /* the containing block's content origin */
     robo_paint_clip_t clip;         /* the boundary in force */
+    robo_paint_opacity_t opacity;   /* the strength in force (11.9) */
     robo_css_color_t color;         /* none for a marker */
 } robo_paint_operation_t;
 ```
 
+Every record carries **both** states in force, for the same reason it carries both coordinate
+spaces: a consumer with only the list must not have to re-walk the tree to discover what was in
+force at a record's position. What it does *not* have to do is reconstruct the nesting — the two
+scope pairs are in the sequence, and §4.5 states their placement.
+
 ### 4.1 The vocabulary: structural and drawing
 
 `NONE`, `BEGIN_BOX`, `BACKGROUND`, the four `BORDER_*` kinds, **`CONTENT`**, **`TEXT`**,
-`END_BOX`. There is no `IMAGE`, `CLIP`, `SAVE`, `RESTORE` or `OPACITY` enumerator, even though
-the phase's brief lists them as things the representation must *eventually* express. The reason
-is the one RoboLayout 10.2 gives for not adding a constant for a feature it does not have: a
-name with no code behind it is a promise, not a vocabulary. What makes them expressible is the
-record's shape — and the shape has now been tested twice, by `CONTENT` at 11.2 and by `TEXT` at
-11.6, each of which was one enumerator, one name row and one case in the validity rule rather
-than a redesign of the list.
+`PUSH_CLIP`, **`POP_CLIP`** (11.8), **`PUSH_OPACITY`**, **`POP_OPACITY`** (11.9), `END_BOX`. There
+is no `IMAGE`, `SAVE`, `RESTORE` or bare `OPACITY` enumerator, even though the phase's brief lists
+some of them as things the representation must *eventually* express. The reason is the one
+RoboLayout 10.2 gives for not adding a constant for a feature it does not have: a name with no code
+behind it is a promise, not a vocabulary. What makes them expressible is the record's shape — and
+the shape has now been tested four times, by `CONTENT` at 11.2, `TEXT` at 11.6 and the two scope
+pairs at 11.8 and 11.9, each of which was one enumerator, one name row and one case in the validity
+rule rather than a redesign of the list.
+
+**A scope is two enumerators rather than one**, and both releases that added a scope made the same
+choice. A single `CLIP`/`OPACITY` kind would need a flag to say which half it was, and the flag is a
+field a consumer could get wrong where two kinds are two entries in a switch it must already write.
+The pairs are also not drawings: `robo_paint_op_kind_draws` answers no for all four, which is what
+keeps `raster` at 0 (`paint/docs/Operations.md` §1.0).
 
 The vocabulary splits in two, and the split is the rule a builder obeys:
 
@@ -306,12 +321,25 @@ before children, children in DOM/layout order — and, for every box nothing has
 about:
 
 1. emits `BEGIN_BOX` with the box's three rectangles in paint coordinates, the accumulated
-   origin, the clip in force and the box's depth;
-2. emits `BACKGROUND` when the box's background declaration draws;
-3. emits one `BORDER_*` per side whose used width is above zero and whose colour draws;
-4. recurses into the box's children, in order, under the boundary this box's own overflow put
-   in force;
-5. emits `END_BOX`.
+   origin, the clip in force, the strength in force and the box's depth;
+2. emits `PUSH_OPACITY` when the box's own declaration **changes** the strength (11.9) — at the
+   marker, before anything the box draws, because CSS paints a box's own background and border
+   at the box's own opacity;
+3. emits `BACKGROUND` when the box's background declaration draws;
+4. emits one `BORDER_*` per side whose used width is above zero and whose colour draws;
+5. emits `CONTENT`, on the content box;
+6. emits `PUSH_CLIP` when this box's own used `overflow` **changes** the boundary (11.8) — after
+   the content boundary, because CSS clips a box's overflowing *contents* and not its own
+   decoration;
+7. recurses into the box's children, in order;
+8. emits `POP_CLIP`, then `POP_OPACITY`, then `END_BOX` — each pop carrying the value its push
+   carried, so a pair is self-identifying.
+
+A scope opens **only when the value changed**, and that is one rule read twice: an `overflow:
+visible` box narrows nothing and an `opacity: 1` box fades nothing, so neither emits the two
+commands a consumer could only skip. `stats.clipped − stats.clip_scopes` and
+`stats.opacity_declared − stats.opacity_scopes` are the two counts of declarations that
+established nothing.
 
 `list` is **cleared first**, before the staleness check, so a refused pass hands back an empty
 list rather than the previous pass's.
@@ -363,11 +391,11 @@ documented rule rather than a hazard, because nothing in an operation points any
 ## 10. The capability model
 
 `robo_paint_capabilities_t` is read positionally by `paint.conformance.capabilities` against a
-list of names, so a field added without an assertion is a visible omission. Twelve of its
-fifteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
+list of names, so a field added without an assertion is a visible omission. Thirteen of its
+sixteen fields are **1** (`context`, `operation_model`, `paint_list`, `traversal`,
 `box_geometry`, `clip_state`, `decoration_ops`, `display_lists` since 11.3, **`drawing`** and
 **`background_painting`** since 11.4, **`border_painting`** since 11.5, **`text_painting`**
-since 11.6 and **`clipping`** since 11.8) and two are **0**:
+since 11.6, **`clipping`** since 11.8 and **`opacity`** since 11.9) and two are **0**:
 
 | Field | Value | Why |
 |---|---|---|
@@ -377,6 +405,7 @@ since 11.6 and **`clipping`** since 11.8) and two are **0**:
 | `border_painting` | **1** | the second drawing: each border side filled across its **band** (11.5). It claims a border's place and colour, not its look — the seven pattern styles are drawn as bands and counted (`unshaped`) |
 | `text_painting` | **1** | the third drawing: a run's glyphs resolved through the caller's face and stroked into the surface (11.6). It claims a run's glyphs reach a surface, in logical order and unshaped — `rtl` counts the runs that were drawn that way |
 | `clipping` | **1** | the boundary is a **scope**: a box whose overflow changes what is in force emits `push-clip`/`pop-clip`, and the pass bounds every drawing kind by the scope it stands in (11.8). Rectangular only — no rounding, no `clip-path`, no masks, no compositor or scroll clipping |
+| `opacity` | **1** | a drawing has a **strength** on top of its colour's alpha: a box's `opacity` is multiplied down the tree, carried on every record and applied through `robo_gfx_raster_set_opacity` at one point in the pass (11.9). **Per drawing, not per group** — CSS's flattened-subtree semantics need an offscreen layer, and the gap is asserted (`paint.opacity.group_deviation`) rather than hidden |
 | `raster` | 0 | a rasteriser that consumes **every** command is a later goal; the structural kinds are not drawings |
 | `paint_invalidation` | 0 | 11.11; what exists instead is its *input*, `stats.style_only` |
 
@@ -391,8 +420,8 @@ became true, for one command kind, with 11.5 adding the second and 11.6 the thir
 conformance suite, which asserts all three together. The condition it was written down for — *a
 build in which an operation's rectangle and colour reach a RoboGraphics surface* — is what
 happened, and the flip did **not** widen the claim: it does not claim the seven pattern border
-styles, antialiasing, rounded corners, gradients, opacity beyond the colour's own alpha, a
-compositor, or that the whole list rasterises.
+styles, antialiasing, rounded corners, gradients, compositor-level or group opacity, a compositor,
+or that the whole list rasterises.
 
 ---
 
@@ -871,3 +900,91 @@ the emission arrangement, the dump and the phase's findings.
 
 See `paint/docs/Decoration.md` for the full contract, and `paint/docs/Border.md` for the border
 half of it.
+
+---
+
+## 20. Opacity (Phase 11.9)
+
+### 20.1 A colour's alpha and an element's opacity are two facts
+
+`rgba(255, 0, 0, 0.5)` makes a *colour* half transparent. `opacity: 0.5` makes a **box** half
+transparent: its background, its border, its text and every descendant it contains composite at
+half strength, and the colours they were declared with are untouched. Every release from 11.1 to
+11.8 had only the first — a `draw-background` command carried a colour and a boundary — and the
+second is what this phase adds.
+
+The property arrives from RoboCSS (`Include/RoboCSS/RoboCSSOpacity.h`): a real in `[0, 1]` whose
+initial value is **1**, not inherited, and **clamped** rather than rejected, because CSS clamps and
+an `opacity: 150%` that became an invalid declaration would make a document that renders correctly
+elsewhere render as if the declaration were absent. A value that is not a number at all answers the
+initial value — *visible* — because a record nothing can read must render the way an element
+nothing declared does.
+
+### 20.2 The scope opens at the marker, and the reason is CSS's
+
+The two scope pairs nest differently around one box, and neither placement is a style choice:
+
+| Pair | Opens | Because |
+|---|---|---|
+| `PUSH_CLIP` / `POP_CLIP` | after the box's `CONTENT` | a clip belongs to a box's **contents** — CSS paints that box's own background and border under its *parent's* boundary |
+| `PUSH_OPACITY` / `POP_OPACITY` | after the box's `BEGIN_BOX` | an opacity belongs to the box **itself** — CSS paints that box's own background and border at the box's own opacity |
+
+One rule holds both: **every record carries the state in force at its own position in the
+sequence.** So `BEGIN_BOX` and `END_BOX` carry the *enclosing* strength while the decorations, the
+content boundary, the subtree and the pop carry the box's — and both halves of a pair carry the
+value the pair establishes, which is what makes a pair checkable against itself.
+
+### 20.3 The arithmetic, and the two invalid directions
+
+`robo_paint_opacity_multiply(outer, inner)` is the accumulation and the only place it happens: the
+traversal computes `child = multiply(in_force, declared)` once per box and passes it down as a value,
+exactly as the clip is. Both operands are records in `[0, 1]` so the clamp cannot fire for two
+records this build made; it is applied anyway because the same door is the one a caller uses to
+combine two values it assembled itself.
+
+Three doors answer for a value they cannot read, and the directions are not uniform — which is
+deliberate rather than an oversight:
+
+| Door | Answers | Why |
+|---|---|---|
+| `robo_paint_opacity_from_value` (NaN/∞) | **opaque** (`1.0`) | **constructing** a record: the useful answer is what a document that declared nothing gets, so a caller's arithmetic bug renders as an unsurprising document rather than a blank one |
+| `robo_paint_opacity_value`, `_is_opaque`, `_is_transparent` (NULL) | opaque / no-in-force | a predicate about the **state**: "no scope" and "a full-strength scope" both mean nothing inside changes |
+| `robo_paint_opacity_to_byte` (invalid) | **`0`** — no ink | **consuming** a record, at the last gate before a pixel: a value nothing can read must not put ink on a surface, and a blank rectangle is visibly wrong where a fully drawn one is not. Unreachable from this build's own path, so it is the gate's own defence |
+
+`_is_valid` is the one door that answers **no** for a `NULL`, and the asymmetry is the same one
+`robo_paint_clip_is_valid` makes: the doors above answer *what is in force*, which a `NULL` has an
+answer to, while this answers *is this a record*, which a `NULL` is not.
+
+### 20.4 What the builder refuses, and the two findings
+
+Eight refusals, each with its own message and an empty output list: a scope belonging to no open
+box; one naming a box other than the innermost open one; two pushes from one box; a push **after
+the box has begun drawing** (after a decoration or after its content boundary — the case a build
+placing the scope at 11.8's point would fail); a push that establishes nothing; a push **stronger
+than the strength it is inside**; a pop with nothing open; and a pop whose strength is not the one
+its push carried. The strength ordering is what makes the in-scope rule rely on a checked
+invariant rather than a hope.
+
+Two findings, both from tests rather than from reasoning:
+
+- **A run must not read its own declaration.** A text node's box is the element that owns it, and
+  that element has already opened a scope around it — so a run reading its own style's `opacity`
+  would apply the same declaration twice and square it. The strength is **passed in** to the text
+  emitter. The case that would catch a regression counts three faded drawings for `0.5`/`0.5` with a
+  run inside, the third at `0.25` rather than `0.125`.
+- **A missing declaration must answer *opaque*.** `robo_css_computed_value_opacity` answers the
+  initial value for a computed value that is not an opacity, and that door is the only reason a
+  document with no `opacity` in it is not blank.
+
+### 20.5 Where it is claimed, and what it does not claim
+
+`opacity` is **1**: a drawing has a strength on top of its colour's alpha, accumulated down the path
+that reaches it and applied through `robo_gfx_raster_set_opacity` at one point in the pass, for every
+drawing kind. It does not claim **group** semantics — CSS composites an element's subtree into a
+flattened layer and fades that, while this build multiplies per drawing, so two overlapping
+descendant fills differ from a browser's result; `paint.opacity.group_deviation` is the document that
+measures the gap, with both answers computed through the graphics module's own blend. It also does
+not claim blend modes, filters, masks, transforms, a compositor, compositor layers or tile
+compositing, `border-radius` clipping, scrolling, paint invalidation (11.11) or hit testing (11.10).
+`paint/docs/Opacity.md` is the phase's own document — the record, the stack, the placement rule, the
+refusals, the counters, the pixels and the phase's findings.

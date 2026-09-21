@@ -181,7 +181,14 @@ static void test_tb_create_misuse(void)
         ROBO_INVALID_ARGUMENT);
 
     robo_html_tree_builder_destroy(builder);
-    /* A second destroy is a no-op, never undefined behaviour. */
+    /*
+     * And the pointer is **spent** -- `destroy` frees the builder, so there is no second call to
+     * make and no "already destroyed" answer to check. The magic-word guard inside `destroy`
+     * cannot provide one: it lives in the struct the first call just freed, so asking it again
+     * would read freed memory rather than report a no-op. `NULL` is the only argument a second
+     * call can safely take, and that is the one asserted here.
+     */
+    builder = NULL;
     robo_html_tree_builder_destroy(builder);
     robo_html_tree_builder_destroy(NULL);
 

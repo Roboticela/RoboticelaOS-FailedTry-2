@@ -213,6 +213,35 @@ typedef struct robo_paint_decoration_stats {
      * the list to find out.
      */
     size_t clip_depth_max;
+    /**
+     * Opacity **scopes** the pass entered: one per `push-opacity` command (11.9).
+     *
+     * The `clip_scopes` of a second state, and a structural command too -- so it is also one of
+     * `skipped`, and it is the number that says how many of those skips were a strength rather
+     * than a node marker.
+     */
+    size_t opacity_scopes;
+    /**
+     * Deepest opacity scope the pass stood inside: the high-water mark of its own stack.
+     *
+     * `clip_depth_max`'s sibling, and separate from it because the two are not the same depth:
+     * an opacity pair opens at a box's marker and a clip pair at its content boundary, so a
+     * document that nests one without the other has two different numbers. A later rasteriser
+     * that grows a strength stack, or a compositor that needs one, asks this instead of walking
+     * the list.
+     */
+    size_t opacity_depth_max;
+    /**
+     * Drawings put on the surface at a strength **below full** (11.9).
+     *
+     * The count of drawings the phase actually changed, and it is deliberately not called
+     * "drawings inside an opacity scope": a `0.5` box whose fill is already fully transparent
+     * is inside a scope and is still drawn at full strength -- it is drawn at all only because
+     * the pass reached it, and its own alpha decides what lands. This number counts the ones
+     * where the raster's opacity was set to something other than `255`, which is the operation
+     * that would be worth removing if the phase were ever optimised.
+     */
+    size_t faded;
 } robo_paint_decoration_stats_t;
 
 /** Clear @p stats to all zeroes. Safe on NULL. */
