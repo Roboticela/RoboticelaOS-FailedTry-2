@@ -266,6 +266,35 @@ int robo_paint_clip_is_empty(const robo_paint_clip_t *clip);
  *  interval that does not run backwards on an axis that hides. */
 int robo_paint_clip_is_valid(const robo_paint_clip_t *clip);
 
+/**
+ * Non-zero when @p point is inside the region @p clip bounds.
+ *
+ * The record's **one containment question**, and it is asked per axis rather than of a
+ * rectangle: an axis whose mode leaves the drawing free contains **every** coordinate on it,
+ * and an axis that hides contains the half-open interval `[start, end)` -- so a point outside a
+ * `hidden` axis is outside the boundary however the other axis answers, and a point beside a
+ * `hidden` axis but within a `visible` one is *inside*, because that axis was never bounded.
+ * That asymmetry is the whole reason the record is two intervals rather than one rectangle (see
+ * the record's own comment), and a door that answered it by projecting to a rectangle would
+ * have to invent a bound for the free axis and would then exclude points the document draws.
+ *
+ * It was added in **11.10**, by the first consumer that asks where an input point may land
+ * rather than where a drawing must stop: a hit test refuses to descend into a box's contents
+ * when the point is outside the boundary those contents are drawn under, and it decides that
+ * with this call rather than by re-deriving the per-axis rule at the call site. The two
+ * questions -- "is this drawing inside?" and "is this point inside?" -- are the same question
+ * about the same record, and this is the second spelling of it.
+ *
+ * A **NULL** clip contains everything, which is the same reading an empty stack answers: no
+ * boundary is in force, so nothing is excluded. An **empty** boundary contains nothing (see
+ * `robo_paint_clip_is_empty`), so the two states are opposite answers and neither is an error.
+ */
+int robo_paint_clip_contains(const robo_paint_clip_t *clip, robo_layout_point_t point);
+
+/** Non-zero when @p point is inside one axis's half-open interval. False for an active
+ *  axis the point is outside; true for an axis that bounds nothing. Safe on NULL (1). */
+int robo_paint_clip_axis_contains(const robo_paint_clip_axis_t *axis, int32_t coordinate);
+
 /** Field-by-field equality of both axes and both intervals. Safe on NULL. */
 int robo_paint_clip_equal(const robo_paint_clip_t *a, const robo_paint_clip_t *b);
 

@@ -1,7 +1,7 @@
 /*
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
  * display lists, 11.4 background painting, 11.5 border painting, 11.6 text painting,
- * 11.8 clipping.
+ * 11.8 clipping, 11.9 opacity, 11.10 hit testing.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -267,14 +267,90 @@
  * `backdrop-filter`, masks, `transform`, `transition`, `animation`, a compositor or its layers,
  * or opacity on anything but the drawings this build has -- images, gradients and shadows are
  * still absent, so a faded gradient is not a thing this build can be asked for yet.
+ *
+ * **11.10 -- hit testing**, and the first release of this module whose subject is not what is
+ * drawn at all. Every release above answers a question about the **sequence**: what will be
+ * drawn, in what order, bounded how, at what strength. This one answers the **inverse** -- given
+ * one point on the drawing plane, which node would be drawn there -- and the interesting thing
+ * about it is how little new machinery it needed. The geometry is RoboLayout's, the boundary in
+ * force is 11.8's record and the strength in force is 11.9's, so the phase is a *reader* of
+ * three conclusions rather than a fourth model of any of them.
+ *
+ * The decision that shapes it is where it lives. A new top-level subsystem is the natural
+ * reading of the phase and the wrong one: a module beside RoboPaint would have to either
+ * duplicate `robo_paint_clip_t` and `robo_paint_opacity_t` or depend on paint for two types and
+ * reach past it for the geometry -- two boundaries where there was one -- and what a hit test
+ * actually shares with the painter is deeper than the two records. It shares **the walk**: both
+ * accumulate a page origin, narrow a boundary and multiply a strength down the tree. So this is
+ * a subsystem *inside* RoboPaint with its own installed header, source, suite and family
+ * document, and **no new dependency edge** -- `RoboPaintHitTest.h` argues it at length.
+ *
+ * Four rules decide the answer, and each mirrors the painter exactly so that the two cannot
+ * disagree about a document:
+ *
+ *   **last drawn wins.** A box's own decorations are painted before its subtree and its children
+ *   are painted first-to-last, so the walk examines a box's children **before** the box and the
+ *   **last** child before the first. A document-order walk answers with the node *underneath*
+ *   the one on top, which is the classic hit-test bug and the reason the order is stated
+ *   first;
+ *
+ *   **a box's region is its border box.** A background fills it (11.4), a border band is inside
+ *   it and a content box is inside it, so the three layers' union is the border box for every
+ *   kind of box this build has -- and a box that draws *nothing* is still an answer, because CSS
+ *   hits a transparent `div` over its whole border box. Painting nothing is not the same as
+ *   being absent, and the alternative would need `pointer-events` machinery this build has
+ *   none of;
+ *
+ *   **the boundary clips the contents, never the box** -- 11.8's arrangement read backwards, and
+ *   the direction a naive hit test gets wrong invisibly. A child outside an `overflow: hidden`
+ *   ancestor's boundary must not be hit while that **ancestor's own border band** must still be,
+ *   so the walk enters a box under the boundary in force and descends into its children under
+ *   the boundary that box's own `overflow` puts in force;
+ *
+ *   **opacity does not affect hit testing, `opacity: 0` included.** CSS governs hit testing with
+ *   `pointer-events`, not with `opacity` -- a fully transparent element still receives a point,
+ *   because an author who wanted otherwise would have written `pointer-events: none` or
+ *   `display: none`. This build has no `pointer-events`, so the property's initial value applies
+ *   and the strength travels in the **result**, where a later phase implementing the property
+ *   finds the number already.
+ *
+ * Three further decisions worth stating, because each had a plausible alternative:
+ *
+ *   **the region 10.13 measured has a consumer at last.** A point outside a box's **region** --
+ *   its border box grown by the extents its contents reached past it -- cannot be on any node
+ *   beneath it, so the walk tests that one rectangle before descending. That is what makes a
+ *   query proportional to the boxes the point is near rather than to the document, and it is why
+ *   `rejected_region` exists beside `rejected_clip`: the two reasons a subtree was skipped are
+ *   different questions with different answers;
+ *
+ *   **a stale tree is refused, and the refusal is an outcome rather than an error.** A hit test
+ *   against half-computed geometry is not a *less accurate* answer, it is a **wrong** one: it
+ *   names whichever node holds a stale rectangle, and a caller about to dispatch a click on that
+ *   answer would deliver it to a node the user is not pointing at. So `ROBO_PAINT_HIT_STALE`
+ *   carries no node, exactly as `ROBO_PAINT_PASS_STALE` carries no list;
+ *
+ *   **the answer is a snapshot.** The result copies the identity, both coordinate spaces, the
+ *   geometry and the two states in force rather than referencing the tree, so a style change
+ *   after a query cannot rewrite a conclusion already drawn -- the rule 11.9's records follow,
+ *   for the same reason.
+ *
+ * What the release does **not** claim: **event dispatch** (the result names one node, and walking
+ * up to the nearest element that could listen is Phase 12's), event bubbling, `pointer-events`,
+ * caret or character mapping inside a text run, text selection, `visibility` (the property is
+ * registered and consumed by *nobody* in this runtime, so reading it here would make a hit test
+ * refuse a point on something visibly drawn -- the limitation is stated rather than papered
+ * over), `border-radius` or `clip-path`-shaped hit regions, masks, filters, transforms, alpha or
+ * SVG geometry, scroll offsets, zoom, device-pixel-ratio scaling, `:hover`-style state, focus
+ * management, or a compositor-level hit test. Hit testing is over the rectangles the painter
+ * draws, and every one of those needs a shape or a space this build does not have.
  */
 #ifndef ROBO_PAINT_VERSION_H
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 8
+#define ROBO_PAINT_VERSION_MINOR 9
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.8.0"
+#define ROBO_PAINT_VERSION_STRING "0.9.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0

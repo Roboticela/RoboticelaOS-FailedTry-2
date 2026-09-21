@@ -30,6 +30,9 @@
 
 #include "RoboPaint/RoboPaint.h"
 
+#include "RoboCSS/RoboCSSColor.h"
+#include "RoboCSS/RoboCSSComputed.h"
+
 #include <stdint.h>
 
 /** The largest coordinate this module will carry: the geometry type's own maximum. */
@@ -104,6 +107,41 @@ robo_result_t robo_paint_border_widths(const robo_layout_border_edges_t *borders
 robo_result_t robo_paint_padding_widths(const robo_layout_padding_edges_t *padding,
                                        int32_t out_widths[ROBO_CSS_BOX_SIDE_COUNT],
                                        robo_paint_diag_t *diag);
+
+/* ------------------------------------------------------------------ */
+/* Reading a declaration out of a computed style                       */
+/* ------------------------------------------------------------------ */
+
+/*
+ * The **element-level** reads, shared by the two traversals this module has: the paint walk
+ * (`RoboPaintContext.c`) and the hit-test walk (`RoboPaintHitTest.c`).
+ *
+ * They are declarations of privately-linked functions rather than entries in a public header,
+ * and the boundary is the point: `background-color` and `opacity` are properties whose meaning
+ * is *this module's* -- paint-visible and layout-invisible, which 10.14 classifies as the pair
+ * RoboLayout deliberately ignores -- so a reader of them belongs where the drawing decisions
+ * are made and not in the module's installed surface. A second traversal that had to re-decide
+ * "which computed value kind is an opacity" would be a second answer to a question whose whole
+ * hazard is reading a `200px` width as an opacity of `200`.
+ */
+
+/** The `COLOR` value of @p property in @p style, or a `NONE` colour. */
+robo_css_color_t robo_paint_property_color(const robo_css_computed_style_t *style,
+                                          const char *property);
+
+/** The element's own computed `color`, or a `NONE` colour. */
+robo_css_color_t robo_paint_element_color(const robo_css_computed_style_t *style);
+
+/**
+ * The opacity @p style declares, or the **fully opaque** record when it declares none.
+ *
+ * `opacity`'s computed-value kind is checked rather than its magnitude, and absent and
+ * `opacity: 1` answer the same record deliberately -- see the definition's own comment, which
+ * is where the three traps are written down. A **text run** must not be asked: a run borrows its
+ * parent element's style, so the element's own declaration is already the scope the run sits
+ * inside, and asking again would square it.
+ */
+robo_paint_opacity_t robo_paint_element_opacity(const robo_css_computed_style_t *style);
 
 /* ------------------------------------------------------------------ */
 /* Text building                                                       */

@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.8)
+# RoboPaint Test Organisation (through Phase 11.10)
 
-Nine suites, 134 tests, one framework. Each phase adds no test runner, no reporter and no
+Twelve suite files, **187** cases, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,9 +8,13 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the nine suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the twelve suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
+
+The count is the `paint.*` prefix's, read from a run rather than from this table: a `--filter`
+that matched a suite's *own* prefix reports 187, and the six `demo.paint.*` cases of the visual
+demo come with it because the filter is a substring match.
 
 ---
 
@@ -23,11 +27,12 @@ which is the "explicit over discovered" rule the rest of the tree follows.
 | `SuiteRoboPaintConformance.c` | `paint.conformance.*` | 5 | does the build's own surface — capabilities, vocabulary names, the drawing claim — say what the module claims? |
 | `SuiteRoboPaintRecords.c` | `paint.records.*` | 13 | is the record model what it claims *as a model* — a regular sequence, an explicit content boundary, a snapshot that does not move, ownership that copies? |
 | `SuiteRoboPaintDisplayList.c` | `paint.display.*` | 13 | does the display list *resolve* the box model (one rectangle per command), *preserve* the order and identity, *refuse* a record list that is not a document, and *snapshot* what it consumes? |
-| `SuiteRoboPaintBackground.c` | `paint.background.*` | 14 | does the colour cross into RoboGraphics, does a document's `background-color` land **where the list said it would** (read back from the surface), and do the pass's counters add up on a document and on a hand-built list? |
+| `SuiteRoboPaintBackground.c` | `paint.background.*` | 13 | does the colour cross into RoboGraphics, does a document's `background-color` land **where the list said it would** (read back from the surface), and do the pass's counters add up on a document and on a hand-built list? |
 | `SuiteRoboPaintBorder.c` | `paint.border.*` | 14 | does a border side's **band** get filled (read back from the surface), does its **style** survive record → command, do four sides of four different widths and colours land exactly where the box model says, and does a child spilling over its parent draw over the parent's border rather than under it? |
 | `SuiteRoboPaintText.c` | `paint.text.*` | 17 | do a run's **characters** travel record → pool → display pool → pixels, are they counted in **code points**, is the baseline layout's rather than a second one, does an unmapped code point become a counted `.notdef`, and does a list keep drawing after the records it was built from are gone? |
 | `SuiteRoboPaintClip.c` | `paint.clip.*` | 24 | is the boundary a **scope** — does the intersection hold, does a scope appear exactly when the boundary *changed*, is the box's own decoration outside it, is the effective clip inside a nested scope the intersection of the two, does every drawing kind stop at it, and does an empty one suppress drawing without poisoning the walk? |
 | `SuiteRoboPaintOpacity.c` | `paint.opacity.*` | 28 | is a drawing's **strength** a product along a path rather than a replacement — does a scope appear exactly when the strength *changed*, does it open at the box's marker rather than its content boundary, does every drawing kind receive it, do the pixels equal the graphics module's own blend of the opaque ones, does a sibling stay unaffected, and is the gap from CSS's group semantics measured rather than hidden? |
+| `SuiteRoboPaintHitTest.c` | `paint.hit-test.*` | 26 | does the **inverse** query hold — is the answer the last node *drawn* at the point rather than the first in document order, is the region the border box (including a transparent one, and excluding an empty one), does a `overflow: hidden` ancestor clip its children while its own band stays hittable, does a strength not gate, and does the answer match both the painter's records and the **pixels**? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -154,7 +159,7 @@ A `draw-border`'s line carries one field no other kind has: `style=`, the style 
 band (11.5). It is the one piece of a command a reader could not otherwise tell from a `solid`
 one, which is exactly the fact the field exists to carry.
 
-### 1.8 — the background pass (`paint.background.*`, 14 cases)
+### 1.8 — the background pass (`paint.background.*`, 13 cases)
 
 The Phase 11.4 suite, and it is the first in this module that **reads a surface back**:
 
@@ -354,7 +359,58 @@ One suite, four levels, each pinning a layer of the claim rather than a document
 - `drawing_present` — `ROBO_PAINT_DRAWING_IMPLEMENTED`, `capabilities.drawing` and
   `robo_paint_drawing_is_implemented()` all agree, and all say 1; `background_painting`,
   `border_painting`, `text_painting`, `clipping` and `opacity` say which parts of the pipeline exist
-  and `raster` still says 0.
+  and `raster` still says 0. `hit_testing` joined the 1s at 11.10, and the case asserts it is 1
+  while `raster` is still 0 — which is the point: the query does not draw, so the two fields do not
+  move together.
+- The `capabilities` row list carries a `hit_testing` entry of its own, so a field added without an
+  assertion stays a visible omission rather than a silent one.
+
+### 1.14 — the hit-test suite (`paint.hit-test.*`, 26 cases)
+
+The Phase 11.10 suite, and the first in this module whose subject is a **question** rather than a
+drawing. Every case builds a real document through the real chain and queries the real tree, and
+**no coordinate is a literal**: each one comes from the painter's own `BEGIN_BOX`/`TEXT` record for
+the node in question, so a fixture that gains a wrapper or a margin cannot silently assert about the
+wrong rectangle.
+
+- **the geometry** (`inside_and_outside`, `region_is_border_box`, `empty_boxes`) — a point inside a
+  box is on it and a point outside the document is on nothing; a box with **no background at all** is
+  still the answer over its whole border box; and a `100×0` or `0×100` box is empty, so not even its
+  own corner is a hit.
+- **the tree** (`nested_and_fallback`, `descendant_over_ancestor`) — a point inside the child resolves
+  to the child, and to the ancestor only where no descendant is there.
+- **the order** (`overlapping_siblings`, `overlap_is_by_drawing`) — three overlapping siblings where
+  the **middle** one is on top: the case that catches a walk which merely reversed the wrong thing,
+  and the one that pins reverse traversal as a rule rather than as a coincidence of one fixture.
+- **the boundary** (`clip_contents_not_box`, `clip_inside_matches_painter`, `clip_nested`,
+  `clip_empty`, `clip_contains_door`) — the clipped child outside its ancestor's boundary is **not**
+  the answer while that ancestor's own border band **is**; a point inside the boundary agrees with
+  what the painter emitted for the same node; nested boundaries intersect; an empty boundary
+  suppresses every hit under it without poisoning the walk; and `robo_paint_clip_contains` is pinned
+  as the one door both walks read.
+- **the strength** (`opacity_does_not_gate`, `opacity_nested_matches_painter`) — including
+  `opacity: 0`, because CSS governs this with `pointer-events` and this build has none. The case
+  asserts the hit **and** the strength the result carries, since the second is what a later phase
+  needs.
+- **the CSS state** (`display_none`, `visibility_is_not_consumed`) — a `display: none` element builds
+  no box and cannot be hit, and `visibility` is recorded as **not consumed by any layer**, so the
+  case states the limitation instead of inventing behaviour.
+- **text** (`text_run`) — a point in a measured run resolves to the **run**, with the text flag and
+  the text node's handle.
+- **the answer** (`result_model`, `safety`, `mutation_isolation`, `determinism`) — validity refuses an
+  identity that disagrees with the outcome and geometry that is not a record; an empty DOM, a missing
+  tree and an invalid point are answers rather than crashes; a mutation afterwards does not rewrite a
+  conclusion already drawn; and the same tree and point produce equal results across repeats.
+- **the counters · the trace · the agreement** (`stats_identities`, `dump`,
+  `matches_the_paint_list`, `end_to_end`) — the three identities hold, the dump's widest line is
+  **measured** against `ROBO_PAINT_HIT_TEST_LINE_MAX` rather than derived, the result's boxes, boundary
+  and strength equal what the painter emitted for the same node, and the whole chain runs on a
+  document using the box model, a nested child, a relative offset and both overflow modes.
+- **the screen** (`agrees_with_screen`) — the visual case: three opaque boxes, two overlapping because
+  `position: relative` moved one onto the other, painted into a real surface, with every probe
+  checked in both directions (the answer's own fill, read from the paint list, **is** the pixel).
+  The two halves are computed by different subsystems, so agreement is evidence rather than an
+  identity, and the miss probe's control is an **unpainted** pixel.
 - `vocabulary_exhaustive` — every kind and every domain prints a name that is not "unknown".
 - `document_list` — a whole document's list, pinned operation by operation.
 - `hostile_inputs` — NULL and malformed records refused rather than read.
@@ -636,3 +692,33 @@ Four, and the first is the one that would have shipped a wrong *picture* rather 
    no-op, which cannot be a contract when the first call frees the struct the magic-word guard lives
    in. A one-byte buffer and a line of prose; the phase's whole suite is clean under
    ASan + UBSan now (`Tests.md` §5).
+
+## 14. What the 11.10 suite found
+
+Three, and the first two are cases where an assertion written from reasoning about the *fixture*
+would have been wrong about the *document*.
+
+1. **A relatively positioned sibling does not end up above the one it flows after.** The visual
+   fixture's premise was written as "`.over`'s top is above `.under`'s" — and it is not, because
+   `.over` flows **below** `.under`, so a `top: -60px` carries it from `under.bottom` up to
+   `under.top + 20`. The offset was applied; the assertion was wrong. What the case asserts instead
+   is the fact that *can* only be true if the offset applied — `.over`'s final top is inside
+   `.under`'s vertical band, which normal flow alone can never produce — and the overlap the probes
+   use is **computed** as the intersection of the two rectangles rather than assumed from the
+   declarations. The probe that failed second was the same mistake one layer along: it was an
+   arithmetic guess at a point inside the overlap, and it landed outside `.under` entirely. Taking
+   the intersection's own midpoint cannot make that mistake.
+2. **`robo_gfx_rect_contains_point` is half-open, and a hit test must inherit that or invent a hole.**
+   A box's right and bottom edges are *outside* it while `right - 1` and `bottom - 1` are inside, and
+   the same rule makes **empty** boxes contain nothing at all — not even their own top-left corner.
+   Both ends are asserted (`region_is_border_box`, `empty_boxes`), because a walk that compared `<=`
+   on the edges would pass every interior case in this suite and report hits on boxes with no area.
+3. **`visibility` is registered and consumed by nobody.** `RoboCSSPropertyRegistry.c` knows the
+   property and no layer in this build reads it — RoboLayout builds the box, the painter paints it —
+   so there is no behaviour for a hit test to respect, and reading it anyway would make the query
+   refuse a point on something visibly drawn. The suite records the limitation as
+   `visibility_is_not_consumed` rather than papering over it, so the phase that teaches layout and
+   paint about `visibility` has a failing assertion pointing at the place that must change.
+
+**Gates:** Debug **2563/2563**; Release and ASan + UBSan **2563/2563** with no diagnostics — the
+paint module contributing **187** of them across its twelve suite files.

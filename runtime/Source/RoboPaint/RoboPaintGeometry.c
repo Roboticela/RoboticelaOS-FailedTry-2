@@ -428,6 +428,30 @@ int robo_paint_clip_is_empty(const robo_paint_clip_t *clip)
            robo_paint_clip_axis_is_empty(&clip->vertical);
 }
 
+int robo_paint_clip_axis_contains(const robo_paint_clip_axis_t *axis, int32_t coordinate)
+{
+    if (!axis || !robo_paint_clip_axis_is_active(axis)) {
+        /* No record, or an axis that bounds nothing: every coordinate is inside it. That is
+         * the direction this must fail in -- answering 0 would exclude every point of every
+         * document whose `overflow` is `visible`. */
+        return 1;
+    }
+    /* Half-open, the convention the interval is stated in: `start` is inside and `end` is
+     * not, which is what makes two abutting intervals tile without overlapping. An *empty*
+     * interval contains nothing at all, because `end <= start` leaves no coordinate that is
+     * both at or above the start and below the end. */
+    return coordinate >= axis->start && coordinate < axis->end;
+}
+
+int robo_paint_clip_contains(const robo_paint_clip_t *clip, robo_layout_point_t point)
+{
+    if (!clip) {
+        return 1;
+    }
+    return robo_paint_clip_axis_contains(&clip->horizontal, point.x) &&
+           robo_paint_clip_axis_contains(&clip->vertical, point.y);
+}
+
 /**
  * One axis of the intersection: @p existing bounded by @p start/@p end when @p mode
  * hides, carried through unchanged when it does not.

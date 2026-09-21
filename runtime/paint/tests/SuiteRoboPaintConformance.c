@@ -77,7 +77,12 @@ static const paint_capability_row_t paint_capability_rows[] = {
     /* 11.9's `opacity`: a strength in force is accumulated along the path, emitted as a
      * scope, carried on every command and applied to each drawing -- and the phase's own
      * suite pins it at the pixel, including the group-opacity deviation the header states. */
-    { "opacity", 1 }
+    { "opacity", 1 },
+    /* 11.10's `hit_testing`: a point resolves to the node drawn there, in reverse paint order,
+     * under the boundary that node's `overflow` puts in force -- and the phase's own suite pins
+     * each of the four rules separately, because one overlapping fixture would let three of them
+     * be wrong at once. */
+    { "hit_testing", 1 }
 };
 
 static void test_paint_conformance_capabilities(void)
@@ -157,14 +162,24 @@ static void test_paint_conformance_drawing_present(void)
     /* The sixth drawing-boundary claim, and the one that is about strength rather than space:
      * an element's `opacity` reaches the raster's own global opacity, per drawing. */
     ROBO_CHECK_EQ_INT(capabilities.opacity, 1);
+    /* And the seventh claim, the first here that is not about drawing at all: the module can be
+     * asked the **inverse** question, which is what makes the answer's four rules (reverse paint
+     * order, the border box as the region, the contents' boundary versus the box's own, and a
+     * strength that does not gate) a property of the build rather than of a header. */
+    ROBO_CHECK_EQ_INT(capabilities.hit_testing, 1);
     ROBO_CHECK_EQ_INT(capabilities.raster, 0);
+    /* A hit test is not a drawing, so the two do not move together: `raster` stays 0 while
+     * `background_painting`, `border_painting`, `text_painting`, `clipping`, `opacity` and
+     * `hit_testing` are all 1. */
+    ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
+    ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
 
-    /* The version this build reports is 0.8.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.9.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
      * still add to this surface. */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 8);
+    ROBO_CHECK_EQ_INT((int)minor, 9);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -213,7 +228,10 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
      * whole point of the table being a table.
      */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 14);
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 11);
+    /* 11.10 appended the hit test's domain, which is the only vocabulary 11.10 changes: it
+     * adds a module of its own beside the traversal rather than an operation kind, because a
+     * hit test produces an **answer** and not a drawing. */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 12);
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
         int is_structural = robo_paint_op_kind_is_structural(kind);

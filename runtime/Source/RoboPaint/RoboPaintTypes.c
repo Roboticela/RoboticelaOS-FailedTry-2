@@ -149,7 +149,8 @@ static const char *const paint_domain_names[ROBO_PAINT_DOMAIN_COUNT] = {
     "clip",
     "dump",
     "display-list",
-    "opacity"
+    "opacity",
+    "hit-test"
 };
 
 int robo_paint_domain_is_known(robo_paint_diagnostic_domain_t domain)

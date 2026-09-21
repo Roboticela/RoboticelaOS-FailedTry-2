@@ -296,6 +296,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayDump.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintColor.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintText.c"),
+    (Join-Path $SourceDir "RoboPaint\RoboPaintHitTest.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintDecoration.c")
 )
 # RoboDemo — throwaway visual-checkpoint layer (Phase 8.2 demo). Host-only:
@@ -512,6 +513,7 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintText.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintClip.c"),
     (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintOpacity.c"),
+    (Join-Path $RuntimeRoot "paint\tests\SuiteRoboPaintHitTest.c"),
     (Join-Path $RuntimeRoot "demo\tests\SuiteRoboDemoHtml.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),

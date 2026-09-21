@@ -1,8 +1,8 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.9, opacity**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.10, hit testing**).
 
-**Version:** 0.8.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.9.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a display command's
@@ -14,15 +14,18 @@ drawings and a pass that consumed a whole list does not exist.
 `robo_paint_drawing_is_implemented()` agrees with the constant, and
 `background_painting`/`border_painting`/`text_painting`/`clipping`/`opacity` say *which* parts of
 the pipeline exist — a caller deciding whether to look for a surface reads the function; one
-deciding whether to *make* one reads the fields.
+deciding whether to *make* one reads the fields. `hit_testing` (11.10) is the sixth field and the
+first that is not about drawing: the module can also be asked the **inverse** question, and the
+answer carries the geometry, the boundary and the strength the painter would use.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
 RoboPaint turns those answers into a **sequence of work** a rasteriser executes, 11.3 turns
 that sequence into the **artifact** a rasteriser consumes, 11.4–11.6 put the first colours —
 and the first **characters** — on a surface, 11.8 makes the **boundary** those drawings are
-bounded by an explicit, nested scope in that artifact, and 11.9 gives every drawing a
-**strength** that accumulates down the tree and is applied in the same pass.
+bounded by an explicit, nested scope in that artifact, 11.9 gives every drawing a
+**strength** that accumulates down the tree and is applied in the same pass, and 11.10 asks
+the whole thing **backwards** — a point in, the node drawn there out.
 
 ```text
 HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → push-clip / push-opacity / draw-background / draw-border / draw-text / pop-opacity / pop-clip → RoboGraphics raster → surface
@@ -293,6 +296,45 @@ result. That gap is asserted rather than hidden (`paint.opacity.group_deviation`
 answers through the graphics module's own blend), and closing it needs an offscreen layer, which
 is a compositor.
 
+## The fourteenth structural decision: the query is a second reader, not a second model
+
+**Hit testing is a reader of what the other stages concluded, and it walks the tree with the same
+shape as the painter so that the two cannot disagree about a document.**
+
+`robo_paint_hit_test()` takes a point in paint coordinates and a `const` tree, and allocates
+nothing. Everything in the answer already existed — the rectangles come from
+`robo_paint_boxes_of()` (the border box, the three layers, the subtree bound), the boundary in
+force from 11.8's record, the strength in force from 11.9's — and what the walk adds is the
+**order** in which those are consulted:
+
+```text
+subtree bound  →  the boundary in force  →  children, last first  →  the box itself
+```
+
+Four rules follow, and each is a decision rather than an implementation detail (the full argument
+is in `paint/docs/HitTest.md` §3):
+
+- **last drawn wins.** Children before their parent, and the *last* child before the first,
+  because the painter draws them first-to-last and the node on top is the one that answers. A
+  document-order walk answers with the box underneath, which is the classic hit-test bug;
+- **a box's own region is its border box.** It is the union of everything the box could paint
+  into, and CSS hits a transparent `div` over all of it, because painting nothing is not the same
+  as being absent. An **empty** rectangle (zero width or zero height) contains no point at all,
+  not even its own corner;
+- **the boundary clips the contents, never the box.** This is 11.8's arrangement read backwards:
+  the walk enters a box under the boundary in force and descends into its children under the
+  boundary *that box's own `overflow`* puts in force — so a hidden ancestor's child outside the
+  boundary is not hit, while that ancestor's own border band still is;
+- **a strength does not gate.** `opacity: 0` does not suppress a hit, because CSS governs this
+  with `pointer-events` and this build has none. The strength travels in the **result** anyway, so
+  the phase that adds `pointer-events` has the number already.
+
+Two things the answer is **not**. It is not a **reference**: the result copies every fact in, so a
+mutation afterwards cannot rewrite a conclusion already drawn. And it is not **event dispatch**:
+walking up to the nearest element that could listen and deciding whether an event is a `click`
+are Phase 12's, which is why the record carries both the layout id (what validates) and the DOM
+handle (what the layer above consumes) and guesses at nothing else.
+
 ## Geometry is borrowed, not defined
 
 There are no new coordinate types. `RoboGraphicsGeometry.h` defines the canonical pixel
@@ -307,7 +349,7 @@ flip in.
 | Header | Surface |
 |---|---|
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
-| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (14, `NONE` included), `robo_paint_diagnostic_domain_t` (10), their predicates and name doors |
+| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (14, `NONE` included), `robo_paint_diagnostic_domain_t` (11), their predicates and name doors |
 | `RoboPaintDiagnostics.h` | `robo_paint_diag_t` and the `ROBO_PAINT_DIAG` macro |
 | `RoboPaintGeometry.h` | `robo_paint_boxes_t`, `robo_paint_clip_t`, `robo_paint_boxes_of`, `robo_paint_clip_intersect` |
 | `RoboPaintClip.h` | `robo_paint_clip_stack_t` — the LIFO of clip records a flat sequence is read against: push, pop, current, depth, reset (11.8) |
@@ -322,6 +364,7 @@ flip in.
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` — the developer's view of the display list (11.3) |
 | `RoboPaintColor.h` | `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` — the one-way colour bridge to RoboGraphics (11.4) |
 | `RoboPaintText.h` | `robo_paint_text_run_t`, `robo_paint_text_span_t`, `robo_paint_text_pool_t` — the code-point payload and the one container that owns it (11.6) |
+| `RoboPaintHitTest.h` | `robo_paint_hit_test`, `robo_paint_hit_test_result_t`, `robo_paint_hit_test_stats_t`, the four outcomes and the three flags — the inverse query, and its trace (11.10) |
 | `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands, strokes a run's glyphs and applies the strength they are drawn at, into a surface (11.4–11.6, 11.9) |
 
 ## Lifecycle
@@ -351,7 +394,8 @@ because nothing in an operation points anywhere.
 | `paint/docs/Text.md` | The code-point pool and its span, the text record and its baseline, where a run sits in the sequence, glyph resolution and who prepares the face, the counters, and what is deferred to 11.7 and to Phase 14 (11.6) |
 | `paint/docs/Clipping.md` | The boundary as a scope: the clip stack, the canonical empty interval, where a scope is emitted and why the box's own decoration is outside it, the builder's eleven refusals, the pass's one application point, and what is deferred (11.8) |
 | `paint/docs/Opacity.md` | The strength: the record and its two invalid directions, where a scope is emitted and why that is *not* where the clip's is, the builder's eight refusals, the pass's one application point, the counters, and the group-compositing gap stated with the case that measures it (11.9) |
-| `paint/docs/Tests.md` | Suite map (ten suites, 162 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.9 found |
+| `paint/docs/HitTest.md` | The inverse query: why it lives in RoboPaint, the coordinate model, the four rules (last drawn wins, the border box as the region, the contents' boundary versus the box's own, a strength that does not gate), the result and its flags, the counters and their three identities, what the walk refuses, the trace's five reasons, and the screen-agreement case (11.10) |
+| `paint/docs/Tests.md` | Suite map (twelve suite files, 187 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.10 found |
 
 ## Building and testing
 
@@ -361,7 +405,7 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ./Out/RoboTest.host.exe --filter paint.
 ```
 
-**162** of the cases the filter reports are this module's (**ten** suites); the filter is a
+**187** of the cases the filter reports are this module's (**twelve** suite files); the filter is a
 substring match, so the six `demo.paint.*` cases of the visual demo come with them
 (`paint/docs/Tests.md` §1).
 
@@ -394,13 +438,17 @@ surface and a face are always the *caller's* arguments and never a query.
   modes, filters and masks.
 - **Rectangular clipping of a box's contents, and nothing else.** A box whose used `overflow`
   *changes* the boundary in force opens a scope: `push-clip`, its contents, `pop-clip`
-  (11.8). What is not here is rounding, `clip-path`, masks and filters; clip-aware hit testing
-  (11.10); scroll clipping (nothing scrolls); and compositor- or tile-level clipping. The
-  boundary is enforced in one place — the pass's own stack — for every drawing kind, so no
-  painter carries a second copy of the rule.
+  (11.8). What is not here is rounding, `clip-path`, masks and filters; scroll clipping (nothing
+  scrolls); and compositor- or tile-level clipping. The boundary is enforced in one place — the
+  pass's own stack — for every drawing kind, so no painter carries a second copy of the rule.
 - **No scrolling**, and no scroll offsets — 10.13 recorded the overflow; nothing scrolls it.
-- No **paint invalidation** (11.11) and no **hit testing** (11.10) — the final positioned
-  geometry is preserved for both, but neither is built here.
+- No **paint invalidation** (11.11) — the final positioned geometry is preserved for it, but it
+  is not built here. Hit testing *is* built (11.10), and it is the first facility this module has
+  that answers a question rather than drawing an answer: the point it takes is in the **same
+  plane** the drawings land on, because there is no scroll offset, transform or zoom to undo.
+- **No event dispatch, and no `pointer-events`.** A hit test names one node; bubbling, focus and
+  delivery are Phase 12's, and `pointer-events: none` does not exist in this build — so a node at
+  `opacity: 0` is still the answer, and says so through `ROBO_PAINT_HIT_FLAG_TRANSPARENT`.
 - No **`background-clip`** or **`background-origin`**: the painting area is the border box,
   which is CSS's own initial value rather than a simplification of it.
 - No **`z-index`** or stacking context. The traversal is document order; a flat list with

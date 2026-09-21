@@ -348,10 +348,19 @@ document with no `opacity` in it produces byte-identical output.
 `border-radius` and rounded clipping, `clip-path`, masks, filters, transforms, `mix-blend`,
 scrolling and scroll containers (a clipped box does not scroll in this build — the boundary is a
 boundary and nothing more), overflow clipping for absolute/fixed/sticky positioning (11.12+ has no
-such positioning yet), compositor-level and tile-level clipping, GPU clip scheduling, hit testing
-that consults the boundary (11.10), paint invalidation (11.11), display-list replay and rasterisation
-architecture. `raster` stays **0** and `ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: this phase
-removes none of the drawings and adds none.
+such positioning yet), compositor-level and tile-level clipping, GPU clip scheduling, paint invalidation (11.11),
+display-list replay and rasterisation architecture. `raster` stays **0** and
+`ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: this phase removes none of the drawings and adds none.
+
+**Hit testing (11.10) is no longer on that list**, and the phase added nothing to this file's subject
+to take it off. It reads the boundary in force from the same record the pass does, through
+the same `robo_paint_clip_contains()` — so a `overflow: hidden` box clips what is *hit* exactly where
+it clips what is *drawn*, with no second copy of the rule and no second intersection. What 11.10
+decided about the boundary was **which rectangle the box's own region is tested against**, and the
+answer is the one this file's arrangement implies: the box is entered under the boundary in force,
+and its children under the boundary its own `overflow` puts in force (`HitTest.md` §3.3). "Hit
+testing that consults the boundary" was never a separate feature — it was this file's record, read
+once from the other direction.
 
 The shape an advanced phase fills in is already right:
 
@@ -360,6 +369,7 @@ this build      box overflow → per-axis record → push/pop scope → rectangl
 Phase 11.12     the same record, carried into a stacking context and a display-list replay
 ```
 
-**Next:** 11.9 — image painting, the fourth drawing kind and the second non-numeric payload, which
-has to decide whether an image is a pool of encoded bytes or a reference to a decoded surface — and
-which now inherits a clip it gets for free.
+**Next:** 11.11 — paint invalidation, which has to decide what a *drawing* depends on and when a
+recorded sequence is stale, and which now has a second reader to keep honest: a boundary that moved
+without invalidating the paint list would leave the hit test and the painter agreeing about a
+document that is no longer there.

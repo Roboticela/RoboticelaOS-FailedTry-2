@@ -41,6 +41,11 @@
 #include "RoboPaint/RoboPaintOperation.h"
 #include "RoboPaint/RoboPaintText.h"
 
+/* The three element-level style reads this file defines are shared with 11.10's hit-test
+ * walk (`RoboPaintInternal.h` argues why they are privately linked rather than installed),
+ * so the header is included here to check the definitions against their declarations. */
+#include "RoboPaintInternal.h"
+
 #include "RoboMem/RoboMem.h"
 #include "RoboUnicode/RoboUnicode.h"
 
@@ -95,8 +100,8 @@ const char *robo_paint_pass_outcome_name(robo_paint_pass_outcome_t outcome)
  */
 
 /** The `COLOR` value of @p property in @p style, or a `NONE` colour. */
-static robo_css_color_t paint_property_color(const robo_css_computed_style_t *style,
-                                            const char *property)
+robo_css_color_t robo_paint_property_color(const robo_css_computed_style_t *style,
+                                          const char *property)
 {
     const robo_css_computed_value_t *value;
 
@@ -113,9 +118,9 @@ static robo_css_color_t paint_property_color(const robo_css_computed_style_t *st
 }
 
 /** The element's own computed `color`, or a `NONE` colour. */
-static robo_css_color_t paint_element_color(const robo_css_computed_style_t *style)
+robo_css_color_t robo_paint_element_color(const robo_css_computed_style_t *style)
 {
-    return paint_property_color(style, "color");
+    return robo_paint_property_color(style, "color");
 }
 
 /* ------------------------------------------------------------------ */
@@ -149,7 +154,7 @@ static robo_css_color_t paint_element_color(const robo_css_computed_style_t *sty
  */
 
 /** The opacity @p style declares, or the fully opaque record when it declares none. */
-static robo_paint_opacity_t paint_element_opacity(const robo_css_computed_style_t *style)
+robo_paint_opacity_t robo_paint_element_opacity(const robo_css_computed_style_t *style)
 {
     const robo_css_computed_value_t *value;
 
@@ -393,11 +398,11 @@ static robo_result_t paint_box_decorations(robo_paint_context_t *context,
         context->stats.without_style++;
         return ROBO_OK;
     }
-    element_color = paint_element_color(computed);
+    element_color = robo_paint_element_color(computed);
 
     /* The background: `background-color`, which is `transparent` until an author says
      * otherwise. Painted over the **border box**, CSS's initial `background-clip`. */
-    color = paint_property_color(computed, "background-color");
+    color = robo_paint_property_color(computed, "background-color");
     paint_resolve_color(color, element_color, 0, &color, &draws, &contextual);
     if (contextual) {
         context->stats.contextual_colors++;
@@ -647,8 +652,8 @@ static robo_result_t paint_emit_text(robo_paint_context_t *context,
      * usable `color` draws no text, counted rather than guessed at.
      */
     computed = robo_layout_object_style(tree, id);
-    element_color = paint_element_color(computed);
-    color = paint_property_color(computed, "color");
+    element_color = robo_paint_element_color(computed);
+    color = robo_paint_property_color(computed, "color");
     /* `color`'s initial value is not "nothing": an undeclared text colour is the
      * element's resolved colour, so the `default_for_none` flag is set here exactly as it
      * is for a border, and for the same reason. */
@@ -792,7 +797,7 @@ static robo_paint_opacity_t paint_child_opacity(robo_paint_context_t *context,
                                                robo_layout_node_id_t id,
                                                const robo_paint_opacity_t *opacity)
 {
-    robo_paint_opacity_t declared = paint_element_opacity(robo_layout_object_style(tree, id));
+    robo_paint_opacity_t declared = robo_paint_element_opacity(robo_layout_object_style(tree, id));
 
     if (!robo_paint_opacity_is_opaque(&declared)) {
         context->stats.opacity_declared++;

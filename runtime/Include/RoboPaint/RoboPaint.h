@@ -65,6 +65,7 @@
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintDump.h"
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintHitTest.h"
 #include "RoboPaint/RoboPaintList.h"
 #include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintOperation.h"
@@ -231,6 +232,20 @@ typedef struct robo_paint_capabilities {
      * every one of which needs the offscreen buffer the group form would need as well.
      */
     int opacity;
+    /**
+     * **Hit testing** (11.10), and **1**: a point in paint coordinates resolves to the layout
+     * node that would be drawn there, respecting the painter's order, the boundary its `overflow`
+     * puts in force and the geometry RoboLayout concluded.
+     *
+     * The sixth field, and the first that is not about *drawing* at all: it is the **inverse**
+     * question, asked of the same tree and answered by the same records. What it claims is a
+     * **node** -- a box or a text run, its geometry, and the two states in force on it -- and the
+     * two things a caller must not read into it are that it delivers events (it does not; walking
+     * up to the nearest element that could listen is Phase 12's) and that opacity suppresses it
+     * (it does not: a node at `opacity: 0` is still the answer, because CSS governs hit testing
+     * with `pointer-events` and this build has none).
+     */
+    int hit_testing;
 } robo_paint_capabilities_t;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

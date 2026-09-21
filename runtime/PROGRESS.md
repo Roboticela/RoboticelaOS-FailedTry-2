@@ -5581,21 +5581,113 @@ three existing CSS suites, the three existing paint suites, `html/tests/SuiteRob
 `css/docs/{Opacity,Tests}.md`, `PROGRESS.md`, `ARCHITECTURE.md`, `DEPENDENCIES.md` and
 `.cursor/rules/runtime-plan.mdc`.
 
+## Goal 11.10 — Hit testing
+
+_Implemented. RoboPaint **0.9.0**, capability `hit_testing` = **1**; `raster` stays **0**._
+
+11.10 asks the painter's question **backwards**: given a point, which node is drawn there? Nothing
+about the document changes to make it possible -- the geometry is RoboLayout's, the boundary in
+force is 11.8's clip record, the strength in force is 11.9's opacity record, and the order is the
+traversal's -- so the goal adds a **reader** of those conclusions rather than a second model of any
+of them, and it lives in RoboPaint because a second walk with the painter's own shape is what makes
+"the two agree about a document" an assertion instead of a coincidence.
+
+| Piece | Where |
+|---|---|
+| The four outcomes (`NONE`, `ON_NODE`, `MISS`, `STALE`), the three flags, the result and its validity, the eight counters and their three identities | `RoboPaintHitTest.h/.c` |
+| `robo_paint_hit_test()` -- the reverse walk: subtree bound, boundary in force, children last-first, the box itself after them | `RoboPaintHitTest.c` |
+| `robo_paint_hit_test_write()` -- the header line plus one line per examined object, with the five-member reason column | `RoboPaintHitTest.c` |
+| The containment door both walks read (`robo_paint_clip_contains`) and the pixel it agrees with | `RoboPaintGeometry.h/.c` |
+| The third style reader made shareable -- the traversal's opacity/colour/font readers moved behind `RoboPaintInternal.h` | `RoboPaintContext.c/.h`, `RoboPaintInternal.h` |
+| The capability field, the version, and `ROBO_PAINT_DOMAIN_HIT_TEST` (11, count 12) | `RoboPaint.h`, `RoboPaintVersion.h`, `RoboPaintTypes.h/.c`, `RoboPaint.c` |
+
+The load-bearing decisions are that **the walk visits children last-first and tests the box after
+them** (the node that covers a point is the last one *drawn* there, so a document-order walk answers
+with the box underneath), that a box's **region is its border box** (the union of everything it could
+paint into -- CSS hits a transparent `div` over all of it, while an **empty** rectangle contains no
+point at all, not even its own corner), that the **boundary clips the contents and never the box** (a
+`overflow: hidden` ancestor's child outside the boundary is not hit while that ancestor's own border
+band still is -- 11.8's arrangement read backwards), and that a **strength does not gate** (`opacity:
+0` is still hit, because CSS governs this with `pointer-events` and this build has none; the strength
+travels in the result anyway so the goal that adds the property has the number).
+
+### What 11.10 found
+
+1. **A relatively positioned sibling does not end up above the one it flows after.** The visual
+fixture's premise was written as "`.over`'s top is above `.under`'s" -- and it is not, because
+`.over` flows **below** `.under`, so a `top: -60px` carries it from `under.bottom` up to
+`under.top + 20`. The offset was applied; the assertion was wrong. The case now asserts the fact that
+can *only* be true if the offset applied (`.over`'s final top is inside `.under`'s vertical band,
+which normal flow alone can never produce) and **computes** the overlap as the two rectangles'
+intersection rather than guessing at a point from the declarations -- the second failure was the same
+mistake one layer along, since the guessed probe landed outside `.under` entirely.
+2. **The containment rule is half-open, and a hit test must inherit it or invent a hole.** A box's
+right and bottom edges are *outside* it while `right - 1` and `bottom - 1` are inside, and the same
+rule makes an **empty** box contain nothing -- not even its own top-left corner. Both ends are
+asserted, because a walk comparing `<=` on the edges would pass every interior case in the suite and
+still report hits on boxes with no area.
+3. **`visibility` is registered in RoboCSS and consumed by nobody.** No layer in this build reads it
+-- RoboLayout builds the box and the painter paints it -- so there is no behaviour for a hit test to
+respect, and reading it here would make the query refuse a point on something visibly drawn. The
+suite records the limitation as a case (`visibility_is_not_consumed`) rather than papering over it,
+so the goal that teaches layout and paint about `visibility` has a failing assertion pointing at the
+place that must change.
+
+### Suite
+
+`paint/tests/SuiteRoboPaintHitTest.c` -- **26** cases under `paint.hit-test.*`: inside and outside,
+the border box as the region, empty boxes, nested fallback, overlapping siblings and the
+"overlap is by drawing" case that catches a walk which reversed the wrong thing, descendant over
+ancestor, five cases on the boundary (including the one where the ancestor's own band stays
+hittable), opacity that does not gate, `display: none`, the recorded `visibility` limitation, a text
+run, safety, determinism, mutation isolation, the counter identities, the result model, the dump,
+the agreement against the paint list, the whole chain end to end, and the **screen** case -- three
+opaque boxes, two overlapping, painted into a real surface, every probe checked in both directions
+(the answer's own fill, read from the paint list, **is** the pixel). No coordinate in the suite is a
+literal: each comes from the painter's own `BEGIN_BOX`/`TEXT` record for the node in question.
+
+### Gates
+
+| Gate | Result |
+|---|---|
+| `pwsh -File Tools/Build.ps1 -Configuration Debug -Test` | **2563/2563** |
+| `-Configuration Release` and `-Configuration Debug -Test -Sanitize` | build OK; **2563/2563**, no diagnostics |
+| `--filter paint.` | **187/187** across the twelve suite files (plus the six `demo.paint.*` cases, since the filter is a substring match) |
+| `robo check` | PASS -- Chromium independence **CLEAN**; the RoboPaint boundary source scan passes |
+
+### Files
+
+**Added:** `Include/RoboPaint/RoboPaintHitTest.h`, `Source/RoboPaint/RoboPaintHitTest.c`,
+`paint/tests/SuiteRoboPaintHitTest.c` (26 cases), `paint/docs/HitTest.md`.
+**Modified:** `RoboPaintGeometry.h/.c` (the `contains` door made shareable), `RoboPaintInternal.h`,
+`RoboPaintContext.c/.h` (three style readers un-static'd), `RoboPaintTypes.h/.c`,
+`RoboPaintOperation.h/.c` and the two existing paint fixtures (the new domain and kind row),
+`RoboPaint.h`, `RoboPaint.c`, `RoboPaintVersion.h`, `Tests/Main.c`, `Tools/Build.ps1`,
+`paint/tests/SuiteRoboPaint.c` and `paint/tests/SuiteRoboPaintConformance.c`,
+`paint/README.md`, `paint/docs/{Architecture,Clipping,DisplayList,Operations,Tests}.md`,
+`PROGRESS.md`, `ARCHITECTURE.md` and `.cursor/rules/runtime-plan.mdc`.
+
 ## Next
 
 - **Phase 11.7 — image painting, still not started.** It is the next drawing kind and the second
   non-numeric payload, and it asks the pool question again: a pool of encoded bytes, or a reference
   to a decoded surface -- a decision with different ownership consequences either way. It inherits
-  two things for free: a `draw-image` inside a clip scope is bounded by the scope's clip and drawn
-  at the scope's strength, through the same one application point every other drawing uses.
+  three things for free: a `draw-image` inside a clip scope is bounded by the scope's clip and drawn
+  at the scope's strength through the same one application point every other drawing uses, and a
+drawn image is now something a hit test answers about without a line changing -- the image's
+  element has a border box, and that is the region.
 
   It is also the one goal that can now **measure** what it lacks: `paint.opacity.group_deviation`
   already states, in pixels, what per-drawing strength does where a browser's flattened layer does
   something else -- so an image drawn inside a faded box is a case that already has an oracle.
-- **Phase 11.10 onwards** -- transforms, paint invalidation (11.11), hit testing (11.10), group
-  opacity (which needs an offscreen layer, and whose measured gap is `paint.opacity.group_deviation`),
-  and a rasteriser that consumes a whole list (`raster` is still **0**). The deferred tables in
-  `paint/README.md`, `paint/docs/Opacity.md` §12, `paint/docs/Clipping.md` §12,
-  `paint/docs/Decoration.md` §11, `paint/docs/Text.md` §10 and `paint/docs/Border.md` §6 name every
-  one of them, and `paint/docs/Architecture.md` §15 lists the rules the next goal may assume. Do not
-  start until requested.
+- **Phase 11.11 onwards** -- paint invalidation (11.11), which is the next goal and now has a second
+  reader to keep honest: a boundary or a strength that moved without invalidating the list would
+  leave the hit test and the painter agreeing about a document that is no longer there. Then
+  transforms, **event dispatch** (Phase 12, which consumes this goal's result rather than replacing
+  it), `pointer-events`, group opacity (which needs an offscreen layer, and whose measured gap is
+  `paint.opacity.group_deviation`), and a rasteriser that consumes a whole list (`raster` is still
+  **0**). The deferred tables in `paint/README.md`, `paint/docs/Opacity.md` §12,
+  `paint/docs/Clipping.md` §12, `paint/docs/HitTest.md` §11, `paint/docs/Decoration.md` §11,
+  `paint/docs/Text.md` §10 and `paint/docs/Border.md` §6 name every one of them, and
+  `paint/docs/Architecture.md` §15 lists the rules the next goal may assume. Do not start until
+  requested.

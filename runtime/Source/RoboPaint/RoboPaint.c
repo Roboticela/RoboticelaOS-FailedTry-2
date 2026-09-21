@@ -151,6 +151,28 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * `mix-blend-mode`, filters, `backdrop-filter`, masks, transforms or a compositor layer.
      */
     out->opacity = 1;
+    /*
+     * **1 from 11.10**, and the first field here that is not about *drawing* at all. Every field
+     * above answers a question about the sequence this module produces; this one says the module
+     * can also be asked the **inverse** question -- given a point, which node is drawn there --
+     * and that the answer respects the same four rules the sequence does: reverse paint order,
+     * the boundary a box's `overflow` puts in force for its contents, the strength in force, and
+     * the geometry RoboLayout concluded rather than recomputed.
+     *
+     * It is a field beside `raster` rather than a claim about it: a hit test is not a drawing and
+     * does not need one to exist. What it does **not** claim is event dispatch (the result names
+     * one node; walking up to the nearest element that could listen is Phase 12's), caret or
+     * character mapping inside a run, rounded or clipped shapes, `visibility`, scrolling, zoom or
+     * device-pixel-ratio handling, transforms, or any part of `pointer-events` -- this build has
+     * none of those, so hit testing is over the rectangles the painter draws and nothing else.
+     *
+     * The one rule worth reading twice, because it is the opposite of what a reader expects: an
+     * element at `opacity: 0` **is** hit-testable. CSS governs that with `pointer-events`, not
+     * with `opacity`, and this build has no `pointer-events` -- so the property's initial value
+     * applies and the strength travels in the result instead, where a caller that one day does
+     * implement the property will find the number already rather than having to add it.
+     */
+    out->hit_testing = 1;
     return ROBO_OK;
 }
 

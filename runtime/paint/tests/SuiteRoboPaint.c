@@ -141,10 +141,13 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.8.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.9.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 8);
+    /* 11.10 is the release that asks the painter's question backwards, and a hit test produces
+     * an **answer** rather than a drawing -- so the version moved and
+     * `ROBO_PAINT_DRAWING_IMPLEMENTED` beside it did not. */
+    ROBO_CHECK_EQ_INT((int)minor, 9);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement -- and since 11.4 (backgrounds), 11.5
@@ -304,13 +307,13 @@ static void test_paint_domain_vocabulary(void)
 {
     static const char *const expected[ROBO_PAINT_DOMAIN_COUNT] = {
         "none", "module", "context", "operation", "list", "geometry", "traversal", "clip",
-        "dump", "display-list", "opacity"
+        "dump", "display-list", "opacity", "hit-test"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 11);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 12);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_NONE, 0);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_GEOMETRY, 5);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_DUMP, 8);
@@ -318,6 +321,9 @@ static void test_paint_domain_vocabulary(void)
     /* 11.9's domain, appended beside the display list's for the same reason: the module's own
      * failures are reported by the module that owns the failing thing. */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_OPACITY, 10);
+    /* And 11.10's, appended after it: the hit test's walk is not the paint pass's walk even
+     * where the two report the same shape of failure. */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_HIT_TEST, 11);
     for (index = 0u; index < (size_t)ROBO_PAINT_DOMAIN_COUNT; index++) {
         ROBO_CHECK_EQ_INT(robo_paint_domain_is_known((robo_paint_diagnostic_domain_t)index), 1);
         ROBO_CHECK_STR_EQ(robo_paint_domain_name((robo_paint_diagnostic_domain_t)index),

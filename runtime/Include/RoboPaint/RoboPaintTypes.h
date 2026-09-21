@@ -349,11 +349,21 @@ typedef enum robo_paint_diagnostic_domain {
      * pushed that narrows nothing" and "a boundary could not be intersected" are failures of
      * different arithmetic in different modules.
      */
-    ROBO_PAINT_DOMAIN_OPACITY = 10
+    ROBO_PAINT_DOMAIN_OPACITY = 10,
+    /**
+     * The hit test (11.10): the query's point, the tree it was run against, and the walk's
+     * refusals.
+     *
+     * Its own domain rather than `TRAVERSAL`, for the reason `DISPLAY_LIST` and `OPACITY` have
+     * one: the two walks share their *shape* and nothing else, so "a child link names nothing"
+     * reached from a hit test is a failure of a different question than the same failure reached
+     * from a paint pass, and a reader sent to the wrong walk is a reader sent to the wrong phase.
+     */
+    ROBO_PAINT_DOMAIN_HIT_TEST = 11
 } robo_paint_diagnostic_domain_t;
 
 /** Number of defined diagnostic domains. */
-#define ROBO_PAINT_DOMAIN_COUNT 11u
+#define ROBO_PAINT_DOMAIN_COUNT 12u
 
 /** Non-zero if @p domain is a defined domain. */
 int robo_paint_domain_is_known(robo_paint_diagnostic_domain_t domain);

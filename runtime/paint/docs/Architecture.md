@@ -1,4 +1,4 @@
-# RoboPaint — architecture (through Phase 11.6)
+# RoboPaint — architecture (through Phase 11.10)
 
 RoboPaint is the fifth module in the layout stack. It sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`), and it turns the completed geometry RoboLayout
@@ -983,8 +983,87 @@ that reaches it and applied through `robo_gfx_raster_set_opacity` at one point i
 drawing kind. It does not claim **group** semantics — CSS composites an element's subtree into a
 flattened layer and fades that, while this build multiplies per drawing, so two overlapping
 descendant fills differ from a browser's result; `paint.opacity.group_deviation` is the document that
-measures the gap, with both answers computed through the graphics module's own blend. It also does
-not claim blend modes, filters, masks, transforms, a compositor, compositor layers or tile
-compositing, `border-radius` clipping, scrolling, paint invalidation (11.11) or hit testing (11.10).
+measures the gap, with both answers computed through the graphics module's own blend. It alsodoes not claim blend modes, filters, masks, transforms, a compositor, compositor layers or tile
+compositing, `border-radius` clipping, scrolling or paint invalidation (11.11).
 `paint/docs/Opacity.md` is the phase's own document — the record, the stack, the placement rule, the
 refusals, the counters, the pixels and the phase's findings.
+
+## 21. Hit testing (Phase 11.10)
+
+### 21.1 The inverse query, answered by the same records
+
+Everything §4 through §7 established is a statement about **drawing**: an operation is a record of
+what will be drawn, the clip is the boundary it is drawn inside, the opacity is the strength it is
+drawn at, and the traversal is the order the drawings come in. This phase asks the *inverse*
+question of the same tree — which node is drawn at this point — and the answer is composed entirely
+of those records rather than of a second model of any of them.
+
+It lives in RoboPaint rather than in a module beside it, and §3 is the reason: a hit test is a second
+consumer of `robo_paint_clip_t` and `robo_paint_opacity_t`, and a second consumer of **the walk**.
+The painter accumulates a page origin, narrows a boundary and multiplies a strength while descending;
+the hit test accumulates the same three things in the same order from the same declarations. That is
+what makes "the two agree about where a box is" assertable, and it is why `hit_testing` joins
+the capability model of §10 as its sixth field rather than as a new module's first.
+
+### 21.2 The coordinate model, extended by nothing
+
+§6's two spaces stand, and the phase adds a **name** rather than a space:
+
+| space | what it is | who writes it |
+|---|---|---|
+| **layout** | relative to the containing block's content origin | RoboLayout |
+| **paint** | one page space: the accumulated origins | the traversal |
+| **window** | what an input layer reports a pointer in | RoboWindow |
+
+`robo_paint_hit_test()` takes its point in **paint** coordinates, and **paint coordinates are window
+coordinates in this build** — the traversal begins the root at `(0, 0)` and there is no scroll
+offset, transform, zoom or device-pixel-ratio scale to undo. The two names are kept apart because the
+phase that adds scrolling is the phase that makes them differ. The result carries the point in both
+spaces (`point`, and `local = point - origin`), so a caller comparing against a layout rectangle uses
+the space RoboLayout wrote and the round trip is checkable.
+
+### 21.3 The four rules, and where each mirrors the painter
+
+| Rule | Mirrors | Why it is the rule |
+|---|---|---|
+| **last drawn wins** — children before their parent, last child before first | §4.1's order: the box's own decorations, then its children left to right | the node that covers a point is the last one drawn there, so a document-order walk answers with the box underneath |
+| **a box's region is its border box** | §6.2: the union of the three layers it could paint into | CSS hits a transparent `div` over its whole box, because painting nothing is not the same as being absent; an **empty** rectangle contains no point at all |
+| **the boundary clips the contents, never the box** | §7 and 11.8's arrangement: the scope opens at the content boundary | a `overflow: hidden` box's own border band is drawn outside its own boundary and must still be hittable, while its child outside that boundary must not be |
+| **a strength does not gate** | — | CSS governs hit testing with `pointer-events`, not `opacity`; this build has none, so the property's initial value applies: everything is hit-testable. The strength travels in the result so the phase that adds the property has the number |
+
+The first three are what make the walk a *reverse* walk rather than a search: the subtree bound and
+the boundary in force are the **early-outs**, and they are consulted in that order because the bound
+is a question about geometry, which node could possibly be here, where the boundary is a question
+about drawing.
+
+### 21.4 The result is a value, and the trace is the walk's control flow
+
+`robo_paint_hit_test_result_t` copies every fact in — the identity, both coordinate spaces, the three
+rectangles, the boundary and the strength — for §9's reason: a caller holding a pointer into the tree
+would hold a view the next mutation can move, and a click that changed meaning when a style was
+recomputed is worse than no answer.
+
+The **outcome** is a vocabulary rather than a boolean, and the third member is why: `STALE` says the
+tree carries a layout bit, so no box's geometry is final and the query **refused**. That is §8's
+argument restated — a hit test against half-computed geometry is not a less accurate answer, it is a
+**wrong** one, because it would report whichever node happened to hold a stale rectangle. It is an
+outcome and not an error, and `robo_paint_hit_test()` returns `ROBO_OK` for it, exactly as
+`robo_paint_context_run()` returns `ROBO_OK` for `REFUSED`.
+
+The dump is the walk's **control flow**, one line per object examined, with a five-member reason
+vocabulary (`enter`, `unplaced`, `region`, `clip`, `hit`) rather than a per-decision log. There is no
+reason for "tested and not the answer", deliberately: it would be on nearly every line and carry no
+information, and the line that *should* have been the `hit` one is found by looking for it.
+
+### 21.5 Where it is claimed, and what it does not claim
+
+`hit_testing` is **1**: a point in paint coordinates resolves to the layout node drawn there, under
+the boundary that node's own `overflow` puts in force, with the strength in force on it carried in
+the answer. What it does **not** claim: event dispatch or bubbling (Phase 12's — the result names one
+node and guesses at no ancestor), character- or caret-level text hit mapping (a run is one rectangle
+and one node), `pointer-events`, `visibility` (registered in RoboCSS and consumed by no layer in this
+build, so reading it here would refuse a point on something visibly drawn), `border-radius`,
+`clip-path`, masks, filters, blend modes, transforms, alpha-mask or SVG geometry, scrolling, zoom,
+device-pixel-ratio handling, or a compositor's hit testing. `paint/docs/HitTest.md` is the phase's own
+document — the four rules, the counters and their three identities, the two shapes of broken tree it
+refuses, the trace, and the screen-agreement case.
