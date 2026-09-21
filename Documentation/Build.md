@@ -1,14 +1,14 @@
 # Building, testing, running and deploying RoboticelaOS
 
-Everything goes through one command:
+Per-part scripts are the supported entry points. `BuildEverything.ps1` and `TestEverything.ps1` call those scripts. The inventory is in [PartScripts.md](Build/PartScripts.md).
+
+The pipeline (`scripts/robo`) remains the engine those scripts invoke. There is no second build system.
 
 ```
 scripts/robo <command> [options]
 ```
 
-There is no second build system. `build.ps1`, the `Makefile`s and
-`bootloader/Makefile` are thin forwarders so existing habits keep working, and
-they contain no build logic of their own.
+`build.ps1`, the `Makefile`s and `bootloader/Makefile` are thin forwarders.
 
 ---
 
@@ -22,6 +22,7 @@ rather than half-working elsewhere.
 |---|---|---|
 | LLVM 14+ (`clang`, `lld-link`, `ld.lld`, `llvm-ar`) | host preview, UEFI app, kernel, libc, userland, runtime | `ROBO_LLVM_BIN`, `ROBO_CLANG`, `ROBO_LD_LLD`, `ROBO_LLD_LINK`, `ROBO_LLVM_AR` |
 | Python 3.8+ | asset baking, ESP/disk image, RoboFS tool, font and i18n generators | `ROBO_PYTHON` |
+| Node.js + npm | `BuildDesktopUi.ps1` (Vite + React → HTML/CSS). Optional if `DesktopPage.h` is already generated | — |
 | Pillow, cairosvg | `bake_assets.py` (raster assets, `logo.svg`) | — |
 | QEMU x86_64 + OVMF (`edk2-x86_64-code.fd`, `edk2-i386-vars.fd`) | `run-*` and `test-qemu-*` only | `ROBO_QEMU`, `ROBO_OVMF_CODE`, `ROBO_OVMF_VARS` |
 | Git | revision stamping in the deployment manifest (optional) | — |

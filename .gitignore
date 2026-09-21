@@ -11,6 +11,7 @@ Chromium/
 **/__pycache__/
 .freebuff/
 Bootloader-RefCode/
+Desktop/node_modules/
 
 # Generated TZif tree (recreated by generate_tzdb.py)
 Runtime/Tools/i18n/source/tzdb-*/zoneinfo/

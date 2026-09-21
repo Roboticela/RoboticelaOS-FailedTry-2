@@ -5,12 +5,6 @@ param(
     [switch]$Rebuild
 )
 $ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$build = Join-Path $repo "Runtime\Tools\Build.ps1"
-$splat = @{ Configuration = $Configuration }
-$splat.Module = "Rasterizer"
-$splat.SkipGuest = $true
-if ($Verify) { $splat.Verify = $true }
-if ($Rebuild) { $splat.Rebuild = $true }
-& $build @splat
+$helper = Join-Path $PSScriptRoot "..\Utilities\Invoke-RoboRuntimeBuild.ps1"
+& $helper -Module Rasterizer -Configuration $Configuration -Verify:$Verify -Rebuild:$Rebuild
 exit $LASTEXITCODE

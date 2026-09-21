@@ -1,17 +1,6 @@
-[CmdletBinding()]
-param(
-    [ValidateSet("Debug", "Release")][string]$Configuration = "Debug",
-    [switch]$Verify,
-    [switch]$Rebuild
-)
-$ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-
-$robo = Join-Path $repo "scripts\pipeline\robo.ps1"
-if (-not (Test-Path -LiteralPath $robo)) {
-    throw "pipeline missing: $robo"
-}
-$pipelineArgs = @("build-bootloader")
-if ($Rebuild) { $pipelineArgs += "--rebuild" }
-& $robo @pipelineArgs
-exit $LASTEXITCODE
+[CmdletBinding()]
+param([switch]$Rebuild)
+$ErrorActionPreference = "Stop"
+$helper = Join-Path $PSScriptRoot "..\Utilities\Invoke-RoboPipeline.ps1"
+& $helper -Command "build-bootloader" -Rebuild:$Rebuild
+exit $LASTEXITCODE

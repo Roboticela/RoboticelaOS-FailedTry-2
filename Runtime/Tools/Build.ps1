@@ -23,7 +23,7 @@ param(
     [switch]$Sanitize,
     [string]$Filter = "",
     [switch]$VerboseTests,
-    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "Font", "Graphics", "Display", "Window", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
+    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Graphics", "Display", "Window", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
     [string]$Module = "",
     [switch]$SkipGuest,
     [switch]$Rebuild
@@ -1099,12 +1099,44 @@ function Invoke-RoboCompileObject {
 
 if ($Module -and -not $Filter) {
     $moduleFilter = @{
-        Core = "base."; Memory = "mem."; Containers = "array."; Unicode = "unicode."
+        Core = "base."; Memory = "mem."; Containers = "array."; Unicode = "unicode."; I18n = "i18n."
         Font = "font."; Graphics = "graphics."; Display = "display."; Window = "window."
         Input = "input."; Html = "html."; Css = "css."; Layout = "layout."
         Paint = "paint."; Rasterizer = "render."; Desktop = "desktop."
     }
     if ($moduleFilter.ContainsKey($Module)) { $Filter = $moduleFilter[$Module] }
+}
+
+if ($Module -and $Module -ne "Runtime") {
+    $suiteNeedles = @{
+        Core        = @("SuiteRoboBase.c", "SuiteRoboLog.c", "SuiteRoboError.c", "SuiteRoboDebug.c")
+        Memory      = @("SuiteRoboMem", "SuiteRoboArena", "SuiteRoboPool")
+        Containers  = @("SuiteRoboArray", "SuiteRoboString")
+        Unicode     = @("SuiteRoboUnicode")
+        I18n        = @("SuiteRoboI18N")
+        Font        = @("\Font\", "/Font/", "SuiteRoboFont.c")
+        Graphics    = @("\Graphics\", "/Graphics/")
+        Display     = @("\Display\", "/Display/")
+        Window      = @("\Window\", "/Window/")
+        Input       = @("\Input\", "/Input/")
+        Html        = @("\Html\", "/Html/")
+        Css         = @("\Css\", "/Css/", "SuiteRoboCssDomSelect")
+        Layout      = @("\Layout\", "/Layout/")
+        Paint       = @("\Paint\", "/Paint/")
+        Rasterizer  = @("\Rasterizer\", "/Rasterizer/")
+        Desktop     = @("\Desktop\", "/Desktop/")
+    }
+    $needles = $suiteNeedles[$Module]
+    if ($needles) {
+        $SuiteSrcs = @($SuiteSrcs | Where-Object {
+            $src = $_
+            foreach ($needle in $needles) {
+                if ($src -like ("*" + $needle + "*")) { return $true }
+            }
+            return $false
+        })
+        Write-Host "MODULE $Module tests ($($SuiteSrcs.Count) suites)"
+    }
 }
 
 if ($Clean) {
@@ -1316,6 +1348,7 @@ if ($Module -and $Module -ne "Runtime") {
         Memory = @("RoboBase", "RoboMem")
         Containers = @("RoboBase", "RoboMem", "RoboContainers")
         Unicode = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N")
+        I18n = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N")
         Font = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont")
         Graphics = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics")
         Display = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay")
@@ -1423,10 +1456,47 @@ $Win32BackendSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowBac
 $Win32KeyboardSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowKeyboardWin32.c"
 $Win32MouseSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowMouseWin32.c"
 $Win32DisplaySrc = Join-Path $SourceDir "RoboDisplay\platform\win32\RoboDisplayBackendWin32.c"
-$hostSrcs = $ProdSrcs + $DesktopSceneSrcs + @(
-    $Win32BackendSrc, $Win32KeyboardSrc, $Win32MouseSrc, $Win32DisplaySrc,
-    $TestFrameworkSrc, $TestMainSrc
-) + $SuiteSrcs
+$hostProd = $ProdSrcs
+if ($Module -and $Module -ne "Runtime") {
+    $hostProd = $guestSrcs
+}
+$hostExtras = @($TestFrameworkSrc, $TestMainSrc)
+if (-not $Module -or $Module -eq "Runtime" -or $Module -eq "Desktop") {
+    $hostExtras = $DesktopSceneSrcs + $hostExtras
+}
+if (-not $Module -or $Module -eq "Runtime" -or $Module -eq "Desktop" -or $Module -eq "Window" -or $Module -eq "Display") {
+    $hostExtras += @($Win32BackendSrc, $Win32KeyboardSrc, $Win32MouseSrc, $Win32DisplaySrc)
+}
+if ($Module -and $Module -ne "Runtime") {
+    $declared = @()
+    Select-String -LiteralPath $TestMainSrc -Pattern '^void (TestRegister\w+)\(void\);' | ForEach-Object {
+        $declared += $_.Matches[0].Groups[1].Value
+    }
+    $provided = @{}
+    foreach ($suite in $SuiteSrcs) {
+        Select-String -LiteralPath $suite -Pattern '^void (TestRegister\w+)\(void\)' | ForEach-Object {
+            $provided[$_.Matches[0].Groups[1].Value] = $true
+        }
+    }
+    $stubLines = @("/* Generated: empty registrars for suites this module does not compile. */", "#include `"RoboTest.h`"", "")
+    foreach ($name in $declared) {
+        if (-not $provided.ContainsKey($name)) {
+            $stubLines += "void $name(void) { }", ""
+        }
+    }
+    $stubSrc = Join-Path $OutDir "RoboTestModuleStubs.c"
+    $stubText = ($stubLines -join "`n") + "`n"
+    $writeStub = $true
+    if (Test-Path -LiteralPath $stubSrc) {
+        if ((Get-Content -LiteralPath $stubSrc -Raw) -eq $stubText) { $writeStub = $false }
+    }
+    if ($writeStub) {
+        Set-Content -LiteralPath $stubSrc -Value $stubText -Encoding ascii
+    }
+    $hostExtras += $stubSrc
+    Write-Host "MODULE stubs ($($declared.Count - $provided.Count) empty registrars)"
+}
+$hostSrcs = @($hostProd) + $hostExtras + $SuiteSrcs
 
 $hostObjDir = Join-Path $OutDir "obj\host"
 New-Item -ItemType Directory -Force -Path $hostObjDir | Out-Null

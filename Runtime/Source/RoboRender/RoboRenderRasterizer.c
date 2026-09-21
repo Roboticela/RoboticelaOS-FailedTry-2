@@ -83,7 +83,7 @@ static uint64_t RenderChecksum(const uint8_t *bytes, size_t size)
 }
 
 /** The pixels of @p target, or NULL for a NULL target. */
-static const uint8_t *RoboRenderTargetBytes(const RenderTarget *target)
+static const uint8_t *RenderTargetPixelBytes(const RenderTarget *target)
 {
     if (!target || !target->surface) {
         return NULL;
@@ -281,7 +281,7 @@ const GfxSurface *RenderTargetSurfaceConst(const RenderTarget *target)
 
 const uint8_t *RoboRenderTargetBytes(const RenderTarget *target, size_t *outSize)
 {
-    const uint8_t *bytes = RoboRenderTargetBytes(target);
+    const uint8_t *bytes = RenderTargetPixelBytes(target);
 
     if (outSize) {
         if (bytes) {
@@ -316,7 +316,7 @@ Result RenderTargetClear(RenderTarget *target,
 
 uint64_t RenderTargetChecksum(const RenderTarget *target)
 {
-    const uint8_t *bytes = RoboRenderTargetBytes(target);
+    const uint8_t *bytes = RenderTargetPixelBytes(target);
 
     if (!bytes) {
         return 0u;
@@ -339,8 +339,8 @@ int RenderTargetEqual(const RenderTarget *a, const RenderTarget *b)
         a->stride != b->stride) {
         return 0;
     }
-    bytesA = RoboRenderTargetBytes(a);
-    bytesB = RoboRenderTargetBytes(b);
+    bytesA = RenderTargetPixelBytes(a);
+    bytesB = RenderTargetPixelBytes(b);
     if (!bytesA || !bytesB) {
         /* Both surfaces exist by construction; a NULL here means one of them lost its backing, and
          * "not equal" is the honest answer rather than reading a wild pointer. */

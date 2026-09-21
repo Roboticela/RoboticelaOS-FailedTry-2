@@ -43,6 +43,12 @@
 #include "RoboGraphics/RoboGraphicsComposite.h"
 
 #include <string.h>
+#include <stdio.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#endif
 
 /* ------------------------------------------------------------------ */
 /* Bring-up                                                            */
@@ -336,6 +342,15 @@ static inline int DesktopWritePng(const Desktop *desktop, const char *path)
     }
     file = fopen(path, "wb");
     if (!file) {
+        /* The default path lives under Build/, which a fresh tree has not created yet. */
+#ifdef _WIN32
+        (void)_mkdir("Build");
+#else
+        (void)mkdir("Build", 0755);
+#endif
+        file = fopen(path, "wb");
+    }
+    if (!file) {
         GfxEncodedBufferRelease(&buffer);
         return 0;
     }
@@ -349,12 +364,12 @@ static inline int DesktopWritePng(const Desktop *desktop, const char *path)
     return 1;
 }
 
-/** `Out/Desktop.png` unless the environment names somewhere else. */
+/** `Build/Desktop.png` unless the environment names somewhere else. */
 static inline const char *DesktopCheckpointPath(void)
 {
     const char *override = getenv("ROBO_DESKTOP_PNG");
 
-    return (override && override[0] != '\0') ? override : "Out/Desktop.png";
+    return (override && override[0] != '\0') ? override : "Build/Desktop.png";
 }
 
 #endif /* ROBO_DESKTOP_TEST_SUPPORT_H */

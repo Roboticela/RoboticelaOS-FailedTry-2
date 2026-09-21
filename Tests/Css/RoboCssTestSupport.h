@@ -1511,7 +1511,7 @@ static inline void CssInheritEnd(CssInheritFixture *fixture)
 }
 
 /** Resolve @p cascade with @p parent (may be NULL) into @p out. */
-static inline void RoboCssInheritResolve(const CssInheritFixture *fixture,
+static inline void CssInheritFixtureResolve(const CssInheritFixture *fixture,
                                        const CssCascade *cascade,
                                        const CssInheritedStyle *parent,
                                        CssInheritedStyle *out)

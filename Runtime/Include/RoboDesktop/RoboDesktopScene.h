@@ -99,6 +99,11 @@ typedef struct DesktopSceneConfig {
     const char *identityText;
     /** The panel's middle label; NULL means @ref RoboDesktopDefaultApplications. */
     const char *applicationsText;
+    /**
+     * Draw the software cursor while the scene is driven. Tests leave this off; the host window and the
+     * guest framebuffer turn it on.
+     */
+    int showCursor;
 } DesktopSceneConfig;
 
 /** Fill @p config with the defaults: 1280x800, no face, create a window, the default labels, no status. */

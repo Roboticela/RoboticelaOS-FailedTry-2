@@ -530,6 +530,7 @@ static int HostRunWindowed(FontFace *face, unsigned holdMs, int inject, HostRepo
     DesktopSceneConfigInit(&config);
     config.face = face;
     config.RoboCreateWindow = 1;
+    config.showCursor = 1;
     config.statusText = HOST_STATUS_TEXT;
     if (DesktopSceneOpen(&config, &scene, &diag) != RoboOk) {
         printf("%s: the windowed scene could not open (message=%s)\n", HOST_KEY,

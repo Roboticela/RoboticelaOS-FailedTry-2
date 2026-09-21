@@ -5,10 +5,6 @@ param(
     [switch]$Rebuild
 )
 $ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$build = Join-Path $repo "Runtime\Tools\Build.ps1"
-$splat = @{ Configuration = $Configuration }
-if ($Verify) { $splat.Verify = $true }
-if ($Rebuild) { $splat.Rebuild = $true }
-& $build @splat
+$helper = Join-Path $PSScriptRoot "..\Utilities\Invoke-RoboRuntimeBuild.ps1"
+& $helper -Module Runtime -Configuration $Configuration -Verify:$Verify -Rebuild:$Rebuild
 exit $LASTEXITCODE

@@ -10,16 +10,14 @@ Three surfaces:
 
 | Want | Script |
 |---|---|
-| HTML on host | `Scripts/Test/TestHtmlHost.ps1` |
-| CSS on host | `TestCssHost.ps1` |
-| Layout / paint / rasterizer / desktop on host | `TestLayoutHost.ps1`, `TestPaintHost.ps1`, `TestRasterizerHost.ps1`, `TestDesktopHost.ps1` |
-| Kernel host tests | `TestKernel.ps1` |
-| Kernel in QEMU | `TestKernelQemu.ps1` |
-| Desktop in QEMU | `TestDesktopQemu.ps1` |
-| Everything on host | `TestEverything.ps1 -SkipQemu` |
-| Everything including QEMU | `TestEverything.ps1` |
+| HTML | `Scripts/Test/TestHtml.ps1 -Target Host` |
+| CSS | `TestCss.ps1 -Target Host` |
+| Layout / paint / rasterizer / desktop | `TestLayout.ps1`, `TestPaint.ps1`, `TestRasterizer.ps1`, `TestDesktop.ps1` with `-Target Host` |
+| Kernel | `TestKernel.ps1 -Target Host` or `-Target Qemu` |
+| Desktop in QEMU | `TestDesktop.ps1 -Target Qemu` |
+| Everything | `TestEverything.ps1 -Target Host` or `-Target Qemu` |
 
-`TestHtml.ps1` is the same as `TestHtmlHost.ps1`. The Host suffix makes the execution target explicit.
+Build is always on the development machine (`Scripts/Build/Build*.ps1`). Tests choose Host or QEMU with `-Target`. See [Documentation/Build/PartScripts.md](../Build/PartScripts.md).
 
 ## When QEMU is required
 

@@ -1,29 +1,19 @@
 # Roboticela Runtime
 
-Independent C runtime for **Roboticela OS**. See `ARCHITECTURE.md`, `DEPENDENCIES.md`, `DESIGN_RULES.md`, `CHROMIUM_REFERENCE.md`.
+Independent C runtime for Roboticela OS.
 
-## RoboBase foundation (Goals 1.1–1.5) — complete
+All architecture, API and design documents live in **[Documentation/Runtime/](../Documentation/Runtime/ARCHITECTURE.md)**. This folder holds source only.
 
-## RoboMem (Goals 2.1–2.5) — complete
-
-Heap, arena, pool, and optional debug allocator. Guide: [`memory/README.md`](memory/README.md).
-
-## RoboContainers (Goal 3.1–3.2) + RoboUnicode (Goal 3.3–3.4)
-
-`RoboArray`, `RoboString`, Unicode encoding + **UCD properties**.  
-Guides: [`containers/README.md`](containers/README.md), [`unicode/README.md`](unicode/README.md).  
-Regenerate UCD tables: [`Tools/ucd/README.md`](Tools/ucd/README.md).
-
-## Build
+## Build and test
 
 ```powershell
-.\runtime\Tools\Build.ps1 -Configuration Debug -Verify -Test
-.\runtime\Tools\Build.ps1 -Configuration Release -Verify -Test
-.\runtime\Tools\Build.ps1 -Configuration Debug -Test -Sanitize
+.\Scripts\Build\BuildRuntime.ps1
+.\Scripts\Test\TestRuntime.ps1 -Target Host
 ```
 
-| Output | Role |
-|---|---|
-| `Out/lib/librobobase.a` | Production archive (Base + Mem + Containers) |
-| `Out/RoboticelaRuntime.elf` | Guest OS entry |
-| `Out/RoboTest.host.exe` | Unified host test suite |
+One module at a time (does not rebuild the whole tree):
+
+```powershell
+.\Scripts\Build\BuildHtml.ps1
+.\Scripts\Test\TestHtml.ps1 -Target Host
+```

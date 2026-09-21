@@ -22,47 +22,20 @@
 
 #include "RoboDesktop/RoboDesktopScene.h"
 
+#include "RoboBase/RoboLog.h"
 #include "RoboMem/RoboMem.h"
 
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowDisplay.h"
 #include "RoboWindow/RoboWindowEvent.h"
 #include "RoboWindow/RoboWindowEventLoop.h"
+#include "RoboWindow/RoboWindowKey.h"
+#include "RoboWindow/RoboWindowMouse.h"
 
-/*
- * The checkpoint's words.
- *
- * The markup is what a first application on this system is: a card, a headline, a line of copy and a
- * footnote — enough structure that a missing stage shows up as a wrong *picture* rather than as a
- * plausible one. Every element is one RoboLayout can lay out today (a block box with text inside it), and
- * the sheet names only properties `RoboCSSPropertyRegistry.c` registers, so a document that failed to
- * build here would be a fact about the pipeline and not about this file's vocabulary.
- *
- * The colours are the documented palette (AGENTS.md): the page's `#F5F5F7`, the text's `#1D1D1F`, the
- * secondary `#6E6E73`, the tertiary `#86868B` and the one accent `#0E7AFF` on the button. They are written
- * as hex in *markup*, which is what markup is for; the theme's own copy of the same tokens is what the
- * shell draws its panel with, and the two agreeing is the checkpoint's point.
- */
-static const char SCENE_MARKUP[] =
-    "<html><body>"
-    "<div class='page'>"
-    "<div class='headline'>RoboticelaOS</div>"
-    "<div class='lede'>This window is a document. The panel above it is the shell.</div>"
-    "<div class='detail'>HTML, CSS, layout, paint and one rasteriser, on one screen.</div>"
-    "<div class='button'>Continue</div>"
-    "</div>"
-    "</body></html>";
+#include "Generated/DesktopPage.h"
 
-static const char SCENE_STYLE[] =
-    "html, body { display: block; margin: 0; padding: 0;"
-    "  background-color: #f5f5f7; color: #1d1d1f }"
-    ".page { display: block; padding: 32px }"
-    ".headline { display: block; font-size: 28px; line-height: 36px }"
-    ".lede { display: block; font-size: 15px; line-height: 24px; color: #6e6e73 }"
-    ".detail { display: block; font-size: 12px; line-height: 20px; color: #86868b;"
-    "  background-color: #ffffff; padding: 16px }"
-    ".button { display: block; font-size: 15px; line-height: 24px; color: #ffffff;"
-    "  background-color: #0e7aff; padding: 12px }";
+#define SCENE_MARKUP kDesktopPageMarkup
+#define SCENE_STYLE kDesktopPageStyle
 
 struct DesktopScene {
     Desktop *desktop;
@@ -74,6 +47,8 @@ struct DesktopScene {
     int needsPaint;
     /** Non-zero once the checkpoint is finished: the shell's window is gone or its native window closed. */
     int finished;
+    /** Non-zero when mouse motion must repaint so the software cursor can move. */
+    int showCursor;
 };
 
 /* ------------------------------------------------------------------ */
@@ -130,6 +105,7 @@ void DesktopSceneConfigInit(DesktopSceneConfig *config)
     config->statusText = NULL;
     config->identityText = NULL;
     config->applicationsText = NULL;
+    config->showCursor = 0;
 }
 
 void DesktopSceneStepInit(DesktopSceneStep *step)
@@ -252,6 +228,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     scene->face = config->face;
     scene->needsPaint = 1;
     scene->finished = 0;
+    scene->showCursor = config->showCursor ? 1 : 0;
 
     DesktopConfigInit(&shellConfig);
     shellConfig.width = width;
@@ -260,6 +237,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     shellConfig.RoboCreateWindow = config->RoboCreateWindow ? 1 : 0;
     shellConfig.windowTitle = config->windowTitle;
     shellConfig.statusText = config->statusText;
+    shellConfig.showCursor = scene->showCursor;
     if (config->identityText) {
         shellConfig.identityText = config->identityText;
     }
@@ -369,10 +347,9 @@ static void SceneObservePointer(DesktopScene *scene,
 /**
  * Take everything the window queue holds and act on it.
  *
- * Only the events this build has something to *do* with are acted on, and a key press is deliberately not
- * one of them: this build has no keyboard routing (`RoboDesktop.h`'s capability table reports
- * `inputDelivery == 0`), and a scene that invented a key meaning would be inventing the ABI those phases
- * have to agree on.
+ * Pointer motion and buttons go to the shell. Escape finishes the scene without inventing application
+ * key routing (`inputDelivery` stays 0): it is the launcher's way to leave, the same as closing the
+ * native window.
  */
 static void SceneDrainEvents(DesktopScene *scene,
                                DesktopSceneStep *step,
@@ -393,18 +370,37 @@ static void SceneDrainEvents(DesktopScene *scene,
         case RoboWindowEventScaleChanged:
             scene->needsPaint = 1;
             break;
+        case RoboWindowEventKeyDown:
+            if (event.key.logicalKey == RoboLogicalKeyEscape) {
+                scene->finished = 1;
+                step->closeRequested = 1;
+                LogDebug("robo_desktop: escape finished the scene");
+            }
+            break;
         case RoboWindowEventMouseMove:
             SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
+            if (scene->showCursor) {
+                scene->needsPaint = 1;
+            }
             break;
         case RoboWindowEventMouseButtonDown:
             if (event.mouse.button == RoboMouseButtonLeft) {
                 SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 1, step, diag);
+                if (scene->showCursor) {
+                    scene->needsPaint = 1;
+                }
             }
             break;
         case RoboWindowEventMouseButtonUp:
             if (event.mouse.button == RoboMouseButtonLeft) {
                 SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
+                if (scene->showCursor) {
+                    scene->needsPaint = 1;
+                }
             }
+            break;
+        case RoboWindowEventMouseWheel:
+            SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
             break;
         default:
             break;

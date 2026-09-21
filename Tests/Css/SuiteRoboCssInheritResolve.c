@@ -36,7 +36,7 @@ static void CssLevelOf(CssInheritFixture *fixture,
     CssCascade cascade = RoboCssCleared;
 
     RoboCssCascadeCollect(&fixture->cascade, ref, &cascade, NULL);
-    RoboCssInheritResolve(fixture, &cascade, parent, out);
+    CssInheritFixtureResolve(fixture, &cascade, parent, out);
     CssCascadeDispose(&cascade);
 }
 

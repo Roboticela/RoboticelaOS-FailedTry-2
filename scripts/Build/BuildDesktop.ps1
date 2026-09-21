@@ -5,12 +5,9 @@ param(
     [switch]$Rebuild
 )
 $ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$build = Join-Path $repo "Runtime\Tools\Build.ps1"
-$splat = @{ Configuration = $Configuration }
-$splat.Module = "Desktop"
-$splat.SkipGuest = $true
-if ($Verify) { $splat.Verify = $true }
-if ($Rebuild) { $splat.Rebuild = $true }
-& $build @splat
+$ui = Join-Path $PSScriptRoot "BuildDesktopUi.ps1"
+& $ui -Rebuild:$Rebuild
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+$helper = Join-Path $PSScriptRoot "..\Utilities\Invoke-RoboRuntimeBuild.ps1"
+& $helper -Module Desktop -Configuration $Configuration -Verify:$Verify -Rebuild:$Rebuild
 exit $LASTEXITCODE

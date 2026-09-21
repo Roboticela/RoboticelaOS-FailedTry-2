@@ -398,6 +398,7 @@ int main(void)
     config.height = framebuffer->ready ? (int32_t)framebuffer->height : 0;
     config.face = face;
     config.RoboCreateWindow = 1;
+    config.showCursor = 1;
     config.statusText = gStatus;
 
     result = DesktopSceneOpen(&config, &scene, &diag);

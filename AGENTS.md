@@ -13,12 +13,13 @@ There is **one** RoboticelaOS Runtime. Host vs QEMU is a **test execution target
 | `Bootloader/` | UEFI bootloader (`Source/`, `Include/`, `Assets/`, `Config/`) |
 | `Kernel/` | Kernel. Internal include paths (`mm/`, `fs/`, …) are the kernel's C include namespace. |
 | `Runtime/` | Independent web/UI runtime. Public headers: `Runtime/Include/`. Implementation: `Runtime/Source/Robo*/`. |
+| `Desktop/` | Vite + React source for the OS desktop document. Compiled to plain HTML/CSS/JS by `BuildDesktopUi.ps1`. |
 | `Libc/` | Freestanding C library for the guest. |
 | `User/` | Guest userland programs and the linker script. |
 | `Tests/` | All tests, grouped by subsystem. |
 | `Documentation/` | All project documentation. |
-| `Scripts/Build/` | Per-subsystem build entry points. |
-| `Scripts/Test/` | Per-subsystem test entry points. |
+| `Scripts/Build/` | Per-subsystem build entry points. Build always runs on the development machine. |
+| `Scripts/Test/` | Per-subsystem test entry points. Pass `-Target Host` or `-Target Qemu`. |
 | `Scripts/Qemu/` | QEMU run/test entry points. |
 | `Scripts/pipeline/` | The existing compile/test/run engine (`robo.ps1`). |
 | `Build/` | **Generated only.** Never edit. Host, QEMU, intermediate objects, artifacts. |
@@ -105,20 +106,23 @@ Stable APIs: versioned headers under `Runtime/Include/`. New APIs belong in the 
 
 Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEMU tests boot the real OS.
 
-| Change | Build | Host test | QEMU |
-|---|---|---|---|
-| HTML | `Scripts/Build/BuildHtml.ps1` | `Scripts/Test/TestHtmlHost.ps1` | not required |
-| CSS | `BuildCss.ps1` | `TestCssHost.ps1` | not required |
-| Layout | `BuildLayout.ps1` | `TestLayoutHost.ps1` | not required |
-| Paint | `BuildPaint.ps1` | `TestPaintHost.ps1` | not required |
-| Rasterizer | `BuildRasterizer.ps1` | `TestRasterizerHost.ps1` | not required |
-| Desktop | `BuildDesktop.ps1` | `TestDesktopHost.ps1` | `TestDesktopQemu.ps1` if guest-visible |
-| Window | `BuildWindow.ps1` | `TestWindowHost.ps1` | display QEMU if needed |
-| Input | `BuildInput.ps1` | `TestInputHost.ps1` | not required |
-| Kernel | `BuildKernel.ps1` | `TestKernel.ps1` | `TestKernelQemu.ps1` |
-| Bootloader | `BuildBootloader.ps1` | `TestBootloader.ps1` | bootloader QEMU selftest |
-| Public interface change | owning build + dependents | owning host tests | `TestIntegrationQemu.ps1` |
-| Everything | `BuildEverything.ps1` | `TestEverything.ps1 -SkipQemu` | `TestEverything.ps1` |
+| Change | Build (always on the development machine) | Test |
+|---|---|---|
+| HTML | `Scripts/Build/BuildHtml.ps1` | `Scripts/Test/TestHtml.ps1 -Target Host` |
+| CSS | `BuildCss.ps1` | `TestCss.ps1 -Target Host` |
+| Layout | `BuildLayout.ps1` | `TestLayout.ps1 -Target Host` |
+| Paint | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` |
+| Rasterizer | `BuildRasterizer.ps1` | `TestRasterizer.ps1 -Target Host` |
+| Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
+| Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
+| Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |
+| Input | `BuildInput.ps1` | `TestInput.ps1 -Target Host` |
+| Unicode / I18N | `BuildUnicode.ps1` | `TestUnicode.ps1` / `TestI18n.ps1 -Target Host` |
+| Font | `BuildFont.ps1` | `TestFont.ps1 -Target Host` |
+| Kernel | `BuildKernel.ps1` | `TestKernel.ps1 -Target Host` or `-Target Qemu` |
+| Bootloader | `BuildBootloader.ps1` | `TestBootloader.ps1 -Target Host` or `-Target Qemu` |
+| Public interface change | owning build + dependents | owning tests, then `TestIntegrationQemu.ps1` if guest-visible |
+| Everything | `BuildEverything.ps1` (calls each `Build*.ps1`) | `TestEverything.ps1 -Target Host` or `-Target Qemu` |
 
 Do not force unit tests through QEMU.
 
@@ -147,7 +151,7 @@ Do not force unit tests through QEMU.
 4. Implement inside the owning subsystem.
 5. Add or update tests under `Tests/<Subsystem>/`.
 6. Run the subsystem build script.
-7. Run the subsystem host tests.
+7. Run the subsystem tests: `Scripts/Test/Test<Part>.ps1 -Target Host` (or `-Target Qemu` when the guest image is involved).
 8. Run QEMU tests if the guest image or boot path is affected.
 9. Run integration tests if a public interface changed.
 10. Update `Documentation/` if architecture or API changed.

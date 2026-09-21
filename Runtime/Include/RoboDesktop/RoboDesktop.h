@@ -197,6 +197,11 @@ typedef struct DesktopConfig {
     FontFace *face;
     /** Chrome text size in pixels; 0 or negative means @ref RoboDesktopDefaultLabelSizePx. */
     float labelSizePx;
+    /**
+     * Draw a software cursor at the last observed pointer. Default off so pixel tests stay a function of
+     * the document; host and QEMU launchers turn it on so the desktop is playable.
+     */
+    int showCursor;
 } DesktopConfig;
 
 /** The native window's and the shell's default title. */

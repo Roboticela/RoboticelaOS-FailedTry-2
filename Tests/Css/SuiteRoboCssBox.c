@@ -713,8 +713,8 @@ static void TestBoxNonInheritance(void)
                       "#outer { margin: 10px; padding: 10px; width: 100px }");
     RoboCssCascadeCollect(&fixture.cascade, outer, &parentCascade, NULL);
     RoboCssCascadeCollect(&fixture.cascade, inner, &childCascade, NULL);
-    RoboCssInheritResolve(&fixture, &parentCascade, NULL, &parent);
-    RoboCssInheritResolve(&fixture, &childCascade, &parent, &child);
+    CssInheritFixtureResolve(&fixture, &parentCascade, NULL, &parent);
+    CssInheritFixtureResolve(&fixture, &childCascade, &parent, &child);
 
     /* The parent has all four edges; the child has none of them, by name. */
     CssInheritIs(&parent, "margin-left", "10px", "declared");
@@ -780,7 +780,7 @@ static void TestBoxUnexpandedShorthand(void)
     CssInheritSheet(&fixture, RoboCssOriginAuthor,
                       "#box { margin: 1px 2px 3px 4px 5px; padding: var(--edges) }");
     RoboCssCascadeCollect(&fixture.cascade, div, &cascade, NULL);
-    RoboCssInheritResolve(&fixture, &cascade, NULL, &resolved);
+    CssInheritFixtureResolve(&fixture, &cascade, NULL, &resolved);
 
     /* The shorthand's own entry is intact — the author's declaration is never
      * thrown away — and no longhand was invented from it. */
@@ -815,7 +815,7 @@ static void TestBoxUnexpandedShorthand(void)
                           "#box { margin: 1px 2px 3px 4px; padding: 10px 20px;"
                           " border-width: thin thick thin thick }");
         RoboCssCascadeCollect(&clean.cascade, cleanDiv, &okCascade, NULL);
-        RoboCssInheritResolve(&clean, &okCascade, NULL, &ok);
+        CssInheritFixtureResolve(&clean, &okCascade, NULL, &ok);
 
         RoboCheckEqInt(
             (int)CssInheritedStyleShorthandsUnexpanded(&ok), 0);

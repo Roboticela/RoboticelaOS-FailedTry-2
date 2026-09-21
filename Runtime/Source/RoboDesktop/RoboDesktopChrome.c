@@ -38,6 +38,7 @@
 #include "RoboDesktopInternal.h"
 
 #include "RoboFont/RoboFontMetrics.h"
+#include "RoboGraphics/RoboGraphicsColor.h"
 #include "RoboGraphics/RoboGraphicsText.h"
 
 /* The gap between the identity mark and the identity label: three pixels of mark, eight of space, which
@@ -497,4 +498,59 @@ void DesktopChromePaintCloseButton(Desktop *desktop,
             record->fills++;
         }
     }
+}
+
+void DesktopChromePaintCursor(Desktop *desktop,
+                                     GfxRaster *raster,
+                                     DesktopFrameRecord *record)
+{
+    static const uint8_t bits[16][11] = {
+        {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+        {1, 2, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+        {1, 2, 2, 1, 0, 0, 0, 0, 0, 0, 0},
+        {1, 2, 2, 2, 1, 0, 0, 0, 0, 0, 0},
+        {1, 2, 2, 2, 2, 1, 0, 0, 0, 0, 0},
+        {1, 2, 2, 2, 2, 2, 1, 0, 0, 0, 0},
+        {1, 2, 2, 2, 2, 2, 2, 1, 0, 0, 0},
+        {1, 2, 2, 2, 2, 2, 2, 2, 1, 0, 0},
+        {1, 2, 2, 2, 2, 1, 1, 1, 1, 0, 0},
+        {1, 2, 2, 1, 2, 1, 0, 0, 0, 0, 0},
+        {1, 2, 1, 0, 1, 2, 1, 0, 0, 0, 0},
+        {1, 1, 0, 0, 1, 2, 1, 0, 0, 0, 0},
+        {1, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0},
+        {0, 0, 0, 0, 0, 1, 2, 1, 0, 0, 0},
+        {0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0},
+    };
+    GfxColorRgba8 outline;
+    GfxColorRgba8 fill;
+    int32_t originX;
+    int32_t originY;
+    int row;
+    int col;
+
+    if (!desktop || !raster || !desktop->showCursor || !desktop->cursorVisible) {
+        (void)record;
+        return;
+    }
+
+    outline = GfxRgb8(29u, 29u, 31u);
+    fill = GfxRgb8(255u, 255u, 255u);
+    originX = desktop->pointer.point.x;
+    originY = desktop->pointer.point.y;
+
+    for (row = 0; row < 16; row++) {
+        for (col = 0; col < 11; col++) {
+            uint8_t cell = bits[row][col];
+            GfxRect pixel;
+
+            if (cell == 0u) {
+                continue;
+            }
+            pixel = MakeGfxRect(originX + col, originY + row, 1, 1);
+            /* The cursor is input chrome, not part of the shell's counted fill record. */
+            (void)GfxRasterFillRect(raster, pixel, cell == 1u ? outline : fill);
+        }
+    }
+    (void)record;
 }

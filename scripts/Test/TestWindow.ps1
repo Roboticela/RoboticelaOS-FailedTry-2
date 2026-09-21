@@ -1,23 +1,13 @@
 [CmdletBinding()]
 param(
+    [ValidateSet("Host", "Qemu")][string]$Target = "Host",
     [ValidateSet("Debug", "Release")][string]$Configuration = "Debug",
     [switch]$Verify,
     [switch]$Rebuild
 )
 $ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$build = Join-Path $repo "Runtime\Tools\Build.ps1"
-$splat = @{
-    Configuration = $Configuration
-    Module = "Window"
-    SkipGuest = $true
-    BuildTests = $true
-}
-if ($Verify) { $splat.Verify = $true }
-if ($Rebuild) { $splat.Rebuild = $true }
-& $build @splat
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-$exe = Join-Path $repo "Build\Runtime\RoboTest.host.exe"
-if (-not (Test-Path -LiteralPath $exe)) { throw "host test binary missing: $exe" }
-& $exe "--filter=window."
+$helper = Join-Path $PSScriptRoot "..\Utilities\Invoke-RoboPartTest.ps1"
+& $helper -Name "Window" -Target $Target -Configuration $Configuration -Verify:$Verify -Rebuild:$Rebuild `
+    -Module "Window" -Filter "window." `
+    -PipelineQemu "test-qemu-display"
 exit $LASTEXITCODE

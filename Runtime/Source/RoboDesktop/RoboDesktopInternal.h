@@ -80,6 +80,9 @@ struct Desktop {
     DesktopWindowId nextId;
     DesktopStats stats;
     DesktopPointer pointer;
+    int showCursor;
+    /** Non-zero after the first pointer observation, so a cursor is never drawn at (0,0) on the first frame. */
+    int cursorVisible;
 };
 
 /** "No window": an index that can never be one. */
@@ -191,6 +194,11 @@ GfxRect DesktopChromeCloseBounds(const Desktop *desktop,
 /** The rectangle a window's title bar occupies (the whole band between the borders). */
 GfxRect DesktopChromeTitleBounds(const Desktop *desktop,
                                                 const DesktopWindow *window);
+
+/** Draw the software cursor last, so it sits above chrome and window contents. */
+void DesktopChromePaintCursor(Desktop *desktop,
+                                     GfxRaster *raster,
+                                     DesktopFrameRecord *record);
 
 /** Case-insensitive-free ASCII/UTF-8 compare, so this module needs no `strcmp`. */
 int DesktopStringEqual(const char *a, const char *b);

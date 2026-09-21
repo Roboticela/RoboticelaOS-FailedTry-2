@@ -145,6 +145,7 @@ void DesktopConfigInit(DesktopConfig *config)
     config->windowMetrics = NULL;
     config->face = NULL;
     config->labelSizePx = RoboDesktopDefaultLabelSizePx;
+    config->showCursor = 0;
 }
 
 /** The whole struct zeroed, so a shell starts from a state with no stale field in it. */
@@ -291,6 +292,8 @@ Result DesktopCreate(const DesktopConfig *config,
 
     desktop->live = 1;
     desktop->nextId = 0u;
+    desktop->showCursor = config->showCursor ? 1 : 0;
+    desktop->cursorVisible = 0;
     *out = desktop;
     /*
      * One line per shell, and the facts a reader needs to interpret every later line: how big the screen
@@ -631,6 +634,8 @@ Result DesktopPaint(Desktop *desktop, DesktopDiag *diag)
         DesktopChromePaintWindowTitle(desktop, window, raster, &record);
         record.windows++;
     }
+
+    DesktopChromePaintCursor(desktop, raster, &record);
 
     GfxRasterDestroy(raster);
     /* The record a frame produces is kept until `end_frame`, which is where the counters are folded into
@@ -1014,6 +1019,9 @@ Result DesktopObservePointer(Desktop *desktop,
     desktop->pointer.area = hit.area;
     desktop->pointer.window = hit.window;
     desktop->pointer.pressed = pressed ? 1 : 0;
+    if (desktop->showCursor) {
+        desktop->cursorVisible = 1;
+    }
 
     if (!pressed) {
         desktop->stats.pointerMoves++;

@@ -1,17 +1,12 @@
-[CmdletBinding()]
-param(
-    [ValidateSet("Debug", "Release")][string]$Configuration = "Debug",
-    [switch]$Verify,
-    [switch]$Rebuild
-)
-$ErrorActionPreference = "Stop"
-$repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-
-$robo = Join-Path $repo "scripts\pipeline\robo.ps1"
-if (-not (Test-Path -LiteralPath $robo)) {
-    throw "pipeline missing: $robo"
-}
-$pipelineArgs = @("test-bootloader")
-if ($Rebuild) { $pipelineArgs += "--rebuild" }
-& $robo @pipelineArgs
-exit $LASTEXITCODE
+[CmdletBinding()]
+param(
+    [ValidateSet("Host", "Qemu")][string]$Target = "Host",
+    [ValidateSet("Debug", "Release")][string]$Configuration = "Debug",
+    [switch]$Verify,
+    [switch]$Rebuild
+)
+$ErrorActionPreference = "Stop"
+$helper = Join-Path $PSScriptRoot "..\Utilities\Invoke-RoboPartTest.ps1"
+& $helper -Name "Bootloader" -Target $Target -Configuration $Configuration -Verify:$Verify -Rebuild:$Rebuild `
+    -PipelineHost "test-bootloader" -PipelineQemu "test-qemu-boot"
+exit $LASTEXITCODE
