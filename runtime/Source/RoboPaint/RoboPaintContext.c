@@ -268,11 +268,12 @@ static const robo_paint_op_kind_t paint_border_kinds[ROBO_CSS_BOX_SIDE_COUNT] = 
 };
 
 /*
- * Emission is three helpers rather than one with a kind switch, because the three kinds
- * of record carry different fields and filling the wrong ones is the mistake worth
- * making impossible: a structural record fills a colour that says "nothing", a drawing
- * fills a colour a rasteriser can use, and neither can be spelled by accident from the
- * other's helper.
+ * Emission is one helper per *payload shape* rather than one with a kind switch, because
+ * the kinds of record carry different fields and filling the wrong ones is the mistake
+ * worth making impossible: a structural record fills a colour that says "nothing", a
+ * colour drawing fills a colour a rasteriser can use, a run fills a **span** into the
+ * pool it belongs to (11.6) and an image fills a **retained resource** (11.7) -- and
+ * none of the four can be spelled by accident from another's helper.
  */
 
 /**

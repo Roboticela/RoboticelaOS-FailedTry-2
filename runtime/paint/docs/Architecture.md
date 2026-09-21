@@ -6,9 +6,10 @@ produced into a **deterministic sequence of operations** a rasteriser executes -
 11.3, into the **render-ready display list** it consumes. 11.1 established the context, the
 operation vocabulary, the list and its ownership, the deterministic traversal, the geometry a
 rasteriser reads and the clip state; 11.2 made the record sequence regular; 11.3 resolved the
-box model into one rectangle per command; 11.4–11.6 put the first three kinds of drawing on a
-**surface** -- a `draw-background` command's rectangle and colour, a `draw-border`'s band, and a
-`draw-text`'s glyphs, all through a RoboGraphics CPU raster. What is left is images, real
+box model into one rectangle per command; 11.4–11.7 put four kinds of drawing on a
+**surface** -- a `draw-background` command's rectangle and colour, a `draw-border`'s band, a
+`draw-text`'s glyphs and a `draw-image`'s resource, all through a RoboGraphics CPU raster, with the
+picture added to the three after the goals that bound and fade them had landed. What is left is real
 clipping, opacity and a rasteriser of the whole list, each a later goal's.
 
 ---
@@ -659,7 +660,7 @@ the box that owns the text node: one depth past that box, naming itself, and aft
     `draw-border` command and of the `BORDER_*` record, because it is the one fact a band's
     rectangle cannot state. The band is what this build fills; the seven pattern styles are
     drawn as that band and counted (`unshaped`).
-19. **`raster` is still 0.** Nothing consumes a display command other than the three drawing
+19. **`raster` is still 0.** Nothing consumes a display command other than the four drawing
     kinds, and there is no mechanism that rasterises a list end to end.
 20. **A run's characters live in a pool** (11.6): a `TEXT` record and a `draw-text` command carry
     a **span** — two integers — into a code-point pool their list owns, so the record stays a
@@ -787,8 +788,8 @@ application point for every drawing kind.
 
 `robo_paint_decoration_stats_t`'s fields are the **pairs**, because the interesting facts are
 differences, and three identities hold by construction and are asserted:
-`commands = draws + skipped`, `draws = backgrounds + borders + texts`, and
-`draws = filled + contextual + transparent + empty + no_font`. `transparent` and `contextual` are
+`commands = draws + skipped`, `draws = backgrounds + borders + texts + images`, and
+`draws = filled + contextual + transparent + empty + no_font + no_resource`. `transparent` and `contextual` are
 kept apart because "the author asked for nothing" and "the colour could not be resolved here" are
 different facts about a document, and `no_font` sits on the far side of `draws` from those three
 because it is a fact about the **call** rather than the document. `unshaped` is a fourth kind of

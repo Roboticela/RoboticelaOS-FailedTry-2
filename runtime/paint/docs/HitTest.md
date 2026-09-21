@@ -449,11 +449,13 @@ behaviour wearing the name of a full one.
 No **scrolling, zoom, or device-pixel-ratio** handling: there is no scroll offset to subtract and
 no scale to divide out, so §2's coordinate model has one plane.
 
-No **alpha-mask or SVG geometry** hit testing, and no **replaced-element-specific** hit region:
-there is no `IMAGE` operation and no replaced-element layout in this build, so the brief's "image
-bounds" case has no subject. The mechanism is not per-kind, though — a node's region is its border
-box through `robo_paint_boxes_of()`, which is the same door a replaced element's geometry would
-come from.
+No **alpha-mask or SVG geometry** hit testing, and no **replaced-element-specific** hit region: since
+11.7 a document's `<img>` paints, so the brief's "image bounds" case has a subject at last — but this
+suite landed before that kind existed and its cases name the boxes the build had then. The mechanism
+is not per-kind — a node's region is its border box through `robo_paint_boxes_of()`, the same door a
+replaced element's geometry comes from — so an image element is answered by construction, and the
+case that would pin it beside `paint.hit-test.region_is_border_box` is recorded as owed by the
+suite's own header rather than counted as covered.
 
 No **animation-aware** hit testing, no compositor or GPU hit testing, no JavaScript, no networking,
 no filesystem, and **no Chromium dependency**: nothing here is a translation of Blink's hit-testing

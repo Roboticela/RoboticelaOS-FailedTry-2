@@ -304,10 +304,12 @@ and named anyway so a hand-built list is counted rather than silently swallowing
    "add `IMAGE` to `draws`" — would have refused every image in the document and made the phase
    look like it did nothing. The fix is `robo_paint_op_kind_uses_color`, a positive list, and it is
    the shape that survives the next payload kind.
-2. **`draws = draws` is not enough for a *drawing*.** The validity rule's two halves were "a
-   drawing carries a colour" and "a structural record carries `none`". With three kinds that are
-   neither, the rule is now three: a colour kind carries a drawable colour, a structural record and
-   an image carry `none`, and an image additionally carries a payload this build may draw.
+2. **`draws` is not enough for a *drawing*.** The validity rule's two halves were "a drawing
+   carries a colour" and "a structural record carries `none`", and 11.7 adds a kind that is
+   neither: it draws and its look is not a colour. So the rule is now three -- a colour kind
+   carries a drawable colour, a structural record and an image carry `none`, and an image
+   additionally carries a payload this build may draw -- and the predicate that decides which half
+   a record is on is stated positively (`uses_color`) rather than as "everything that draws".
 3. **A retained payload changes the containers.** Both lists were documented as arrays of values
    "with no pointers in them"; 11.7 makes a value name a resource, so `append` retains and
    `clear`/`destroy` release — one shared static walk per container, because a container that

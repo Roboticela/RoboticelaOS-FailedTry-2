@@ -1,6 +1,7 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.7, image painting**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.10, hit testing** — with 11.7's
+**image painting** filled in after it).
 
 **Version:** 0.10.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
@@ -448,7 +449,7 @@ because nothing in an operation points anywhere.
 | `paint/docs/Opacity.md` | The strength: the record and its two invalid directions, where a scope is emitted and why that is *not* where the clip's is, the builder's eight refusals, the pass's one application point, the counters, and the group-compositing gap stated with the case that measures it (11.9) |
 | `paint/docs/HitTest.md` | The inverse query: why it lives in RoboPaint, the coordinate model, the four rules (last drawn wins, the border box as the region, the contents' boundary versus the box's own, a strength that does not gate), the result and its flags, the counters and their three identities, what the walk refuses, the trace's five reasons, and the screen-agreement case (11.10) |
 | `paint/docs/Images.md` | The image payload: whose resource it is, the record's fields and why the destination is the content box, where the record sits in the sequence, the colour-rule split the phase forced, the new graphics primitive and its sampling/alpha rules, the missing-image policy, validation, ownership, mutation isolation, determinism, the dump, the counters and the phase's five findings (11.7) |
-| `paint/docs/Tests.md` | Suite map (thirteen suite files, 202 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.10 found |
+| `paint/docs/Tests.md` | Suite map (thirteen suite files, 203 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.10 found (11.7 in numeric place) |
 
 ## Building and testing
 
@@ -458,7 +459,7 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ./Out/RoboTest.host.exe --filter paint.
 ```
 
-**202** of the cases the filter reports are this module's (**thirteen** suite files); the filter is a
+**203** of the cases the filter reports are this module's (**thirteen** suite files); the filter is a
 substring match, so the six `demo.paint.*` cases of the visual demo come with them
 (`paint/docs/Tests.md` §1).
 

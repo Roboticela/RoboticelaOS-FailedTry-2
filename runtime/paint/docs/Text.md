@@ -260,14 +260,21 @@ are **derived** from those two rather than guessed.
 
 Shaping, the bidi algorithm, line breaking, whitespace collapsing, font fallback, variable-font
 instancing, `text-decoration`, `text-shadow`, text selection, text editing, transforms,
-`border-radius`, real clipping, image painting, display-list replay, rasterisation architecture,
-compositor, paint invalidation (11.11), hit testing (11.10), scrolling, JavaScript and networking.
-What is **no longer** absent is the element's strength: since 11.9 a run is stroked at the opacity in
-force, passed in by the traversal rather than read from the run's own style — the run's box is the
-element that owns it and that element already opened the scope, so a run reading its own declaration
-would square it (`Opacity.md` §7, `paint.opacity.text`).
-`raster` remains **0** and `ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: three kinds of drawing exist
+`border-radius`, gradients, display-list replay and rasterisation architecture, compositor, paint
+invalidation (11.11), scrolling, JavaScript and networking.
+Two things left this list after it was written, and both are recorded here rather than deleted
+quietly: **image painting** (11.7 draws a document's pictures through the same pass, with a resource
+where a run has characters -- `Images.md`), and the element's **strength**, because since 11.9 a run
+is stroked at the opacity in force, passed in by the traversal rather than read from the run's own
+style — the run's box is the element that owns it and that element already opened the scope, so a
+run reading its own declaration would square it (`Opacity.md` §7, `paint.opacity.text`). The same
+pass since 11.8 bounds a run by the clip scopes in force, and 11.10's hit test answers about text
+without a line of this document changing.
+`raster` remains **0** and `ROBO_PAINT_DRAWING_IMPLEMENTED` stays **1**: four kinds of drawing exist
 and text is one of them, while the rasteriser is still RoboGraphics'.
 
-**Next:** 11.7 — image painting, the fourth drawing kind and the second non-numeric payload, which is
-the phase that has to decide whether an image is a pool of bytes or a reference to a decoded surface.
+**Since then:** 11.7 landed as the phase this section predicted — the fourth drawing kind and the
+second non-numeric payload — and it answered the question it was left with in favour of a
+**reference to a decoded surface** (`RoboPaintImage.h`), retained rather than copied, with the run's
+pool left exactly as it was (`Images.md`). The four goals after it (11.8 clipping, 11.9 opacity,
+11.10 hit testing) were written first; the order the work landed in is recorded in `PROGRESS.md`.

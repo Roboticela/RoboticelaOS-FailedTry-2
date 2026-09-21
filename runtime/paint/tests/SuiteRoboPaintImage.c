@@ -58,6 +58,16 @@
  * it encoded, so it can compare the picture that came out of the document against the one that
  * went in. Nothing here is fetched, and no Chromium, Skia or Blink header, library or test
  * framework is involved.
+ *
+ * **What this suite leaves to the suites that own it.** The boundary (11.8), the strength (11.9)
+ * and the inverse query (11.10) each apply at one place that does not branch on a drawing's kind
+ * -- the decoration pass bounds and fades every command before the kind's own branch, and a hit
+ * test's region comes from `robo_paint_boxes_of` rather than from a payload -- so a picture is
+ * clipped, faded and *hit* by construction, and this suite asserts only what is specific to the
+ * kind: the resource, the two rectangles, the sampler, the alpha and the missing-image policy.
+ * Those three suites landed before this goal, so each one's header records the pixel case for an
+ * image as *owed* rather than counting it as covered; the goal that closes them is a later pass
+ * over `paint.*`, not a change to this release.
  */
 
 #include "RoboPaintTestSupport.h"

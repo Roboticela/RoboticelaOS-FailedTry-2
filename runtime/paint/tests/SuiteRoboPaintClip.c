@@ -57,12 +57,13 @@
  * only where the question is about the painter's own contract -- the pass's clip stack, the
  * counters, the refusals -- and never in place of a layout result.
  *
- * **What this suite cannot test**: image painting. There is no `IMAGE` operation and no
- * `draw-image` command in this build (Phase 11.7 is not implemented), so the brief's "image
- * drawing respects clipping" has no subject here. The mechanism is shared rather than
- * per-kind, though -- a drawing is bounded by the clip its scope put in force, applied once
- * before the kind's own branch -- so an image kind added later is bounded by construction and
- * its case belongs beside `paint.clip.text.drawing_is_bounded` rather than in a new mechanism.
+ * **What this suite does not cover**: the picture. Since 11.7 this build has an `IMAGE`
+ * operation and a `draw-image` command, so the brief's "image drawing respects clipping" now has
+ * a subject -- and the mechanism is shared rather than per-kind: a drawing is bounded by the clip
+ * its scope put in force, applied once before the kind's own branch, so an image is bounded **by
+ * construction**. `paint.clip.background`, `.border` and `.text` are the three kinds this phase
+ * landed with; the pixel case for a bounded picture is owed here rather than counted as covered,
+ * and the image suite owns the fixture that would build one.
  *
  * Chromium is reference only; nothing here is a translation of it, and this suite depends on no
  * Chromium header, library or test framework.

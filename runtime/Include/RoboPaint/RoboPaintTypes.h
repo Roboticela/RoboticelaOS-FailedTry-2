@@ -8,17 +8,19 @@
  * an enumerator is *made* to add its name, rather than forgetting and shipping a
  * value that prints "unknown".
  *
- * The **drawing** vocabulary is deliberately small -- one background, four border
- * sides and one text run -- and the reason is the same one RoboLayout 10.2 gives for not
+ * The **drawing** vocabulary was deliberately small in this release -- one background, four
+ * border sides and one text run -- and the reason is the same one RoboLayout 10.2 gives for not
  * adding a constant for a feature it does not have: a name with no code behind it is a
- * promise, not a vocabulary. So there is no `IMAGE` operation and no `SAVE`, `RESTORE` or
- * `OPACITY` in this release, even though the brief that asks for this architecture lists
- * them as things the representation must *eventually* be able to express. What makes them
- * expressible is the record's shape rather than an enumerator nobody emits: an operation is a
- * tagged record with a node, a depth, three rectangles and a clip, and adding a kind is one
- * enumerator, one name row and one case in the validity rule -- never a redesign of the
- * list. `CONTENT` (11.2) and the two clip kinds (11.8) are the kinds added since 11.1, and
- * each is a record the brief's sequence names that the release before it did not emit.
+ * promise, not a vocabulary. So 11.1 added no `IMAGE` operation and no `SAVE`, `RESTORE` or
+ * `OPACITY`, even though the brief that asks for this architecture lists them as things the
+ * representation must *eventually* be able to express. What makes them expressible is the
+ * record's shape rather than an enumerator nobody emits: an operation is a tagged record with a
+ * node, a depth, three rectangles and a clip, and adding a kind is one enumerator, one name row
+ * and one case in the validity rule -- never a redesign of the list. `CONTENT` (11.2), the two
+ * clip kinds (11.8), `IMAGE` (11.7) and the two opacity kinds (11.9) are the kinds added since,
+ * and each is a record the brief's sequence names that the release before it did not emit --
+ * which is the promise this paragraph made, kept four times, and the reason `IMAGE` could be
+ * added by a later goal without touching the traversal's shape.
  *
  * The four border kinds are four enumerators rather than one kind plus a side field,
  * and that is a decision about **invalid states** rather than about verbosity: a `side`

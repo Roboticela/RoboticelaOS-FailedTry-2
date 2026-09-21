@@ -328,9 +328,11 @@ phase's showcase document, painted through the whole chain into a real 800×600 
 The visible document is the stronger half of the pair: it does not carry an inactive boundary, it
 carries **no scope at all**, and its list is exactly two commands shorter. The hidden surface is then
 encoded through RoboGraphics' own PNG encoder, whose signature and 800-pixel width are checked — so
-the picture the assertions describe is a real image and not just a buffer. Every drawing kind in the
-build is covered (`paint.clip.background`, `.border`, `.text`), and the full list is compared against
-the surface pixel by pixel (`paint.clip.pixels`). The guest path is unchanged by this phase: the
+the picture the assertions describe is a real image and not just a buffer. The three drawing kinds
+this phase landed with are covered one by one (`paint.clip.background`, `.border`, `.text`) and the
+full list is compared against the surface pixel by pixel (`paint.clip.pixels`); the fourth kind --
+an image, which 11.7 added afterwards -- is bounded by the same one application point, and the pixel
+case for it is recorded as owed in the suite's header rather than counted as covered here. The guest path is unchanged by this phase: the
 QEMU visual runtime display gate passes, and the demo document declares no `overflow`, so no scope is
 emitted there.
 

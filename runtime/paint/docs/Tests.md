@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.7)
+# RoboPaint Test Organisation (through Phase 11.10 — with 11.7, image painting, filled in)
 
-Thirteen suite files, **202** cases, one framework. Each phase adds no test runner, no reporter and no
+Thirteen suite files, **203** cases, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -13,7 +13,7 @@ explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is
 which is the "explicit over discovered" rule the rest of the tree follows.
 
 The count is the `paint.*` prefix's, read from a run rather than from this table: a `--filter`
-that matched a suite's *own* prefix reports 202, and the six `demo.paint.*` cases of the visual
+that matched a suite's *own* prefix reports 203, and the six `demo.paint.*` cases of the visual
 demo come with it because the filter is a substring match.
 
 ---
@@ -501,10 +501,13 @@ door, so a suite cannot pass by agreeing with the traversal's copy of it. Glyph 
 why: a face never prepared, or a cmap table that is *nearly* right, both make a font test pass for
 the wrong reason).
 
-They still do **not** assert anything about border shape rasterisation, image painting, real
-clipping, opacity, transforms, scrolling, a whole-list rasteriser, paint invalidation or hit
-testing: none of those exists in this build, and a suite that asserted them would be asserting a
-later phase.
+They still do **not** assert anything about border *shape* rasterisation, a whole-list rasteriser,
+transforms, scrolling, `border-radius`, image **fetching** or decoding, group compositing, or paint
+invalidation: a suite that asserted one of those would be asserting a later phase. The list is
+shorter than it once was, and every removal is a phase: **image painting** left it in 11.7 (a
+document's picture is now read back as pixels), real clipping in 11.8, opacity in 11.9 and hit
+testing in 11.10 -- and each of those left the suite that already owned the mechanism reporting the
+new subject rather than a new suite being written for it.
 
 ---
 
@@ -683,7 +686,41 @@ pass, so a leak in the list's growth is caught rather than merely reported by a 
 
 ---
 
-## 12. What the 11.8 suite found
+## 12. What the 11.7 suite found
+
+The goal that landed **after** 11.8, 11.9 and 11.10 — the three sections below were written
+against a tree with no `IMAGE` kind at all — and its findings are recorded here, in numeric place,
+so a reader following Phase 11 in order meets the picture before the boundary that clips it.
+
+1. **The colour rule had to be split rather than extended.** Adding `IMAGE` to
+   `robo_paint_op_kind_draws` — the obvious first move — makes the validity rule demand a colour of
+   a record whose appearance is a resource, so **every image in every document would have been
+   refused** and the phase would have looked like it did nothing. `paint.conformance.vocabulary_exhaustive`
+   and `paint.types.kind_vocabulary` now assert the split (`uses_color` ⊆ `draws`, with `IMAGE` the
+   first drawing kind outside it) at the vocabulary rather than at the site that would have failed.
+2. **A mem-debug baseline is not a leak test.** Measuring `paint_live_blocks()` before a rig and
+   after its teardown reported a three-block difference in both directions depending on what the
+   harness had already allocated, which is exactly the shape of assertion that gets weakened until
+   it passes. Running the whole cycle **twice** and comparing the two ends measures the module's own
+   ownership instead, and it is what `paint.image.resource_lifetime` does.
+3. **Two containers needed the same release walk.** The paint list and the display list both were
+   documented as arrays of pointer-free values; 11.7 makes a value name a resource, so both gained a
+   retain at `append` and a release at `clear`/`destroy`. Writing the release twice is how one of
+   them ends up without it, so each file has **one** static walk both paths call.
+4. **An image's placement does not generalise from a run's.** A text record is emitted a level
+   *below* the box that owns it (a run is a child object); an image record is emitted **inside** its
+   own element's box, before that box's `CONTENT` (an image *is* the element's content). The order
+   case had to be written for the image's own group rather than borrowed from the text suite's, and
+   the vocabulary's `IMAGE` row is the one row that *is* in paint order.
+5. **A hand-built record needs boxes that are already valid.** The record rule refuses un-nested
+   boxes *before* it ever reads a payload, so a case that built an operation with zeroed geometry
+   would have passed every image assertion for the wrong reason; the hand-built case sets three
+   nested rectangles and asserts `robo_paint_boxes_is_valid` on them first.
+
+**Gates:** Debug **2578/2578**; Release and ASan + UBSan **2578/2578** with no diagnostics — the
+paint module contributing **203** of them across its thirteen suite files.
+
+## 13. What the 11.8 suite found
 
 Four, and the first two are one bug seen from two sides:
 
@@ -711,7 +748,7 @@ Four, and the first two are one bug seen from two sides:
    anywhere in the list and that the list is exactly two commands shorter than the clipped one, which
    is the fact 11.8's "avoid unnecessary clip commands" actually means.
 
-## 13. What the 11.9 suite found
+## 14. What the 11.9 suite found
 
 Four, and the first is the one that would have shipped a wrong *picture* rather than a wrong number.
 
@@ -742,7 +779,7 @@ Four, and the first is the one that would have shipped a wrong *picture* rather 
    in. A one-byte buffer and a line of prose; the phase's whole suite is clean under
    ASan + UBSan now (`Tests.md` §5).
 
-## 14. What the 11.10 suite found
+## 15. What the 11.10 suite found
 
 Three, and the first two are cases where an assertion written from reasoning about the *fixture*
 would have been wrong about the *document*.
@@ -769,32 +806,3 @@ would have been wrong about the *document*.
    `visibility_is_not_consumed` rather than papering over it, so the phase that teaches layout and
    paint about `visibility` has a failing assertion pointing at the place that must change.
 
-## 15. What the 11.7 suite found
-
-1. **The colour rule had to be split rather than extended.** Adding `IMAGE` to
-   `robo_paint_op_kind_draws` — the obvious first move — makes the validity rule demand a colour of
-   a record whose appearance is a resource, so **every image in every document would have been
-   refused** and the phase would have looked like it did nothing. `paint.conformance.vocabulary_exhaustive`
-   and `paint.types.kind_vocabulary` now assert the split (`uses_color` ⊆ `draws`, with `IMAGE` the
-   first drawing kind outside it) at the vocabulary rather than at the site that would have failed.
-2. **A mem-debug baseline is not a leak test.** Measuring `paint_live_blocks()` before a rig and
-   after its teardown reported a three-block difference in both directions depending on what the
-   harness had already allocated, which is exactly the shape of assertion that gets weakened until
-   it passes. Running the whole cycle **twice** and comparing the two ends measures the module's own
-   ownership instead, and it is what `paint.image.resource_lifetime` does.
-3. **Two containers needed the same release walk.** The paint list and the display list both were
-   documented as arrays of pointer-free values; 11.7 makes a value name a resource, so both gained a
-   retain at `append` and a release at `clear`/`destroy`. Writing the release twice is how one of
-   them ends up without it, so each file has **one** static walk both paths call.
-4. **An image's placement does not generalise from a run's.** A text record is emitted a level
-   *below* the box that owns it (a run is a child object); an image record is emitted **inside** its
-   own element's box, before that box's `CONTENT` (an image *is* the element's content). The order
-   case had to be written for the image's own group rather than borrowed from the text suite's, and
-   the vocabulary's `IMAGE` row is the one row that *is* in paint order.
-5. **A hand-built record needs boxes that are already valid.** The record rule refuses un-nested
-   boxes *before* it ever reads a payload, so a case that built an operation with zeroed geometry
-   would have passed every image assertion for the wrong reason; the hand-built case sets three
-   nested rectangles and asserts `robo_paint_boxes_is_valid` on them first.
-
-**Gates:** Debug **2578/2578**; Release and ASan + UBSan **2578/2578** with no diagnostics — the
-paint module contributing **202** of them across its thirteen suite files.

@@ -24,10 +24,10 @@ down for the flip is exactly what happened: *a build in which an operation's rec
 reach a RoboGraphics surface*. The fence that keeps the claim honest is `raster`, which stays
 **0** — see §8.
 
-**One pass for all three kinds, and the reason is the order.** A box's background, its four border
-sides and its text runs are all *drawings*, and the list interleaves them the way the traversal
-emits them: a box's background, then its bands, then the box's own contents — a run among them —
-then its descendants'. CSS's paint order is exactly that, so a child that spills over its parent
+**One pass for all four kinds, and the reason is the order.** A box's background, its four border
+sides, a run's glyphs and a document's pictures are all *drawings*, and the list interleaves them the
+way the traversal emits them: a box's background, then its bands, then the box's own contents — a
+run and a picture among them — then its descendants'. CSS's paint order is exactly that, so a child that spills over its parent
 draws **over** the parent's border. A background-only walk followed by a border-only walk and then
 a text-only walk would fill every background in the document before every border and draw every
 character after every band, which is a different and visibly wrong picture. 11.4's door was
@@ -307,7 +307,7 @@ a narrow claim and reading it wider is the mistake it is shaped to prevent:
 |---|---|
 | the **patterns** inside a dashed, dotted, double, groove, ridge, inset or outset band | a later 11.x goal; the style already travels on the command, and `unshaped` counts what is drawn as a band |
 | shaping, bidi, line breaking, fallback fonts and every text effect | Phase 14 and RoboText; 11.6 draws the runs layout measured, in logical order (Text.md §7) |
-| image painting | a later goal — it needs a decoded surface or an encoded payload, which is the next kind's decision |
+| image painting | **no longer here**: 11.7 draws a document's `<img>` resources, and the decision it faced (a pool of encoded bytes or a reference to a decoded surface) went to the reference (`Images.md`). What is still absent is the rest of a browser's image stack — fetching, decoding, caches, `srcset`, animation, `object-fit` — and the layout side of intrinsic sizing, which is why an unsized image is a counted `empty` |
 | display-list-wide rasterisation | `raster` stays 0 until a consumer handles *every* kind |
 | real clipping, scroll clipping, compositor clipping | later phases |
 | **group** opacity (an element's subtree composited into a layer and faded as one) | a compositor; 11.9 applies the strength per drawing, and the gap is asserted rather than hidden (`Opacity.md` §9) |

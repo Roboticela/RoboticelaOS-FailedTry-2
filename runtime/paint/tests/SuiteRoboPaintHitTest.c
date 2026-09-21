@@ -48,12 +48,13 @@
  * margin cannot silently assert about the wrong rectangle — and the round trip through the
  * painter's record is itself the geometry half of the agreement claim.
  *
- * **What this suite cannot test**: images and other replaced elements. There is no `IMAGE`
- * operation, no replaced-element layout in this build, and nothing that measures an intrinsic
- * size, so the brief's "image bounds" case has no subject. The mechanism is not per-kind, though:
+ * **What this suite does not cover**: a replaced element's own case. Since 11.7 a document's
+ * `<img>` paints, so the brief's "image bounds" now has a subject -- but this phase landed before
+ * that kind existed, and its cases name the boxes this build had. The mechanism is not per-kind:
  * a node's region is its border box (`robo_paint_boxes_of`), which is the *same* door a replaced
- * element's geometry would come from — so the case for one belongs beside
- * `paint.hit-test.region_is_border_box` rather than in a new mechanism.
+ * element's geometry comes from, so an image element is answered **by construction**; the case
+ * that would pin it beside `paint.hit-test.region_is_border_box` is owed here rather than counted
+ * as covered.
  *
  * It also cannot test `visibility`, and that is a **stated limitation rather than a gap**: the
  * property is registered in `RoboCSSPropertyRegistry.c` and consumed by *nobody* in this runtime

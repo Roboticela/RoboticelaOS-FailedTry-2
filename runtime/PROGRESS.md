@@ -5392,6 +5392,125 @@ finding a run's own colour at the placed position.
    expected fragments was asserting a later phase's behaviour and now asserts the build's -- which
    is the stronger statement, because it pins that the wrap is layout's rather than paint's.
 
+## Goal 11.7 — Image painting
+
+_Implemented. RoboPaint **0.10.0**, capability `image_painting` = **1**; `raster` stays **0**.
+RoboGraphics **0.17.0** adds `robo_gfx_raster_draw_image`, the scaled, alpha-blended blit the pass
+uses._
+
+**Order of landing.** 11.7 is the goal that 11.8, 11.9 and 11.10 were implemented **ahead of** --
+each of those three sections says so in its own words, and the tree they were built on had no
+`IMAGE` kind and no `draw-image` command at all. This section is written where the goal belongs --
+between 11.6 and 11.8 -- and the three later sections have been re-read against it: the vocabulary
+they extended gained a **row** and a **field** from this release rather than a changed meaning,
+because a fourth drawing kind is one more member of a vocabulary those phases had already fixed.
+That is also why the phase's own record lives here rather than in a note at the end of the file:
+a reader following Phase 11 in order should not have to learn from 11.8 onward that a kind is
+missing.
+
+**What the phase does.** An `<img>`'s decoded resource reaches a surface at the rectangle layout
+gave its element. That is the whole claim, and the work is what a *resource* does to a module whose
+four previous releases had only numbers in their records: a background is a colour, a border band is
+a colour and a shape, a run is a pool of characters and a span -- and a picture is pixels that
+belong to **another module's** object.
+
+| Piece | Where |
+|---|---|
+| `robo_paint_image_t` -- the payload: a **retained** `robo_gfx_image_t`, the resource's own `identity`, `width`, `height` and `format` copied at snapshot time, and the **source rectangle** in image pixels, with `robo_paint_image_is_full_source` to tell the full frame from a crop | `RoboPaintImage.h/.c` |
+| `robo_paint_image_from_resource`, the validity rule, equality **by identity**, the retain/release pair and `ROBO_PAINT_IMAGE_MAX_DIMENSION` | `RoboPaintImage.h/.c` |
+| The `IMAGE` record (kind 14), the `image` field on an operation, and the emission -- inside its own element's box, after that box's own decoration and **before** its `CONTENT` | `RoboPaintTypes.h/.c`, `RoboPaintOperation.h/.c`, `RoboPaintContext.c` |
+| The **colour-rule split**: `robo_paint_op_kind_uses_color` beside `robo_paint_op_kind_draws`, on the record vocabulary and on the command vocabulary | `RoboPaintTypes.h/.c`, `RoboPaintDisplayCommand.h/.c` |
+| `DRAW_IMAGE` (command kind 11) and its `image` payload | `RoboPaintDisplayCommand.h/.c` |
+| The builder's conversion -- the resource retained across the two containers -- and the traversal's `image_elements` / `images` / `image_skipped` | `RoboPaintDisplayListBuilder.c`, `RoboPaintContext.h/.c` |
+| The pass's fourth drawing: `robo_gfx_raster_draw_image` at the one application point the clip and the strength already use, plus `images` and the sixth partition term `no_resource` | `RoboPaintDecoration.h/.c` |
+| `robo_gfx_raster_draw_image` -- nearest-neighbour scaling, source alpha through the raster's own blend, the raster's own clip honoured | `RoboGraphicsRaster.h/.c` (graphics **0.17.0**) |
+| The two containers' retain/release walks -- `append` retains, `clear`/`destroy` release, one static walk per file that both paths call | `RoboPaintList.c`, `RoboPaintDisplayList.c` |
+| The record's and the command's writers printing `resource=`, `src=`, `dst=` and the resource's own size | `RoboPaintOperation.c`, `RoboPaintDisplayCommand.c` |
+| The `image_painting` capability field | `RoboPaint.h/.c` |
+
+**The resource is somebody else's, and this layer refuses to own a second copy of it.**
+`robo_gfx_image_t` already holds the pixels, the format and the refcount, so RoboPaint *retains*
+rather than copies: the record borrows, and the paint list and the display list each hold a
+reference of their own. `identity` is RoboGraphics' own id for the resource and it is what two
+records are compared by -- **not the pointer** -- which is what keeps `robo_paint_operation_equal` a
+question about a drawing rather than about the address it happens to live at.
+
+**The record never names a document.** RoboHTML owns the `src`, the fetch seam and the failure
+state; RoboPaint sees only the outcome that is paintable. So the missing-image policy is a **counted
+skip**: five ways for an image to be absent -- no `src`, never resolved, a resource that was not
+found, a refused scheme, a resource that did not decode -- each produce **no record** and one
+`image_skipped`, while a zero-sized destination is a counted `empty` in the pass. The traversal's
+`image_elements = images + image_skipped` is the identity that keeps "this document has no images"
+apart from "this document's images did not draw", which is the number an author needs first.
+
+**Destination and source are both statements, and only one of them can be derived.** The
+destination is the box's **content box** -- the rectangle layout resolved for a replaced element,
+read through layout's own doors and never recomputed here -- and the source is the **whole image**,
+because nothing in this built runtime establishes a crop. Reducing either to the other would delete
+a document fact: an image is not re-fitted to a box it was laid out in (`object-fit` is
+unregistered), and the source rectangle exists as a field now so the artifact's shape can already
+say "crop" the day a declaration produces one.
+
+**Scaling and alpha are RoboGraphics', not this module's.** The pass hands the resource, the source
+rectangle and the destination to `robo_gfx_raster_draw_image` and reads nothing back: the sampler is
+the graphics module's neatest-neighbour mapping, the alpha is the source's own through the blend the
+raster already used, and the **raster's own clip** bounds the blit -- which is how 11.8's boundary
+later bounds a picture without RoboPaint knowing that a boundary exists.
+
+### What 11.7 found
+
+1. **The colour rule had to be split rather than extended.** `robo_paint_op_kind_draws` was the
+   predicate the record validity rule was stated on -- a drawing carries a colour, a structural
+   record carries `none` -- and every release since 11.1 had assumed it. Adding `IMAGE` to it (the
+   obvious first move) demands a colour of a record whose appearance is a resource, so **every image
+   in every document would have been refused** and the phase would have looked like it did nothing.
+   The rule is now stated on a new positive list, `robo_paint_op_kind_uses_color`, and the
+   vocabulary case asserts the split (`uses_color` ⊆ `draws`, with `IMAGE` the first drawing kind
+   outside it) rather than leaving it to the site that would have failed.
+2. **A mem-debug baseline is not a leak test.** Measuring the live-block count before a rig and
+   after its teardown reported a three-block difference in both directions depending on what the
+   harness had already allocated -- exactly the shape of assertion that gets weakened until it
+   passes. Running the whole cycle (build, paint, detach, destroy the records, paint again, tear
+   down) **twice** and comparing the two ends measures the module's own ownership instead.
+3. **Two containers needed the same release walk.** The paint list and the display list were both
+   documented as arrays of pointer-free values; 11.7 makes a value name a resource, so both gained a
+   retain at `append` and a release at `clear`/`destroy`. Writing the release twice is how one of
+   them ends up without it, so each file has **one** static walk that both paths call -- a leak in a
+   *failure* path is the kind that survives every green run.
+4. **An image's placement does not generalise from a run's.** A text record is emitted a level
+   *below* the box that owns it (a run is a child object); an image record is emitted **inside** its
+   own element's box, before that box's `CONTENT` (an image *is* the element's content). The order
+   case had to be written for the image's own group rather than borrowed from the text suite's, and
+   `IMAGE` is the one row in the vocabulary table that **is** in paint order.
+5. **A hand-built record needs boxes that are already valid.** The record rule refuses un-nested
+   boxes *before* it ever reads a payload, so a case that built an operation with zeroed geometry
+   would have passed every image assertion for the wrong reason; the hand-built case sets three
+   nested rectangles and asserts `robo_paint_boxes_is_valid` on them first.
+
+### Verification
+
+| Command | Result |
+|---|---|
+| `Build.ps1 -Configuration Debug -Verify -Test` | `VERIFY PASS` on every boundary scan; **2578 cases, 2578 passed, `Failed: 0`** |
+| `Build.ps1 -Configuration Release -Verify -Test` | **2578/2578** |
+| `Build.ps1 -Configuration Debug -Test -Sanitize` | ASan + UBSan **clean, no diagnostics** -- 2578/2578 |
+| `--filter paint.image.` / `paint.` | **15/15** / **209/209** (203 module cases and the six `demo.paint.*` cases the substring filter also matches) |
+| `robo check` | PASS, Chromium independence **CLEAN** (sources + headers, and the build wiring) |
+| `robo test-paint` | PASS -- 2 steps, 0 failed |
+| host visual checkpoint (`--demo-html --no-window`) | **15 checks, 0 failed -- `RESULT: PASS`**, unchanged: the demo document declares no `<img>` (`blocks=22 rects=50 lines=3 text_runs=19`), so this goal's picture evidence is the suite's own pixels and the demo layer's own image case rather than a new probe |
+
+### Files
+
+**Added:** `Include/RoboPaint/RoboPaintImage.h`, `Source/RoboPaint/RoboPaintImage.c`,
+`paint/tests/SuiteRoboPaintImage.c` (15 cases), `paint/docs/Images.md`.
+**Modified:** `RoboPaint.h`, `RoboPaintVersion.h`, `RoboPaint.c`, `RoboPaintTypes.h/.c`,
+`RoboPaintOperation.h/.c`, `RoboPaintList.c`, `RoboPaintContext.h/.c`,
+`RoboPaintDisplayCommand.h/.c`, `RoboPaintDisplayList.h/.c`, `RoboPaintDisplayListBuilder.c`,
+`RoboPaintDecoration.h/.c`, `RoboGraphicsRaster.h/.c`, `RoboGraphicsVersion.h`, `Tests/Main.c`,
+`Tools/Build.ps1`, the three existing paint suites and two graphics suites, `paint/README.md`,
+`paint/docs/{Tests,Text,Decoration}.md`, `PROGRESS.md`, `ARCHITECTURE.md`,
+`.cursor/rules/runtime-plan.mdc`.
+
 ## Goal 11.8 — Clipping
 
 _Implemented. RoboPaint **0.7.0**, capability `clipping` = **1**; `raster` stays **0**._
@@ -5464,9 +5583,21 @@ report already records, in a module this diff does not touch, it moves between r
 Debug runs of this same tree were green), and the mouse case fails with it because it injects input
 through `SendInput` and shares the precondition. Nothing in the 140 `paint.*` cases is red.
 
-**Note on the baseline:** there is **no Phase 11.7 image painting in this tree** -- no `IMAGE` kind,
-no `DRAW_IMAGE` command, no image payload, `image_painting` does not exist. 11.6 is the last
-completed phase before this one, and 11.8 was implemented on that baseline.
+**Note on the baseline (historical):** 11.8 was implemented on a tree in which **no Phase 11.7 image
+painting existed** -- no `IMAGE` kind, no `DRAW_IMAGE` command, no image payload and no
+`image_painting` field -- with 11.6 the last completed phase before it. That is still the tree this
+section was written against, and nothing here was rewritten to pretend otherwise. What changed
+afterwards is that **11.7 has since been filled in** (`## Goal 11.7 -- Image painting`, above), and
+it is a *wiring* rather than a revision: this phase's vocabulary gained one row
+(`PUSH_CLIP`/`POP_CLIP` did not move), the record and the command each gained one payload field
+beside the one they already had, and the capability list gained one field at the end because the
+list is positional. Two headers were corrected rather than left claiming a gap that no longer
+exists: the clip suite's said the brief's "image drawing respects clipping" had **no subject** in
+this build, and the hit-test suite's said the same of "image bounds". Both now say what is true --
+the subject exists, the mechanism is shared rather than per-kind (a drawing is bounded and a region
+is a border box, so an image is covered *by construction*), and the pixel case that would pin it is
+**owed** in those suites rather than counted as covered. No case in either suite changed, and
+`HitTest.md`'s deferral list was corrected with them.
 
 ### Files
 
@@ -5669,17 +5800,19 @@ literal: each comes from the painter's own `BEGIN_BOX`/`TEXT` record for the nod
 
 ## Next
 
-- **Phase 11.7 — image painting, still not started.** It is the next drawing kind and the second
-  non-numeric payload, and it asks the pool question again: a pool of encoded bytes, or a reference
-  to a decoded surface -- a decision with different ownership consequences either way. It inherits
-  three things for free: a `draw-image` inside a clip scope is bounded by the scope's clip and drawn
-  at the scope's strength through the same one application point every other drawing uses, and a
-drawn image is now something a hit test answers about without a line changing -- the image's
-  element has a border box, and that is the region.
+- **Phase 11.7 — image painting: filled in.** The paragraph that used to stand here called it "the
+  next drawing kind and the second non-numeric payload", and the answer this tree arrived at is the
+  **reference to a decoded surface** rather than a pool of encoded bytes
+  (`## Goal 11.7 -- Image painting`, above). It inherited the three things predicted for it and
+  changed nothing to take them: a `draw-image` inside a clip scope is bounded by the scope's clip and
+  drawn at the scope's strength through the same one application point every other drawing uses, and
+  a drawn image is something a hit test answers about without a line of the walk changing -- the
+  image's element has a border box, and that is the region.
 
-  It is also the one goal that can now **measure** what it lacks: `paint.opacity.group_deviation`
-  already states, in pixels, what per-drawing strength does where a browser's flattened layer does
-  something else -- so an image drawn inside a faded box is a case that already has an oracle.
+  What 11.8's, 11.9's and 11.10's sections used to say about a missing 11.7 is now the record of the
+  order the work landed in rather than of a gap: their vocabulary gained a row and a field, and the
+  two suite headers and one deferral list that named the picture as untestable now name it as covered
+  *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.
 - **Phase 11.11 onwards** -- paint invalidation (11.11), which is the next goal and now has a second
   reader to keep honest: a boundary or a strength that moved without invalidating the list would
   leave the hit test and the painter agreeing about a document that is no longer there. Then
