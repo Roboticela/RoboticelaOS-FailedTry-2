@@ -1,7 +1,7 @@
 /*
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
  * display lists, 11.4 background painting, 11.5 border painting, 11.6 text painting,
- * 11.8 clipping, 11.9 opacity, 11.10 hit testing.
+ * 11.7 image painting, 11.8 clipping, 11.9 opacity, 11.10 hit testing.
  *
  * 0.1.0 was the first release of the fifth module in the layout stack and the first
  * one whose subject is not a *conclusion* but a **sequence of work**: RoboLayout
@@ -348,9 +348,9 @@
 #define ROBO_PAINT_VERSION_H
 
 #define ROBO_PAINT_VERSION_MAJOR 0
-#define ROBO_PAINT_VERSION_MINOR 9
+#define ROBO_PAINT_VERSION_MINOR 10
 #define ROBO_PAINT_VERSION_PATCH 0
-#define ROBO_PAINT_VERSION_STRING "0.9.0"
+#define ROBO_PAINT_VERSION_STRING "0.10.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define ROBO_PAINT_API_FROZEN 0
@@ -374,15 +374,18 @@
  * by the clip **scopes** the document's `overflow` puts in force. It does **not** claim
  * the seven pattern border styles (the band is drawn, the pattern is not -- `unshaped` counts
  * them), glyphs drawn as filled or antialiased shapes rather than stroked outlines, shaping or
- * bidi (`rtl` counts what this build drew in logical order), images, rounded corners, gradients,
+ * bidi (`rtl` counts what this build drew in logical order), rounded corners, gradients,
  * transforms or a compositor, and it does **not** claim a rasteriser of the whole list -- that is
  * `raster`, which is still 0, because the structural commands are not drawings. Since **11.9** it
  * does claim an element's `opacity`, applied on top of the colour's own alpha per drawing (see
  * `opacity` in `RoboPaint.h` and the group-opacity deviation `RoboPaintOpacity.h` states). A caller that read this constant as "the document
  * renders" would be wrong in exactly the way reading `ROBO_LAYOUT_GEOMETRY_IMPLEMENTED` as
  * "layout is done" was wrong in a first release; the fields beside it -- `background_painting`,
- * `border_painting`, `text_painting` and `clipping` -- say which drawings exist and what bounds
- * them.
+ * `border_painting`, `text_painting`, `image_painting` and `clipping` -- say which drawings exist
+ * and what bounds them. **Since 11.7 an `image_painting` beside them also claims a document's
+ * images**, drawn from a resource the document already resolved: no fetch, no decode, no intrinsic
+ * sizing and no `object-fit` (`RoboPaint.h` states the width of that claim in full), with the
+ * scaling and the alpha blending being `robo_gfx_raster_draw_image`'s.
  */
 #define ROBO_PAINT_DRAWING_IMPLEMENTED 1
 

@@ -11,17 +11,24 @@
 #ifndef ROBO_GRAPHICS_VERSION_H
 #define ROBO_GRAPHICS_VERSION_H
 
+/*
+ * 0.17.0 (Phase 11.7) adds `robo_gfx_raster_draw_image` -- the scaled, alpha-blended image
+ * draw a document's `<img>` needs, and the *scaled* half of Goal 6.6's 1:1 copy. It is
+ * **additive** in the same sense 0.16.0's decoder was: no declaration in the frozen v1
+ * surface changed meaning, so v1 remains a usable promise, and pixels stay this module's
+ * business rather than the paint layer's.
+ */
 #define ROBO_GRAPHICS_VERSION_MAJOR 0
-#define ROBO_GRAPHICS_VERSION_MINOR 16
+#define ROBO_GRAPHICS_VERSION_MINOR 17
 #define ROBO_GRAPHICS_VERSION_PATCH 0
-#define ROBO_GRAPHICS_VERSION_STRING "0.16.0"
+#define ROBO_GRAPHICS_VERSION_STRING "0.17.0"
 
 /**
  * Phase 6 public API is frozen when ROBO_GRAPHICS_API_FROZEN is 1.
  * Breaking changes require a new phase milestone and an explicit freeze revisit.
  *
  * Branding: "RoboGraphics API v1" == the frozen Phase 6 surface at 0.15.0,
- * which 0.16.0 extends without altering.
+ * which 0.16.0 and 0.17.0 extend without altering.
  */
 #define ROBO_GRAPHICS_API_FROZEN 1
 

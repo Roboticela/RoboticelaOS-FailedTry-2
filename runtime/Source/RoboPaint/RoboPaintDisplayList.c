@@ -38,6 +38,25 @@ struct robo_paint_display_list {
     robo_paint_text_pool_t *text;
 };
 
+/**
+ * Release the resources the first @p count commands of @p list hold.
+ *
+ * The paint list's walk at this artifact's element type, and it exists for the same reason: a
+ * container that took a reference gives it back on **both** its paths, and "both" is stated once
+ * here rather than twice below. It walks only the live prefix and is safe on a list whose
+ * commands hold nothing -- which is every list built before 11.7 and every one built for a
+ * document with no images.
+ */
+static void robo_paint_display_list_release_commands(robo_paint_display_list_t *list,
+                                                     size_t count)
+{
+    size_t index;
+
+    for (index = 0u; index < count; index++) {
+        robo_paint_image_release(&list->commands[index].image);
+    }
+}
+
 robo_result_t robo_paint_display_list_create(robo_paint_display_list_t **out_list,
                                        robo_paint_diag_t *diag)
 {
@@ -81,8 +100,12 @@ void robo_paint_display_list_destroy(robo_paint_display_list_t *list)
     if (!list) {
         return;
     }
-    /* A command has no pointers in it, so freeing the two arrays is the whole of the
-     * release -- including the text pool, whose code points are values too. */
+    /*
+     * Since 11.7 a command can name a **retained resource**, so the release is the paint list's
+     * walk and then the two frees -- including the text pool, whose code points are values and
+     * need no walk of their own.
+     */
+    robo_paint_display_list_release_commands(list, list->count);
     robo_paint_text_pool_destroy(list->text);
     robo_free(list->commands);
     robo_free(list);
@@ -93,10 +116,16 @@ void robo_paint_display_list_clear(robo_paint_display_list_t *list)
     if (!list) {
         return;
     }
-    /* Only the count moves: the storage is reused, and every read door clamps to it. The
-     * text pool is cleared with it, because the commands that named its characters are gone
-     * -- leaving them would be storage for spans nothing can read, and the next build's runs
-     * would pile up behind them. */
+    /*
+     * The resources first, then the count -- the order the record list states and for the same
+     * reason: an image command's payload is retained by the list that holds it, and this is where
+     * the reference `append` took is given back, once per command that holds one. Then only the
+     * count moves: the storage is reused, and every read door clamps to it. The text pool is
+     * cleared with it, because the commands that named its characters are gone -- leaving them
+     * would be storage for spans nothing can read, and the next build's runs would pile up behind
+     * them.
+     */
+    robo_paint_display_list_release_commands(list, list->count);
     list->count = 0u;
     robo_paint_text_pool_clear(list->text);
 }
@@ -160,7 +189,15 @@ robo_result_t robo_paint_display_list_append(robo_paint_display_list_t *list,
             return result;
         }
     }
+    /*
+     * The copy and then the reference, exactly as the record list's append does it: a stored
+     * command owns whatever resource it names, so a display list can outlive the record list it
+     * was built from and the builder can hand out borrowed payloads. Copying before retaining
+     * leaves the caller's command untouched, so building one command into two lists yields two
+     * references rather than one that was counted twice.
+     */
     list->commands[list->count] = *command;
+    robo_paint_image_retain(&list->commands[list->count].image);
     list->count++;
     return ROBO_OK;
 }

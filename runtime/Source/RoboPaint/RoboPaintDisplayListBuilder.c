@@ -256,6 +256,25 @@ static robo_result_t display_command_for(const robo_paint_operation_t *operation
             return ROBO_ERROR;
         }
         return ROBO_OK;
+    case ROBO_PAINT_OP_IMAGE:
+        /*
+         * The image commands (11.7), and the one derivation this build performs for them is the
+         * **destination rectangle**: an image record carries the box's three rectangles and this
+         * artifact carries one, so the content box is what survives -- because an image *is* its
+         * element's content, and the content box is where content goes. That is the same kind of
+         * conversion the border band above performs on a side, and it is done once here so that a
+         * rasteriser never has to choose between three rectangles.
+         *
+         * The payload travels as it is: the resource, the source rectangle in image pixels and
+         * the resource's facts are all values, and none of them is derived from anything above.
+         * The command this produces borrows the resource; the **list** takes the reference that
+         * keeps it alive (`robo_paint_display_list_append`), which is what lets the record list be
+         * cleared or destroyed while this list keeps drawing.
+         */
+        out->kind = ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE;
+        out->rect = operation->boxes.content;
+        out->image = operation->image;
+        return ROBO_OK;
     case ROBO_PAINT_OP_CONTENT:
         out->kind = ROBO_PAINT_DISPLAY_CMD_CONTENT;
         out->rect = operation->boxes.content;
@@ -674,15 +693,24 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
          * `open_count`, and a record that belongs to the innermost open box has depth
          * `open_count - 1`.
          *
-         * A **text run** is neither, and the difference is the whole of 11.6's shape in
-         * this file: it is a **child** of the box whose element owns the text node, so its
-         * depth is one past the innermost open box and its node is a *different* object --
-         * but it opens no box of its own, because a run is not one (`RoboPaintTypes.h`).
-         * So it is checked as a child and the stack is left alone, and the fact that it
-         * follows the box's content boundary is required exactly as it is for a nested box:
-         * a run emitted before its parent's own painting had finished would be a run no
-         * traversal of this build can produce.
-         */
+ * A **text run** is neither, and the difference is the whole of 11.6's shape in
+ * this file: it is a **child** of the box whose element owns the text node, so its
+ * depth is one past the innermost open box and its node is a *different* object --
+ * but it opens no box of its own, because a run is not one (`RoboPaintTypes.h`).
+ * So it is checked as a child and the stack is left alone, and the fact that it
+ * follows the box's content boundary is required exactly as it is for a nested box:
+ * a run emitted before its parent's own painting had finished would be a run no
+ * traversal of this build can produce.
+ *
+ * An **image** (11.7) takes the ordinary path below -- the innermost open box's depth and
+ * node, and the rule that it precedes that box's content boundary -- and the check is not
+ * special-cased for it on purpose: those are exactly the facts a replaced element's drawing has,
+ * so a site that carved out an exception for images would be stating the rule twice and
+ * differently. It is the *traversal* that places the record (after the box's decorations, before
+ * its `CONTENT`), and this file's job is to refuse a sequence that does not hold. The same is
+ * true of the opacity scope's `painted` flag below: an image is a drawing the box made for
+ * itself, so a `PUSH_OPACITY` after one is refused there automatically.
+ */
         if (operation.kind == ROBO_PAINT_OP_BEGIN_BOX) {
             if (operation.depth != builder->open_count) {
                 return display_refuse(out_list, diag,
@@ -804,6 +832,8 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
             stats.backgrounds++;
         } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
             stats.borders++;
+        } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE) {
+            stats.images++;
         }
     }
 
@@ -833,7 +863,10 @@ robo_result_t robo_paint_display_list_builder_build(robo_paint_display_list_buil
     }
 
     stats.commands = robo_paint_display_list_count(out_list);
-    stats.draws = stats.backgrounds + stats.borders + stats.texts;
+    /* Every drawing kind the vocabulary has, added up in the one place the total is stated --
+     * images included since 11.7, so `draws` stays the number a reader can check against
+     * `commands - skips` whatever kinds the next phase adds. */
+    stats.draws = stats.backgrounds + stats.borders + stats.texts + stats.images;
     if (out_stats) {
         *out_stats = stats;
     }

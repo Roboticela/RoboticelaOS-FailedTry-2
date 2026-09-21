@@ -232,11 +232,35 @@ typedef enum robo_paint_op_kind {
      * It carries **the same record its push carried**, so a pair is self-identifying and a
      * builder can check the pairing without a second table.
      */
-    ROBO_PAINT_OP_POP_OPACITY = 13
+    ROBO_PAINT_OP_POP_OPACITY = 13,
+    /**
+     * Draw a decoded image into a box's content area (11.7).
+     *
+     * The fourth drawing kind, and the first whose appearance is **not a colour this build
+     * resolved**: an image's pixels are the resource's own, so this record carries no colour
+     * and instead carries a payload (`RoboPaintImage.h`) -- the retained resource, the
+     * rectangle of it to draw and the resource's facts at snapshot time.
+     *
+     * It is emitted **inside the box's own group**, after the box's border records and
+     * before its `CONTENT`: an `<img>` is a **replaced element**, so what its resource draws
+     * *is* the element's content, and CSS's paint order for such an element is background,
+     * border, content, descendants. That placement is the difference between it and `TEXT`,
+     * which is emitted a level *below* the box because a text run is a child object of the
+     * box that owns the text node; an image has no object of its own, so the box is the
+     * record's node and the box's content box is its destination rectangle.
+     *
+     * It is a **drawing** kind, so it is held to the same "emit only when it draws" rule as
+     * every other one: an element whose resource is missing, pending, failed or unsupported
+     * produces no record at all, and a box whose destination has no area produces one whose
+     * command the painter counts and draws nothing for. The two are deliberately different
+     * facts -- one is about the document's resources, the other about its geometry -- and the
+     * counters keep them apart (`RoboPaintContext.h`).
+     */
+    ROBO_PAINT_OP_IMAGE = 14
 } robo_paint_op_kind_t;
 
 /** Number of defined operation kinds. */
-#define ROBO_PAINT_OP_KIND_COUNT 14u
+#define ROBO_PAINT_OP_KIND_COUNT 15u
 
 /** Non-zero if @p kind is a defined operation kind. */
 int robo_paint_op_kind_is_known(robo_paint_op_kind_t kind);
@@ -261,11 +285,27 @@ robo_result_t robo_paint_op_kind_side(robo_paint_op_kind_t kind, robo_css_box_si
 
 /**
  * Non-zero when @p kind **puts a pixel down**: `BACKGROUND`, one of the four `BORDER_*`
- * sides, or `TEXT`. It is the predicate a builder asks before emitting a decoration, and
- * the split the validity rule uses -- a kind that draws must carry a colour a rasteriser
- * can use, and a kind that does not must carry `none`.
+ * sides, `TEXT`, or `IMAGE` (11.7). It is the predicate a builder asks before emitting a
+ * decoration, and one half of the split the validity rule uses.
  */
 int robo_paint_op_kind_draws(robo_paint_op_kind_t kind);
+
+/**
+ * Non-zero when @p kind's appearance is **a colour this module resolved**, namely the
+ * background, the four border sides and a text run.
+ *
+ * The other half of the validity split, and it exists because 11.7 added a drawing kind
+ * whose appearance is *not* a colour: an image record's pixels belong to its resource, so
+ * requiring a drawable colour of it would be asking a record for a fact it cannot have.
+ * The rule stated positively rather than as "draws and is not an image" is the one that
+ * survives the next kind: a surface, a gradient, a video frame -- each of them says no here
+ * and carries its own payload, and none of them has to be added to an exception list.
+ *
+ * A cleared record (`NONE`) and a structural kind answer no, which is what makes the rule
+ * usable on both sides of the split: a kind that uses a colour must carry a drawable one,
+ * and a kind that does not must carry `none`.
+ */
+int robo_paint_op_kind_uses_color(robo_paint_op_kind_t kind);
 
 /**
  * Non-zero when @p kind is **structural**: a record that draws nothing and is emitted

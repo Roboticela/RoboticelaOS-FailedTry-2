@@ -141,13 +141,13 @@ static void test_paint_module_lifecycle(void)
 
     paint_fixture();
 
-    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.9.0");
+    ROBO_CHECK_STR_EQ(robo_paint_version_string(), "0.10.0");
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    /* 11.10 is the release that asks the painter's question backwards, and a hit test produces
-     * an **answer** rather than a drawing -- so the version moved and
-     * `ROBO_PAINT_DRAWING_IMPLEMENTED` beside it did not. */
-    ROBO_CHECK_EQ_INT((int)minor, 9);
+    /* 11.7 is the release that draws a document's **images**, and it moved the version without
+     * changing a single meaning in the frozen v1 surface: one more operation kind, one more
+     * display command kind and one more field on the capability record. */
+    ROBO_CHECK_EQ_INT((int)minor, 10);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement -- and since 11.4 (backgrounds), 11.5
@@ -182,13 +182,13 @@ static void test_paint_kind_vocabulary(void)
     static const char *const expected[ROBO_PAINT_OP_KIND_COUNT] = {
         "none", "begin-box", "background", "border-top", "border-right", "border-bottom",
         "border-left", "content", "push-clip", "text", "pop-clip", "end-box",
-        "push-opacity", "pop-opacity"
+        "push-opacity", "pop-opacity", "image"
     };
     size_t index;
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 14);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 15);
     /* The zero of the vocabulary is `NONE`, so a cleared record is not an operation --
      * the same decision RoboLayout's border width kinds make one module down. */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_NONE, 0);
@@ -215,6 +215,21 @@ static void test_paint_kind_vocabulary(void)
      */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_PUSH_OPACITY, 12);
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_POP_OPACITY, 13);
+    /*
+     * And 11.7's `IMAGE` is appended for the same reason, with the one difference worth reading:
+     * its **paint** order *is* the order a consumer meets it in -- between a box's border records
+     * and its `CONTENT`, because an image is a replaced element's content -- so the row table in
+     * `RoboPaintTypes.c` and the sequence agree for this kind and disagree only for the two
+     * opacity rows above it.
+     */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_IMAGE, 14);
+    /* It draws (the fourth drawing kind) and it is **not** a kind whose look is a colour, which is
+     * the distinction 11.7 added to this vocabulary: a payload rather than a fill. */
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_draws(ROBO_PAINT_OP_IMAGE), 1);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_structural(ROBO_PAINT_OP_IMAGE), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_uses_color(ROBO_PAINT_OP_IMAGE), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_opacity(ROBO_PAINT_OP_IMAGE), 0);
+    ROBO_CHECK_EQ_INT(robo_paint_op_kind_is_clip(ROBO_PAINT_OP_IMAGE), 0);
     /* Both are **structural**: a scope opens and closes and draws nothing. That is what keeps
      * the vocabulary's own partition -- `draws` plus `is_structural` above `NONE` -- true, and
      * it is why the validity rule needs no third branch for them. */

@@ -141,6 +141,42 @@ typedef struct robo_paint_stats {
      * visible, since those are very different bugs to go looking for.
      */
     size_t text_skipped;
+    /**
+     * Placed boxes whose element is an `<img>` -- the traversal reaching an image *element*,
+     * whether or not anything is painted for it (11.7).
+     *
+     * The `text_runs` of this phase, and counted for the same reason: it is the number a
+     * reader needs to tell "this document has no images" from "this document's images drew
+     * nothing", which are a missing feature and a bug respectively. It counts a **placed**
+     * box, so an `<img>` nothing placed is in `unplaced` and is not also counted here -- the
+     * two counters stay disjoint the way `unplaced` and `boxes` are.
+     */
+    size_t image_elements;
+    /**
+     * `IMAGE` operations appended: images whose resource is decoded, whose payload this build
+     * may draw and whose source rectangle is inside the resource.
+     *
+     * The second half of `image_elements = images + image_skipped`, and the two halves are an
+     * identity by construction -- the same pair `text_runs`/`texts` form one level up.
+     */
+    size_t images;
+    /**
+     * Image elements the traversal reached that produced **no** operation (11.7).
+     *
+     * Every reason is a statement about the document rather than a failure, which is why the
+     * pass still succeeds: no `src` to fetch, a resource that was never resolved, a decode that
+     * failed or was refused as unsupported, a resource with no pixel surface or a zero
+     * dimension, or a resolution outside `ROBO_PAINT_IMAGE_MAX_DIMENSION`. That list is long on
+     * purpose and *is* the phase's missing-image policy: this runtime has no broken-image
+     * presentation, so nothing is drawn and the count says how many drawings that cost.
+     *
+     * The geometry is deliberately *not* among the reasons: a box with no area still produces
+     * an operation, and the drawing pass is where a destination with no area is counted
+     * (`robo_paint_decoration_stats_t.empty`). One is a fact about the document's resources and
+     * the other about its geometry, and keeping them in different layers is what lets a reader
+     * of either number know which they are looking at.
+     */
+    size_t image_skipped;
     /** Operations appended. */
     size_t ops;
     /** Background operations: boxes whose declared background draws. */

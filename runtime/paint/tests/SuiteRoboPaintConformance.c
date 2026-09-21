@@ -82,7 +82,12 @@ static const paint_capability_row_t paint_capability_rows[] = {
      * under the boundary that node's `overflow` puts in force -- and the phase's own suite pins
      * each of the four rules separately, because one overlapping fixture would let three of them
      * be wrong at once. */
-    { "hit_testing", 1 }
+    { "hit_testing", 1 },
+    /* 11.7's `image_painting`: a document's `<img>` resource reaches a surface at the rectangle
+     * layout gave its element, drawn by the graphics module's own scaled sampler. It sits here
+     * rather than beside `background_painting`, where a reader would look for it, because this
+     * list is **positional** and a field inserted in the middle renumbers every row after it. */
+    { "image_painting", 1 }
 };
 
 static void test_paint_conformance_capabilities(void)
@@ -167,6 +172,10 @@ static void test_paint_conformance_drawing_present(void)
      * order, the border box as the region, the contents' boundary versus the box's own, and a
      * strength that does not gate) a property of the build rather than of a header. */
     ROBO_CHECK_EQ_INT(capabilities.hit_testing, 1);
+    /* And the eighth claim, the fourth that is about a drawing and the second whose payload is a
+     * **resource** rather than a number: an image reaches the surface through the graphics layer's
+     * own sampler, at the destination layout concluded. */
+    ROBO_CHECK_EQ_INT(capabilities.image_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.raster, 0);
     /* A hit test is not a drawing, so the two do not move together: `raster` stays 0 while
      * `background_painting`, `border_painting`, `text_painting`, `clipping`, `opacity` and
@@ -174,12 +183,13 @@ static void test_paint_conformance_drawing_present(void)
     ROBO_CHECK_EQ_INT(capabilities.background_painting, 1);
     ROBO_CHECK_EQ_INT(capabilities.border_painting, 1);
 
-    /* The version this build reports is 0.9.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.10.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
-     * still add to this surface. */
+     * still add to this surface (11.7 added a drawing kind, a command kind and a capability
+     * field without changing a meaning). */
     ROBO_CHECK_EQ_INT(robo_paint_get_version(&major, &minor, &patch), ROBO_OK);
     ROBO_CHECK_EQ_INT((int)major, 0);
-    ROBO_CHECK_EQ_INT((int)minor, 9);
+    ROBO_CHECK_EQ_INT((int)minor, 10);
     ROBO_CHECK_EQ_INT((int)patch, 0);
     ROBO_CHECK_STR_EQ(robo_paint_version_string(), ROBO_PAINT_VERSION_STRING);
     ROBO_CHECK_EQ_INT(ROBO_PAINT_API_FROZEN, 0);
@@ -227,10 +237,12 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
      * A phase that added an enumerator without a name row would fail here -- which is the
      * whole point of the table being a table.
      */
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 14);
-    /* 11.10 appended the hit test's domain, which is the only vocabulary 11.10 changes: it
-     * adds a module of its own beside the traversal rather than an operation kind, because a
-     * hit test produces an **answer** and not a drawing. */
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_OP_KIND_COUNT, 15);
+    /* 11.10 appended the hit test's domain, which was the only vocabulary that phase changed:
+     * it adds a module of its own beside the traversal rather than an operation kind, because a
+     * hit test produces an **answer** and not a drawing. 11.7 then appended 11.7's `IMAGE` kind
+     * here and its own `image_painting` capability field, and changed no domain -- an image is a
+     * drawing of an existing module rather than a new one. */
     ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DOMAIN_COUNT, 12);
     for (index = 0u; index < (size_t)ROBO_PAINT_OP_KIND_COUNT; index++) {
         robo_paint_op_kind_t kind = (robo_paint_op_kind_t)index;
@@ -249,14 +261,33 @@ static void test_paint_conformance_vocabulary_exhaustive(void)
         } else {
             ROBO_CHECK_EQ_INT(is_structural + is_drawing, 1);
         }
-        /* A drawing kind is exactly the border/background/text triple the builder asks
-         * for, and the marker predicate is the strict subset of structural that excludes
-         * the content boundary. */
+        /*
+         * A drawing kind is exactly the border/background/text/image set, and the marker
+         * predicate is the strict subset of structural that excludes the content boundary.
+         *
+         * The list is spelled out rather than derived, which is the point: a kind added to the
+         * vocabulary without a decision about whether it draws fails here. 11.7's `IMAGE` is the
+         * fourth entry, and it is the first that draws **without** being a kind whose look is a
+         * colour -- which is what `uses_color` below separates from `draws`. */
         ROBO_CHECK_EQ_INT(is_drawing,
                           is_border || kind == ROBO_PAINT_OP_BACKGROUND ||
-                                  kind == ROBO_PAINT_OP_TEXT
+                                  kind == ROBO_PAINT_OP_TEXT || kind == ROBO_PAINT_OP_IMAGE
                               ? 1
                               : 0);
+        /*
+         * And the second split, asked here so that a kind that claimed a colour it does not have
+         * would fail where the vocabulary is: `uses_color` is a **subset** of `draws` -- the
+         * background, the four sides and a text run -- and `IMAGE` is the first drawing kind on
+         * the outside of it. A cleared kind uses no colour either, which is why the implication is
+         * stated in one direction only.
+         */
+        if (robo_paint_op_kind_uses_color(kind)) {
+            ROBO_CHECK_EQ_INT(is_drawing, 1);
+        }
+        if (kind == ROBO_PAINT_OP_IMAGE) {
+            ROBO_CHECK_EQ_INT(robo_paint_op_kind_uses_color(kind), 0);
+            ROBO_CHECK_EQ_INT(is_drawing, 1);
+        }
         if (robo_paint_op_kind_is_marker(kind)) {
             ROBO_CHECK_EQ_INT(is_structural, 1);
             ROBO_CHECK(kind != ROBO_PAINT_OP_CONTENT);

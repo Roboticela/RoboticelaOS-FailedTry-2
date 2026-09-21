@@ -2,8 +2,8 @@
  * RoboPaint decoration and text painting (Phase 11.4–11.8) — see RoboPaintDecoration.h.
  *
  * The pass: walk the display list once, in list order, and draw each **drawing** command into
- * a RoboGraphics raster -- a background's border box, a border side's band, and a text run's
- * glyphs -- while counting everything a command turns out to be. The raster is the graphics module's own
+ * a RoboGraphics raster -- a background's border box, a border side's band, a text run's
+ * glyphs, and an image's destination rectangle -- while counting everything a command turns out to be. The raster is the graphics module's own
  * immediate-mode CPU context, so the clip and the source-over blend are its, and the three
  * things this file owns are the walk, the clip **scope stack**, and the boundary a drawing is
  * applied under.
@@ -32,6 +32,15 @@
  * one rectangle to fill, the boundary in force and, for a band, the style that shapes it. The
  * only conversions left are the colour (`RoboPaintColor.h`'s) and, since 11.6, a character into
  * a glyph -- which is the graphics module's bridge, one call per character.
+ *
+ * **Since 11.7 an image is the one drawing whose appearance is not a colour**, and the pass holds
+ * it to a different rule in exactly one place: the four colour terms below apply to a command
+ * whose look *is* a colour, and an image command is instead asked whether its payload is one this
+ * build can draw. Everything else is shared with a fill -- the same clip from the walk's stack,
+ * the same strength on the raster, the same geometry check -- so there is no second drawing path
+ * here, only one more kind of appearance. The sampling, the scaling and the alpha are all
+ * `robo_gfx_raster_draw_image`'s, because pixels are RoboGraphics' business and a caller that
+ * sampled an image itself would be re-deciding the blend and the clip this module already owns.
  */
 
 #include "RoboPaint/RoboPaintDecoration.h"
@@ -358,6 +367,12 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
         robo_paint_display_command_t command;
         robo_gfx_color_rgba8_t color;
         int clipped = 0;
+        /*
+         * Whether this command's appearance is a colour at all (11.7) -- declared here rather
+         * than at each of the four questions below, because the four are one question asked
+         * about the same command and a second spelling would be a second answer.
+         */
+        int has_color = 0;
 
         if (robo_paint_display_list_at(list, index, &command) != ROBO_OK) {
             /* Unreachable: the index came from the list's own count. */
@@ -452,10 +467,31 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
          * drawings rather than with the ones that are -- which is what keeps
          * `commands = draws + skipped` exact for a hand-built list whose command the list's
          * validity rule would have refused.
+         *
+         * It is asked of the kinds that **have** a colour, which 11.7 makes a narrower set than the
+         * drawing kinds: an image command carries `none` and is asked the same question about its
+         * payload instead, a few lines down. Writing this as "every drawing command" would refuse
+         * every image in the document -- the one mistake that would make this phase look like it did
+         * nothing at all. The answer is read once into a local flag rather than re-spelled at each
+         * of the four places below that ask it, because four spellings of "does this command have a
+         * colour" are four places for the answer to drift.
          */
-        if (command.color.kind != ROBO_CSS_COLOR_RGBA &&
+        has_color = robo_paint_display_command_kind_uses_color(command.kind);
+        if (has_color && command.color.kind != ROBO_CSS_COLOR_RGBA &&
             command.color.kind != ROBO_CSS_COLOR_CURRENT) {
             stats.skipped++;
+            continue;
+        }
+        /*
+         * And the image's own version of that question (11.7), asked where the colour's is and for
+         * the same reason: a payload this build cannot draw is not a drawing this pass can attempt,
+         * so it is a statement about the document -- `no_resource` -- rather than a failed pass. A
+         * list this build produced never reaches here, because the command layer's validity rule
+         * refuses such a command at append; the term exists so that a hand-built list is counted
+         * rather than silently swallowing the remainder of an identity.
+         */
+        if (!has_color && !robo_paint_image_is_valid(&command.image)) {
+            stats.no_resource++;
             continue;
         }
         /*
@@ -479,6 +515,8 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             if (!decoration_style_is_shaped(command.style)) {
                 stats.unshaped++;
             }
+        } else if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE) {
+            stats.images++;
         } else {
             stats.texts++;
         }
@@ -491,11 +529,11 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
          * drawing lands in exactly one bucket and the counter is a statement rather than a
          * remainder.
          */
-        if (command.color.kind == ROBO_CSS_COLOR_CURRENT) {
+        if (has_color && command.color.kind == ROBO_CSS_COLOR_CURRENT) {
             stats.contextual++;
             continue;
         }
-        if (command.color.alpha == 0) {
+        if (has_color && command.color.alpha == 0) {
             stats.transparent++;
             continue;
         }
@@ -516,7 +554,7 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             stats.empty++;
             continue;
         }
-        if (robo_paint_color_to_rgba8(command.color, &color) != ROBO_OK) {
+        if (has_color && robo_paint_color_to_rgba8(command.color, &color) != ROBO_OK) {
             /* Unreachable: an opaque `RGBA` is exactly the colour `to_rgba8` copies. Reported
              * rather than counted, because a fill that could not be prepared is this build
              * failing and no bucket above would be telling the truth about it. */
@@ -591,6 +629,32 @@ robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
             if (byte != 255u) {
                 stats.faded++;
             }
+        }
+
+        /*
+         * The image, drawn through the graphics module's own primitive -- the *scaled* half of
+         * its 1:1 copy -- and the three facts it is handed are the three the command carries: the
+         * resource, the rectangle of it to sample, and the destination. Everything else has already
+         * been done for it by the time the walk reaches here: the clip is the raster's, the strength
+         * is the raster's, and the geometry rule above refused a destination with no area.
+         *
+         * A refusal is reported rather than counted, and the asymmetry with the terms above is
+         * deliberate: those are statements about the *document*, where a primitive that refused a
+         * payload its own validity rule admitted is this build disagreeing with itself -- the same
+         * shape as a rectangle that will not fill, one branch below.
+         */
+        if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE) {
+            status = robo_gfx_raster_draw_image(raster, command.image.resource,
+                                                command.image.source, command.rect);
+            if (status != ROBO_OK) {
+                return decoration_finish(raster, clips, opacities,
+                                         ROBO_PAINT_DIAG(diag, ROBO_PAINT_DOMAIN_GEOMETRY,
+                                                         ROBO_ERROR,
+                                                         "an image command's drawing could "
+                                                         "not be performed"));
+            }
+            stats.filled++;
+            continue;
         }
 
         if (command.kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {

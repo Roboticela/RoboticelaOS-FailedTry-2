@@ -89,7 +89,18 @@ typedef struct robo_paint_display_list_stats {
      * construction -- this build converts one record per command and drops none.
      */
     size_t opacity_scopes;
-    /** Drawing commands: backgrounds plus border bands plus text runs. */
+    /**
+     * Image commands: one per `IMAGE` record the record list carried (11.7).
+     *
+     * Beside `texts`, because the two are the drawing kinds whose *appearance* a command does
+     * not own: a run names its characters in the list's pool and an image names a resource, and
+     * a reader asking "how much of this document's pixels arrived from outside?" wants this
+     * number rather than `draws`. It counts the record list's `IMAGE` operations exactly -- this
+     * build converts one record per command and drops none -- so a discrepancy between the two
+     * numbers is a builder bug rather than a document property.
+     */
+    size_t images;
+    /** Drawing commands: backgrounds plus border bands plus text runs plus images. */
     size_t draws;
     /** Deepest node seen. */
     uint32_t max_depth;

@@ -48,7 +48,13 @@ static const paint_op_row_t paint_op_rows[ROBO_PAINT_OP_KIND_COUNT] = {
      * actually emits. The table is searched rather than indexed, so the order of these rows is
      * about a reader's eye and nothing else. */
     { ROBO_PAINT_OP_PUSH_OPACITY, "push-opacity", ROBO_CSS_BOX_SIDE_COUNT },
-    { ROBO_PAINT_OP_POP_OPACITY, "pop-opacity", ROBO_CSS_BOX_SIDE_COUNT }
+    { ROBO_PAINT_OP_POP_OPACITY, "pop-opacity", ROBO_CSS_BOX_SIDE_COUNT },
+    /* 11.7's image record, appended only for the reason the opacity pair was: the rows are
+     * searched rather than indexed. Unlike that pair it *is* in paint order -- it is emitted
+     * between a box's border records and its `CONTENT` -- so the row here and the sequence a
+     * consumer meets agree, and the note `RoboPaintTypes.h` carries about enumerator order no
+     * longer being paint order holds for exactly two rows above. */
+    { ROBO_PAINT_OP_IMAGE, "image", ROBO_CSS_BOX_SIDE_COUNT }
 };
 
 /** The row for @p kind, or NULL when @p kind names none. */
@@ -100,6 +106,18 @@ robo_result_t robo_paint_op_kind_side(robo_paint_op_kind_t kind, robo_css_box_si
 
 int robo_paint_op_kind_draws(robo_paint_op_kind_t kind)
 {
+    return kind == ROBO_PAINT_OP_BACKGROUND || kind == ROBO_PAINT_OP_TEXT ||
+           kind == ROBO_PAINT_OP_IMAGE || robo_paint_op_kind_is_border(kind);
+}
+
+int robo_paint_op_kind_uses_color(robo_paint_op_kind_t kind)
+{
+    /*
+     * Written as an explicit list of the kinds whose look is a colour, rather than as
+     * "draws and is not an image", so that the next payload kind is a kind that answers no
+     * here instead of a special case somewhere else -- the argument `RoboPaintTypes.h` makes
+     * for the predicate's shape.
+     */
     return kind == ROBO_PAINT_OP_BACKGROUND || kind == ROBO_PAINT_OP_TEXT ||
            robo_paint_op_kind_is_border(kind);
 }

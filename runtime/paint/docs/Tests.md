@@ -1,6 +1,6 @@
-# RoboPaint Test Organisation (through Phase 11.10)
+# RoboPaint Test Organisation (through Phase 11.7)
 
-Twelve suite files, **187** cases, one framework. Each phase adds no test runner, no reporter and no
+Thirteen suite files, **202** cases, one framework. Each phase adds no test runner, no reporter and no
 assertion vocabulary: everything here goes through `runtime/Tests/Framework` (`ROBO_CHECK*`
 and `robo_test_register`), the same as every other subsystem.
 
@@ -8,12 +8,12 @@ They live in `paint/tests/`, beside the module rather than in `Tests/Suites/`, f
 reason `layout/tests/` sits where it does and `css/tests/` before it: a suite in its own
 directory resolves its fixture header relatively, which is what `RoboPaintTestSupport.h` is.
 
-`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the twelve suites
+`Tools/Build.ps1` adds `paint/tests` to the host include path and lists the thirteen suites
 explicitly in `$SuiteSrcs`. There is no glob: a suite that is not on the list is not built,
 which is the "explicit over discovered" rule the rest of the tree follows.
 
 The count is the `paint.*` prefix's, read from a run rather than from this table: a `--filter`
-that matched a suite's *own* prefix reports 187, and the six `demo.paint.*` cases of the visual
+that matched a suite's *own* prefix reports 202, and the six `demo.paint.*` cases of the visual
 demo come with it because the filter is a substring match.
 
 ---
@@ -33,6 +33,7 @@ demo come with it because the filter is a substring match.
 | `SuiteRoboPaintClip.c` | `paint.clip.*` | 24 | is the boundary a **scope** — does the intersection hold, does a scope appear exactly when the boundary *changed*, is the box's own decoration outside it, is the effective clip inside a nested scope the intersection of the two, does every drawing kind stop at it, and does an empty one suppress drawing without poisoning the walk? |
 | `SuiteRoboPaintOpacity.c` | `paint.opacity.*` | 28 | is a drawing's **strength** a product along a path rather than a replacement — does a scope appear exactly when the strength *changed*, does it open at the box's marker rather than its content boundary, does every drawing kind receive it, do the pixels equal the graphics module's own blend of the opaque ones, does a sibling stay unaffected, and is the gap from CSS's group semantics measured rather than hidden? |
 | `SuiteRoboPaintHitTest.c` | `paint.hit-test.*` | 26 | does the **inverse** query hold — is the answer the last node *drawn* at the point rather than the first in document order, is the region the border box (including a transparent one, and excluding an empty one), does a `overflow: hidden` ancestor clip its children while its own band stays hittable, does a strength not gate, and does the answer match both the painter's records and the **pixels**? |
+| `SuiteRoboPaintImage.c` | `paint.image.*` | 15 | does a document's **picture** travel resource → record → command → pixels — is the destination the box layout gave the element, is the source the whole image, is the scaling the graphics module's own mapping and alpha preserved, does every way an image can be *missing* produce a counted skip rather than a crash or a placeholder, and do the two lists each own the resource they name? |
 
 The unit suite and the traversal suite are deliberately not the same suite because they catch
 different things: a hand-built record catches an arithmetic or a rule that a document would
@@ -415,6 +416,54 @@ wrong rectangle.
 - `document_list` — a whole document's list, pinned operation by operation.
 - `hostile_inputs` — NULL and malformed records refused rather than read.
 
+### 1.15 — the image suite (`paint.image.*`, 15 cases)
+
+**15 cases**, and every one of them builds a picture the way a document does: a 4x4 RGBA8 surface
+is filled with a non-uniform pattern, encoded to **real PNG bytes** by Goal 6.13's encoder,
+registered in an asset table, resolved onto an `<img>` through RoboHTML's own fetch seam, and then
+laid out, painted and — where pixels are the question — drawn into a real surface again. The
+pattern is non-uniform on purpose: a sampler that used one pixel for the whole image, or transposed
+the axes, passes a solid fixture and fails this one.
+
+- **the record · the command** (`record_shape`, `command_and_destination`) — one `IMAGE` record per
+  resolved picture, carrying the resource's **identity** (compared against the resource's own id
+  rather than a number written in the test), its dimensions and format and the **full source**;
+  the record's local boxes equal what layout wrote for that element
+  (`paint_local_boxes_match_layout`), and the command's single `rect` **is** the record's content
+  box — the phase's integration claim in one comparison.
+- **the order** (`order`) — background, border, image, read off a document with all three; the
+  image inside its **own** element's group (`begin-node … image … content … end-node`) and after the
+  container's own painting, which is the one inequality that tells an image's placement apart from
+  a text run's.
+- **two pictures** (`multiple`) — two elements, two **different** resources under two names, each
+  command naming its own and each destination its own content box (64x48 at the top, 8x8 below it).
+- **the pixels** (`pixels`, `scaling`) — the visual case: the destination is read off the command
+  rather than written down, every pixel inside it equals the source pixel the mapping names, every
+  pixel outside it is still the page's colour, and at a 4x4 → 16x16 ratio each four-by-four block's
+  **first and last** pixel is checked (an off-by-one in the mapping shows up at the last one).
+- **alpha** (`alpha`) — one 3x1 image over one opaque destination: `a == 0` leaves the target
+  untouched, `a == 255` writes the source's colour, and `a == 128` blends to something strictly
+  between — three answers from **one** draw, so none can be explained by a skipped image.
+- **nothing to see** (`empty_destination`, `missing`, `none`) — a zero-sized destination is a
+  counted drawing (`images` 1, `empty` 1, `filled` 0, surface unchanged); four ways for an image to
+  be absent (no `src`, never resolved, not found, refused scheme) each produce **no** record and one
+  `image_skipped`; and a document with no `<img>` leaves all three counters at zero, which is the
+  number that tells "no images" from "every image failed".
+- **the payload's own contract** (`hand_built_rules`) — the only case that does not go through a
+  document: `robo_paint_image_from_resource`'s refusals (NULL, a metadata-only resource), a crop
+  that runs off the resource, a zero-area source, equality by identity (and the hand-built payload
+  that claims an identity it does not own), a record carrying a colour or a style, a background
+  carrying a payload, and the two vocabularies the split added (`draws`, `uses_color`).
+- **ownership** (`resource_lifetime`) — one whole cycle (build, paint, `detach`, destroy the
+  records, paint again, tear down) run **twice**, with the two live-block counts compared: the first
+  cycle proves the two lists really hold their own references, the comparison proves they give them
+  back.
+- **isolation · determinism · dump** (`mutation_isolation`, `determinism`, `dump`) — rewriting the
+  element's `src` and re-resolving it to a **different** 8x8 picture cannot change the record or
+  the command; two passes produce equal lists, equal dumps and equal pixels, with **no `0x`** in
+  either dump; and the record's and command's lines carry the resource, `src=0,0,4x4` and
+  `source_size=4x4` as text.
+
 ---
 
 ## 2. Fixtures
@@ -720,5 +769,32 @@ would have been wrong about the *document*.
    `visibility_is_not_consumed` rather than papering over it, so the phase that teaches layout and
    paint about `visibility` has a failing assertion pointing at the place that must change.
 
-**Gates:** Debug **2563/2563**; Release and ASan + UBSan **2563/2563** with no diagnostics — the
-paint module contributing **187** of them across its twelve suite files.
+## 15. What the 11.7 suite found
+
+1. **The colour rule had to be split rather than extended.** Adding `IMAGE` to
+   `robo_paint_op_kind_draws` — the obvious first move — makes the validity rule demand a colour of
+   a record whose appearance is a resource, so **every image in every document would have been
+   refused** and the phase would have looked like it did nothing. `paint.conformance.vocabulary_exhaustive`
+   and `paint.types.kind_vocabulary` now assert the split (`uses_color` ⊆ `draws`, with `IMAGE` the
+   first drawing kind outside it) at the vocabulary rather than at the site that would have failed.
+2. **A mem-debug baseline is not a leak test.** Measuring `paint_live_blocks()` before a rig and
+   after its teardown reported a three-block difference in both directions depending on what the
+   harness had already allocated, which is exactly the shape of assertion that gets weakened until
+   it passes. Running the whole cycle **twice** and comparing the two ends measures the module's own
+   ownership instead, and it is what `paint.image.resource_lifetime` does.
+3. **Two containers needed the same release walk.** The paint list and the display list both were
+   documented as arrays of pointer-free values; 11.7 makes a value name a resource, so both gained a
+   retain at `append` and a release at `clear`/`destroy`. Writing the release twice is how one of
+   them ends up without it, so each file has **one** static walk both paths call.
+4. **An image's placement does not generalise from a run's.** A text record is emitted a level
+   *below* the box that owns it (a run is a child object); an image record is emitted **inside** its
+   own element's box, before that box's `CONTENT` (an image *is* the element's content). The order
+   case had to be written for the image's own group rather than borrowed from the text suite's, and
+   the vocabulary's `IMAGE` row is the one row that *is* in paint order.
+5. **A hand-built record needs boxes that are already valid.** The record rule refuses un-nested
+   boxes *before* it ever reads a payload, so a case that built an operation with zeroed geometry
+   would have passed every image assertion for the wrong reason; the hand-built case sets three
+   nested rectangles and asserts `robo_paint_boxes_is_valid` on them first.
+
+**Gates:** Debug **2578/2578**; Release and ASan + UBSan **2578/2578** with no diagnostics — the
+paint module contributing **202** of them across its thirteen suite files.

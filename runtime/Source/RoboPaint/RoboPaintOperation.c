@@ -44,6 +44,9 @@ void robo_paint_operation_init(robo_paint_operation_t *operation)
      * that "a cleared run" is `RoboPaintText.h`'s definition rather than a zero pattern
      * this file happens to agree with. */
     robo_paint_text_run_init(&operation->text);
+    /* And no image payload, which is what a non-image kind requires of every record, for the
+     * same reason: "nobody set it" and "this drawing has no resource" are one state. */
+    robo_paint_image_init(&operation->image);
 }
 
 int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
@@ -107,19 +110,24 @@ int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
     }
     /*
      * The colour rule, and it is two rules because the two halves of the vocabulary have
-     * different answers. A **structural** record draws nothing, so it must carry the
-     * colour that says nothing was declared -- `robo_css_color_none()`, which is
-     * RoboCSS's own "no colour", not a black that a consumer might draw. A **drawing**
-     * must carry a colour a rasteriser can use: resolved, or `currentColor` that this
-     * layer could not resolve (`robo_css_color_is_valid` is exactly that pair). `none` on
-     * a drawing is refused because a fill or a border with no colour draws nothing, and
-     * an operation that draws nothing is not a statement about the document.
+     * different answers. A kind whose appearance **is** a colour -- the background, the four
+     * border sides and a text run -- must carry a colour a rasteriser can use: resolved, or
+     * `currentColor` that this layer could not resolve (`robo_css_color_is_valid` is exactly
+     * that pair). `none` on such a kind is refused because a fill or a border with no colour
+     * draws nothing, and an operation that draws nothing is not a statement about the
+     * document. Every other kind must carry the colour that says nothing was declared --
+     * `robo_css_color_none()`, which is RoboCSS's own "no colour", not a black a consumer
+     * might draw.
      *
-     * The split is `robo_paint_op_kind_draws` rather than `is_marker`, so that `CONTENT`
-     * -- a structural record that is not a box marker -- is held to the "carries no
-     * colour" side of the rule instead of being asked for a colour it has no use for.
+     * The split is `robo_paint_op_kind_uses_color` rather than `draws`, and 11.7 is why the
+     * two arrived a phase apart: `draws` is true of an `IMAGE` record, whose appearance is its
+     * resource's pixels, so a rule stated on `draws` would be asking an image for a colour it
+     * cannot have. Stated positively -- "these kinds have a colour" -- the next payload kind
+     * says so in one place instead of being added to an exception list here. It is not
+     * `is_marker` either, so that `CONTENT`, a structural record that is not a box marker, lands
+     * on the "carries no colour" side rather than being asked for one.
      */
-    if (robo_paint_op_kind_draws(operation->kind)) {
+    if (robo_paint_op_kind_uses_color(operation->kind)) {
         if (!robo_css_color_is_valid(operation->color)) {
             return 0;
         }
@@ -146,23 +154,51 @@ int robo_paint_operation_is_valid(const robo_paint_operation_t *operation)
          */
         if (operation->kind == ROBO_PAINT_OP_TEXT) {
             return operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
-                   robo_paint_text_run_is_valid(&operation->text);
+                   robo_paint_text_run_is_valid(&operation->text) &&
+                   robo_paint_image_is_cleared(&operation->image);
         }
         if (robo_paint_op_kind_is_border(operation->kind)) {
             return robo_css_border_style_generates_border(operation->style);
         }
         return operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
+               !robo_paint_text_run_is_valid(&operation->text) &&
+               robo_paint_image_is_cleared(&operation->image);
+    }
+    /*
+     * Every kind whose appearance is **not** a colour this module resolved -- a structural
+     * record and, since 11.7, an `IMAGE` record -- and the first half of the rule is the same
+     * for both: the colour field must be `none`, because a colour on a record that has no fill
+     * is a fact about a drawing that does not exist. The colour rule above is stated on
+     * `uses_color` rather than on `draws` for exactly this reason, and this is the branch that
+     * makes the split worth having.
+     *
+     * A **structural** record draws nothing, so it carries the absence of a colour, of a style
+     * and of a text run -- and of an image payload too: a `BEGIN_BOX` naming a resource would
+     * be a marker carrying a drawing. The text half is stated as "the run is not a run" rather
+     * than as a field-by-field comparison against a cleared record, because a cleared run is
+     * exactly a run `robo_paint_text_run_is_valid` refuses and a second spelling of it would be
+     * a second place for the two to drift.
+     *
+     * And the **image rule** (11.7), the first of these whose subject is not a colour: an
+     * `IMAGE` record's appearance **is** its resource's pixels, so it must carry a payload this
+     * build may draw -- a resource with a surface, positive intrinsic dimensions and a source
+     * rectangle inside it -- and, carrying no colour, it must carry no **style** either. Its
+     * text run must be cleared for the reason every non-`TEXT` kind's must: font inputs on a
+     * record that draws no glyphs are facts about characters it does not have. The two halves
+     * are the same "its fields agree about what it is" rule the colour split states, applied to
+     * a payload instead of to a fill.
+     */
+    if (operation->color.kind != ROBO_CSS_COLOR_NONE) {
+        return 0;
+    }
+    if (operation->kind == ROBO_PAINT_OP_IMAGE) {
+        return robo_paint_image_is_valid(&operation->image) &&
+               operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
                !robo_paint_text_run_is_valid(&operation->text);
     }
-    /* A structural record draws nothing, so it carries the absence of a colour, of a style
-     * and of a text run: `none` for the first, and the cleared value for the other two --
-     * which a cleared record holds. The text half is stated as "the run is not a run"
-     * rather than as a field-by-field comparison against a cleared record, because a
-     * cleared run is exactly a run `robo_paint_text_run_is_valid` refuses and a second
-     * spelling of it would be a second place for the two to drift. */
-    return operation->color.kind == ROBO_CSS_COLOR_NONE &&
-           operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
-           !robo_paint_text_run_is_valid(&operation->text);
+    return operation->style == ROBO_CSS_BORDER_STYLE_NONE &&
+           !robo_paint_text_run_is_valid(&operation->text) &&
+           robo_paint_image_is_cleared(&operation->image);
 }
 
 int robo_paint_operation_equal(const robo_paint_operation_t *a,
@@ -177,7 +213,11 @@ int robo_paint_operation_equal(const robo_paint_operation_t *a,
            robo_paint_clip_equal(&a->clip, &b->clip) &&
            robo_paint_opacity_equal(&a->opacity, &b->opacity) &&
            robo_css_color_equals(a->color, b->color) && a->style == b->style &&
-           robo_paint_text_run_equal(&a->text, &b->text);
+           robo_paint_text_run_equal(&a->text, &b->text) &&
+           /* An image payload compares by **identity**, not by address, which is why
+            * `robo_paint_image_equal` exists as a door rather than this being four more
+            * comparisons here (RoboPaintImage.h). */
+           robo_paint_image_equal(&a->image, &b->image);
 }
 
 robo_paint_op_kind_t robo_paint_operation_kind(const robo_paint_operation_t *operation)
@@ -264,6 +304,20 @@ robo_paint_text_run_t robo_paint_operation_text(const robo_paint_operation_t *op
         return run;
     }
     return operation->text;
+}
+
+robo_paint_image_t robo_paint_operation_image(const robo_paint_operation_t *operation)
+{
+    robo_paint_image_t image;
+
+    robo_paint_image_init(&image);
+    if (!operation || operation->kind != ROBO_PAINT_OP_IMAGE) {
+        /* A kind that is not an image answers with a cleared payload rather than with the
+         * field, which is the rule the text accessor states one field along: a caller that
+         * did not ask the kind gets "no resource", not a leftover. */
+        return image;
+    }
+    return operation->image;
 }
 
 int robo_paint_operation_is_structural(const robo_paint_operation_t *operation)
@@ -492,7 +546,13 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
         robo_paint_writer_rect(&text, rect);
     }
 
-    if (robo_paint_operation_is_drawing(operation)) {
+    /*
+     * The colour, printed for the kinds that **have** one (`robo_paint_op_kind_uses_color`)
+     * rather than for the kinds that draw. 11.7 is why the two are not the same question: an
+     * `IMAGE` record draws and carries `none`, so a line that asked it for a colour would print
+     * either nothing or a "none" that a reader would take for a fill.
+     */
+    if (robo_paint_op_kind_uses_color(operation->kind)) {
         if (robo_css_color_write(operation->color, color_text, sizeof(color_text),
                                  &color_length, NULL) == ROBO_OK) {
             robo_paint_writer_string(&text, " color=");
@@ -513,6 +573,37 @@ robo_result_t robo_paint_operation_write(const robo_paint_operation_t *operation
      * which is also where a reader wants them, because that is the view of a whole
      * document rather than of one line of it.
      */
+    /*
+     * An image record prints the **resource's identity**, the source rectangle and the
+     * resource's own dimensions -- everything the record carries, and **no address**: an
+     * identity is a fact about the drawing, where a pointer is a fact about this process's
+     * heap, and a dump whose lines changed between two runs of one document would be a dump
+     * nobody could diff (`RoboPaintImage.h`). The pixels are not printed here for the same
+     * reason a run's characters are not: a record names them, and this door has no pool of
+     * them to read.
+     */
+    if (operation->kind == ROBO_PAINT_OP_IMAGE) {
+        robo_paint_writer_string(&text, " resource=");
+        robo_paint_writer_u64(&text, (uint64_t)robo_paint_image_identity(&operation->image));
+        /*
+         * The source rectangle is a **RoboGraphics** rectangle rather than a layout one -- it
+         * is in image pixels, which is the only space an image's own pixels have -- so it is
+         * written field by field here instead of through the layout-rectangle helper. The
+         * order is that helper's so the two read alike in a dump: `x,y,wxh`.
+         */
+        robo_paint_writer_string(&text, " src=");
+        robo_paint_writer_i64(&text, (int64_t)operation->image.source.x);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)operation->image.source.y);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)operation->image.source.width);
+        robo_paint_writer_char(&text, 'x');
+        robo_paint_writer_i64(&text, (int64_t)operation->image.source.height);
+        robo_paint_writer_string(&text, " source_size=");
+        robo_paint_writer_u64(&text, (uint64_t)operation->image.width);
+        robo_paint_writer_char(&text, 'x');
+        robo_paint_writer_u64(&text, (uint64_t)operation->image.height);
+    }
     if (operation->kind == ROBO_PAINT_OP_TEXT) {
         robo_paint_writer_string(&text, " code_points=");
         robo_paint_writer_u64(&text, (uint64_t)operation->text.span.count);

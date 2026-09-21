@@ -73,6 +73,7 @@
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintImage.h"
 #include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
@@ -134,6 +135,14 @@ typedef struct robo_paint_operation {
      * (`RoboPaintText.h`).
      */
     robo_paint_text_run_t text;
+    /**
+     * The image facts of an **image** record (11.7): the resource, the rectangle of it to
+     * draw and the resource's own dimensions, format and identity at snapshot time
+     * (`RoboPaintImage.h`). Cleared for every other kind, which is the same rule @ref text
+     * has one field along -- and a **sub-record** for the same reason: the facts an image
+     * drawing has and a fill does not arrive together.
+     */
+    robo_paint_image_t image;
 } robo_paint_operation_t;
 
 /** Clear @p operation to a `NONE` marker with no geometry. Safe on NULL. */
@@ -220,6 +229,22 @@ robo_css_border_style_t robo_paint_operation_style(const robo_paint_operation_t 
  *  so a caller that reads it without asking the kind gets "no characters", which is a
  *  statement it can act on rather than a leftover. */
 robo_paint_text_run_t robo_paint_operation_text(const robo_paint_operation_t *operation);
+
+/**
+ * The image payload, by value, **without taking a reference on the resource**.
+ *
+ * A cleared payload for NULL and for every kind except `IMAGE`, which is the same shape
+ * @ref robo_paint_operation_text has: a caller that reads it without asking the kind gets
+ * "no resource", a statement it can act on rather than a leftover.
+ *
+ * The resource it names belongs to the tree the record was built from, and the record's
+ * container holds the reference that keeps it alive — so a caller that wants the payload to
+ * outlive the list calls `robo_paint_image_retain` on a copy of it, which is what the
+ * display builder does. Returning a *borrowed* payload rather than an owning one is
+ * deliberate: a reader that only wants the source rectangle pays nothing, and a copy that
+ * retained would leak for every caller that forgot to release it.
+ */
+robo_paint_image_t robo_paint_operation_image(const robo_paint_operation_t *operation);
 
 /**
  * Non-zero when @p operation is **structural** -- draws nothing and is emitted for every

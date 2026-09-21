@@ -173,6 +173,25 @@ robo_result_t robo_paint_get_capabilities(robo_paint_capabilities_t *out)
      * implement the property will find the number already rather than having to add it.
      */
     out->hit_testing = 1;
+    /*
+     * **1 since 11.7**, and the fourth drawing kind -- placed here rather than beside the other
+     * three because the struct is read positionally by its conformance suite, which is a
+     * constraint about a test and not about the claim (`RoboPaint.h` says so at the field).
+     *
+     * What it claims is an image **resource** reaching the surface: the record layer carries a
+     * retained `robo_gfx_image_t`, the display command resolves the destination rectangle from
+     * the box's content box, and the drawing pass hands both to
+     * `robo_gfx_raster_draw_image`. It is the second field here whose payload is a resource
+     * rather than a number -- `text_painting` is the first -- and the two are separate for the
+     * same reason: a build can paint every glyph of a document and none of its pictures, and
+     * only the pair tells a caller which it got.
+     *
+     * It does **not** claim fetching, decoding, intrinsic sizing, `object-fit`, cropping,
+     * animation, `srcset` or a broken-image presentation. Those are absent by design: the
+     * resource arrives already decoded (`RoboHTML`'s model owns the fetch seam), the destination
+     * is what RoboLayout concluded, and an image that is missing draws nothing and is counted.
+     */
+    out->image_painting = 1;
     return ROBO_OK;
 }
 

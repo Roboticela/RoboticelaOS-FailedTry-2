@@ -32,11 +32,15 @@
 #include "RoboCSS/RoboCSSComputedValue.h"
 #include "RoboCSS/RoboCSSValue.h"
 
+#include "RoboHTML/RoboHTMLElement.h"
+#include "RoboHTML/RoboHTMLImage.h"
 #include "RoboHTML/RoboHTMLNode.h"
+#include "RoboHTML/RoboHTMLTag.h"
 
 #include "RoboLayout/RoboLayoutBaseline.h"
 
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintImage.h"
 #include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintOperation.h"
 #include "RoboPaint/RoboPaintText.h"
@@ -735,6 +739,143 @@ static robo_result_t paint_emit_text(robo_paint_context_t *context,
 }
 
 /* ------------------------------------------------------------------ */
+/* One image (11.7)                                                    */
+/* ------------------------------------------------------------------ */
+
+/*
+ * An image is the first drawing kind whose appearance this module does **not** resolve, and
+ * that is the whole of why it needs its own site rather than one more branch in the decoration
+ * pass: a background's colour comes from the box's computed style and a border's from its used
+ * record, where an image's pixels come from a **resource** the document attached to the element.
+ * So the reads are different, and the two reads this site makes are both RoboHTML's own doors --
+ * `robo_layout_object_dom_node` for the element a layout object was built for (the same door
+ * 11.6's text branch uses for its characters) and `robo_html_element_image_get` for the resource
+ * attached to it.
+ *
+ * Nothing here fetches, decodes or sizes anything. A `src` is a fact about the document and was
+ * resolved before the paint pass ran; the destination rectangle is the box's **content box**,
+ * which is layout's answer to "where does this element's content go" and the same answer for a
+ * replaced element as for any other. Intrinsic sizing -- an `<img>` that is as large as its
+ * resource without a CSS declaration -- is RoboLayout's work and is not implemented for replaced
+ * elements in this build, which is why a document must size its images (`paint/docs/Images.md`
+ * states the limitation in full).
+ */
+
+/**
+ * Emit the `IMAGE` operation for the box of image element @p id, if that is what the box is.
+ *
+ * @param out_is_image  non-NULL; set to 1 when the box's element **is** an `<img>`, which is the
+ *                      fact the caller counts. A box that is not an image element is not a
+ *                      skipped image -- it is simply not this site's business -- and the two are
+ *                      kept apart here rather than inferred from a count afterwards.
+ * @param out_emitted   non-NULL; set to 1 when an operation was appended, 0 when there is no
+ *                      image to draw -- a **statement about the document** rather than a failure,
+ *                      so the caller counts it and the pass continues. The reasons are the
+ *                      missing-image policy's: no `src`, nothing resolved, a decode that failed
+ *                      or was refused, a resource without a pixel surface, or dimensions this
+ *                      build will not carry into a record (`RoboPaintImage.h`).
+ *
+ * @return ROBO_OK; a failure only when the list could not grow.
+ */
+static robo_result_t paint_emit_image(const robo_layout_tree_t *tree,
+                                     robo_layout_node_id_t id,
+                                     size_t depth,
+                                     const robo_paint_boxes_t *boxes,
+                                     robo_layout_point_t origin,
+                                     const robo_paint_clip_t *clip,
+                                     const robo_paint_opacity_t *opacity,
+                                     robo_paint_list_t *list,
+                                     int *out_is_image,
+                                     int *out_emitted,
+                                     robo_paint_diag_t *diag)
+{
+    robo_html_node_handle_t handle;
+    robo_html_image_t *resource = NULL;
+    robo_gfx_image_t *pixels;
+    robo_paint_operation_t operation;
+    robo_paint_image_t payload;
+    robo_result_t result;
+
+    *out_is_image = 0;
+    *out_emitted = 0;
+
+    if (robo_layout_object_dom_node(tree, id, &handle) != ROBO_OK) {
+        /* A box with no element behind it -- a generated one -- is not an image element, and
+         * that is an answer rather than a failure. */
+        return ROBO_OK;
+    }
+    /*
+     * The element-level question first, and through the element model rather than through a
+     * string comparison: `robo_html_element_is_tag` is the door the demo's own adapter uses to
+     * ask the same thing, and it is what makes "this box is an `<img>`" one predicate instead of
+     * a tag lookup repeated wherever a layer cares about images.
+     */
+    if (!robo_html_element_is_tag(&handle, ROBO_HTML_TAG_IMG)) {
+        return ROBO_OK;
+    }
+    *out_is_image = 1;
+
+    /*
+     * The resource, borrowed. A getter that answers anything but ROBO_OK, and a NULL resource,
+     * are one answer here: there is nothing attached to this element to draw. A `src` that names
+     * nothing, a `src` no resolver has run for, a fetch that failed and bytes that would not
+     * decode all arrive as "no resource" or as a resource whose state is not DECODED, and all of
+     * them are counted rather than drawn -- the missing-image policy the phase states.
+     */
+    if (robo_html_element_image_get(&handle, &resource, NULL) != ROBO_OK || !resource) {
+        return ROBO_OK;
+    }
+    if (robo_html_image_state(resource) != ROBO_HTML_IMAGE_STATE_DECODED) {
+        return ROBO_OK;
+    }
+    pixels = robo_html_image_graphics(resource);
+    /*
+     * The payload, and it is the *record* layer's constructor that decides whether these pixels
+     * are drawable at all: a resource with no surface, or with a zero or absurd dimension, is
+     * refused there rather than here, so "which combinations are a drawing" has one home
+     * (`robo_paint_image_from_resource`). The diagnostic is deliberately not taken -- the refusal
+     * is a counted skip, and a `diag` filled for a legitimate outcome would make a caller's
+     * error path fire on an ordinary document.
+     */
+    if (robo_paint_image_from_resource(pixels, &payload, NULL) != ROBO_OK) {
+        return ROBO_OK;
+    }
+
+    robo_paint_operation_init(&operation);
+    operation.kind = ROBO_PAINT_OP_IMAGE;
+    operation.node = id;
+    operation.depth = depth;
+    /*
+     * The three rectangles, in page space, and the **content box** among them is the image's
+     * destination rectangle -- resolved one stage along, when the display builder turns this
+     * record into a `draw-image` command. It is carried rather than stored a second time because
+     * the record's own shape already says where content goes, and a fourth rectangle would be a
+     * second answer to a question layout has already answered.
+     */
+    operation.boxes = *boxes;
+    operation.origin = origin;
+    operation.clip = *clip;
+    /* The box's own opacity, passed in rather than read from its style -- the arrangement the
+     * text site states in full, and for the same reason: the box opened its own scope, and
+     * reading the declaration again here would apply it twice. */
+    operation.opacity = *opacity;
+    /* No colour and no style: an image record's appearance is its resource's pixels, so the
+     * colour field stays `none`, which is what `robo_paint_operation_is_valid` requires of it. */
+    operation.image = payload;
+    result = robo_paint_list_append(list, &operation, diag);
+    if (result != ROBO_OK) {
+        return result;
+    }
+    *out_emitted = 1;
+    /*
+     * The pass's own counters are deliberately **not** touched here: they belong to the caller,
+     * beside the one place that knows whether the box it walked was an image element at all. A
+     * site that counted its own trades one reader's mistake for a wrong total.
+     */
+    return ROBO_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /* The walk                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -982,6 +1123,41 @@ static robo_result_t paint_walk(robo_paint_context_t *context,
 
         if (result != ROBO_OK) {
             return result;
+        }
+    }
+
+    /*
+     * The box's **content image** (11.7), emitted inside the box's own group -- after its
+     * decorations and before its content boundary.
+     *
+     * The placement is CSS's paint order for a **replaced element**, and it is the one thing
+     * that distinguishes this record from a text run: an `<img>` has no object of its own, so
+     * what its resource draws *is* the element's content, painted after the element's own
+     * background and border and before anything the element contains. A `TEXT` record is emitted
+     * a level *below* its box for the opposite reason -- a run **is** an object, and the box it
+     * belongs to is its parent -- so the two drawing kinds that carry no colour reach the stream
+     * at two different depths, and both because the tree says so.
+     *
+     * The counters are split here rather than inside the site because "the box's element is an
+     * image" and "the image drew" are different facts: `image_elements` counts the first,
+     * `images` and `image_skipped` split it. A document with no `<img>` at all therefore leaves
+     * all three at zero, which is how a reader tells it apart from one whose every image failed.
+     */
+    {
+        int is_image = 0;
+        int emitted = 0;
+
+        if (paint_emit_image(tree, id, depth, &boxes, origin, clip, &child_opacity,
+                             list, &is_image, &emitted, diag) != ROBO_OK) {
+            return diag ? diag->code : ROBO_ERROR;
+        }
+        if (is_image) {
+            context->stats.image_elements++;
+            if (emitted) {
+                context->stats.images++;
+            } else {
+                context->stats.image_skipped++;
+            }
         }
     }
 

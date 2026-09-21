@@ -42,7 +42,11 @@ static const display_kind_row_t display_kind_rows[ROBO_PAINT_DISPLAY_CMD_KIND_CO
      * two have -- an opacity scope opening before its box draws and closing before its end
      * marker -- is asserted by the structural check rather than encoded in a numbering. */
     { ROBO_PAINT_DISPLAY_CMD_PUSH_OPACITY, "push-opacity" },
-    { ROBO_PAINT_DISPLAY_CMD_POP_OPACITY, "pop-opacity" }
+    { ROBO_PAINT_DISPLAY_CMD_POP_OPACITY, "pop-opacity" },
+    /* 11.7's drawing kind, appended for the same reason: a stored enumerator is a contract. Its
+     * *paint* order -- between a node's border commands and its `CONTENT` -- is asserted by the
+     * structural check, not encoded in a numbering. */
+    { ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE, "draw-image" }
 };
 
 /** The row for @p kind, or NULL when @p kind names none. */
@@ -72,6 +76,19 @@ const char *robo_paint_display_command_kind_name(robo_paint_display_command_kind
 
 int robo_paint_display_command_kind_draws(robo_paint_display_command_kind_t kind)
 {
+    return kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND ||
+           kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER ||
+           kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT ||
+           kind == ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE;
+}
+
+int robo_paint_display_command_kind_uses_color(robo_paint_display_command_kind_t kind)
+{
+    /*
+     * The kinds whose look **is** a colour, listed rather than written as "draws and is not an
+     * image", so that the next payload kind is a kind that answers no here instead of a special
+     * case in the validity rule -- the argument the operation vocabulary makes in the same shape.
+     */
     return kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND ||
            kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER ||
            kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT;
@@ -132,6 +149,10 @@ void robo_paint_display_command_init(robo_paint_display_command_t *command)
      * set it" and "this command draws no characters" are one state, as they are for the
      * style and the colour. */
     robo_paint_text_run_init(&command->text);
+    /* And no image, which is what every kind except `draw-image` requires, for the third time
+     * the same rule: a command that names no resource and a command that was never filled in
+     * about one are one state rather than two that could disagree. */
+    robo_paint_image_init(&command->image);
 }
 
 int robo_paint_display_command_is_valid(const robo_paint_display_command_t *command)
@@ -186,15 +207,34 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
         return 0;
     }
     /*
-     * The colour rule, split on *drawing* rather than on *marker* so that `CONTENT` -- a
-     * structural command that is not a node marker -- is held to the no-colour side rather
-     * than asked for a colour it has no use for. A structural command must carry `none`;
-     * a drawing command must carry a colour a rasteriser can use.
+     * The colour rule, split on `uses_color` rather than on *drawing* or on *marker*. A command
+     * whose look is a colour must carry one a rasteriser can use; every other command -- a
+     * structural one, and since 11.7 a `draw-image` -- must carry `none`. The split is on
+     * `uses_color` because `draw-image` **is** a drawing and has no colour to offer: a rule stated
+     * on `draws` would be asking it for one, which is exactly the shape `RoboPaintTypes.h` argues
+     * against. `CONTENT` lands on the no-colour side either way, which is the case the older
+     * comment about `is_marker` was there to protect.
      */
-    if (!robo_paint_display_command_kind_draws(command->kind)) {
-        return command->color.kind == ROBO_CSS_COLOR_NONE &&
-               command->style == ROBO_CSS_BORDER_STYLE_NONE &&
-               !robo_paint_text_run_is_valid(&command->text);
+    if (!robo_paint_display_command_kind_uses_color(command->kind)) {
+        if (command->color.kind != ROBO_CSS_COLOR_NONE) {
+            return 0;
+        }
+        /*
+         * And inside that side, the two kinds part company: a `draw-image` must carry a payload
+         * this build may draw and no style or run, and a structural command must carry none of
+         * the four. The image half is the text rule's shape for a payload that is not
+         * characters, and both halves are refusals for the same reason -- a `draw-image` with no
+         * resource is a drawing that draws nothing, and a marker naming one is a command carrying
+         * a drawing it does not make.
+         */
+        if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE) {
+            return robo_paint_image_is_valid(&command->image) &&
+                   command->style == ROBO_CSS_BORDER_STYLE_NONE &&
+                   !robo_paint_text_run_is_valid(&command->text);
+        }
+        return command->style == ROBO_CSS_BORDER_STYLE_NONE &&
+               !robo_paint_text_run_is_valid(&command->text) &&
+               robo_paint_image_is_cleared(&command->image);
     }
     if (!robo_css_color_is_valid(command->color)) {
         return 0;
@@ -211,7 +251,16 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
      * a used width of zero and no command is built for it at all.
      */
     if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
-        return robo_css_border_style_generates_border(command->style);
+        /*
+         * And no image payload, which is the rule the structural branch states for the other
+         * side of the split: a band that came with a resource would be a command carrying a
+         * drawing it does not make. There is deliberately **no `draw-image` case above this
+         * line** -- `draw-image` is not one of the kinds `uses_color` admits, so it was decided
+         * in that branch, and a second check here would be a rule nothing could reach whose
+         * disagreement with the first would be invisible.
+         */
+        return robo_css_border_style_generates_border(command->style) &&
+               robo_paint_image_is_cleared(&command->image);
     }
     /*
      * And the text rule, the style rule's shape one field along and enforced from the same
@@ -224,10 +273,12 @@ int robo_paint_display_command_is_valid(const robo_paint_display_command_t *comm
      */
     if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_TEXT) {
         return command->style == ROBO_CSS_BORDER_STYLE_NONE &&
-               robo_paint_text_run_is_valid(&command->text);
+               robo_paint_text_run_is_valid(&command->text) &&
+               robo_paint_image_is_cleared(&command->image);
     }
     return command->style == ROBO_CSS_BORDER_STYLE_NONE &&
-           !robo_paint_text_run_is_valid(&command->text);
+           !robo_paint_text_run_is_valid(&command->text) &&
+           robo_paint_image_is_cleared(&command->image);
 }
 
 int robo_paint_display_command_equal(const robo_paint_display_command_t *a,
@@ -241,7 +292,11 @@ int robo_paint_display_command_equal(const robo_paint_display_command_t *a,
            robo_paint_clip_equal(&a->clip, &b->clip) &&
            robo_paint_opacity_equal(&a->opacity, &b->opacity) &&
            robo_css_color_equals(a->color, b->color) && a->style == b->style &&
-           robo_paint_text_run_equal(&a->text, &b->text);
+           robo_paint_text_run_equal(&a->text, &b->text) &&
+           /* The image payload compares by **identity** rather than by address, which is the
+            * reason `robo_paint_image_equal` is a door instead of four more comparisons here:
+            * two lists built from one document must compare equal whatever the heap did. */
+           robo_paint_image_equal(&a->image, &b->image);
 }
 
 robo_paint_display_command_kind_t robo_paint_display_command_kind(const robo_paint_display_command_t *command)
@@ -268,6 +323,19 @@ robo_paint_text_run_t robo_paint_display_command_text(const robo_paint_display_c
         return run;
     }
     return command->text;
+}
+
+robo_paint_image_t robo_paint_display_command_image(const robo_paint_display_command_t *command)
+{
+    robo_paint_image_t image;
+
+    robo_paint_image_init(&image);
+    if (!command || command->kind != ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE) {
+        /* The record layer's rule one artifact along: a kind that is not the kind that carries a
+         * payload answers with a cleared one rather than with the field. */
+        return image;
+    }
+    return command->image;
 }
 
 size_t robo_paint_display_command_depth(const robo_paint_display_command_t *command)
@@ -406,7 +474,13 @@ robo_result_t robo_paint_display_command_write(const robo_paint_display_command_
     robo_paint_writer_string(&text, " rect=");
     robo_paint_writer_rect(&text, command->rect);
 
-    if (robo_paint_display_command_kind_draws(command->kind)) {
+    /*
+     * The colour, for the kinds that **have** one rather than for the kinds that draw, which
+     * 11.7 is the phase that separates: a `draw-image` is a drawing whose look is its resource's
+     * pixels, so a line that asked it for a colour would print nothing or a "none" a reader would
+     * take for a fill.
+     */
+    if (robo_paint_display_command_kind_uses_color(command->kind)) {
         if (robo_css_color_write(command->color, color_text, sizeof(color_text),
                                  &color_length, NULL) == ROBO_OK) {
             robo_paint_writer_string(&text, " color=");
@@ -417,6 +491,28 @@ robo_result_t robo_paint_display_command_write(const robo_paint_display_command_
     if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER) {
         robo_paint_writer_string(&text, " style=");
         robo_paint_writer_string(&text, robo_css_border_style_name(command->style));
+    }
+    /*
+     * An image command prints the **resource's identity**, the source rectangle it samples and
+     * the resource's own dimensions -- the same facts the record's writer prints, and no address,
+     * for the same reason: two runs of one document must produce the same lines. The pixels are
+     * not printed: a command names them, and naming them is what a reader diffs.
+     */
+    if (command->kind == ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE) {
+        robo_paint_writer_string(&text, " resource=");
+        robo_paint_writer_u64(&text, (uint64_t)robo_paint_image_identity(&command->image));
+        robo_paint_writer_string(&text, " src=");
+        robo_paint_writer_i64(&text, (int64_t)command->image.source.x);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)command->image.source.y);
+        robo_paint_writer_char(&text, ',');
+        robo_paint_writer_i64(&text, (int64_t)command->image.source.width);
+        robo_paint_writer_char(&text, 'x');
+        robo_paint_writer_i64(&text, (int64_t)command->image.source.height);
+        robo_paint_writer_string(&text, " source_size=");
+        robo_paint_writer_u64(&text, (uint64_t)command->image.width);
+        robo_paint_writer_char(&text, 'x');
+        robo_paint_writer_u64(&text, (uint64_t)command->image.height);
     }
     /* A text command prints the span, the baseline and the font inputs; its characters
      * are printed by the list dump, which has the pool (see RoboPaintDump.h). */

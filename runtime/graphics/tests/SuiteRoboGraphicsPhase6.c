@@ -289,8 +289,9 @@ static void test_p6_freeze(void)
     robo_gfx_capabilities_t caps;
 
     ROBO_CHECK_EQ_INT(ROBO_GRAPHICS_API_FROZEN, 1);
-    /* Additive decode module only; the frozen API surface is unchanged. */
-    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.16.0");
+    /* Additive modules only, decode then the scaled image draw; the frozen API surface is
+       unchanged. */
+    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.17.0");
     ROBO_CHECK_EQ_INT(robo_graphics_init(), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_gfx_query_capabilities(&caps), ROBO_OK);
     ROBO_CHECK(caps.cpu_raster_available);

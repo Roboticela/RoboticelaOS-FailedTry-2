@@ -212,6 +212,7 @@ void robo_test_register_display_list(void);
 void robo_test_register_paint_background(void);
 void robo_test_register_paint_border(void);
 void robo_test_register_paint_text(void);
+void robo_test_register_paint_image(void);
 void robo_test_register_paint_clip(void);
 void robo_test_register_paint_opacity(void);
 void robo_test_register_paint_hit_test(void);
@@ -470,6 +471,7 @@ int main(int argc, char **argv)
     robo_test_register_paint_background();
     robo_test_register_paint_border();
     robo_test_register_paint_text();
+    robo_test_register_paint_image();
     robo_test_register_paint_clip();
     robo_test_register_paint_opacity();
     robo_test_register_paint_hit_test();

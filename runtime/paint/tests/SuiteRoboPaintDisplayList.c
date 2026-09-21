@@ -230,7 +230,7 @@ static void test_display_command_vocabulary(void)
 
     paint_fixture();
 
-    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 11);
+    ROBO_CHECK_EQ_INT((int)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT, 12);
     for (index = 0u; index < (size_t)ROBO_PAINT_DISPLAY_CMD_KIND_COUNT; index++) {
         robo_paint_display_command_kind_t kind = (robo_paint_display_command_kind_t)index;
         int is_drawing = robo_paint_display_command_kind_draws(kind);
@@ -253,12 +253,21 @@ static void test_display_command_vocabulary(void)
             ROBO_CHECK(kind != ROBO_PAINT_DISPLAY_CMD_CONTENT);
         }
     }
-    /* Three drawing kinds -- background, border and text (11.6) -- and **seven** structural:
-     * the begin/end markers, `CONTENT`, 11.8's push/pop pair and, since 11.9, the opacity
-     * pair, which draw nothing by definition and therefore live on this side of the split.
-     * The split is unchanged by the phase: 11.9 added two commands, not a drawing kind. */
-    ROBO_CHECK_EQ_INT(drawing_total, 3);
+    /* **Four** drawing kinds -- background, border, text (11.6) and, since 11.7, an image --
+     * and **seven** structural: the begin/end markers, `CONTENT`, 11.8's push/pop pair and
+     * 11.9's opacity pair, which draw nothing by definition and therefore live on this side of
+     * the split. 11.7 is the first phase since 11.6 to add a drawing kind, and the structural
+     * side is unchanged by it: an image command is a drawing, so it lands on the other half. */
+    ROBO_CHECK_EQ_INT(drawing_total, 4);
     ROBO_CHECK_EQ_INT(structural_total, 7);
+    /* And the `uses_color` split, which 11.7 introduced beside `draws`: the three colour kinds
+     * are a strict subset of the drawings, and the fourth drawing kind is outside it. */
+    ROBO_CHECK_EQ_INT(robo_paint_display_command_kind_uses_color(
+                          ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE),
+                      0);
+    ROBO_CHECK_EQ_INT(robo_paint_display_command_kind_uses_color(
+                          ROBO_PAINT_DISPLAY_CMD_DRAW_BACKGROUND),
+                      1);
 
     ROBO_CHECK_STR_EQ(robo_paint_display_command_kind_name(ROBO_PAINT_DISPLAY_CMD_DRAW_BORDER),
                       "draw-border");

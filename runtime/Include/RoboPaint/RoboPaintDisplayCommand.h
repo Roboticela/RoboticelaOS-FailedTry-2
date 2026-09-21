@@ -55,6 +55,7 @@
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintGeometry.h"
+#include "RoboPaint/RoboPaintImage.h"
 #include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintText.h"
 
@@ -172,11 +173,34 @@ typedef enum robo_paint_display_command_kind {
      * graphics state to save and a save/restore pair would be two commands whose only effect is to
      * be skipped.
      */
-    ROBO_PAINT_DISPLAY_CMD_POP_OPACITY = 10
+    ROBO_PAINT_DISPLAY_CMD_POP_OPACITY = 10,
+    /**
+     * Draw a decoded image into the rectangle layout gave its element (11.7).
+     *
+     * The `IMAGE` record's counterpart, and the second drawing kind here whose `rect` is not a
+     * shape this module derived: it is the box's **content box**, because what an image draws
+     * *is* its element's content and the content box is where content goes. It is resolved here,
+     * once, from the record's own boxes -- so the command carries one destination rectangle and
+     * a rasteriser never touches the box model (which is the whole of what this artifact is for).
+     *
+     * It carries no colour, and that is the one structural difference between it and the three
+     * drawings beside it: the pixels are the **resource's**, so the thing it carries instead is a
+     * payload (`RoboPaintImage.h`) -- the retained resource, the rectangle *of the image* to
+     * sample, and the resource's facts at snapshot time. `uses_color` below is the predicate that
+     * says so, and the validity rule reads it rather than treating this kind as a special case.
+     *
+     * It appears **inside the node that owns the image element**, after that node's border
+     * commands and before its `CONTENT` -- CSS's paint order for a replaced element, background
+     * then border then content -- so a consumer reading a box's own painting as
+     * `[BEGIN_NODE .. CONTENT]` finds the image's drawing there and not among the node's
+     * contents. That is the opposite placement from `DRAW_TEXT`, and for the reason the record
+     * layer states: a run is a child object of its box, an image is its element's content.
+     */
+    ROBO_PAINT_DISPLAY_CMD_DRAW_IMAGE = 11
 } robo_paint_display_command_kind_t;
 
 /** Number of defined display command kinds. */
-#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 11u
+#define ROBO_PAINT_DISPLAY_CMD_KIND_COUNT 12u
 
 /** Non-zero if @p kind is a defined display command kind. */
 int robo_paint_display_command_kind_is_known(robo_paint_display_command_kind_t kind);
@@ -185,12 +209,27 @@ int robo_paint_display_command_kind_is_known(robo_paint_display_command_kind_t k
 const char *robo_paint_display_command_kind_name(robo_paint_display_command_kind_t kind);
 
 /**
- * Non-zero when @p kind **puts a pixel down**: `DRAW_BACKGROUND`, `DRAW_BORDER` or
- * `DRAW_TEXT`. The predicate the builder uses, the drawing pass asks, and the drawing half
- * of the validity rule (<-> a drawing kind carries a colour a rasteriser can use, a
- * structural kind carries `none`).
+ * Non-zero when @p kind **puts a pixel down**: `DRAW_BACKGROUND`, `DRAW_BORDER`, `DRAW_TEXT`
+ * or, since 11.7, `DRAW_IMAGE`. The predicate the builder uses, the drawing pass asks, and
+ * one half of the split the validity rule is stated on.
  */
 int robo_paint_display_command_kind_draws(robo_paint_display_command_kind_t kind);
+
+/**
+ * Non-zero when @p kind's appearance is **a colour this module resolved**: the background, a
+ * border band (11.5) and a text run (11.6).
+ *
+ * The other half of the validity split, and the reason it is not simply "draws": 11.7 added a
+ * drawing kind whose appearance is a **resource's pixels**, so a rule stated on `draws` would be
+ * asking `DRAW_IMAGE` for a colour it cannot have. Stated positively, the next payload kind -- a
+ * surface, a gradient, a video frame -- says no here and carries its own payload, and none of
+ * them has to be added to an exception list in the validity rule.
+ *
+ * A cleared command (`NONE`) and a structural kind answer no, which is what makes the predicate
+ * usable on both sides of the split: a kind that uses a colour must carry a drawable one, and a
+ * kind that does not must carry `none`.
+ */
+int robo_paint_display_command_kind_uses_color(robo_paint_display_command_kind_t kind);
 
 /** Non-zero when @p kind is **structural**: `BEGIN_NODE`, `CONTENT`, `END_NODE`. The
  *  exact complement of @ref robo_paint_display_command_kind_draws above `NONE`. */
@@ -243,7 +282,13 @@ int robo_paint_display_command_kind_is_opacity(robo_paint_display_command_kind_t
  *           the rule `style` follows one field along. It is the same sub-record the paint
  *           operation carries, copied through rather than rebuilt, so "the size it was
  *           measured at is the size it will be drawn at" is a copy rather than an
- *           agreement to maintain.
+ *           agreement to maintain;
+ *   `image` the payload a `DRAW_IMAGE` acts on (11.7): the **retained** resource, the
+ *           rectangle of it to sample, and the resource's identity, dimensions and format
+ *           at snapshot time -- and a cleared payload for every other kind, the rule `text`
+ *           follows one field along. It is the same sub-record the paint operation carries, for
+ *           the same reason: a display command is supposed to be render-ready, and a resource
+ *           read back out of a document at draw time would not be.
  *
  * The characters themselves are **not** in the command, and that is the one place this
  * artifact is not self-contained: they live in a pool the display list owns, and the
@@ -287,6 +332,17 @@ typedef struct robo_paint_display_command {
     /** The run a `DRAW_TEXT` acts on (11.6): the span, the baseline offset and the font
      *  inputs, copied from the operation. A cleared record for every other kind. */
     robo_paint_text_run_t text;
+    /**
+     * The image a `DRAW_IMAGE` acts on (11.7): the resource, the source rectangle and the
+     * resource's facts, copied from the operation. A cleared payload for every other kind.
+     *
+     * The resource is **retained by the list that holds this command** -- the builder takes the
+     * reference when it stores the command and `robo_paint_display_list_clear`/`_destroy` gives it
+     * back -- so a command's payload and the record it was built from are independent, and
+     * destroying the record list cannot change a pixel this list draws. That is the same rule
+     * the record list's own append states, one artifact up.
+     */
+    robo_paint_image_t image;
 } robo_paint_display_command_t;
 
 /** Clear @p command to a `NONE` marker with no geometry. Safe on NULL. */
@@ -310,8 +366,13 @@ void robo_paint_display_command_init(robo_paint_display_command_t *command);
  *   the style rule (11.5): a `draw-border` carries a style that generates a border,
  *   and every other kind carries `NONE`. A `draw-background` with a style, or a band with
  *   `none`, is a command whose fields disagree about what it is;
- *   and the text rule (11.6): a `draw-text` carries a **run**, and every other kind a
- *   cleared one.
+ *   the text rule (11.6): a `draw-text` carries a **run**, and every other kind a
+ *   cleared one;
+ *   and the image rule (11.7), the text rule's shape for a payload that is not characters: a
+ *   `draw-image` carries an **image** this build may draw -- a resource with a surface, positive
+ *   intrinsic dimensions and a source rectangle inside it -- and every other kind a cleared one.
+ *   Its colour is required to be `none`, which the split on
+ *   `robo_paint_display_command_kind_uses_color` enforces rather than a special case here.
  */
 int robo_paint_display_command_is_valid(const robo_paint_display_command_t *command);
 
@@ -351,6 +412,17 @@ robo_css_border_style_t robo_paint_display_command_style(const robo_paint_displa
 /** The text run, by value. A cleared run for NULL and for every kind that is not
  *  `DRAW_TEXT`. */
 robo_paint_text_run_t robo_paint_display_command_text(const robo_paint_display_command_t *command);
+
+/**
+ * The image payload, by value, **without taking a reference on the resource**.
+ *
+ * A cleared payload for NULL and for every kind that is not `DRAW_IMAGE`, which is the shape
+ * @ref robo_paint_display_command_text has: a caller that did not ask the kind gets "no
+ * resource" rather than a leftover. The resource it names is kept alive by the list that holds
+ * the command, so a caller that wants the payload to outlive the list calls
+ * `robo_paint_image_retain` on a copy -- the same arrangement the record layer's accessor states.
+ */
+robo_paint_image_t robo_paint_display_command_image(const robo_paint_display_command_t *command);
 
 /** Non-zero when @p command is **structural**. Safe on NULL (0). */
 int robo_paint_display_command_is_structural(const robo_paint_display_command_t *command);

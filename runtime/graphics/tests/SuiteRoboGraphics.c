@@ -11,10 +11,11 @@
 
 static void test_gfx_version(void)
 {
-    /* 0.16.0 is additive: RoboGraphicsDecode (PNG) landed without touching a
-       single frozen raster/bitmap entry point, so the freeze below still
-       holds. */
-    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.16.0");
+    /* 0.17.0 is additive in the same sense 0.16.0 was: the decoder landed without
+       touching a single frozen raster/bitmap entry point, and 0.17.0 adds the scaled
+       image draw (`robo_gfx_raster_draw_image`) the paint layer needs -- one new
+       declaration, no changed meaning -- so the freeze below still holds. */
+    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.17.0");
     ROBO_CHECK_EQ_INT(ROBO_GRAPHICS_API_FROZEN, 1);
     ROBO_CHECK_EQ_INT(robo_graphics_init(), ROBO_OK);
     ROBO_CHECK_EQ_INT(robo_graphics_init(), ROBO_OK);
@@ -256,7 +257,7 @@ static void test_gfx_smoke(void)
 static void test_gfx_chromium_independence(void)
 {
     /* Compile-time: only RoboGraphics / RoboBase / RoboMem types in call path. */
-    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.16.0");
+    ROBO_CHECK_STR_EQ(robo_graphics_version_string(), "0.17.0");
 }
 
 void robo_test_register_graphics(void)

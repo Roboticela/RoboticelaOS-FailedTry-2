@@ -246,6 +246,28 @@ typedef struct robo_paint_capabilities {
      * with `pointer-events` and this build has none).
      */
     int hit_testing;
+    /**
+     * **Image painting** (11.7), and **1**: a document's `<img>` resource reaching a
+     * RoboGraphics surface at the rectangle layout gave its element.
+     *
+     * The seventh field, and the fourth that is about a *drawing* -- placed at the end rather
+     * than beside `background_painting`, `border_painting` and `text_painting`, where a reader
+     * would look for it, because the struct is asserted **positionally** by
+     * `paint.conformance.capabilities` and a field inserted in the middle would renumber every
+     * field after it. That is a constraint about a test rather than about the claim, and the
+     * claim itself is the one a caller about to look for a picture should read.
+     *
+     * What it claims is deliberately narrow, and the narrowness is the phase's own limit stated
+     * where a caller will find it: the resource is one the document **already resolved** (there
+     * is no fetch, no URL, no network), the destination is the box's **content box** from
+     * RoboLayout (so an image is as large as its CSS says, because intrinsic sizing for replaced
+     * elements is layout's work and is not implemented), and what is drawn is the **full source**
+     * scaled into that rectangle by the graphics module's nearest-neighbour sampler. It does not
+     * claim `object-fit`, cropping, filters, animation or a broken-image presentation -- a
+     * document whose image is missing, failed or unsupported simply paints nothing for it, and
+     * `robo_paint_stats_t.image_skipped` says how many times that happened.
+     */
+    int image_painting;
 } robo_paint_capabilities_t;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

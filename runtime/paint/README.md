@@ -1,39 +1,41 @@
 # RoboPaint
 
-Paint subsystem for Roboticela Runtime (**through Phase 11.10, hit testing**).
+Paint subsystem for Roboticela Runtime (**through Phase 11.7, image painting**).
 
-**Version:** 0.9.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
+**Version:** 0.10.0 — `ROBO_PAINT_API_FROZEN=0` (the surface grows again as Phase 11
 continues)
 
 `ROBO_PAINT_DRAWING_IMPLEMENTED=1` since 11.4 — this build fills a display command's
-rectangle with its colour into a RoboGraphics surface, through the CPU raster, and strokes a
-text run's glyphs into the same surface. The claim is **narrow**, and the fields beside it say
-how narrow: a box's **background** (11.4), each of its **border bands** (11.5) and a run's
-**glyphs** (11.6), while `raster` stays **0**, because the structural commands are not
-drawings and a pass that consumed a whole list does not exist.
+rectangle with its colour into a RoboGraphics surface, through the CPU raster, strokes a
+text run's glyphs into the same surface, and draws a document's **images** into it. The claim is
+**narrow**, and the fields beside it say how narrow: a box's **background** (11.4), each of its
+**border bands** (11.5), a run's **glyphs** (11.6) and a decoded **image resource** (11.7), while
+`raster` stays **0**, because the structural commands are not drawings and a pass that consumed a
+whole list does not exist.
 `robo_paint_drawing_is_implemented()` agrees with the constant, and
-`background_painting`/`border_painting`/`text_painting`/`clipping`/`opacity` say *which* parts of
-the pipeline exist — a caller deciding whether to look for a surface reads the function; one
-deciding whether to *make* one reads the fields. `hit_testing` (11.10) is the sixth field and the
-first that is not about drawing: the module can also be asked the **inverse** question, and the
-answer carries the geometry, the boundary and the strength the painter would use.
+`background_painting`/`border_painting`/`text_painting`/`image_painting`/`clipping`/`opacity` say
+*which* parts of the pipeline exist — a caller deciding whether to look for a surface reads the
+function; one deciding whether to *make* one reads the fields. `hit_testing` (11.10) is the field
+after those and the first that is not about drawing at all: the module can also be asked the
+**inverse** question, and the answer carries the geometry, the boundary and the strength the
+painter would use.
 
 RoboPaint is the fifth module in the layout stack: it sits directly above RoboLayout and
 directly below RoboRender (`DEPENDENCIES.md`). RoboLayout answers **where every box is**;
 RoboPaint turns those answers into a **sequence of work** a rasteriser executes, 11.3 turns
-that sequence into the **artifact** a rasteriser consumes, 11.4–11.6 put the first colours —
-and the first **characters** — on a surface, 11.8 makes the **boundary** those drawings are
+that sequence into the **artifact** a rasteriser consumes, 11.4–11.7 put the colours — the
+**characters** and the **pictures** — on a surface, 11.8 makes the **boundary** those drawings are
 bounded by an explicit, nested scope in that artifact, 11.9 gives every drawing a
 **strength** that accumulates down the tree and is applied in the same pass, and 11.10 asks
 the whole thing **backwards** — a point in, the node drawn there out.
 
 ```text
-HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → push-clip / push-opacity / draw-background / draw-border / draw-text / pop-opacity / pop-clip → RoboGraphics raster → surface
+HTML / DOM → RoboCSS → RoboLayout → RoboPaint → operations → display list → push-clip / push-opacity / draw-background / draw-border / draw-image / draw-text / pop-opacity / pop-clip → RoboGraphics raster → surface
 ```
 
-This build stops after a box's **decorations, its text, the scopes that bound them and the
-strength they are drawn at**: images and a rasteriser of the whole list are each a later goal, and
-each is named in §Boundaries where it would otherwise be assumed.
+This build stops after a box's **decorations, its text, its images, the scopes that bound them and
+the strength they are drawn at**: a rasteriser of the whole list is a later goal, and it is named
+in §Boundaries where it would otherwise be assumed.
 
 ## The one structural decision
 
@@ -335,6 +337,55 @@ walking up to the nearest element that could listen and deciding whether an even
 are Phase 12's, which is why the record carries both the layout id (what validates) and the DOM
 handle (what the layer above consumes) and guesses at nothing else.
 
+## The fifteenth structural decision: a drawing can carry a *resource*, not just a colour
+
+**An image record names a resource and a rectangle; it never names a document — and the colour
+rule had to split rather than grow to say so.**
+
+Eleven phases of this module assumed that a drawing *has* a colour. `robo_paint_op_kind_draws` was
+the predicate the validity rule was stated on: a drawing kind must carry a colour a rasteriser can
+use, and a structural record must carry `none`. 11.7's `IMAGE` is the first kind that **draws and
+has no colour** — its appearance is a decoded resource's pixels — so the rule is now stated on
+`robo_paint_op_kind_uses_color`, a positive list of the kinds whose look *is* a colour:
+
+```text
+uses_color  →  must carry a drawable colour   (background, the four sides, a text run)
+otherwise   →  must carry `none`, and:        a structural record draws nothing
+                                              an image record carries a payload this build may draw
+```
+
+That is the shape that survives the next payload kind — a surface, a gradient, a video frame each
+answer no there — rather than an exception list that grows a line per phase.
+
+Everything a consumer needs is either a value it can copy or a refcounted buffer it can retain:
+
+```text
+ImageRecord
+├── resource      borrowed by the record, retained by whoever stores it (RoboGraphics' refcount)
+├── identity      RoboGraphics' own id, copied at snapshot time — records compare by this, never by address
+├── width/height/format   the resource's own facts, copied rather than re-queried
+└── source        0,0,width,height — the full image, in image pixels
+```
+
+There is deliberately **no destination rectangle on the record**: the operation already carries
+the box's three rectangles, and for a replaced element the destination *is* its content box. The
+display builder resolves it into the command's one rectangle exactly as it resolves a border
+side's band, so a rasteriser still never touches the box model.
+
+Two consequences worth stating, because both are easy to get backwards. **A missing image is a
+number**: nothing is drawn for a `src` that names nothing, a resource nothing resolved, a decode
+that failed, a scheme this runtime refuses or a resource with no pixels — there is no broken-image
+presentation to invent — and `image_elements = images + image_skipped` says how many. And **the
+containers now own something**: an operation and a command each hold a reference on the resource
+they name, so `append` retains and `clear`/`destroy` release, on both paths, in one shared walk per
+container. The two lists are therefore independent of each other *and* of the document — releasing
+the element's own reference leaves the display list drawing exactly the same picture.
+
+What this build does not do is fetch, decode or size anything: the resource arrives already
+decoded (RoboHTML's model owns the seam), the destination is what RoboLayout concluded, and the
+scaling and the alpha blending are `robo_gfx_raster_draw_image`'s — nearest-neighbour, stated
+rather than implied, since there is no filter policy or `image-rendering` in v1.
+
 ## Geometry is borrowed, not defined
 
 There are no new coordinate types. `RoboGraphicsGeometry.h` defines the canonical pixel
@@ -349,7 +400,7 @@ flip in.
 | Header | Surface |
 |---|---|
 | `RoboPaintVersion.h` | Version macros, `ROBO_PAINT_API_FROZEN`, `ROBO_PAINT_DRAWING_IMPLEMENTED` |
-| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (14, `NONE` included), `robo_paint_diagnostic_domain_t` (11), their predicates and name doors |
+| `RoboPaintTypes.h` | `robo_paint_op_kind_t` (15, `NONE` included), `robo_paint_diagnostic_domain_t` (11), their predicates and name doors |
 | `RoboPaintDiagnostics.h` | `robo_paint_diag_t` and the `ROBO_PAINT_DIAG` macro |
 | `RoboPaintGeometry.h` | `robo_paint_boxes_t`, `robo_paint_clip_t`, `robo_paint_boxes_of`, `robo_paint_clip_intersect` |
 | `RoboPaintClip.h` | `robo_paint_clip_stack_t` — the LIFO of clip records a flat sequence is read against: push, pop, current, depth, reset (11.8) |
@@ -358,14 +409,15 @@ flip in.
 | `RoboPaintList.h` | `robo_paint_list_t` — create/clear/append/at/operations/equal |
 | `RoboPaintContext.h` | `robo_paint_context_t`, `robo_paint_stats_t`, `robo_paint_pass_outcome_t`, `robo_paint_context_run` |
 | `RoboPaintDump.h` | `robo_paint_list_write` — the developer's text view |
-| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 11-kind vocabulary, validity and writer (11.3, 11.6, 11.8, 11.9) |
+| `RoboPaintDisplayCommand.h` | `robo_paint_display_command_t`, its 12-kind vocabulary, validity and writer (11.3, 11.6, 11.7, 11.8, 11.9) |
 | `RoboPaintDisplayList.h` | `robo_paint_display_list_t`, `robo_paint_display_list_stats_t` — the render-ready artifact (11.3) |
 | `RoboPaintDisplayListBuilder.h` | `robo_paint_display_list_builder_t` — the conversion and structural check (11.3) |
 | `RoboPaintDisplayDump.h` | `robo_paint_display_list_write` — the developer's view of the display list (11.3) |
 | `RoboPaintColor.h` | `robo_paint_color_is_drawable`, `robo_paint_color_to_rgba8` — the one-way colour bridge to RoboGraphics (11.4) |
 | `RoboPaintText.h` | `robo_paint_text_run_t`, `robo_paint_text_span_t`, `robo_paint_text_pool_t` — the code-point payload and the one container that owns it (11.6) |
+| `RoboPaintImage.h` | `robo_paint_image_t` — the image payload: a retained resource, its source rectangle and its snapshot facts — with `from_resource`, the validity and comparison doors, the retain/release pair and `ROBO_PAINT_IMAGE_MAX_DIMENSION` (11.7) |
 | `RoboPaintHitTest.h` | `robo_paint_hit_test`, `robo_paint_hit_test_result_t`, `robo_paint_hit_test_stats_t`, the four outcomes and the three flags — the inverse query, and its trace (11.10) |
-| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands, strokes a run's glyphs and applies the strength they are drawn at, into a surface (11.4–11.6, 11.9) |
+| `RoboPaintDecoration.h` | `robo_paint_decoration_paint`, `robo_paint_decoration_stats_t` — the one pass that fills a box's backgrounds and border bands, strokes a run's glyphs, draws an image resource and applies the strength they are drawn at, into a surface (11.4–11.7, 11.9) |
 
 ## Lifecycle
 
@@ -395,7 +447,8 @@ because nothing in an operation points anywhere.
 | `paint/docs/Clipping.md` | The boundary as a scope: the clip stack, the canonical empty interval, where a scope is emitted and why the box's own decoration is outside it, the builder's eleven refusals, the pass's one application point, and what is deferred (11.8) |
 | `paint/docs/Opacity.md` | The strength: the record and its two invalid directions, where a scope is emitted and why that is *not* where the clip's is, the builder's eight refusals, the pass's one application point, the counters, and the group-compositing gap stated with the case that measures it (11.9) |
 | `paint/docs/HitTest.md` | The inverse query: why it lives in RoboPaint, the coordinate model, the four rules (last drawn wins, the border box as the region, the contents' boundary versus the box's own, a strength that does not gate), the result and its flags, the counters and their three identities, what the walk refuses, the trace's five reasons, and the screen-agreement case (11.10) |
-| `paint/docs/Tests.md` | Suite map (twelve suite files, 187 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.10 found |
+| `paint/docs/Images.md` | The image payload: whose resource it is, the record's fields and why the destination is the content box, where the record sits in the sequence, the colour-rule split the phase forced, the new graphics primitive and its sampling/alpha rules, the missing-image policy, validation, ownership, mutation isolation, determinism, the dump, the counters and the phase's five findings (11.7) |
+| `paint/docs/Tests.md` | Suite map (thirteen suite files, 202 cases), fixtures, what the suites assert, running, sanitizers, what 11.1–11.10 found |
 
 ## Building and testing
 
@@ -405,7 +458,7 @@ pwsh -NoProfile -File Tools/Build.ps1 -Configuration Debug -Verify -Test
 ./Out/RoboTest.host.exe --filter paint.
 ```
 
-**187** of the cases the filter reports are this module's (**twelve** suite files); the filter is a
+**202** of the cases the filter reports are this module's (**thirteen** suite files); the filter is a
 substring match, so the six `demo.paint.*` cases of the visual demo come with them
 (`paint/docs/Tests.md` §1).
 
@@ -415,20 +468,29 @@ RoboPaint must not depend on RoboWindow, RoboDisplay or RoboRender. It reads Rob
 through const doors, and uses RoboGraphics for **geometry and — since 11.4 — the CPU raster it
 is handed a surface for**, plus — since 11.6 — the glyph draw, which it asks for by **glyph id
 and outline**: RoboGraphics supplies the bridge to the font and never a shaper of its own. A
-surface and a face are always the *caller's* arguments and never a query.
+surface and a face are always the *caller's* arguments and never a query. Since 11.7 it also
+reads RoboHTML's **image model** — the resource attached to an element and its state — because a
+picture is a *document* fact; it never fetches, decodes or sizes one, and the drawing is
+RoboGraphics' own scaled sampler.
 
-- **A box's background, its four border bands and a run's glyphs are painted; nothing else is.**
-  `DRAWING` is 1, `background_painting` is 1, `border_painting` is 1 and `text_painting` is 1.
-  Images, rounded corners, gradients, transforms and antialiasing are all absent, and every one of
-  them is counted by the pass rather than silently dropped. The seven **pattern border styles** are
-  drawn as their band, in the side's colour, and counted (`unshaped`) — `border_painting` claims a
-  border's place and colour, not every border's look.
+- **A box's background, its four border bands, a run's glyphs and a document's images are
+  painted; nothing else is.** `DRAWING` is 1, `background_painting` is 1, `border_painting` is 1,
+  `text_painting` is 1 and `image_painting` is 1. Rounded corners, gradients, transforms and
+  antialiasing are all absent, and every one of them is counted by the pass rather than silently
+  dropped. The seven **pattern border styles** are drawn as their band, in the side's colour, and
+  counted (`unshaped`) — `border_painting` claims a border's place and colour, not every border's
+  look.
 - **No rasteriser of the whole list.** The display list exists as a render-ready artifact
   (`display_lists` is 1) and one command kind of it is consumed; `raster` is 0.
 - No framebuffer presentation, no compositor, no GPU.
-- No **image** operations. Images are the next drawing kind and the second non-numeric payload,
-  and they are a later goal's question — a pool of encoded bytes, or a reference to a decoded
-  surface.
+- **Images are drawn from a resource the document already resolved, and nothing fetches one.**
+  `image_painting` is 1 from 11.7: an `<img>`'s decoded `robo_gfx_image_t` reaches the surface at the
+  rectangle layout gave its element, scaled by RoboGraphics' nearest-neighbour sampler. What is
+  absent is the rest of a browser's image stack — fetching, URL loading, decoding at paint time,
+  caches, `srcset`, `<picture>`, animation, `object-fit`/`object-position`, cropping, nine-slice,
+  filters, effects and a broken-image presentation. The largest limitation is **layout's**: replaced
+  elements are not intrinsically sized, so a document must size its images in CSS, and an unsized
+  image produces a zero-area destination that the pass counts (`empty`) rather than guesses at.
 - **A strength per element, applied per drawing — not a group.** An element's `opacity` is
   accumulated along the path that reaches it and applied to every drawing that path produces
   (11.9). What is absent is CSS's *group* semantics: the subtree is not composited into an

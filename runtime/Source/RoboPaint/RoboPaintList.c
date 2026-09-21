@@ -45,6 +45,23 @@ struct robo_paint_list {
     robo_paint_text_pool_t *text;
 };
 
+/**
+ * Release the resources the first @p count operations of @p list hold.
+ *
+ * `clear` and `destroy` share it so that "a container gives back what it took" is one sentence in
+ * one place. It walks **only** the live prefix, and it is safe on a list whose operations hold
+ * nothing -- which is every list this build produced before 11.7 and every one it produces for a
+ * document with no images.
+ */
+static void robo_paint_list_release_operations(robo_paint_list_t *list, size_t count)
+{
+    size_t index;
+
+    for (index = 0u; index < count; index++) {
+        robo_paint_image_release(&list->operations[index].image);
+    }
+}
+
 robo_result_t robo_paint_list_create(robo_paint_list_t **out_list, robo_paint_diag_t *diag)
 {
     robo_paint_list_t *list;
@@ -101,10 +118,17 @@ void robo_paint_list_destroy(robo_paint_list_t *list)
     if (!list) {
         return;
     }
-    /* The operations are values with no pointers in them, so freeing the two arrays is
-     * the whole of the release -- there is nothing to walk and nothing to unlink, which is
-     * exactly what makes a list safe to discard in any order relative to a tree. The text
-     * pool is the same argument one level down: its code points are values too. */
+    /*
+     * Every operation the list holds is a value, and since 11.7 one of them can name a
+     * **retained resource** -- so the release is a walk, not just two frees. It is the same
+     * walk `clear` makes, extracted here and called from both doors because a container that
+     * released on one path and not the other is the leak this module would then spend an evening
+     * finding.
+     *
+     * The text pool is the other half of the same argument one level down: its code points are
+     * values, so destroying it needs no walk of its own.
+     */
+    robo_paint_list_release_operations(list, list->count);
     robo_paint_text_pool_destroy(list->text);
     robo_free(list->operations);
     robo_free(list);
@@ -116,17 +140,27 @@ void robo_paint_list_clear(robo_paint_list_t *list)
         return;
     }
     /*
-     * Only the count moves. The storage is reused and the old operations are left in
-     * it -- overwritten by the next append, and never reachable through a door again,
-     * because every read door clamps to `count`. A `memset` here would be work whose
-     * only effect is invisible, and it would make `clear` cost a document's worth of
-     * bytes per frame for nothing.
+     * The resources first, then the count -- in that order, so that the slots the release walks
+     * are still the live ones.
      *
-     * The text pool is cleared with it and **must** be: the operations that named its
-     * characters are gone, so leaving the code points would be storage for spans nothing
-     * can read -- and the next pass's runs would be appended after them, which is the slow
-     * leak that looks like working code.
+     * An image operation's payload is **borrowed by the record and retained by the list**
+     * (`RoboPaintImage.h` states the table), and this is the half of that rule the container
+     * owns: the reference `append` took is given back here, once per operation that holds one.
+     * For every other kind there is nothing to release, so a document that paints no images walks
+     * its operations and frees nothing -- which is why the cost of this rule is a load and a
+     * branch rather than a second structure to keep in step.
+     *
+     * Only the count then moves. The storage is reused and the old operations are left in it --
+     * overwritten by the next append, and never reachable through a door again, because every read
+     * door clamps to `count`. A `memset` here would be work whose only effect is invisible, and it
+     * would make `clear` cost a document's worth of bytes per frame for nothing.
+     *
+     * The text pool is cleared with it and **must** be: the operations that named its characters
+     * are gone, so leaving the code points would be storage for spans nothing can read -- and the
+     * next pass's runs would be appended after them, which is the slow leak that looks like
+     * working code.
      */
+    robo_paint_list_release_operations(list, list->count);
     list->count = 0u;
     robo_paint_text_pool_clear(list->text);
 }
@@ -210,7 +244,17 @@ robo_result_t robo_paint_list_append(robo_paint_list_t *list,
             return result;
         }
     }
+    /*
+     * The copy, and then the **one** place the ownership rule is stated: a stored operation
+     * holds a reference of its own to whatever resource it names, so that the list can outlive
+     * the tree it came from and the payload it was handed can stay borrowed
+     * (`robo_paint_image_retain` is that sentence with a function around it). Copying first and
+     * retaining the copy is deliberate -- the caller's operation is untouched, so a caller that
+     * appends the same record twice ends up with two references and not one that was counted
+     * twice.
+     */
     list->operations[list->count] = *operation;
+    robo_paint_image_retain(&list->operations[list->count].image);
     list->count++;
     return ROBO_OK;
 }

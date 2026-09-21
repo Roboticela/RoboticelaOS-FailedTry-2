@@ -100,8 +100,13 @@ extern "C" {
  * is a remainder nobody checked:
  *
  *   commands = draws + skipped
- *   draws    = backgrounds + borders + texts
- *   draws    = filled + contextual + transparent + empty + no_font
+ *   draws    = backgrounds + borders + texts + images
+ *   draws    = filled + contextual + transparent + empty + no_font + no_resource
+ *
+ * with `images` a subset of `filled` rather than a term of the second identity: an image that
+ * reached the surface is a drawing that put pixels down, exactly as a fill is, and counting it
+ * in both is what lets a reader ask either "how many of this document's drawings were images?"
+ * or "how many drawings reached the surface?" without one answer being derived from the other.
  */
 typedef struct robo_paint_decoration_stats {
     /** Display commands visited. */
@@ -121,7 +126,25 @@ typedef struct robo_paint_decoration_stats {
      * claims, with different fences (`border_painting` and `text_painting`).
      */
     size_t texts;
-    /** Drawing commands that put a colour on the surface. */
+    /**
+     * `draw-image` commands seen: one per `IMAGE` record the traversal emitted (11.7).
+     *
+     * The fourth drawing kind, and the first whose drawing is **not a colour**: an image command
+     * carries a resource and two rectangles, so a reader who saw it folded into `backgrounds`
+     * would be told a resource's pixels were a resolved colour. Its own fence in
+     * `robo_paint_capabilities_t` (`image_painting`) is what it is paired with, the same way
+     * `text_painting` is paired with `texts`.
+     */
+    size_t images;
+    /**
+     * Drawings that put pixels on the surface -- a fill, a border band, a run's glyphs, or an
+     * image.
+     *
+     * Four kinds and one number, because the question it answers is about the *surface* rather
+     * than about the document: `draws` counts what the list asked for and `filled` counts what
+     * landed. `images` is a subset of it, so a reader that wants "how many were images" reads
+     * that field and a reader that wants "how many drawings happened" reads this one.
+     */
     size_t filled;
     /**
      * Commands this pass does not attempt to draw: the structural kinds -- the three node
@@ -149,6 +172,19 @@ typedef struct robo_paint_decoration_stats {
      * frame.
      */
     size_t no_font;
+    /**
+     * Image commands whose payload this pass **cannot draw** (11.7).
+     *
+     * The sixth term of the drawing partition, and the one a document reaches without anything
+     * being wrong with the call: an image command whose payload is cleared or not a payload this
+     * build may draw -- no resource, no surface behind it, a zero dimension, or a source rectangle
+     * outside the resource. The record and command layers' own validity rules refuse those, so a
+     * list this build produced never contains one; the term exists because a hand-built list can,
+     * and because leaving it out would make `draws` a remainder that silently swallowed the case
+     * instead of naming it. It counts the same fact the traversal counts one layer up as
+     * `image_skipped`, and the two differ only for a hand-built list.
+     */
+    size_t no_resource;
     /**
      * Glyph draws attempted: one per code point of every text command that was drawn.
      *
@@ -252,12 +288,19 @@ void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats);
  *
  * Walks @p list once, and for each command:
  *
- *   a **drawing** command (`draw-background`, `draw-border`): resolve its colour
+ *   a **fill** drawing command (`draw-background`, `draw-border`): resolve its colour
  *   (`robo_paint_color_to_rgba8`), apply the command's clip, and fill its rectangle with
  *   `robo_gfx_raster_fill_rect`. A `currentColor` is counted (`contextual`) and a fully
  *   transparent one is counted (`transparent`), and a zero-area rectangle is counted
  *   (`empty`) -- each is a statement about the document rather than a failure, which is
  *   why the pass still succeeds;
+ *
+ *   a **`draw-image`** command (11.7): apply the same clip and the same strength, then hand its
+ *   resource, its source rectangle and its destination to `robo_gfx_raster_draw_image`. It is held
+ *   to the geometry rule -- a zero-area destination is counted (`empty`) -- and to a rule of its
+ *   own instead of the colour's, because its appearance is a resource rather than a colour: a
+ *   payload this build cannot draw is counted (`no_resource`). Both are statements about the
+ *   document and neither fails the pass;
  *
  *   a **structural** command (`begin-node`, `content`, `end-node`): **skipped** and
  *   counted. They draw nothing, by definition, so `skipped` is a statement about the list
@@ -294,8 +337,8 @@ void robo_paint_decoration_stats_init(robo_paint_decoration_stats_t *stats);
  * @return ROBO_OK; ROBO_INVALID_ARGUMENT for a NULL @p list or @p target;
  *         ROBO_NOT_SUPPORTED when @p target cannot be rasterised (a read-only or
  *         unsupported format); ROBO_OUT_OF_MEMORY when the raster cannot be allocated;
- *         ROBO_ERROR with a diagnostic when a fill, a clip application or a glyph draw
- *         fails.
+ *         ROBO_ERROR with a diagnostic when a fill, an image draw, a clip application or a
+ *         glyph draw fails.
  */
 robo_result_t robo_paint_decoration_paint(const robo_paint_display_list_t *list,
                                           robo_gfx_surface_t *target,

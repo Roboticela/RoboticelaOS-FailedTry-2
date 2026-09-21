@@ -2,6 +2,7 @@
 
 #include "RoboGraphics/RoboGraphicsBitmap.h"
 #include "RoboGraphics/RoboGraphicsComposite.h"
+#include "RoboGraphics/RoboGraphicsImage.h"
 #include "RoboGraphics/RoboGraphicsLine.h"
 #include "RoboGraphics/RoboGraphicsPixelFormat.h"
 #include "RoboMem/RoboMem.h"
@@ -264,6 +265,97 @@ robo_result_t robo_gfx_raster_draw_line(robo_gfx_raster_t *raster,
     return robo_gfx_surface_draw_line_clipped(raster->target, start, end, color,
                                               raster->clip, raster->opacity,
                                               composite);
+}
+
+robo_result_t robo_gfx_raster_draw_image(robo_gfx_raster_t *raster,
+                                         robo_gfx_image_t *image,
+                                         robo_gfx_rect_t source,
+                                         robo_gfx_rect_t destination)
+{
+    robo_gfx_surface_t *pixels;
+    robo_gfx_rect_t visible;
+    int64_t image_width;
+    int64_t image_height;
+    int64_t right;
+    int64_t bottom;
+    int32_t x;
+    int32_t y;
+
+    if (!raster || !raster->target || !image) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (!robo_gfx_rect_is_valid(source) || !robo_gfx_rect_is_valid(destination)) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    pixels = robo_gfx_image_surface(image);
+    if (!pixels) {
+        /*
+         * A metadata-only image (`EMPTY`/`EXTERNAL`) has nothing to sample. It is a
+         * *resource* this call cannot read rather than a caller mistake, which is the
+         * distinction `ROBO_NOT_SUPPORTED` exists for -- the same answer
+         * `robo_gfx_raster_draw_glyph` gives a render mode it does not implement.
+         */
+        return ROBO_NOT_SUPPORTED;
+    }
+    image_width = (int64_t)robo_gfx_image_width(image);
+    image_height = (int64_t)robo_gfx_image_height(image);
+    if (image_width <= 0 || image_height <= 0) {
+        return ROBO_NOT_SUPPORTED;
+    }
+    if (source.x < 0 || source.y < 0 ||
+        (int64_t)source.x + (int64_t)source.width > image_width ||
+        (int64_t)source.y + (int64_t)source.height > image_height) {
+        /* Reading pixels that do not exist is refused rather than clamped, for the reason
+         * `robo_gfx_surface_copy_rect` refuses it: a clamped source silently draws a
+         * *different* picture from the one the caller asked for. */
+        return ROBO_INVALID_ARGUMENT;
+    }
+    /* The no-ops: nothing to sample, nowhere to put it, or a clip that admits nothing. */
+    if (robo_gfx_rect_is_empty(source) || robo_gfx_rect_is_empty(destination)) {
+        return ROBO_OK;
+    }
+    if (robo_gfx_rect_is_empty(raster->clip)) {
+        return ROBO_OK;
+    }
+    if (robo_gfx_rect_intersect(destination, raster->clip, &visible) != ROBO_OK) {
+        return ROBO_INVALID_ARGUMENT;
+    }
+    if (robo_gfx_rect_is_empty(visible)) {
+        return ROBO_OK;
+    }
+
+    right = (int64_t)visible.x + (int64_t)visible.width;
+    bottom = (int64_t)visible.y + (int64_t)visible.height;
+    for (y = visible.y; (int64_t)y < bottom; y++) {
+        int64_t sy = (int64_t)source.y +
+                     ((int64_t)(y - destination.y) * (int64_t)source.height) /
+                         (int64_t)destination.height;
+
+        for (x = visible.x; (int64_t)x < right; x++) {
+            int64_t sx = (int64_t)source.x +
+                         ((int64_t)(x - destination.x) * (int64_t)source.width) /
+                             (int64_t)destination.width;
+            robo_gfx_color_rgba8_t color;
+
+            if (robo_gfx_surface_get_pixel(pixels, (uint32_t)sx, (uint32_t)sy, &color) !=
+                ROBO_OK) {
+                /* Unreachable: the source rectangle was checked against the image's own
+                 * dimensions above, and the mapping cannot leave it. Skipped rather than
+                 * reported so that a future format this module learns to read cannot fail a
+                 * whole draw over one pixel. */
+                continue;
+            }
+            if (!needs_blend(color, raster->opacity)) {
+                (void)robo_gfx_surface_set_pixel(raster->target, (uint32_t)x, (uint32_t)y,
+                                                color);
+            } else {
+                (void)robo_gfx_surface_composite_pixel(raster->target, (uint32_t)x,
+                                                       (uint32_t)y, color,
+                                                       raster->opacity);
+            }
+        }
+    }
+    return ROBO_OK;
 }
 
 robo_result_t robo_gfx_raster_fill_path(robo_gfx_raster_t *raster,
