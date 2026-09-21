@@ -325,7 +325,23 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopText.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDiagnostics.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDump.c"),
-    (Join-Path $SourceDir "RoboDesktop\RoboDesktopDocument.c")
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopDocument.c"),
+    # RoboInput (12.1) -- the input *model*: an event type vocabulary and its payloads, a device and
+    # source identity, four explicitly named coordinate planes with the conversions between them, a routing
+    # target carried as inert identity, an owned FIFO queue and a deterministic dump. It reads no device
+    # and dispatches nothing; the boundary scan below is what keeps it that way, and the one direction it
+    # travels (`RoboInputBridge.c`) is a translation of a RoboWindow event rather than a device read.
+    (Join-Path $SourceDir "RoboInput\RoboInput.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputTypes.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputDiagnostics.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputCoordinates.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputKeyboard.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputPointer.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputEvent.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputTarget.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputQueue.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputDebug.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputBridge.c")
 )
 # The desktop's checkpoint scene and its host launcher (Phase 11.13). Not part of $ProdSrcs, and
 # deliberately: the shipping runtime has no scene and no launcher -- a scene is the fixture somebody looks
@@ -555,6 +571,16 @@ $SuiteSrcs = @(
     (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopDocument.c"),
     (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopPresent.c"),
     (Join-Path $RuntimeRoot "desktop\tests\SuiteRoboDesktopScene.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputConformance.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputEvent.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputKeyboard.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputPointer.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputCoordinates.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputQueue.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputOwnership.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputTarget.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputDebug.c"),
+    (Join-Path $RuntimeRoot "input\tests\SuiteRoboInputBridge.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -921,6 +947,55 @@ function Assert-RoboDesktopBoundaries {
     Write-Host "RoboDesktop boundary source scan: OK"
 }
 
+function Assert-RoboInputBoundaries {
+    # The input model is *below* the layers that will consume it, and two rules say so.
+    #
+    # The **upward** rule is the one every module in this tree keeps: no Chromium, no Skia, no V8, no
+    # compositor, no JavaScript, and nothing from the API/shell layers above. A module that could reach a
+    # compositor would stop being the thing that says what an input event *is*.
+    #
+    # The **consumer** rule is this module's own, and it is the interesting half: RoboInput may not include
+    # RoboPaint, RoboRender or RoboDesktop -- the three modules that will read its records -- because a model
+    # that depended on its consumers would invert the graph, and the day one of them changed shape this
+    # module would change with it. Its two document-layer includes are *identities* and nothing else:
+    # `RoboHTMLNode.h` for the inert node handle and `RoboLayoutTypes.h` for the node id, both of which are
+    # values a target carries. Any other header from those two layers is refused by name, which is what keeps
+    # "a target names a node" from turning into "the input model reads a tree".
+    #
+    # The suites are held to the upward rule only, for the desktop scan's reason: `input.target.from_hit_test`
+    # exists to prove the three hit-test flags are mirrored *equal to paint's*, and a suite that compared a
+    # mirror to its origin has to include the origin. That is a test proving a boundary, not a module
+    # crossing one.
+    $moduleRoots = @(
+        (Join-Path $RuntimeRoot "Include\RoboInput"),
+        (Join-Path $RuntimeRoot "Source\RoboInput")
+    )
+    $allRoots = $moduleRoots + @((Join-Path $RuntimeRoot "input"))
+
+    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $consumer = '(?i)#\s*include\s*[<"](RoboPaint|RoboRender|RoboDesktop|RoboHTML/(?!RoboHTMLNode\.h)|RoboLayout/(?!RoboLayoutTypes\.h))'
+    # Prose that names the boundary it keeps is not a leak, exactly as in the desktop scan.
+    $exempt = '(?i)must never depend|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|no compositor|does not read|reaching for|not a document|reads \\*no\\* markup|may not depend|below RoboWindow and RoboPaint'
+
+    $rules = @(
+        @{ Roots = $moduleRoots; Pattern = $consumer; Skip = $null },
+        @{ Roots = $allRoots; Pattern = $upward; Skip = $null }
+    )
+    foreach ($rule in $rules) {
+        foreach ($root in $rule.Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+                Select-String -Pattern $rule.Pattern -SimpleMatch:$false |
+                Where-Object { $_.Line -notmatch $exempt }
+            if ($hits) {
+                $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+                throw "RoboInput boundary leak (Chromium, a consumer layer, or a document layer beyond the two identity headers):`n$sample"
+            }
+        }
+    }
+    Write-Host "RoboInput boundary source scan: OK"
+}
+
 function Assert-RoboDisplayChromiumIndependence {
     $roots = @(
         (Join-Path $RuntimeRoot "Include\RoboDisplay"),
@@ -1032,6 +1107,9 @@ $hostFlags = @(
     # Its suites resolve both headers, which is why both paths are here.
     "-I", (Join-Path $RuntimeRoot "render\tests"),
     "-I", (Join-Path $RuntimeRoot "desktop\tests"),
+    # input/tests carries the input suites' fixtures, which build events through the public doors rather
+    # than by filling structs -- so a suite cannot construct something the model's own validator refuses.
+    "-I", (Join-Path $RuntimeRoot "input\tests"),
     # html/tests carries the HTML suites' document of record (`dom_checkpoint_html`), which the CSS suite in
     # Tests/Suites shares: its selector repertoire and element counts name this document's own elements, so
     # both suites must read one copy of it rather than two that drift.
@@ -1200,6 +1278,7 @@ if ($Verify) {
     Assert-RoboPaintBoundaries
     Assert-RoboRenderBoundaries
     Assert-RoboDesktopBoundaries
+    Assert-RoboInputBoundaries
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 

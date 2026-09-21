@@ -227,6 +227,19 @@ void robo_test_register_desktop_frame(void);
 void robo_test_register_desktop_document(void);
 void robo_test_register_desktop_present(void);
 void robo_test_register_desktop_scene(void);
+/* Phase 12.1 — RoboInput: the event model, its coordinate spaces, the queue and the window bridge. These
+ * tests own no module-wide state (the module has none), so their order among the others does not matter and
+ * they are registered before the desktop suite, which deliberately restarts the layers it uses. */
+void robo_test_register_input_conformance(void);
+void robo_test_register_input_event(void);
+void robo_test_register_input_keyboard(void);
+void robo_test_register_input_pointer(void);
+void robo_test_register_input_coordinates(void);
+void robo_test_register_input_queue(void);
+void robo_test_register_input_ownership(void);
+void robo_test_register_input_target(void);
+void robo_test_register_input_debug(void);
+void robo_test_register_input_bridge(void);
 
 int main(int argc, char **argv)
 {
@@ -495,6 +508,16 @@ int main(int argc, char **argv)
     robo_test_register_desktop_frame();
     robo_test_register_desktop_document();
     robo_test_register_desktop_present();
+    robo_test_register_input_conformance();
+    robo_test_register_input_event();
+    robo_test_register_input_keyboard();
+    robo_test_register_input_pointer();
+    robo_test_register_input_coordinates();
+    robo_test_register_input_queue();
+    robo_test_register_input_ownership();
+    robo_test_register_input_target();
+    robo_test_register_input_debug();
+    robo_test_register_input_bridge();
     /* Registered last: desktop.scene.lifetime intentionally shuts the layers
      * down and brings them back, so nothing may follow it. */
     robo_test_register_desktop_scene();
