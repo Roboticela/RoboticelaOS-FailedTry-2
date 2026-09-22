@@ -412,13 +412,17 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
    named as a placeholder rather than presented as an implementation.
 2. **No bidi.** Direction is *classified*, never resolved; an RTL run is drawn left to right from its
    origin and the paint pass counts how many runs that happened to.
-3. **No fallback inside the text layer.** A scalar the bound face lacks becomes `.notdef` and a counted
-   miss. Choosing a *different* face is RoboFont's fallback, one layer up.
+3. **Fallback exists as of 12.5, and the single-context pipeline still binds one face.** The run set and
+   `RoboTextShape` carry one `RoboTextFontContext`, so their glyph generation still turns an uncovered
+   scalar into `.notdef` and a counted miss. *Multi-face* selection lives one door over:
+   `RoboTextAnalysisCreate` produces runs with per-run faces, and `RoboTextShapeRequestToRun` feeds them
+   back into the same generator. See [FontIntegration](FontIntegration.md).
 4. **No grapheme clusters.** `cluster` is the identity mapping.
 5. **Weights and optical size bind but do not instance.** A style records them; no axis is applied.
-6. **One face per run.** A document paints through a single face, so `font-weight: 700` reaches layout as
-   a number rather than a bolder face. Items 5 and 6 are the same missing thing: a shaped run that can
-   carry an axis value.
+6. **Per-run faces are selected but the shell/document path still paints one face per surface.** A
+   document paints through a single face, so `font-weight: 700` reaches layout as a number rather than a
+   bolder face, and the analysis layer's multi-face runs are not yet what the desktop walks. Items 5 and 6
+   are the same missing thing: a shaped run that can carry an axis value and a face.
 7. **No letter spacing applied.** `letterSpacingPx` is carried and not read.
 8. **`text.*` has no QEMU-only cases.** The module computes on the development machine; the guest-visible
    half of the phase is the desktop's rendering check above.
@@ -430,8 +434,10 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 ```
 12.2  System Typeface Pack            ✓
 12.3  Desktop + document face binding ✓
-12.4  RoboText architecture           ✓  (this document)
-12.5  Unicode / font integration
+12.4  RoboText architecture           ✓
+12.5  Unicode / font integration       ✓  (UnicodeIntegration / FontIntegration / FontFallback)
+12.6  Script runs                      → extends RoboTextScriptResolver.c
+12.8  Bidirectional algorithm
 12.8  Bidirectional algorithm          → fills the direction runs this phase classifies
 12.10 Glyph substitution (GSUB)        → replaces RoboTextGlyphRunGenerate's body
 12.11 Glyph positioning (GPOS)         → fills RoboTextGlyph.offsetX/offsetY
@@ -441,3 +447,33 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 Every one of those consumes this layer rather than replacing it. That is the milestone: the seams
 (`RoboTextRun`, `RoboTextGlyph`, `RoboTextMeasurement`) are the ones the later goals were planned
 against, and no caller has to change when a generator does.
+
+---
+
+## 13. Phase 12.5 — Unicode / font integration
+
+12.5 connects this architecture to the real Unicode and font systems without changing the 12.4 seams. The
+new pieces and their contracts:
+
+| Area | Public header | Implementation | Contract |
+|---|---|---|---|
+| Code points, decoder, properties, script/direction classification | `RoboText/RoboTextUnicode.h` | `RoboTextUnicode.c`, `RoboTextScriptResolver.c` | [UnicodeIntegration.md](UnicodeIntegration.md) |
+| Coverage, selection, fallback chain, font identity | `RoboText/RoboTextFontSelection.h` | `RoboTextFontSelection.c` | [FontIntegration.md](FontIntegration.md), [FontFallback.md](FontFallback.md) |
+| Analysis runs and the shape request | `RoboText/RoboTextAnalysis.h` | `RoboTextAnalysis.c` | [FontIntegration.md](FontIntegration.md) §5 |
+
+Three properties the phase adds and that a reader should check against the code:
+
+1. **One decoder, one resolver, one classifier.** `RoboTextRuns.c` no longer decodes or classifies anything
+   itself; it calls `RoboTextUnicodeDecodeAll`, `RoboTextScriptRunsResolve` and
+   `RoboTextUnicodeClassifyDirection`. The run set and the analysis layer therefore cannot disagree about a
+   boundary or a script.
+2. **Coverage-gated, deterministic, data-driven selection.** The fallback order *is* the chain array, so a
+   fallback change is a data change. `RoboTextGetCapabilities` reports `fontSelection`, `fontCoverage`,
+   `coverageCache`, `analysisRuns`, `shapeRequest`, `unicodeIntegration`, `codePoints`, `combiningMarks`,
+   `scriptResolver` all `1`, and still reports `bidiAlgorithm`, `substitution`, `positioning`, `kerning`,
+   `ligatures`, `complexScripts`, `verticalText` all `0`.
+3. **`RoboText` still links no rasterizer.** The new headers include RoboFont and RoboUnicode and nothing
+   above; `Assert-RoboTextBoundaries` enforces it. A rendered multi-script run is the shell's gallery.
+
+The version moved to `1.1.0`: the run and glyph record shapes are unchanged, and the new API surface is
+additional.

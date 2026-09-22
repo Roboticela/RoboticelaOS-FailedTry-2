@@ -224,6 +224,18 @@ int RoboTextScriptIsNeutral(RoboTextScript script);
 /** The ISO 15924 short name (`"Latn"`) through RoboUnicode; never NULL. */
 const char *RoboTextScriptName(RoboTextScript script);
 
+/**
+ * A stretch of scalars sharing one script.
+ *
+ * Declared here rather than beside the run set because the *script resolver* produces one before any run
+ * set exists: `RoboTextScriptRunsResolve` (Phase 12.5) is the module's one implementation of the
+ * neutrality rule, and the run set is one of its two consumers.
+ */
+typedef struct RoboTextScriptRun {
+    RoboTextRange range;
+    RoboTextScript script;
+} RoboTextScriptRun;
+
 /* ------------------------------------------------------------------ */
 /* Optical size                                                        */
 /* ------------------------------------------------------------------ */

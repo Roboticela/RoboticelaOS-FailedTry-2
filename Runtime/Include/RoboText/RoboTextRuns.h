@@ -67,11 +67,12 @@
 extern "C" {
 #endif
 
-/** A stretch of scalars sharing one script. */
-typedef struct RoboTextScriptRun {
-    RoboTextRange range;
-    RoboTextScript script;
-} RoboTextScriptRun;
+/**
+ * A stretch of scalars sharing one script.
+ *
+ * Declared in `RoboTextTypes.h`: the script resolver produces these before a run set exists, and the two
+ * must agree about the type. See `RoboTextScriptRunsResolve` in `RoboTextUnicode.h`.
+ */
 
 /** A stretch of scalars sharing one classified direction. */
 typedef struct RoboTextDirectionRun {

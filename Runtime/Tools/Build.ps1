@@ -176,6 +176,16 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboText\RoboTextRuns.c"),
     (Join-Path $SourceDir "RoboText\RoboTextGlyphs.c"),
     (Join-Path $SourceDir "RoboText\RoboTextShape.c"),
+    # Phase 12.5 -- the Unicode/font integration. `RoboTextUnicode.c` is the module's one decoder and
+    # property interface (every door in it is a call into RoboUnicode, which owns the tables),
+    # `RoboTextScriptResolver.c` is the one implementation of the Common/Inherited neutrality rule,
+    # `RoboTextFontSelection.c` is the coverage-gated selector with its fallback chain, and
+    # `RoboTextAnalysis.c` is the runs that combine script, direction and font and the shape request
+    # they populate. None of them parses a font or keeps a Unicode table.
+    (Join-Path $SourceDir "RoboText\RoboTextUnicode.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextScriptResolver.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphicsGeometry.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphicsColor.c"),
@@ -459,6 +469,9 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextShape.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextConformance.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextGallery.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextUnicode.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextFontSelection.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextAnalysis.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

@@ -13,6 +13,9 @@ Contract: [`../../Documentation/Runtime/Text/Architecture.md`](../../Documentati
 | `SuiteRoboTextShape.c` | `text.shape.*` | the pipeline end to end: run sets, glyph runs, the measurement's width/ascent/descent/line-height, refusals, determinism, and the brief's required strings |
 | `SuiteRoboTextConformance.c` | `text.conformance.*`, `text.vocabulary.*`, `text.font.*` | the module's own record: version, `RoboTextGetCapabilities` field by field, enumerator stability, font-context resolution and scaling, and bit-for-bit repetition |
 | `SuiteRoboTextGallery.c` | `text.gallery.*` | the development surface: writes `Build/Text-GlyphTable.txt` for every string the phase names — raw text, run rows, glyph rows with ids/units/advances/source spans, and the measurement — and asserts the table *is* the measurement, plus byte-identical determinism across two builds |
+| `SuiteRoboTextUnicode.c` | `text.unicode.*` | the Unicode integration (12.5): the code-point vocabulary, the property doors, the one decoder and its invalid-UTF-8 policy, `RoboTextUnicodeDecodeAll`, the shared script resolver's neutrality rule, and direction classification. Contract: [`UnicodeIntegration.md`](../../Documentation/Runtime/Text/UnicodeIntegration.md) |
+| `SuiteRoboTextFontSelection.c` | `text.fontselection.*` | coverage through the face, the deterministic coverage-gated selector, the ordered fallback chain, the range door, the coverage memo's counters, identity equality/order and the dump. Contract: [`FontIntegration.md`](../../Documentation/Runtime/Text/FontIntegration.md), [`FontFallback.md`](../../Documentation/Runtime/Text/FontFallback.md) |
+| `SuiteRoboTextAnalysis.c` | `text.analysis.*` | analysis runs: script + classified direction + selected font over one range, mixed-script splitting, combining marks kept with their base, the populated shape request and its bridge back into glyph generation, determinism and fuzz |
 
 The rendered half of that surface lives with the shell, because `RoboText` links no rasterizer
 (`Build/Typography-Desktop.png`, `-Chrome.png`, `-Document.png` from
@@ -41,7 +44,7 @@ exactly one of those (`Tests/Runtime/Framework/RoboTest.h`).
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host     # 39 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboText.ps1 -Target Host     # 61 cases; also writes Build/Text-GlyphTable.txt
 Scripts\Build\BuildRoboText.ps1                # the module, its boundary scan and its suites
 ```
 

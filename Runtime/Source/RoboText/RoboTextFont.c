@@ -238,6 +238,31 @@ Result RoboTextFontContextMetrics(const RoboTextFontContext *context,
          * branch, because both set the three fields above before this line runs. */
         out->lineHeightPx = out->ascentPx + out->descentPx + out->lineGapPx;
     }
+
+    /*
+     * The two optional metrics (Phase 12.5). They live in `OS/2`, not in the `head`/`hhea` pair the layout
+     * metrics come from, so they need the metrics *info* object rather than `FontFaceLayoutMetrics` — and
+     * they are optional in exactly the sense RoboFont's `FontOptionalUnit` means: `Present` is a
+     * measurement, `Unavailable` is a zero here rather than a guess. A face whose `OS/2` is absent is not a
+     * failure; it simply has no cap height to report.
+     */
+    if (upem != 0u) {
+        const FontMetricsInfo *info = FontFaceMetricsInfo(context->face);
+        const FontMetricsGlobal *global = info ? FontMetricsInfoGlobal(info) : NULL;
+
+        if (global) {
+            if (global->capHeight.avail == RoboFontMetricPresent) {
+                out->capHeightPx = (float)(((double)global->capHeight.value *
+                                            (double)context->style.sizePx) /
+                                           (double)upem);
+            }
+            if (global->xHeight.avail == RoboFontMetricPresent) {
+                out->xHeightPx = (float)(((double)global->xHeight.value *
+                                          (double)context->style.sizePx) /
+                                         (double)upem);
+            }
+        }
+    }
     return RoboOk;
 }
 

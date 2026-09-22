@@ -1,5 +1,6 @@
 /*
- * RoboText's segmentation (Phase 12.4) — see RoboTextRuns.h.
+ * RoboText's segmentation (Phase 12.4, re-based on the shared Unicode doors in 12.5) — see
+ * RoboTextRuns.h.
  *
  * The file is one pass over the text's scalars that answers three questions per scalar (its script, its
  * classified direction, and nothing else), followed by three run walks that read those two arrays. The
@@ -8,12 +9,17 @@
  * equal values* in one or two of those arrays. A design that segmented each run type independently would
  * have three decoders and three chances to disagree about what the text is.
  *
- * The neutrality rule is the one place a reader should slow down. A scalar whose script is Common or
- * Inherited does not get a run of its own: it takes the **previous** resolved script, and a scalar before
- * the first resolved script takes the **next** one. That is a single forward pass, it is stable (the
- * answer never depends on where the reader is standing), and it is what makes `"abc 123 def"` one script
- * run rather than three — which is the shape every consumer above wants, and the reason
- * `RoboTextScriptIsNeutral` exists at all.
+ * Phase 12.5 moved the two classifications out of this file and into `RoboTextUnicode.c`, where they are
+ * the module's one implementation:
+ *
+ *   the decoder             `RoboTextUnicodeDecodeAll` — one UTF-8 policy, one place that reads `next`
+ *   the script resolver     `RoboTextScriptRunsResolve` — the neutrality rule, so the run set and the
+ *                           analysis layer cannot disagree about where a script run begins
+ *   the direction classifier `RoboTextUnicodeBaseDirection` / `RoboTextUnicodeClassifyDirection`
+ *
+ * What is left here is the *intersection* — the part that is genuinely about a run set rather than about
+ * Unicode: a text run exists where two boundary sets agree, and the walk below is the only place that
+ * knows it.
  *
  * Direction is classified, not resolved (see the header): `R`/`AL` are right-to-left, `L` is
  * left-to-right, and everything else takes the paragraph direction — the caller's declared base, or the
@@ -25,7 +31,7 @@
 #include "RoboText/RoboTextRuns.h"
 
 #include "RoboMem/RoboMem.h"
-#include "RoboUnicode/RoboUnicode.h"
+#include "RoboText/RoboTextUnicode.h"
 
 #include <string.h>
 
@@ -43,174 +49,6 @@ struct RoboTextRunSet {
     /** The setting every text run carries. Copied, so the set keeps nothing borrowed but the text. */
     RoboTextFontContext font;
 };
-
-/* ------------------------------------------------------------------ */
-/* Classification                                                      */
-/* ------------------------------------------------------------------ */
-
-/**
- * Decode the whole view into a scalar array, in one pass.
- *
- * Two walks rather than one growing array: the first counts (so the second can allocate exactly), and
- * neither walk allocates. A `DecodeRange`-shaped loop over `ScalarAt` would be O(n²) for a document's
- * text, which is the one input size this module must not be quadratic in.
- */
-static Result RunsDecodeAll(RoboTextView view,
-                            Uchar32 **outScalars,
-                            RoboTextScalarIndex *outCount,
-                            RoboTextDiag *diag)
-{
-    size_t offset = 0u;
-    size_t count = 0u;
-    Uchar32 *scalars;
-
-    *outScalars = NULL;
-    *outCount = 0u;
-    if (view.length != 0u && !view.bytes) {
-        return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboInvalidArgument,
-                               "a view with a length needs bytes");
-    }
-    if (view.length == 0u) {
-        return RoboOk;
-    }
-    while (offset < view.length) {
-        size_t next = offset;
-
-        if (UnicodeUtf8Decode(view.bytes, view.length, offset, RoboUnicodeReplace, NULL, &next) !=
-                RoboUnicodeOk ||
-            next <= offset) {
-            return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboParseError,
-                                   "the text could not be decoded");
-        }
-        offset = next;
-        count++;
-    }
-    if (count > (size_t)RoboTextIndexMax) {
-        return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboInvalidArgument,
-                               "the text is longer than this build can index");
-    }
-    scalars = (Uchar32 *)RoboCalloc(count, sizeof(*scalars));
-    if (!scalars) {
-        return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboOutOfMemory,
-                               "the decoded text could not be allocated");
-    }
-    offset = 0u;
-    for (size_t index = 0u; index < count; index++) {
-        size_t next = offset;
-
-        if (UnicodeUtf8Decode(view.bytes, view.length, offset, RoboUnicodeReplace, &scalars[index],
-                              &next) != RoboUnicodeOk ||
-            next <= offset) {
-            RoboFree(scalars);
-            return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboParseError,
-                                   "the text could not be decoded");
-        }
-        offset = next;
-    }
-    *outScalars = scalars;
-    *outCount = (RoboTextScalarIndex)count;
-    return RoboOk;
-}
-
-/** The script a scalar belongs to, honouring a caller's hint. */
-static RoboTextScript RunsRawScript(Uchar32 scalar, RoboTextScript hint)
-{
-    if (hint != RoboTextScriptCommon) {
-        return hint;
-    }
-    return MakeUnicodeScript(scalar);
-}
-
-/** The direction a scalar's own `Bidi_Class` classifies as, before neutrals are resolved. */
-static RoboTextDirection RunsStrongDirection(Uchar32 scalar)
-{
-    switch (MakeUnicodeBidiClass(scalar)) {
-        case RoboUBcL:
-            return RoboTextDirectionLtr;
-        case RoboUBcR:
-        case RoboUBcAl:
-            return RoboTextDirectionRtl;
-        default:
-            return RoboTextDirectionUnknown;
-    }
-}
-
-/**
- * Fill `script[]` from the raw classifications, resolving Common/Inherited by the neutrality rule.
- *
- * One forward pass. `carry` starts unset, so a scalar before the first resolved script is provisionally
- * Common; the moment a resolved script is seen, everything provisional before it is rewritten to that
- * script — which is exactly "the next resolved script", arrived at without a backward pass.
- */
-static void RunsResolveScripts(const Uchar32 *scalars,
-                               RoboTextScalarIndex count,
-                               RoboTextScript hint,
-                               RoboTextScript *script)
-{
-    RoboTextScript carry = RoboTextScriptCommon;
-    int haveCarry = 0;
-
-    for (RoboTextScalarIndex index = 0u; index < count; index++) {
-        RoboTextScript raw = RunsRawScript(scalars[index], hint);
-
-        if (!RoboTextScriptIsNeutral(raw)) {
-            if (!haveCarry) {
-                for (RoboTextScalarIndex back = 0u; back < index; back++) {
-                    script[back] = raw;
-                }
-                haveCarry = 1;
-            }
-            carry = raw;
-            script[index] = raw;
-        } else {
-            script[index] = haveCarry ? carry : RoboTextScriptCommon;
-        }
-    }
-}
-
-/**
- * The paragraph direction the text is classified against.
- *
- * The declared base wins; otherwise the text's own first strong scalar; otherwise `Unknown`. The third
- * case is why `UnicodeBidiParagraphDirection` alone is not the answer: it documents "0 if none", and 0 is
- * `RoboBidiLtr` — so taking it at face value would make `"123 456"` a left-to-right paragraph, which is a
- * claim UAX #9's P2/P3 deliberately does not make.
- */
-static RoboTextDirection RunsBaseDirection(const Uchar32 *scalars,
-                                           RoboTextScalarIndex count,
-                                           RoboTextDirection declared)
-{
-    int hasStrong = 0;
-
-    if (declared != RoboTextDirectionUnknown) {
-        return declared;
-    }
-    for (RoboTextScalarIndex index = 0u; index < count; index++) {
-        if (RunsStrongDirection(scalars[index]) != RoboTextDirectionUnknown) {
-            hasStrong = 1;
-            break;
-        }
-    }
-    if (!hasStrong) {
-        return RoboTextDirectionUnknown;
-    }
-    return (UnicodeBidiParagraphDirection(scalars, (size_t)count) == RoboBidiRtl)
-               ? RoboTextDirectionRtl
-               : RoboTextDirectionLtr;
-}
-
-/** Classify every scalar's direction: strong classes from the scalar, everything else from the base. */
-static void RunsClassifyDirections(const Uchar32 *scalars,
-                                  RoboTextScalarIndex count,
-                                  RoboTextDirection base,
-                                  RoboTextDirection *direction)
-{
-    for (RoboTextScalarIndex index = 0u; index < count; index++) {
-        RoboTextDirection strong = RunsStrongDirection(scalars[index]);
-
-        direction[index] = (strong == RoboTextDirectionUnknown) ? base : strong;
-    }
-}
 
 /* ------------------------------------------------------------------ */
 /* Lifetime                                                            */
@@ -237,7 +75,6 @@ Result RoboTextRunSetCreate(RoboTextView view,
     RoboTextRunSet *set;
     Uchar32 *scalars = NULL;
     RoboTextScalarIndex count = 0u;
-    RoboTextScript *scripts = NULL;
     RoboTextDirection *directions = NULL;
     Result status;
 
@@ -254,6 +91,16 @@ Result RoboTextRunSetCreate(RoboTextView view,
         return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboInvalidArgument,
                                "the shape options are not usable");
     }
+    if (view.length != 0u && !view.bytes) {
+        /*
+         * Named as the **text** rather than as the buffer the shared decoder would name: this is the door
+         * a caller reaches when it hands in a view, so the message belongs to the caller's argument. The
+         * decoder underneath reports the same condition under its own domain, which is right for a caller
+         * that invoked it directly.
+         */
+        return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboInvalidArgument,
+                               "a view with a length needs bytes");
+    }
 
     set = (RoboTextRunSet *)RoboCalloc(1u, sizeof(*set));
     if (!set) {
@@ -267,7 +114,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
     set->scriptHint = options->scriptHint;
     set->language = options->language;
 
-    status = RunsDecodeAll(view, &scalars, &count, diag);
+    status = RoboTextUnicodeDecodeAll(view, &scalars, &count, diag);
     if (status != RoboOk) {
         RoboFree(set);
         return status;
@@ -282,13 +129,11 @@ Result RoboTextRunSetCreate(RoboTextView view,
         return RoboOk;
     }
 
-    scripts = (RoboTextScript *)RoboCalloc(count, sizeof(*scripts));
     directions = (RoboTextDirection *)RoboCalloc(count, sizeof(*directions));
     set->scriptRuns = (RoboTextScriptRun *)RoboCalloc(count, sizeof(*set->scriptRuns));
     set->directionRuns = (RoboTextDirectionRun *)RoboCalloc(count, sizeof(*set->directionRuns));
     set->textRuns = (RoboTextRun *)RoboCalloc(count, sizeof(*set->textRuns));
-    if (!scripts || !directions || !set->scriptRuns || !set->directionRuns || !set->textRuns) {
-        RoboFree(scripts);
+    if (!directions || !set->scriptRuns || !set->directionRuns || !set->textRuns) {
         RoboFree(directions);
         RoboFree(scalars);
         RoboTextRunSetDestroy(set);
@@ -296,54 +141,73 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                "the run arrays could not be allocated");
     }
 
-    RunsResolveScripts(scalars, count, options->scriptHint, scripts);
-    set->baseDirection = RunsBaseDirection(scalars, count, options->baseDirection);
-    RunsClassifyDirections(scalars, count, set->baseDirection, directions);
+    {
+        /*
+         * The per-scalar scripts and the script runs come out of **one** call, which is the 12.5 seam: the
+         * neutrality rule is the resolver's, and this file only needs the two views of its answer — the
+         * runs to publish and the per-scalar array to intersect with the direction classification. `count`
+         * slots is the widest an answer can be, so the capacity can never be the reason a run is lost.
+         */
+        RoboTextScript *scripts = (RoboTextScript *)RoboCalloc(count, sizeof(*scripts));
 
-    for (RoboTextScalarIndex index = 0u; index < count;) {
-        RoboTextScalarIndex end = index + 1u;
-
-        while (end < count && scripts[end] == scripts[index]) {
-            end++;
+        if (!scripts) {
+            RoboFree(directions);
+            RoboFree(scalars);
+            RoboTextRunSetDestroy(set);
+            return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboOutOfMemory,
+                                   "the script array could not be allocated");
         }
-        set->scriptRuns[set->scriptRunCount].range = RoboTextRangeMake(index, end);
-        set->scriptRuns[set->scriptRunCount].script = scripts[index];
-        set->scriptRunCount++;
-        index = end;
-    }
-    for (RoboTextScalarIndex index = 0u; index < count;) {
-        RoboTextScalarIndex end = index + 1u;
-
-        while (end < count && directions[end] == directions[index]) {
-            end++;
+        status = RoboTextScriptRunsResolve(scalars, (size_t)count, options->scriptHint, scripts,
+                                           set->scriptRuns, (size_t)count, &set->scriptRunCount, diag);
+        if (status != RoboOk) {
+            RoboFree(scripts);
+            RoboFree(directions);
+            RoboFree(scalars);
+            RoboTextRunSetDestroy(set);
+            return status;
         }
-        set->directionRuns[set->directionRunCount].range = RoboTextRangeMake(index, end);
-        set->directionRuns[set->directionRunCount].direction = directions[index];
-        set->directionRunCount++;
-        index = end;
-    }
-    /*
-     * The text runs are the *intersection* of the two walks, which is why this loop tests both arrays
-     * rather than walking either: a boundary in either segmentation is a boundary here, and the result is
-     * contiguous and ascending by construction — the property `RunAtScalar`'s binary search relies on.
-     */
-    for (RoboTextScalarIndex index = 0u; index < count;) {
-        RoboTextScalarIndex end = index + 1u;
-
-        while (end < count && scripts[end] == scripts[index] && directions[end] == directions[index]) {
-            end++;
+        set->baseDirection = RoboTextUnicodeBaseDirection(scalars, (size_t)count, options->baseDirection);
+        for (RoboTextScalarIndex index = 0u; index < count; index++) {
+            directions[index] = RoboTextUnicodeClassifyDirection((RoboTextCodePoint)scalars[index],
+                                                                 set->baseDirection);
         }
-        set->textRuns[set->textRunCount].range = RoboTextRangeMake(index, end);
-        set->textRuns[set->textRunCount].script = scripts[index];
-        set->textRuns[set->textRunCount].direction = directions[index];
-        set->textRuns[set->textRunCount].baseDirection = set->baseDirection;
-        set->textRuns[set->textRunCount].font = set->font;
-        set->textRuns[set->textRunCount].language = set->language;
-        set->textRunCount++;
-        index = end;
+
+        for (RoboTextScalarIndex index = 0u; index < count;) {
+            RoboTextScalarIndex end = index + 1u;
+
+            while (end < count && directions[end] == directions[index]) {
+                end++;
+            }
+            set->directionRuns[set->directionRunCount].range = RoboTextRangeMake(index, end);
+            set->directionRuns[set->directionRunCount].direction = directions[index];
+            set->directionRunCount++;
+            index = end;
+        }
+        /*
+         * The text runs are the *intersection* of the two walks, which is why this loop tests both arrays
+         * rather than walking either: a boundary in either segmentation is a boundary here, and the result
+         * is contiguous and ascending by construction — the property `RunAtScalar`'s binary search relies
+         * on.
+         */
+        for (RoboTextScalarIndex index = 0u; index < count;) {
+            RoboTextScalarIndex end = index + 1u;
+
+            while (end < count && scripts[end] == scripts[index] &&
+                   directions[end] == directions[index]) {
+                end++;
+            }
+            set->textRuns[set->textRunCount].range = RoboTextRangeMake(index, end);
+            set->textRuns[set->textRunCount].script = scripts[index];
+            set->textRuns[set->textRunCount].direction = directions[index];
+            set->textRuns[set->textRunCount].baseDirection = set->baseDirection;
+            set->textRuns[set->textRunCount].font = set->font;
+            set->textRuns[set->textRunCount].language = set->language;
+            set->textRunCount++;
+            index = end;
+        }
+        RoboFree(scripts);
     }
 
-    RoboFree(scripts);
     RoboFree(directions);
     RoboFree(scalars);
     *out = set;

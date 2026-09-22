@@ -44,13 +44,16 @@
 #ifndef ROBO_TEXT_H
 #define ROBO_TEXT_H
 
+#include "RoboText/RoboTextAnalysis.h"
 #include "RoboText/RoboTextBuffer.h"
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextFont.h"
+#include "RoboText/RoboTextFontSelection.h"
 #include "RoboText/RoboTextGlyphs.h"
 #include "RoboText/RoboTextRuns.h"
 #include "RoboText/RoboTextShape.h"
 #include "RoboText/RoboTextTypes.h"
+#include "RoboText/RoboTextUnicode.h"
 #include "RoboText/RoboTextVersion.h"
 
 #endif /* ROBO_TEXT_H */

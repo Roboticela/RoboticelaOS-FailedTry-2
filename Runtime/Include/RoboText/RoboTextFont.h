@@ -78,9 +78,21 @@ typedef struct RoboTextFontMetrics {
     float descentPx;
     /** The face's own line gap, in px; never negative. */
     float lineGapPx;
-    /** The leading a line box uses: the context's own `lineHeightPx` when it declares one, else
-     *  `ascent + descent + gap`. */
+    /**
+     * The leading a line box uses: the context's own `lineHeightPx` when it declares one, else
+     * `ascent + descent + gap`.
+     */
     float lineHeightPx;
+    /**
+     * The face's cap height, in px, or 0 when the face does not declare one (`OS/2` absent or v1).
+     *
+     * A **declared** zero is impossible — cap height is a positive design measurement — so zero is the
+     * honest "not available", exactly as `FontOptionalUnit` spells it one layer down, and a caller that
+     * centres a line on its caps can fall back to the ascent rather than centring on nothing.
+     */
+    float capHeightPx;
+    /** See @ref capHeightPx: the face's x-height in px, or 0 when it declares none. */
+    float xHeightPx;
 } RoboTextFontMetrics;
 
 /** Clear @p context to "no face, CSS initial setting". Safe on NULL. */

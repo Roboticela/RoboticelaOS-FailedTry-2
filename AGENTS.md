@@ -232,6 +232,39 @@ layer and its two consumers. `Documentation/Runtime/Text/Architecture.md` is the
   `Build/Typography-Desktop.png` / `-Chrome.png` / `-Document.png` — the module links no rasterizer by
   its own boundary, so a rendered glyph run is the shell's gallery, not this directory's.
 
+### Unicode / font integration (Phase 12.5)
+
+**RoboText consumes RoboUnicode and RoboFont; it keeps no Unicode table and parses no font.** New text code
+that walks UTF-8, looks up a `cmap`, or reads a script/bidi range table is a defect, not a shortcut. The
+public contract is `Documentation/Runtime/Text/{UnicodeIntegration,FontIntegration,FontFallback}.md`.
+
+- Decoding: one decoder, `RoboTextUnicodeDecoder`/`RoboTextUnicodeDecodeAll` in `RoboTextUnicode.c`, over
+  `UnicodeUtf8Decode` in `RoboUnicodeReplace` mode. Invalid UTF-8 policy: **one U+FFFD per ill-formed byte,
+  advancing one byte**, identical in measurement, rendering, selection and editing. `RoboTextRuns.c` and
+  `RoboTextAnalysis.c` call that door; neither decodes itself.
+- Properties: every accessor (`RoboTextUnicode{GeneralCategory,Script,BidiClass,…}`) is one call into
+  RoboUnicode. `RoboTextUnicodeDataVersion()` reports RoboUnicode's pin — never claim a version the tables
+  do not have.
+- Scripts: `RoboTextScriptRunsResolve` in `RoboTextScriptResolver.c` is the module's one implementation of
+  the Common/Inherited neutrality rule, and the run set and the analysis layer both call it. Phase 12.6
+  extends that file rather than adding a second segmenter.
+- Coverage and selection: `RoboTextFontSelection.c`. Coverage is RoboFont's lazy, idempotent
+  `FontFaceParseCoverage` (never re-parse a `cmap`); selection is a deterministic walk of an ordered
+  **fallback chain the caller supplies** — no hard-coded family list, no language→font table, no randomness.
+  The 256-slot coverage memo is a repeat-catcher, not a database.
+- Analysis runs (`RoboTextAnalysis.c`) combine script + classified direction + selected font over one
+  scalar range and contain **no glyphs**. A combining mark takes its base's font and never starts a run.
+  `RoboTextShapeRequestToRun` feeds a run back into the existing generator — do not add a second one.
+- Capabilities: a later goal flips its flag in `RoboTextVersion.h`/`.c` **and** in
+  `Tests/Text/SuiteRoboTextConformance.c` in the same change, read field by field. 12.5 set
+  `unicodeIntegration`/`codePoints`/`combiningMarks`/`scriptResolver`/`fontCoverage`/`fontSelection`/
+  `coverageCache`/`analysisRuns`/`shapeRequest`.
+- Tests: `Tests/Text/SuiteRoboText{Unicode,FontSelection,Analysis}.c` (`text.unicode.*`,
+  `text.fontselection.*`, `text.analysis.*`) via `TestRoboText.ps1 -Target Host`. The pack ships one family
+  (Inter), so fallback is exercised with a no-face primary plus a chain; a real multi-family chain is a
+  **pack** change (assets + manifest + licence + image check), not a text-layer change. A 12.5 change is
+  not done until `TestRoboText.ps1` and `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
+
 ---
 
 ## Test rules
@@ -250,6 +283,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | System typeface pack | `BuildFont.ps1` (module + pack validation; the image build installs `System/Fonts/`) | `TestFont.ps1 -Target Host` (`font.systempack.*`); `-Target Qemu` when the installed image is involved |
 | Typography roles / face binding | `BuildTypography.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestTypography.ps1 -Target Host` (`typography.*`), then `TestDesktop.ps1 -Target Host` (`desktop.typography.*` and the three galleries); `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Desktop.png`, `Build/Typography-Chrome.png`, `Build/Typography-Document.png` |
 | Text architecture (RoboText) | `BuildRoboText.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestRoboText.ps1 -Target Host` (`text.*`), then the suites for every boundary it touched: `TestLayout.ps1 -Target Host`, `TestPaint.ps1 -Target Host`, `TestGraphics.ps1 -Target Host`, `TestFont.ps1 -Target Host`, `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved |
+| Unicode / font integration (RoboText 12.5) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.unicode.*`, `text.fontselection.*`, `text.analysis.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

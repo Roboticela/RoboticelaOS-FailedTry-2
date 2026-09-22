@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.0.0";
+    static const char version[] = "1.1.0";
 
     return version;
 }
@@ -56,6 +56,21 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->sourceMapping = 1;
     out->measurement = 1;
     out->shapeResult = 1;
+
+    /*
+     * The Unicode/font integration (12.5). Each flag is exercised by a case: the decoder and the property
+     * doors by `text.unicode.*`, the resolver by `text.unicode.scripts`, coverage and selection by
+     * `text.fontselection.*`, and the runs and the shape request by `text.analysis.*`.
+     */
+    out->unicodeIntegration = 1;
+    out->codePoints = 1;
+    out->combiningMarks = 1;
+    out->scriptResolver = 1;
+    out->fontCoverage = 1;
+    out->fontSelection = 1;
+    out->coverageCache = 1;
+    out->analysisRuns = 1;
+    out->shapeRequest = 1;
 
     /*
      * The generator, and it is the placeholder: one cmap lookup per scalar, in logical order, with no

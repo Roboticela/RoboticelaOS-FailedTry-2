@@ -30,7 +30,9 @@ extern "C" {
 
 /** Major version: changes only when the run/glyph API shape does. */
 #define RoboTextVersionMajor 1
-#define RoboTextVersionMinor 0
+/* 12.5 added the Unicode doors, the font selector and the analysis runs; the run/glyph record shapes are
+ * unchanged, so the major stays and the minor moves. */
+#define RoboTextVersionMinor 1
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -69,6 +71,27 @@ typedef struct RoboTextCapabilities {
     int measurement;
     /** A shape result owning every run of one text, with the measurement beside them. */
     int shapeResult;
+
+    /* --- Phase 12.5: Unicode and font integration --- */
+
+    /** RoboText consumes RoboUnicode's decoder and property tables; it keeps no Unicode data of its own. */
+    int unicodeIntegration;
+    /** An explicit code-point vocabulary with validation (scalar vs surrogate vs out of range). */
+    int codePoints;
+    /** Combining-mark classification, and the rule that a mark keeps its base's font. */
+    int combiningMarks;
+    /** The shared script resolver, including the Common/Inherited neutrality rule. */
+    int scriptResolver;
+    /** Font coverage queries through the face, cached by RoboFont's own lazy coverage build. */
+    int fontCoverage;
+    /** Deterministic font selection over an ordered fallback chain, coverage-gated. */
+    int fontSelection;
+    /** The selector's coverage memo. */
+    int coverageCache;
+    /** Analysis runs: one script, one classified direction and one font over one range. */
+    int analysisRuns;
+    /** A fully populated shape request (real range, script, direction, font and language). */
+    int shapeRequest;
     /** True when glyph ids come from one cmap lookup per scalar (no substitution). **1**. */
     int glyphGenerationIsPlaceholder;
     /** Variable-axis application (`wght`/`opsz` beyond face selection). **0**: a later goal. */

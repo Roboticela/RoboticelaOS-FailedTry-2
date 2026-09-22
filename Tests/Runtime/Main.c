@@ -103,6 +103,12 @@ void TestRegisterTextGlyphs(void);
 void TestRegisterTextShape(void);
 void TestRegisterTextConformance(void);
 void TestRegisterTextGallery(void);
+/* Phase 12.5 — the Unicode/font integration: the module's one decoder and property interface, the shared
+ * script resolver, the coverage-gated font selector with its fallback chain, and the analysis runs that
+ * combine script, direction and font into a shape request. */
+void TestRegisterTextUnicode(void);
+void TestRegisterTextFontSelection(void);
+void TestRegisterTextAnalysis(void);
 void TestRegisterGraphics(void);
 void TestRegisterGraphicsPixelFormat(void);
 void TestRegisterGraphicsFramebuffer(void);
@@ -398,6 +404,9 @@ int main(int argc, char **argv)
     TestRegisterTextShape();
     TestRegisterTextConformance();
     TestRegisterTextGallery();
+    TestRegisterTextUnicode();
+    TestRegisterTextFontSelection();
+    TestRegisterTextAnalysis();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();
