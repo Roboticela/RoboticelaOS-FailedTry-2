@@ -9,7 +9,8 @@ integration's whole design is **one owner per fact**:
 | General category, script, bidi class, whitespace, combining class | **RoboUnicode** (`RoboUcdData.h`) | `RoboTextUnicodeGeneralCategory`, `…Script`, `…BidiClass`, `…IsWhitespace`, `…CombiningClass` |
 | Code-point / scalar validation | **RoboText** (a vocabulary, not a table) | `RoboTextCodePoint*` |
 | Combining-mark *classification* | **RoboText** (a category group) | `RoboTextUnicodeIsCombiningMark` |
-| Script-run segmentation (Common/Inherited neutrality) | **RoboText** | `RoboTextScriptRunsResolve` |
+| `Script_Extensions` | **RoboUnicode** (`UcdHasScript`, `UcdScriptExtensions`) | `RoboTextUnicodeScriptInfoOf`, `…ScriptExtensions`, `…ScriptExtensionsInclude`, `RoboTextUnicodeAsciiScript` |
+| Script-run segmentation (Common/Inherited neutrality) | **RoboText** | `RoboTextScriptRunsResolve` — contract: [ScriptRuns.md](ScriptRuns.md) |
 | Direction **classification** (not resolution) | **RoboText** | `RoboTextUnicodeStrongDirection`, `…BaseDirection`, `…ClassifyDirection` |
 | The bidirectional algorithm, reordering | **Phase 12.8** | none — `RoboTextGetCapabilities().bidiAlgorithm == 0` |
 
@@ -65,19 +66,34 @@ be quadratic.
 ## 4. Script resolution
 
 `RoboTextScriptRunsResolve` (implemented in `RoboTextScriptResolver.c`) is the **one** implementation of the
-neutrality rule:
+neutrality rule. 12.5's form of it was a single carry; 12.6 replaced that with a two-sided rule that also
+consults `Script_Extensions`. Its contract lives in [ScriptRuns.md](ScriptRuns.md); in one line:
 
-> a scalar whose script is `Common` or `Inherited` takes the **previous** resolved script; a scalar before
-> the first resolved script takes the **next** one.
+> a neutral scalar takes the script both of its neighbouring anchors agree on; failing that, a combining
+> mark takes its base's; failing that, a script that lists it takes it; failing that, the left anchor's;
+> failing that, the right's; failing that, it stays `Common`.
 
-One forward pass, stable under any reading order. `"abc 123 def"` is one script run; `"  123 abc"` is one run
-starting at scalar 0; `"123 456"` is one `Common` run (nothing resolved, so nothing is claimed). A
-`scriptHint` in `RoboTextShapeOptions` classifies every scalar as the hinted script, digits and spaces
-included.
+One forward pass with a deferred neutral block, allocating nothing. `"abc 123 def"` is one script run;
+`"  123 abc"` is one run starting at scalar 0; `"123 456"` is one `Common` run (nothing resolved, so nothing
+is claimed). A `scriptHint` in `RoboTextShapeOptions` classifies every scalar as the hinted script, digits
+and spaces included.
 
 The run set and the analysis layer both call this function — the run set for its published `RoboTextScriptRun`
-array and its per-scalar array, the analysis for its runs — so they cannot disagree about a boundary.
-Phase 12.6 (`Script Runs`) extends this file rather than growing a second segmenter.
+array and its per-scalar array, the analysis for its runs — so they cannot disagree about a boundary, and the
+analysis cuts its runs from this answer rather than segmenting again.
+
+### The ASCII path
+
+ASCII is answered from the block instead of from the tables, and the three shortcuts are all
+`RoboTextUnicodeScript`-level facts rather than resolver-local ones:
+
+- `RoboTextUnicodeAsciiScript` — `A`–`Z`/`a`–`z` are `Latn`, every other code point below U+0080 is `Zyyy`.
+- `RoboTextUnicodeScriptExtensionsInclude` — for ASCII the set is the defaulted singleton, so membership is
+  equality.
+- `RoboTextUnicodeIsCombiningMark` — nothing below U+0300 is a mark.
+
+`text.script.ascii_fast_path` proves each against the tables over the whole range it covers, so the
+shortcut cannot silently drift from the data it shortcuts.
 
 ## 5. Combining marks and direction
 

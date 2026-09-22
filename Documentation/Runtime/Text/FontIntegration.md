@@ -50,6 +50,11 @@ randomness: the chain's **order is the policy**, which is what makes a fallback 
 that, the first covering the run's base (`complete = 0`); failing that, `none`. The run-level door exists so a
 base character and its combining mark are one decision, not two.
 
+Since Phase 12.6 the **range door is the only one the analysis calls**, once per script run: a script run is
+the coherent sequence the phase asks fallback to operate on, and the font is then constant across it by
+construction. The scalar door remains for a caller that has a single code point and no run — a hit test, a
+coverage report — and both walk the same coverage door underneath.
+
 ## 3. Font identity
 
 `RoboTextResolvedFont` is the identity a run carries — never a font file:
@@ -77,9 +82,10 @@ direction and selected font all agree**. A run carries no glyphs — substitutio
 (12.11) fill that in later. The ranges stay in scalars, so a caret, a selection and a hit test address the
 same text.
 
-**Combining marks do not start a font.** A mark takes the font of the scalar before it, whatever the selector
-would have answered for the mark on its own. `"e" + U+E0100` — a mark no face covers — is one run, not a
-covered base plus an unresolved mark.
+**Combining marks do not start a font.** Since 12.6 this is a property of the run rather than a special case:
+the mark resolves into its base's script run (see [ScriptRuns.md](ScriptRuns.md) §2, step 2) and the run is
+selected as one unit, so `"e" + U+E0100` — a mark no face covers — is one run with the base's face and
+`complete = 0`, not a covered base plus an unresolved mark.
 
 `RoboTextShapeRequest` is the fully populated request: text view, range, `RoboTextFontContext` (face +
 setting), script, direction, declared base direction, language, features. `RoboTextShapeRequestToRun` turns
@@ -100,10 +106,11 @@ readable concurrently. There is no mutable global "current font".
 
 ## 8. Tests
 
-`Tests/Text/SuiteRoboTextFontSelection.c` (`text.fontselection.*`) and
-`Tests/Text/SuiteRoboTextAnalysis.c` (`text.analysis.*`). The pack ships one family (Inter), so the suites
-exercise the fall-through path with a **no-face primary** plus a one-entry chain; when a CJK or emoji family
-joins the pack, adding it to a chain is the only change those cases need.
+`Tests/Text/SuiteRoboTextFontSelection.c` (`text.fontselection.*`),
+`Tests/Text/SuiteRoboTextAnalysis.c` (`text.analysis.*`) and — for the run-level door and the coherence it
+buys — `Tests/Text/SuiteRoboTextScript.c` (`text.script.*`, `analysis_integration`). The pack ships one family
+(Inter), so the suites exercise the fall-through path with a **no-face primary** plus a one-entry chain; when
+a CJK or emoji family joins the pack, adding it to a chain is the only change those cases need.
 
 A font-integration change is not done until `TestRoboText.ps1 -Target Host` **and** the suites for the
 boundaries it touched pass — `TestLayout.ps1`, `TestPaint.ps1`, `TestGraphics.ps1`, `TestFont.ps1` and

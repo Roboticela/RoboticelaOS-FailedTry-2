@@ -160,8 +160,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     const RoboTextFontContext *primary;
     Uchar32 *scalars = NULL;
     RoboTextScalarIndex count = 0u;
-    RoboTextScript *scripts = NULL;
-    RoboTextResolvedFont *fonts = NULL;
+    RoboTextResolvedFont *runFonts = NULL;
     size_t runCount = 0u;
     Result status;
 
@@ -216,25 +215,21 @@ Result RoboTextAnalysisCreate(RoboTextView view,
         return RoboOk;
     }
 
-    scripts = (RoboTextScript *)RoboCalloc(count, sizeof(*scripts));
-    fonts = (RoboTextResolvedFont *)RoboCalloc(count, sizeof(*fonts));
     analysis->scriptRuns = (RoboTextScriptRun *)RoboCalloc(count, sizeof(*analysis->scriptRuns));
     analysis->runs = (RoboTextAnalysisRun *)RoboCalloc(count, sizeof(*analysis->runs));
-    if (!scripts || !fonts || !analysis->scriptRuns || !analysis->runs) {
-        RoboFree(scripts);
-        RoboFree(fonts);
+    if (!analysis->scriptRuns || !analysis->runs) {
         RoboTextUnicodeScalarsFree(scalars);
         RoboTextAnalysisDestroy(analysis);
         return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboOutOfMemory,
                                "the analysis arrays could not be allocated");
     }
 
-    status = RoboTextScriptRunsResolve(scalars, (size_t)count, options->scriptHint, scripts,
+    /* The script runs come first, because everything after them is *per script run*: the font is chosen for
+     * a coherent run rather than once per scalar (Phase 12.6, §"font selection operates on runs"). */
+    status = RoboTextScriptRunsResolve(scalars, (size_t)count, options->scriptHint, NULL,
                                        analysis->scriptRuns, (size_t)count, &analysis->scriptRunCount,
                                        diag);
     if (status != RoboOk) {
-        RoboFree(scripts);
-        RoboFree(fonts);
         RoboTextUnicodeScalarsFree(scalars);
         RoboTextAnalysisDestroy(analysis);
         return status;
@@ -243,56 +238,68 @@ Result RoboTextAnalysisCreate(RoboTextView view,
                                                           options->baseDirection);
 
     for (RoboTextScalarIndex index = 0u; index < count; index++) {
-        RoboTextCodePoint codePoint = (RoboTextCodePoint)scalars[index];
-
-        if (RoboTextUnicodeIsCombiningMark(codePoint)) {
+        if (RoboTextUnicodeIsCombiningMark((RoboTextCodePoint)scalars[index])) {
             analysis->combiningMarks++;
-            if (index != 0u) {
-                /*
-                 * The phase's rule (see the header): a mark keeps its base's font rather than asking the
-                 * selector. The mark is *counted*, so a dump can show the rule was applied rather than
-                 * assumed.
-                 */
-                fonts[index] = fonts[index - 1u];
-                continue;
-            }
         }
-        status = RoboTextFontSelectorSelectScalar(selector, codePoint, &fonts[index], diag);
+    }
+
+    runFonts = (RoboTextResolvedFont *)RoboCalloc((analysis->scriptRunCount != 0u) ? analysis->scriptRunCount : 1u,
+                                                  sizeof(*runFonts));
+    if (!runFonts) {
+        RoboTextUnicodeScalarsFree(scalars);
+        RoboTextAnalysisDestroy(analysis);
+        return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboOutOfMemory,
+                               "the run font array could not be allocated");
+    }
+    for (size_t scriptIndex = 0u; scriptIndex < analysis->scriptRunCount; scriptIndex++) {
+        const RoboTextScriptRun *scriptRun = &analysis->scriptRuns[scriptIndex];
+
+        status = RoboTextFontSelectorSelectRange(selector,
+                                                 (const RoboTextCodePoint *)&scalars[scriptRun->range.start],
+                                                 (size_t)RoboTextRangeLength(scriptRun->range),
+                                                 &runFonts[scriptIndex], diag);
         if (status != RoboOk) {
-            RoboFree(scripts);
-            RoboFree(fonts);
+            RoboFree(runFonts);
             RoboTextUnicodeScalarsFree(scalars);
             RoboTextAnalysisDestroy(analysis);
             return status;
         }
     }
 
-    for (RoboTextScalarIndex index = 0u; index < count;) {
-        RoboTextScalarIndex end = index + 1u;
-        RoboTextDirection direction = RoboTextUnicodeClassifyDirection(
-            (RoboTextCodePoint)scalars[index], analysis->baseDirection);
+    /*
+     * The analysis runs are the script runs cut again by classified direction. There is no third cut for
+     * the font, because the font is constant across a script run by construction — which is exactly the
+     * property that keeps a base character and its combining mark in one face.
+     */
+    for (size_t scriptIndex = 0u; scriptIndex < analysis->scriptRunCount; scriptIndex++) {
+        const RoboTextScriptRun *scriptRun = &analysis->scriptRuns[scriptIndex];
+        RoboTextScalarIndex index = scriptRun->range.start;
 
-        while (end < count) {
-            RoboTextDirection nextDirection = RoboTextUnicodeClassifyDirection(
-                (RoboTextCodePoint)scalars[end], analysis->baseDirection);
+        while (index < scriptRun->range.end) {
+            RoboTextScalarIndex end = index + 1u;
+            RoboTextDirection direction = RoboTextUnicodeClassifyDirection(
+                (RoboTextCodePoint)scalars[index], analysis->baseDirection);
 
-            if (scripts[end] != scripts[index] || nextDirection != direction ||
-                !RoboTextResolvedFontEqual(&fonts[end], &fonts[index])) {
-                break;
+            while (end < scriptRun->range.end) {
+                RoboTextDirection nextDirection = RoboTextUnicodeClassifyDirection(
+                    (RoboTextCodePoint)scalars[end], analysis->baseDirection);
+
+                if (nextDirection != direction) {
+                    break;
+                }
+                end++;
             }
-            end++;
+            analysis->runs[runCount].range = RoboTextRangeMake(index, end);
+            analysis->runs[runCount].script = scriptRun->script;
+            analysis->runs[runCount].direction = direction;
+            analysis->runs[runCount].font = runFonts[scriptIndex];
+            runCount++;
+            index = end;
         }
-        analysis->runs[runCount].range = RoboTextRangeMake(index, end);
-        analysis->runs[runCount].script = scripts[index];
-        analysis->runs[runCount].direction = direction;
-        analysis->runs[runCount].font = fonts[index];
-        runCount++;
-        index = end;
     }
 
     analysis->runCount = runCount;
-    RoboFree(scripts);
-    RoboFree(fonts);
+    RoboFree(runFonts);
     RoboTextUnicodeScalarsFree(scalars);
     *out = analysis;
     return RoboOk;

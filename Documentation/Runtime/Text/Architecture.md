@@ -436,8 +436,8 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 12.3  Desktop + document face binding ✓
 12.4  RoboText architecture           ✓
 12.5  Unicode / font integration       ✓  (UnicodeIntegration / FontIntegration / FontFallback)
-12.6  Script runs                      → extends RoboTextScriptResolver.c
-12.8  Bidirectional algorithm
+12.6  Script runs                      ✓  (ScriptRuns)
+12.7  Direction runs
 12.8  Bidirectional algorithm          → fills the direction runs this phase classifies
 12.10 Glyph substitution (GSUB)        → replaces RoboTextGlyphRunGenerate's body
 12.11 Glyph positioning (GPOS)         → fills RoboTextGlyph.offsetX/offsetY
@@ -477,3 +477,35 @@ Three properties the phase adds and that a reader should check against the code:
 
 The version moved to `1.1.0`: the run and glyph record shapes are unchanged, and the new API surface is
 additional.
+
+---
+
+## 14. Phase 12.6 — script runs
+
+12.6 turns the script *classification* 12.5 wired up into a segmentation stage with a contract of its own.
+It adds no header and no record: the type is still `RoboTextScriptRun { range, script; }`, because a script
+run is an analysis result and not a rendering one, and nothing glyph-shaped or font-shaped belongs in it.
+
+| Area | Where | Contract |
+|---|---|---|
+| The rule, the run accumulation and the diagnostics | `RoboTextScriptResolver.c` | [ScriptRuns.md](ScriptRuns.md) |
+| `Script_Extensions`, the ASCII block answers | `RoboTextUnicode.c` | [UnicodeIntegration.md](UnicodeIntegration.md) §4 |
+| Run-level font selection | `RoboTextAnalysis.c` | [FontIntegration.md](FontIntegration.md) §5 |
+
+Three properties the phase adds, and what they replaced:
+
+1. **A neutral is resolved against *both* neighbours, and consulted against `Script_Extensions`.** 12.5's
+   single carry could not tell a space between two stretches of Latin (which should join them) from a
+   character listed by both sides (which should stay neutral), and could not read the second property at
+   all. The order of the checks — and the mark rule's precedence over the extension table — is in
+   `RoboTextScriptRunsResolve`'s doc comment and in ScriptRuns.md §2, and the two must agree.
+2. **The font is selected once per script run, not once per scalar.** This subsumes 12.5's "a combining mark
+   takes the font of the scalar before it": the mark resolves into its base's *run* and the run is selected
+   as a unit, so a base and its accent cannot be two faces by construction. The analysis runs are therefore
+   the script runs cut again by classified direction, and there is no third cut for the font.
+3. **The classification reads no direction and no visual order.** The rule is identical for RTL text, which
+   is what lets a selection, a caret and a hit test use the same segmentation a future bidi pass will.
+
+The version moved to `1.2.0`, and `RoboTextGetCapabilities` reports `scriptExtensions`,
+`contextualScriptResolution` and `scriptRunDiagnostics` `1` — each exercised by a `text.script.*` case —
+while every algorithm flag the phase plan owns stays `0`.

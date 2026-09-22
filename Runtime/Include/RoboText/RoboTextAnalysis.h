@@ -24,14 +24,14 @@
  * are kept in scalars — not in glyphs and not in bytes — so a selection, a caret and a hit test can all
  * address the same text the runs came from.
  *
- * ## Combining marks do not start a font
+ * ## The font is chosen for a run, not for a scalar
  *
- * The rule the phase names is implemented here, in one place: **a combining mark takes the font of the
- * scalar before it**, whatever the selector would have answered on its own. That is not a shortcut for a
- * mark the primary happens to cover; it is the guarantee that a base character and its accent are never
- * two faces, which is the input a later `mark` attachment needs. The consequence is visible in the run
- * boundaries: `"e" + U+0301` is one run even when U+0301's own coverage answer would have been a different
- * face.
+ * The font is selected **once per script run** and then shared by every scalar in it, so a run's font is
+ * constant by construction. That is a 12.6 change and it subsumes 12.5's rule that a combining mark takes
+ * the font of the scalar before it: a mark resolves into its base's script run (the resolver attaches an
+ * Inherited scalar left), and the run is selected as one unit, so a base character and its accent cannot be
+ * two faces. `"e" + U+0301` is therefore one run even when U+0301's own coverage answer, asked scalar by
+ * scalar, would have been a different face — which is the input a later `mark` attachment needs.
  *
  * ## The shape request is fully populated, and it is a real value
  *
@@ -153,11 +153,11 @@ Result RoboTextShapeRequestToRun(const RoboTextShapeRequest *request, RoboTextRu
 typedef struct RoboTextAnalysis RoboTextAnalysis;
 
 /**
- * Classify @p view and select a font for every scalar.
+ * Classify @p view and select a font for every script run.
  *
  * The one call that turns text plus a selector into runs. It decodes once, resolves the scripts once, works
- * the paragraph direction out once, selects a font per scalar (through the selector's memo) and then emits
- * the maximal spans over which all three agree.
+ * the paragraph direction out once, selects a font per **script run** (through the selector's memo) and then
+ * emits the maximal spans over which script, classified direction and font all agree.
  *
  * @param view     the text. Borrowed; it must outlive the analysis.
  * @param selector the font policy. Borrowed; it must outlive the analysis and its fallback chain must too.

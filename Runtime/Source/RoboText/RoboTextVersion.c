@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.1.0";
+    static const char version[] = "1.2.0";
 
     return version;
 }
@@ -71,6 +71,14 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->coverageCache = 1;
     out->analysisRuns = 1;
     out->shapeRequest = 1;
+
+    /*
+     * The script stage (12.6). The extension property is exercised by `text.script.extensions`, the two-sided
+     * resolution by the neutrality and combining-mark cases, and the dump by the diagnostics cases.
+     */
+    out->scriptExtensions = 1;
+    out->contextualScriptResolution = 1;
+    out->scriptRunDiagnostics = 1;
 
     /*
      * The generator, and it is the placeholder: one cmap lookup per scalar, in logical order, with no

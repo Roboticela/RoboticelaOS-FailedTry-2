@@ -9,7 +9,10 @@
  *                     *absent* rather than the primary's — the pack ships no CJK family, and the honest
  *                     record says so instead of drawing the Latin face's `.notdef` for Han text.
  *   `combining_marks` a mark whose own coverage answer is "no face" still joins its base's run, which is
- *                     the guarantee that a base and its accent are never two faces.
+ *                     the guarantee that a base and its accent are never two faces. Since 12.6 the font is
+ *                     chosen for the run as a whole, so this is a property of the run rather than of a
+ *                     per-scalar special case — the test is unchanged in what it asserts and stronger in
+ *                     what it would catch.
  *   `shape_request`   the request is populated from the run and turns back into the `RoboTextRun` the 12.4
  *                     generator consumes, so the analysis path reaches real glyphs through one pipeline.
  */
@@ -238,13 +241,22 @@ static void TestAnalysisCombiningMarks(void)
     RoboTextAnalysisDestroy(analysis);
     analysis = NULL;
 
-    /* A mark at the very start has no base to inherit, so it is selected for like any other scalar. */
+    /*
+     * A mark at the very start has no base on its left, and 12.6's resolver attaches it to the base that
+     * *follows* rather than leaving it a run of its own. The mark therefore joins the Latin run, and the
+     * range selection is incomplete-but-primary: the run's base is covered, the mark is not, and `complete`
+     * is where that is recorded rather than a second run with no face.
+     */
     RoboCheckEqInt((int)RoboTextAnalysisCreate(ViewOf(SampleMark "e"), selector, NULL, &analysis, NULL),
                    (int)RoboOk);
-    RoboCheckEqInt((int)RoboTextAnalysisRunCount(analysis), 2);
-    RoboCheckEqInt((int)RoboTextAnalysisRunAt(analysis, 0u)->font.source, (int)RoboTextFontSourceNone);
-    RoboCheckEqInt((int)RoboTextAnalysisRunAt(analysis, 1u)->font.source,
+    RoboCheckEqInt((int)RoboTextAnalysisScriptRunCount(analysis), 1);
+    RoboCheckEqInt((int)RoboTextAnalysisRunCount(analysis), 1);
+    RoboCheckEqInt((int)RoboTextAnalysisRunAt(analysis, 0u)->script, (int)RoboUScriptLatin);
+    RoboCheckEqInt((int)RoboTextAnalysisRunAt(analysis, 0u)->font.source,
                    (int)RoboTextFontSourcePrimary);
+    RoboCheckEqInt((int)RoboTextAnalysisRunAt(analysis, 0u)->font.complete, 0);
+    RoboCheckEqInt((int)RoboTextAnalysisGetStats(analysis, &stats), (int)RoboOk);
+    RoboCheckEqInt((int)stats.unresolvedRuns, 0);
 
     RoboTextAnalysisDestroy(analysis);
     RoboTextFontSelectorDestroy(selector);

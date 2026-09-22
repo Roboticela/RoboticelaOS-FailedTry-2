@@ -6,6 +6,13 @@
  * the **numbers**, written to `Build/Text-GlyphTable.txt` for every string the phase names, so a reader
  * (or a diff) can see what the pipeline decided rather than infer it from a width.
  *
+ * Since 12.6 that list includes the phase's script samples — Greek, Cyrillic, Arabic, Hebrew, Devanagari,
+ * Bengali, Thai, Han, Japanese, Korean, a mixed-script line, accents, three scripts' digits, punctuation,
+ * symbols and emoji — so the same table is where the *segmentation* and the coverage of a foreign script
+ * can be read together: a row's `run[i]` says which script it is, and its `missing` says whether the
+ * shipped pack could draw it. That pairing is the honest form of the phase's visual-regression item here,
+ * because a missing-glyph count is what "the face had nothing" actually looks like in this layer.
+ *
  * The other half is pixels, and it deliberately does not live here. `RoboText` links no rasterizer — the
  * boundary scan forbids `RoboGraphics` and `RoboRender` — so a suite in this directory could not draw a
  * glyph if it wanted to. A rendered run is the *desktop's* surface, and since the paint pass generates
@@ -132,10 +139,15 @@ typedef struct gallerySample {
 /**
  * Every string the phase names, plus the noncharacter.
  *
- * The noncharacter (`U+FDD0`) is here and the other Unicode samples are here for a different reason: the
- * Unicode samples show that multibyte text decodes and measures, and the noncharacter is the one sample
- * whose absence from *any* conforming face is guaranteed, so its row is where `missing=1` and `.notdef`'s
- * own advance can be read.
+ * The 12.4 strings are the Latin/ASCII surface the model was built on, and the Unicode samples show that
+ * multibyte text decodes and measures. Phase 12.6's script samples join them so the table shows, per
+ * string, the **segmentation** beside the glyphs — which script runs, which direction, and which scalars
+ * the shipped face has no glyph for. That is the text half of the phase's visual-regression item: the
+ * pixels are the shell's `Build/Typography-*.png` galleries, because this module links no rasterizer.
+ *
+ * The noncharacter (`U+FDD0`) stays **last**, and it is the one sample whose absence from *any* conforming
+ * face is guaranteed, so its row is where `missing=1` and `.notdef`'s own advance can be read; a case below
+ * asserts it is the last row.
  */
 static GallerySample kGallerySamples[] = {
     { "hello", TextSampleHello, 0u, 0u },
@@ -145,6 +157,23 @@ static GallerySample kGallerySamples[] = {
     { "lower", TextSampleLower, 0u, 0u },
     { "digits", TextSampleDigits, 0u, 0u },
     { "unicode", TextSampleUnicode, 0u, 0u },
+    /* Phase 12.6 — the script samples, in the order the phase lists them. */
+    { "greek", TextSampleScriptGreek, 0u, 0u },
+    { "cyrillic", TextSampleScriptCyrillic, 0u, 0u },
+    { "arabic", TextSampleScriptArabic, 0u, 0u },
+    { "hebrew", TextSampleScriptHebrew, 0u, 0u },
+    { "devanagari", TextSampleScriptDevanagari, 0u, 0u },
+    { "bengali", TextSampleScriptBengali, 0u, 0u },
+    { "thai", TextSampleScriptThai, 0u, 0u },
+    { "han", TextSampleScriptHan, 0u, 0u },
+    { "japanese", TextSampleScriptJapanese, 0u, 0u },
+    { "korean", TextSampleScriptKorean, 0u, 0u },
+    { "mixed-script", TextSampleScriptMixed, 0u, 0u },
+    { "accents", TextSampleScriptAccents, 0u, 0u },
+    { "numbers", TextSampleScriptNumbers, 0u, 0u },
+    { "punctuation", TextSampleScriptPunctuation, 0u, 0u },
+    { "symbols", TextSampleScriptSymbols, 0u, 0u },
+    { "emoji", TextSampleScriptEmoji, 0u, 0u },
     { "noncharacter", TextSampleNoncharacter, 0u, 0u },
 };
 
@@ -283,7 +312,7 @@ static void GalleryBuild(GalleryReport *report)
                  "the font setting would not write into the gallery's own line buffer");
 
     GalleryInit(report);
-    GalleryAppend(report, "RoboText glyph table (Phase 12.4)\n");
+    GalleryAppend(report, "RoboText glyph table (Phase 12.4; Phase 12.6 script samples)\n");
     GalleryAppend(report, "  source    System/Fonts/ (the shipped system typeface pack)\n");
     GalleryAppend(report, "  setting   %s\n", setting);
     GalleryAppend(report, "  generation cmap-per-scalar (the placeholder; no substitution, no positioning)\n");

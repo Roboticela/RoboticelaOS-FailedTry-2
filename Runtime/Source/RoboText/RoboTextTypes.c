@@ -193,6 +193,11 @@ int RoboTextScriptIsNeutral(RoboTextScript script)
     return script == RoboTextScriptCommon || script == RoboTextScriptInherited;
 }
 
+int RoboTextScriptIsAnchor(RoboTextScript script)
+{
+    return !RoboTextScriptIsNeutral(script);
+}
+
 const char *RoboTextScriptName(RoboTextScript script)
 {
     const char *name = UnicodeScriptShortName(script);

@@ -170,8 +170,26 @@ RoboTextCategory RoboTextUnicodeCategory(RoboTextCodePoint codePoint)
     return RoboTextCategoryGroup(RoboTextUnicodeGeneralCategory(codePoint));
 }
 
+int RoboTextUnicodeAsciiScript(RoboTextCodePoint codePoint, RoboTextScript *outScript)
+{
+    if (!outScript || codePoint > 0x7Fu) {
+        return 0;
+    }
+    /* The block is frozen: the ASCII letters are `Latn` and everything else below U+0080 is `Zyyy`. */
+    *outScript = ((codePoint >= (RoboTextCodePoint)'A' && codePoint <= (RoboTextCodePoint)'Z') ||
+                  (codePoint >= (RoboTextCodePoint)'a' && codePoint <= (RoboTextCodePoint)'z'))
+                     ? RoboUScriptLatin
+                     : RoboUScriptCommon;
+    return 1;
+}
+
 UnicodeScript RoboTextUnicodeScript(RoboTextCodePoint codePoint)
 {
+    RoboTextScript ascii;
+
+    if (RoboTextUnicodeAsciiScript(codePoint, &ascii)) {
+        return ascii;
+    }
     if (!RoboTextCodePointIsScalar(codePoint)) {
         return RoboUScriptUnknown;
     }
@@ -188,8 +206,15 @@ UnicodeBidiClass RoboTextUnicodeBidiClass(RoboTextCodePoint codePoint)
 
 int RoboTextUnicodeIsCombiningMark(RoboTextCodePoint codePoint)
 {
-    RoboTextCategory category = RoboTextUnicodeCategory(codePoint);
+    RoboTextCategory category;
 
+    if (codePoint < 0x0300u) {
+        /* Unicode's first mark is U+0300, so every code point below it — ASCII, Latin-1, controls — is a
+         * base character. The bound is the block's, not a table's, and a test proves it against the
+         * tables. */
+        return 0;
+    }
+    category = RoboTextUnicodeCategory(codePoint);
     return category == RoboTextCategoryMark;
 }
 
@@ -222,6 +247,84 @@ unsigned RoboTextUnicodeCombiningClass(RoboTextCodePoint codePoint)
         return 0u;
     }
     return UnicodeCombiningClass((Uchar32)codePoint);
+}
+
+/* ------------------------------------------------------------------ */
+/* Script extensions                                                   */
+/* ------------------------------------------------------------------ */
+
+Result RoboTextUnicodeScriptInfoOf(RoboTextCodePoint codePoint,
+                                   RoboTextUnicodeScriptInfo *out,
+                                   RoboTextDiag *diag)
+{
+    size_t total;
+
+    if (!out) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboInvalidArgument,
+                               "an out record is required");
+    }
+    memset(out, 0, sizeof(*out));
+    out->primaryScript = RoboTextUnicodeScript(codePoint);
+    if (!RoboTextCodePointIsScalar(codePoint)) {
+        /* Not a character: `Unknown` with the singleton set, which is the same shape a scalar with no
+         * explicit extension gets. */
+        out->extensions[0] = out->primaryScript;
+        out->extensionCount = 1u;
+        return RoboOk;
+    }
+    total = UnicodeScriptExtensions((Uchar32)codePoint, out->extensions, RoboTextScriptExtensionsMax);
+    if (total == 0u) {
+        /* Guaranteed >= 1 for an in-range scalar, but a table gap would otherwise leave an empty set, and
+         * an empty set would make resolution treat the scalar as linking to nothing. */
+        out->extensions[0] = out->primaryScript;
+        total = 1u;
+    }
+    out->extensionsTruncated = (total > (size_t)RoboTextScriptExtensionsMax) ? 1 : 0;
+    out->extensionCount = (total > (size_t)RoboTextScriptExtensionsMax) ? (size_t)RoboTextScriptExtensionsMax
+                                                                        : total;
+    /* Explicit when the set says something the primary script does not: a single entry equal to the
+     * primary is the defaulted property, not a listed set. */
+    out->extensionsExplicit =
+        (out->extensionCount == 1u && out->extensions[0] == out->primaryScript) ? 0 : 1;
+    return RoboOk;
+}
+
+size_t RoboTextUnicodeScriptExtensions(RoboTextCodePoint codePoint,
+                                       RoboTextScript *out,
+                                       size_t capacity)
+{
+    if (!RoboTextCodePointIsScalar(codePoint)) {
+        return 0u;
+    }
+    return UnicodeScriptExtensions((Uchar32)codePoint, out, capacity);
+}
+
+int RoboTextUnicodeScriptInfoHas(const RoboTextUnicodeScriptInfo *info, RoboTextScript script)
+{
+    if (!info) {
+        return 0;
+    }
+    for (size_t index = 0u; index < info->extensionCount; index++) {
+        if (info->extensions[index] == script) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int RoboTextUnicodeScriptExtensionsInclude(RoboTextCodePoint codePoint, RoboTextScript script)
+{
+    RoboTextScript ascii;
+
+    if (RoboTextUnicodeAsciiScript(codePoint, &ascii)) {
+        /* No ASCII code point lists an explicit set, so `Script_Extensions` defaults to `{Script}` and
+         * membership is equality. The suite proves the assumption over the whole block. */
+        return ascii == script;
+    }
+    if (!RoboTextCodePointIsScalar(codePoint)) {
+        return 0;
+    }
+    return UnicodeHasScript((Uchar32)codePoint, script);
 }
 
 const char *RoboTextUnicodeDataVersion(void)

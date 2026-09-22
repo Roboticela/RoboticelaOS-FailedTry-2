@@ -46,12 +46,20 @@
  *
  * ## Script resolution is classification, and it is here rather than in the shaper
  *
- * `RoboTextScriptRunsResolve` is the module's one implementation of the neutrality rule: a scalar whose
- * script is **Common** or **Inherited** does not get a run of its own — it takes the previous resolved
- * script, and a scalar *before* the first resolved script takes the next one. That single forward pass is
- * what makes `"abc 123 def"` one script run rather than three, and it lives here (rather than inside the
- * shaping code) because Phase 12.6 makes script segmentation a stage of its own and must not have to
- * re-derive the rule to do it.
+ * `RoboTextScriptRunsResolve` is the module's one implementation of script segmentation, and it is a
+ * *contextual* rule over `Script` and `Script_Extensions` rather than a per-scalar lookup:
+ *
+ *   - a scalar whose script is concrete (or `Unknown`) **anchors** a run;
+ *   - a `Common` or `Inherited` scalar **waits** for the next anchor, then resolves against the context
+ *     on both sides — see `RoboTextScriptRunsResolve` for the exact order;
+ *   - a `Common` scalar whose extension set lists the neighbouring script joins it; one whose set lists
+ *     *both* differing neighbours stays neutral rather than inventing certainty;
+ *   - a combining mark attaches to the script on its **left**, because that is the base it modifies.
+ *
+ * The result is the **minimum necessary number of runs**: `"Hello, world!"` is one Latin run, not five,
+ * and `"Hello مرحبا 世界"` is three (Latin, Arabic, Han). This lives here rather than in the shaping code
+ * because script segmentation is a stage of its own (Phase 12.6); shaping consumes it and never
+ * re-derives it.
  *
  * ## What is deliberately not here
  *
@@ -168,8 +176,32 @@ UnicodeGeneralCategory RoboTextUnicodeGeneralCategory(RoboTextCodePoint codePoin
 /** The category *group* of @p codePoint. */
 RoboTextCategory RoboTextUnicodeCategory(RoboTextCodePoint codePoint);
 
-/** The `Script` property of @p codePoint (not Script_Extensions; see UAX #24). */
+/**
+ * The `Script` property of @p codePoint (not Script_Extensions; see UAX #24).
+ *
+ * ASCII is answered from the block rather than from the table: see @ref RoboTextUnicodeAsciiScript.
+ */
 UnicodeScript RoboTextUnicodeScript(RoboTextCodePoint codePoint);
+
+/**
+ * The `Script` of an **ASCII** code point below U+0080, or 0 when @p codePoint is not ASCII.
+ *
+ * The block's scripts are frozen by the UCD and cannot move with a table version: `A`–`Z` and `a`–`z` are
+ * `Latn`, and every other code point below U+0080 — controls, space, digits, punctuation — is `Zyyy`. The
+ * door exists because ASCII is what a UI label is, and two comparisons are cheaper than the binary search
+ * `MakeUnicodeScript` performs (Phase 12.6, §"ASCII fast path").
+ *
+ * No caller has to know it exists — @ref RoboTextUnicodeScript and
+ * @ref RoboTextUnicodeScriptExtensionsInclude both take it, and the extensions answer is sound because no
+ * ASCII code point carries an explicit `Script_Extensions` set, so the property defaults to the singleton
+ * `{Script}`. It is public so a test can **prove** both claims over the whole block instead of assuming
+ * them.
+ *
+ * @param outScript receives the script when the answer came from the block.
+ * @return 1 when @p codePoint is ASCII and @p outScript was written; 0 otherwise, including for a NULL
+ *         @p outScript.
+ */
+int RoboTextUnicodeAsciiScript(RoboTextCodePoint codePoint, RoboTextScript *outScript);
 
 /** The `Bidi_Class` of @p codePoint. */
 UnicodeBidiClass RoboTextUnicodeBidiClass(RoboTextCodePoint codePoint);
@@ -181,6 +213,10 @@ UnicodeBidiClass RoboTextUnicodeBidiClass(RoboTextCodePoint codePoint);
  * (enclosing). This is the classification the fallback pass keys on: a mark **must not** pick a fallback
  * face of its own, because a base glyph from one face and its accent from another is the exact failure
  * that makes a later shaping pass unable to attach them.
+ *
+ * A code point below U+0300 is answered `0` without a lookup — the first mark in Unicode is U+0300, a
+ * property of the block rather than of a table version — which is the second half of the ASCII path the
+ * script resolver takes (Phase 12.6).
  */
 int RoboTextUnicodeIsCombiningMark(RoboTextCodePoint codePoint);
 
@@ -337,6 +373,73 @@ RoboTextDirection RoboTextUnicodeBaseDirection(const Uchar32 *scalars,
 RoboTextDirection RoboTextUnicodeClassifyDirection(RoboTextCodePoint codePoint, RoboTextDirection base);
 
 /* ------------------------------------------------------------------ */
+/* Script extensions                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The largest `Script_Extensions` set this build will hold.
+ *
+ * The UCD's widest set (for a shared mark or a shared punctuation character) is well under this; the
+ * bound exists so the record can be a value, and a set that would exceed it is truncated with `complete`
+ * reporting that — never silently believed to be the whole set.
+ */
+#define RoboTextScriptExtensionsMax 32u
+
+/**
+ * The Unicode script facts about one scalar: its `Script`, and its `Script_Extensions`.
+ *
+ * `Script` and `Script_Extensions` are **different properties** (UAX #24) and the text layer must not
+ * conflate them: a scalar's primary script is the one it is *primarily* written in, while its extension
+ * set is the scripts it may legitimately participate in. `U+0020` is `Common` with no extension beyond
+ * itself; a combining acute is `Inherited` and explicitly extends `Latn`, `Grek`, `Cyrl` and several
+ * others; `U+0640` is `Common` and extends `Arab`, `Syrc`, `Mand` and others. Contextual resolution (see
+ * `RoboTextScriptRunsResolve`) is what turns those facts into a run.
+ *
+ * `extensionsExplicit` is the honest flag for "the UCD lists a set", because a set equal to
+ * `{ primaryScript }` may be either an explicit singleton or the defaulted property, and only the UCD
+ * knows which.
+ */
+typedef struct RoboTextUnicodeScriptInfo {
+    /** The `Script` property. */
+    RoboTextScript primaryScript;
+    /** The `Script_Extensions` set, at most @ref RoboTextScriptExtensionsMax entries. */
+    RoboTextScript extensions[RoboTextScriptExtensionsMax];
+    /** Entries written to @p extensions. */
+    size_t extensionCount;
+    /** Non-zero when the UCD lists an explicit set (rather than defaulting to the primary script). */
+    int extensionsExplicit;
+    /** Non-zero when the UCD's set was longer than @ref RoboTextScriptExtensionsMax and was truncated. */
+    int extensionsTruncated;
+} RoboTextUnicodeScriptInfo;
+
+/**
+ * Fill @p out with @p codePoint's script facts.
+ *
+ * @return RoboOk; RoboInvalidArgument for a NULL argument. A non-scalar code point reports `Unknown` with
+ *         no extensions rather than failing.
+ */
+Result RoboTextUnicodeScriptInfoOf(RoboTextCodePoint codePoint,
+                                   RoboTextUnicodeScriptInfo *out,
+                                   RoboTextDiag *diag);
+
+/** The `Script_Extensions` set of @p codePoint, written into @p out (capacity in scripts). */
+size_t RoboTextUnicodeScriptExtensions(RoboTextCodePoint codePoint,
+                                       RoboTextScript *out,
+                                       size_t capacity);
+
+/** Non-zero when @p info's extension set contains @p script. */
+int RoboTextUnicodeScriptInfoHas(const RoboTextUnicodeScriptInfo *info, RoboTextScript script);
+
+/**
+ * Non-zero when @p script is in @p codePoint's `Script_Extensions`.
+ *
+ * The one-line form of the door above, and the one resolution calls: a `Common` scalar links to a
+ * neighbouring script exactly when this answers 1. ASCII is answered from @ref RoboTextUnicodeAsciiScript
+ * — its set is the defaulted singleton — so resolution over a UI label never reaches the table.
+ */
+int RoboTextUnicodeScriptExtensionsInclude(RoboTextCodePoint codePoint, RoboTextScript script);
+
+/* ------------------------------------------------------------------ */
 /* Script resolution                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -354,9 +457,32 @@ RoboTextDirection RoboTextUnicodeClassifyDirection(RoboTextCodePoint codePoint, 
  * @return RoboOk; RoboInvalidArgument for a NULL argument or a count without scalars; RoboNotSupported
  *         when @p outRuns cannot hold the runs, with @p outRunCount set to the requirement.
  *
- * The neutrality rule (see the header): a Common or Inherited scalar takes the **previous** resolved
- * script, and a scalar before the first resolved script takes the **next** one. One forward pass, and the
- * answer never depends on where the reader is standing.
+ * ## The resolution rule, in the order it is applied
+ *
+ * Anchors (`RoboTextScriptIsAnchor`: a concrete script or `Unknown`) are resolved to themselves. For each
+ * maximal block of neutral scalars, `prev` is the anchor script on the **left** (absent at the start of
+ * the text) and `next` the anchor on the **right** (absent at the end). Each neutral resolves as:
+ *
+ *   1. `prev == next`           → that script. The block is punctuation, a space or digits between two
+ *                                 stretches of one script — `"Hello, world!"`, `"Version 2.0"`, and the
+ *                                 common case, which is why it is checked **before** any extension lookup.
+ *   2. a mark or `Inherited`    → `prev` when there is one, else `next`. A combining mark belongs to the
+ *                                 base on its left.
+ *   3. extensions list `prev`
+ *      **and** `next`           → neutral (`Common`/`Inherited`) preserved: the scalar genuinely
+ *                                 participates in two scripts (a shared tatweel between Arabic and
+ *                                 Syriac, say), and picking one would invent certainty.
+ *   4. extensions list `prev`   → `prev`.
+ *   5. extensions list `next`   → `next`.
+ *   6. `prev` exists            → `prev`. Carry-left: an unmatched space, digit or punctuation mark
+ *                                 belongs to the script it follows, which is what keeps one space from
+ *                                 splitting a mixed-script line into two runs.
+ *   7. `next` exists            → `next`. The leading-neutral case (`"  123 abc"`).
+ *   8. otherwise                → `Common`. Nothing resolved, so nothing is claimed (`"123 456"`).
+ *
+ * One forward pass with a deferred neutral block, so the walk is O(n) and allocates nothing: an anchor
+ * closes the block before it, and a block that reaches the end resolves with no `next`. The answer never
+ * depends on where the reader is standing.
  */
 Result RoboTextScriptRunsResolve(const Uchar32 *scalars,
                                  size_t count,
@@ -379,6 +505,41 @@ Result RoboTextScriptRunsResolveView(RoboTextView view,
                                      size_t runCapacity,
                                      size_t *outRunCount,
                                      RoboTextDiag *diag);
+
+/* ------------------------------------------------------------------ */
+/* Diagnostics                                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One script run as a single line: `[<start>..<end>) <script>` in **scalars**.
+ *
+ * RoboNotSupported when the line does not fit @p capacity, with @p outLength receiving what it needed — a
+ * truncated line reads as a different run.
+ */
+Result RoboTextScriptRunWrite(const RoboTextScriptRun *run,
+                              char *buffer,
+                              size_t capacity,
+                              size_t *outLength);
+
+/**
+ * The whole analysis as a readable table, with **both** index spaces on every line:
+ *
+ * ```
+ * Script Analysis
+ * [0..6)   scalars  bytes [0..6)    Latn
+ * [6..12)  scalars  bytes [6..13)   Arab
+ * ```
+ *
+ * Byte ranges need @p view (the same text the runs were segmented from); pass a NULL/empty view to omit
+ * them. RoboNotSupported when the table does not fit @p capacity, with @p outLength receiving what it
+ * needed and @p buffer left empty — a half-written table is worse than none.
+ */
+Result RoboTextScriptRunsWrite(RoboTextView view,
+                               const RoboTextScriptRun *runs,
+                               size_t count,
+                               char *buffer,
+                               size_t capacity,
+                               size_t *outLength);
 
 #ifdef __cplusplus
 }

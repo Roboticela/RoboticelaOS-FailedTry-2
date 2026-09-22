@@ -211,12 +211,11 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 Goal: the **best font rendering the OS can have** before more product surface area.
 
 12.1 Text raster quality (coverage AA / gamma-correct glyph fills) ✅
-12.2 System typeface pack ✅ (UI Display + UI Text roles, variable Inter weights, ship under `/System/Fonts/`; `Documentation/Development/SystemTypefacePack.md`)
-12.3 Desktop + document face binding ✅ (semantic typography roles over the pack; chrome and document text bound by role, one scale table, three deterministic galleries; `Documentation/Runtime/Typography/TypeBinding.md`)
-12.4 RoboText architecture ✅ (text as a first-class object: index spaces, buffer, ranges, script/direction/text runs, glyphs whose advance is a device quantity, measurement summed from those advances; `RoboText` owns no font parser and no Unicode table; `Documentation/Runtime/Text/Architecture.md`)
-12.5 Unicode / font integration ← **current** (fill the `RoboTextRun`/`RoboTextGlyph` seams with font intelligence rather than replacing them)
-12.5 Unicode / font integration
-12.6 Script runs
+12.2 System typeface pack ✅
+12.3 Desktop + document face binding ✅
+12.4 RoboText architecture ✅
+12.5 Unicode / font integration ✅
+12.6 Script runs ✅ (`Script_Extensions` read as its own property, neutral blocks resolved against both neighbours, ASCII answered from the block, one pass and no allocation, per-run font selection; `Documentation/Runtime/Text/ScriptRuns.md`)
 12.7 Direction runs
 12.8 Bidirectional text integration
 12.9 OpenType feature model

@@ -253,6 +253,42 @@ static inline void TextFixtureClose(TextFixture *fixture)
 #define TextSampleUnicode "\xC3\xA9 \xC3\x85 \xCE\xA9 \xE4\xB8\xAD \xF0\x9F\x99\x82"
 
 /**
+ * The script samples Phase 12.6 names, as UTF-8, beside the 12.4 ones above.
+ *
+ * They exist so that a *segmentation* has something to say about every rule the phase names: one anchored
+ * script each for the scripts the phase lists (Greek, Cyrillic, Arabic, Hebrew, Devanagari, Bengali, Thai,
+ * Han, Japanese with its kana, Korean with its hangul), a transition that puts the carry rule to work, marks
+ * against accented bases, digits from three different scripts, punctuation, symbols and emoji.
+ *
+ * The runs they produce, the glyphs they generate and the glyphs a face is missing for them are what
+ * `Tests/Text/SuiteRoboTextScript.c` (`text.script.*`) asserts and what the glyph table in
+ * `SuiteRoboTextGallery.c` records.
+ */
+#define TextSampleScriptGreek "\xCE\xB3\xCE\xB5\xCE\xB9\xCE\xAC"             /* γειά */
+#define TextSampleScriptCyrillic "\xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82" /* Привет */
+#define TextSampleScriptArabic "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7"      /* مرحبا */
+#define TextSampleScriptHebrew "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D"             /* שלום */
+#define TextSampleScriptDevanagari "\xE0\xA4\xA8\xE0\xA4\xAE\xE0\xA4\xB8\xE0\xA5\x8D\xE0\xA4\xA4\xE0\xA5\x87" /* नमस्ते */
+#define TextSampleScriptBengali "\xE0\xA6\xAC\xE0\xA6\xBE\xE0\xA6\x82\xE0\xA6\xB2\xE0\xA6\xBE"    /* বাংলা */
+#define TextSampleScriptThai "\xE0\xB9\x84\xE0\xB8\x97\xE0\xB8\xA2"           /* ไทย */
+#define TextSampleScriptHan "\xE4\xB8\xAD\xE6\x96\x87"                      /* 中文 */
+#define TextSampleScriptJapanese "\xE6\x97\xA5\xE6\x9C\xAC\xE8\xAA\x9E"       /* 日本語 */
+#define TextSampleScriptKorean "\xED\x95\x9C\xEA\xB5\xAD\xEC\x96\xB4"         /* 한국어 */
+/** A transition: Latin, then Arabic, then Han, one break each. */
+#define TextSampleScriptMixed "Hello " "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7" " " \
+                              "\xE4\xB8\xAD\xE6\x96\x87"
+/** Accents on Latin bases: U+0301 after `e`, U+030A after `a`. */
+#define TextSampleScriptAccents "e\xCC\x81 a\xCC\x8A"
+/** ASCII, Arabic-Indic and Thai digits: three scripts' numbers, none of them assumed. */
+#define TextSampleScriptNumbers "123 \xD9\xA1\xD9\xA2\xD9\xA3 \xE0\xB9\x90\xE0\xB9\x91\xE0\xB9\x92"
+/** Punctuation around words, including an em dash and parentheses. */
+#define TextSampleScriptPunctuation "Hello, world! \xE2\x80\x94 (2026)"
+/** Symbols: `Zyyy` in the UCD, and not a script of their own. */
+#define TextSampleScriptSymbols "\xC2\xA9 \xC2\xAE \xE2\x84\xA2 \xE2\x86\x92 \xE2\x86\x90 \xE2\x86\x91 \xE2\x86\x93"
+/** Emoji, including a variation selector and a ZWJ sequence. */
+#define TextSampleScriptEmoji "\xF0\x9F\x98\x80 \xF0\x9F\x9A\x80 \xE2\x9D\xA4\xEF\xB8\x8F"
+
+/**
  * A scalar **no conforming font can have a glyph for**: `U+FDD0`, a Unicode noncharacter.
  *
  * The one sample whose absence from the face is guaranteed rather than merely likely, which is what lets a

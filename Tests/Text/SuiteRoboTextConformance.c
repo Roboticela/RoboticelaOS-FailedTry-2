@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.1.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.2.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -35,9 +35,10 @@ static void TestConformanceVersion(void)
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, NULL), (int)RoboInvalidArgument);
     /* The version string and the components are the same fact. */
     RoboCheckEqInt((int)major, 1);
-    /* 12.5 added the Unicode/font integration without changing the run or glyph record shapes, which is
-     * exactly the condition the version header names for a minor move rather than a major one. */
-    RoboCheckEqInt((int)minor, 1);
+    /* 12.5 added the Unicode/font integration and 12.6 the script-extension facts, the contextual
+     * resolver and its diagnostics — none of which changed the run or glyph record shapes, which is exactly
+     * the condition the version header names for a minor move rather than a major one. */
+    RoboCheckEqInt((int)minor, 2);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -82,6 +83,14 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.coverageCache, 1);
     RoboCheckEqInt(capabilities.analysisRuns, 1);
     RoboCheckEqInt(capabilities.shapeRequest, 1);
+
+    /*
+     * The script stage (12.6): `Script_Extensions` read as its own property, the two-sided neutrality rule,
+     * and the run dump. Each is exercised by a case in `text.script.*` below.
+     */
+    RoboCheckEqInt(capabilities.scriptExtensions, 1);
+    RoboCheckEqInt(capabilities.contextualScriptResolution, 1);
+    RoboCheckEqInt(capabilities.scriptRunDiagnostics, 1);
 
     /* The generator, named as the placeholder it is. */
     RoboCheckEqInt(capabilities.glyphGenerationIsPlaceholder, 1);

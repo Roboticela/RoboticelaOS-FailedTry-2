@@ -30,9 +30,10 @@ extern "C" {
 
 /** Major version: changes only when the run/glyph API shape does. */
 #define RoboTextVersionMajor 1
-/* 12.5 added the Unicode doors, the font selector and the analysis runs; the run/glyph record shapes are
- * unchanged, so the major stays and the minor moves. */
-#define RoboTextVersionMinor 1
+/* 12.5 added the Unicode doors, the font selector and the analysis runs; 12.6 added the script-extension
+ * facts, the contextual resolver and the script-run diagnostics. The run/glyph record shapes are unchanged
+ * throughout, so the major stays and the minor moves. */
+#define RoboTextVersionMinor 2
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -92,7 +93,16 @@ typedef struct RoboTextCapabilities {
     int analysisRuns;
     /** A fully populated shape request (real range, script, direction, font and language). */
     int shapeRequest;
-    /** True when glyph ids come from one cmap lookup per scalar (no substitution). **1**. */
+
+    /* --- Phase 12.6: script runs --- */
+
+    /** `Script_Extensions` is read as its own property, beside `Script` (UAX #24). */
+    int scriptExtensions;
+    /** Common/Inherited scalars are resolved against **both** neighbours, not just the one on the left. */
+    int contextualScriptResolution;
+    /** A script run can be written as a line, and a whole run set as a table in both index spaces. */
+    int scriptRunDiagnostics;
+    /** One cmap lookup per scalar (no substitution). **1**. */
     int glyphGenerationIsPlaceholder;
     /** Variable-axis application (`wght`/`opsz` beyond face selection). **0**: a later goal. */
     int variableAxisApplication;

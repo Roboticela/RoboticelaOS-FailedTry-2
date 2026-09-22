@@ -221,6 +221,17 @@ typedef UnicodeScript RoboTextScript;
 /** Whether @p script is one of the two "not a script of its own" values. */
 int RoboTextScriptIsNeutral(RoboTextScript script);
 
+/**
+ * Whether @p script **anchors** a script run.
+ *
+ * The complement of @ref RoboTextScriptIsNeutral, named separately because the resolver reasons in terms
+ * of anchors: a scalar whose script is concrete *or* `Unknown` ends the neutral block before it, while a
+ * `Common` or `Inherited` scalar waits for the next anchor to be resolved. `Unknown` is deliberately an
+ * anchor — an unassigned scalar is a fact about the text, and treating it as neutral would let it be
+ * absorbed into a neighbouring script, which is exactly the "do not assign Latin as a fallback" rule.
+ */
+int RoboTextScriptIsAnchor(RoboTextScript script);
+
 /** The ISO 15924 short name (`"Latn"`) through RoboUnicode; never NULL. */
 const char *RoboTextScriptName(RoboTextScript script);
 

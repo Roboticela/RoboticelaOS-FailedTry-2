@@ -246,14 +246,16 @@ public contract is `Documentation/Runtime/Text/{UnicodeIntegration,FontIntegrati
   RoboUnicode. `RoboTextUnicodeDataVersion()` reports RoboUnicode's pin — never claim a version the tables
   do not have.
 - Scripts: `RoboTextScriptRunsResolve` in `RoboTextScriptResolver.c` is the module's one implementation of
-  the Common/Inherited neutrality rule, and the run set and the analysis layer both call it. Phase 12.6
-  extends that file rather than adding a second segmenter.
+  the Common/Inherited neutrality rule, and the run set and the analysis layer both call it. Since 12.6 it
+  resolves a neutral block against **both** neighbours and consults `Script_Extensions`; extend that file
+  rather than adding a second segmenter.
 - Coverage and selection: `RoboTextFontSelection.c`. Coverage is RoboFont's lazy, idempotent
   `FontFaceParseCoverage` (never re-parse a `cmap`); selection is a deterministic walk of an ordered
   **fallback chain the caller supplies** — no hard-coded family list, no language→font table, no randomness.
   The 256-slot coverage memo is a repeat-catcher, not a database.
 - Analysis runs (`RoboTextAnalysis.c`) combine script + classified direction + selected font over one
-  scalar range and contain **no glyphs**. A combining mark takes its base's font and never starts a run.
+  scalar range and contain **no glyphs**. Since 12.6 the font is selected **once per script run**, so a run's
+  font is constant by construction and a base character and its accent cannot be two faces.
   `RoboTextShapeRequestToRun` feeds a run back into the existing generator — do not add a second one.
 - Capabilities: a later goal flips its flag in `RoboTextVersion.h`/`.c` **and** in
   `Tests/Text/SuiteRoboTextConformance.c` in the same change, read field by field. 12.5 set
@@ -264,6 +266,43 @@ public contract is `Documentation/Runtime/Text/{UnicodeIntegration,FontIntegrati
   (Inter), so fallback is exercised with a no-face primary plus a chain; a real multi-family chain is a
   **pack** change (assets + manifest + licence + image check), not a text-layer change. A 12.5 change is
   not done until `TestRoboText.ps1` and `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
+
+### Script runs (Phase 12.6)
+
+**Script segmentation describes the linguistic context of text and does not shape it.** The module's one
+resolver (`RoboTextScriptResolver.c`) emits half-open `RoboTextScriptRun` ranges in the text's **scalar**
+index space, and `Documentation/Runtime/Text/ScriptRuns.md` is the contract: the rule, its order, the
+invariants and the ASCII path are stated there and in `RoboTextScriptRunsResolve`'s doc comment.
+
+- One rule, in one order: `prev == next` wins first (no table lookup), then the mark rule, then the
+  `Script_Extensions` pass, then carry-left, then carry-right, then `Common`. **A combining mark or
+  `Inherited` scalar is resolved before the extension table is consulted** — do not reorder those two, and
+  do not let a mark be claimed by a script its base is not.
+- `Script` and `Script_Extensions` are different properties (UAX #24). Read both
+  (`RoboTextUnicodeScriptInfoOf`, `…ScriptExtensionsInclude`); never derive one from the other, and never
+  assume a primary script is a member of its own explicit set.
+- `Common` and `Inherited` are **neutral**; a concrete script and `Unknown` are **anchors**. An unassigned
+  scalar must stay its own run rather than being absorbed into a neighbour, and an unresolved neutral block
+  is `Common` — never a guess. `RoboTextScriptIsAnchor`/`…IsNeutral` are the vocabulary; use them.
+- Invariants, for every input: non-empty runs, contiguous with no gaps or overlaps, first starting at 0,
+  last ending at the scalar count, no two adjacent runs carrying the same script (coalescing is by
+  construction), and **no runs at all** for empty text.
+- Cost: one forward pass, and **no allocation** — the only storage is the caller's run array. ASCII is
+  answered from the block (`RoboTextUnicodeAsciiScript`, the U+0300 mark bound, the defaulted extension
+  set); keep those three bounds proved by `text.script.ascii_fast_path` rather than assumed, and do not add
+  mutable state or a global cache to the resolver — it is stateless so concurrent layout is safe.
+- The resolver knows nothing about fonts and the selector knows nothing about the text walk. Ask the
+  selector `RoboTextFontSelectorSelectRange` **per script run**, never per scalar. A segmentation helper
+  that needs a face, a cmap or a glyph is in the wrong file.
+- Add no shaping (GSUB, GPOS, ligatures, kerning, joining, Indic reordering), no bidi reordering and no
+  visual ordering in this phase's name; direction stays classified and reordering is 12.8's.
+- Diagnostics: `RoboTextScriptRunWrite` / `RoboTextScriptRunsWrite` are complete-or-absent. Keep the table
+  printing **both** index spaces.
+- Capabilities: 12.6 set `scriptExtensions`/`contextualScriptResolution`/`scriptRunDiagnostics` in
+  `RoboTextVersion.h`/`.c` (`1.2.0`) and in `Tests/Text/SuiteRoboTextConformance.c`, field by field.
+- Tests: `Tests/Text/SuiteRoboTextScript.c` (`text.script.*`) via `TestRoboText.ps1 -Target Host`, and a
+  script change is not done until `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass. Measured
+  cost is recorded by `text.script.performance` (bytes, runs, allocations, time).
 
 ---
 
@@ -284,6 +323,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Typography roles / face binding | `BuildTypography.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestTypography.ps1 -Target Host` (`typography.*`), then `TestDesktop.ps1 -Target Host` (`desktop.typography.*` and the three galleries); `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Desktop.png`, `Build/Typography-Chrome.png`, `Build/Typography-Document.png` |
 | Text architecture (RoboText) | `BuildRoboText.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestRoboText.ps1 -Target Host` (`text.*`), then the suites for every boundary it touched: `TestLayout.ps1 -Target Host`, `TestPaint.ps1 -Target Host`, `TestGraphics.ps1 -Target Host`, `TestFont.ps1 -Target Host`, `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved |
 | Unicode / font integration (RoboText 12.5) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.unicode.*`, `text.fontselection.*`, `text.analysis.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
+| Script runs (RoboText 12.6) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.script.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

@@ -472,6 +472,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextUnicode.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextFontSelection.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextAnalysis.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextScript.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),
