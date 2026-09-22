@@ -651,7 +651,8 @@ Result QemuInputPoll(void)
         (void)TranslateInput(ev.type, ev.code, ev.value, ev.x, ev.y, ev.dx,
                               ev.dy, ev.modifiers, ev.buttons);
         n++;
-        if (n > 64) {
+        /* Drain a larger burst after coalesce landed in the kernel queue. */
+        if (n > 256) {
             break;
         }
     }
@@ -665,11 +666,17 @@ static Result QemuWaitEvents(void *ud, uint32_t timeoutMs)
 {
     (void)ud;
 #if defined(RoboWindowHasQemu) && RoboWindowHasQemu
+    /* Drain hardware events before sleeping so a pending move is not delayed by the wait. */
+    (void)QemuInputPoll();
     if (timeoutMs == 0u) {
         return RoboOk;
     }
     if (timeoutMs == RoboWindowEventWaitForever) {
-        timeoutMs = 16u;
+        /* Short idle wait: long sleeps stack latency onto every cursor frame. */
+        timeoutMs = 1u;
+    }
+    if (timeoutMs > 4u) {
+        timeoutMs = 4u;
     }
     (void)RoboSleep((Ulong)timeoutMs);
 #else

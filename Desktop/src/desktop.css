@@ -8,50 +8,87 @@ html, body {
 
 .page {
   display: block;
-  padding: 32px;
+  padding: 40px;
   background-color: #f5f5f7;
 }
 
-.headline {
-  display: block;
-  font-size: 28px;
-  line-height: 36px;
-  color: #1d1d1f;
-  margin: 0;
-  padding: 0;
-}
-
-.lede {
-  display: block;
-  font-size: 15px;
-  line-height: 24px;
-  color: #6e6e73;
-  margin: 0;
-  padding: 8px 0 0 0;
-}
-
-.card {
-  display: block;
-  background-color: #ffffff;
-  padding: 16px;
-  margin: 16px 0 0 0;
-}
-
-.detail {
+.brand {
   display: block;
   font-size: 12px;
-  line-height: 20px;
+  line-height: 16px;
   color: #86868b;
   margin: 0;
   padding: 0;
 }
 
-.button {
+.hero {
+  display: block;
+  font-size: 40px;
+  line-height: 48px;
+  color: #1d1d1f;
+  margin: 0;
+  padding: 8px 0 0 0;
+}
+
+.lede {
+  display: block;
+  font-size: 17px;
+  line-height: 24px;
+  color: #6e6e73;
+  margin: 0;
+  padding: 12px 0 0 0;
+}
+
+.section {
+  display: block;
+  background-color: #ffffff;
+  padding: 20px;
+  margin: 24px 0 0 0;
+}
+
+.sectionTitle {
+  display: block;
+  font-size: 21px;
+  line-height: 28px;
+  color: #1d1d1f;
+  margin: 0;
+  padding: 0;
+}
+
+.sectionBody {
+  display: block;
+  font-size: 15px;
+  line-height: 22px;
+  color: #6e6e73;
+  margin: 0;
+  padding: 8px 0 0 0;
+}
+
+.chip {
+  display: block;
+  font-size: 13px;
+  line-height: 20px;
+  color: #1d1d1f;
+  background-color: #f5f5f7;
+  padding: 10px 12px;
+  margin: 8px 0 0 0;
+}
+
+.cta {
   display: block;
   font-size: 15px;
   line-height: 24px;
   color: #ffffff;
   background-color: #0e7aff;
-  padding: 12px;
-  margin: 16px 0 0 0;
+  padding: 12px 22px;
+  margin: 32px 0 0 0;
+}
+
+.footnote {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  color: #86868b;
+  margin: 0;
+  padding: 16px 0 0 0;
 }

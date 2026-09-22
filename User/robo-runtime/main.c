@@ -86,7 +86,7 @@
 
 /** Frames the checkpoint is willing to drive before it reports. The live shell continues after that. */
 #define GUEST_MAX_STEPS 48
-#define GUEST_STEP_WAIT_MS 16u
+#define GUEST_STEP_WAIT_MS 1u
 
 /** The status label: the display's own size, written by this program rather than read from a clock. */
 #define GUEST_STATUS_MAX 24u

@@ -20,7 +20,36 @@ int RoboInputPush(const RoboInputEvent *ev)
 {
     if (!ev)
         return 0;
+    /*
+     * Coalesce consecutive mouse moves: keep the newest position so a slow paint
+     * cannot fill the queue with stale deltas and drop button/key events.
+     */
+    if (ev->type == RoboMouseMove && gN > 0) {
+        unsigned last = (gHead + RoboInputQ - 1u) % RoboInputQ;
+        if (gQ[last].type == RoboMouseMove &&
+            gQ[last].device == ev->device) {
+            gQ[last] = *ev;
+            if (!gQ[last].timestamp)
+                gQ[last].timestamp = TimeNs();
+            return 1;
+        }
+    }
     if (gN >= RoboInputQ) {
+        /* Prefer dropping an older move over dropping a key/button. */
+        if (ev->type == RoboMouseMove) {
+            unsigned i = gTail;
+            unsigned n;
+            for (n = 0; n < gN; n++) {
+                if (gQ[i].type == RoboMouseMove) {
+                    gQ[i] = *ev;
+                    if (!gQ[i].timestamp)
+                        gQ[i].timestamp = TimeNs();
+                    gDrop++;
+                    return 1;
+                }
+                i = (i + 1u) % RoboInputQ;
+            }
+        }
         gDrop++;
         return 0;
     }

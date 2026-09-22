@@ -333,6 +333,13 @@ static void SceneObservePointer(DesktopScene *scene,
 {
     DesktopStats before;
     DesktopStats after;
+    char status[RoboDesktopStatusMax];
+    unsigned i = 0;
+    unsigned n;
+    int32_t ax = x < 0 ? -x : x;
+    int32_t ay = y < 0 ? -y : y;
+    char digits[16];
+    unsigned dig;
 
     before.pointerActions = 0u;
     after.pointerActions = 0u;
@@ -342,6 +349,49 @@ static void SceneObservePointer(DesktopScene *scene,
     if (after.pointerActions > before.pointerActions) {
         step->pointerActions += after.pointerActions - before.pointerActions;
     }
+
+    /* Live HUD in the menu bar so pointer and click state are visible while testing devices. */
+    status[i++] = 'x';
+    status[i++] = ' ';
+    dig = 0;
+    n = (unsigned)ax;
+    if (x < 0 && i + 1u < sizeof(status))
+        status[i++] = '-';
+    if (n == 0)
+        digits[dig++] = '0';
+    while (n && dig < 8u) {
+        digits[dig++] = (char)('0' + (n % 10u));
+        n /= 10u;
+    }
+    while (dig > 0 && i + 1u < sizeof(status))
+        status[i++] = digits[--dig];
+    if (i + 4u < sizeof(status)) {
+        status[i++] = ' ';
+        status[i++] = 'y';
+        status[i++] = ' ';
+    }
+    dig = 0;
+    n = (unsigned)ay;
+    if (y < 0 && i + 1u < sizeof(status))
+        status[i++] = '-';
+    if (n == 0)
+        digits[dig++] = '0';
+    while (n && dig < 8u) {
+        digits[dig++] = (char)('0' + (n % 10u));
+        n /= 10u;
+    }
+    while (dig > 0 && i + 1u < sizeof(status))
+        status[i++] = digits[--dig];
+    if (pressed && i + 6u < sizeof(status)) {
+        status[i++] = ' ';
+        status[i++] = 'c';
+        status[i++] = 'l';
+        status[i++] = 'i';
+        status[i++] = 'c';
+        status[i++] = 'k';
+    }
+    status[i] = 0;
+    (void)DesktopSetStatus(scene->desktop, status, diag);
 }
 
 /**
@@ -449,9 +499,15 @@ Result GetDesktopSceneStep(DesktopScene *scene,
      * an uninitialised module's loop would be the one place that assumed differently.
      */
     if (WindowIsInitialized()) {
-        (void)WindowEventLoopRunOnce(waitMs);
+        /* Poll first so pending IRQs are not delayed by the idle sleep. */
+        (void)WindowEventLoopRunOnce(0u);
         SceneDrainEvents(scene, &step, diag);
         SceneRetireClosedWindow(scene, &step);
+        if (!scene->needsPaint && waitMs != 0u) {
+            (void)WindowEventLoopRunOnce(waitMs);
+            SceneDrainEvents(scene, &step, diag);
+            SceneRetireClosedWindow(scene, &step);
+        }
     }
 
     if (DesktopAttachedWindow(scene->desktop) != RoboWindowIdNone) {

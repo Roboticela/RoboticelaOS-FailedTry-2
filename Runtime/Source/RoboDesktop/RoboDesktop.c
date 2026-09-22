@@ -479,6 +479,7 @@ static Result DesktopContentTarget(DesktopWindow *window,
         }
         RenderTargetDestroy(window->target);
         window->target = NULL;
+        window->contentDirty = 1;
     }
     return RenderTargetCreate(&window->target, (uint32_t)client.width,
                                      (uint32_t)client.height, diag);
@@ -498,7 +499,6 @@ static Result DesktopPaintWindowContent(Desktop *desktop,
                                                  DesktopFrameRecord *record,
                                                  RenderDiag *renderDiag)
 {
-    FontFace *face;
     GfxSurface *screenSurface;
     Result status;
 
@@ -509,16 +509,18 @@ static Result DesktopPaintWindowContent(Desktop *desktop,
     if (status != RoboOk || !window->target) {
         return (status != RoboOk) ? status : RoboOutOfMemory;
     }
-    /* The body colour first: a document that draws nothing must leave a *window*, not the desktop showing
-     * through the hole where its client area is. */
-    (void)RenderTargetClear(window->target, desktop->theme.windowSurface, NULL);
+    if (window->contentDirty) {
+        FontFace *face;
 
-    face = window->contentFace ? window->contentFace : desktop->face;
-    status = RenderRasterize(window->content, window->target, face, NULL, renderDiag);
-    if (status != RoboOk) {
-        return status;
+        (void)RenderTargetClear(window->target, desktop->theme.windowSurface, NULL);
+        face = window->contentFace ? window->contentFace : desktop->face;
+        status = RenderRasterize(window->content, window->target, face, NULL, renderDiag);
+        if (status != RoboOk) {
+            return status;
+        }
+        window->contentDirty = 0;
+        record->contentRuns++;
     }
-    record->contentRuns++;
 
     screenSurface = GfxRasterTarget(raster);
     if (!screenSurface) {

@@ -254,6 +254,7 @@ Result DesktopWindowAdd(Desktop *desktop,
     window->visible = desc->visible ? 1 : 0;
     window->content = desc->content;
     window->contentFace = desc->contentFace;
+    window->contentDirty = 1;
     window->target = NULL;
     if (desc->title &&
         DesktopStringCopy(window->title, sizeof(window->title), desc->title) != RoboOk) {
@@ -369,6 +370,7 @@ Result DesktopWindowSetContent(Desktop *desktop,
      * caller could not invalidate without telling the shell. */
     window->content = content;
     window->contentFace = contentFace;
+    window->contentDirty = 1;
     return RoboOk;
 }
 

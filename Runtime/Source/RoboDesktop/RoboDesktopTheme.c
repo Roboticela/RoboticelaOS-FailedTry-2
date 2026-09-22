@@ -20,8 +20,8 @@ void DesktopThemeInit(DesktopTheme *theme)
         return;
     }
 
-    /* Surfaces: the three levels of depth, deepest first. */
-    theme->desktopSurface = GfxRgba8(0xED, 0xED, 0xEF, 255); /* #EDEDEF */
+    /* Surfaces: soft macOS-style desktop behind a white menu bar. */
+    theme->desktopSurface = GfxRgba8(0xB8, 0xC4, 0xD0, 255); /* soft blue-grey */
     theme->panelSurface = GfxRgba8(0xFF, 0xFF, 0xFF, 255);   /* #FFFFFF */
 
     /* The panel's hairline and the falloff under it. */

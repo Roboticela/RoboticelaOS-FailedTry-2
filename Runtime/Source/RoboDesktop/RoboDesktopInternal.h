@@ -41,6 +41,12 @@ typedef struct desktopWindow {
     FontFace *contentFace;
     /** Owned rasterisation target for the client area, or NULL until a frame needs it. */
     RenderTarget *target;
+    /**
+     * Non-zero when @ref target must be re-rasterised from @ref content.
+     * Cursor-only frames clear this path by compositing the cached target instead of running
+     * RoboRender again — that is what keeps the pointer realtime on a software cursor.
+     */
+    int contentDirty;
 } DesktopWindow;
 
 /** The shell. */

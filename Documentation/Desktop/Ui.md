@@ -12,4 +12,4 @@ CSS must stay inside the properties RoboCSS registers today: `display: block`, c
 
 Guest JavaScript is Phase 13. The compiled `desktop.js` is kept as an artifact; the OS paints the prerendered HTML/CSS.
 
-Playable input (mouse, software cursor, Escape to leave) is owned by RoboWindow + RoboDesktop, not by the React tree.
+Playable input (mouse, software cursor, Escape to leave) is owned by RoboWindow + RoboDesktop, not by the React tree. The menu bar status label shows live pointer coordinates while you test devices.
