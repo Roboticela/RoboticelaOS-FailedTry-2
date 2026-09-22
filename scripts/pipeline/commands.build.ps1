@@ -44,7 +44,31 @@ function Publish-RoboArtifacts {
     Copy-Item -LiteralPath $script:RoboEngineImage -Destination $script:RoboArtifact.DeployImage -Force
     $copied += (Get-Item -LiteralPath $script:RoboArtifact.DeployImage)
 
+    $zip = Publish-RoboUsbArchive
+    if ($zip) { $copied += $zip }
+
     return $copied
+}
+
+function Publish-RoboUsbArchive {
+    <#
+      Zips the contents of Build/dist so unzipping onto a FAT32 stick produces
+      EFI\BOOT\BOOTX64.EFI at the root with no nested folder.
+    #>
+    $tree = Get-RoboDeploymentTree
+    $zip = Join-Path $script:RoboOut.Images "roboticelaos-usb.zip"
+    if (-not (Test-Path -LiteralPath $tree)) {
+        throw "USB tree missing: $tree"
+    }
+    if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
+    $items = @(Get-ChildItem -LiteralPath $tree -Force)
+    if ($items.Count -eq 0) { throw "deployment tree is empty: $tree" }
+    if (-not (Test-Path -LiteralPath $script:RoboOut.Images)) {
+        New-Item -ItemType Directory -Force -Path $script:RoboOut.Images | Out-Null
+    }
+    Compress-Archive -Path ($items | ForEach-Object { $_.FullName }) -DestinationPath $zip -Force -CompressionLevel Optimal
+    Assert-RoboFile $zip "USB archive" | Out-Null
+    return (Get-Item -LiteralPath $zip)
 }
 
 function New-RoboDeploymentManifest {
@@ -151,6 +175,7 @@ function Invoke-RoboBuildImageCommand {
         $tree = Get-RoboDeploymentTree
         Assert-RoboFile (Join-Path $tree "EFI\BOOT\BOOTX64.EFI") "deployment bootloader" | Out-Null
         Assert-RoboFile (Join-Path $tree "volumes\sys\kernel.elf") "deployment kernel" | Out-Null
+        Assert-RoboFile (Join-Path $tree "volumes\sys\initrd") "deployment initrd" | Out-Null
     } | Out-Null
 }
 
@@ -200,13 +225,20 @@ function Invoke-RoboBuildAll {
 
 function Show-RoboBuildOutput {
     $tree = Get-RoboDeploymentTree
-    Write-RoboSection "Deployment"
-    Write-RoboKeyValue "USB / SD tree" $tree
-    Write-RoboInfo "copy the contents of that folder onto a FAT32 drive (not the folder itself)"
+    Write-RoboSection "Flash drive"
+    Write-RoboKeyValue "Copy this folder" $tree
+    Write-RoboInfo "format a USB stick as FAT32, then copy the CONTENTS of that folder onto it"
+    Write-RoboInfo "the stick root must be EFI\BOOT\BOOTX64.EFI — do not nest an extra folder"
+    Write-RoboInfo "disable Secure Boot and boot the PC from USB in UEFI mode"
     Write-RoboBlank
     Write-RoboKeyValue "Disk image" $script:RoboArtifact.DeployImage
     $img = Get-Item -LiteralPath $script:RoboArtifact.DeployImage -ErrorAction SilentlyContinue
-    if ($img) { Write-RoboInfo ((Get-RoboFileSizeText $img.Length) + " - flash it with 'scripts/robo flash --device <target>'") }
+    if ($img) { Write-RoboInfo ((Get-RoboFileSizeText $img.Length) + " — or flash it with 'scripts/robo flash --device <target> --yes'") }
+    $zip = Join-Path $script:RoboOut.Images "roboticelaos-usb.zip"
+    if (Test-Path -LiteralPath $zip) {
+        Write-RoboKeyValue "USB archive" $zip
+        Write-RoboInfo "unzip onto the FAT32 stick root if you prefer a single file"
+    }
     Write-RoboBlank
     Write-RoboKeyValue "Artifacts" $script:RoboOut.Artifacts
     Write-RoboKeyValue "Manifest" $script:RoboArtifact.DeployManifest

@@ -17,6 +17,7 @@
 #include "RoboWindow/RoboWindowKey.h"
 #include "RoboWindow/RoboWindowMouse.h"
 #include "RoboWindow/RoboWindowNative.h"
+#include "RoboWindow/RoboWindowEventLoop.h"
 #include "RoboWindow/RoboWindowPresent.h"
 #include "RoboWindow/RoboWindowState.h"
 
@@ -173,7 +174,11 @@ static void CapsInit(void)
     gCaps.presentFormatMask = RoboWindowPresentFmtCpuDefault;
     gCaps.presentMaxWidth = 8192u;
     gCaps.presentMaxHeight = 8192u;
+#if defined(RoboWindowHasQemu) && RoboWindowHasQemu
+    gCaps.WaitEvents = 1;
+#else
     gCaps.WaitEvents = 0;
+#endif
     gCaps.wakeup = 0;
     gCaps.mouseCapture = 0;
 }
@@ -436,8 +441,97 @@ static void MapHidKey(uint32_t code, PhysicalKey *phys,
         *phys = RoboPhysicalKeySpace;
         *log = RoboLogicalKeySpace;
         break;
+    case 0x4Fu:
+        *phys = RoboPhysicalKeyArrowRight;
+        *log = RoboLogicalKeyArrowRight;
+        break;
+    case 0x50u:
+        *phys = RoboPhysicalKeyArrowLeft;
+        *log = RoboLogicalKeyArrowLeft;
+        break;
+    case 0x51u:
+        *phys = RoboPhysicalKeyArrowDown;
+        *log = RoboLogicalKeyArrowDown;
+        break;
+    case 0x52u:
+        *phys = RoboPhysicalKeyArrowUp;
+        *log = RoboLogicalKeyArrowUp;
+        break;
     default:
         break;
+    }
+}
+
+static int32_t gPtrX;
+static int32_t gPtrY;
+static int gPtrReady;
+
+static void PointerBounds(int32_t *maxX, int32_t *maxY)
+{
+    const QemuFbInfo *fb = QemuFbCurrent();
+
+    *maxX = 1279;
+    *maxY = 799;
+    if (fb && fb->ready && fb->width > 0u && fb->height > 0u) {
+        *maxX = (int32_t)fb->width - 1;
+        *maxY = (int32_t)fb->height - 1;
+    }
+    if (*maxX < 0) {
+        *maxX = 0;
+    }
+    if (*maxY < 0) {
+        *maxY = 0;
+    }
+}
+
+static void ClampPointer(void)
+{
+    int32_t maxX;
+    int32_t maxY;
+
+    PointerBounds(&maxX, &maxY);
+    if (gPtrX < 0) {
+        gPtrX = 0;
+    }
+    if (gPtrY < 0) {
+        gPtrY = 0;
+    }
+    if (gPtrX > maxX) {
+        gPtrX = maxX;
+    }
+    if (gPtrY > maxY) {
+        gPtrY = maxY;
+    }
+}
+
+/**
+ * PS/2 reports relative motion with x=y=0. Injected/tablet events carry an absolute point.
+ * The software cursor and hit-test both need a position on the screen, so this is where those
+ * two shapes become one.
+ */
+static void ResolvePointer(int32_t x, int32_t y, int32_t dx, int32_t dy)
+{
+    int32_t maxX;
+    int32_t maxY;
+    int first = !gPtrReady;
+
+    PointerBounds(&maxX, &maxY);
+    if (x != 0 || y != 0) {
+        gPtrX = x;
+        gPtrY = y;
+        gPtrReady = 1;
+    } else {
+        if (!gPtrReady) {
+            gPtrX = maxX / 2;
+            gPtrY = maxY / 2;
+            gPtrReady = 1;
+        }
+        gPtrX += dx;
+        gPtrY += dy;
+    }
+    ClampPointer();
+    if (first) {
+        LogDebug("robo_window.qemu: pointer %d,%d", (int)gPtrX, (int)gPtrY);
     }
 }
 
@@ -468,13 +562,23 @@ static Result TranslateInput(uint32_t type, uint32_t code,
         return WindowObserveKey(wid, &ke);
     }
 
+    if (type == 3u || type == 4u) {
+        ResolvePointer(x, y, dx, dy);
+    } else if (type == 5u) {
+        if (x != 0 || y != 0) {
+            ResolvePointer(x, y, 0, 0);
+        } else if (!gPtrReady) {
+            ResolvePointer(0, 0, 0, 0);
+        }
+    }
+
     /* Mouse move */
     if (type == 3u) {
         MouseEvent me;
         MouseEventInit(&me);
         me.type = RoboMouseEventMove;
-        me.clientX = x;
-        me.clientY = y;
+        me.clientX = gPtrX;
+        me.clientY = gPtrY;
         me.deltaX = dx;
         me.deltaY = dy;
         me.modifiers = mods;
@@ -496,8 +600,8 @@ static Result TranslateInput(uint32_t type, uint32_t code,
         me.type = value ? RoboMouseEventButtonDown
                         : RoboMouseEventButtonUp;
         me.button = btn;
-        me.clientX = x;
-        me.clientY = y;
+        me.clientX = gPtrX;
+        me.clientY = gPtrY;
         me.modifiers = mods;
         me.clickCount = value ? 1 : 0;
         return WindowObserveMouse(wid, &me);
@@ -508,8 +612,8 @@ static Result TranslateInput(uint32_t type, uint32_t code,
         MouseEvent me;
         MouseEventInit(&me);
         me.type = RoboMouseEventWheel;
-        me.clientX = x;
-        me.clientY = y;
+        me.clientX = gPtrX;
+        me.clientY = gPtrY;
         me.scrollX = dx;
         me.scrollY = dy != 0 ? dy : (int32_t)value;
         me.scrollUnit = RoboMouseScrollUnitLine;
@@ -557,6 +661,23 @@ Result QemuInputPoll(void)
     return RoboOk;
 }
 
+static Result QemuWaitEvents(void *ud, uint32_t timeoutMs)
+{
+    (void)ud;
+#if defined(RoboWindowHasQemu) && RoboWindowHasQemu
+    if (timeoutMs == 0u) {
+        return RoboOk;
+    }
+    if (timeoutMs == RoboWindowEventWaitForever) {
+        timeoutMs = 16u;
+    }
+    (void)RoboSleep((Ulong)timeoutMs);
+#else
+    (void)timeoutMs;
+#endif
+    return RoboOk;
+}
+
 static Result QemuProcessEvents(void *ud)
 {
     (void)ud;
@@ -580,7 +701,7 @@ static const WindowBackendVtbl gQemuVtbl = {
     QemuQuery,
     QemuPresent,
     QemuProcessEvents,
-    NULL,
+    QemuWaitEvents,
     NULL,
     NULL,
     NULL

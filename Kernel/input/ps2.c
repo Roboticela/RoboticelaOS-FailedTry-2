@@ -3,6 +3,7 @@
 #include "drivers/driver.h"
 #include "irq/irq.h"
 #include "arch/x86_64/io.h"
+#include "graphics/gfx.h"
 #include "kio.h"
 
 #define PS2_DATA 0x60
@@ -14,6 +15,46 @@ static unsigned gMn;
 static uint32_t gMods;
 static uint32_t gBtns;
 static int gKbdOk, gMouseOk;
+static int32_t gMx, gMy;
+static int gHavePos;
+
+static void MouseBounds(int32_t *maxX, int32_t *maxY)
+{
+    RoboDisplayInfo info;
+
+    *maxX = 1279;
+    *maxY = 799;
+    if (DisplayGetInfo(&info) && info.width > 0u && info.height > 0u) {
+        *maxX = (int32_t)info.width - 1;
+        *maxY = (int32_t)info.height - 1;
+    }
+    if (*maxX < 0)
+        *maxX = 0;
+    if (*maxY < 0)
+        *maxY = 0;
+}
+
+static void MouseAdvance(int dx, int dy)
+{
+    int32_t maxX, maxY;
+
+    MouseBounds(&maxX, &maxY);
+    if (!gHavePos) {
+        gMx = maxX / 2;
+        gMy = maxY / 2;
+        gHavePos = 1;
+    }
+    gMx += (int32_t)dx;
+    gMy += (int32_t)dy;
+    if (gMx < 0)
+        gMx = 0;
+    if (gMy < 0)
+        gMy = 0;
+    if (gMx > maxX)
+        gMx = maxX;
+    if (gMy > maxY)
+        gMy = maxY;
+}
 
 static void WaitIn(void)
 {
@@ -62,6 +103,14 @@ static uint16_t MapSet1(uint8_t sc, int ext)
     if (ext) {
         if (sc == 0x1D)
             return RoboKeyLctrl;
+        if (sc == 0x48)
+            return 0x52u; /* ArrowUp */
+        if (sc == 0x4B)
+            return 0x50u; /* ArrowLeft */
+        if (sc == 0x4D)
+            return 0x4Fu; /* ArrowRight */
+        if (sc == 0x50)
+            return 0x51u; /* ArrowDown */
         return RoboKeyUnknown;
     }
     switch (sc) {
@@ -186,14 +235,15 @@ static void MouseIrq(unsigned irq, void *ctx)
         if (gMpkt[0] & 4u)
             nb |= RoboMbuttonMiddle;
         dy = -dy;
+        MouseAdvance(dx, dy);
         e.type = RoboMouseMove;
         e.device = RoboInputMouse;
         e.code = 0;
         e.value = 0;
         e.dx = dx;
         e.dy = dy;
-        e.x = 0;
-        e.y = 0;
+        e.x = gMx;
+        e.y = gMy;
         e.modifiers = 0;
         e.buttons = nb;
         e.timestamp = 0;
@@ -208,6 +258,8 @@ static void MouseIrq(unsigned irq, void *ctx)
                 e.code = bit;
                 e.value = (nb & bit) ? 1u : 0u;
                 e.dx = e.dy = 0;
+                e.x = gMx;
+                e.y = gMy;
                 RoboInputPush(&e);
             }
             gBtns = nb;

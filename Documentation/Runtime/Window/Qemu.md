@@ -62,6 +62,14 @@ surfaces in the FB-native format (robo-runtime does this from `INFO`).
 `WindowObserveKey` / `WindowObserveMouse` (existing Phase 7.10/7.11
 APIs). No QEMU-specific key/mouse enums are exposed publicly.
 
+PS/2 motion is relative. The kernel (and the QEMU backend as a second
+pass) accumulate it into a screen position so the software cursor and
+hit-testing see an absolute point. The GTK host cursor is hidden
+(`show-cursor=off`) so the painted cursor is the one that moves.
+
+The guest desktop stays in its event loop after the serial checkpoint
+(`ROBO_QEMU_DESKTOP_LIVE`). Close the QEMU window to stop.
+
 ## Host simulator
 
 `QemuSimInit` / `WindowBackendUseQemuSim` allocate an in-memory
@@ -79,7 +87,7 @@ Waits for serial markers from `/System/runtime/robo-runtime`:
 - `ROBO_QEMU_DISPLAY_OK`
 - `ROBO_QEMU_PRESENT_OK`
 - `ROBO_QEMU_INPUT_OK`
-- `ROBO_QEMU_DISPLAY_SHUTDOWN_OK`
+- `ROBO_QEMU_DESKTOP_LIVE`
 
 Interactive visual check: `scripts\robo run-runtime-qemu` (GTK display), or
 `scripts\robo run-qemu` to build everything first.

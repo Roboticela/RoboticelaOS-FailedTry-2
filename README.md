@@ -12,12 +12,23 @@ Build always runs on the development machine. Each part has its own script; `Bui
 .\Scripts\Build\BuildHtml.ps1          # one subsystem
 .\Scripts\Build\BuildDesktop.ps1       # Vite desktop UI + shell
 .\Scripts\Build\BuildRuntime.ps1       # full runtime guest ELF
-.\Scripts\Build\BuildEverything.ps1    # every part, then the disk image
+.\Scripts\Build\BuildEverything.ps1    # every part, then the USB tree + disk image
+.\Scripts\Build\BuildUsb.ps1           # USB tree + GPT image (needs kernel + bootloader already built)
 ```
 
 The pipeline entry point is still `.\scripts\pipeline\robo.ps1` (same folder as `Scripts/` on Windows). `.\build.ps1` is a compatibility shim.
 
 Output lands in `Build/`. Do not commit it.
+
+## Flash drive (real PC)
+
+After a full build, copy **the contents** of `Build/dist/` onto a FAT32 USB stick:
+
+1. Format the stick as FAT32.
+2. Copy everything inside `Build/dist/` to the stick root so `EFI\BOOT\BOOTX64.EFI` sits at the root (do not nest the `dist` folder).
+3. On the PC: firmware setup → disable Secure Boot → boot from USB in UEFI mode (not Legacy / CSM).
+
+`Build/dist/USB.txt` repeats those steps. `Build/images/roboticelaos.img` is the same system as a GPT disk you can write with `.\scripts\pipeline\robo.ps1 flash --device <N> --yes`. `Build/images/roboticelaos-usb.zip` is the tree as one archive.
 
 ## Test
 

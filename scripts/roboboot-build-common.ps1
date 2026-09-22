@@ -4,7 +4,7 @@
 $script:Repo = Split-Path -Parent $PSScriptRoot
 $script:Boot = Join-Path $script:Repo "Bootloader"
 $script:Build = Join-Path $script:Repo "Build\Bootloader"
-$script:Dist = Join-Path $script:Repo "Build"
+$script:Dist = Join-Path $script:Repo "Build\dist"
 $script:KernelRoot = Join-Path $script:Repo "Kernel"
 $script:KernelOut = Join-Path $script:Repo "Build\Kernel\kernel.elf"
 $script:PmmTestOut = Join-Path $script:Repo "Build\Kernel\test_pmm.exe"
@@ -1760,27 +1760,44 @@ function Publish-RoboDist {
     Copy-EspTree (Join-Path $script:Boot "assets") (Join-Path $script:Dist "assets")
     Copy-EspTree (Join-Path $script:Boot "volumes") (Join-Path $script:Dist "volumes")
 
-    $kern = Join-Path $script:Dist "volumes\sys\kernel.elf"
+    $sys = Join-Path $script:Dist "volumes\sys"
+    New-Item -ItemType Directory -Force -Path $sys | Out-Null
+    $kern = Join-Path $sys "kernel.elf"
+    $initrd = Join-Path $sys "initrd"
     if (-not (Test-Path $kern) -and (Test-Path $script:KernelOut)) {
-        New-Item -ItemType Directory -Force -Path (Split-Path $kern) | Out-Null
         Copy-Item $script:KernelOut $kern -Force
+    }
+    $initrdSrc = Join-Path $script:Boot "volumes\sys\initrd"
+    if (-not (Test-Path $initrd) -and (Test-Path $initrdSrc)) {
+        Copy-Item $initrdSrc $initrd -Force
     }
     if (-not (Test-Path $efiBoot)) { throw "combine missing EFI\BOOT\BOOTX64.EFI" }
     if (-not (Test-Path $kern)) { throw "combine missing volumes\sys\kernel.elf" }
+    if (-not (Test-Path $initrd)) { throw "combine missing volumes\sys\initrd" }
 
     $note = @(
-        "Copy the contents of this folder onto a FAT32 USB drive.",
-        "The stick root must contain EFI\BOOT\BOOTX64.EFI - do not nest an extra folder.",
-        "Then boot the PC from USB.",
+        "RoboticelaOS — copy this folder onto a USB stick",
         "",
-        "EFI\BOOT\BOOTX64.EFI        default firmware boot path",
-        "EFI\Roboticela\BOOTX64.EFI  vendor boot path",
-        "config\                     catalog and saved settings",
-        "assets\                     splash, pictures, fonts",
-        "volumes\sys\kernel.elf      kernel"
+        "1. Format the stick as FAT32 (UEFI removable media).",
+        "2. Copy the CONTENTS of this folder onto the stick root.",
+        "   After the copy, the stick must have EFI\BOOT\BOOTX64.EFI at the root.",
+        "   Do not copy the folder itself (do not nest an extra directory).",
+        "3. On the PC: enter firmware setup, disable Secure Boot, boot from USB",
+        "   in UEFI mode (not Legacy / CSM).",
+        "",
+        "Layout",
+        "  EFI\BOOT\BOOTX64.EFI         default firmware boot path",
+        "  EFI\Roboticela\BOOTX64.EFI   vendor boot path",
+        "  config\                      catalog and saved settings",
+        "  assets\                      splash, pictures, fonts",
+        "  volumes\sys\kernel.elf       kernel",
+        "  volumes\sys\initrd           initrd",
+        "",
+        "Alternatively write Build\images\roboticelaos.img to the whole device:",
+        "  scripts\robo flash --device <N> --yes"
     )
     [IO.File]::WriteAllLines((Join-Path $script:Dist "USB.txt"), $note)
-    Write-Step "USB" "EFI\BOOT\BOOTX64.EFI"
+    Write-Step "USB" $script:Dist
 }
 
 function Invoke-RoboCombine {
@@ -1832,7 +1849,7 @@ function Invoke-RoboClean {
         Remove-Item $lbuild -Recurse -Force
     }
     if (Test-Path $script:Dist) {
-        Write-Step "CLEAN" "build"
+        Write-Step "CLEAN" "Build\dist"
         Remove-Item $script:Dist -Recurse -Force
     }
 }

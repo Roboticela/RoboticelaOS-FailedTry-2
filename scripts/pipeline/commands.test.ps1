@@ -316,7 +316,7 @@ $script:RoboDisplayMarkers = @(
     "ROBO_QEMU_PRESENT_PIXELS=0x000FA000",
     # Input travelled the whole way back: an injected press reached the shell as an action.
     "ROBO_QEMU_INPUT_OK",
-    "ROBO_QEMU_DISPLAY_SHUTDOWN_OK"
+    "ROBO_QEMU_DESKTOP_LIVE"
 )
 
 function Assert-RoboQemuAvailable {

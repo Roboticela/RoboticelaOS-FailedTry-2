@@ -41,7 +41,7 @@
  *   ROBO_QEMU_PRESENT_PIXELS              frame pixels written to the destination
  *   ROBO_QEMU_INPUT_OK / _INPUT_PARTIAL   a display-injected press reached the shell as an action
  *   ROBO_QEMU_INPUT_ACTIONS               presses the shell acted on
- *   ROBO_QEMU_DISPLAY_SHUTDOWN_OK         every layer came down cleanly
+ *   ROBO_QEMU_DESKTOP_LIVE                checkpoint done; the shell is pumping PS/2 keyboard and mouse
  *   ROBO_QEMU_DISPLAY_FAIL <stage>        a stage refused; nothing after it runs
  *
  * The counters are reported as facts rather than asserted here; the pipeline's own marker list is what
@@ -82,7 +82,7 @@
 /** The system face, where the image build packs it (`scripts/roboboot-build-common.ps1`). */
 #define GUEST_FACE_PATH "/System/Fonts/Inter.ttf"
 
-/** Frames the loop is willing to drive before it reports: the first one paints, the rest answer input. */
+/** Frames the checkpoint is willing to drive before it reports. The live shell continues after that. */
 #define GUEST_MAX_STEPS 48
 #define GUEST_STEP_WAIT_MS 16u
 
@@ -464,20 +464,17 @@ int main(void)
         serial("ROBO_QEMU_INPUT_PARTIAL\n");
     }
 
-    DesktopSceneClose(scene);
-    if (face) {
-        FontFaceRelease(face);
+    /*
+     * The checkpoint is over. Keep pumping: a guest that tore the shell down here left a still picture
+     * in the GOP with only QEMU's host cursor moving over it, and PS/2 keyboard/mouse had nobody to
+     * poll them. Escape still finishes the *scene's window*; the desktop itself stays the OS shell.
+     */
+    serial("ROBO_QEMU_DESKTOP_LIVE\n");
+    for (;;) {
+        if (GetDesktopSceneStep(scene, GUEST_STEP_WAIT_MS, &step, &diag) != RoboOk) {
+            SerialText("ROBO_QEMU_DESKTOP_FAIL ", diag.message ? diag.message : "(none)");
+            GuestFail("scene_live");
+            GuestStop();
+        }
     }
-    (void)WindowShutdown();
-    DisplayShutdown();
-    PaintShutdown();
-    LayoutShutdown();
-    CssShutdown();
-    HtmlShutdown();
-    FontShutdown();
-    GraphicsShutdown();
-    serial("ROBO_QEMU_DISPLAY_SHUTDOWN_OK\n");
-
-    GuestStop();
-    return 0;
 }

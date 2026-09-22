@@ -28,16 +28,8 @@ function Invoke-RoboDeploy {
     }
 
     Invoke-RoboStep -Name "package USB tree" -Layer "DEPLOY" -Action {
-        $zip = Join-Path $script:RoboOut.Images "roboticelaos-usb.zip"
-        if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
-        $tree = Get-RoboDeploymentTree
-        # Compress the *contents* so unzipping straight onto a FAT32 drive
-        # produces a bootable layout without a nested folder.
-        $items = @(Get-ChildItem -LiteralPath $tree -Force | Where-Object { $_.Name -ne "USB.txt" })
-        if ($items.Count -eq 0) { throw "deployment tree is empty: $tree" }
-        Compress-Archive -Path ($items | ForEach-Object { $_.FullName }) -DestinationPath $zip -Force -CompressionLevel Optimal
-        Assert-RoboFile $zip "USB archive" | Out-Null
-        Write-RoboInfo ("archive: " + $zip)
+        $zip = Publish-RoboUsbArchive
+        Write-RoboInfo ("archive: " + $zip.FullName)
     } | Out-Null
 
     Show-RoboBuildOutput

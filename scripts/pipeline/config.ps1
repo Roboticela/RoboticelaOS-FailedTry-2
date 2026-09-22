@@ -118,7 +118,7 @@ $script:RoboQemu = @{
     Machine        = (Get-RoboEnv "ROBO_QEMU_MACHINE" "q35,usb=off")
     Cpu            = (Get-RoboEnv "ROBO_QEMU_CPU" "qemu64,-svm")
     Vga            = (Get-RoboEnv "ROBO_QEMU_VGA" "std")
-    Display        = (Get-RoboEnv "ROBO_QEMU_DISPLAY" "gtk,show-menubar=off,grab-on-hover=on")
+    Display        = (Get-RoboEnv "ROBO_QEMU_DISPLAY" "gtk,show-menubar=off,grab-on-hover=on,show-cursor=off")
     HeadlessDisplay = "none"
     DiskMode       = (Get-RoboEnv "ROBO_QEMU_DISK" "ide")
     FirmwareCode   = (Get-RoboEnv "ROBO_OVMF_CODE" (Join-Path ${env:ProgramFiles} "qemu\share\edk2-x86_64-code.fd"))

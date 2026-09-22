@@ -159,11 +159,24 @@ JUnit XML file for CI. A `skip` is recorded as `skip`, never as a pass.
 
 ## 4. Deploying to real hardware
 
-Two shapes, both real.
+Two shapes, both real. The file tree is the one you **copy** onto a stick; the disk image is the one you **write** to the whole device.
 
-### The disk image (recommended)
+### The file tree (copy onto a FAT32 stick)
 
-`build/images/roboticelaos.img` is a complete GPT disk: protective MBR, a GPT
+`Build/dist/` is a UEFI removable-media layout. Format a USB stick as FAT32, then copy **the contents** of that folder onto it. The stick root must contain `EFI\BOOT\BOOTX64.EFI`; do not nest an extra folder.
+
+```
+.\Scripts\Build\BuildEverything.ps1
+# then copy Build\dist\* onto the FAT32 stick
+```
+
+`Build/images/roboticelaos-usb.zip` is the same tree zipped. Unzip onto the stick root.
+
+On the PC: disable Secure Boot and boot from USB in UEFI mode (not Legacy / CSM). `Build/dist/USB.txt` is the same checklist sitting next to the files.
+
+### The disk image (write the whole device)
+
+`Build/images/roboticelaos.img` is a complete GPT disk: protective MBR, a GPT
 with CRC-checked headers and partition array, and a FAT16 EFI System Partition
 containing `EFI/BOOT/BOOTX64.EFI`, the kernel, the initrd, the boot
 configuration and the assets. Write it verbatim to a USB stick or SD card:
@@ -178,12 +191,6 @@ scripts/robo flash --device 3 --yes
 `--yes`, refuses a target smaller than the image, refuses the system disk unless
 `--force` (and then asks you to type `ERASE`), and **never elevates itself** —
 if it needs administrator rights it tells you to re-run from an elevated shell.
-
-### The file tree
-
-Copy the **contents** of `build/dist/` onto a FAT32 drive. The stick root must
-contain `EFI\BOOT\BOOTX64.EFI`; do not nest an extra folder.
-`build/images/roboticelaos-usb.zip` is the same tree zipped for that workflow.
 
 ### What validation actually proves
 

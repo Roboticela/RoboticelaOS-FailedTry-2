@@ -84,7 +84,7 @@ its own arithmetic against itself would be checking nothing.
 | `ROBO_QEMU_PRESENT_OK` `_COMPLETE` `_PIXELS` | the frame reached the backend, and how much of it landed |
 | `ROBO_QEMU_DESKTOP_FRAMES` `ROBO_QEMU_INPUT_ACTIONS` | the shell's own counters |
 | `ROBO_QEMU_INPUT_OK` / `_INPUT_PARTIAL` | an injected press reached the shell as an action or did not |
-| `ROBO_QEMU_DISPLAY_SHUTDOWN_OK` | every layer came down cleanly |
+| `ROBO_QEMU_DESKTOP_LIVE` | checkpoint done; the shell keeps pumping keyboard and mouse |
 | `ROBO_QEMU_DISPLAY_FAIL <stage>` | a stage refused; nothing after it runs |
 
 ## Building it

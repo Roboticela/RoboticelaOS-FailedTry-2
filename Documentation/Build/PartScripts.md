@@ -28,7 +28,8 @@ Build always runs on the development machine. There is no host/QEMU split for co
 | `BuildLibc.ps1` | libc + userland |
 | `BuildKernel.ps1` | kernel.elf |
 | `BuildBootloader.ps1` | UEFI bootloader |
-| `BuildEverything.ps1` | every script above, then the disk image |
+| `BuildUsb.ps1` | USB tree (`Build/dist`) + GPT disk image (`Build/images/roboticelaos.img`) |
+| `BuildEverything.ps1` | every script above, then the USB tree and disk image |
 
 Objects are incremental. Changing HTML does not rebuild the kernel.
 

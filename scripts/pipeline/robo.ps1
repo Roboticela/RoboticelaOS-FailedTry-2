@@ -247,7 +247,7 @@ function Get-RoboCommands {
 
     $cmds += New-RoboCommand -Name "build-image" -Group build `
         -Summary "EFI application, ESP and the bootable GPT disk image" `
-        -Handler { Invoke-RoboBuildImageCommand -Flags $script:RoboEspFlags; Invoke-RoboBuildArtifactsCommand; return $true }
+        -Handler { Invoke-RoboBuildImageCommand -Flags $script:RoboEspFlags; Invoke-RoboBuildArtifactsCommand; Show-RoboBuildOutput; return $true }
 
     # --- test -----------------------------------------------------------
     $cmds += New-RoboCommand -Name "test-all" -Group test `
