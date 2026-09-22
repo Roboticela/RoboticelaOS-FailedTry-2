@@ -224,7 +224,7 @@ int vfprintf(FILE *fp, const char *format, va_list ap)
     }
 #else
     {
-        robo_long w = robo_syscall((robo_long)ROBO_SYS_WRITE, (robo_long)fp->fd,
+        robo_long w = robo_syscall((robo_long)RoboSysWrite, (robo_long)fp->fd,
                                    (robo_long)(uintptr_t)buf, (robo_long)n, 0, 0, 0);
         if (robo_set_err(w))
             return -1;
@@ -268,7 +268,7 @@ int fputc(int c, FILE *fp)
     robo_long w;
     if (!fp)
         fp = stdout;
-    w = robo_syscall((robo_long)ROBO_SYS_WRITE, (robo_long)fp->fd,
+    w = robo_syscall((robo_long)RoboSysWrite, (robo_long)fp->fd,
                      (robo_long)(uintptr_t)&ch, 1, 0, 0, 0);
     if (robo_set_err(w))
         return EOF;
@@ -295,7 +295,7 @@ int fputs(const char *s, FILE *fp)
         robo_long w;
         if (!fp)
             fp = stdout;
-        w = robo_syscall((robo_long)ROBO_SYS_WRITE, (robo_long)fp->fd,
+        w = robo_syscall((robo_long)RoboSysWrite, (robo_long)fp->fd,
                          (robo_long)(uintptr_t)s, (robo_long)n, 0, 0, 0);
         if (robo_set_err(w))
             return EOF;
@@ -326,13 +326,13 @@ FILE *fopen(const char *path, const char *mode)
     (void)flags;
     return 0;
 #else
-    fd = (int)robo_syscall((robo_long)ROBO_SYS_OPEN, (robo_long)(uintptr_t)path,
+    fd = (int)robo_syscall((robo_long)RoboSysOpen, (robo_long)(uintptr_t)path,
                            (robo_long)flags, 0, 0, 0, 0);
     if (robo_set_err((robo_long)fd))
         return 0;
     fp = (FILE *)malloc(sizeof(*fp));
     if (!fp) {
-        robo_syscall((robo_long)ROBO_SYS_CLOSE, (robo_long)fd, 0, 0, 0, 0, 0);
+        robo_syscall((robo_long)RoboSysClose, (robo_long)fd, 0, 0, 0, 0, 0);
         return 0;
     }
     fp->fd = fd;
@@ -351,7 +351,7 @@ int fclose(FILE *fp)
     (void)r;
     return 0;
 #else
-    r = (int)robo_syscall((robo_long)ROBO_SYS_CLOSE, (robo_long)fp->fd, 0, 0, 0, 0, 0);
+    r = (int)robo_syscall((robo_long)RoboSysClose, (robo_long)fp->fd, 0, 0, 0, 0, 0);
     free(fp);
     if (robo_set_err((robo_long)r))
         return EOF;
@@ -369,7 +369,7 @@ size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *fp)
     return nmemb;
 #else
     {
-        robo_long w = robo_syscall((robo_long)ROBO_SYS_WRITE, (robo_long)fp->fd,
+        robo_long w = robo_syscall((robo_long)RoboSysWrite, (robo_long)fp->fd,
                                    (robo_long)(uintptr_t)ptr, (robo_long)n, 0, 0, 0);
         if (robo_set_err(w) || (size_t)w != n)
             return 0;
@@ -389,7 +389,7 @@ size_t fread(void *ptr, size_t size, size_t nmemb, FILE *fp)
     return 0;
 #else
     {
-        robo_long r = robo_syscall((robo_long)ROBO_SYS_READ, (robo_long)fp->fd,
+        robo_long r = robo_syscall((robo_long)RoboSysRead, (robo_long)fp->fd,
                                    (robo_long)(uintptr_t)ptr, (robo_long)n, 0, 0, 0);
         if (robo_set_err(r))
             return 0;

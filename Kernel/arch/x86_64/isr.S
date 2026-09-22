@@ -1,8 +1,10 @@
-.intelSyntax noprefix
+.intel_syntax noprefix
 
 .macro ISR_NOERR vec
 .global isr\vec
+.global Isr\vec
 isr\vec:
+Isr\vec:
     push 0
     push \vec
     jmp isrCommon
@@ -10,7 +12,9 @@ isr\vec:
 
 .macro ISR_ERR vec
 .global isr\vec
+.global Isr\vec
 isr\vec:
+Isr\vec:
     push \vec
     jmp isrCommon
 .endm

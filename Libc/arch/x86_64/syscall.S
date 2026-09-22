@@ -8,7 +8,9 @@
  */
 .section .text
 .global robo_syscall
+.global Syscall
 robo_syscall:
+Syscall:
     mov rax, rdi
     mov rdi, rsi
     mov rsi, rdx

@@ -40,14 +40,14 @@ function Get-RoboSources([string]$Kind) {
         "Source\rb_util.c",
         "Source\rb_crypto.c",
         "Source\rb_gfx.c",
-        "Source\Image.c",
+        "Source\rb_image.c",
         "Source\rb_manifest.c",
-        "Source\Env.c",
-        "Source\Probe.c",
+        "Source\rb_env.c",
+        "Source\rb_probe.c",
         "Source\rb_loader.c",
         "Source\rb_policy.c",
         "Source\rb_ui.c",
-        "Source\Session.c"
+        "Source\rb_session.c"
     )
     $extra = @{
         host = [string[]]@("Source\host\main_host.c")

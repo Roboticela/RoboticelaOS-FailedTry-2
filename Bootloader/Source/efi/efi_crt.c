@@ -12,7 +12,7 @@ EFI_BOOT_SERVICES *gBS;
 EFI_RUNTIME_SERVICES *gRT;
 EFI_HANDLE gImage;
 
-int fltused = 1;
+int _fltused = 1;
 
 void __chkstk(void)
 {

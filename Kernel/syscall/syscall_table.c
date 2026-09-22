@@ -22,7 +22,7 @@ void SyscallTableInit(void)
     gTable[RoboSysProcessCreate] = SysProcessCreate;
     gTable[RoboSysThreadCreate] = SysThreadCreate;
     gTable[RoboSysSleep] = SysSleep;
-    gTable[RoboSysTime] = RoboSysTime;
+    gTable[RoboSysTime] = SysTime;
     gTable[RoboSysIpc] = SysIpc;
     gTable[RoboSysSeek] = SysSeek;
     gTable[RoboSysStat] = SysStat;

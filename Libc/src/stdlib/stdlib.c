@@ -194,7 +194,7 @@ void exit(int status)
 
 void _Exit(int status)
 {
-    robo_syscall((robo_long)ROBO_SYS_EXIT, (robo_long)status, 0, 0, 0, 0, 0);
+    robo_syscall((robo_long)RoboSysExit, (robo_long)status, 0, 0, 0, 0, 0);
     for (;;)
         ;
 }

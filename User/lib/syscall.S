@@ -1,4 +1,4 @@
-.intelSyntax noprefix
+.intel_syntax noprefix
 
 /*
  * User ABI wrapper. SysV C:

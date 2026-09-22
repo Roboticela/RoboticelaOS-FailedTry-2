@@ -16,7 +16,7 @@
 
 static int gFail;
 static int gCounter;
-static Mutex gMu;
+static robo_mutex_t gMu;
 static int gErrA;
 static int gErrB;
 
@@ -80,7 +80,7 @@ static int TestErrno(void)
 static int TestTime(void)
 {
     struct timespec ts;
-    if (ClockGettime(CLOCK_MONOTONIC, &ts) != 0)
+    if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
         return 0;
     if (nanosleep(&(struct timespec){ 0, 1000000L }, 0) != 0)
         return 0;
@@ -112,7 +112,7 @@ static int TestFiles(void)
     close(fd);
     if (rename("/libc-hello.txt", "/libc-renamed.txt") != 0)
         return 0;
-    if (stat("/libc-renamed.txt", &st) != 0 || st.stSize != 10)
+    if (stat("/libc-renamed.txt", &st) != 0 || st.st_size != 10)
         return 0;
     if (unlink("/libc-renamed.txt") != 0)
         return 0;
@@ -123,7 +123,7 @@ static int TestFiles(void)
 
 static int TestProcess(void)
 {
-    Pid pid, self, w, pp;
+    pid_t pid, self, w, pp;
     int st = -1;
     char *argv[] = { "argv-test", "arg1", "arg2", 0 };
 
@@ -133,23 +133,23 @@ static int TestProcess(void)
         printf("process: getpid 0\n");
         return 0;
     }
-    pid = Spawn("/bin/hello", 0);
-    if (pid == (Pid)-1) {
+    pid = robo_spawn("/bin/hello", 0);
+    if (pid == (pid_t)-1) {
         printf("process: spawn hello errno=%d\n", errno);
         return 0;
     }
-    w = Wait(pid, &st);
+    w = robo_wait(pid, &st);
     if (w != pid) {
         printf("process: wait hello w=%d st=%d errno=%d\n", (int)w, st, errno);
         return 0;
     }
     st = -1;
-    pid = Spawn("/bin/argv-test", argv);
-    if (pid == (Pid)-1) {
+    pid = robo_spawn("/bin/argv-test", argv);
+    if (pid == (pid_t)-1) {
         printf("process: spawn argv errno=%d\n", errno);
         return 0;
     }
-    w = Wait(pid, &st);
+    w = robo_wait(pid, &st);
     if (w != pid || st != 0) {
         printf("process: wait argv w=%d st=%d errno=%d ppid=%d\n",
                (int)w, st, errno, (int)pp);
@@ -168,9 +168,9 @@ static void worker(void *arg)
     int i;
     errno = n;
     for (i = 0; i < 1000; i++) {
-        MutexLock(&gMu);
+        robo_mutex_lock(&gMu);
         gCounter++;
-        MutexUnlock(&gMu);
+        robo_mutex_unlock(&gMu);
     }
     if (n == 11)
         gErrA = errno;
@@ -180,25 +180,25 @@ static void worker(void *arg)
 
 static int TestThreads(void)
 {
-    Thread a, b, c;
+    robo_thread_t a, b, c;
     gCounter = 0;
     gErrA = 0;
     gErrB = 0;
-    MutexInit(&gMu);
-    if (ThreadCreate(&a, worker, (void *)(intptr_t)11) != 0) {
+    robo_mutex_init(&gMu);
+    if (robo_thread_create(&a, worker, (void *)(intptr_t)11) != 0) {
         printf("threads: create a errno=%d\n", errno);
         return 0;
     }
-    if (ThreadCreate(&b, worker, (void *)(intptr_t)22) != 0) {
+    if (robo_thread_create(&b, worker, (void *)(intptr_t)22) != 0) {
         printf("threads: create b errno=%d\n", errno);
         return 0;
     }
-    if (ThreadCreate(&c, worker, (void *)(intptr_t)33) != 0) {
+    if (robo_thread_create(&c, worker, (void *)(intptr_t)33) != 0) {
         printf("threads: create c errno=%d\n", errno);
         return 0;
     }
-    if (ThreadJoin(a) < 0 || ThreadJoin(b) < 0 ||
-        ThreadJoin(c) < 0) {
+    if (robo_thread_join(a) < 0 || robo_thread_join(b) < 0 ||
+        robo_thread_join(c) < 0) {
         printf("threads: join errno=%d\n", errno);
         return 0;
     }
@@ -216,27 +216,27 @@ static int TestThreads(void)
 static int TestSockets(void)
 {
     int s;
-    Sockaddr sa;
+    robo_sockaddr_t sa;
     char buf[64];
     const char *hello = "Hello from Roboticela OS\n";
     ssize_t n;
 
-    s = Socket(RoboAfInet, RoboSockStream, 0);
+    s = robo_socket(ROBO_AF_INET, ROBO_SOCK_STREAM, 0);
     if (s < 0)
         return 0;
-    sa.family = RoboAfInet;
+    sa.family = ROBO_AF_INET;
     sa.port = 18019;
     sa.addr = 0x0A000204u;
     sa.zero = 0;
-    if (Connect(s, &sa) != 0) {
+    if (robo_connect(s, &sa) != 0) {
         close(s);
         return 0;
     }
-    if (Send(s, hello, 25) < 0) {
+    if (robo_send(s, hello, 25) < 0) {
         close(s);
         return 0;
     }
-    n = Recv(s, buf, 63);
+    n = robo_recv(s, buf, 63);
     close(s);
     if (n < 15)
         return 0;

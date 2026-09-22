@@ -480,7 +480,7 @@ uint64_t SysSleep(RoboSyscallContext *ctx)
     return 0;
 }
 
-uint64_t RoboSysTime(RoboSyscallContext *ctx)
+uint64_t SysTime(RoboSyscallContext *ctx)
 {
     (void)ctx;
     return TimeNow();

@@ -20,18 +20,18 @@ static int sys_ret(robo_long r)
 
 int robo_open(const char *path, int flags, int mode)
 {
-    return sys_ret(robo_syscall((robo_long)ROBO_SYS_OPEN, (robo_long)(uintptr_t)path,
+    return sys_ret(robo_syscall((robo_long)RoboSysOpen, (robo_long)(uintptr_t)path,
                                 (robo_long)flags, (robo_long)mode, 0, 0, 0));
 }
 
 int robo_close(int fd)
 {
-    return sys_ret(robo_syscall((robo_long)ROBO_SYS_CLOSE, (robo_long)fd, 0, 0, 0, 0, 0));
+    return sys_ret(robo_syscall((robo_long)RoboSysClose, (robo_long)fd, 0, 0, 0, 0, 0));
 }
 
 ssize_t robo_read(int fd, void *buf, size_t n)
 {
-    robo_long r = robo_syscall((robo_long)ROBO_SYS_READ, (robo_long)fd,
+    robo_long r = robo_syscall((robo_long)RoboSysRead, (robo_long)fd,
                                (robo_long)(uintptr_t)buf, (robo_long)n, 0, 0, 0);
     if (robo_set_err(r))
         return -1;
@@ -40,7 +40,7 @@ ssize_t robo_read(int fd, void *buf, size_t n)
 
 ssize_t robo_write(int fd, const void *buf, size_t n)
 {
-    robo_long r = robo_syscall((robo_long)ROBO_SYS_WRITE, (robo_long)fd,
+    robo_long r = robo_syscall((robo_long)RoboSysWrite, (robo_long)fd,
                                (robo_long)(uintptr_t)buf, (robo_long)n, 0, 0, 0);
     if (robo_set_err(r))
         return -1;
@@ -49,7 +49,7 @@ ssize_t robo_write(int fd, const void *buf, size_t n)
 
 off_t robo_seek(int fd, off_t off, int whence)
 {
-    robo_long r = robo_syscall((robo_long)ROBO_SYS_SEEK, (robo_long)fd,
+    robo_long r = robo_syscall((robo_long)RoboSysSeek, (robo_long)fd,
                                (robo_long)off, (robo_long)whence, 0, 0, 0);
     if (robo_set_err(r))
         return -1;
@@ -64,7 +64,7 @@ int robo_stat(const char *path, struct stat *st)
         errno = EINVAL;
         return -1;
     }
-    r = robo_syscall((robo_long)ROBO_SYS_STAT, (robo_long)(uintptr_t)path,
+    r = robo_syscall((robo_long)RoboSysStat, (robo_long)(uintptr_t)path,
                      (robo_long)(uintptr_t)&ks, 0, 0, 0, 0);
     if (robo_set_err(r))
         return -1;
@@ -79,25 +79,25 @@ int robo_stat(const char *path, struct stat *st)
 
 int robo_mkdir(const char *path, int mode)
 {
-    return sys_ret(robo_syscall((robo_long)ROBO_SYS_MKDIR, (robo_long)(uintptr_t)path,
+    return sys_ret(robo_syscall((robo_long)RoboSysMkdir, (robo_long)(uintptr_t)path,
                                 (robo_long)mode, 0, 0, 0, 0));
 }
 
 int robo_rmdir(const char *path)
 {
-    return sys_ret(robo_syscall((robo_long)ROBO_SYS_RMDIR, (robo_long)(uintptr_t)path,
+    return sys_ret(robo_syscall((robo_long)RoboSysRmdir, (robo_long)(uintptr_t)path,
                                 0, 0, 0, 0, 0));
 }
 
 int robo_unlink(const char *path)
 {
-    return sys_ret(robo_syscall((robo_long)ROBO_SYS_UNLINK, (robo_long)(uintptr_t)path,
+    return sys_ret(robo_syscall((robo_long)RoboSysUnlink, (robo_long)(uintptr_t)path,
                                 0, 0, 0, 0, 0));
 }
 
 int robo_rename(const char *oldpath, const char *newpath)
 {
-    return sys_ret(robo_syscall((robo_long)ROBO_SYS_RENAME,
+    return sys_ret(robo_syscall((robo_long)RoboSysRename,
                                 (robo_long)(uintptr_t)oldpath,
                                 (robo_long)(uintptr_t)newpath, 0, 0, 0, 0));
 }

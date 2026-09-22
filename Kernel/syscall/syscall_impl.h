@@ -14,7 +14,7 @@ uint64_t SysMunmap(RoboSyscallContext *ctx);
 uint64_t SysProcessCreate(RoboSyscallContext *ctx);
 uint64_t SysThreadCreate(RoboSyscallContext *ctx);
 uint64_t SysSleep(RoboSyscallContext *ctx);
-uint64_t RoboSysTime(RoboSyscallContext *ctx);
+uint64_t SysTime(RoboSyscallContext *ctx);
 uint64_t SysIpc(RoboSyscallContext *ctx);
 uint64_t SysDisplay(RoboSyscallContext *ctx);
 uint64_t SysSocket(RoboSyscallContext *ctx);

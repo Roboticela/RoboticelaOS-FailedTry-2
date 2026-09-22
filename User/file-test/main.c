@@ -40,7 +40,7 @@ int main(void)
 
     if (rename("/file-test.txt", "/file-test2.txt") != 0)
         return 7;
-    if (stat("/file-test2.txt", &st) != 0 || st.stSize != 10)
+    if (stat("/file-test2.txt", &st) != 0 || st.st_size != 10)
         return 8;
     if (unlink("/file-test2.txt") != 0)
         return 9;

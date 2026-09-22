@@ -16,7 +16,7 @@ void robo_tls_init(void)
         tcb = &g_boot_tcb;
     tcb->self = tcb;
     tcb->err = 0;
-    robo_syscall((robo_long)ROBO_SYS_THREAD, (robo_long)ROBO_THREAD_OP_SET_FS,
+    robo_syscall((robo_long)RoboSysThread, (robo_long)RoboThreadOpSetFs,
                  (robo_long)(uintptr_t)tcb, 0, 0, 0, 0);
 }
 

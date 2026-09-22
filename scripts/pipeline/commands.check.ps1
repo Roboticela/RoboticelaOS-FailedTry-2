@@ -177,10 +177,10 @@ function Invoke-RoboCheck {
     # ---------------------------------------------------------------------
     Write-RoboSection "Sources"
     $sources = @(
-        @{ Name = "bootloader entry"; Path = (Join-Path $script:RoboPaths.Bootloader "src") },
-        @{ Name = "bootloader manifest"; Path = (Join-Path $script:RoboPaths.Bootloader "config\roboboot.manifest") },
-        @{ Name = "ESP/disk image tool"; Path = (Join-Path $script:RoboPaths.Bootloader "tools\make_esp.py") },
-        @{ Name = "asset baker"; Path = (Join-Path $script:RoboPaths.Bootloader "tools\bake_assets.py") },
+        @{ Name = "bootloader entry"; Path = (Join-Path $script:RoboPaths.Bootloader "Source") },
+        @{ Name = "bootloader manifest"; Path = (Join-Path $script:RoboPaths.Bootloader "Config\roboboot.manifest") },
+        @{ Name = "ESP/disk image tool"; Path = (Join-Path $script:RoboPaths.Bootloader "Tools\make_esp.py") },
+        @{ Name = "asset baker"; Path = (Join-Path $script:RoboPaths.Bootloader "Tools\bake_assets.py") },
         @{ Name = "kernel sources"; Path = (Join-Path $script:RoboPaths.Kernel "src") },
         @{ Name = "kernel linker script"; Path = (Join-Path $script:RoboPaths.Kernel "linker\kernel.ld") },
         @{ Name = "libc"; Path = $script:RoboPaths.Libc },

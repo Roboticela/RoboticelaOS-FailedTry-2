@@ -1,4 +1,4 @@
-.intelSyntax noprefix
+.intel_syntax noprefix
 
 .section .text
 .global _start

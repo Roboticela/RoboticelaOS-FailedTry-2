@@ -5,7 +5,7 @@
  * Roboticela OS x86_64 Syscall ABI v1 — numbers.
  *
  * These values are part of the public contract. Do not renumber.
- * Removed calls keep their number as ROBO_SYS_RESERVED_*.
+ * Removed calls keep their number as RoboSysReserved*.
  *
  *   0–31     core ABI v1
  *   32       SYS_THREAD (multiplexed thread/TLS ops)

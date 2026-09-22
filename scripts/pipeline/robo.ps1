@@ -422,10 +422,10 @@ function Show-RoboVersions {
         }
     }
     $bootVersion = "unknown"
-    $bhdr = Join-Path $script:RoboPaths.Bootloader "include\roboboot.h"
+    $bhdr = Join-Path $script:RoboPaths.Bootloader "Include\roboboot.h"
     if (Test-Path -LiteralPath $bhdr) {
         foreach ($line in Get-Content -LiteralPath $bhdr) {
-            if ($line -match 'ROBO_VERSION_STRING\s+"([^"]+)"') { $bootVersion = $Matches[1]; break }
+            if ($line -match 'RbVersionStr\s+"([^"]+)"') { $bootVersion = $Matches[1]; break }
         }
     }
     Write-RoboKeyValue "Pipeline" "1.0.0"

@@ -22,7 +22,7 @@ static void thread_tramp(void *p)
     struct spawn s = *(struct spawn *)p;
     s.tcb->self = s.tcb;
     s.tcb->err = 0;
-    robo_syscall((robo_long)ROBO_SYS_THREAD, (robo_long)ROBO_THREAD_OP_SET_FS,
+    robo_syscall((robo_long)RoboSysThread, (robo_long)RoboThreadOpSetFs,
                  (robo_long)(uintptr_t)s.tcb, 0, 0, 0, 0);
     s.fn(s.arg);
     robo_thread_exit();
@@ -59,7 +59,7 @@ int robo_thread_create(robo_thread_t *out, robo_thread_fn fn, void *arg)
     s->tcb = tcb;
     tcb->self = tcb;
     tcb->err = 0;
-    tid = robo_syscall((robo_long)ROBO_SYS_THREAD_CREATE,
+    tid = robo_syscall((robo_long)RoboSysThreadCreate,
                        (robo_long)(uintptr_t)thread_tramp,
                        (robo_long)rsp, (robo_long)(uintptr_t)s, 0, 0, 0);
     if (robo_set_err(tid)) {
@@ -73,7 +73,7 @@ int robo_thread_create(robo_thread_t *out, robo_thread_fn fn, void *arg)
 
 void robo_thread_exit(void)
 {
-    robo_syscall((robo_long)ROBO_SYS_THREAD, (robo_long)ROBO_THREAD_OP_EXIT,
+    robo_syscall((robo_long)RoboSysThread, (robo_long)RoboThreadOpExit,
                  0, 0, 0, 0, 0);
     for (;;)
         ;
@@ -81,8 +81,8 @@ void robo_thread_exit(void)
 
 int robo_thread_join(robo_thread_t tid)
 {
-    robo_long r = robo_syscall((robo_long)ROBO_SYS_THREAD,
-                               (robo_long)ROBO_THREAD_OP_JOIN,
+    robo_long r = robo_syscall((robo_long)RoboSysThread,
+                               (robo_long)RoboThreadOpJoin,
                                (robo_long)tid, 0, 0, 0, 0);
     if (robo_set_err(r))
         return -1;
@@ -91,8 +91,8 @@ int robo_thread_join(robo_thread_t tid)
 
 int robo_thread_yield(void)
 {
-    robo_long r = robo_syscall((robo_long)ROBO_SYS_THREAD,
-                               (robo_long)ROBO_THREAD_OP_YIELD, 0, 0, 0, 0, 0);
+    robo_long r = robo_syscall((robo_long)RoboSysThread,
+                               (robo_long)RoboThreadOpYield, 0, 0, 0, 0, 0);
     if (robo_set_err(r))
         return -1;
     return 0;
@@ -100,8 +100,8 @@ int robo_thread_yield(void)
 
 tid_t robo_gettid(void)
 {
-    return (tid_t)robo_syscall((robo_long)ROBO_SYS_THREAD,
-                               (robo_long)ROBO_THREAD_OP_GETTID, 0, 0, 0, 0, 0);
+    return (tid_t)robo_syscall((robo_long)RoboSysThread,
+                               (robo_long)RoboThreadOpGettid, 0, 0, 0, 0, 0);
 }
 
 int robo_mutex_init(robo_mutex_t *m)

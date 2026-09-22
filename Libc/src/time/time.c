@@ -7,7 +7,7 @@
 
 static uint64_t monotonic_ns(void)
 {
-    robo_long r = robo_syscall((robo_long)ROBO_SYS_TIME, 0, 0, 0, 0, 0, 0);
+    robo_long r = robo_syscall((robo_long)RoboSysTime, 0, 0, 0, 0, 0, 0);
     if (robo_set_err(r))
         return 0;
     return (uint64_t)r;
@@ -51,7 +51,7 @@ int nanosleep(const struct timespec *req, struct timespec *rem)
     ms = (uint64_t)req->tv_sec * 1000ull + ((uint64_t)req->tv_nsec + 999999ull) / 1000000ull;
     if (!ms)
         ms = 1;
-    r = robo_syscall((robo_long)ROBO_SYS_SLEEP, (robo_long)ms, 0, 0, 0, 0, 0);
+    r = robo_syscall((robo_long)RoboSysSleep, (robo_long)ms, 0, 0, 0, 0, 0);
     if (rem) {
         rem->tv_sec = 0;
         rem->tv_nsec = 0;
