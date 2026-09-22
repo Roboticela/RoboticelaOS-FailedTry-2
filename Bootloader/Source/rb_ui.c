@@ -159,11 +159,6 @@ static void UiPicWh(const Image *im, float ih, float *iw, float *oh)
     *iw = ih * aspect;
 }
 
-static int SplashLogoH(const Session *ss)
-{
-    return UiCompact(ss) ? 128 : 256;
-}
-
 static int UiDebugOn(const Session *ss)
 {
     return ss && RoboRbDebugEnabled(&ss->env);
@@ -191,6 +186,82 @@ static float UiDebugReserve(const Session *ss)
     return ((float)ss->fb.h - y) + 16.f;
 }
 
+/*
+ * Splash logo size from the display, never a fixed pixel height.
+ * Scales with the shorter screen edge, clamps to width/height fractions so the
+ * mark fits with the progress bar, and keeps the image aspect ratio exact.
+ * Never upscales past the source bitmap (baked logo stays sharp).
+ */
+static void SplashLogoSize(const Session *ss, int srcW, int srcH,
+                           int *outW, int *outH)
+{
+    float aspect;
+    float shortEdge, target, tw, th, maxW, maxH, usableH, scale;
+
+    if (!outW || !outH)
+        return;
+    *outW = 256;
+    *outH = 256;
+    if (!ss || srcW < 1 || srcH < 1 || ss->fb.w < 1 || ss->fb.h < 1)
+        return;
+
+    aspect = (float)srcW / (float)srcH;
+    usableH = (float)ss->fb.h - UiDebugReserve(ss);
+    if (usableH < 120.f)
+        usableH = (float)ss->fb.h;
+
+    shortEdge = (float)((ss->fb.w < ss->fb.h) ? ss->fb.w : ss->fb.h);
+    target = shortEdge * 0.28f;
+    if (target < 96.f)
+        target = 96.f;
+    if (target > 640.f)
+        target = 640.f;
+
+    if (aspect >= 1.f) {
+        tw = target;
+        th = tw / aspect;
+    } else {
+        th = target;
+        tw = th * aspect;
+    }
+
+    maxW = (float)ss->fb.w * 0.42f;
+    maxH = usableH * 0.30f;
+    if (maxW < 64.f)
+        maxW = 64.f;
+    if (maxH < 64.f)
+        maxH = 64.f;
+
+    if (tw > maxW) {
+        scale = maxW / tw;
+        tw = maxW;
+        th *= scale;
+    }
+    if (th > maxH) {
+        scale = maxH / th;
+        th = maxH;
+        tw *= scale;
+    }
+
+    if (tw > (float)srcW) {
+        scale = (float)srcW / tw;
+        tw = (float)srcW;
+        th *= scale;
+    }
+    if (th > (float)srcH) {
+        scale = (float)srcH / th;
+        th = (float)srcH;
+        tw *= scale;
+    }
+
+    *outW = (int)(tw + 0.5f);
+    *outH = (int)(th + 0.5f);
+    if (*outW < 1)
+        *outW = 1;
+    if (*outH < 1)
+        *outH = 1;
+}
+
 static void FitSplashLogo(Session *ss)
 {
     int lh, lw;
@@ -199,9 +270,7 @@ static void FitSplashLogo(Session *ss)
         if (ss) ss->logoFitted = 1;
         return;
     }
-    lh = SplashLogoH(ss);
-    lw = (int)((lh * (float)ss->logo.w / (float)ss->logo.h) + 0.5f);
-    if (lw < 1) lw = 1;
+    SplashLogoSize(ss, ss->logo.w, ss->logo.h, &lw, &lh);
     if (ss->logo.w == lw && ss->logo.h == lh) {
         ss->logoFitted = 1;
         return;
@@ -216,7 +285,7 @@ static void FitSplashLogo(Session *ss)
 
 void SplashDraw(Session *ss, float visual, float fade)
 {
-    float cx, lw, lh, lx, ly, barW, barH, barX, barY, fill, stack, top;
+    float cx, lw, lh, lx, ly, barW, barH, barX, barY, fill, stack, top, gap;
     int bx, by, bw, bh;
     uint32_t bg, track, brand;
     if (!ss) return;
@@ -224,15 +293,25 @@ void SplashDraw(Session *ss, float visual, float fade)
     visual = Clampf(visual, 0.f, 1.f);
     FitSplashLogo(ss);
     cx = ss->fb.w * 0.5f;
-    lh = (float)SplashLogoH(ss);
-    lw = lh;
     if (ss->logo.px && ss->logo.h > 0) {
         lw = (float)ss->logo.w;
         lh = (float)ss->logo.h;
+    } else {
+        int dw, dh;
+        SplashLogoSize(ss, 1, 1, &dw, &dh);
+        lw = (float)dw;
+        lh = (float)dh;
     }
-    barW = UiCompact(ss) ? 240.f : 280.f;
+    barW = (float)ss->fb.w * 0.22f;
+    if (barW < 160.f) barW = 160.f;
+    if (barW > 320.f) barW = 320.f;
+    if (barW > lw * 1.15f && lw > 80.f)
+        barW = lw * 1.15f;
     barH = 4.f;
-    stack = lh + 64.f + barH;
+    gap = lh * 0.22f;
+    if (gap < 32.f) gap = 32.f;
+    if (gap > 72.f) gap = 72.f;
+    stack = lh + gap + barH;
     {
         float area = (float)ss->fb.h - UiDebugReserve(ss);
         top = area * 0.5f - stack * 0.5f;
@@ -241,7 +320,7 @@ void SplashDraw(Session *ss, float visual, float fade)
     lx = cx - lw * 0.5f;
     ly = top;
     barX = cx - barW * 0.5f;
-    barY = ly + lh + 64.f;
+    barY = ly + lh + gap;
     bx = (int)barX;
     by = (int)barY;
     bw = (int)barW;
