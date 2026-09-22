@@ -163,7 +163,7 @@ Two shapes, both real. The file tree is the one you **copy** onto a stick; the d
 
 ### The file tree (copy onto a FAT32 stick)
 
-`Build/dist/` is a UEFI removable-media layout. Format a USB stick as FAT32, then copy **the contents** of that folder onto it. The stick root must contain `EFI\BOOT\BOOTX64.EFI`; do not nest an extra folder.
+`Build/dist/` is the whole OS in one folder: the UEFI file tree, `roboticelaos.img`, `roboticelaos-usb.zip`, and loose `BOOTX64.EFI` / `kernel.elf` / `initrd`. Format a USB stick as FAT32, then copy **EFI\, config\, assets\ and volumes\** onto it (not the image or zip). The stick root must contain `EFI\BOOT\BOOTX64.EFI`; do not nest an extra folder.
 
 ```
 .\Scripts\Build\BuildEverything.ps1

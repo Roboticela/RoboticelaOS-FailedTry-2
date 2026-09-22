@@ -29,6 +29,7 @@ function Invoke-RoboDeploy {
 
     Invoke-RoboStep -Name "package USB tree" -Layer "DEPLOY" -Action {
         $zip = Publish-RoboUsbArchive
+        Publish-RoboDistPayload
         Write-RoboInfo ("archive: " + $zip.FullName)
     } | Out-Null
 

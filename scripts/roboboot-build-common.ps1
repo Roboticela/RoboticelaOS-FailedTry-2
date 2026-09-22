@@ -1743,7 +1743,7 @@ function Copy-EspTree([string]$SrcDir, [string]$DstDir) {
 
 function Publish-RoboDist {
     New-Item -ItemType Directory -Force -Path $script:Dist | Out-Null
-    foreach ($junk in @("BOOTX64.EFI", "kernel.elf", "roboboot.exe", "roboboot-esp.img", "COMBINED.txt")) {
+    foreach ($junk in @("roboboot.exe", "roboboot-esp.img", "COMBINED.txt")) {
         $p = Join-Path $script:Dist $junk
         if (Test-Path $p) { Remove-Item $p -Force }
     }
@@ -1775,26 +1775,38 @@ function Publish-RoboDist {
     if (-not (Test-Path $kern)) { throw "combine missing volumes\sys\kernel.elf" }
     if (-not (Test-Path $initrd)) { throw "combine missing volumes\sys\initrd" }
 
+    Copy-Item $script:EfiOut (Join-Path $script:Dist "BOOTX64.EFI") -Force
+    Copy-Item $kern (Join-Path $script:Dist "kernel.elf") -Force
+    Copy-Item $initrd (Join-Path $script:Dist "initrd") -Force
+    if (Test-Path $script:EspImg) {
+        Copy-Item $script:EspImg (Join-Path $script:Dist "roboticelaos.img") -Force
+    }
+
     $note = @(
-        "RoboticelaOS — copy this folder onto a USB stick",
+        "RoboticelaOS — this folder is the whole OS",
         "",
-        "1. Format the stick as FAT32 (UEFI removable media).",
-        "2. Copy the CONTENTS of this folder onto the stick root.",
-        "   After the copy, the stick must have EFI\BOOT\BOOTX64.EFI at the root.",
-        "   Do not copy the folder itself (do not nest an extra directory).",
-        "3. On the PC: enter firmware setup, disable Secure Boot, boot from USB",
-        "   in UEFI mode (not Legacy / CSM).",
+        "Copy onto a FAT32 USB stick (file tree)",
+        "  1. Format the stick as FAT32.",
+        "  2. Copy EFI\, config\, assets\ and volumes\ onto the stick root.",
+        "     Do not copy roboticelaos.img, the .zip, or the loose BOOTX64.EFI / kernel.elf / initrd",
+        "     onto the stick — those are for flashing or inspection.",
+        "  3. The stick root must contain EFI\BOOT\BOOTX64.EFI (do not nest an extra folder).",
+        "  4. On the PC: disable Secure Boot, boot from USB in UEFI mode (not Legacy / CSM).",
+        "",
+        "Write the disk image to the whole device",
+        "  roboticelaos.img  — GPT disk with the ESP; flash it with:",
+        "    scripts\robo flash --device <N> --yes",
         "",
         "Layout",
         "  EFI\BOOT\BOOTX64.EFI         default firmware boot path",
         "  EFI\Roboticela\BOOTX64.EFI   vendor boot path",
         "  config\                      catalog and saved settings",
         "  assets\                      splash, pictures, fonts",
-        "  volumes\sys\kernel.elf       kernel",
-        "  volumes\sys\initrd           initrd",
-        "",
-        "Alternatively write Build\images\roboticelaos.img to the whole device:",
-        "  scripts\robo flash --device <N> --yes"
+        "  volumes\sys\kernel.elf       kernel on the stick",
+        "  volumes\sys\initrd           initrd on the stick",
+        "  roboticelaos.img             whole-disk image (same OS)",
+        "  roboticelaos-usb.zip         the EFI/config/assets/volumes tree zipped",
+        "  BOOTX64.EFI, kernel.elf, initrd   loose copies of the same binaries"
     )
     [IO.File]::WriteAllLines((Join-Path $script:Dist "USB.txt"), $note)
     Write-Step "USB" $script:Dist

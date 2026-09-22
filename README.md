@@ -22,13 +22,15 @@ Output lands in `Build/`. Do not commit it.
 
 ## Flash drive (real PC)
 
-After a full build, copy **the contents** of `Build/dist/` onto a FAT32 USB stick:
+After a full build, everything lives in `Build/dist/`: the EFI tree, `roboticelaos.img`, `roboticelaos-usb.zip`, `BOOTX64.EFI`, `kernel.elf` and `initrd`.
+
+To boot from a FAT32 stick, copy **EFI\, config\, assets\ and volumes\** onto the stick root (not the `.img` / `.zip` / loose binaries):
 
 1. Format the stick as FAT32.
 2. Copy everything inside `Build/dist/` to the stick root so `EFI\BOOT\BOOTX64.EFI` sits at the root (do not nest the `dist` folder).
 3. On the PC: firmware setup → disable Secure Boot → boot from USB in UEFI mode (not Legacy / CSM).
 
-`Build/dist/USB.txt` repeats those steps. `Build/images/roboticelaos.img` is the same system as a GPT disk you can write with `.\scripts\pipeline\robo.ps1 flash --device <N> --yes`. `Build/images/roboticelaos-usb.zip` is the tree as one archive.
+`Build/dist/USB.txt` repeats those steps. `Build/dist/roboticelaos.img` is the same system as a GPT disk you can write with `.\scripts\pipeline\robo.ps1 flash --device <N> --yes`. `Build/dist/roboticelaos-usb.zip` is the EFI tree as one archive.
 
 ## Test
 
