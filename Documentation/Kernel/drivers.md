@@ -1,11 +1,11 @@
-# Driver system (Phases 14–16)
+# Driver system (Phases 14–16 + Generic Phase 1)
 
-Roboticela OS keeps the base ISO small. The kernel ships only **Category A**
-baseline drivers. Vendor GPUs, Wi-Fi, NVMe, AHCI, and USB stacks are not
-compiled in.
+Roboticela OS keeps the base ISO small and boots without vendor packages by
+shipping **Category A** standards-based drivers. Vendor GPUs, chipset Wi-Fi,
+and vendor NICs are **Category B** (signed `.rdrv` packages later).
 
 ```text
-PCI / ACPI / platform
+PCI / ACPI / USB / platform
         ↓
   Device model
         ↓
@@ -13,14 +13,14 @@ PCI / ACPI / platform
         ↓
   Builtin driver (probe / start)
         ↓
-  Subsystem API (block, graphics, input)
+  Subsystem API (block, graphics, input, USB, net, power)
 ```
 
 ## Layout
 
 | Path | Role |
-|------|------|
-| `/System/Drivers/Builtin/` | Compiled-in baseline (conceptual; v1 is linked into the kernel) |
+|---|---|
+| `/System/Drivers/Builtin/` | Compiled-in baseline (linked into the kernel) |
 | `/System/Drivers/Generic/` | Future optional standard packages (`.rdrv`) |
 | `/System/Drivers/Installed/` | Future signed vendor packages |
 | `/System/Drivers/Cache/` | Future download cache |
@@ -32,8 +32,7 @@ package until a future loader exists.
 ## Driver ABI
 
 Major must match `RoboDriverAbiMajor` (1). Minor must be `<=`
-`RoboDriverAbiMinor` (0). A major mismatch is `RoboEbadabi`. The
-kernel never reinterprets an incompatible ABI.
+`RoboDriverAbiMinor` (0). A major mismatch is `RoboEbadabi`.
 
 Lifecycle: `DISCOVERED → MATCHED → VERIFIED → LOADED → INITIALIZED →
 RUNNING`. Failure sets `FAILED`. Removal: `STOPPING → UNLOADED`.
@@ -43,65 +42,82 @@ RUNNING`. Failure sets `FAILED`. Removal: `STOPPING → UNLOADED`.
 PCI scores, highest wins:
 
 1. vendor + device (+ subsystem)
-2. class/subclass
-3. no match → device stays `Unsupported` (kernel continues)
+2. class/subclass (+ progif when non-zero on the id)
+3. no match → device stays `Unsupported` (kernel continues; production boot stays quiet)
 
 Platform devices match `ident` (`framebuffer`, `ps2-keyboard`,
-`ps2-mouse`). PCI enumeration never calls a vendor driver directly.
+`ps2-mouse`).
+
+## Category A builtins (generic Phase 1)
+
+| Area | Driver / layer | Standard |
+|---|---|---|
+| PCI | Enumeration | ECAM (ACPI MCFG) / CF8–CFC |
+| ACPI | Tables | RSDP → XSDT → MCFG, FADT, MADT |
+| Display | UEFI GOP + EDID synth | Firmware framebuffer |
+| Input | PS/2 | Legacy keyboard/mouse |
+| Input | USB HID class | Boot protocol (with xHCI transfers later) |
+| Storage | VirtIO block | VirtIO PCI |
+| Storage | AHCI | SATA AHCI (PCI `01:06:01`) |
+| Storage | NVMe | NVM Express (PCI `01:08:02`) |
+| Storage | Block table + GPT/MBR | Partition layer over `RoboBlockDevice` |
+| USB | xHCI host | USB 3.x host (PCI `0C:03:30`) |
+| USB | MSC BOT class | Mass storage class attach |
+| Network | VirtIO-net + TCP/IP | VirtIO + Ethernet/IPv4 stack |
+| Power | Battery API | Stub until AML (`_BIF`/`_BST`) |
+
+### Block architecture
+
+```text
+NVMe / AHCI / VirtIO / USB-MSC
+        ↓
+  RoboBlockDevice
+        ↓
+  BdevTable (disk0, disk0p1, …)
+        ↓
+  GPT / MBR PartitionProbe
+        ↓
+  VFS / filesystem
+```
+
+### Display path (no vendor GPU)
+
+```text
+UEFI GOP → framebuffer → RoboGraphics (CPU) → desktop
+EDID preferred mode synthesized from GOP until a raw EDID blob is handed off
+```
 
 ## Signature system
 
 Packages use magic `RDRV`, SHA-256 over (header with hash/sig zeroed)
 combined with the payload hash, then **Ed25519** over the 32-byte
-package hash.
-
-Production mode rejects:
-
-* unsigned packages
-* hash mismatch
-* invalid signature
-* unknown key id
-* ABI mismatch
-* non-x86_64 `arch`
-
-Test mode is explicit (`driver-test` on the kernel command line, or
-`RdrvVerify(..., test_mode=1)`). Unsigned packages also need
-`RoboRdrvFlagTest`. There is no hidden bypass.
-
-The kernel image contains **public** trust slots only. Private signing
-keys are not in the repository, ISO, or kernel. The production key
-ceremony is **not implemented**. Host tests generate ephemeral keys.
-
-Revocation lists, key rotation, and Secure Boot integration are designed
-for later and are **not implemented**.
+package hash. Production rejects unsigned / mismatched / unknown-key
+packages. Test mode is explicit (`driver-test` cmdline).
 
 ## DMA / MMIO / IRQ
 
 * MMIO: `MmioMap` identity-maps physical BARs with `NOCACHE`.
-* IRQ: `IrqRegister` (PIC). IRQ0 remains the timer.
-* DMA: virtio uses `PageAlloc` (VA = PA in the identity map).
-  **IOMMU is not implemented.** Devices can DMA any identity-mapped RAM.
-  This is a documented security limitation.
+* IRQ: `IrqRegister` (PIC). MSI/MSI-X routing is not yet a full driver.
+* DMA: drivers use `PageAlloc` (VA = PA). **IOMMU is not implemented.**
 
-## Category A builtins (v1)
+## Category B (not in this phase)
 
-* PCI enumeration (ECAM via ACPI MCFG when present, CF8/CFC fallback)
-* Minimal ACPI (RSDP checksum + MCFG only)
-* UEFI framebuffer → RoboGraphics (CPU renderer)
-* PS/2 keyboard and mouse → Input Manager (generic key/mouse events)
-* VirtIO block (modern PCI) → existing `RoboBlockDevice` → RoboFS
+* Intel / AMD / NVIDIA GPU acceleration
+* Vendor Ethernet / Wi-Fi chipset drivers
+* Full AML interpreter, sleep/hibernate
+* HDA codec graphs, I²C/SPI device drivers, TPM 2.0
+* Relocatable `.rdrv` loading
 
-VirtIO claims only disks with `capacity <= 32768` 512-byte sectors so a
-firmware ESP presented as virtio-blk is not formatted.
+## Roadmap (dependency order)
 
-## Not in this phase
-
-NVMe, AHCI, USB, xHCI, GPU acceleration, Vulkan/OpenGL, networking,
-full ACPI, user-space drivers, automatic repository download.
+```text
+Done:   UEFI → PCI → interrupts/DMA → VirtIO → GOP → PS/2 → AHCI/NVMe → GPT → xHCI host
+Next:   xHCI transfer rings → HID/MSC I/O → HDA → VirtIO-GPU → Wi-Fi MAC glue → AML battery
+Later:  Vendor GPU / Wi-Fi / NIC packages via Driver Manager
+```
 
 ## Diagnostics
 
-Boot prints `ROBOTICELA DRIVER SYSTEM` with live counts, then
-`[PASS] DRIVER SYSTEM` / `[PASS] STORAGE DRIVER` when self-tests succeed.
-
-User: `/bin/robo` calls `SYS_DRIVER_QUERY` (24).
+Self-test (`ktest`) prints `ROBOTICELA DRIVER SYSTEM` with live counts and
+`[PASS] DRIVER SYSTEM` / `[PASS] STORAGE DRIVER` when suites succeed.
+Production boots keep unsupported-device dumps silent.

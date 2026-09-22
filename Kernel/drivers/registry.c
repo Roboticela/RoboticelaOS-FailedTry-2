@@ -108,6 +108,9 @@ unsigned DriverMatchScore(const RoboDriver *drv, const RoboDevice *dev)
                 (id->classCode != pci->classCode ||
                  id->subclass != pci->subclass))
                 continue;
+            if ((id->flags & RoboMatchClass) && id->progif != 0 &&
+                id->progif != pci->progif)
+                continue;
             if (id->flags & RoboMatchVendor)
                 s += 40;
             if (id->flags & RoboMatchDevice)
@@ -116,6 +119,9 @@ unsigned DriverMatchScore(const RoboDriver *drv, const RoboDevice *dev)
                 s += 20;
             if (id->flags & RoboMatchClass)
                 s += 10;
+            if ((id->flags & RoboMatchClass) && id->progif != 0 &&
+                id->progif == pci->progif)
+                s += 5;
         }
         if (s > best)
             best = s;

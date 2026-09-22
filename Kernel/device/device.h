@@ -5,12 +5,13 @@
 
 #define RoboBusPlatform 1u
 #define RoboBusPci      2u
+#define RoboBusUsb      3u
 
 #define RoboPlatFb    1u
 #define RoboPlatKbd   2u
 #define RoboPlatMouse 3u
 
-#define RoboDevMax 96
+#define RoboDevMax 128
 
 struct RoboDriver;
 

@@ -1,4 +1,6 @@
 #include "storage/virtio_blk.h"
+#include "storage/partition.h"
+#include "fs/block/bdev_table.h"
 #include "pci/pci.h"
 #include "arch/x86_64/mmio.h"
 #include "arch/x86_64/io.h"
@@ -546,6 +548,12 @@ static int VirtioStart(RoboDevice *dev)
     kinfo("[INFO] [DRIVER] sectors %llu  blocks %llu\n",
             (unsigned long long)gVb.sectors,
             (unsigned long long)gVb.bdev.blockCount);
+    {
+        char name[RoboBdevNameMax];
+        if (BdevTableNextDiskName(name, sizeof(name)) == 0 &&
+            BdevTableAdd(name, RoboBdevKindDisk, &gVb.bdev, 0) == 0)
+            PartitionProbe(&gVb.bdev, name);
+    }
     return 0;
 }
 

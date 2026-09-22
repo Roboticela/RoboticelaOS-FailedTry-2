@@ -8,12 +8,21 @@
 #include "device/device.h"
 #include "pci/pci.h"
 #include "arch/x86_64/acpi/acpi.h"
+#include "fs/block/bdev_table.h"
 #include "storage/virtio_blk.h"
+#include "storage/ahci.h"
+#include "storage/nvme.h"
 #include "drivers/virtio_net.h"
 #include "net/core/network.h"
 #include "graphics/gfx.h"
+#include "graphics/edid.h"
 #include "input/input.h"
 #include "input/ps2.h"
+#include "usb/usb_core.h"
+#include "usb/xhci.h"
+#include "usb/usb_hid.h"
+#include "usb/usb_msc.h"
+#include "power/battery.h"
 #include "kio.h"
 
 static unsigned gPci, gReg, gLoaded, gFailed, gSigned, gRejected;
@@ -48,25 +57,27 @@ static void BindAll(void)
         d->matchScore = score;
         if (!drv || score == 0) {
             d->status = RoboDevUnsupported;
-            kprintf("Device Detected\n");
-            kprintf("\n");
-            if (d->busType == RoboBusPci && d->busData) {
-                RoboPciDevice *p = (RoboPciDevice *)d->busData;
-                kprintf("PCI\n");
-                kprintf("Vendor : %x\n", (unsigned)p->vendor);
-                kprintf("Device : %x\n", (unsigned)p->device);
-            } else {
-                kprintf("Name   : %s\n", d->name);
+            if (KlogTalk()) {
+                kprintf("Device Detected\n");
+                kprintf("\n");
+                if (d->busType == RoboBusPci && d->busData) {
+                    RoboPciDevice *p = (RoboPciDevice *)d->busData;
+                    kprintf("PCI\n");
+                    kprintf("Vendor : %x\n", (unsigned)p->vendor);
+                    kprintf("Device : %x\n", (unsigned)p->device);
+                } else {
+                    kprintf("Name   : %s\n", d->name);
+                }
+                kprintf("Driver:\n");
+                kprintf("Not Installed\n");
+                kprintf("\n");
+                kprintf("Status:\n");
+                kprintf("Unsupported\n");
+                kprintf("\n");
+                kprintf("Recommended:\n");
+                kprintf("Open Driver Manager\n");
+                kprintf("\n");
             }
-            kprintf("Driver:\n");
-            kprintf("Not Installed\n");
-            kprintf("\n");
-            kprintf("Status:\n");
-            kprintf("Unsupported\n");
-            kprintf("\n");
-            kprintf("Recommended:\n");
-            kprintf("Open Driver Manager\n");
-            kprintf("\n");
             continue;
         }
         if (DriverBind(d, drv) != 0) {
@@ -172,15 +183,24 @@ int HwSubsystemInit(const RoboBootInfo *info)
     AcpiInit(info);
     PciInit();
     DeviceInit();
+    BdevTableInit();
+    UsbCoreInit();
     InputInit();
     GfxInit(info);
+    EdidInit(info);
+    BatteryInit();
 
     NetInit();
     FbDriverRegister();
     VirtioBlkRegister();
+    AhciRegister();
+    NvmeRegister();
     VirtioNetRegister();
     Ps2KbdRegister();
     Ps2MouseRegister();
+    XhciRegister();
+    UsbHidRegister();
+    UsbMscRegister();
 
     d = DeviceAdd(RoboBusPlatform, "UEFI Framebuffer", "display", 0);
     if (d)
@@ -262,7 +282,11 @@ void HwStatus(unsigned *pci, unsigned *reg, unsigned *loaded,
 
 int HwStorageReady(void)
 {
-    return VirtioBlkBdev() != 0;
+    if (VirtioBlkBdev() != 0)
+        return 1;
+    if (AhciDiskCount() > 0 || NvmeDiskCount() > 0)
+        return 1;
+    return BdevTableDiskCount() > 0;
 }
 
 int DriverManagerSelftest(void)

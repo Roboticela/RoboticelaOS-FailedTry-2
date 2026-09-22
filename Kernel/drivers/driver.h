@@ -8,7 +8,7 @@
 #define RoboDriverAbiMajor 1u
 #define RoboDriverAbiMinor 0u
 
-#define RoboDrvMax 32
+#define RoboDrvMax 48
 #define RoboDrvIdMax 8
 
 #define RoboCapPciConfig (1u << 0)
@@ -18,6 +18,8 @@
 #define RoboCapBlockIo   (1u << 4)
 #define RoboCapDisplay    (1u << 5)
 #define RoboCapInput      (1u << 6)
+#define RoboCapUsb        (1u << 7)
+#define RoboCapAudio      (1u << 8)
 
 #define RoboMatchVendor  (1u << 0)
 #define RoboMatchDevice  (1u << 1)
