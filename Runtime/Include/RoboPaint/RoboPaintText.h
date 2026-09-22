@@ -34,16 +34,22 @@
  * exactly as a background command is independent of the surface it will be filled into --
  * and it puts glyph resolution where RoboGraphics' own bridge says it belongs, which is
  * at the drawing step: *"RoboGraphics does not shape, segment, bidi, or fall back fonts.
- * RoboText supplies glyph IDs + placement later."*
+ * RoboText supplies glyph IDs + placement later."* Since Phase 12.4 that is literally
+ * what happens: RoboText supplies the ids and the placement, and this module draws them.
  *
- * The boundary that leaves for Phase 14 is therefore explicit and already the right
- * shape:
+ * The boundary this header predicted arrived in **Phase 12.4**, and it arrived exactly
+ * where it was said it would:
  *
- *   this build    text run -> the font's cmap, per code point, in logical order -> paint
- *   Phase 14      text run -> RoboText shaping -> a glyph run -> paint
+ *   11.6 (then)   text run -> the font's cmap, per code point, in logical order -> paint
+ *   12.4 (now)    text run -> RoboText -> a glyph run -> paint
  *
- * and the record a shaper will fill in is this one, with `glyphsMissing` becoming a
- * shaping result instead of a cmap miss.
+ * The *pool* did not change, and that is the point of the design: the display list still
+ * stores characters, because a run's characters are a statement about the **document**
+ * while glyph ids are a statement about a font. What changed is who resolves them. The
+ * glyph loop lives in `RoboPaintDecoration.c` and is now four lines that own no font
+ * knowledge at all -- no cmap, no id, no advance, no way to disagree with the measurer,
+ * which runs the same glyph generation. `glyphsMissing` is still this record's own
+ * count, taken from RoboText's rather than from a lookup the painter performed.
  *
  * What is deliberately absent: shaping (GlyphSubstitution/GlyphPositioning, ligatures,
  * kerning), the bidi algorithm, line breaking, whitespace collapsing, font fallback,

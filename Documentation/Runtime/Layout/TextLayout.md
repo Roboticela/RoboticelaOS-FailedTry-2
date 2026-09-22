@@ -151,24 +151,36 @@ detached font rather than crashing or answering zero: "I cannot measure" and "th
 is zero wide" are different statements, and 10.5 is the phase that has to keep them
 apart.
 
-### 4.1 The font-backed measurer
+### 4.1 The font-backed measurer, and since 12.4 the RoboText one
 
-`LayoutTextFont` is the module's own *use* of RoboFont — cmap to map code
-points to glyph ids, hmtx to sum their advances, and the font's own head/hhea/hmtx
-numbers to scale the sum **once** at the end. Summing in font units and scaling
-after is not an optimisation: it is what keeps a run's width equal to the sum of its
-glyphs' widths, which a per-glyph integer conversion would break by rounding each
-one.
+`LayoutTextFont` is the module's own *use* of the font layer.
+
+**What it used to be, and why the change is the point.** It mapped code points
+through the cmap, summed their `hmtx` advances in **font units**, and scaled the sum
+once at the end — the last line of which was a real property (a run's width equals
+the sum of its glyphs' widths, which a per-glyph integer conversion would break by
+rounding each one) achieved by *restating* an arithmetic that `RoboPaint` also
+performed in device floats. The two were allowed to differ by a fraction of a pixel
+at a run's end, and a comment in the paint path admitted it.
+
+Since **Phase 12.4** the measurer asks RoboText for a shaped-equivalent run and
+sums the glyphs' **device** advances, accumulated in `double` and rounded once at
+the boundary (`RoboTextMeasurement.width`). The property is unchanged and it is no
+longer a coincidence of two careful restatements: the pen the painter accumulates
+and the width this line is justified to are sums of the *same numbers*, produced by
+the same `RoboTextGlyphRunGenerate`. The contract is
+`Documentation/Runtime/Text/Architecture.md`.
 
 Nothing in `RoboLayout` includes a RoboFont header. The measurer is the one
-translation unit that does, and it is a `Source/` file rather than an
-`Include/`-only API, which is how the layering stays true while the capability
-exists.
+translation unit that reaches the font layer, and it does so through RoboText's
+public headers — a `Source/` file rather than an `Include/`-only API, which is how
+the layering stays true while the capability exists.
 
-A code point the cmap does not map is counted — `glyphs_missing` on the run and in
+A scalar the cmap does not map is counted — `glyphs_missing` on the run and in
 the pass's record — rather than silently measuring as zero, because "this font has
 no such character" is the fact a later fallback phase needs and a zero width is not
-it.
+it. RoboText answers `.notdef` **with glyph 0's own advance**, so the count and the
+width come from one place.
 
 ## 5. Style resolution: the four facts a font needs
 
@@ -234,7 +246,12 @@ more for the thing that feeds the inline one.
 
 - **No shaping.** No glyph substitution, no positioning, no ligature, no kerning.
   A run's width is the sum of its glyphs' advances, which is what an unshaped run
-  is; OpenType is Phase 14.
+  is; OpenType is Phase 12.10 onward, in RoboText.
+- **No Unicode-level text work in this module.** Since 12.4 the code-point walk, the
+  index spaces, the ranges and the glyph records all belong to **RoboText**
+  (`Documentation/Runtime/Text/Architecture.md`); this module consumes a
+  `RoboTextMeasurement` and keeps the geometry. A UTF-8 walk written here again would
+  be the second implementation of the thing that phase removed.
 - ~~**No line boxes.**~~ **10.6** made the line a record, and **10.7** gave it a floor.
 - ~~**No baselines and no `line-height`.**~~ **10.7 consumed them, and did not
   re-measure — but it did add one thing, and the split is worth stating here because

@@ -69,6 +69,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | System typeface pack | `System/Fonts/` (assets + `system-fonts.manifest` + licences), `Runtime/Source/RoboFont/RoboFontSystemPack.c` + public `Runtime/Include/RoboFont/RoboFontSystemPack.h`. Docs: `Documentation/Development/SystemTypefacePack.md`, legal: `Documentation/Legal/FontLicenses.md`. |
 | Glyph rasterization (coverage AA) | `Runtime/Source/RoboGraphics/RoboGraphicsGlyph.c` + public `Runtime/Include/RoboGraphics/RoboGraphicsGlyph.h`. One glyph outline → grayscale coverage mask → existing source-over. Independent of shaping: no cmap, no font files, no runs belong here. Docs: `Documentation/Runtime/Typography/TextRasterQuality.md` |
 | Typography roles / face binding | `Runtime/Source/RoboTypography/` + public `Runtime/Include/RoboTypography/`. Semantic role → the pack's face + size/weight/leading/optical class. It binds and caches; parsing stays in RoboFont, rasterizing in RoboGraphics. Docs: `Documentation/Runtime/Typography/TypeBinding.md` |
+| Text architecture (RoboText) | `Runtime/Source/RoboText/` + public `Runtime/Include/RoboText/`. Text as a first-class object: index spaces, buffer, ranges, script/direction/text runs, glyphs and glyph runs, measurement. It parses no font (RoboFont) and keeps no Unicode table (Phase 4 Unicode). Docs: `Documentation/Runtime/Text/Architecture.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -93,9 +94,11 @@ RoboBase → RoboMem → RoboContainers → RoboUnicode / RoboI18N
                                     ↘ RoboInput
 RoboHTML  ┐
 RoboCSS   ┴→ RoboLayout → RoboPaint → RoboRender → RoboDesktop
+RoboUnicode / RoboFont → RoboText → RoboLayout / RoboPaint
 ```
 
 - **Circular dependencies are prohibited.**
+- RoboText is the only place text becomes an object: it may include `RoboBase`/`RoboMem`/`RoboUnicode`/`RoboFont` and nothing above them. RoboLayout and RoboPaint consume its results; neither walks UTF-8 or resolves a glyph id itself.
 - RoboDesktop must not parse HTML/CSS/layout except through the named document-bridge files.
 - RoboRender must not include document-layer headers in module sources.
 - RoboInput may not include RoboPaint, RoboRender, or RoboDesktop.
@@ -184,6 +187,51 @@ owns it. It binds and caches; it does not parse, rasterize or shape.
   Host` (which includes the three galleries and the boundary scan) passes. `TestDesktop.ps1 -Target
   Qemu` when the guest image is involved.
 
+### RoboText architecture (Phase 12.4)
+
+**Text is a first-class runtime object, not something the renderer discovers while painting. New text
+abstractions belong in RoboText; a UTF-8 walk or a cmap lookup written anywhere else is a defect.**
+RoboText (`Runtime/Source/RoboText/`, public `Runtime/Include/RoboText/`) is the layer between the font
+layer and its two consumers. `Documentation/Runtime/Text/Architecture.md` is the goal's contract.
+
+- Ownership: font parsing, cmap, `hmtx`, fallback and selection are **RoboFont**; Unicode properties,
+  scripts, bidi classes and encoding are **Phase 4 Unicode**; line boxes and geometry are **RoboLayout**;
+  coverage antialiasing is **RoboGraphics**; role → face is **RoboTypography**. RoboText owns only what a
+  piece of text *is*. Never add a second font parser or a second Unicode table to reach around it.
+- Boundary: RoboText may include `RoboBase`, `RoboMem`, `RoboUnicode`, `RoboFont`. It may not include
+  `RoboHTML`, `RoboCSS`, `RoboLayout`, `RoboPaint`, `RoboRender`, `RoboWindow`, `RoboDisplay`,
+  `RoboGraphics` or `RoboTypography` — every one is a text *consumer*, and an arrow back at one would let
+  the text layer ask a caller what the answer is. `Assert-RoboTextBoundaries` in `Runtime/Tools/Build.ps1`
+  enforces the list; do not widen it.
+- Index spaces are distinct types and the conversions are functions with a `Result`:
+  `RoboTextByteIndex` ≠ `RoboTextScalarIndex` ≠ `RoboTextGlyphIndex` ≠ `RoboTextClusterIndex`. Scalar→byte
+  is **total** (so the end-of-text offset is a byte offset); byte→scalar **refuses** a byte inside a
+  multi-byte scalar rather than rounding. Do not use one integer for two of them.
+- A glyph's advance is a **device** quantity and `RoboTextFontUnitsToDevice` is the module's one scaling
+  door. `RoboTextMeasurement.width` is the sum of the glyphs' own device advances — one rounding per run,
+  never per glyph — which is what makes the measurer's answer and the painter's pen sums of the same
+  numbers. A missing glyph still advances (glyph 0's advance) and is counted in `missingGlyphs`.
+- Direction is **classified, never resolved**: 12.4 reads `Bidi_Class` per scalar and the Unicode
+  bidirectional algorithm is 12.8's. Do not claim RTL correctness before then, and do not move a
+  neutral's classification without saying so — declaring a paragraph base legitimately changes it.
+- `RoboTextGetCapabilities` is the honest record: a later goal that adds an algorithm flips its flag in
+  the same change. Add no capability the code does not have.
+- The transitional path: `RoboPaintDecoration.c`'s text pass owns no font knowledge. If it ever needs a
+  cmap, an id or a scale again, that work belongs in `RoboTextGlyphs.c` —
+  `RoboTextGlyphGenerationCmapPerScalar` is the placeholder 12.10 replaces.
+- Add no shaped-run behaviour (GSUB, GPOS, ligatures, kerning, complex scripts, bidi, vertical text,
+  variable-axis application, `@font-face`, `font-feature-settings`) in this phase's name.
+- Tests: `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Conformance,Gallery}.c` (`text.*`) via
+  `TestRoboText.ps1 -Target Host`; the fixture is `Tests/Text/RoboTextTestSupport.h` and it opens the
+  **shipped** pack through RoboFont alone. A text change is not done until `TestRoboText.ps1` and the
+  suites for every boundary it touches pass — `TestLayout.ps1` (measurement), `TestPaint.ps1` (glyphs,
+  the pen, the raster), `TestGraphics.ps1`/`TestRasterizer.ps1` (the glyph-generation seam),
+  `TestFont.ps1` (the shipped face), `TestDesktop.ps1` (what the shell draws) — with
+  `TestDesktop.ps1 -Target Qemu` when the guest image is involved. Visual evidence: the text half is
+  `Build/Text-GlyphTable.txt` (`text.gallery.glyph_table`), and the rendered half is
+  `Build/Typography-Desktop.png` / `-Chrome.png` / `-Document.png` — the module links no rasterizer by
+  its own boundary, so a rendered glyph run is the shell's gallery, not this directory's.
+
 ---
 
 ## Test rules
@@ -201,6 +249,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Glyph rasterization / typography | `BuildGraphics.ps1` (and `BuildFont.ps1` if RoboFont changed) | `TestGraphics.ps1 -Target Host`, then `TestPaint.ps1 -Target Host` and `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Coverage.png` against `Build/Typography-Stroke.png` |
 | System typeface pack | `BuildFont.ps1` (module + pack validation; the image build installs `System/Fonts/`) | `TestFont.ps1 -Target Host` (`font.systempack.*`); `-Target Qemu` when the installed image is involved |
 | Typography roles / face binding | `BuildTypography.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestTypography.ps1 -Target Host` (`typography.*`), then `TestDesktop.ps1 -Target Host` (`desktop.typography.*` and the three galleries); `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Desktop.png`, `Build/Typography-Chrome.png`, `Build/Typography-Document.png` |
+| Text architecture (RoboText) | `BuildRoboText.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestRoboText.ps1 -Target Host` (`text.*`), then the suites for every boundary it touched: `TestLayout.ps1 -Target Host`, `TestPaint.ps1 -Target Host`, `TestGraphics.ps1 -Target Host`, `TestFont.ps1 -Target Host`, `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

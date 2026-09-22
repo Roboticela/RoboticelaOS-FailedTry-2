@@ -6541,6 +6541,126 @@ to the runtime sources only, so a guest program that never includes the runtime 
 module header moved) is the fix. The same run now reports `ROBO_QEMU_TYPOGRAPHY_OK` with 21 roles over the
 shipped pack and the expected `windows=1 content_runs=1 labels=4 unshaped=0 fills=12`.
 
+## Goal 12.4 — RoboText architecture (text as a first-class runtime object)
+
+RoboText is the runtime's text layer: between RoboFont and the two layers that consume text, and
+ownership of the answer to *what is a piece of text, as an object?* Before this goal the tree answered
+that question in four places — a measurer that walked code points and summed `hmtx` in font units, a
+painter that walked the *same* code points, resolved each through the cmap and accumulated a `float`
+pen, and a shell that asked the typography layer for a face. Nothing was wrong. The arrangement had a
+stated limit — two implementations of "advance" over one font, allowed to differ by a fraction of a
+pixel at a run's end — because each was a careful restatement of the same three lines. This goal removes
+the restatement without adding a shaping engine, and the contract is `Documentation/Runtime/Text/Architecture.md`.
+
+**Four index spaces, four types, and the conversions are functions with a `Result`.** `ByteIndex`,
+`ScalarIndex`, `GlyphIndex`, `ClusterIndex` are distinct, because `héllo` is five scalars and six bytes
+and `🙂` is one scalar and four. `RoboTextBufferScalarToByte` is **total** for every in-range scalar —
+including the one past the last — so no caller can fabricate a byte offset that is not on a scalar
+boundary and the end-of-text caret position has an offset; `RoboTextBufferByteToScalar` **refuses** a byte
+inside a multi-byte scalar rather than rounding, because a selection range that cut a character in half is
+a silent corruption and a refusal is a detour. The buffer owns its UTF-8 and keeps a lazily built scalar
+index — one byte offset per scalar, invalidated by any mutation — which is what turns `ScalarAt` from a
+walk into one decode at a known offset.
+
+**The load-bearing change is that a glyph's advance is a device quantity.** Before, the measurer summed
+font units and scaled once while the painter accumulated device floats; today a `RoboTextGlyph` carries
+its device advance, and the measurement **is the sum of those advances**, accumulated in `double` and
+rounded once at the boundary. One rounding per run survives — it was never about font units, it was about
+not rounding per glyph — and the pen the painter accumulates and the width the measurer reports are sums
+of the *same numbers*. `RoboTextFontUnitsToDevice` is the module's one scaling door and it states the same
+expression the graphics layer's device-metrics bridge uses, so a glyph's advance one layer down is the
+same number rather than a second rounding of one. `glyph.id_advance_unit_boundary` in
+`Tests/Text/SuiteRoboTextGlyphs.c` pins it across a non-integer size and a non-power-of-two upem.
+
+**Because the advance decides so much, a missing glyph still moves the pen.** A scalar the cmap does not
+map becomes `.notdef` and advances by glyph 0's own advance: a zero advance would reflow a line around a
+character the reader can *see* (the box is drawn) and would make undrawable text measure narrower than its
+ink. `missingGlyphs` counts from RoboText's own count — a glyph whose id is `.notdef`, **or** whose metrics
+would not parse — and a face whose metrics table will not parse answers `Unavailable` per glyph, which is
+an *answer* rather than a refusal, because what is true is that its glyphs do not advance.
+
+**Classification is not resolution, and the phase says so in its direction runs.** Each scalar is
+classified from its own `Bidi_Class`: `R`/`AL` right-to-left, `L` left-to-right, everything else takes the
+paragraph direction. Embedding levels, the explicit formatting characters, the weak and neutral rules
+(W1–W7, N0–N2) and reordering are 12.8's, and the run type is designed so 12.8 populates it without a
+caller changing. The paragraph base is the caller's declared direction, else the text's first strong
+scalar, else `Unknown` — and the third case is a real state, not an error: `RoboUnicodeBidi`'s paragraph
+door documents "0 if none", and 0 is `RoboLtr`, so taking it at face value would make `"123 456"` a
+left-to-right paragraph, a claim UAX #9's P2/P3 deliberately does not make. The consequence worth knowing
+is that **declaring a base moves the neutrals**: `"Hello שלום"` is two text runs left-to-right and three
+with `baseDirection = RTL`, because the space between the scripts stops belonging to the Latin run —
+`text.runs.declared_base` shows both, and the script fragmentation's neutrality rule (a neutral takes the
+previous resolved script, or the next one if none has resolved yet, so `"abc 123 def"` is *one* Latin run
+rather than `[Latn][Zyyy][Latn]`) is the same rule seen from the other side.
+
+**The transitional path kept its name and lost its knowledge.** `RoboPaintDecoration.c`'s own header called
+it the transitional text path (11.6: a run, the cmap per code point, paint). What remains of that loop is
+four lines that own no font knowledge at all — it does not know what a cmap is, does not resolve an id,
+does not scale an advance, and cannot disagree with the measurer because the measurer runs the same glyph
+generation. What is left to RoboPaint is the two facts a text layer has no business knowing: where the run
+originates *on this surface*, and that UI text is drawn coverage-antialiased (Phase 12.1's
+`RoboGfxGlyphModeAlpha`, chosen by the paint pass because it is the only thing in the tree that knows it is
+drawing UI text rather than auditing an outline). One consequence is that the pass now **prepares both of a
+face's tables** — cmap and metrics — at the top of the pass: the old loop inherited the metrics parse as a
+side effect of the graphics layer's advance door, and the new one does not call that door, so the
+preparation has to be *said*. That was the one real defect this migration produced (`SuiteRoboPaintText`
+broke with the synthetic face's metrics unprepared) and it is the kind a reviewer would not have predicted
+from the diff.
+
+**Refusals are exactly two, and everything else is an answer.** `RoboTextNotSupported` for a context that
+names no face, `RoboError` for a cmap that will not parse. An unmapped scalar is `.notdef` plus a counted
+miss; direction-less text gets `Unknown` runs; empty text produces an empty run set, because no text is a
+fact about a document rather than an error in it. `RoboTextGetCapabilities` is the honest record and
+`text.conformance.capabilities` asserts it field by field: the twelve model flags are present and **every
+algorithm flag is absent** (variable axes, GSUB, GPOS, ligatures, kerning, bidi, complex scripts, vertical
+text), because a capability table that overstates itself is worse than none. Determinism is enforced by
+shape rather than discipline: no global mutable state, no cache, no randomness, no time, no host text API,
+and `text.conformance.repetition` measures one string eight times and compares every field.
+
+**The visual surface splits at the module boundary, and that is a finding rather than a shortcut.**
+The phase asks for a surface showing raw text, runs, glyph ids, advances and a rendered glyph run.
+`RoboText` links no rasterizer — the boundary scan forbids `RoboGraphics` and `RoboRender` — so nothing
+under `Tests/Text/` can draw a glyph, and the surface is two artifacts: `Build/Text-GlyphTable.txt`
+(`text.gallery.glyph_table`), which writes every named string's raw text, byte/scalar counts, run rows
+(`script direction [first,last)`) and glyph rows (`id`, source span, cluster, device advance, `hmtx` units,
+offset, `mapped`) beside the measurement, and the three existing `Build/Typography-*.png` galleries, whose
+pixels are RoboText's because the paint pass generates its glyphs through `RoboTextShape`. The table is
+asserted as it is written — the rows' advances must sum to `measurement.width`, the row count must equal
+`measurement.glyphCount`, every source span must be non-empty and inside the text, and the file must be
+byte-identical on a second build — because a dump proves nothing by itself. Its last two rows are the ones
+worth reading: `unicode` (`é Å Ω 中 🙂`) fragments into `Latn`/`Grek`/`Hani` because the spaces are neutral
+and take the previous resolved script, and the noncharacter (`U+FDD0`) is one glyph, `id=0`, `mapped=0`,
+advancing by glyph 0's own 10.50 px — `.notdef` with the pen still moving, which is the rule the module
+argues for shown as a row rather than as prose.
+
+**The module's dependency list is short on purpose, and the fixture proves it.** RoboText may include
+`RoboBase`, `RoboMem`, `RoboUnicode` and `RoboFont` — it parses no font (a second cmap reader would be the
+second font parser in the tree) and keeps no Unicode table (a second script table would be the second
+Unicode database). It may not include `RoboHTML`, `RoboCSS`, `RoboLayout`, `RoboPaint`, `RoboRender`,
+`RoboWindow`, `RoboDisplay`, `RoboGraphics` or `RoboTypography` — every one is a text *consumer*, and an
+arrow back at one of them would let the text layer ask a caller what the answer is.
+`Assert-RoboTextBoundaries` enforces the list, and `Tests/Text/RoboTextTestSupport.h` opens the shipped
+pack through the font layer alone, because a fixture that linked the layer above would let a change that
+broke the boundary compile and pass.
+
+**Two pre-existing compile breaks were in the way and are fixed, not worked around.**
+`Tests/Layout/SuiteRoboLayoutText.c` did not compile and `window.host.keyboard` failed; and the guest
+build's header-dependency defect from 12.3 is the same family of mistake this phase's migration would
+most easily have repeated across a measurer/painter pair. All 344 Layout cases pass now, and the QEMU
+desktop's presented-frame checksum is `0x9F670` — **byte-identical to what the same run reported before
+the migration**, which is this goal's strongest single piece of evidence that the shell now measures and
+paints every glyph through RoboText.
+
+### What this goal deliberately did not do
+
+Shaping in any form (GSUB, GPOS, ligatures, kerning, complex scripts), the bidirectional algorithm,
+vertical text, grapheme clustering, normalization, case mapping, selection, caret rendering, editing,
+`@font-face`, `font-feature-settings`, `font-variation-settings`, `font-stretch` matching and full
+generic-family semantics. The four weights and the `opsz` class still **bind but do not instance**, and a
+document still paints through **one** face, so `font-weight: 700` reaches layout as a number rather than a
+bolder face. Both are the same missing thing — a shaped run that can carry an axis value — and that is
+12.5's and 12.10's work on top of these seams rather than a rewrite of them.
+
 ## Next
 
 - **Phase 11.13 — framebuffer presentation and the desktop shell: landed.** The paragraph that used to
@@ -6577,6 +6697,17 @@ shipped pack and the expected `windows=1 content_runs=1 labels=4 unshaped=0 fill
   deterministic galleries. The next goal under the reordered plan (`.cursor/rules/runtime-plan.mdc`)
   is **12.4 — RoboText architecture**, which is what makes the two things this phase could not finish
   (a run that carries its own weight, and per-element face selection) natural rather than bolted on.
+
+- **Phase 12.4 — the RoboText architecture: landed** (`## Goal 12.4`, above). It made text a first-class
+  runtime object rather than something the renderer discovers while painting: distinct byte / scalar /
+  glyph index spaces, one `TextBuffer`, one `TextRange` algebra, script / direction / text runs, glyphs
+  whose advance is a *device* quantity, and a measurement that sums those advances so the pen RoboPaint
+  accumulates and the width RoboLayout justifies to are sums of the same numbers. The two seams the rest
+  of Phase 12 was planned against — `RoboTextRun` and `RoboTextGlyph` — now exist, and the transitional
+  cmap loop in `RoboPaintDecoration.c` is four lines that own no font knowledge. The next goal is
+  **12.5 — Unicode / font integration**, which fills those seams with font intelligence rather than
+  replacing them; 12.8 completes the direction runs this goal only classifies, and 12.10 replaces
+  `RoboTextGlyphRunGenerate`'s body.
 
 - **Event dispatch — now Phase 13 (RoboInput).** One 11.10 handed a result to: a hit test that
   answers *which node is at this point* is what a dispatch walks, so the phase consumes

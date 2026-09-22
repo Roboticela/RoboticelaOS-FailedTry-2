@@ -1,22 +1,32 @@
 /*
- * RoboLayout's RoboFont-backed text measurer (Phase 10.5) — see
- * RoboLayoutTextFont.h.
+ * RoboLayout's text measurer (Phase 10.5) — see RoboLayoutTextFont.h — over RoboText (Phase 12.4).
  *
- * One walk over the code points of a range, one accumulation in font units, one
- * conversion. The header argues the accumulation; this file is where it has to
- * survive a face that is missing glyphs, a face with no hmtx, and a text node
- * whose bytes are not what its author meant.
+ * A range's bytes go to the text layer; the text layer answers a `RoboTextMeasurement`; this file
+ * turns that into a `LayoutTextRun`. What used to be here — a walk over code points, an
+ * accumulation in font units, one conversion, and a line extent computed from three separately
+ * scaled components -- is now RoboText's, and the reason that is a *fix* rather than a
+ * reorganisation is the painter one layer along:
  *
- * What is deliberately not here: shaping, kerning, fallback, bidi, and any cache
- * of a measurement. Two runs of the same text measure the same because the
- * arithmetic is a function of the face and the range -- not because anything
- * remembered.
+ *     before   measurer sums font units and rounds once;  painter accumulates float advances
+ *              -> one font, two arithmetic chains, a fraction of a pixel apart at the end of a run
+ *     now      both consume the same `RoboTextGlyph` records -> one advance implementation
+ *
+ * The `RoboLayoutTextFont.h` header named that as the one failure no later phase could detect. It
+ * is now undetectable for a better reason: there is nothing to detect.
+ *
+ * What the conversion still has to get right is the **unit boundary**, and it is the only
+ * interesting thing in the file. `LayoutTextRun` counts code points and integer pixels, because
+ * that is what the layout engine's geometry is in; RoboText counts scalars and answers in `float`
+ * device pixels. The four conversions below are the whole seam: scalars -> `codePoints`, the width
+ * accumulation -> one rounded `int32_t`, and the face's ascent/descent/line height -> the two
+ * integers a baseline is placed with plus the height a line box gets.
  */
 
 #include "RoboLayout/RoboLayoutTextFont.h"
 
 #include "RoboFont/RoboFontCmap.h"
 #include "RoboFont/RoboFontMetrics.h"
+#include "RoboText/RoboText.h"
 #include "RoboUnicode/RoboUnicode.h"
 
 #include "RoboLayout/RoboLayoutText.h"
@@ -97,148 +107,84 @@ static Result MeasurePrepare(LayoutTextFont *font,
 }
 
 /* ------------------------------------------------------------------ */
-/* The walk                                                            */
+/* The setting, and the line extent                                    */
 /* ------------------------------------------------------------------ */
 
 /**
- * Sum one code point's advance into @p outUnits, and report whether the face had
- * a glyph for it.
+ * The text layer's setting for @p style, over @p face.
  *
- * Three answers from RoboFont, and each is handled rather than collapsed:
+ * The four inputs `LayoutTextStyle` resolved are the four the context wants, spelled with RoboFont's
+ * own types, which is why this is a copy rather than a translation -- except for the weight, which is
+ * clamped into the nine-step scale the text layer can name. CSS allows a numeric weight outside
+ * 100..900; a text context refuses one it cannot name, and refusing the *run* would trade a
+ * wrong-looking weight for no measured text at all.
  *
- *   MAPPED     the glyph's own `hmtx` advance. The common case.
- *   UNMAPPED   no glyph: the run is measured at **glyph 0**'s advance, which is
- *              what every engine does with `.notdef`, and the miss is counted so
- *              a reader learns the width is for text the font cannot draw.
- *   INVALID    not a Unicode scalar, or not a face this build read. Counted as a
- *              miss as well, because from the run's point of view it is the same
- *              fact: nothing here corresponds to anything the font can draw.
- *
- * A glyph whose metrics will not parse is a miss for the same reason, and NOT a
- * zero: falling back to zero would make a broken font produce a *narrower* run
- * than a working one, which reads as a plausible measurement and is exactly the
- * failure this phase is built to avoid.
+ * `lineHeightPx` is left at `RoboTextLineHeightFromFontMetrics`, which is CSS's `normal`: layout has
+ * its own line-box model (10.6) and a measured run's own height is the face's, not a leading the run
+ * was never given.
  */
-static void MeasureCodePoint(LayoutTextFont *font,
-                               uint32_t codePoint,
-                               int64_t *ioUnits,
-                               LayoutTextRun *run)
+static Result MeasureContext(LayoutTextFont *font,
+                             const LayoutTextStyle *style,
+                             RoboTextFontContext *out,
+                             LayoutDiag *diag)
 {
-    FontCmapLookupResult lookup;
-    FontGlyphMetrics metrics;
-    GlyphId glyph;
-    int mapped;
+    RoboTextFontStyle textStyle;
 
-    memset(&lookup, 0, sizeof(lookup));
-    mapped = FontFaceLookupGlyph(font->face, codePoint, &lookup) == RoboOk &&
-             lookup.status == RoboFontCmapMapped;
-    if (!mapped) {
-        /*
-         * No glyph. The *code point* is counted, once, and the measurement
-         * continues at glyph 0 -- which is what `.notdef` is and what every engine
-         * measures undrawable text at. Counting here rather than skipping is the
-         * whole point: the width this run ends up with is a real width for text the
-         * font cannot draw, and this counter is the only thing that says so.
-         */
-        glyph = RoboGlyphIdNone;
-        run->glyphsMissing++;
-        font->glyphsMissing++;
-    } else {
-        glyph = lookup.glyphId;
+    RoboTextFontStyleInit(&textStyle);
+    textStyle.sizePx = (float)style->fontSizePx;
+    textStyle.weight = (FontWeight)(style->fontWeight < 100 ? 100
+                                    : style->fontWeight > 900 ? 900
+                                                              : style->fontWeight);
+    textStyle.style = style->italic ? RoboFontStyleItalic : RoboFontStyleNormal;
+    RoboTextFontContextInit(out);
+    if (RoboTextFontContextSet(out, font->face, &textStyle) != RoboOk) {
+        return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboInvalidArgument,
+                                "a text run's font inputs are not a setting this build can measure");
     }
-
-    /*
-     * The glyph's own metrics, and the *status* rather than only the result code:
-     * RoboFont answers RoboOk with a status field for the three ways a glyph can
-     * have no advance (`INVALID_ID` for an id past the face's own glyph count,
-     * `UNAVAILABLE` for a face with no `hmtx`, `MALFORMED` for a table that will not
-     * parse), and treating those as a measurement of zero would make a broken font
-     * produce a *narrower* run than a working one -- a plausible-looking number, and
-     * therefore the one failure a later phase could not detect.
-     */
-    memset(&metrics, 0, sizeof(metrics));
-    if (FontFaceGlyphMetrics(font->face, glyph, &metrics) != RoboOk ||
-        metrics.status != RoboFontGlyphMetricsOk) {
-        /* Counted only when the cmap had *claimed* the code point: an unmapped one
-         * is already counted above, and a count of two for one character would make
-         * the number mean "problems" rather than "characters". */
-        if (mapped) {
-            run->glyphsMissing++;
-            font->glyphsMissing++;
-        }
-        return;
-    }
-    *ioUnits += (int64_t)metrics.advanceWidth;
+    return RoboOk;
 }
 
 /**
- * The line extent of the face, in pixels.
+ * Fill @p run's line extent from the face's metrics, through RoboText's own metrics door.
  *
- * `ascent + descent + lineGap`, which is what RoboFont records as the canonical
- * layout metrics (`FontMetricsLineHeight`) and what the header calls the
- * run's height. Each term is scaled separately rather than summing in font units
- * first, and the difference is deliberate: a line extent is reported to a caller
- * as three *components* -- above the baseline, below it, and the leading between
- * lines -- and 10.7 needs the first two to place a baseline. Summing first would
- * produce the same total and lose the halves.
+ * `ascent + descent + lineGap` as three *components* rather than a total, because 10.7 places a
+ * baseline with the first two. RoboText normalises the descent's sign and the gap's floor at the
+ * source (`RoboTextFont.h`), which is where the font-unit version of this function did it, so the
+ * magnitude set is the same and the arithmetic is one call instead of three.
+ *
+ * Each magnitude rounds to the nearest pixel on its own and the height is their sum, exactly as
+ * before: `RoboTextFontMetrics.lineHeightPx` is the unrounded sum and is deliberately not used,
+ * because a box whose three parts do not add up to its height puts the next line's baseline a pixel
+ * off.
  */
-static void MeasureLineExtent(LayoutTextFont *font,
+static Result MeasureLineExtent(LayoutTextFont *font,
                                 const LayoutTextStyle *style,
-                                LayoutTextRun *run)
+                                LayoutTextRun *run,
+                                LayoutDiag *diag)
 {
-    FontMetrics line;
-    float ascent = 0.0f;
-    float descent = 0.0f;
-    float gap = 0.0f;
+    RoboTextFontContext context;
+    RoboTextFontMetrics metrics;
+    Result status;
 
-    memset(&line, 0, sizeof(line));
-    if (FontFaceLayoutMetrics(font->face, &line) != RoboOk ||
-        !FontUnitsPerEmIsValid(line.unitsPerEm)) {
+    status = MeasureContext(font, style, &context, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    if (RoboTextFontContextMetrics(&context, &metrics, NULL) != RoboOk) {
         /*
-         * No usable line metrics. The honest answer is the *font size* as the
-         * extent, which is what CSS's own `normal` line height reduces to for a
-         * face nothing is known about -- and not zero, which would silently
-         * collapse every line a document has.
+         * No usable line metrics. The honest answer is the *font size* as the extent, which is what
+         * CSS's own `normal` line height reduces to for a face nothing is known about -- and not
+         * zero, which would silently collapse every line a document has.
          */
         run->ascent = (int32_t)style->fontSizePx;
         run->descent = 0;
         run->height = (int32_t)style->fontSizePx;
-        return;
+        return RoboOk;
     }
-
-    if (FontScaleFontUnits(line.ascent, line.unitsPerEm,
-                                   (FontPixelSize)style->fontSizePx,
-                                   RoboFontRoundNearest, &ascent) != RoboOk) {
-        ascent = (float)style->fontSizePx;
-    }
-    if (FontScaleFontUnits(line.descent, line.unitsPerEm,
-                                   (FontPixelSize)style->fontSizePx,
-                                   RoboFontRoundNearest, &descent) != RoboOk) {
-        descent = 0.0f;
-    }
-    if (FontScaleFontUnits(line.lineGap, line.unitsPerEm,
-                                   (FontPixelSize)style->fontSizePx,
-                                   RoboFontRoundNearest, &gap) != RoboOk) {
-        gap = 0.0f;
-    }
-
-    /*
-     * A font whose descent is authored positive is reported as a positive
-     * magnitude by RoboFont (RoboFontMetrics.h says so), but a face in the wild
-     * can carry either sign convention. Normalising to a magnitude here keeps the
-     * record's stated meaning true whatever the table said: `descent` is a
-     * magnitude, so `height` is always ascent + descent + gap and never a
-     * subtraction.
-     */
-    if (descent < 0.0f) {
-        descent = -descent;
-    }
-    if (gap < 0.0f) {
-        gap = 0.0f;
-    }
-    run->ascent = (int32_t)(ascent + 0.5f);
-    run->descent = (int32_t)(descent + 0.5f);
-    run->height = run->ascent + run->descent + (int32_t)(gap + 0.5f);
+    run->ascent = (int32_t)(metrics.ascentPx + 0.5f);
+    run->descent = (int32_t)(metrics.descentPx + 0.5f);
+    run->height = run->ascent + run->descent + (int32_t)(metrics.lineGapPx + 0.5f);
+    return RoboOk;
 }
 
 /* ------------------------------------------------------------------ */
@@ -251,12 +197,8 @@ Result LayoutTextFontMeasure(LayoutTextFont *font,
                                            LayoutDiag *diag)
 {
     HtmlNodeView view;
-    LayoutTextRange range;
-    size_t offset = 0u;
-    size_t index = 0u;
     size_t rangeStartByte = 0u;
     size_t rangeByteLength = 0u;
-    int64_t units = 0;
     float width = 0.0f;
     Result status;
 
@@ -296,7 +238,6 @@ Result LayoutTextFontMeasure(LayoutTextFont *font,
     if (status != RoboOk) {
         return status;
     }
-    range = request->range;
 
     status = MeasurePrepare(font, diag);
     if (status != RoboOk) {
@@ -304,79 +245,55 @@ Result LayoutTextFontMeasure(LayoutTextFont *font,
     }
 
     /*
-     * Advance the byte cursor to the range's first code point, then walk the
-     * range's own code points. The first loop exists so the sum starts at the
-     * right place: a run is measured from its own beginning, and starting at byte
-     * zero would measure the whole node whatever range was asked for.
-     */
-    while (index < range.start) {
-        size_t next = offset;
-        Uchar32 codePoint = 0;
-
-        if (offset >= view.textLength) {
-            return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboInvalidArgument,
-                                    "a text range starts past the end of the text");
-        }
-        if (UnicodeUtf8Decode(view.text, view.textLength, offset, RoboUnicodeReplace,
-                                    &codePoint, &next) != RoboUnicodeOk ||
-            next <= offset) {
-            return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboError,
-                                    "the text node's own bytes could not be decoded");
-        }
-        offset = next;
-        index++;
-    }
-
-    while (index < range.end) {
-        size_t next = offset;
-        Uchar32 codePoint = 0;
-
-        if (offset >= view.textLength) {
-            return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboInvalidArgument,
-                                    "a text range ends past the end of the text");
-        }
-        if (UnicodeUtf8Decode(view.text, view.textLength, offset, RoboUnicodeReplace,
-                                    &codePoint, &next) != RoboUnicodeOk ||
-            next <= offset) {
-            return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboError,
-                                    "the text node's own bytes could not be decoded");
-        }
-        MeasureCodePoint(font, (uint32_t)codePoint, &units, outRun);
-        outRun->codePoints++;
-        offset = next;
-        index++;
-    }
-
-    /*
-     * One conversion for the whole run, which is the header's central decision.
-     * `FontScaleFontUnits` carries the overflow check and the rounding
-     * policy, so an absurd font size is refused rather than wrapped, and the
-     * conversion is the same one RoboFont uses everywhere else.
+     * The range's **bytes**, handed to the text layer as a view.
+     *
+     * This is the seam, and the whole of it: the bridge above has already turned a code-point range
+     * into a byte span (and refused one that does not land on a code-point boundary), the text layer
+     * measures the bytes it is given, and no code point is walked here at all. The old loop began at
+     * byte zero and skipped `range.start` code points to find the range's first byte; a view built
+     * from the span does not have to, which is the second thing the change fixed rather than moved.
      */
     {
-        FontMetrics line;
-        uint16_t upem = 0u;
+        RoboTextView rangeView = RoboTextViewMake(view.text + rangeStartByte, rangeByteLength);
+        RoboTextFontContext context;
+        RoboTextMeasurement measurement;
 
-        memset(&line, 0, sizeof(line));
-        if (FontFaceLayoutMetrics(font->face, &line) == RoboOk) {
-            upem = line.unitsPerEm;
+        status = MeasureContext(font, request->style, &context, diag);
+        if (status != RoboOk) {
+            return status;
         }
-        if (!FontUnitsPerEmIsValid(upem)) {
-            upem = 1000u; /* The SFNT convention for a font that did not say. */
+        status = RoboTextMeasureText(rangeView, &context, NULL, &measurement, NULL);
+        if (status != RoboOk) {
+            return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, status,
+                                    "the text layer could not measure the run");
         }
-        if (FontScaleFontUnits((FontUnit)units, upem,
-                                       (FontPixelSize)request->style->fontSizePx,
-                                       RoboFontRoundNearest, &width) != RoboOk) {
-            return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboInvalidArgument,
-                                    "a run's advance does not fit the pixel space");
-        }
+
+        /*
+         * `codePoints` is what the text layer counted as scalars, which is what this record has
+         * always meant by it -- the misses come from the same count, so the two cannot disagree
+         * about how many characters the range holds.
+         */
+        outRun->codePoints = measurement.scalarCount;
+        outRun->glyphsMissing = measurement.missingGlyphs;
+        font->glyphsMissing += measurement.missingGlyphs;
+        /*
+         * One rounding, at the boundary, of a sum the painter accumulates from the same records --
+         * the property that replaced "two implementations of advance sharing one font". The `fabsf`
+         * of the old code's negative guard is folded into the same expression: a width cannot be
+         * negative, and `RoboText` never produces one, so the clamp is an assertion rather than a
+         * branch.
+         */
+        width = measurement.width;
     }
 
-    if (width < 0.0f) {
+    if (!(width > 0.0f)) {
         width = 0.0f;
     }
     outRun->width = (int32_t)(width + 0.5f);
-    MeasureLineExtent(font, request->style, outRun);
+    status = MeasureLineExtent(font, request->style, outRun, diag);
+    if (status != RoboOk) {
+        return status;
+    }
     if (outRun->height < 0) {
         outRun->height = 0;
     }

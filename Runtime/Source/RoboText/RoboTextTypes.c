@@ -1,0 +1,535 @@
+/*
+ * RoboText's vocabulary (Phase 12.4) — see RoboTextTypes.h.
+ *
+ * The range algebra is the file's centre of gravity, and its two decisions are worth reading in code
+ * rather than only in the header.
+ *
+ * **Every operation clamps rather than wraps.** `RoboTextRangeSlice` and `RoboTextRangeShift` saturate,
+ * `RoboTextRangeUnion` ignores an inverted argument, and `RoboTextRangeLength` answers 0 for an
+ * inverted range. A range is arithmetic on two `uint32_t`s, which means subtraction that can underflow
+ * and addition that can overflow; the alternative to clamping is a range that reads as *inside* a small
+ * text because its start wrapped, which is how a selection highlights the wrong bytes.
+ *
+ * **`Contains` is half-open and `Intersects` says so.** Two ranges that touch end-to-start do **not**
+ * intersect — that is what half-open means, and it is the property a run walk relies on when it asks
+ * whether a caret sits inside a run.
+ */
+
+#include "RoboText/RoboTextTypes.h"
+
+#include <string.h>
+
+/* ------------------------------------------------------------------ */
+/* Ranges                                                              */
+/* ------------------------------------------------------------------ */
+
+RoboTextRange RoboTextRangeAt(RoboTextScalarIndex at)
+{
+    RoboTextRange range;
+
+    range.start = at;
+    range.end = at;
+    return range;
+}
+
+RoboTextRange RoboTextRangeFull(RoboTextScalarIndex scalars)
+{
+    return RoboTextRangeMake(0u, scalars);
+}
+
+RoboTextRange RoboTextRangeMake(RoboTextScalarIndex first, RoboTextScalarIndex last)
+{
+    RoboTextRange range;
+
+    range.start = first;
+    range.end = last;
+    return range;
+}
+
+RoboTextScalarIndex RoboTextRangeLength(RoboTextRange range)
+{
+    if (range.start >= range.end) {
+        return 0u;
+    }
+    return range.end - range.start;
+}
+
+int RoboTextRangeIsEmpty(RoboTextRange range)
+{
+    return range.start >= range.end;
+}
+
+int RoboTextRangeIsInverted(RoboTextRange range)
+{
+    return range.start > range.end;
+}
+
+int RoboTextRangeIsWithin(RoboTextRange range, RoboTextScalarIndex scalars)
+{
+    if (RoboTextRangeIsInverted(range)) {
+        return 0;
+    }
+    return range.start <= scalars && range.end <= scalars;
+}
+
+int RoboTextRangeContains(RoboTextRange range, RoboTextScalarIndex index)
+{
+    return index >= range.start && index < range.end;
+}
+
+int RoboTextRangeContainsRange(RoboTextRange range, RoboTextRange other)
+{
+    if (RoboTextRangeIsInverted(other) || RoboTextRangeIsInverted(range)) {
+        return 0;
+    }
+    return other.start >= range.start && other.end <= range.end;
+}
+
+int RoboTextRangeIntersects(RoboTextRange a, RoboTextRange b)
+{
+    if (RoboTextRangeIsEmpty(a) || RoboTextRangeIsEmpty(b)) {
+        /* An empty range is a *position*, and a position is not a span: two carets never "share"
+         * scalars, and a caret inside a run is `Contains`'s question rather than this one's. */
+        return 0;
+    }
+    return a.start < b.end && b.start < a.end;
+}
+
+RoboTextRange RoboTextRangeUnion(RoboTextRange a, RoboTextRange b)
+{
+    RoboTextRange out;
+
+    if (RoboTextRangeIsInverted(a)) {
+        return b;
+    }
+    if (RoboTextRangeIsInverted(b)) {
+        return a;
+    }
+    out.start = (a.start < b.start) ? a.start : b.start;
+    out.end = (a.end > b.end) ? a.end : b.end;
+    return out;
+}
+
+RoboTextRange RoboTextRangeSlice(RoboTextRange range, RoboTextScalarIndex from, RoboTextScalarIndex to)
+{
+    RoboTextScalarIndex length = RoboTextRangeLength(range);
+    RoboTextScalarIndex first;
+    RoboTextScalarIndex last;
+
+    first = (from < length) ? from : length;
+    last = (to < length) ? to : length;
+    if (last < first) {
+        last = first;
+    }
+    return RoboTextRangeMake(range.start + first, range.start + last);
+}
+
+int RoboTextRangeEqual(const RoboTextRange *a, const RoboTextRange *b)
+{
+    if (a == b) {
+        return 1;
+    }
+    if (!a || !b) {
+        return 0;
+    }
+    return a->start == b->start && a->end == b->end;
+}
+
+RoboTextRange RoboTextRangeShift(RoboTextRange range, int32_t delta)
+{
+    RoboTextRange out = range;
+
+    if (delta > 0) {
+        uint32_t step = (uint32_t)delta;
+
+        out.start = (range.start > RoboTextIndexMax - step) ? RoboTextIndexMax : range.start + step;
+        out.end = (range.end > RoboTextIndexMax - step) ? RoboTextIndexMax : range.end + step;
+    } else if (delta < 0) {
+        uint32_t step = (uint32_t)(-delta);
+
+        out.start = (range.start < step) ? 0u : range.start - step;
+        out.end = (range.end < step) ? 0u : range.end - step;
+    }
+    return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Direction                                                           */
+/* ------------------------------------------------------------------ */
+
+int RoboTextDirectionIsKnown(RoboTextDirection direction)
+{
+    return direction == RoboTextDirectionUnknown || direction == RoboTextDirectionLtr ||
+           direction == RoboTextDirectionRtl;
+}
+
+const char *RoboTextDirectionName(RoboTextDirection direction)
+{
+    switch (direction) {
+        case RoboTextDirectionLtr:
+            return "ltr";
+        case RoboTextDirectionRtl:
+            return "rtl";
+        case RoboTextDirectionUnknown:
+            return "unknown";
+        default:
+            return "unknown";
+    }
+}
+
+int RoboTextDirectionIsRightToLeft(RoboTextDirection direction)
+{
+    return direction == RoboTextDirectionRtl;
+}
+
+/* ------------------------------------------------------------------ */
+/* Script                                                              */
+/* ------------------------------------------------------------------ */
+
+int RoboTextScriptIsNeutral(RoboTextScript script)
+{
+    /* Common is shared punctuation and digits; Inherited is a mark that takes its base's script. Both
+     * are "not a script of their own", which is what a caller merges runs by. */
+    return script == RoboTextScriptCommon || script == RoboTextScriptInherited;
+}
+
+const char *RoboTextScriptName(RoboTextScript script)
+{
+    const char *name = UnicodeScriptShortName(script);
+
+    return name ? name : "Zzzz";
+}
+
+/* ------------------------------------------------------------------ */
+/* Optical size                                                        */
+/* ------------------------------------------------------------------ */
+
+int RoboTextOpticalSizeIsKnown(RoboTextOpticalSize size)
+{
+    return (int)size >= 0 && (int)size < (int)RoboTextOpticalSizeCount;
+}
+
+const char *RoboTextOpticalSizeName(RoboTextOpticalSize size)
+{
+    switch (size) {
+        case RoboTextOpticalSmall:
+            return "small";
+        case RoboTextOpticalBody:
+            return "body";
+        case RoboTextOpticalUI:
+            return "ui";
+        case RoboTextOpticalDisplay:
+            return "display";
+        case RoboTextOpticalLargeDisplay:
+            return "large-display";
+        default:
+            return "unknown";
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Language                                                            */
+/* ------------------------------------------------------------------ */
+
+void RoboTextLanguageInit(RoboTextLanguage *language)
+{
+    if (!language) {
+        return;
+    }
+    memset(language->tag, 0, sizeof(language->tag));
+}
+
+Result RoboTextLanguageSet(RoboTextLanguage *language, const char *tag)
+{
+    size_t length;
+
+    if (!language) {
+        return RoboInvalidArgument;
+    }
+    RoboTextLanguageInit(language);
+    if (!tag || tag[0] == '\0') {
+        /* The empty tag is "nothing declared", written as emptiness (see the header). Clearing is the
+         * documented answer rather than a failure. */
+        return RoboOk;
+    }
+
+    length = strlen(tag);
+    if (length >= (size_t)RoboTextLanguageMaxBytes) {
+        return RoboInvalidArgument;
+    }
+    /*
+     * BCP 47's own alphabet: ASCII alphanumerics and `-`. Deliberately *not* a full grammar — a
+     * subtag-length check would be a second implementation of a specification this build does not
+     * consume yet, and the point of validating here is that a tag which reached a shaping pass with a
+     * space or a byte of UTF-8 in it would be a tag nothing could key a feature off.
+     */
+    for (size_t index = 0u; index < length; index++) {
+        char c = tag[index];
+
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+              c == '-')) {
+            return RoboParseError;
+        }
+    }
+    memcpy(language->tag, tag, length + 1u);
+    return RoboOk;
+}
+
+int RoboTextLanguageIsSet(const RoboTextLanguage *language)
+{
+    return language && language->tag[0] != '\0';
+}
+
+const char *RoboTextLanguageTag(const RoboTextLanguage *language)
+{
+    if (!language || language->tag[0] == '\0') {
+        return "";
+    }
+    return language->tag;
+}
+
+int RoboTextLanguageEqual(const RoboTextLanguage *a, const RoboTextLanguage *b)
+{
+    if (a == b) {
+        return 1;
+    }
+    if (!a || !b) {
+        return 0;
+    }
+    return strcmp(a->tag, b->tag) == 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Font style                                                          */
+/* ------------------------------------------------------------------ */
+
+void RoboTextFontStyleInit(RoboTextFontStyle *style)
+{
+    if (!style) {
+        return;
+    }
+    memset(style, 0, sizeof(*style));
+    style->sizePx = RoboTextInitialFontSizePx;
+    style->weight = (FontWeight)400u;
+    style->style = RoboFontStyleNormal;
+    style->stretch = RoboFontStretchNormal;
+    style->lineHeightPx = RoboTextLineHeightFromFontMetrics;
+    style->letterSpacingPx = 0.0f;
+    style->opticalSize = RoboTextOpticalBody;
+}
+
+int RoboTextFontStyleIsValid(const RoboTextFontStyle *style)
+{
+    if (!style) {
+        return 0;
+    }
+    /*
+     * `!(x > 0.0f)` rather than `x <= 0.0f`: a NaN compares false against everything, so the negative
+     * form rejects it while the positive form would let it through. The same trick, for the same
+     * reason, as `RoboPaintText.c`'s validation of the same number.
+     */
+    if (!(style->sizePx > 0.0f)) {
+        return 0;
+    }
+    if (style->sizePx > (float)INT32_MAX) {
+        return 0;
+    }
+    /* Weight 0 is "unset" and is rejected: CSS's `normal` is 400, and a weight of nothing is a scale
+     * this module cannot name (`RoboTypographyNearestWeight` says the same about its own vocabulary). */
+    if (style->weight < 100u || style->weight > 900u) {
+        return 0;
+    }
+    if (!FontStretchIsValid(style->stretch)) {
+        return 0;
+    }
+    if (style->lineHeightPx < 0.0f || !(style->lineHeightPx == style->lineHeightPx)) {
+        return 0;
+    }
+    if (style->letterSpacingPx != style->letterSpacingPx) {
+        return 0;
+    }
+    if (!RoboTextOpticalSizeIsKnown(style->opticalSize)) {
+        return 0;
+    }
+    return 1;
+}
+
+int RoboTextFontStyleEqual(const RoboTextFontStyle *a, const RoboTextFontStyle *b)
+{
+    if (a == b) {
+        return 1;
+    }
+    if (!a || !b) {
+        return 0;
+    }
+    /* Field by field rather than by bytes: two records built independently must compare equal, and
+     * padding between members is not a fact about either of them. */
+    return a->sizePx == b->sizePx && a->weight == b->weight && a->style == b->style &&
+           a->stretch == b->stretch && a->lineHeightPx == b->lineHeightPx &&
+           a->letterSpacingPx == b->letterSpacingPx && a->opticalSize == b->opticalSize;
+}
+
+/**
+ * Append an unsigned decimal to @p buffer, returning the new length or -1 when it does not fit.
+ *
+ * A tiny integer writer rather than `snprintf`, because this module is compiled into the guest program,
+ * which is freestanding and has no formatted-output machinery (`RoboDesktopText.c` writes its own for
+ * the same reason). The `RoboTextMeasurementWrite` door cannot depend on one either — it has no
+ * decimals to write.
+ */
+static int StyleAppendUnsigned(char *buffer, size_t capacity, size_t length, uint32_t value)
+{
+    char digits[11];
+    int count = 0;
+
+    do {
+        digits[count++] = (char)('0' + (value % 10u));
+        value /= 10u;
+    } while (value != 0u);
+    if (length + (size_t)count + 1u > capacity) {
+        return -1;
+    }
+    while (count > 0) {
+        buffer[length++] = digits[--count];
+    }
+    buffer[length] = '\0';
+    return (int)length;
+}
+
+/**
+ * Write @p style into a scratch line, then copy it out only if it fits.
+ *
+ * Building into a local first is what makes "nothing is truncated" true by construction rather than by
+ * arithmetic at four call sites: every append is bounds-checked against the *scratch* buffer, which is
+ * large enough for the widest line this door can produce, so the only decision left is whether the
+ * caller's buffer can hold the finished line.
+ */
+Result RoboTextFontStyleWrite(const RoboTextFontStyle *style,
+                              char *buffer,
+                              size_t capacity,
+                              size_t *outLength)
+{
+    char line[96];
+    size_t length;
+    uint32_t whole;
+    uint32_t frac;
+    int wrote;
+
+    if (outLength) {
+        *outLength = 0u;
+    }
+    if (!style || !buffer || capacity == 0u) {
+        return RoboInvalidArgument;
+    }
+    buffer[0] = '\0';
+
+    memcpy(line, "size=", 5u);
+    length = 5u;
+    /*
+     * The size is written as whole pixels and one decimal digit. That is a lossy summary on purpose: the
+     * line is for a dump, and printing `13.000000` would claim a precision the setting does not have. A
+     * caller that needs the exact value reads the field.
+     */
+    whole = (uint32_t)style->sizePx;
+    frac = (uint32_t)((style->sizePx - (float)whole) * 10.0f + 0.5f);
+    wrote = StyleAppendUnsigned(line, sizeof(line), length, whole);
+    if (wrote < 0) {
+        return RoboNotSupported;
+    }
+    length = (size_t)wrote;
+    line[length++] = '.';
+    line[length++] = (char)('0' + (frac % 10u));
+    line[length] = '\0';
+
+    memcpy(line + length, " weight=", 8u);
+    length += 8u;
+    wrote = StyleAppendUnsigned(line, sizeof(line), length, (uint32_t)style->weight);
+    if (wrote < 0) {
+        return RoboNotSupported;
+    }
+    length = (size_t)wrote;
+
+    memcpy(line + length, " style=", 7u);
+    length += 7u;
+    memcpy(line + length, style->style == RoboFontStyleNormal ? "normal" : "italic", 6u);
+    length += 6u;
+    line[length] = '\0';
+
+    if (strlen(line) + 1u > capacity) {
+        /* Nothing was written to the caller's buffer (it holds the empty string): a truncated setting
+         * line reads as a *different* setting, which is the one thing a dump must not do. */
+        if (outLength) {
+            *outLength = strlen(line);
+        }
+        return RoboNotSupported;
+    }
+    memcpy(buffer, line, strlen(line) + 1u);
+    if (outLength) {
+        *outLength = strlen(line);
+    }
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shape options                                                       */
+/* ------------------------------------------------------------------ */
+
+void RoboTextShapeOptionsInit(RoboTextShapeOptions *options)
+{
+    if (!options) {
+        return;
+    }
+    memset(options, 0, sizeof(*options));
+    options->baseDirection = RoboTextDirectionUnknown;
+    options->scriptHint = RoboTextScriptCommon;
+    RoboTextLanguageInit(&options->language);
+    options->featureCount = 0u;
+    options->flags = 0u;
+}
+
+int RoboTextShapeOptionsIsValid(const RoboTextShapeOptions *options)
+{
+    if (!options) {
+        return 0;
+    }
+    if (!RoboTextDirectionIsKnown(options->baseDirection)) {
+        return 0;
+    }
+    if (options->featureCount > (size_t)RoboTextMaxFeatures) {
+        return 0;
+    }
+    for (size_t index = 0u; index < options->featureCount; index++) {
+        /* A stored feature is four printable bytes, because every one of them was validated on the way
+         * in: a count within range over a malformed tag would mean somebody wrote the array directly. */
+        if (strlen(options->features[index]) != 4u) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+Result RoboTextShapeOptionsAddFeature(RoboTextShapeOptions *options, const char *tag)
+{
+    if (!options || !tag) {
+        return RoboInvalidArgument;
+    }
+    if (strlen(tag) != 4u) {
+        /* An OpenType feature tag is exactly four bytes. A three- or five-character tag would be
+         * stored and then looked up by nothing, which is the failure this refusal exists to prevent. */
+        return RoboInvalidArgument;
+    }
+    if (options->featureCount >= (size_t)RoboTextMaxFeatures) {
+        return RoboInvalidArgument;
+    }
+    for (size_t index = 0u; index < 4u; index++) {
+        char c = tag[index];
+
+        if ((unsigned char)c < 0x20u || (unsigned char)c > 0x7Eu) {
+            return RoboInvalidArgument;
+        }
+    }
+    memset(options->features[options->featureCount], 0, RoboTextFeatureTagBytes);
+    memcpy(options->features[options->featureCount], tag, 4u);
+    options->featureCount++;
+    return RoboOk;
+}

@@ -63,8 +63,10 @@
 
 #include "RoboCSS/RoboCSSBorder.h"
 #include "RoboFont/RoboFontTypes.h"
+#include "RoboText/RoboText.h"
 
 #include "RoboPaint/RoboPaintColor.h"
+
 
 #include "RoboPaintInternal.h"
 
@@ -107,41 +109,47 @@ static int DecorationStyleIsShaped(CssBorderStyle style)
 }
 
 /*
- * Drawing a run (11.6).
+ * Drawing a run (11.6), through RoboText (12.4).
  *
- * The whole of the glyph path is three calls per character, and each of them is a door this
- * module does not own: the face's cmap resolves a code point to a glyph id, the graphics
- * module's bridge scales that glyph's advance, and the raster fills the outline as a
- * coverage-antialiased mask (Phase 12.1; the mode is named below). A painter that measured a
- * glyph itself would be a second font-metrics implementation with a different answer from the
- * one the box was sized with -- which is the failure `RoboLayoutTextFont.h` names as the one no
- * later phase could detect, arriving from the other side.
+ * This function used to be the tree's *transitional* text path, and it said so: "text run -> the
+ * font's cmap, per code point, in logical order -> paint", with `RoboPaintText.h` naming the
+ * successor it expected -- "Phase 14: text run -> RoboText shaping -> a glyph run -> paint". That
+ * successor arrived early, in 12.4, and this is where the substitution happened:
  *
- * **Sub-pixel pen, sub-pixel glyph.** The pen is a `float` and, since 12.1, the glyph is
- * *placed* at that fraction rather than snapped to a whole pixel. Advances are continuous and a
- * run's glyphs must not drift apart, so the position is accumulated in device units; the
- * rasterizer then quantizes the placed outline to a 1/256 px lattice, which is finer than the
- * 8×8 sample grid can observe. A run's glyphs therefore sit on the advances as accumulated
- * instead of on rounded copies of them -- and `GfxGlyphSnapPoint`, the graphics module's own
- * whole-pixel policy, is still there for a caller that wants it (a *run* does not, because
- * rounding each origin is exactly the drift the accumulation exists to avoid).
+ *     before   for each code point:  cmap -> glyph id;  hmtx -> glyph 0's fallback;  draw; pen += advance
+ *     now      RoboText -> text runs -> glyph runs -> for each glyph: draw at the pen; pen += its advance
  *
- * Layout's width for the same run is a **single** rounding of a font-unit sum
- * (`RoboLayoutTextFont.h` argues why it sums first), so the pen here can differ from that width
- * by a fraction of a pixel at the end of a long run; the last glyph may therefore sit within a
- * sub-pixel of the width the line was justified to. That is the honest limit of two
- * implementations of "advance" sharing one font, and it is stated rather than papered over.
+ * The loop that remains is four lines and owns **no font knowledge at all**: it does not know what
+ * a cmap is, it does not resolve an id, it does not scale an advance, and it cannot disagree with
+ * the measurer about any of the three because the measurer runs the same glyph generation
+ * (`RoboLayoutTextFont.c`). The one thing left to this layer is the two facts a text layer has no
+ * business knowing: where the run's origin is on *this* surface, and that UI text is drawn
+ * coverage-antialiased.
+ *
+ * **Sub-pixel pen, sub-pixel glyph.** The pen is a `float` and, since 12.1, the glyph is *placed*
+ * at that fraction rather than snapped to a whole pixel. The glyph carries its own offset (zero in
+ * this build -- nothing positions anything yet, see `RoboTextGlyphs.h`) and its own device advance,
+ * so the position is accumulated exactly the way RoboText summed it. That is the change that
+ * removes the old file's stated limit -- "two implementations of advance sharing one font" -- and
+ * what it removes is the *last glyph sitting a fraction of a pixel from the width the line was
+ * justified to*.
+ *
+ * `GfxGlyphSnapPoint`, the graphics module's whole-pixel policy, is still there for a caller that
+ * wants it; a *run* does not, because rounding each origin is exactly the drift the accumulation
+ * exists to avoid.
  */
 
 /**
  * Draw @p command's run through @p face into @p raster.
  *
  * @param outGlyphs  receives the glyph draws attempted.
- * @param outMissing receives the code points drawn as `.notdef` (or with unusable metrics).
+ * @param outMissing receives the glyphs drawn as `.notdef` or with unusable metrics -- RoboText's
+ *                   own count, which is one per glyph rather than the old path's two for a mapped
+ *                   glyph whose metrics table was broken. One glyph, one miss.
  * @return RoboOk; RoboInvalidArgument when the command is not a drawable text command;
  *         RoboNotFound when the command's span names no run in @p pool, which the list's own
- *         append rule makes unreachable and is reported rather than trusted; whatever a glyph
- *         draw returned when it failed.
+ *         append rule makes unreachable and is reported rather than trusted; RoboNotSupported
+ *         when the pass has no face to draw with; whatever a glyph draw returned when it failed.
  */
 static Result DecorationDrawText(GfxRaster *raster,
                                           FontFace *face,
@@ -155,9 +163,15 @@ static Result DecorationDrawText(GfxRaster *raster,
     const uint32_t *codePoints;
     GfxGlyphDraw draw;
     PaintTextRun run;
+    RoboTextBuffer *buffer = NULL;
+    RoboTextShapeResult *result = NULL;
+    RoboTextFontContext font;
+    RoboTextFontStyle style;
+    RoboTextView view;
     float penX;
     float baselineY;
-    uint32_t index;
+    size_t runIndex;
+    Result status;
 
     *outGlyphs = 0u;
     *outMissing = 0u;
@@ -171,6 +185,63 @@ static Result DecorationDrawText(GfxRaster *raster,
     if (!codePoints) {
         return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboNotFound,
                                "the list's text pool holds no characters");
+    }
+    if (!face) {
+        /*
+         * A face is what turns characters into glyphs, and the pass tolerates a missing one
+         * everywhere a *fill* is drawn. For text it cannot: every glyph would be `.notdef`
+         * drawn into nothing. The old loop failed at the first glyph draw here; this says the
+         * reason once, at the door, before allocating anything.
+         */
+        return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboNotSupported,
+                               "a text run needs a font face to be drawn with");
+    }
+
+    /*
+     * The run's characters enter the text layer as the **scalars** the pool already holds, and
+     * that is the seam working as designed: the pool stores characters rather than glyph ids
+     * (`RoboPaintText.h` argues why), so the text layer encodes them once, hands back glyphs,
+     * and the display list stays a statement about the document rather than about one font.
+     */
+    status = RoboTextBufferCreateFromScalars(&buffer,
+                                             codePoints + (size_t)run.span.first,
+                                             (size_t)run.span.count, NULL);
+    if (status != RoboOk) {
+        return RoboPaintDiag(diag, RoboPaintDomainGeometry, status,
+                               "a run's characters are not text this build can draw");
+    }
+
+    /*
+     * The setting the run was **measured with**, copied rather than re-derived: the measurer's
+     * `LayoutTextStyle` and this context are the same four numbers, which is what keeps "the size
+     * it was measured at is the size it is drawn at" a copy rather than an agreement to maintain.
+     *
+     * The weight is clamped into the nine-step scale, and that is a deliberate narrowing rather
+     * than a silent repair: `PaintTextRunIsValid` carries a weight CSS allows outside 100..900, and
+     * a text context refuses one it cannot name. Refusing the *run* here instead would trade a
+     * wrong-looking weight for no text at all, which is a worse answer for a document whose only
+     * sin is an unusual `font-weight`.
+     */
+    RoboTextFontStyleInit(&style);
+    style.sizePx = (float)run.font.fontSizePx;
+    style.weight = (FontWeight)(run.font.fontWeight < 100 ? 100
+                                : run.font.fontWeight > 900 ? 900
+                                                            : run.font.fontWeight);
+    style.style = run.font.italic ? RoboFontStyleItalic : RoboFontStyleNormal;
+    RoboTextFontContextInit(&font);
+    if (RoboTextFontContextSet(&font, face, &style) != RoboOk) {
+        RoboTextBufferDestroy(buffer);
+        return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboInvalidArgument,
+                               "a run's font inputs are not a setting this build can draw");
+    }
+
+    view = RoboTextViewMake(RoboTextBufferBytes(buffer),
+                            (size_t)RoboTextBufferByteLength(buffer));
+    status = RoboTextShape(view, &font, NULL, &result, NULL);
+    if (status != RoboOk) {
+        RoboTextBufferDestroy(buffer);
+        return RoboPaintDiag(diag, RoboPaintDomainGeometry, status,
+                               "a run's glyphs could not be resolved");
     }
 
     /* The pen starts at the run rectangle's own left edge and the baseline is the one number
@@ -190,49 +261,47 @@ static Result DecorationDrawText(GfxRaster *raster,
      * glyph's contour with one-pixel lines. `ALPHA` is the same glyph rasterized into a
      * grayscale coverage mask and blended, and it is selected **by this pass** because this
      * pass is the only thing in the tree that knows it is drawing UI text rather than
-     * auditing an outline. The pen and the baseline below are unchanged, so the phase
-     * improves the pixels and moves nothing.
+     * auditing an outline.
      */
     draw.mode = RoboGfxGlyphModeAlpha;
 
-    for (index = 0u; index < (uint32_t)run.span.count; index++) {
-        FontCmapLookupResult lookup;
-        GfxGlyphMetricsDevice metrics;
-        GlyphId glyph;
-        uint32_t codePoint = codePoints[(size_t)run.span.first + index];
-        int mapped;
-
-        memset(&lookup, 0, sizeof(lookup));
-        mapped = FontFaceLookupGlyph(face, codePoint, &lookup) == RoboOk &&
-                 lookup.status == RoboFontCmapMapped;
-        glyph = mapped ? lookup.glyphId : RoboGlyphIdNone;
-        if (!mapped) {
-            /* `.notdef`, counted -- the measurer's rule and its number, one layer along. */
-            (*outMissing)++;
-        }
-
-        draw.glyphId = glyph;
-        draw.origin = MakeGfxPointF(penX, baselineY);
-        if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {
-            return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboError,
-                                   "a glyph could not be drawn");
-        }
-        (*outGlyphs)++;
+    for (runIndex = 0u; runIndex < RoboTextShapeResultGlyphRunCount(result); runIndex++) {
+        const RoboTextGlyphRun *glyphRun = RoboTextShapeResultGlyphRun(result, runIndex);
+        RoboTextGlyphIndex glyphIndex;
 
         /*
-         * The advance takes the metrics door's own answer, and a glyph whose metrics will
-         * not parse advances by **nothing** and is counted as a miss -- the measurer's
-         * refusal, restated: a broken font that produced a narrower run here than a working
-         * one would make the glyphs pile up on each other in a way that reads as a rendering
-         * bug rather than as a missing table.
+         * Logical order, through one pen: an RTL run's glyphs are drawn left to right from its
+         * origin because no bidi exists yet, and `stats.rtl` names how many runs that happened
+         * to. RoboText preserves the logical order deliberately (`RoboTextGlyphs.h`), so this
+         * loop has nothing to reorder and nothing to guess.
          */
-        memset(&metrics, 0, sizeof(metrics));
-        if (GetGfxGlyphMetricsDevice(face, glyph, draw.sizePx, &metrics) == RoboOk) {
-            penX += metrics.advanceWidth;
-        } else if (mapped) {
-            (*outMissing)++;
+        for (glyphIndex = 0u; glyphIndex < RoboTextGlyphRunCount(glyphRun); glyphIndex++) {
+            const RoboTextGlyph *glyph = RoboTextGlyphRunGlyph(glyphRun, glyphIndex);
+
+            draw.glyphId = glyph->glyphId;
+            draw.origin = MakeGfxPointF(penX + glyph->offsetX, baselineY + glyph->offsetY);
+            if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {
+                RoboTextShapeResultDestroy(result);
+                RoboTextBufferDestroy(buffer);
+                return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboError,
+                                       "a glyph could not be drawn");
+            }
+            (*outGlyphs)++;
+            /*
+             * The miss is RoboText's own: `.notdef`, or a glyph whose metrics table would not
+             * parse. An unmapped character still moves the pen -- by `.notdef`'s advance, which
+             * is what the face says the pen does there and what keeps a drawn box from being
+             * measured as nothing.
+             */
+            if (!glyph->mapped || glyph->metricsStatus != RoboFontGlyphMetricsOk) {
+                (*outMissing)++;
+            }
+            penX += glyph->advanceX;
         }
     }
+
+    RoboTextShapeResultDestroy(result);
+    RoboTextBufferDestroy(buffer);
     return RoboOk;
 }
 
@@ -423,20 +492,28 @@ static Result DecorationPaint(const PaintDisplayList *list,
     }
 
     /*
-     * The face's **character map**, prepared once for the pass. A `FontFace` is
-     * created without one -- `FontFaceLookupGlyph` answers `RoboNotSupported` for a
-     * face whose cmap has not been parsed -- so the pass asks for it here, through the same
-     * door the layout measurer uses before it resolves a single glyph
-     * (`RoboLayoutTextFont.c`). One font layer builds the map; this is the layer that says
+     * The face's **tables**, prepared once for the pass, and since 12.4 that is two of them
+     * rather than one. A `FontFace` is created without either -- `FontFaceLookupGlyph` answers
+     * `RoboNotSupported` for a face whose cmap has not been parsed, and RoboText's metrics door
+     * answers `Unavailable` for a face whose metrics have not been -- so the pass asks for both
+     * here, through the same doors the layout measurer uses before it resolves a single glyph
+     * (`RoboLayoutTextFont.c`). One font layer builds the tables; this is the layer that says
      * when, and it must say so before the first lookup rather than after it.
      *
-     * A face whose cmap **will not parse** is not refused. At worst every lookup misses,
+     * The metrics parse is the *new* half, and it is worth naming why it moved here: the old
+     * glyph loop asked `GetGfxGlyphMetricsDevice` for each advance, and that door parses the
+     * metrics itself as a side effect (`RoboGraphicsText.c`). The loop no longer calls it -- the
+     * advance now comes from RoboText -- so the preparation has to be *said* rather than
+     * inherited from a door the pass no longer uses.
+     *
+     * A face whose tables **will not parse** is not refused. At worst every lookup misses,
      * every glyph is `.notdef`, and `glyphsMissing` names the fact per code point -- which is
      * the answer this pass already gives an unmapped character, so a broken font degrades to
      * the same shape as a font with no glyph for the text rather than to a failed pass.
      */
     if (face != NULL) {
         (void)FontFaceParseCmap(face);
+        (void)FontFaceParseMetrics(face);
     }
 
     /*

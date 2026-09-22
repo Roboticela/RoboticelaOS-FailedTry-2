@@ -223,5 +223,6 @@ The findings worth keeping are the ones that only a *test* could have produced:
    `FontFaceLayoutMetrics` and `FontFaceGlyphOutline` all answer `RoboNotSupported`
    until the part of the font they need has been built, so `desktop.scene.system_face` parses cmap,
    metrics and outlines in that order before asking. The shell's own chrome never has to: it looks glyphs
-   up *after* the document's text pass has parsed the cmap (`RoboPaintDecoration.c`), which is why a
-   face is usable by the time the first label is drawn.
+   up *after* the document's text pass has prepared both of the face's tables — cmap and metrics, at the
+   top of the pass (`RoboPaintDecoration.c`) — which is why a face is usable by the time the first label
+   is drawn.

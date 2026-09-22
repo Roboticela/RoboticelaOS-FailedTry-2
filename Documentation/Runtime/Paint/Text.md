@@ -18,10 +18,16 @@ HTML text
   → RoboLayout inline/text geometry (the run, its line box, its baseline)
   → RoboPaint TEXT record          (a span into the record list's pool)
   → DrawText command               (a span into the display list's own pool)
-  → the face's cmap, per code point, in logical order
+  → RoboText glyph generation  (a glyph run: id + source span + device advance)
   → RoboGraphics glyph outline stroke into a raster
   → the caller's surface
 ```
+
+**Since Phase 12.4 this pass owns no font knowledge at all.** It used to resolve a code point through
+the face's cmap itself; it now asks `RoboTextGlyphRunGenerate` for a glyph run and strokes what it
+gets. The contract — the module's own, and this pass's limits — is
+`Documentation/Runtime/Text/Architecture.md`; what follows in this document is the half a *painter*
+owns: where a run originates on this surface, and that UI text is drawn coverage-antialiased.
 
 ---
 
@@ -129,27 +135,33 @@ but its depth, its node identity and its position are all checked:
   one level down from that rule — the ordering defect the phase found in its own builder, described
   in §8.
 
-## 5. Glyph resolution, and who prepares the face
+## 5. Glyph generation, and who prepares the face
 
-The pass resolves each code point against the **caller-supplied face's own cmap**, in logical order,
-and strokes the glyph's outline with `GfxRasterDrawGlyph` at the resolved pixel size, in the
-run's colour, advancing the pen by the glyph's own device metrics. The pen starts at the run
-rectangle's left edge and the baseline at `rect.y + baseline_offset` — both of which are layout's
-answers, so a run is drawn where layout placed it.
+**The pass no longer resolves anything.** It asks RoboText for a glyph run — `RoboTextGlyphRunGenerate`
+over the run's scalars and the caller-supplied face — and then does the four things a text layer has no
+business knowing: sets the pen at the run rectangle's left edge and the baseline at
+`rect.y + baseline_offset` (both layout's answers, so a run is drawn where layout placed it), reads each
+glyph's **device** advance to move the pen, strokes the outline with `GfxRasterDrawGlyph` at the resolved
+pixel size in the run's colour, and selects Phase 12.1's coverage-antialiased mode.
 
-A glyph whose metrics will not parse advances by **nothing** and is counted as a miss, which is the
-measurer's refusal restated: a broken font that produced a narrower run here than a working one would
-pile the glyphs on each other in a way that reads as a rendering bug rather than as a missing table.
+Three consequences worth naming, because each used to be this pass's job:
 
-**The face's cmap is prepared by the pass, once, before the first lookup.** A `FontFace` is
-created without one — `FontFaceLookupGlyph` answers `RoboNotSupported` for a face whose
-cmap has not been parsed — so the pass calls `FontFaceParseCmap` exactly as the layout
-measurer does before it resolves a single glyph (`RoboLayoutTextFont.c`). One font layer builds the
-map; this is the layer that says *when*, and it must say so before the first lookup rather than after
-it. A face whose cmap **will not parse** is not refused: at worst every lookup misses, every glyph is
-`.notdef`, and `glyphs_missing` names the fact per code point — the same answer this pass already
-gives an unmapped character, so a broken font degrades to the shape of a font with no glyph for the
-text rather than to a failed pass.
+- **The advance is a device quantity and comes from the same generator the measurer runs.** The pen here
+  and the width `RoboLayout` justified to are sums of the same numbers, which is what removed the
+  admitted fraction-of-a-pixel disagreement between "measure with RoboFont's `hmtx` in font units" and
+  "paint with a `float` pen". `RoboTextFontUnitsToDevice` is that one scaling door.
+- **A glyph whose id is `.notdef` advances like any other.** RoboText gives an unmapped scalar glyph 0's
+own advance and counts it; the pass does not re-decide, so undrawable text measures as wide as its ink
+  and `glyphs_missing` is RoboText's count rather than a second opinion.
+- **The pass prepares *both* of a face's tables — cmap and metrics — once, before the first glyph.**
+  A `FontFace` is created without either (`FontFaceLookupGlyph` answers `RoboNotSupported` for a face
+  whose cmap has not been parsed), and the old loop inherited the metrics parse as a side effect of the
+  graphics layer's own advance door. The new one does not call that door, so the preparation has to be
+  *said*: `SuiteRoboPaintText`'s synthetic face is what caught the omission (`PROGRESS.md`, Goal 12.4).
+  One font layer builds the tables; this is the layer that says *when*.
+- **A face whose cmap will not parse is still not refused.** At worst every lookup misses, every glyph is
+  `.notdef`, and `glyphs_missing` names the fact — the same answer an unmapped character gets, so a broken
+  font degrades to the shape of a font with no glyph for the text rather than to a failed pass.
 
 ## 6. Counters
 
@@ -194,15 +206,19 @@ their origin** — because there is no bidi in this build, and a count is how it
 - **No whitespace collapsing, no fallback fonts, no `text-decoration`, no `text-shadow`.** A run
   marked non-paintable by layout is simply not reached.
 
-The boundary Phase 14 fills is already the right shape:
+The boundary the shaping goals fill is already the right shape, and since 12.4 the first half of it is
+real rather than predicted:
 
 ```text
-this build    text run → the font's cmap, per code point, in logical order → paint
-Phase 14      text run → RoboText shaping → a glyph run → paint
+before 12.4   text run → the font's cmap, per code point, in logical order → paint
+now           text run → RoboText → a glyph run → paint            (RoboTextGlyphRunGenerate)
+12.10–12.13   text run → RoboText → a *shaped* glyph run → paint   (one function's body)
 ```
 
-and the record a shaper will fill in is this one, with `glyphs_missing` becoming a shaping result
-instead of a cmap miss.
+`RoboTextGlyphGenerationCmapPerScalar` is the placeholder's name and it is isolated in
+`RoboTextGlyphs.c` for exactly this: substitution, positioning and kerning replace that one function
+and nothing above it changes — not this pass, not the record, not the pen. The record a shaper will
+fill in is this one, with `glyphs_missing` becoming a shaping result instead of a cmap miss.
 
 ## 8. Findings the phase recorded
 

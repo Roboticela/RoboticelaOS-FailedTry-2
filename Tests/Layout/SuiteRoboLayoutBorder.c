@@ -1374,7 +1374,7 @@ static void TestBordersBlockAutoWidth(void)
         LayoutBorderRuleInit(&bare, "div", RoboCssDisplayBlock);
         LayoutBorderRulePx(&bare, "height", 20.0);
         LayoutBorderBegin(&second, "<html><body><div></div></body></html>",
-                            (LayoutBorderRuleTable[]){htmlRule, bodyRule, bare}, 3u);
+                            (LayoutBorderRule[]){htmlRule, bodyRule, bare}, 3u);
         LayoutBorderPass(&second, LAYOUT_BORDER_VIEWPORT_WIDTH, NULL);
         size = LayoutBorderSizeOf(&second, LayoutBorderBoxFor(&second, "div"));
         RoboCheckEqInt(size.width, LAYOUT_BORDER_VIEWPORT_WIDTH);
@@ -1663,7 +1663,7 @@ static void TestBordersNoneStyle(void)
         LayoutBorderRulePx(&solid, "height", 10.0);
         LayoutBorderRuleShorthand(&solid, 5.0);
         LayoutBorderBegin(&second, "<html><body><div></div></body></html>",
-                            (LayoutBorderRuleTable[]){htmlRule, bodyRule, solid}, 3u);
+                            (LayoutBorderRule[]){htmlRule, bodyRule, solid}, 3u);
         LayoutBorderPass(&second, LAYOUT_BORDER_VIEWPORT_WIDTH, NULL);
         size = LayoutBorderSizeOf(&second, LayoutBorderBoxFor(&second, "div"));
         RoboCheckEqInt(size.width, 110);
@@ -1690,7 +1690,7 @@ static void TestBordersNoneStyle(void)
         LayoutBorderRuleShorthand(&hidden, 5.0);
         LayoutBorderRuleStyleAll(&hidden, RoboCssBorderStyleHidden);
         LayoutBorderBegin(&third, "<html><body><div></div></body></html>",
-                            (LayoutBorderRuleTable[]){htmlRule, bodyRule, hidden}, 3u);
+                            (LayoutBorderRule[]){htmlRule, bodyRule, hidden}, 3u);
         LayoutBorderPass(&third, LAYOUT_BORDER_VIEWPORT_WIDTH, NULL);
         size = LayoutBorderSizeOf(&third, LayoutBorderBoxFor(&third, "div"));
         RoboCheckEqInt(size.width, 100);
@@ -1773,7 +1773,7 @@ static void TestBordersMarginInteraction(void)
         LayoutBorderRulePx(&bordered, "height", 20.0);
         LayoutBorderRuleShorthand(&bordered, 5.0);
         LayoutBorderBegin(&second, "<html><body><div></div><i></i></body></html>",
-                            (LayoutBorderRuleTable[]){htmlRule, bodyRule, bordered,
+                            (LayoutBorderRule[]){htmlRule, bodyRule, bordered,
                                                      iRule},
                             4u);
         LayoutBorderPass(&second, LAYOUT_BORDER_VIEWPORT_WIDTH, NULL);
@@ -1985,7 +1985,7 @@ static void TestBordersInlineAtomic(void)
     LayoutBorderRulePx(&widthlessRule, "border-right-width", 20.0);
     LayoutBorderRuleStyleAll(&widthlessRule, RoboCssBorderStyleSolid);
     LayoutBorderBegin(&second, "<html><body><div><i></i></div></body></html>",
-                        (LayoutBorderRuleTable[]){htmlRule, bodyRule, divRule,
+                        (LayoutBorderRule[]){htmlRule, bodyRule, divRule,
                                                  widthlessRule},
                         4u);
     LayoutBorderPass(&second, LAYOUT_BORDER_VIEWPORT_WIDTH, NULL);

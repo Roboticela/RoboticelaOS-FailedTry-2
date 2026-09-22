@@ -1,9 +1,12 @@
 /*
- * RoboLayout's RoboFont-backed text measurer (Phase 10.5).
+ * RoboLayout's text measurer (Phase 10.5) over **RoboText** (Phase 12.4).
  *
- * The real supplier behind RoboLayoutText.h's seam: a RoboFont face asked through
- * RoboFont's own public API, answering the advance width and line extent of a code
- * point span.
+ * The real supplier behind RoboLayoutText.h's seam: a RoboFont face and a code-point
+ * span, answering the advance width and line extent of that span. Since 12.4 the
+ * arithmetic is RoboText's -- this file builds a text context, hands the span's bytes
+ * to `RoboTextMeasureText`, and converts the answer into a `LayoutTextRun` -- and the
+ * change is what makes the width here and the pen in the painter the *same* quantity
+ * rather than two careful restatements of one.
  *
  * It is a *measurer*, not a font manager
  *
@@ -18,20 +21,17 @@
  *
  * What it computes, and the one decision that matters
  *
- *   width   the sum of every glyph's `hmtx` advance, in **font units**, scaled to
- *           pixels **once** at the end.
+ *   width   the sum of every glyph's own device advance, accumulated in `double` and
+ *           rounded **once** at the boundary, in integer pixels.
  *
- * Summing in font units and converting once is the whole design of the width. The
- * obvious alternative -- scale each advance, round, add -- introduces one rounding
- * per glyph, and a hundred-glyph run would drift by up to fifty pixels from the
- * width its glyphs actually occupy. RoboFont's own `FontScaleFontUnits` is
- * used for the single conversion rather than a local multiply, because it already
- * carries the overflow check and the stated rounding policy
- * (RoboFontRoundNearest, ties away from zero) that this module would otherwise
- * have to restate.
+ * The property is the point, not the order of operations: per-glyph rounding would
+ * drift by up to half a pixel per glyph, and a hundred-glyph run would come out up to
+ * fifty pixels from the width its glyphs occupy. RoboText accumulates the very numbers
+ * it hands the painter, so this file no longer *restates* that policy -- it consumes
+ * one implementation of it (`RoboTextGlyphs.h` argues the accumulation).
  *
- *   height  ascent + descent + line gap, from the face's canonical layout metrics,
- *           scaled the same way.
+ *   height  ascent + descent + line gap, from the face's canonical layout metrics
+ *           through RoboText's metrics door, each magnitude rounded separately.
  *
  * The *baseline* is not computed here. The record carries ascent and descent so
  * that 10.7 can place a baseline without re-deriving the font's metrics, and the
@@ -41,16 +41,23 @@
  * Unshaped, and it says so
  *
  * No GlyphSubstitution, no GlyphPositioning, no ligatures, no kerning, no bidi, no
- * fallback. The glyphs are the cmap's, in logical order, and their advances are
- * their own. That is exactly CSS's *advance width* of a run before layout reorders
- * it, and naming the limit is what keeps a later phase from having to guess which
- * of the two numbers this one produced.
+ * fallback. The glyphs are the cmap's, in logical order, and their advances are their
+ * own -- `RoboTextGlyphGenerationCmapPerScalar`, the labelled placeholder RoboText's
+ * own capability record reports as `glyphGenerationIsPlaceholder`. That is exactly
+ * CSS's *advance width* of a run before layout reorders it, and naming the limit is
+ * what keeps a later phase from having to guess which of the two numbers this one
+ * produced.
  *
  * A code point the face has no glyph for is measured at `.notdef`'s advance and
- * **counted** (`glyphsMissing`) rather than skipped: a build that reported a
- * plausible width for a run the font cannot draw would be the single failure no
- * later phase could detect. Font fallback is a later phase's; noticing the miss is
- * this one's.
+ * **counted** (`glyphsMissing`, from RoboText's own `missingGlyphs`) rather than
+ * skipped: a build that reported a plausible width for a run the font cannot draw
+ * would be the single failure no later phase could detect. Font fallback is a later
+ * phase's; noticing the miss is this one's.
+ *
+ * The font inputs are **clamped, not refused**. CSS allows a numeric `font-weight`
+ * outside 100..900 and a text context refuses one it cannot name; refusing the *run*
+ * would trade a wrong-looking weight for no measured text at all, which is a worse
+ * answer for a document whose only sin is an unusual weight.
  */
 
 #ifndef ROBO_LAYOUT_TEXT_FONT_H

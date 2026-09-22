@@ -504,14 +504,20 @@ typedef struct layoutTextRule {
 
 #define LAYOUT_TEXT_MAX_RULES 8u
 
-typedef struct layoutTextStyle {
+/*
+ * One rule of the fixture: a tag and the computed style the fixture declares for it. Named for the
+ * *rule* rather than for the style, because `LayoutTextStyle` is the public resolved-record the
+ * measurer takes (`RoboLayoutText.h`) -- this suite uses both, and the collision this typedef used to
+ * cause is what stopped the file compiling at all.
+ */
+typedef struct layoutTextFixtureRule {
     char tag[16];
     CssComputedStyle *style; /* owned */
-} LayoutTextStyle;
+} LayoutTextFixtureRule;
 
 typedef struct layoutTextFixture {
     LayoutDocument doc;
-    LayoutTextStyle rules[LAYOUT_TEXT_MAX_RULES];
+    LayoutTextFixtureRule rules[LAYOUT_TEXT_MAX_RULES];
     size_t ruleCount;
     LayoutStyleSource styles;
     LayoutTree *tree;
@@ -542,8 +548,8 @@ static const CssComputedStyle *LayoutTextStyleLookup(
     return NULL;
 }
 
-static void LayoutTextStyleAdd(LayoutTextFixture *fixture,
-                                 const LayoutTextRule *rule)
+static void LayoutTextFixtureRuleAdd(LayoutTextFixture *fixture,
+                                     const LayoutTextRule *rule)
 {
     CssComputedStyle *style = NULL;
     CssComputedValue value = RoboCssCleared;
@@ -581,7 +587,7 @@ static void LayoutTextBegin(LayoutTextFixture *fixture,
     memset(fixture, 0, sizeof(*fixture));
     LayoutDocumentBuild(&fixture->doc, html);
     for (index = 0u; index < count; index++) {
-        LayoutTextStyleAdd(fixture, &rules[index]);
+        LayoutTextFixtureRuleAdd(fixture, &rules[index]);
     }
     LayoutStyleSourceInit(&fixture->styles);
     fixture->styles.userdata = fixture;
@@ -1402,9 +1408,9 @@ static void TestTextBuild(void)
                           "    <p>Hello</p>\n"
                           "  </body>\n"
                           "</html>\n");
-    LayoutTextStyleAdd(&fixture, &rules[0]);
-    LayoutTextStyleAdd(&fixture, &rules[1]);
-    LayoutTextStyleAdd(&fixture, &rules[2]);
+    LayoutTextFixtureRuleAdd(&fixture, &rules[0]);
+    LayoutTextFixtureRuleAdd(&fixture, &rules[1]);
+    LayoutTextFixtureRuleAdd(&fixture, &rules[2]);
     LayoutStyleSourceInit(&fixture.styles);
     fixture.styles.userdata = &fixture;
     fixture.styles.ComputedStyleFor = LayoutTextStyleLookup;

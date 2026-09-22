@@ -176,11 +176,13 @@ a reader is most likely to misread:
 2. **One baseline rule for both bands.** `(band + cap) / 2` with a cap of 8, reached through the panel's
    `baseline_from_bottom` metric and through the same arithmetic in a title bar. A panel label and a
    window title that disagreed about where a baseline goes would read as two typesettings on one screen.
-3. **Labels are drawn one glyph at a time, through the pipeline's own bridge** (the face's cmap, the
-   graphics module's glyph scaling, the raster's stroke). A shell that measured its own text would be a
+3. **Labels are drawn one glyph at a time, through the pipeline's own bridge** — since Phase 12.4 that
+   bridge is **RoboText** (`RoboTextGlyphRunGenerate`, the face's cmap and hmtx behind it) and then the
+   graphics module's glyph scaling and the raster's stroke. A shell that measured its own text would be a
    second font-metrics implementation that disagrees with the first the day a face changes — and the pen
-   is snapped by the graphics module's own policy, so shell text and document text are placed by one
-   rule.
+   is placed by the graphics module's own policy and advanced by RoboText's device advances, so shell
+   text and document text are measured and placed by one rule. `Documentation/Runtime/Text/Architecture.md`
+   is that layer's contract.
 4. **`clipped` is a statement about a drawing, not about a surface.** The raster's clip is reset to the
    screen for the whole frame, so the count in the record is the number of shell drawings the *screen's
    own bounds* cut — a window partly off the screen is a legitimate state, and the count is how a caller

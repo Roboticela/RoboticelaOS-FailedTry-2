@@ -23,7 +23,7 @@ param(
     [switch]$Sanitize,
     [string]$Filter = "",
     [switch]$VerboseTests,
-    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Graphics", "Display", "Window", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
+    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Text", "Graphics", "Display", "Window", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
     [string]$Module = "",
     [switch]$SkipGuest,
     [switch]$Rebuild
@@ -162,6 +162,20 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboTypography\RoboTypographyScale.c"),
     (Join-Path $SourceDir "RoboTypography\RoboTypographyResolver.c"),
     (Join-Path $SourceDir "RoboTypography\RoboTypographyVersion.c"),
+    # Phase 12.4 -- the text layer: the canonical text model (buffer, ranges, units), the runs, the
+    # glyph record and glyph runs, and the pipeline that turns a string into both a measurement and
+    # the glyphs a painter walks. It owns no font parser (RoboFont parses) and no Unicode database
+    # (Phase 4 owns that); `RoboTextGlyphGenerationCmapPerScalar` is the labelled placeholder the
+    # later shaping goals replace, and it is isolated in RoboTextGlyphs.c so they can.
+    (Join-Path $SourceDir "RoboText\RoboTextDiagnostics.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextVersion.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextTypes.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextInternal.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextBuffer.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextFont.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextRuns.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextGlyphs.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextShape.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphicsGeometry.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphicsColor.c"),
@@ -439,6 +453,12 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Typography\SuiteRoboTypographyRoles.c"),
     (Join-Path $TestsRoot "Typography\SuiteRoboTypographyResolver.c"),
     (Join-Path $TestsRoot "Typography\SuiteRoboTypographyDocument.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextBuffer.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextRuns.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextGlyphs.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShape.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextConformance.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextGallery.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),
@@ -1067,6 +1087,50 @@ function Assert-RoboTypographyBoundaries {
     Write-Host "RoboTypography boundary source scan: OK"
 }
 
+function Assert-RoboTextBoundaries {
+    # RoboText sits between the font layer and the document/drawing layers that consume it, so its rule
+    # has two halves and the second is the one that keeps it a *text* module.
+    #
+    # The **upward** rule is the tree-wide one: no Chromium, no Skia, no V8, no compositor, nothing from
+    # the shell or API layers.
+    #
+    # The **consumer** rule is this module's own, and it is the phase's whole point: RoboText may not
+    # include RoboHTML, RoboCSS, RoboLayout, RoboPaint, RoboRender, RoboWindow, RoboDisplay,
+    # RoboGraphics or RoboTypography. Every one of those is a *consumer* of text -- they ask the text
+    # layer what a string measures and what glyphs it is made of -- and a text layer that could reach a
+    # layout style record or a paint list would stop being the thing that decides what the answer is.
+    # RoboTypography is on the list for the same reason read the other way round: it is a *binding* of
+    # roles to faces that sits above text, so the arrow only ever points one way.
+    $moduleRoots = @(
+        (Join-Path $RuntimeRoot "Include\RoboText"),
+        (Join-Path $RuntimeRoot "Source\RoboText")
+    )
+    $allRoots = $moduleRoots + @((Join-Path $TestsRoot "Text"))
+
+    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|RoboDemo|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $consumer = '(?i)#\s*include\s*[<"]((RoboHTML|RoboCSS|RoboLayout|RoboPaint|RoboRender|RoboWindow|RoboDisplay|RoboTypography)/|RoboGraphics/)'
+    # Prose that names the boundary it keeps is not a leak, exactly as in the typography and desktop scans.
+    $exempt = '(?i)must never depend|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|no compositor|does not read|reaching for|not a font parser|may \*\*not\*\*'
+
+    $rules = @(
+        @{ Roots = $moduleRoots; Pattern = $consumer },
+        @{ Roots = $allRoots; Pattern = $upward }
+    )
+    foreach ($rule in $rules) {
+        foreach ($root in $rule.Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+                Select-String -Pattern $rule.Pattern -SimpleMatch:$false |
+                Where-Object { $_.Line -notmatch $exempt }
+            if ($hits) {
+                $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+                throw "RoboText boundary leak (Chromium, a consumer layer above, or a typography module):`n$sample"
+            }
+        }
+    }
+    Write-Host "RoboText boundary source scan: OK"
+}
+
 function Assert-RoboDisplayChromiumIndependence {
     $roots = @(
         (Join-Path $RuntimeRoot "Include\RoboDisplay"),
@@ -1166,7 +1230,7 @@ function Invoke-RoboCompileObject {
 if ($Module -and -not $Filter) {
     $moduleFilter = @{
         Core = "base."; Memory = "mem."; Containers = "array."; Unicode = "unicode."; I18n = "i18n."
-        Font = "font."; Typography = "typography."; Graphics = "graphics."; Display = "display."; Window = "window."
+        Font = "font."; Typography = "typography."; Text = "text."; Graphics = "graphics."; Display = "display."; Window = "window."
         Input = "input."; Html = "html."; Css = "css."; Layout = "layout."
         Paint = "paint."; Rasterizer = "render."; Desktop = "desktop."
     }
@@ -1182,6 +1246,7 @@ if ($Module -and $Module -ne "Runtime") {
         I18n        = @("SuiteRoboI18N")
         Font        = @("\Font\", "/Font/", "SuiteRoboFont.c")
         Typography  = @("\Typography\", "/Typography/")
+        Text        = @("\Text\", "/Text/")
         Graphics    = @("\Graphics\", "/Graphics/")
         Display     = @("\Display\", "/Display/")
         Window      = @("\Window\", "/Window/")
@@ -1292,6 +1357,10 @@ $hostFlags = @(
     # a host IO adapter so the same pack, discovery and selection code the guest runs is what the suites
     # exercise -- rather than a synthetic stand-in that could pass while the real pack was broken.
     "-I", (Join-Path $TestsRoot "Typography"),
+    # text/tests carries its fixture header, which opens the *shipped* system typeface pack through the
+    # pack's own host IO adapter -- the same face, discovery and selection the guest runs, so a suite
+    # that passes cannot be passing against a synthetic stand-in for a pack that is broken.
+    "-I", (Join-Path $TestsRoot "Text"),
     "-I", (Join-Path $SourceDir "RoboWindow\platform\win32"),
     "-I", (Join-Path $SourceDir "RoboDisplay\platform\win32"),
     "-D_CRT_SECURE_NO_WARNINGS",
@@ -1434,16 +1503,17 @@ if ($Module -and $Module -ne "Runtime") {
         I18n = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N")
         Font = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont")
         Typography = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography")
+        Text = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText")
         Graphics = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics")
         Display = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay")
         Window = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay", "RoboWindow")
         Input = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboHTML", "RoboLayout", "RoboInput")
         Html = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboHTML")
         Css = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboCSS")
-        Layout = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout")
-        Paint = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint")
-        Rasterizer = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender")
-        Desktop = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender", "RoboDesktop", "RoboInput")
+        Layout = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout")
+        Paint = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint")
+        Rasterizer = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender")
+        Desktop = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender", "RoboDesktop", "RoboInput")
     }
     $want = $prefixMap[$Module]
     if ($want) {
@@ -1521,6 +1591,7 @@ if ($Verify) {
     Assert-RoboDesktopBoundaries
     Assert-RoboInputBoundaries
     Assert-RoboTypographyBoundaries
+    Assert-RoboTextBoundaries
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 

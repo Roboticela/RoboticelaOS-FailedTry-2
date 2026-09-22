@@ -717,6 +717,12 @@ function Invoke-RoboBuildUserland {
             # under RoboDesktop -- the shell resolves roles and never names a font file -- and over
             # RoboFont, whose pack it resolves against.
             "RoboTypography",
+            # The text layer (Phase 12.4): the module that turns a string into runs, glyphs and a
+            # measurement. It is named here because the guest's *measurer* (RoboLayout) and its *painter*
+            # (RoboPaint) both consume it -- the guest resolves no glyphs of its own, and the old
+            # cmap-per-code-point loops they used to carry are gone. A guest built without it links no
+            # text at all, which is exactly what this list existing to be exhaustive prevents.
+            "RoboText",
             "RoboDesktop"
           );
         },

@@ -93,6 +93,16 @@ void TestRegisterFontSystemPack(void);
 void TestRegisterTypographyRoles(void);
 void TestRegisterTypographyResolver(void);
 void TestRegisterTypographyDocument(void);
+/* Phase 12.4 — RoboText: the text model (buffer, units, ranges), the runs, the glyph record and glyph
+ * runs, and the pipeline that turns a string into a measurement and the glyphs a painter walks. The
+ * suites are registered beside the font and typography ones because the face they measure against comes
+ * from the system typeface pack. */
+void TestRegisterTextBuffer(void);
+void TestRegisterTextRuns(void);
+void TestRegisterTextGlyphs(void);
+void TestRegisterTextShape(void);
+void TestRegisterTextConformance(void);
+void TestRegisterTextGallery(void);
 void TestRegisterGraphics(void);
 void TestRegisterGraphicsPixelFormat(void);
 void TestRegisterGraphicsFramebuffer(void);
@@ -382,6 +392,12 @@ int main(int argc, char **argv)
     TestRegisterTypographyRoles();
     TestRegisterTypographyResolver();
     TestRegisterTypographyDocument();
+    TestRegisterTextBuffer();
+    TestRegisterTextRuns();
+    TestRegisterTextGlyphs();
+    TestRegisterTextShape();
+    TestRegisterTextConformance();
+    TestRegisterTextGallery();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();
