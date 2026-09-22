@@ -145,6 +145,7 @@ void DesktopConfigInit(DesktopConfig *config)
     config->windowMetrics = NULL;
     config->face = NULL;
     config->labelSizePx = RoboDesktopDefaultLabelSizePx;
+    config->typography = NULL;
     config->showCursor = 0;
 }
 
@@ -238,6 +239,9 @@ Result DesktopCreate(const DesktopConfig *config,
     desktop->labelSizePx =
         (config->labelSizePx > 0.0f) ? config->labelSizePx : RoboDesktopDefaultLabelSizePx;
     desktop->face = config->face;
+    /* Borrowed and never released: the resolver outlives the shell, exactly as the pack it resolves
+     * against does (`RoboDesktop.h` states the contract on the field). */
+    desktop->typography = config->typography;
     if (DesktopStringCopy(desktop->identity, sizeof(desktop->identity),
                                  config->identityText ? config->identityText
                                                        : RoboDesktopDefaultIdentity) != RoboOk ||

@@ -30,6 +30,12 @@
  *   ROBO_QEMU_FACE_OK                     the system face under /System/Fonts was read, parsed and mapped
  *   ROBO_QEMU_FACE_FAIL <stage> <path>    the system face could not be loaded; <stage> is the step
  *                                         (stat, alloc, open, read, source, face) that refused
+ *   ROBO_QEMU_TYPOGRAPHY_OK               the pack under /System/Fonts opened and every role resolved
+ *   ROBO_QEMU_TYPOGRAPHY_ROLES            roles the resolver answered
+ *   ROBO_QEMU_TYPOGRAPHY_FACES            registered faces in the opened pack
+ *   ROBO_QEMU_TYPOGRAPHY_FAIL <stage>     the pack, the fallback or the resolver refused, so every
+ *                                         surface drew with the single fallback face instead (a *worse*
+ *                                         checkpoint, which the unshaped count below will confirm)
  *   ROBO_QEMU_DESKTOP_OK                  the shell, its window and the document came up
  *   ROBO_QEMU_DESKTOP_WINDOWS             windows painted in the reported frame
  *   ROBO_QEMU_DESKTOP_CONTENT_RUNS        display-list runs executed for the window's contents
@@ -61,12 +67,16 @@
 #include "RoboDisplay/RoboQemuFramebuffer.h"
 #include "RoboFont/RoboFont.h"
 #include "RoboFont/RoboFontFace.h"
+#include "RoboFont/RoboFontFallback.h"
+#include "RoboFont/RoboFontLoader.h"
 #include "RoboFont/RoboFontSource.h"
+#include "RoboFont/RoboFontSystemPack.h"
 #include "RoboGraphics/RoboGraphics.h"
 #include "RoboHTML/RoboHTML.h"
 #include "RoboLayout/RoboLayout.h"
 #include "RoboMem/RoboMem.h"
 #include "RoboPaint/RoboPaint.h"
+#include "RoboTypography/RoboTypography.h"
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowBackendQemu.h"
 #include "RoboWindow/RoboWindowGraphics.h"
@@ -82,13 +92,15 @@
 #include <unistd.h>
 
 /**
- * The system face, where the system typeface pack installs it (Phase 12.2).
+ * The system typeface pack, where the image installs it (Phase 12.2).
  *
- * `/System/Fonts/` is the pack root and `UI/Inter.ttf` is the face its manifest names for the UI
- * Display and UI Text roles (`System/Fonts/system-fonts.manifest`). Phase 12.3 binds the shell to
- * those roles by name; for now the desktop loads the same physical face the pack resolves to.
+ * `/System/Fonts/` is the pack root, `system-fonts.manifest` is its manifest and `UI/Inter.ttf` is the
+ * face the manifest names for the UI Display and UI Text roles. Phase 12.3 opens the *pack* and draws
+ * from its roles; the direct path below stays as the fallback for a pack that will not open, so a guest
+ * build with a damaged manifest is a worse checkpoint rather than a dead one.
  */
 #define GUEST_FACE_PATH "/System/Fonts/UI/Inter.ttf"
+#define GUEST_PACK_ROOT "/System/Fonts"
 
 /** Frames the checkpoint is willing to drive before it reports. The live shell continues after that. */
 #define GUEST_MAX_STEPS 48
@@ -307,6 +319,173 @@ static FontFace *GuestFaceLoad(const char **stage)
 }
 
 /* ------------------------------------------------------------------ */
+/* The system typeface pack, and the typography resolver over it        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The guest's typography stack: the pack under `/System/Fonts` and the resolver the shell draws from.
+ *
+ * Phase 12.2's pack owns the manifest, the registrations and the loader cache; the resolver is built
+ * *over* it and owns nothing it borrows (see `RoboTypographyResolver.h`). One struct keeps the four
+ * handles alive in the order they must die in, so `GuestTypographyClose` cannot get it wrong.
+ */
+typedef struct guestTypography {
+    FontRegistry *registry;
+    FontLoader *loader;
+    FontSystemPack *pack;
+    FontFallbackResolver *fallback;
+    TypographyResolver *resolver;
+} GuestTypography;
+
+/**
+ * Read @p path whole for the pack, the way every other program in this image reads a file.
+ *
+ * The pack's only IO is "read this path whole", so this is `GuestFaceLoad`'s stat/alloc/open/read loop
+ * factored out and answering in `FontDiscoveryIo`'s vocabulary instead of returning a face: a missing
+ * file is `RoboNotFound`, a file that will not read whole is `RoboParseError`, and a buffer that would
+ * not allocate is `RoboOutOfMemory`. A file larger than @p maxSize is **refused rather than truncated**,
+ * because a truncated manifest would parse as a different manifest â€” a silent partial pack is exactly
+ * what this phase must not ship.
+ *
+ * The buffer is allocated with `Malloc` because `FontDiscoveryIo`'s contract says the caller releases it
+ * with `RoboFree`; the two agree here, as they do everywhere in this runtime.
+ */
+static Result GuestPackRead(void *userdata,
+                            const char *path,
+                            size_t maxSize,
+                            uint8_t **outBytes,
+                            size_t *outSize)
+{
+    uint8_t *bytes;
+    RoboStat info;
+    size_t size;
+    size_t got = 0u;
+    int fd;
+
+    (void)userdata;
+    if (!path || !outBytes || !outSize) {
+        return RoboInvalidArgument;
+    }
+    *outBytes = NULL;
+    *outSize = 0u;
+    if (Stat(path, &info) != 0 || info.size == 0u) {
+        return RoboNotFound;
+    }
+    size = (size_t)info.size;
+    if (size > maxSize) {
+        return RoboParseError;
+    }
+    bytes = (uint8_t *)Malloc(size);
+    if (!bytes) {
+        return RoboOutOfMemory;
+    }
+    fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        RoboFree(bytes);
+        return RoboNotFound;
+    }
+    while (got < size) {
+        ssize_t chunk = read(fd, bytes + got, size - got);
+
+        if (chunk <= 0) {
+            break;
+        }
+        got += (size_t)chunk;
+    }
+    close(fd);
+    if (got != size) {
+        RoboFree(bytes);
+        return RoboParseError;
+    }
+    *outBytes = bytes;
+    *outSize = size;
+    return RoboOk;
+}
+
+static void GuestTypographyClose(GuestTypography *typography);
+
+/**
+ * Open the system typeface pack and build the shell's typography resolver.
+
+ * A pack that will not open is **not** fatal, and that is deliberate: the checkpoint then falls back to
+ * drawing every surface with the caller's single face, `labelsUnshaped` records the labels it could not
+ * shape, and a human reading the serial says "worse", not "dead". What the return value buys the caller
+ * is the difference between those two checkpoints being *reported* instead of inferred.
+ *
+ * @param stage Receives the name of the step that refused (registry, loader, pack, fallback, resolver).
+ * @return 1 opened, 0 unavailable.
+ */
+static int GuestTypographyOpen(GuestTypography *out, const char **stage)
+{
+    FontLoaderConfig loaderConfig;
+    FontSystemPackConfig packConfig;
+    FontDiscoveryIo io;
+    FontFallbackResolver *fallback = NULL;
+    TypographyResolver *resolver = NULL;
+
+    memset(out, 0, sizeof(*out));
+    *stage = "registry";
+    if (FontRegistryCreate(&out->registry) != RoboOk) {
+        return 0;
+    }
+    *stage = "loader";
+    FontLoaderConfigInit(&loaderConfig);
+    if (FontLoaderCreate(out->registry, &loaderConfig, &out->loader) != RoboOk) {
+        GuestTypographyClose(out);
+        return 0;
+    }
+    *stage = "pack";
+    memset(&io, 0, sizeof(io));
+    io.RoboReadFile = GuestPackRead;
+    FontSystemPackConfigInit(&packConfig);
+    packConfig.root = GUEST_PACK_ROOT;
+    packConfig.io = &io;
+    if (FontSystemPackOpen(out->registry, out->loader, &packConfig, &out->pack) != RoboOk) {
+        GuestTypographyClose(out);
+        return 0;
+    }
+    *stage = "fallback";
+    if (FontFallbackResolverCreate(out->registry, NULL, &fallback) != RoboOk) {
+        GuestTypographyClose(out);
+        return 0;
+    }
+    out->fallback = fallback;
+    *stage = "resolver";
+    {
+        RoboTypographyResolverConfig resolverConfig;
+
+        RoboTypographyResolverConfigInit(&resolverConfig);
+        resolverConfig.pack = out->pack;
+        resolverConfig.fallback = out->fallback;
+        if (RoboTypographyResolverCreate(&resolverConfig, &resolver, NULL) != RoboOk) {
+            GuestTypographyClose(out);
+            return 0;
+        }
+    }
+    out->resolver = resolver;
+    *stage = "ok";
+    return 1;
+}
+
+/** Tear the typography stack down in the reverse of the order it was built. Safe on a partial struct. */
+static void GuestTypographyClose(GuestTypography *typography)
+{
+    if (!typography) {
+        return;
+    }
+    RoboTypographyResolverDestroy(typography->resolver);
+    typography->resolver = NULL;
+    FontFallbackResolverDestroy(typography->fallback);
+    typography->fallback = NULL;
+    FontSystemPackClose(typography->pack);
+    typography->pack = NULL;
+    FontLoaderDestroy(typography->loader);
+    typography->loader = NULL;
+    FontRegistryDestroy(typography->registry);
+    typography->registry = NULL;
+}
+
+/* ------------------------------------------------------------------ */
 /* Input                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -370,8 +549,10 @@ int main(int argc, char **argv)
     DesktopSceneConfig config;
     DesktopScene *scene = NULL;
     DesktopSceneStep step;
+    GuestTypography typography;
     FontFace *face = NULL;
     const char *faceStage = "(none)";
+    const char *typographyStage = "(none)";
     DesktopStats stats;
     DesktopDiag diag;
     uint32_t paintedFrames = 0u;
@@ -433,6 +614,27 @@ int main(int argc, char **argv)
         }
     }
 
+    /*
+     * Phase 12.3: the shell draws from the pack's *roles*, not from the single face above.
+     *
+     * The face load stays because a pack that will not open must still leave a renderable desktop: the
+     * scene treats a NULL resolver as "draw everything with `config.face`", which is a worse checkpoint
+     * rather than a dead one. Opening the pack second is intentional -- its own registrations replace the
+     * hand-built face for every role, and `ROBO_QEMU_DESKTOP_UNSHAPED` is what tells the two apart.
+     */
+    if (!GuestTypographyOpen(&typography, &typographyStage)) {
+        if (checkpoint) {
+            serial("ROBO_QEMU_TYPOGRAPHY_FAIL ");
+            serial(typographyStage);
+            serial("\n");
+        }
+    } else if (checkpoint) {
+        serial("ROBO_QEMU_TYPOGRAPHY_OK\n");
+        SerialU32("ROBO_QEMU_TYPOGRAPHY_ROLES=", (uint32_t)RoboTypographyRoleCount);
+        SerialU32("ROBO_QEMU_TYPOGRAPHY_FACES=",
+                  (uint32_t)FontSystemPackRegisteredFaces(typography.pack));
+    }
+
     GuestStatusText(framebuffer->ready ? framebuffer->width : RoboDesktopSceneDefaultWidth,
                       framebuffer->ready ? framebuffer->height : RoboDesktopSceneDefaultHeight);
 
@@ -441,6 +643,7 @@ int main(int argc, char **argv)
     config.width = framebuffer->ready ? (int32_t)framebuffer->width : 0;
     config.height = framebuffer->ready ? (int32_t)framebuffer->height : 0;
     config.face = face;
+    config.typography = typography.resolver;
     config.RoboCreateWindow = 1;
     config.showCursor = 1;
     config.statusText = gStatus;

@@ -44,8 +44,11 @@ and **docs/Integration.md** for consumer contracts.
 | **5.1–5.21** | Model through conformance |
 | **5.22** | Final integration, API freeze, E2E acceptance |
 | **12.2** | System typeface pack: `/System/Fonts/`, its manifest, semantic roles, discovery/selection binding. See [`../../Development/SystemTypefacePack.md`](../../Development/SystemTypefacePack.md) |
+| **12.3** | Consumers of the pack: the `RoboTypography` role vocabulary over it, and the shell/document bindings that ask for a role instead of a face. See [`../Typography/TypeBinding.md`](../Typography/TypeBinding.md) |
 
-**Not** in scope: shaping (Phase 6), rasterization, CSS/web-font policy.
+**Not** in scope: shaping (Phase 6), rasterization, CSS/web-font policy, and — as of 12.3 — the
+*typography* layer above the pack: what a UI surface is set in belongs to `RoboTypography`, which
+borrows faces from this module and owns none.
 
 ## Version
 

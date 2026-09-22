@@ -80,11 +80,20 @@ typedef struct DesktopSceneConfig {
     /** Screen height in pixels; 0 means @ref RoboDesktopSceneDefaultHeight. */
     int32_t height;
     /**
-     * The face the shell's chrome and the document's text are drawn with. Borrowed, never retained, and
-     * may be NULL — a scene with no face draws its geometry and its document's fills and counts the labels
-     * it could not shape, which is a state `RoboDesktop.h` treats as first class rather than an error.
+     * The face the shell's chrome and the document's text are drawn with when no typography resolver is
+     * given. Borrowed, never retained, and may be NULL — a scene with no face draws its geometry and its
+     * document's fills and counts the labels it could not shape, which is a state `RoboDesktop.h` treats
+     * as first class rather than an error. Superseded by @ref typography, and the fallback for a role it
+     * cannot name a face for.
      */
     FontFace *face;
+    /**
+     * Optional typography resolver (Phase 12.3). When set, the shell's chrome draws from its roles and the
+     * document is measured and drawn with the resolver's body-role face and the generated default sheet —
+     * which is the binding the OS ships, and the reason this field exists here rather than only on the two
+     * configs the scene sits between. Borrowed, and the resolver's pack must outlive the scene.
+     */
+    TypographyResolver *typography;
     /**
      * Create the shell's own native window instead of running screen-only. Needs a window backend to have
      * been registered by the *caller* (the host launcher registers the Win32 one, the guest the QEMU one):
@@ -106,7 +115,8 @@ typedef struct DesktopSceneConfig {
     int showCursor;
 } DesktopSceneConfig;
 
-/** Fill @p config with the defaults: 1280x800, no face, create a window, the default labels, no status. */
+/** Fill @p config with the defaults: 1280x800, no face, no typography, create a window, the default
+ *  labels, no status. */
 void DesktopSceneConfigInit(DesktopSceneConfig *config);
 
 /**

@@ -157,6 +157,31 @@ function Get-HeaderDeps([string[]]$Dirs) {
     return $h
 }
 
+function Get-HeaderTreeDeps([string[]]$Dirs) {
+    <#
+      The recursive variant of `Get-HeaderDeps`, for the runtime's own tree.
+
+      `Get-HeaderDeps` reads one directory level, and every root it is given is an *include root* whose
+      subdirectories are named explicitly (`robosys`, `robowindow`, `robocompositor`). That is right for
+      the libc SDK, whose layout is stable, and wrong for the runtime: `Runtime/Include` is a tree of
+      per-module directories and `Runtime/Source` holds the *internal* headers the module sources share
+      (`RoboDesktopInternal.h`). Neither was a compile input as far as this build was concerned, so a
+      struct that grew a field in an internal header left every object that had been compiled against the
+      old layout in place -- and the guest then linked new and old objects together and reported a desktop
+      with no windows, because one module wrote `windowCount` where another read the field before it.
+
+      A mismatched object is not a build error anybody sees, which is why this is worth the extra `stat`:
+      the failure surfaces as a wrong number on a target that costs minutes to boot.
+    #>
+    $h = @()
+    foreach ($d in $Dirs) {
+        if (Test-Path $d) {
+            $h += @(Get-ChildItem $d -Filter *.h -File -Recurse | ForEach-Object { $_.FullName })
+        }
+    }
+    return $h
+}
+
 function Test-Stale([string]$Source, [string]$Object, [string[]]$Deps) {
     if (-not (Test-Path -LiteralPath $Source)) {
         throw ("missing source: " + $Source)
@@ -605,6 +630,14 @@ function Invoke-RoboBuildUserland {
         (Join-Path $libc.Sdk "robocompositor"),
         (Join-Path $runtime "Include")
     )
+    # The runtime's own headers, public *and* internal, as dependencies of the runtime sources alone. Kept
+    # out of `$sdkdeps` on purpose: a guest program that does not include the runtime at all (`hello`,
+    # `systest`, the shims) should not be recompiled because a module header moved. See
+    # `Get-HeaderTreeDeps` for what leaving them out cost.
+    $runtimeDeps = Get-HeaderTreeDeps @(
+        (Join-Path $runtime "Include"),
+        (Join-Path $runtime "Source")
+    )
     $progs = @(
         @{ Name = "hello"; Srcs = @("hello\hello.c"); Libc = $true },
         @{ Name = "fault"; Srcs = @("fault\start.S"); Libc = $false },
@@ -680,6 +713,10 @@ function Invoke-RoboBuildUserland {
             "RoboGraphics",
             "RoboDisplay",
             "RoboWindow",
+            # The typography layer the shell asks for its faces by *role* (Phase 12.3). It sits directly
+            # under RoboDesktop -- the shell resolves roles and never names a font file -- and over
+            # RoboFont, whose pack it resolves against.
+            "RoboTypography",
             "RoboDesktop"
           );
         },
@@ -774,7 +811,8 @@ function Invoke-RoboBuildUserland {
             # Path-derived object names — index-based names collide when the source set grows.
             $stem = (($rel -replace '[\\/]', '_') -replace '\.c$', '')
             $obj = Join-Path $ubuild ($p.Name + "_rt_" + $stem + ".o")
-            if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
+            if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj `
+                    -Deps (@($ldscript) + $sdkdeps + $runtimeDeps)) { }
             $objs += $obj
         }
         $elf = Join-Path $ubuild ($p.Name + ".elf")

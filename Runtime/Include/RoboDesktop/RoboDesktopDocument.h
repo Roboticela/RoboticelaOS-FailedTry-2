@@ -46,6 +46,32 @@
  * should use is a *selection* question (`font-family`, RoboFont's own Goals 5.11/5.12/5.15), and a document
  * object that picked one would be answering a question its caller owns.
  *
+ * ## Since 12.3: a typography role, and the defaults that come with it
+ *
+ * `config.typography` (optional) is how a document answers that selection question the *system's* way: the
+ * document is measured and drawn with the resolver's `DocumentBody` face, and a **runtime-origin sheet**
+ * generated from the typography scale is added to the document before the author's own — so `body`, `h1`,
+ * `h2`, `h3`, a caption and a code span start from one central table rather than from each document's own
+ * markup, and the author's rules still win (a runtime sheet is lower priority than an author sheet, which
+ * is exactly what `RoboCssOriginRuntime` means).
+ *
+ * Two consequences are worth stating because they are the phase's requirements rather than this file's
+ * conveniences:
+ *
+ *   **measurement and paint use one face object.** `DesktopDocumentFace` returns the borrowed face the
+ *   document resolved, and a caller that hands *it* to the window's contents (rather than its own copy of
+ *   the same family) has made "the run was measured with the face it is drawn with" a property of the
+ *   data. Measuring with one face and painting with another is the failure `RoboLayoutTextFont.h` says no
+ *   later phase could detect;
+ *
+ *   **the role table is the only place the defaults are written.** A document with a `typography` resolver
+ *   and no author sheet of its own gets *the system's* heading sizes, and changing them means changing
+ *   `RoboTypographyScale.h` — not editing every document.
+ *
+ * `config.face` remains the fallback for a role the resolver cannot name a face for, exactly as it is in
+ * the shell's chrome (`RoboDesktop.h`) — so a document built with both keeps drawing if the pack lost its
+ * family.
+ *
  * ## The viewport is the page box
  *
  * `width` and `height` are the pass's viewport, and in this build they are also the document's page box:
@@ -62,6 +88,7 @@
 #include "RoboFont/RoboFontFace.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
+#include "RoboTypography/RoboTypographyResolver.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -83,11 +110,19 @@ typedef struct DesktopDocumentConfig {
     int32_t width;
     /** Viewport height in pixels. Must be positive. */
     int32_t height;
-    /** The face text is measured and drawn with, or NULL for a textless build. Borrowed, never released. */
+    /**
+     * The face text is measured and drawn with, or NULL for a textless build. Borrowed, never released.
+     * Used when @ref typography is NULL, and as the fallback when it names no face for the body role.
+     */
     FontFace *face;
+    /**
+     * Optional typography resolver (Phase 12.3): the document's face and its default type settings come
+     * from it (see the header comment). Borrowed, and its pack must outlive the build.
+     */
+    TypographyResolver *typography;
 } DesktopDocumentConfig;
 
-/** Fill @p config with the defaults: no markup, no stylesheet, 800x600, no face. */
+/** Fill @p config with the defaults: no markup, no stylesheet, 800x600, no face, no typography. */
 void DesktopDocumentConfigInit(DesktopDocumentConfig *config);
 
 /** Non-zero when this build can turn markup into a display list. See `RoboDesktopDocumentsImplemented`. */
@@ -144,6 +179,17 @@ int DesktopDocumentIsLive(const DesktopDocument *document);
  */
 const PaintDisplayList *DesktopDocumentDisplayList(
     const DesktopDocument *document);
+
+/**
+ * The face the document was **measured and drawn with**, borrowed; NULL for a textless document.
+ *
+ * The door that makes measurement and paint one face by construction: a caller hands this to
+ * `DesktopWindowSetContent`'s `contentFace` rather than a face of its own, and the window's contents are
+ * then rasterised through the same object the layout pass measured them with (Phase 12.3, §13). A caller
+ * that paints with a *different* face of the same family gets a run whose width was computed from metrics
+ * the drawing pass never read — which is the defect this door exists to make unexpressible.
+ */
+FontFace *DesktopDocumentFace(const DesktopDocument *document);
 
 /** The viewport the pass ran with — this build's page box. `0x0` for NULL. */
 GfxSize DesktopDocumentViewport(const DesktopDocument *document);

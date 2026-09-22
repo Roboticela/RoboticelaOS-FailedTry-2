@@ -43,6 +43,8 @@ struct DesktopScene {
     DesktopWindowId window;
     /** Borrowed: the caller's face, kept only so a rebuilt document is built with the same one. */
     FontFace *face;
+    /** Borrowed: the caller's typography resolver (Phase 12.3), or NULL for the single-face binding. */
+    TypographyResolver *typography;
     /** Non-zero when the next step must paint a frame. */
     int needsPaint;
     /** Non-zero once the checkpoint is finished: the shell's window is gone or its native window closed. */
@@ -100,6 +102,7 @@ void DesktopSceneConfigInit(DesktopSceneConfig *config)
     config->width = RoboDesktopSceneDefaultWidth;
     config->height = RoboDesktopSceneDefaultHeight;
     config->face = NULL;
+    config->typography = NULL;
     config->RoboCreateWindow = 1;
     config->windowTitle = NULL;
     config->statusText = NULL;
@@ -161,6 +164,7 @@ static Result SceneBuildDocument(DesktopScene *scene, DesktopDiag *diag)
     config.width = client.width;
     config.height = client.height;
     config.face = scene->face;
+    config.typography = scene->typography;
 
     result = DesktopDocumentBuild(&config, &document, diag);
     if (result != RoboOk) {
@@ -168,9 +172,16 @@ static Result SceneBuildDocument(DesktopScene *scene, DesktopDiag *diag)
     }
     DesktopDocumentDestroy(scene->document);
     scene->document = document;
+    /*
+     * The window's contents are rasterised with **the face the document was measured with** rather than
+     * with the scene's own (Phase 12.3, §13): `DesktopDocumentFace` returns the face the layout pass
+     * actually read metrics from, so a resolver that chose a different face than the caller expected
+     * cannot produce a run whose width was computed from one face and drawn with another. It is the same
+     * object the caller passed when there is no resolver.
+     */
     return DesktopWindowSetContent(scene->desktop, scene->window,
                                           DesktopDocumentDisplayList(document),
-                                          scene->face, diag);
+                                          DesktopDocumentFace(document), diag);
 }
 
 /**
@@ -226,6 +237,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     scene->document = NULL;
     scene->window = RoboDesktopWindowIdNone;
     scene->face = config->face;
+    scene->typography = config->typography;
     scene->needsPaint = 1;
     scene->finished = 0;
     scene->showCursor = config->showCursor ? 1 : 0;
@@ -234,6 +246,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     shellConfig.width = width;
     shellConfig.height = height;
     shellConfig.face = config->face;
+    shellConfig.typography = config->typography;
     shellConfig.RoboCreateWindow = config->RoboCreateWindow ? 1 : 0;
     shellConfig.windowTitle = config->windowTitle;
     shellConfig.statusText = config->statusText;

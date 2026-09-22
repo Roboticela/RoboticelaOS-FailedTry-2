@@ -113,6 +113,41 @@ makes it worth having: it is *one* definition, and it is *deterministic*.
 | `desktop.scene.system_face` | the **shipped** face is read (the system typeface pack's `System/Fonts/UI/Inter.ttf`), parsed through cmap → metrics → outlines, covers every character the shell's labels are made of, and then the two counts that are the text verdict: with the face `labels=4 unshaped=0`; without it `labels=0` and every label counted, while the geometry still paints |
 | `desktop.scene.lifetime` | three open/close round-trips return every block they took; with the document layers down, opening a scene is refused with a reason and leaves no scene behind; the layers come back and the same scene paints again. Registered **last** in this suite, because it restarts modules |
 
+### `SuiteRoboDesktopTypography.c` — the shell speaks in roles (5 cases)
+
+What a role *means* is `Tests/Typography`'s subject. These five cases are the other half: that the
+**desktop** actually asks for roles. They live here because they need the shell, and every one of them
+builds its desktop with **no** `face` at all — so a chrome surface still reading the legacy field would
+draw nothing and every case would fail on the unshaped count.
+
+| Case | What it pins |
+|---|---|
+| `desktop.typography.chrome_roles` | a desktop with no single face draws **four** labels and counts none unshaped; the ink is on the panel; and two renders of one state are byte-identical — a role binding must not cost determinism |
+| `desktop.typography.roles_change_picture` | the binding is not a no-op: the same family, the same window, the same titles through the role path and through the legacy single face, four labels each and **different** checksums, because one drew 13 px semibold titles and the other 11 px regular ones |
+| `desktop.typography.document_defaults` | an `h1` with no author type rule is display-sized: the same markup and face with and without the resolver's generated sheet, measured as ink — the system's heading puts down more than three times the layout engine's initial 16 px text |
+| `desktop.typography.document_face` | precedence: the resolver's `DocumentBody` face wins when a resolver is configured, the caller's `face` is used when it is not, and neither means a **textless document that is still a document** rather than an error |
+| `desktop.typography.missing_family_fallback` | a pack that declares only the UI Text role leaves the panel identity (`DesktopTitle`, a display role) with no family at all — and the shell still draws it, through the caller's face, with zero unshaped |
+
+### `SuiteRoboDesktopTypographyGallery.c` — three deterministic pictures (3 cases)
+
+The galleries are the visual half of the phase, and each writes a PNG. Three things are asserted beside
+the picture, which is what keeps a screenshot test from being decoration: **two renders of one state are
+one frame** (`DesktopFrameRecordEqual` *and* the checksum), **the scale is the authority** (a second
+resolver over the same pack with a role resized — or several — must produce a *different* checksum, which
+is the check that catches a surface still reading a size from anywhere but the scale), and **the type
+ladder reaches the pixels** (the lowest inked row).
+
+| Case | Evidence | What it pins |
+|---|---|---|
+| `desktop.typography.gallery.desktop` | `Build/Typography-Desktop.png` | the shell's own panel with no window at all: `DesktopTitle`, `ChromeLabel` and `ChromeStatus` are the three labels, the ink is on the panel, and resizing both labels 13/12 px → 20 px changes the frame |
+| `desktop.typography.gallery.chrome` | `Build/Typography-Chrome.png` | three windows, so the title band is on screen at three titles: six labels (three titles plus the panel's three), three windows, and a `WindowTitle` resized to 20 px changing the frame at the same label count |
+| `desktop.typography.gallery.document` | `Build/Typography-Document.png` | the specimen page — `h1`/`h2`/`h3`, the alphabet, digits, punctuation, a caption, a code line and the four weight names — built with an author sheet that carries **no** `font-size` at all. Flattening the three headings to the body's size shortens the page, and removing the generated sheet shortens it further, so the ladder is measured end to end and the same face is reported for measurement and paint |
+
+The four weight lines render alike, and that is correct rather than a defect: the packed family is a
+**variable** face, the selector resolves the requested weight and records it in `RoboTypographyStyle.weight`,
+and applying the `wght` axis to an instance is Phase 12.4's job. The lines are in the picture so that the
+day the axis *is* applied, the change is visible in one place.
+
 ---
 
 ## 2. Fixtures (`RoboDesktopTestSupport.h`)

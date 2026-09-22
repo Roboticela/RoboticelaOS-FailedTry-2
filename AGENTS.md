@@ -68,6 +68,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Font | `Runtime/Source/RoboFont/` |
 | System typeface pack | `System/Fonts/` (assets + `system-fonts.manifest` + licences), `Runtime/Source/RoboFont/RoboFontSystemPack.c` + public `Runtime/Include/RoboFont/RoboFontSystemPack.h`. Docs: `Documentation/Development/SystemTypefacePack.md`, legal: `Documentation/Legal/FontLicenses.md`. |
 | Glyph rasterization (coverage AA) | `Runtime/Source/RoboGraphics/RoboGraphicsGlyph.c` + public `Runtime/Include/RoboGraphics/RoboGraphicsGlyph.h`. One glyph outline → grayscale coverage mask → existing source-over. Independent of shaping: no cmap, no font files, no runs belong here. Docs: `Documentation/Runtime/Typography/TextRasterQuality.md` |
+| Typography roles / face binding | `Runtime/Source/RoboTypography/` + public `Runtime/Include/RoboTypography/`. Semantic role → the pack's face + size/weight/leading/optical class. It binds and caches; parsing stays in RoboFont, rasterizing in RoboGraphics. Docs: `Documentation/Runtime/Typography/TypeBinding.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -87,6 +88,7 @@ Direction (runtime), downstream may depend on upstream, never the reverse:
 
 ```text
 RoboBase → RoboMem → RoboContainers → RoboUnicode / RoboI18N
+       ↘ RoboFont → RoboTypography → RoboDesktop
        ↘ RoboFont → RoboGraphics → RoboDisplay → RoboWindow
                                     ↘ RoboInput
 RoboHTML  ┐
@@ -149,6 +151,39 @@ shaping.
   including an open of the **shipped** pack. Change the pack and `TestFont.ps1`, `TestGraphics.ps1`,
   `TestPaint.ps1` and `TestDesktop.ps1` (Host) must pass.
 
+### Desktop + document face binding (Phase 12.3)
+
+**A UI surface names a semantic `RoboTypographyRole`, and the role names the face. Nothing above the
+resolver knows `/System/Fonts/` exists, what the family is called, or which file it came out of.**
+RoboTypography is a module of its own (`Runtime/Source/RoboTypography/`,
+`Runtime/Include/RoboTypography/`) because the shell and the document bridge both need it and neither
+owns it. It binds and caches; it does not parse, rasterize or shape.
+
+- What each role is set at is one table: `RoboTypographyDefaultScale` in
+  `Runtime/Source/RoboTypography/RoboTypographyScale.c`. Never write a font size, weight or leading at
+  a paint or measurement site — add or change a scale entry instead. A caller may pass its own scale to
+  `RoboTypographyResolverCreate`; that is what makes a restyle a data change.
+- Module boundary: RoboTypography may not include `RoboHTML`, `RoboCSS`, `RoboLayout`, `RoboPaint`,
+  `RoboRender`, `RoboWindow`, `RoboDisplay` or `RoboGraphics`, and may not use Chromium/Skia. The
+  generated document sheet is *text*; checking it is a test's job, not a link. `Assert-RoboTypographyBoundaries`
+  in `Runtime/Tools/Build.ps1` enforces both rules — do not widen them.
+- The desktop's bindings are the four `RoboTypographyRole` arguments in `RoboDesktopChrome.c`
+  (`DesktopTitle`, `ChromeLabel`, `ChromeStatus`, `WindowTitle`), resolved once per frame so that a
+  label's measurement and its drawing provably read one style. Baseline placement goes through
+  `RoboTypographyStyleApplyFontMetrics`; do not add per-component pixel offsets.
+- The document's bindings are `DesktopDocumentConfig.typography`: one face (the `DocumentBody` role's)
+  for both measurement and paint, plus the generated default sheet added at `RoboCssOriginRuntime` so an
+  author's own rule wins. Element → role is `RoboTypographyRoleForHtmlElement`; a `font-family`
+  declaration is deliberately absent from the sheet.
+- Weights and optical size **bind but do not instance**: the four weights resolve and are recorded in
+  `RoboTypographyStyle.weight`, and no emboldening or slant is ever synthesized. Do not add one.
+- Contract and limitations: `Documentation/Runtime/Typography/TypeBinding.md` is the phase's authority;
+  update it (and this section) when a role, the scale or a binding changes.
+- Build/tests: `BuildTypography.ps1` compiles the module and nothing above it; `TestTypography.ps1
+  -Target Host` covers `typography.*`, and a binding change is not done until `TestDesktop.ps1 -Target
+  Host` (which includes the three galleries and the boundary scan) passes. `TestDesktop.ps1 -Target
+  Qemu` when the guest image is involved.
+
 ---
 
 ## Test rules
@@ -165,6 +200,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Graphics | `BuildGraphics.ps1` | `TestGraphics.ps1 -Target Host` |
 | Glyph rasterization / typography | `BuildGraphics.ps1` (and `BuildFont.ps1` if RoboFont changed) | `TestGraphics.ps1 -Target Host`, then `TestPaint.ps1 -Target Host` and `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Coverage.png` against `Build/Typography-Stroke.png` |
 | System typeface pack | `BuildFont.ps1` (module + pack validation; the image build installs `System/Fonts/`) | `TestFont.ps1 -Target Host` (`font.systempack.*`); `-Target Qemu` when the installed image is involved |
+| Typography roles / face binding | `BuildTypography.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestTypography.ps1 -Target Host` (`typography.*`), then `TestDesktop.ps1 -Target Host` (`desktop.typography.*` and the three galleries); `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Desktop.png`, `Build/Typography-Chrome.png`, `Build/Typography-Document.png` |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |
@@ -191,6 +227,11 @@ Do not force unit tests through QEMU.
 - Do not scatter documentation outside `Documentation/` except a subsystem `README.md` pointer.
 - Do not create a fake Host Runtime / FakeOS / BrowserRuntime.
 - Do not make the entire project rebuild for a single-module change. Use the module script. Objects are incremental.
+- Incremental objects are only correct if their inputs are tracked. The guest build
+  (`scripts/roboboot-build-common.ps1`) tracks runtime headers with `Get-HeaderTreeDeps`, which walks
+  `Runtime/Include` **and** `Runtime/Source` recursively, because a module's *internal* header is as much
+  a compile input as its public one and a module struct that grew a field would otherwise leave objects
+  compiled against the old layout linked in. Add a header root the same way rather than by listing files.
 - Do not create unnecessary global state.
 - Do not add logs to real OS, logs must be only in tests.
 

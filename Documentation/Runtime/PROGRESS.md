@@ -6462,6 +6462,85 @@ pack's face from `/System/Fonts/UI/Inter.ttf`; binding the shell's chrome and do
 *roles* by name is the runtime plan's 12.3 ("Desktop + document face binding"), which keeps this phase
 from reaching into the shell. Optical-size policy likewise waits for Phase 14.
 
+## Goal 12.3 — Desktop + document face binding (typography roles)
+
+_Implemented. A new module — **RoboTypography** — turns a semantic role into a loaded system face and its
+numbers, and every existing text surface in the shell asks for a role instead of holding a font. Four
+suite files over **24** cases (`typography.roles.*`, `typography.resolve.*`, `typography.document.*`,
+`desktop.typography.*`) plus three deterministic galleries. No shaping, no CSS font matching, no desktop
+redesign._
+
+12.2 decided which faces exist and where they live. 12.3 decides **what type each surface is set in**,
+and it does it with one table rather than with a constant at each of the thirty-odd places a size or a
+weight used to be written down. The pre-12.3 shell held one caller-supplied `FontFace` and one
+`labelSizePx` and drew every label with them; a document's headings were whatever its author sheet said,
+or the layout engine's initial 16 px. Both of those are *bindings*, and a binding that lives in each
+surface is a binding that drifts.
+
+| Piece | Where |
+|---|---|
+| The vocabulary: 21 roles in four groups, five optical-size classes, four weights, the resolved style record | `RoboTypography/RoboTypographyTypes.c/.h` |
+| The scale: one array, one entry per role, plus the CSS emitter for a document's defaults | `RoboTypography/RoboTypographyScale.c/.h` |
+| The binding: role → face over the 12.2 pack, the per-role cache, coverage fallback, the document sheet | `RoboTypography/RoboTypographyResolver.c/.h` |
+| The shell's four role bindings and the typographic label placement | `RoboDesktop/RoboDesktopChrome.c` |
+| The document's face and its runtime-origin default sheet | `RoboDesktop/RoboDesktopDocument.c` |
+| The host and guest stacks that open the pack | `RoboDesktop/platform/host/RoboDesktopHost.c`, `User/robo-runtime/main.c` |
+| The suites and the three galleries | `Tests/Typography/`, `Tests/Desktop/SuiteRoboDesktopTypography.c`, `Tests/Desktop/SuiteRoboDesktopTypographyGallery.c` |
+| The contract | `Documentation/Runtime/Typography/TypeBinding.md`, `AGENTS.md` |
+
+Four decisions worth naming, each with a version that looks right.
+
+**A role, not a size, because the role is the durable part.** `WindowTitle` resolves to UI Text at
+weight 500, 13 px, 16 px leading, the UI optical class — and every one of those numbers can change
+without a caller changing, because the caller asked for `WindowTitle`. The UI roles cluster in the 11–13 px
+band on purpose: the 30 px panel and 24 px title band were sized in 11.13 for an 11 px label, and this
+phase may not redesign the desktop. So binding the chrome changed *which face and which weight* those
+surfaces draw with — proven by `desktop.typography.roles_change_picture`, which shows the role-driven
+shell and the legacy single-face shell drawing different frames at the same label count — without moving
+a rectangle.
+
+**The scale is data, and that is what makes it testable.** `RoboTypographyResolverConfig` takes a scale,
+so the gallery suites build a *second* resolver over the same pack with one role resized and assert the
+frame checksum changes. That is the one check that would catch a surface still reading a size from
+anywhere but the scale, which is the regression this phase is most likely to suffer.
+
+**Fallback is two different things and neither synthesizes.** A weight the family cannot select steps
+down to the nearest one *in the vocabulary* — ties lighter, the tie rule stated rather than left to a
+comparison's luck — and the style records what was actually selected, so a step-down is visible rather
+than inferred. Text the face cannot *draw* is a coverage question, answered by RoboFont's own chain
+through `RoboTypographyResolveGlyphs`. Nothing emboldens, nothing slants. A role whose family is missing
+is **not** an error: it resolves face-less, the shell falls back to `DesktopConfig.face`, and the result
+is a worse desktop rather than a dead one — asserted with a pack that has no display family at all.
+
+**Optical size is a class held one step short of an axis.** The shipped Inter face has a real `opsz`
+14–32 and the manifest preserves it, but RoboFont does not interpolate outlines
+(`FontOutlineVariationApplied` stays 0), so applying it would mean instancing. Roles are set at
+`Small`/`Body`/`UI`/`Display`/`LargeDisplay` instead, and a resolver that later maps a class to an axis
+replaces this one without a caller changing. The same reasoning explains the gallery's four weight lines
+rendering alike: the four weights **resolve and differ** (`typography.resolve.weights`), and they will
+render differently on the day 12.4's shaped run has somewhere to carry the axis value.
+
+Two smaller things the phase decided in passing. **A document paints through one face** — the body
+role's — so "measured with X, painted through Y" is structurally impossible rather than merely avoided,
+and `font-weight` reaching layout as a number rather than as a bolder face is stated as a limitation
+rather than papered over. And **`h4`–`h6` take the heading-3 setting**, because the vocabulary has three
+heading roles and a fourth size invented in an element table would be a type setting that exists nowhere
+else in the system.
+
+**The QEMU checkpoint found a build defect, and it is the kind worth naming.** The guest reported a
+desktop with `windows=0`, `fills=6` and no window content — the windowless record — while its own serial
+said a window had been added. The cause was not the phase's code: the guest build's dependency list for a
+runtime source was `Get-HeaderDeps @($libc.Inc, …, $runtime/Include)`, and `Get-HeaderDeps` reads **one
+directory level** while every runtime header lives one level deeper (`Runtime/Include/RoboDesktop/…`) or
+in a module's *internal* tree (`Runtime/Source/RoboDesktop/RoboDesktopInternal.h`). Adding the `typography`
+field to `DesktopInternal.h` therefore recompiled `RoboDesktop.c` and left `RoboDesktopWindow.o` compiled
+against the old layout, so one module wrote `windowCount` where another read the field before it. A
+mismatched object is not a build error anybody sees — it surfaces as a wrong number on a target that costs
+minutes to boot. `Get-HeaderTreeDeps` (recursive, over `Runtime/Include` **and** `Runtime/Source`, applied
+to the runtime sources only, so a guest program that never includes the runtime is not rebuilt because a
+module header moved) is the fix. The same run now reports `ROBO_QEMU_TYPOGRAPHY_OK` with 21 roles over the
+shipped pack and the expected `windows=1 content_runs=1 labels=4 unshaped=0 fills=12`.
+
 ## Next
 
 - **Phase 11.13 — framebuffer presentation and the desktop shell: landed.** The paragraph that used to
@@ -6489,9 +6568,15 @@ from reaching into the shell. Optical-size policy likewise waits for Phase 14.
 - **Phase 12.2 — the system typeface pack: landed** (`## Goal 12.2`, above). It decided which faces
   exist and where they live, not how their ink lands: one `/System/Fonts/` root, a deterministic
   manifest, semantic UI Display / UI Text / Monospace roles over a real variable Inter face, and a
-  build that refuses to ship the image without them. The next goal under the reordered plan
-  (`.cursor/rules/runtime-plan.mdc`) is **12.3 — desktop + document face binding**, which points the
-  shell's chrome and document text at the pack's roles by name.
+  build that refuses to ship the image without them.
+
+- **Phase 12.3 — desktop + document face binding: landed** (`## Goal 12.3`, above). It decided what
+  type each existing surface is set in: a `RoboTypography` module with 21 semantic roles over one
+  scale, the shell's four chrome bands bound to roles by name, a document that gets the system's
+  defaults as a runtime-origin sheet and is measured and painted through the same face, and three
+  deterministic galleries. The next goal under the reordered plan (`.cursor/rules/runtime-plan.mdc`)
+  is **12.4 — RoboText architecture**, which is what makes the two things this phase could not finish
+  (a run that carries its own weight, and per-element face selection) natural rather than bolted on.
 
 - **Event dispatch — now Phase 13 (RoboInput).** One 11.10 handed a result to: a hit test that
   answers *which node is at this point* is what a dispatch walks, so the phase consumes

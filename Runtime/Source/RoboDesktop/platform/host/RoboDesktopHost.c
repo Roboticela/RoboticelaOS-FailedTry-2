@@ -35,11 +35,16 @@
 #include "RoboDisplay/RoboDisplayBackendHost.h"
 #include "RoboFont/RoboFont.h"
 #include "RoboFont/RoboFontFace.h"
+#include "RoboFont/RoboFontFallback.h"
+#include "RoboFont/RoboFontLoader.h"
 #include "RoboFont/RoboFontSource.h"
+#include "RoboFont/RoboFontSystemPack.h"
+#include "RoboTypography/RoboTypography.h"
 #include "RoboGraphics/RoboGraphics.h"
 #include "RoboGraphics/RoboGraphicsEncode.h"
 #include "RoboHTML/RoboHTML.h"
 #include "RoboLayout/RoboLayout.h"
+#include "RoboMem/RoboMem.h"
 #include "RoboPaint/RoboPaint.h"
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowBackend.h"
@@ -58,6 +63,16 @@
 #endif
 #ifndef RoboFontAssetPath
 #define RoboFontAssetPath "System/Fonts/UI/Inter.ttf"
+#endif
+
+/* The system typeface pack's root, as the *build* knows where it is (Phase 12.3). The launcher opens the
+ * pack from here, which is the same directory the image installs to `/System/Fonts/` -- so the roles the
+ * checkpoint draws with are resolved by the code path the guest runs, not by a host-only shortcut. */
+#if defined(RoboSystemFontRootFromBuild)
+#include "robo_system_font_root.h"
+#endif
+#ifndef RoboSystemFontRoot
+#define RoboSystemFontRoot "System/Fonts"
 #endif
 
 #define HOST_KEY "RoboDesktop"
@@ -264,6 +279,148 @@ static void HostFaceRelease(HostFace *face)
 }
 
 /* ------------------------------------------------------------------ */
+/* The system typeface pack, and the typography resolver over it       */
+/* ------------------------------------------------------------------ */
+
+typedef struct hostTypography {
+    FontRegistry *registry;
+    FontLoader *loader;
+    FontSystemPack *pack;
+    FontFallbackResolver *fallback;
+    TypographyResolver *resolver;
+} HostTypography;
+
+/**
+ * Read @p path whole for the pack, into a `RoboMem` buffer it releases with `RoboFree`.
+ *
+ * The pack's only IO is "read this path whole", and the three answers are `FontDiscoveryIo`'s three: a
+ * missing file is `RoboNotFound`, a file that will not read whole is `RoboParseError`, and a buffer that
+ * would not allocate is `RoboOutOfMemory`. A file larger than @p maxSize is refused rather than truncated,
+ * because a truncated *manifest* would parse as a different manifest.
+ */
+static Result HostPackRead(void *userdata,
+                           const char *path,
+                           size_t maxSize,
+                           uint8_t **outBytes,
+                           size_t *outSize)
+{
+    FILE *file;
+    long size;
+    uint8_t *bytes;
+
+    (void)userdata;
+    if (!path || !outBytes || !outSize) {
+        return RoboInvalidArgument;
+    }
+    *outBytes = NULL;
+    *outSize = 0u;
+    file = fopen(path, "rb");
+    if (!file) {
+        return RoboNotFound;
+    }
+    if (fseek(file, 0, SEEK_END) != 0) {
+        fclose(file);
+        return RoboParseError;
+    }
+    size = ftell(file);
+    if (size <= 0L || (size_t)size > maxSize || fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return RoboParseError;
+    }
+    bytes = (uint8_t *)Malloc((size_t)size);
+    if (!bytes) {
+        fclose(file);
+        return RoboOutOfMemory;
+    }
+    if (fread(bytes, 1u, (size_t)size, file) != (size_t)size) {
+        RoboFree(bytes);
+        fclose(file);
+        return RoboParseError;
+    }
+    fclose(file);
+    *outBytes = bytes;
+    *outSize = (size_t)size;
+    return RoboOk;
+}
+
+static void HostTypographyClose(HostTypography *typography);
+
+/**
+ * Open the system typeface pack under @p root and build the resolver the shell draws from.
+ *
+ * A failure here is **not** fatal, and that is the same posture `HostFaceLoad` takes: a pack that will not
+ * open means the shell draws with the caller's single face and the frame record counts the labels it could
+ * not shape. What is *reported* is which step failed, because "the checkpoint ran with no typography" and
+ * "the checkpoint ran with the pack" are different checkpoints and a reader should not have to guess.
+ *
+ * @return 1 opened, 0 unavailable.
+ */
+static int HostTypographyOpen(HostTypography *out)
+{
+    FontLoaderConfig loaderConfig;
+    FontSystemPackConfig packConfig;
+    RoboTypographyResolverConfig resolverConfig;
+    FontDiscoveryIo io;
+
+    memset(out, 0, sizeof(*out));
+    if (FontRegistryCreate(&out->registry) != RoboOk) {
+        printf("typography: the font registry could not be created\n");
+        return 0;
+    }
+    FontLoaderConfigInit(&loaderConfig);
+    if (FontLoaderCreate(out->registry, &loaderConfig, &out->loader) != RoboOk) {
+        printf("typography: the font loader could not be created\n");
+        HostTypographyClose(out);
+        return 0;
+    }
+    memset(&io, 0, sizeof(io));
+    io.RoboReadFile = HostPackRead;
+    FontSystemPackConfigInit(&packConfig);
+    packConfig.root = RoboSystemFontRoot;
+    packConfig.io = &io;
+    if (FontSystemPackOpen(out->registry, out->loader, &packConfig, &out->pack) != RoboOk) {
+        printf("typography: %s did not open as a system typeface pack\n", RoboSystemFontRoot);
+        HostTypographyClose(out);
+        return 0;
+    }
+    if (FontFallbackResolverCreate(out->registry, NULL, &out->fallback) != RoboOk) {
+        printf("typography: the fallback resolver could not be created\n");
+        HostTypographyClose(out);
+        return 0;
+    }
+    RoboTypographyResolverConfigInit(&resolverConfig);
+    resolverConfig.pack = out->pack;
+    resolverConfig.fallback = out->fallback;
+    if (RoboTypographyResolverCreate(&resolverConfig, &out->resolver, NULL) != RoboOk) {
+        printf("typography: the resolver could not be created\n");
+        HostTypographyClose(out);
+        return 0;
+    }
+    printf("typography: %s (%u family, %u face) -> %u role(s)\n", RoboSystemFontRoot,
+           (unsigned)FontSystemPackFamilyCount(out->pack),
+           (unsigned)FontSystemPackRegisteredFaces(out->pack),
+           (unsigned)RoboTypographyRoleCount);
+    return 1;
+}
+
+static void HostTypographyClose(HostTypography *typography)
+{
+    if (!typography) {
+        return;
+    }
+    RoboTypographyResolverDestroy(typography->resolver);
+    typography->resolver = NULL;
+    FontFallbackResolverDestroy(typography->fallback);
+    typography->fallback = NULL;
+    FontSystemPackClose(typography->pack);
+    typography->pack = NULL;
+    FontLoaderDestroy(typography->loader);
+    typography->loader = NULL;
+    FontRegistryDestroy(typography->registry);
+    typography->registry = NULL;
+}
+
+/* ------------------------------------------------------------------ */
 /* The checkpoint's picture                                            */
 /* ------------------------------------------------------------------ */
 
@@ -402,7 +559,8 @@ static void HostPrintSummary(Desktop *desktop, const DesktopFrameRecord *frame)
 /* Phase 1 — offscreen                                                 */
 /* ------------------------------------------------------------------ */
 
-static int HostRunOffscreen(FontFace *face, const char *shot, HostReport *report)
+static int HostRunOffscreen(FontFace *face, TypographyResolver *typography, const char *shot,
+                            HostReport *report)
 {
     DesktopSceneConfig config;
     DesktopScene *scene = NULL;
@@ -413,6 +571,7 @@ static int HostRunOffscreen(FontFace *face, const char *shot, HostReport *report
     memset(&diag, 0, sizeof(diag));
     DesktopSceneConfigInit(&config);
     config.face = face;
+    config.typography = typography;
     config.RoboCreateWindow = 0;
     config.statusText = HOST_STATUS_TEXT;
 
@@ -509,7 +668,8 @@ static int HostFindClosePoint(Desktop *desktop, DesktopWindowId window,
     return 0;
 }
 
-static int HostRunWindowed(FontFace *face, unsigned holdMs, int inject, HostReport *report)
+static int HostRunWindowed(FontFace *face, TypographyResolver *typography, unsigned holdMs,
+                           int inject, HostReport *report)
 {
     DesktopSceneConfig config;
     DesktopScene *scene = NULL;
@@ -529,6 +689,7 @@ static int HostRunWindowed(FontFace *face, unsigned holdMs, int inject, HostRepo
 
     DesktopSceneConfigInit(&config);
     config.face = face;
+    config.typography = typography;
     config.RoboCreateWindow = 1;
     config.showCursor = 1;
     config.statusText = HOST_STATUS_TEXT;
@@ -673,6 +834,7 @@ int DesktopHostMain(int argc, char **argv)
 {
     HostReport report;
     HostFace face;
+    HostTypography typography;
     unsigned holdMs;
     const char *shot = NULL;
     int noWindow = 0;
@@ -737,14 +899,24 @@ int DesktopHostMain(int argc, char **argv)
         return 1;
     }
 
-    if (!HostRunOffscreen(face.face, shot, &report)) {
+    /*
+     * The system typeface pack, and the resolver the shell's roles come from (Phase 12.3). Opened after
+     * `FontInit` because it registers faces through the same discovery/registry/loader the guest uses, and
+     * *not* fatal when it is absent: the checkpoint then falls back to the single face, which is a worse
+     * checkpoint but still a checkpoint.
+     */
+    (void)HostTypographyOpen(&typography);
+
+    if (!HostRunOffscreen(face.face, typography.resolver, shot, &report)) {
+        HostTypographyClose(&typography);
         HostFaceRelease(&face);
         return 1;
     }
     if (!noWindow) {
-        (void)HostRunWindowed(face.face, holdMs, inject, &report);
+        (void)HostRunWindowed(face.face, typography.resolver, holdMs, inject, &report);
     }
 
+    HostTypographyClose(&typography);
     HostFaceRelease(&face);
     WindowShutdown();
     DisplayShutdown();

@@ -13,6 +13,7 @@
 
 #include "RoboGraphics/RoboGraphicsRaster.h"
 #include "RoboRender/RoboRenderRasterizer.h"
+#include "RoboTypography/RoboTypography.h"
 
 #include <stddef.h>
 
@@ -63,6 +64,8 @@ struct Desktop {
     /** Borrowed chrome face; never released by this module. */
     FontFace *face;
     float labelSizePx;
+    /** Borrowed typography resolver (Phase 12.3), or NULL for the pre-12.3 single-face binding. */
+    TypographyResolver *typography;
     /** The native window this shell presents into, or RoboWindowIdNone. */
     WindowId window;
     /** Non-zero when `create` made that window and `destroy` must therefore destroy it. */
@@ -117,6 +120,51 @@ void DesktopWindowReleaseTarget(DesktopWindow *window);
 /* ------------------------------------------------------------------ */
 
 /**
+ * One chrome surface's resolved text input: the face to draw with, its size, and the two numbers a
+ * baseline is placed from.
+ *
+ * `fromRole` is the flag that keeps the two bindings *comparable*: when it is set the baseline rule is
+ * the typographic one (centre the role's line box in the band, then drop to the baseline from the
+ * face's own ascent), and when it is clear the rule is the pre-12.3 `(band + cap) / 2` -- which is what
+ * lets a caller that supplies one face keep byte-identical pixels while a caller that supplies roles
+ * gets the new placement.
+ */
+typedef struct DesktopTextStyle {
+    FontFace *face;
+    float sizePx;
+    float lineHeightPx;
+    float ascentPx;
+    int fromRole;
+} DesktopTextStyle;
+
+/**
+ * Resolve @p role for @p desktop, falling back to the config's face and size.
+ *
+ * A role the resolver cannot name a face for degrades to the legacy pair rather than to no text: the
+ * shell's job is to keep drawing, and a font that went missing is a fact the frame record already
+ * counts (`labelsUnshaped`). A desktop with *neither* is a face-less style, which is the state
+ * `DesktopConfig.face` documents.
+ */
+DesktopTextStyle DesktopChromeTextStyle(const Desktop *desktop, RoboTypographyRole role);
+
+/**
+ * The baseline a label of a band of @p bandHeight is drawn on.
+ *
+ * When @p style came from a role, the placement is typographic: the role's line box is centred in the
+ * band and the baseline falls from its top by the face's own ascent. When it did not, @p legacyBaselinePx
+ * is returned unchanged -- which is what keeps a caller that supplies one face on exactly the pixels the
+ * shell drew before Phase 12.3, panel-metric quirks included.
+ *
+ * Centralised here rather than at each of the surfaces that draws a label, because the failure a
+ * per-surface baseline produces is the one the phase names: a panel label and a window title that
+ * disagree about where a baseline goes read as two different typesettings on one screen.
+ */
+int32_t DesktopTextBaseline(const DesktopTextStyle *style,
+                            int32_t bandY,
+                            int32_t bandHeight,
+                            int32_t legacyBaselinePx);
+
+/**
  * Advance a UTF-8 decoder by one code point.
  *
  * Returns the code point and moves @p offset past it, or `U+FFFD` and one byte when the bytes are not a
@@ -132,10 +180,9 @@ uint32_t DesktopChromeUtf8Next(const char *text, size_t length, size_t *offset);
  * drawing rather than with the geometry: a width is a *font* fact, and the geometry header deliberately
  * has no font.
  */
-int32_t DesktopChromeLabelWidth(const Desktop *desktop,
+int32_t DesktopChromeLabelWidth(const DesktopTextStyle *style,
                                        const char *text,
-                                       size_t length,
-                                       float sizePx);
+                                       size_t length);
 
 /**
  * Draw @p text with its pen at @p x and its baseline at @p baselinePx.
@@ -146,14 +193,13 @@ int32_t DesktopChromeLabelWidth(const Desktop *desktop,
  * rather than the last label's; both may be NULL. No face is **not** an error: the label is counted as
  * unshaped and nothing is drawn (see `RoboDesktopVersion.h`).
  */
-void DesktopChromeLabel(Desktop *desktop,
+void DesktopChromeLabel(const DesktopTextStyle *style,
                                GfxRaster *raster,
                                int32_t x,
                                int32_t baselinePx,
                                const char *text,
                                size_t length,
                                GfxColorRgba8 color,
-                               float sizePx,
                                size_t *outDrawn,
                                size_t *outUnshaped);
 

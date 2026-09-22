@@ -281,6 +281,11 @@ rasterizer** (`FontOutlineVariationApplied` is still 0, RoboFont's own 5.18 boun
 therefore draws the face as loaded, and a heavy weight is a matter for the phase that applies axis
 coordinates, not for a synthesized emboldening here.
 
+**Which face a surface draws with is not this phase's question.** Phase 12.3 binds every shell and
+document surface to a semantic typography role and hands the rasterizer the face that role resolved to
+(`Documentation/Runtime/Typography/TypeBinding.md`). The seam is unchanged: 12.1 fills one glyph at a
+baseline origin, 12.3 chooses the face and the numbers, and neither knows what the other decided.
+
 ## Limitations
 
 * **No shaping of any kind.** No kerning, no ligatures, no GSUB/GPOS, no bidi, no script runs, no

@@ -58,12 +58,20 @@ frame: 1280x800 fills=12 labels=4 unshaped=0 windows=1 content_runs=1 content_pi
 ## The system face
 
 The shell's labels and the document's text are drawn with a real font: the system
-typeface pack's face, `System/Fonts/UI/Inter.ttf`, installed into the image at
-`/System/Fonts/UI/Inter.ttf` by `scripts/roboboot-build-common.ps1`. The pack —
-its manifest, roles and licensing — is described in
-`Documentation/Development/SystemTypefacePack.md` (Phase 12.2). The program reads
-the face, builds a `FontFace` from the bytes, and hands it to the scene; binding
-the shell to the pack's *roles* by name is Phase 12.3.
+typeface pack, installed into the image under `/System/Fonts/` by
+`scripts/roboboot-build-common.ps1`. The pack — its manifest, roles and licensing —
+is described in `Documentation/Development/SystemTypefacePack.md` (Phase 12.2).
+The program opens the **pack** and builds a *typography resolver* over it, so the
+shell asks for a semantic role (`WindowTitle`, `DesktopTitle`, …) and never names a
+file; the binding and its scale are Phase 12.3
+(`Documentation/Runtime/Typography/TypeBinding.md`). It also reads
+`/System/Fonts/UI/Inter.ttf` directly as a fallback, so a pack that will not open
+still leaves a renderable desktop rather than a dead one.
+
+A checkpoint that opened the pack prints `ROBO_QEMU_TYPOGRAPHY_OK` with the role and
+face counts it resolved; one that did not prints `ROBO_QEMU_TYPOGRAPHY_FAIL <stage>`
+(`registry`, `loader`, `pack`, `fallback` or `resolver`) and every label then comes
+from the fallback face instead — which the unshaped count below is what exposes.
 
 Without that file the desktop still paints — panel, window chrome, document fills —
 but every label is *counted* instead of drawn (`ROBO_QEMU_DESKTOP_UNSHAPED`), which is

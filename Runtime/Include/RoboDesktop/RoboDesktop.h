@@ -59,6 +59,7 @@
 
 #include "RoboFont/RoboFontFace.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
+#include "RoboTypography/RoboTypographyResolver.h"
 #include "RoboGraphics/RoboGraphicsSurface.h"
 #include "RoboRender/RoboRenderPresenter.h"
 #include "RoboWindow/RoboWindowTypes.h"
@@ -188,15 +189,36 @@ typedef struct DesktopConfig {
     /** Window decoration metrics; NULL means this build's defaults. */
     const DesktopWindowMetrics *windowMetrics;
     /**
-     * The face chrome text is drawn with: the identity, applications and status labels, and every window's
-     * title. NULL means this build draws no chrome glyphs — the geometry, the accent mark, the close cross
-     * and every fill still appear, and the frame record counts the labels it could not shape (`labels`
-     * against `labelsUnshaped`). Text reaching a *window's contents* is a separate face, carried per
-     * window (`DesktopWindowDesc.contentFace`).
+     * The face chrome text is drawn with when no typography resolver is given: the identity, applications
+     * and status labels, and every window's title. NULL means this build draws no chrome glyphs — the
+     * geometry, the accent mark, the close cross and every fill still appear, and the frame record counts
+     * the labels it could not shape (`labels` against `labelsUnshaped`). Text reaching a *window's
+     * contents* is a separate face, carried per window (`DesktopWindowDesc.contentFace`).
+     *
+     * Superseded by @ref typography when that is set: a role the resolver can name a face for wins, and
+     * this face is the fallback for a role that resolves without one. The pre-12.3 caller that passes this
+     * and nothing else keeps drawing exactly the pixels it drew before — which is what makes the two
+     * bindings comparable in one build.
      */
     FontFace *face;
     /** Chrome text size in pixels; 0 or negative means @ref RoboDesktopDefaultLabelSizePx. */
     float labelSizePx;
+    /**
+     * Optional typography resolver (Phase 12.3). When set, every chrome text surface is drawn from a
+     * **semantic role** rather than from one face and one size:
+     *
+     *   the panel's identity     `DesktopTitle`   the applications label  `ChromeLabel`
+     *   the status label         `ChromeStatus`  a window's title bar      `WindowTitle`
+     *
+     * Each role contributes its own face, size, weight and leading, and the role's leading and the face's
+     * own ascent place the baseline (see `Documentation/Runtime/Typography/TypeBinding.md`). A role whose
+     * family cannot be resolved falls back to @ref face and @ref labelSizePx, so a desktop with a pack that
+     * lost a family still draws its whole shell.
+     *
+     * Borrowed, and mutable: the resolver owns a resolution cache and its borrowed pack/registry must
+     * outlive the desktop. NULL means the pre-12.3 binding (one face, one size, one baseline rule).
+     */
+    TypographyResolver *typography;
     /**
      * Draw a software cursor at the last observed pointer. Default off so pixel tests stay a function of
      * the document; host and QEMU launchers turn it on so the desktop is playable.
@@ -213,7 +235,8 @@ typedef struct DesktopConfig {
 /** Chrome text size when a caller does not choose one. */
 #define RoboDesktopDefaultLabelSizePx 11.0f
 
-/** Fill @p config with the defaults: 1280x800, no window, the default theme and metrics, no face. */
+/** Fill @p config with the defaults: 1280x800, no window, the default theme and metrics, no face, no
+ *  typography resolver. */
 void DesktopConfigInit(DesktopConfig *config);
 
 /**

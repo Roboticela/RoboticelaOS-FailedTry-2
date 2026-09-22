@@ -86,6 +86,13 @@ void TestRegisterFontValidate(void);
 void TestRegisterFontConformance(void);
 void TestRegisterFontPhase5(void);
 void TestRegisterFontSystemPack(void);
+/* Phase 12.3 — RoboTypography: the semantic role vocabulary, the one scale, the resolver that binds a
+ * role to a face the system typeface pack installed, and the generated document defaults. The suites
+ * own no module-wide state, so their order among the others does not matter; they are registered
+ * beside the font suites because the pack is what they resolve against. */
+void TestRegisterTypographyRoles(void);
+void TestRegisterTypographyResolver(void);
+void TestRegisterTypographyDocument(void);
 void TestRegisterGraphics(void);
 void TestRegisterGraphicsPixelFormat(void);
 void TestRegisterGraphicsFramebuffer(void);
@@ -229,6 +236,8 @@ void TestRegisterDesktopWindow(void);
 void TestRegisterDesktopFrame(void);
 void TestRegisterDesktopDocument(void);
 void TestRegisterDesktopPresent(void);
+void TestRegisterDesktopTypography(void);
+void TestRegisterDesktopTypographyGallery(void);
 void TestRegisterDesktopScene(void);
 /* Phase 12.1 — RoboInput: the event model, its coordinate spaces, the queue and the window bridge. These
  * tests own no module-wide state (the module has none), so their order among the others does not matter and
@@ -370,6 +379,9 @@ int main(int argc, char **argv)
     TestRegisterFontConformance();
     TestRegisterFontPhase5();
     TestRegisterFontSystemPack();
+    TestRegisterTypographyRoles();
+    TestRegisterTypographyResolver();
+    TestRegisterTypographyDocument();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();
@@ -514,6 +526,9 @@ int main(int argc, char **argv)
     TestRegisterDesktopFrame();
     TestRegisterDesktopDocument();
     TestRegisterDesktopPresent();
+    /* Phase 12.3 -- registered before the scene suite, which shuts the layers down and brings them back. */
+    TestRegisterDesktopTypography();
+    TestRegisterDesktopTypographyGallery();
     TestRegisterInputConformance();
     TestRegisterInputEvent();
     TestRegisterInputKeyboard();

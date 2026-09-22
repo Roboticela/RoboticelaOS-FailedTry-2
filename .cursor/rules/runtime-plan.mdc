@@ -19,7 +19,7 @@ RoboticelaOS must feel **Apple-class**: calm, precise, typographically excellent
 
 ### Start next
 
-**Phase 12 — Beautiful Typography & RoboText**, beginning at **12.3 Desktop + document face binding** (12.1 raster quality and 12.2 system typeface pack are landed).
+**Phase 12 — Beautiful Typography & RoboText**, beginning at **12.4 RoboText architecture** (12.1 raster quality, 12.2 system typeface pack and 12.3 desktop + document face binding are landed).
 
 | | |
 |---|---|
@@ -212,8 +212,8 @@ Goal: the **best font rendering the OS can have** before more product surface ar
 
 12.1 Text raster quality (coverage AA / gamma-correct glyph fills) ✅
 12.2 System typeface pack ✅ (UI Display + UI Text roles, variable Inter weights, ship under `/System/Fonts/`; `Documentation/Development/SystemTypefacePack.md`)
-12.3 Desktop + document face binding ← **current** (chrome labels and DesktopShell use the pack at correct optical sizes)
-12.4 RoboText architecture
+12.3 Desktop + document face binding ✅ (semantic typography roles over the pack; chrome and document text bound by role, one scale table, three deterministic galleries; `Documentation/Runtime/Typography/TypeBinding.md`)
+12.4 RoboText architecture ← **current** (shaped glyph runs; the seam is the `GlyphId` + baseline origin 12.1 fixed and the role-resolved face 12.3 hands out)
 12.5 Unicode / font integration
 12.6 Script runs
 12.7 Direction runs

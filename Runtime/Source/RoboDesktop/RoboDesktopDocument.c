@@ -57,6 +57,10 @@ struct DesktopDocument {
     CssPropertyTable *table;
     CssPropertyRegistry *registry;
     CssStylesheetId sheet;
+    /** The generated typography defaults, at runtime origin, or `RoboCssStylesheetIdNone`. */
+    CssStylesheetId runtimeSheet;
+    /** The face text was measured with: the resolver's body role face, or the caller's own. */
+    FontFace *face;
     LayoutDom *dom;
     LayoutStyleSource source;
     LayoutTree *tree;
@@ -77,6 +81,7 @@ void DesktopDocumentConfigInit(DesktopDocumentConfig *config)
     config->width = 800;
     config->height = 600;
     config->face = NULL;
+    config->typography = NULL;
 }
 
 int DesktopDocumentIsImplemented(void)
@@ -117,6 +122,10 @@ static void DesktopDocumentRelease(DesktopDocument *document)
         CssPropertyTableDestroy(document->table);
         document->table = NULL;
     }
+    if (document->runtimeSheet != RoboCssStylesheetIdNone) {
+        (void)CssStylesheetDestroy(document->runtimeSheet, NULL);
+        document->runtimeSheet = RoboCssStylesheetIdNone;
+    }
     if (document->sheet != RoboCssStylesheetIdNone) {
         (void)CssStylesheetDestroy(document->sheet, NULL);
         document->sheet = RoboCssStylesheetIdNone;
@@ -135,6 +144,56 @@ void DesktopDocumentDestroy(DesktopDocument *document)
     }
     DesktopDocumentRelease(document);
     RoboFree(document);
+}
+
+/**
+ * Create, parse and register one stylesheet at @p origin.
+ *
+ * `*slot` receives the sheet's id **as soon as it exists**, so the document's release path owns it from
+ * that moment rather than from the moment it parsed: a sheet that failed to parse would otherwise leak,
+ * and it would leak on the one path a test that only builds good documents never walks.
+ *
+ * The selectors are parsed separately from the declarations, for the reason the author sheet's own call
+ * states: a sheet whose selectors were never parsed matches nothing, and a sheet that matches nothing is
+ * indistinguishable from a document nothing styled.
+ */
+static Result DesktopDocumentAddSheet(DesktopDocument *document,
+                                      CssOrigin origin,
+                                      const char *source,
+                                      CssStylesheetId *slot,
+                                      CssError *error)
+{
+    CssStylesheetId sheet = RoboCssStylesheetIdNone;
+    Result status;
+
+    status = CssStylesheetCreate(&sheet, origin, NULL);
+    if (status != RoboOk) {
+        return status;
+    }
+    *slot = sheet;
+    if ((status = CssStylesheetCopySource(sheet, (const uint8_t *)source,
+                                          DesktopStringLength(source), NULL)) != RoboOk) {
+        return status;
+    }
+    if ((status = CssStylesheetParse(sheet, error, NULL)) != RoboOk) {
+        return status;
+    }
+    {
+        size_t index;
+
+        for (index = 0u; index < CssStylesheetRuleCount(sheet) && status == RoboOk; index++) {
+            CssStyleRule *rule =
+                (CssStyleRule *)CssRuleStyle(CssStylesheetRule(sheet, index));
+
+            if (rule) {
+                status = CssStyleRuleParseSelectors(rule, CssStylesheetSource(sheet), error, NULL);
+            }
+        }
+    }
+    if (status != RoboOk) {
+        return status;
+    }
+    return CssStyleContextAddSheet(document->styles, origin, sheet, NULL);
 }
 
 /** One stage's failure: release what exists and report the stage's own message. */
@@ -200,8 +259,24 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
     }
     document->html = RoboHtmlDocumentIdNone;
     document->sheet = RoboCssStylesheetIdNone;
+    document->runtimeSheet = RoboCssStylesheetIdNone;
     document->viewport = MakeGfxSize(config->width, config->height);
     LayoutTextFontInit(&document->font);
+    /*
+     * The face the document is measured and drawn with (Phase 12.3). A typography resolver is the
+     * authority when it names a face for the body role, and `config->face` is the fallback -- the same
+     * precedence the shell's chrome uses, so "who chose the face?" has one answer in both places.
+     */
+    document->face = config->face;
+    if (config->typography) {
+        RoboTypographyStyle body;
+
+        if (RoboTypographyResolve(config->typography, RoboTypographyRoleDocumentBody, &body, NULL) ==
+                RoboOk &&
+            body.face) {
+            document->face = body.face;
+        }
+    }
 
     /* 1. The DOM. */
     HtmlDiagReset(&htmlDiag);
@@ -250,38 +325,34 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
         return DesktopDocumentFail(document, diag, status,
                                           "the style context could not be created");
     }
+    /*
+     * The generated system defaults first (Phase 12.3), at **runtime** origin: below the author's own
+     * sheet in the cascade, so a document that declares its own `h1` still wins, and a document that
+     * declares nothing starts from the system's table rather than from the layout engine's initial 16px.
+     */
+    if (config->typography) {
+        char defaults[RoboTypographyDocumentSheetMaxBytes];
+        size_t defaultsLength = 0u;
+
+        CssErrorInit(&cssError);
+        status = RoboTypographyResolverDocumentStyleSheet(config->typography, defaults,
+                                                         sizeof(defaults), &defaultsLength);
+        if (status == RoboOk) {
+            status = DesktopDocumentAddSheet(document, RoboCssOriginRuntime, defaults,
+                                             &document->runtimeSheet, &cssError);
+        }
+        if (status != RoboOk) {
+            return DesktopDocumentFail(
+                document, diag, status,
+                cssError.message ? cssError.message
+                                 : "the system typography defaults were refused by the style context");
+        }
+    }
+
     if (config->css) {
         CssErrorInit(&cssError);
-        status = CssStylesheetCreate(&document->sheet, RoboCssOriginAuthor, NULL);
-        if (status == RoboOk) {
-            status = CssStylesheetCopySource(document->sheet,
-                                                     (const uint8_t *)config->css,
-                                                     DesktopStringLength(config->css), NULL);
-        }
-        if (status == RoboOk) {
-            status = CssStylesheetParse(document->sheet, &cssError, NULL);
-        }
-        if (status == RoboOk) {
-            size_t index;
-
-            /* A sheet's selectors are parsed separately from its declarations, and a sheet whose
-             * selectors were never parsed matches nothing -- so this loop is not tidiness, it is the
-             * difference between a styled document and an unstyled one. */
-            for (index = 0u; index < CssStylesheetRuleCount(document->sheet) && status == RoboOk;
-                 index++) {
-                CssStyleRule *rule = (CssStyleRule *)CssRuleStyle(
-                    CssStylesheetRule(document->sheet, index));
-
-                if (rule) {
-                    status = CssStyleRuleParseSelectors(
-                        rule, CssStylesheetSource(document->sheet), &cssError, NULL);
-                }
-            }
-        }
-        if (status == RoboOk) {
-            status = CssStyleContextAddSheet(document->styles, RoboCssOriginAuthor,
-                                                     document->sheet, NULL);
-        }
+        status = DesktopDocumentAddSheet(document, RoboCssOriginAuthor, config->css,
+                                         &document->sheet, &cssError);
         if (status != RoboOk) {
             return DesktopDocumentFail(document, diag, status,
                                              cssError.message ? cssError.message
@@ -322,10 +393,10 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
         viewport.height = document->viewport.height;
         status = LayoutContextSetViewport(context, viewport, &layoutDiag);
     }
-    if (status == RoboOk && config->face) {
+    if (status == RoboOk && document->face) {
         LayoutTextMetrics metrics;
 
-        status = LayoutTextFontAttach(&document->font, config->face);
+        status = LayoutTextFontAttach(&document->font, document->face);
         if (status == RoboOk) {
             /* RoboLayout's own font-backed measurer, attached to the caller's face: text runs are measured
              * by the real face rather than by a scripted answer, which is the whole difference between a
@@ -408,6 +479,11 @@ const PaintDisplayList *DesktopDocumentDisplayList(
     const DesktopDocument *document)
 {
     return document ? document->display : NULL;
+}
+
+FontFace *DesktopDocumentFace(const DesktopDocument *document)
+{
+    return document ? document->face : NULL;
 }
 
 GfxSize DesktopDocumentViewport(const DesktopDocument *document)

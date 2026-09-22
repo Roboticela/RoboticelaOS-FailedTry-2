@@ -18,12 +18,25 @@
  * outline. The pen is accumulated in `float` and the *drawn* origin is snapped by the graphics module's own
  * policy, so a shell label and a document's text are placed by one rule.
  *
- * ## The baseline rule
+ * ## The baseline rule, and the two of them
  *
- * `(band + cap) / 2`, with `cap` eight pixels: half the cap height above the middle of the band. Both bands
- * use it — the panel through its `baselineFromBottom` metric and a window's title bar through the same
- * arithmetic — because a panel label and a window title that did not agree about where a baseline goes
- * would read as two different typesettings on one screen.
+ * Before Phase 12.3 there was one rule: `(band + cap) / 2`, with `cap` eight pixels — half the cap height
+ * above the middle of the band. Both bands used it, because a panel label and a window title that did not
+ * agree about where a baseline goes would read as two different typesettings on one screen.
+ *
+ * Since 12.3 there are two, and **which is in force is a property of the style rather than of the
+ * surface**: a label resolved from a typography *role* is placed typographically (the role's line box
+ * centred in the band, then dropped to the baseline by the face's own ascent), and a label drawn with the
+ * caller's single face keeps the old arithmetic to the pixel. `DesktopTextBaseline` is the one door both
+ * come through, so the four surfaces cannot disagree about which rule they are under.
+ *
+ * ## Where the face and the size come from
+ *
+ * `DesktopChromeTextStyle` resolves a **role** for each surface — `DesktopTitle` for the panel's identity,
+ * `ChromeLabel` for the applications label, `ChromeStatus` for the status label and `WindowTitle` for a
+ * window's title bar — and falls back to `config->face`/`labelSizePx` for a role the resolver cannot name
+ * a face for. This file therefore knows *which role a surface speaks* and nothing about which family that
+ * is: the font file, the weight and the size are the typography module's, and the manifest's.
  *
  * ## What is counted, and why a count and not a flag
  *
@@ -40,6 +53,7 @@
 #include "RoboFont/RoboFontMetrics.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
 #include "RoboGraphics/RoboGraphicsText.h"
+#include "RoboTypography/RoboTypography.h"
 
 /* The gap between the identity mark and the identity label: three pixels of mark, eight of space, which
  * is enough for the mark to read as a mark rather than as part of the lettering. */
@@ -123,46 +137,111 @@ static GlyphId DesktopGlyphFor(FontFace *face, uint32_t codePoint)
     return lookup.glyphId;
 }
 
-int32_t DesktopChromeLabelWidth(const Desktop *desktop,
+DesktopTextStyle DesktopChromeTextStyle(const Desktop *desktop, RoboTypographyRole role)
+{
+    DesktopTextStyle style;
+
+    style.face = NULL;
+    style.sizePx = 0.0f;
+    style.lineHeightPx = 0.0f;
+    style.ascentPx = 0.0f;
+    style.fromRole = 0;
+    if (!desktop) {
+        return style;
+    }
+
+    /*
+     * The role wins when the resolver can name a face for it, and the caller's own pair is the
+     * fallback. The order is deliberate: Phase 12.3's claim is that the shell draws from the system
+     * typeface pack, so a resolver that answers must be the answer -- and a resolver that cannot (a
+     * family that is not installed) must degrade to *something* rather than to no text, because the
+     * frame record already counts what it could not shape and a blank panel is worse evidence than a
+     * fallback one.
+     */
+    if (desktop->typography) {
+        RoboTypographyStyle resolved;
+
+        if (RoboTypographyResolve(desktop->typography, role, &resolved, NULL) == RoboOk &&
+            resolved.face) {
+            style.face = resolved.face;
+            style.sizePx = resolved.sizePx;
+            style.lineHeightPx = resolved.lineHeightPx;
+            style.ascentPx = resolved.ascentPx;
+            style.fromRole = 1;
+            return style;
+        }
+    }
+    style.face = desktop->face;
+    style.sizePx = desktop->labelSizePx;
+    return style;
+}
+
+int32_t DesktopTextBaseline(const DesktopTextStyle *style,
+                            int32_t bandY,
+                            int32_t bandHeight,
+                            int32_t legacyBaselinePx)
+{
+    if (!style || !style->fromRole) {
+        return legacyBaselinePx;
+    }
+    /*
+     * Centre the role's *line box* in the band, then drop from the line box's top to the baseline by
+     * the face's own ascent. That is the ordinary typographic placement -- the one CSS's own line box
+     * model reduces to for a single line -- and it is stated once here rather than as a per-surface
+     * pixel offset, which is the thing the phase forbids.
+     *
+     * A band shorter than the line box yields a *clamped* zero offset rather than a negative one: the
+     * label is then drawn on the band's own top edge, which is what a window too short for its title
+     * bar looks like rather than glyphs escaping the decoration above it.
+     */
+    {
+        float offset = ((float)bandHeight - style->lineHeightPx) * 0.5f + style->ascentPx;
+
+        if (offset < 0.0f) {
+            offset = 0.0f;
+        }
+        return bandY + (int32_t)(offset + 0.5f);
+    }
+}
+
+int32_t DesktopChromeLabelWidth(const DesktopTextStyle *style,
                                        const char *text,
-                                       size_t length,
-                                       float sizePx)
+                                       size_t length)
 {
     size_t offset = 0u;
     float width = 0.0f;
 
-    if (!desktop || !text || length == 0u || !desktop->face || sizePx <= 0.0f) {
+    if (!style || !text || length == 0u || !style->face || style->sizePx <= 0.0f) {
         return 0;
     }
     while (offset < length) {
         GfxGlyphMetricsDevice metrics;
         uint32_t codePoint = DesktopChromeUtf8Next(text, length, &offset);
-        GlyphId glyph = DesktopGlyphFor(desktop->face, codePoint);
+        GlyphId glyph = DesktopGlyphFor(style->face, codePoint);
 
         if (glyph == RoboGlyphIdNone) {
             /* `.notdef` is still *space*: a label whose glyph is missing advances by the font's own
              * notdef width rather than collapsing, which is what keeps a title's box the width the
              * document's font would have given it. */
-            width += sizePx * 0.5f;
+            width += style->sizePx * 0.5f;
             continue;
         }
-        if (GetGfxGlyphMetricsDevice(desktop->face, glyph, sizePx, &metrics) == RoboOk) {
+        if (GetGfxGlyphMetricsDevice(style->face, glyph, style->sizePx, &metrics) == RoboOk) {
             width += metrics.advanceWidth;
         } else {
-            width += sizePx * 0.5f;
+            width += style->sizePx * 0.5f;
         }
     }
     return (int32_t)(width + 0.5f);
 }
 
-void DesktopChromeLabel(Desktop *desktop,
+void DesktopChromeLabel(const DesktopTextStyle *style,
                                GfxRaster *raster,
                                int32_t x,
                                int32_t baselinePx,
                                const char *text,
                                size_t length,
                                GfxColorRgba8 color,
-                               float sizePx,
                                size_t *outDrawn,
                                size_t *outUnshaped)
 {
@@ -177,10 +256,10 @@ void DesktopChromeLabel(Desktop *desktop,
      * `labels` holding the last label's glyph count would answer a different question -- and would have
      * clobbered the two labels before it.
      */
-    if (!desktop || !raster || !text || length == 0u) {
+    if (!style || !raster || !text || length == 0u) {
         return;
     }
-    if (!desktop->face || sizePx <= 0.0f) {
+    if (!style->face || style->sizePx <= 0.0f) {
         /* No face: the label is *counted* rather than silently skipped, so a frame's record says which
          * of the two reasons it has no text (see the file comment). */
         if (outUnshaped) {
@@ -194,12 +273,12 @@ void DesktopChromeLabel(Desktop *desktop,
         GfxGlyphDraw draw;
         GfxGlyphMetricsDevice metrics;
         uint32_t codePoint = DesktopChromeUtf8Next(text, length, &offset);
-        GlyphId glyph = DesktopGlyphFor(desktop->face, codePoint);
+        GlyphId glyph = DesktopGlyphFor(style->face, codePoint);
 
         GfxGlyphDrawInit(&draw);
-        draw.face = desktop->face;
+        draw.face = style->face;
         draw.glyphId = glyph;
-        draw.sizePx = sizePx;
+        draw.sizePx = style->sizePx;
         draw.color = color;
         /*
          * **Coverage antialiasing** (Phase 12.1), named here rather than inherited: the shell's
@@ -216,10 +295,10 @@ void DesktopChromeLabel(Desktop *desktop,
         draw.mode = RoboGfxGlyphModeAlpha;
         draw.origin = MakeGfxPointF(pen, (float)baselinePx);
         (void)GfxRasterDrawGlyph(raster, &draw);
-        if (GetGfxGlyphMetricsDevice(desktop->face, glyph, sizePx, &metrics) == RoboOk) {
+        if (GetGfxGlyphMetricsDevice(style->face, glyph, style->sizePx, &metrics) == RoboOk) {
             pen += metrics.advanceWidth;
         } else {
-            pen += sizePx * 0.5f;
+            pen += style->sizePx * 0.5f;
         }
     }
     if (outDrawn) {
@@ -303,12 +382,6 @@ GfxRect DesktopChromeCloseBounds(const Desktop *desktop,
 /* The shell                                                           */
 /* ------------------------------------------------------------------ */
 
-/** The baseline a label of a band of @p height is drawn on: half the cap height above the middle. */
-static int32_t DesktopBaselineForBand(int32_t bandY, int32_t bandHeight)
-{
-    return bandY + (bandHeight / 2) + RoboDesktopCapHalf;
-}
-
 Result DesktopChromePaintShell(Desktop *desktop,
                                              GfxRaster *raster,
                                              DesktopFrameRecord *record,
@@ -316,7 +389,19 @@ Result DesktopChromePaintShell(Desktop *desktop,
 {
     const DesktopGeometry *geometry = &desktop->geometry;
     const DesktopTheme *theme = &desktop->theme;
+    /*
+     * The four surfaces' roles (Phase 12.3), resolved once per frame rather than once per label: the
+     * resolver caches, so this is four lookups and the frame's own cost is unchanged -- and resolving
+     * here rather than inside the label walk is what lets the *measurement* and the *drawing* of one
+     * label provably read one style.
+     */
+    DesktopTextStyle identityStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleDesktopTitle);
+    DesktopTextStyle metaStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeLabel);
+    DesktopTextStyle statusStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeStatus);
     GfxRect label;
+    /* The pre-12.3 placement, kept verbatim for a caller that supplies a single face. */
+    int32_t legacyPanelBaseline =
+        geometry->panel.y + geometry->panel.height - desktop->panel.baselineFromBottom;
     int32_t baseline;
     size_t identityLength;
     size_t applicationsLength;
@@ -357,13 +442,10 @@ Result DesktopChromePaintShell(Desktop *desktop,
         }
     }
 
-    baseline = geometry->panel.y + geometry->panel.height - desktop->panel.baselineFromBottom;
     identityLength = DesktopStringLength(desktop->identity);
     applicationsLength = DesktopStringLength(desktop->applications);
     statusLength = DesktopStringLength(desktop->status);
-    identityWidth =
-        DesktopChromeLabelWidth(desktop, desktop->identity, identityLength,
-                                        desktop->labelSizePx);
+    identityWidth = DesktopChromeLabelWidth(&identityStyle, desktop->identity, identityLength);
 
     /* 4. The identity mark: the shell's one accent, always drawn -- which is what keeps a face-less
      * desktop looking like a desktop rather than like a blank panel. */
@@ -379,38 +461,40 @@ Result DesktopChromePaintShell(Desktop *desktop,
     }
 
     /* 5. The three labels, each narrowed into its own area by its measured width. */
+    baseline = DesktopTextBaseline(&identityStyle, geometry->panel.y, geometry->panel.height,
+                                   legacyPanelBaseline);
     if (identityLength > 0u &&
         DesktopGeometryPanelArea(geometry, RoboDesktopPanelIdentity, identityWidth,
                                          &label) == RoboOk) {
         DesktopChromeLabel(
-            desktop, raster,
+            &identityStyle, raster,
             label.x + desktop->panel.identityMarkWidth + RoboDesktopIdentityGap, baseline,
-            desktop->identity, identityLength, theme->identityText, desktop->labelSizePx,
+            desktop->identity, identityLength, theme->identityText,
             &record->labels, &record->labelsUnshaped);
     }
     if (applicationsLength > 0u) {
-        int32_t width = DesktopChromeLabelWidth(desktop, desktop->applications,
-                                                       applicationsLength,
-                                                       desktop->labelSizePx);
+        int32_t width = DesktopChromeLabelWidth(&metaStyle, desktop->applications,
+                                                       applicationsLength);
 
         if (DesktopGeometryPanelArea(geometry, RoboDesktopPanelApplications, width,
                                              &label) == RoboOk) {
-            DesktopChromeLabel(desktop, raster, label.x, baseline, desktop->applications,
+            baseline = DesktopTextBaseline(&metaStyle, geometry->panel.y,
+                                           geometry->panel.height, legacyPanelBaseline);
+            DesktopChromeLabel(&metaStyle, raster, label.x, baseline, desktop->applications,
                                       applicationsLength, theme->panelMetaText,
-                                      desktop->labelSizePx, &record->labels,
-                                      &record->labelsUnshaped);
+                                      &record->labels, &record->labelsUnshaped);
         }
     }
     if (statusLength > 0u) {
-        int32_t width = DesktopChromeLabelWidth(desktop, desktop->status, statusLength,
-                                                       desktop->labelSizePx);
+        int32_t width = DesktopChromeLabelWidth(&statusStyle, desktop->status, statusLength);
 
         if (DesktopGeometryPanelArea(geometry, RoboDesktopPanelStatus, width, &label) ==
             RoboOk) {
-            DesktopChromeLabel(desktop, raster, label.x, baseline, desktop->status,
+            baseline = DesktopTextBaseline(&statusStyle, geometry->panel.y,
+                                           geometry->panel.height, legacyPanelBaseline);
+            DesktopChromeLabel(&statusStyle, raster, label.x, baseline, desktop->status,
                                       statusLength, theme->panelMetaText,
-                                      desktop->labelSizePx, &record->labels,
-                                      &record->labelsUnshaped);
+                                      &record->labels, &record->labelsUnshaped);
         }
     }
     return RoboOk;
@@ -453,14 +537,17 @@ void DesktopChromePaintWindowTitle(Desktop *desktop,
                                            DesktopFrameRecord *record)
 {
     GfxRect title = DesktopChromeTitleBounds(desktop, window);
+    DesktopTextStyle style = DesktopChromeTextStyle(desktop, RoboTypographyRoleWindowTitle);
     size_t length = DesktopStringLength(window->title);
 
     if (length == 0u) {
         return;
     }
-    DesktopChromeLabel(desktop, raster, title.x + desktop->windowMetrics.titleInset,
-                              DesktopBaselineForBand(title.y, title.height), window->title,
-                              length, desktop->theme.windowTitleText, desktop->labelSizePx,
+    DesktopChromeLabel(&style, raster, title.x + desktop->windowMetrics.titleInset,
+                              DesktopTextBaseline(&style, title.y, title.height,
+                                                  title.y + (title.height / 2) +
+                                                      RoboDesktopCapHalf),
+                              window->title, length, desktop->theme.windowTitleText,
                               &record->labels, &record->labelsUnshaped);
 }
 
