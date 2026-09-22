@@ -43,6 +43,7 @@
 #include "RoboFont/RoboFontSfnt.h"
 #include "RoboFont/RoboFontSource.h"
 #include "RoboFont/RoboFontStyle.h"
+#include "RoboFont/RoboFontSystemPack.h"
 #include "RoboFont/RoboFontTt.h"
 #include "RoboFont/RoboFontTypes.h"
 #include "RoboFont/RoboFontValidate.h"

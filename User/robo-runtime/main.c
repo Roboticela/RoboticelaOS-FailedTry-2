@@ -27,7 +27,7 @@
  * `checkpoint` or `selftest`; a normal boot does not print them):
  *   ROBO_QEMU_DISPLAY_OK                  the framebuffer is described (see the FB markers below)
  *   ROBO_QEMU_FB_W / _FB_H / _FB_PITCH / _FB_PIXFMT
- *   ROBO_QEMU_FACE_OK                     /System/Fonts/Inter.ttf was read, parsed and mapped
+ *   ROBO_QEMU_FACE_OK                     the system face under /System/Fonts was read, parsed and mapped
  *   ROBO_QEMU_FACE_FAIL <stage> <path>    the system face could not be loaded; <stage> is the step
  *                                         (stat, alloc, open, read, source, face) that refused
  *   ROBO_QEMU_DESKTOP_OK                  the shell, its window and the document came up
@@ -81,8 +81,14 @@
 #include <string.h>
 #include <unistd.h>
 
-/** The system face, where the image build packs it (`scripts/roboboot-build-common.ps1`). */
-#define GUEST_FACE_PATH "/System/Fonts/Inter.ttf"
+/**
+ * The system face, where the system typeface pack installs it (Phase 12.2).
+ *
+ * `/System/Fonts/` is the pack root and `UI/Inter.ttf` is the face its manifest names for the UI
+ * Display and UI Text roles (`System/Fonts/system-fonts.manifest`). Phase 12.3 binds the shell to
+ * those roles by name; for now the desktop loads the same physical face the pack resolves to.
+ */
+#define GUEST_FACE_PATH "/System/Fonts/UI/Inter.ttf"
 
 /** Frames the checkpoint is willing to drive before it reports. The live shell continues after that. */
 #define GUEST_MAX_STEPS 48

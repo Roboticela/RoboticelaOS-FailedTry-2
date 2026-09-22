@@ -13,6 +13,7 @@ There is **one** RoboticelaOS Runtime. Host vs QEMU is a **test execution target
 | `Bootloader/` | UEFI bootloader (`Source/`, `Include/`, `Assets/`, `Config/`) |
 | `Kernel/` | Kernel. Internal include paths (`mm/`, `fs/`, …) are the kernel's C include namespace. |
 | `Runtime/` | Independent web/UI runtime. Public headers: `Runtime/Include/`. Implementation: `Runtime/Source/Robo*/`. |
+| `System/` | Installed system data. `System/Fonts/` is the **system typeface pack**: the one place a system face, its manifest and its licence live. Installed into the image at `/System/Fonts/`. |
 | `Desktop/` | Vite + React source for the OS desktop document. Compiled to plain HTML/CSS/JS by `BuildDesktopUi.ps1`. |
 | `Libc/` | Freestanding C library for the guest. |
 | `User/` | Guest userland programs and the linker script. |
@@ -65,6 +66,8 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Input | `Runtime/Source/RoboInput/` |
 | Desktop shell | `Runtime/Source/RoboDesktop/` |
 | Font | `Runtime/Source/RoboFont/` |
+| System typeface pack | `System/Fonts/` (assets + `system-fonts.manifest` + licences), `Runtime/Source/RoboFont/RoboFontSystemPack.c` + public `Runtime/Include/RoboFont/RoboFontSystemPack.h`. Docs: `Documentation/Development/SystemTypefacePack.md`, legal: `Documentation/Legal/FontLicenses.md`. |
+| Glyph rasterization (coverage AA) | `Runtime/Source/RoboGraphics/RoboGraphicsGlyph.c` + public `Runtime/Include/RoboGraphics/RoboGraphicsGlyph.h`. One glyph outline → grayscale coverage mask → existing source-over. Independent of shaping: no cmap, no font files, no runs belong here. Docs: `Documentation/Runtime/Typography/TextRasterQuality.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -100,6 +103,52 @@ RoboCSS   ┴→ RoboLayout → RoboPaint → RoboRender → RoboDesktop
 
 Stable APIs: versioned headers under `Runtime/Include/`. New APIs belong in the owning module's public header, not a grab-bag.
 
+### Glyph rasterization (Phase 12.1)
+
+**Rasterizing a glyph outline and shaping text are separate jobs, and the seam between them is a
+`GlyphId` plus a device-space baseline origin.** Glyph rasterization lives in RoboGraphics
+(`Runtime/Source/RoboGraphics/RoboGraphicsGlyph.c`, public contract
+`Runtime/Include/RoboGraphics/RoboGraphicsGlyph.h`); the bridge that turns a glyph id into an outline
+stays in `RoboGraphicsText.c`. Nothing below that seam may learn about cmap, font files, CSS
+`font-family`, shaping, runs or kerning, and no shaping work may reach around it.
+
+- Public: `GfxGlyphMaskRasterizeOutline`, `GfxRasterDrawGlyphMask`, `GfxRasterDrawGlyphCoverage`,
+  the mask accessors, `GfxGammaCoverageToAlpha` and the `GfxCoverageGamma` models.
+- Internal: the scanline walk, the winding rule, the flattening tolerances, the 1/256 px lattice and
+  the sRGB tables in `RoboGraphicsGlyph.c`. Do not widen them into the header to "share" them.
+- Keep three numbers separate: **coverage**, **glyph colour alpha** and **raster opacity**. They meet
+  only at `GfxRasterDrawGlyphMask`; folding one into another is a defect, not a simplification.
+- Backgrounds, call sites and gamma: `Documentation/Runtime/Typography/TextRasterQuality.md` is the
+  phase's contract; update it (and this section) when the model changes.
+- Tests: `Tests/Graphics/SuiteRoboGraphicsGlyph.c` (`graphics.glyph.*`) for coverage/bounds/gamma/
+  alpha/determinism and `Tests/Graphics/SuiteRoboGraphicsTypography.c` (`graphics.typography.*`) for
+  the visual fixture. A glyph change is not done until `TestGraphics.ps1`, `TestPaint.ps1` and
+  `TestDesktop.ps1` (Host) pass.
+
+### System typeface pack (Phase 12.2)
+
+**There is exactly one system font root — `/System/Fonts/`, sourced from `System/Fonts/` in the
+repository — and the pack is described by its manifest, never by a hard-coded filename.** The pack
+binds the existing Phase 5 pipeline to that root; it adds no font parser, no rasterizer and no
+shaping.
+
+- Assets: `System/Fonts/<role>/`, licences beside them under `System/Fonts/licenses/`, and the
+  manifest `System/Fonts/system-fonts.manifest`. Do not copy a system face anywhere else in the tree,
+  and never pack a host font directory (`C:\Windows\Fonts`, `/usr/share/fonts`, `/Library/Fonts`).
+- Manifest: `RoboFontSystemManifestParse` is pure (no IO). Changing the grammar, the role vocabulary
+  or the bound-family resolution rules means updating `Documentation/Development/SystemTypefacePack.md`
+  (and this section) in the same change.
+- Roles: callers ask for `RoboFontSystemRoleUIDisplay` / `…UIText` / `…Monospace`, never a filename.
+  Role → family is a manifest binding; the selection layer is Phase 5's `FontSelect`.
+- Licensing: every redistributed face needs a row in `Documentation/Legal/FontLicenses.md` and its
+  licence text under `System/Fonts/licenses/`. Never rename a third-party face to imply it is
+  another; the design target is SF-*class* typography, not Apple's SF.
+- Build: `BuildFont.ps1`; the image build (`scripts/roboboot-build-common.ps1`) installs the pack and
+  **fails** if the face, manifest or licence is missing. A release image must never ship without it.
+- Tests: `Tests/Font/SuiteRoboFontSystemPack.c` (`font.systempack.*`) via `TestFont.ps1 -Target Host`,
+  including an open of the **shipped** pack. Change the pack and `TestFont.ps1`, `TestGraphics.ps1`,
+  `TestPaint.ps1` and `TestDesktop.ps1` (Host) must pass.
+
 ---
 
 ## Test rules
@@ -113,6 +162,9 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Layout | `BuildLayout.ps1` | `TestLayout.ps1 -Target Host` |
 | Paint | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` |
 | Rasterizer | `BuildRasterizer.ps1` | `TestRasterizer.ps1 -Target Host` |
+| Graphics | `BuildGraphics.ps1` | `TestGraphics.ps1 -Target Host` |
+| Glyph rasterization / typography | `BuildGraphics.ps1` (and `BuildFont.ps1` if RoboFont changed) | `TestGraphics.ps1 -Target Host`, then `TestPaint.ps1 -Target Host` and `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Coverage.png` against `Build/Typography-Stroke.png` |
+| System typeface pack | `BuildFont.ps1` (module + pack validation; the image build installs `System/Fonts/`) | `TestFont.ps1 -Target Host` (`font.systempack.*`); `-Target Qemu` when the installed image is involved |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

@@ -7,6 +7,7 @@
 | `SuiteRoboFont.c` | 5.1 | `font.` (core) |
 | `SuiteRoboFontSfnt.c` … `SuiteRoboFontValidate.c` | 5.2–5.20 | `font.<area>` |
 | `SuiteRoboFontConformance.c` | 5.21 | `font.conform` |
+| `SuiteRoboFontSystemPack.c` | 12.2 | `font.systempack` |
 
 ## Corpus
 

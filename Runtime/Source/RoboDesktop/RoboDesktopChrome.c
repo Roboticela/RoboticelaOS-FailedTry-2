@@ -201,18 +201,20 @@ void DesktopChromeLabel(Desktop *desktop,
         draw.glyphId = glyph;
         draw.sizePx = sizePx;
         draw.color = color;
-        draw.mode = RoboGfxGlyphModeOutlineStroke;
-        /* The graphics module's own snap policy, applied to the *drawn* origin: the pen keeps its
-         * fraction so that a label's last glyph is not a pixel off because of the rounding of the ones
-         * before it. */
-        {
-            GfxPointF origin;
-            GfxPoint snapped;
-
-            origin = MakeGfxPointF(pen, (float)baselinePx);
-            snapped = GfxGlyphSnapPoint(origin);
-            draw.origin = MakeGfxPointF((float)snapped.x, (float)snapped.y);
-        }
+        /*
+         * **Coverage antialiasing** (Phase 12.1), named here rather than inherited: the shell's
+         * own labels are UI text, and `OUTLINE_STROKE` -- the bridge's default -- traces a glyph's
+         * contour with one-pixel lines instead of filling it.
+         *
+         * The origin is passed at the pen's own fraction, and that is a change of posture rather
+         * than of arithmetic: the coverage rasterizer quantizes to a 1/256 pixel internally, so
+         * rounding here first would throw away the sub-pixel precision the new path exists to
+         * keep -- and a long label's glyphs would drift by up to half a pixel each time the pen's
+         * fraction crossed a rounding boundary. `GfxGlyphSnapPoint` remains the module's policy
+         * for callers that want whole-pixel placement; this label no longer needs it.
+         */
+        draw.mode = RoboGfxGlyphModeAlpha;
+        draw.origin = MakeGfxPointF(pen, (float)baselinePx);
         (void)GfxRasterDrawGlyph(raster, &draw);
         if (GetGfxGlyphMetricsDevice(desktop->face, glyph, sizePx, &metrics) == RoboOk) {
             pen += metrics.advanceWidth;

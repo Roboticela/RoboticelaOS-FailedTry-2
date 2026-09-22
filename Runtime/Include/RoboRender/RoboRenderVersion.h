@@ -95,9 +95,10 @@
  * here and that is worth stating rather than leaving to be discovered: every rectangle that reaches
  * this module has already been resolved to integers by RoboLayout and RoboPaint, and the one
  * continuous quantity in the pipeline -- a text run's pen, accumulated in `float` as advances are
- * added -- is snapped by RoboGraphics' own `GfxGlyphSnapPoint` policy one layer down. A
- * device-pixel-ratio or a zoom would break the identity, which is why both are named as absent
- * rather than assumed to be 1 forever.
+ * added -- is *placed* at its own fraction by RoboGraphics one layer down (Phase 12.1: the outline
+ * is quantized to a 1/256 px lattice rather than snapped to a whole pixel, see
+ * `Documentation/Runtime/Typography/TextRasterQuality.md`). A device-pixel-ratio or a zoom would
+ * break the identity, which is why both are named as absent rather than assumed to be 1 forever.
  */
 #ifndef ROBO_RENDER_VERSION_H
 #define ROBO_RENDER_VERSION_H

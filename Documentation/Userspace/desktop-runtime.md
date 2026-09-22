@@ -57,10 +57,13 @@ frame: 1280x800 fills=12 labels=4 unshaped=0 windows=1 content_runs=1 content_pi
 
 ## The system face
 
-The shell's labels and the document's text are drawn with a real font:
-`desktop/assets/Inter.ttf`, packed into the image at `/System/Fonts/Inter.ttf` by
-`scripts/roboboot-build-common.ps1`. The program reads it, builds a `FontFace`
-from the bytes, and hands it to the scene.
+The shell's labels and the document's text are drawn with a real font: the system
+typeface pack's face, `System/Fonts/UI/Inter.ttf`, installed into the image at
+`/System/Fonts/UI/Inter.ttf` by `scripts/roboboot-build-common.ps1`. The pack —
+its manifest, roles and licensing — is described in
+`Documentation/Development/SystemTypefacePack.md` (Phase 12.2). The program reads
+the face, builds a `FontFace` from the bytes, and hands it to the scene; binding
+the shell to the pack's *roles* by name is Phase 12.3.
 
 Without that file the desktop still paints — panel, window chrome, document fills —
 but every label is *counted* instead of drawn (`ROBO_QEMU_DESKTOP_UNSHAPED`), which is

@@ -43,6 +43,7 @@ and **docs/Integration.md** for consumer contracts.
 |---|---|
 | **5.1–5.21** | Model through conformance |
 | **5.22** | Final integration, API freeze, E2E acceptance |
+| **12.2** | System typeface pack: `/System/Fonts/`, its manifest, semantic roles, discovery/selection binding. See [`../../Development/SystemTypefacePack.md`](../../Development/SystemTypefacePack.md) |
 
 **Not** in scope: shaping (Phase 6), rasterization, CSS/web-font policy.
 

@@ -111,21 +111,26 @@ static int DecorationStyleIsShaped(CssBorderStyle style)
  *
  * The whole of the glyph path is three calls per character, and each of them is a door this
  * module does not own: the face's cmap resolves a code point to a glyph id, the graphics
- * module's bridge scales that glyph's advance and outline, and the raster strokes the outline.
- * A painter that measured a glyph itself would be a second font-metrics implementation with a
- * different answer from the one the box was sized with -- which is the failure
- * `RoboLayoutTextFont.h` names as the one no later phase could detect, arriving from the other
- * side.
+ * module's bridge scales that glyph's advance, and the raster fills the outline as a
+ * coverage-antialiased mask (Phase 12.1; the mode is named below). A painter that measured a
+ * glyph itself would be a second font-metrics implementation with a different answer from the
+ * one the box was sized with -- which is the failure `RoboLayoutTextFont.h` names as the one no
+ * later phase could detect, arriving from the other side.
  *
- * **The pen is a `float` and the origin is snapped.** Advances are continuous and a run's
- * glyphs must not drift apart, so the position is accumulated in device units and only the
- * *drawn* origin is rounded -- by `GfxGlyphSnapPoint`, the graphics module's own
- * policy rather than a local `(int)` cast. Layout's width for the same run is a **single**
- * rounding of a font-unit sum (`RoboLayoutTextFont.h` argues why it sums first), so the pen
- * here can differ from that width by a fraction of a pixel at the end of a long run; the last
- * glyph may therefore sit within a sub-pixel of the width the line was justified to. That is
- * the honest limit of two implementations of "advance" sharing one font, and it is stated
- * rather than papered over.
+ * **Sub-pixel pen, sub-pixel glyph.** The pen is a `float` and, since 12.1, the glyph is
+ * *placed* at that fraction rather than snapped to a whole pixel. Advances are continuous and a
+ * run's glyphs must not drift apart, so the position is accumulated in device units; the
+ * rasterizer then quantizes the placed outline to a 1/256 px lattice, which is finer than the
+ * 8×8 sample grid can observe. A run's glyphs therefore sit on the advances as accumulated
+ * instead of on rounded copies of them -- and `GfxGlyphSnapPoint`, the graphics module's own
+ * whole-pixel policy, is still there for a caller that wants it (a *run* does not, because
+ * rounding each origin is exactly the drift the accumulation exists to avoid).
+ *
+ * Layout's width for the same run is a **single** rounding of a font-unit sum
+ * (`RoboLayoutTextFont.h` argues why it sums first), so the pen here can differ from that width
+ * by a fraction of a pixel at the end of a long run; the last glyph may therefore sit within a
+ * sub-pixel of the width the line was justified to. That is the honest limit of two
+ * implementations of "advance" sharing one font, and it is stated rather than papered over.
  */
 
 /**
@@ -177,6 +182,18 @@ static Result DecorationDrawText(GfxRaster *raster,
     draw.face = face;
     draw.sizePx = (float)run.font.fontSizePx;
     draw.color = color;
+    /*
+     * **Coverage antialiasing** (Phase 12.1), named here rather than inherited.
+     *
+     * `GfxGlyphDrawInit` leaves the mode at `OUTLINE_STROKE`, which is the bridge's
+     * documented default and not what a document's text should look like: it traces the
+     * glyph's contour with one-pixel lines. `ALPHA` is the same glyph rasterized into a
+     * grayscale coverage mask and blended, and it is selected **by this pass** because this
+     * pass is the only thing in the tree that knows it is drawing UI text rather than
+     * auditing an outline. The pen and the baseline below are unchanged, so the phase
+     * improves the pixels and moves nothing.
+     */
+    draw.mode = RoboGfxGlyphModeAlpha;
 
     for (index = 0u; index < (uint32_t)run.span.count; index++) {
         FontCmapLookupResult lookup;

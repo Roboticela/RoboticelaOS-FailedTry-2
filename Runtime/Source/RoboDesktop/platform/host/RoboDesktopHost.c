@@ -57,7 +57,7 @@
 #include "robo_font_asset_path.h"
 #endif
 #ifndef RoboFontAssetPath
-#define RoboFontAssetPath "desktop/assets/Inter.ttf"
+#define RoboFontAssetPath "System/Fonts/UI/Inter.ttf"
 #endif
 
 #define HOST_KEY "RoboDesktop"

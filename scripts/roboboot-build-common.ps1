@@ -842,12 +842,25 @@ function Invoke-RoboBuildUserland {
     Add-Pack "/bin/network-test" $elfs["network-test"]
     Add-Pack "/bin/robo-runtime" $elfs["robo-runtime"]
     Add-Pack "/System/runtime/robo-runtime" $elfs["robo-runtime"]
-    # The desktop's face. The guest program reads `/System/Fonts/Inter.ttf`, parses it with RoboFont and
-    # draws the shell's labels with the face it builds; without the file the desktop still paints, but every
-    # label counts into `ROBO_QEMU_DESKTOP_UNSHAPED` instead of reaching the picture. Vendored in the
-    # runtime tree beside its licence (`runtime/desktop/assets/`) rather than fetched at build time, so an
-    # offline build and a build on another machine pack the same bytes.
-    Add-Pack "/System/Fonts/Inter.ttf" (Join-Path $runtime "Desktop\Assets\Inter.ttf")
+    # The system typeface pack (Phase 12.2). The guest discovers `/System/Fonts/` through its manifest
+    # and draws the shell's labels with the face it resolves; without the face the desktop still paints,
+    # but every label counts into `ROBO_QEMU_DESKTOP_UNSHAPED` instead of reaching the picture. Packed
+    # from the repo's own `System/Fonts/` -- the single source of truth for system faces -- rather than
+    # fetched at build time, so an offline build and a build on another machine pack the same bytes. A
+    # missing face, manifest or licence is a hard build failure: a release image must never ship
+    # without its system typeface.
+    $systemFonts = Join-Path $script:Repo "System\Fonts"
+    $systemFontFace = Join-Path $systemFonts "UI\Inter.ttf"
+    $systemFontManifest = Join-Path $systemFonts "system-fonts.manifest"
+    $systemFontLicense = Join-Path $systemFonts "licenses\Inter-OFL.txt"
+    foreach ($systemFontRequired in @($systemFontFace, $systemFontManifest, $systemFontLicense)) {
+        if (-not (Test-Path -LiteralPath $systemFontRequired)) {
+            throw ("system font pack incomplete: missing " + $systemFontRequired)
+        }
+    }
+    Add-Pack "/System/Fonts/UI/Inter.ttf" $systemFontFace
+    Add-Pack "/System/Fonts/system-fonts.manifest" $systemFontManifest
+    Add-Pack "/System/Fonts/licenses/Inter-OFL.txt" $systemFontLicense
     Add-Pack "/System/runtime/engines.manifest" $manifest
     Add-Pack "/bin/robospark" $elfs["robospark"]
     Add-Pack "/bin/robolayer-demo" $elfs["robolayer-demo"]

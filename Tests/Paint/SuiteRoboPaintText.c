@@ -1106,6 +1106,67 @@ static void TestTextPixels(void)
     TextFaceDestroy(&face);
 }
 
+/*
+ * Phase 12.1: the text a *document* draws is **coverage-antialiased**.
+ *
+ * The pixel case above pins that glyphs reach the surface at all; this one pins what they look
+ * like, and it is the assertion the phase exists for. At a size that is not a whole number of the
+ * glyph's own grid, every ink edge lands inside a pixel, so a rasterizer that thresholded would
+ * produce only the text's colour and the page's. A partial pixel keeps the red channel (red over
+ * white keeps it) and gains some green, and at least one such pixel must exist — with a fully
+ * covered one beside it, so "antialiased" is not confused with "blurred".
+ */
+static void TestTextCoverageAntialiasing(void)
+{
+    PaintFixtureDoc fixture;
+    PaintResult result;
+    PaintDisplayList *list = NULL;
+    PaintDisplayListStats stats;
+    PaintDecorationStats decoration;
+    TextFace face;
+    GfxSurface *surface;
+    GfxColorRgba8 color;
+    uint32_t partial = 0u;
+    uint32_t full = 0u;
+    uint32_t x;
+    uint32_t y;
+
+    TextFaceCreate(&face);
+    PaintBeginLaidOut(&fixture, "<html><body><div class=\"box\">AB</div></body></html>",
+                         TEXT_BASE_CSS
+                         " .box { width: 300px; height: 60px; background-color: #ffffff;"
+                         " color: #ff0000; font-size: 33px }");
+    PaintOnce(&fixture, &result);
+    memset(&stats, 0, sizeof(stats));
+    TextBuild(&result, &list, &stats);
+
+    surface = TextSurface(300u, 100u);
+    memset(&decoration, 0, sizeof(decoration));
+    TextPaint(list, surface, face.face, &decoration);
+    RoboCheckEqInt((int)decoration.texts, 1);
+    RoboCheckEqInt((int)decoration.glyphs, 2);
+
+    for (y = 0u; y < GfxSurfaceHeight(surface); y++) {
+        for (x = 0u; x < GfxSurfaceWidth(surface); x++) {
+            RoboCheckEqInt(GfxSurfaceGetPixel(surface, x, y, &color), RoboOk);
+            if (color.r == TEXT_RED.r && color.g > 0u && color.g < 255u) {
+                partial++;
+            }
+            if (color.r == TEXT_RED.r && color.g == 0u && color.b == 0u) {
+                full++;
+            }
+        }
+    }
+    RoboCheck(partial > 0u);
+    RoboCheck(full > 0u);
+
+    GfxSurfaceRelease(surface);
+    PaintDisplayListDestroy(list);
+    PaintResultDispose(&result);
+    PaintEnd(&fixture);
+    TextFaceDestroy(&face);
+}
+
 static void TestTextNoFont(void)
 {
     PaintFixtureDoc fixture;
@@ -1627,6 +1688,7 @@ void TestRegisterPaintText(void)
     TestRegister("paint.text.wrapped_lines", TestTextWrappedLines);
     TestRegister("paint.text.color", TestTextColor);
     TestRegister("paint.text.pixels", TestTextPixels);
+    TestRegister("paint.text.coverage_antialiasing", TestTextCoverageAntialiasing);
     TestRegister("paint.text.no_font", TestTextNoFont);
     TestRegister("paint.text.missing_glyph", TestTextMissingGlyph);
     TestRegister("paint.text.rtl", TestTextRtl);

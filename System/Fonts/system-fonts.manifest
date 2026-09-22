@@ -1,0 +1,46 @@
+# RoboticelaOS system font pack — the canonical description of the faces the OS
+# ships under /System/Fonts/. Parsed by RoboFontSystemPack (RoboFont/RoboFontSystemPack.h).
+#
+# Design target is SF-class metrics, proportions and spacing. The face below is
+# Inter, an independent open-source typeface released under the SIL Open Font
+# License 1.1 — it is not Apple's SF and is never presented as such.
+#
+# Grammar (line based; '#' starts a comment):
+#   system-font-pack <version>
+#   root <absolute-runtime-path>
+#   family <display-name>
+#     file    <relative-path-under-root>
+#     role    <display|text|monospace> [weight <n>]
+#     weight  <default-instance-weight>
+#     stretch <percent>
+#     style   <normal|italic|oblique>
+#     variable
+#     axis    <tag> <min> <default> <max>
+#     license <spdx-or-short-id>
+#     source  <attribution text>
+#     version <upstream-revision>
+#   end
+#
+# A 'role' line is the semantic binding: 'display' is the UI Display face and
+# 'text' is the UI Text face. Both roles may point at one physical family; the
+# weight on the role is the weight that role is resolved at when a caller does
+# not ask for a specific one.
+
+system-font-pack 1
+root /System/Fonts
+
+family Inter
+  file UI/Inter.ttf
+  role text weight 400
+  role display weight 600
+  role monospace weight 400
+  weight 400
+  stretch 100
+  style normal
+  variable
+  axis wght 100 400 900
+  axis opsz 14 14 32
+  license OFL-1.1
+  source The Inter Project Authors (https://github.com/rsms/inter)
+  version 4.000
+end

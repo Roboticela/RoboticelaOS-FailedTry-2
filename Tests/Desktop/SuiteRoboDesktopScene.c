@@ -6,8 +6,8 @@
  * against the same doors the launchers use), and it is *deterministic* (a step is a function of the
  * scene's state, and two steps of one state produce one picture).
  *
- * `desktop.scene.system_face` is the other half. The OS ships a face — `desktop/assets/Inter.ttf`, packed
- * into the image at `/System/Fonts/Inter.ttf` — and the checkpoint's whole visual claim depends on it
+ * `desktop.scene.system_face` is the other half. The OS ships a face — the system typeface pack's
+ * `System/Fonts/UI/Inter.ttf`, installed at `/System/Fonts/UI/Inter.ttf` — and the checkpoint's whole visual claim depends on it
  * parsing and covering the label's glyphs. So that case loads the shipped bytes, asserts what the face is,
  * and then asserts the two counts that are the text verdict in a frame: every label shaped with the face,
  * and every label *counted* without one.
@@ -23,7 +23,7 @@
 #include "robo_font_asset_path.h"
 #endif
 #ifndef RoboFontAssetPath
-#define RoboFontAssetPath "desktop/assets/Inter.ttf"
+#define RoboFontAssetPath "System/Fonts/UI/Inter.ttf"
 #endif
 
 #include <stdio.h>
@@ -266,7 +266,20 @@ static void TestSceneStep(void)
     RoboCheckEqInt(GetDesktopSceneStep(scene, 0u, &second, NULL), RoboOk);
     RoboCheckEqInt(second.painted, 1);
     RoboCheckEqInt((int)second.frame.checksum, (int)checksum);
-    RoboCheckEqInt(DesktopFrameRecordEqual(&first.frame, &second.frame), 1);
+    /*
+     * `contentRuns` is deliberately outside this claim. It counts *work*, not picture: the first paint
+     * found the window's content dirty and rasterized it, and this one found it already cached, which is
+     * the saving the field exists to report. Comparing it here would only ever ask that a scene never
+     * benefit from its own cache -- so the work counter is normalized to the first frame's and the
+     * difference is pinned on its own line instead, as the *expected* direction of that saving.
+     */
+    {
+        DesktopFrameRecord comparable = second.frame;
+
+        RoboCheckEqInt((int)second.frame.contentRuns, 0);
+        comparable.contentRuns = first.frame.contentRuns;
+        RoboCheckEqInt(DesktopFrameRecordEqual(&first.frame, &comparable), 1);
+    }
     RoboCheckEqInt((int)DesktopFrameChecksum(DesktopSceneDesktop(scene)),
                       (int)checksum);
 
@@ -338,11 +351,11 @@ static void TestSceneSystemFace(void)
 
     /*
      * The shipped face. A missing file is a **failure** here rather than a skip: the image build packs
-     * this file and the guest loads it from `/System/Fonts/Inter.ttf`, so a suite that shrugged at its
+     * this file and the guest loads it from `/System/Fonts/UI/Inter.ttf`, so a suite that shrugged at its
      * absence would let a checkpoint with no text leave the building.
      */
     bytes = SceneReadFile(RoboFontAssetPath, &size);
-    RoboCheckMsg(bytes != NULL, "desktop/assets/Inter.ttf is unreadable");
+    RoboCheckMsg(bytes != NULL, "System/Fonts/UI/Inter.ttf is unreadable");
     if (!bytes) {
         return;
     }

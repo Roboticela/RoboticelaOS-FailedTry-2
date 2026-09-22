@@ -60,25 +60,47 @@ Device bounds are Y-down relative to baseline origin (0,0).
   rasterization)
 * Empty outline → empty path, success
 
-## Drawing (Goal 6.12)
+## Drawing
 
-`GfxRasterDrawGlyph` with `RoboGfxGlyphModeOutlineStroke`:
+### `RoboGfxGlyphModeOutlineStroke` (Goal 6.12)
+
+`GfxRasterDrawGlyph`:
 
 * Converts outline → path
-* Strokes with 1-pixel Bresenham lines through the raster (clip + opacity)
+* Strokes with 1-pixel Bresenham lines through the raster, origin snapped to a whole pixel
+  (clip + opacity)
 * Empty / fully outside clip → successful no-op
 * No fill, no antialiasing
 
-Reserved modes (return `RoboNotSupported`):
+Kept rather than retired: it is cheap to audit, and it is what the Phase 12.1 quality fixture
+compares the coverage path against. It is **not** what UI text should use.
 
-* `MASK` — monochrome coverage
-* `ALPHA` — grayscale AA
+### `RoboGfxGlyphModeAlpha` (Phase 12.1)
+
+`GfxRasterDrawGlyph` / `GfxRasterDrawGlyphCoverage`:
+
+* Converts outline → device geometry (adaptive flattening, **no snapping**)
+* Rasterizes the outline into a grayscale **coverage mask** — 8×8 supersampling evaluated as
+  scanline coverage with a non-zero winding rule, in 1/256 px fixed point
+* Converts coverage → blend alpha through the documented gamma model (`RoboGfxCoverageGamma*`)
+* Composites through the same source-over blend as the stroke mode
+* Empty outline / fully outside clip → successful no-op, empty mask
+* This is the mode the paint stack's text path and the desktop shell's labels select
+
+`GfxRasterDrawGlyphCoverage` is the same door with explicit `GfxGlyphRasterParams` (gamma model,
+supersample count). The mask itself is a first-class, readable value (`RoboGraphicsGlyph.h`);
+not-yet-implemented modes (return `RoboNotSupported`):
+
+* `MASK` — binary monochrome coverage
 * `COLOR` — COLR / bitmap / SVG
 
 ## Alpha contract
 
-Stroke color uses Goal 6.10 source-over when translucent / opacity &lt; 255.
-No second alpha model.
+Draw color uses Goal 6.10 source-over when translucent / opacity &lt; 255. No second alpha model.
+
+A coverage mask's byte is **coverage**, not alpha: the effective contribution of a pixel is
+`coverage × colour.alpha × raster.opacity`, and the three stay separate facts joined only at
+`GfxRasterDrawGlyphMask`. Opacity is never folded into the mask.
 
 ## Clipping
 
@@ -97,9 +119,13 @@ surface.
 
 ## Limitations / later
 
-Filled glyph rasterization, AA, subpixel, color fonts, shaping, bidi,
-kerning, ligatures, fallback — RoboText and later graphics goals.
+Shaping, bidi, kerning, ligatures, fallback, hinting, colour fonts, subpixel (RGB) rendering,
+mask caching — later goals. Glyph coverage rasterization itself is **landed** (Phase 12.1): see
+`Documentation/Runtime/Typography/TextRasterQuality.md` for the coverage model, the supersampling
+scheme, the gamma models, the coordinate model and the measured before/after.
 
 ## Tests
 
-`graphics.text.*` in `graphics/tests/SuiteRoboGraphicsText.c`.
+`graphics.text.*` (`Tests/Graphics/SuiteRoboGraphicsText.c`) for the bridge,
+`graphics.glyph.*` (`Tests/Graphics/SuiteRoboGraphicsGlyph.c`) for the coverage rasterizer and
+`graphics.typography.*` (`Tests/Graphics/SuiteRoboGraphicsTypography.c`) for the visual fixture.

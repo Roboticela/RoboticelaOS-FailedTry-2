@@ -409,9 +409,33 @@ static void TestTextDrawGlyph(void)
     draw.glyphId = 1;
     RoboCheckEqInt(GfxRasterDrawGlyph(r, &draw), RoboOk);
 
-    /* unsupported mode */
+    /*
+     * Phase 12.1: `ALPHA` is implemented -- the outline becomes a grayscale coverage mask
+     * rather than a one-pixel stroke. The square glyph is 10x10 device units, entirely on
+     * the surface, so the mask's interior is fully covered and a pixel at its centre is the
+     * glyph's own colour.
+     */
+    RoboCheckEqInt(GfxRasterResetClip(r), RoboOk);
+    RoboCheckEqInt(GfxRasterClear(r, GfxRgb8(255, 255, 255)), RoboOk);
     draw.glyphId = 0;
+    draw.origin = MakeGfxPointF(10.0f, 50.0f);
+    draw.color = GfxRgb8(0, 0, 0);
     draw.mode = RoboGfxGlyphModeAlpha;
+    RoboCheckEqInt(GfxRasterDrawGlyph(r, &draw), RoboOk);
+    RoboCheckEqInt(GfxSurfaceGetPixel(s, 14u, 45u, &c), RoboOk);
+    RoboCheckEqInt((int)c.r, 0);
+    /* One pixel outside the ink's right edge is untouched by it. */
+    RoboCheckEqInt(GfxSurfaceGetPixel(s, 21u, 45u, &c), RoboOk);
+    RoboCheckEqInt((int)c.r, 255);
+    /* An empty glyph in the same mode draws nothing and succeeds. */
+    draw.glyphId = 1;
+    RoboCheckEqInt(GfxRasterDrawGlyph(r, &draw), RoboOk);
+
+    /* The modes this build does not implement still refuse rather than silently stroking. */
+    draw.glyphId = 0;
+    draw.mode = RoboGfxGlyphModeMask;
+    RoboCheckEqInt(GfxRasterDrawGlyph(r, &draw), RoboNotSupported);
+    draw.mode = RoboGfxGlyphModeColor;
     RoboCheckEqInt(GfxRasterDrawGlyph(r, &draw), RoboNotSupported);
 
     RoboCheckEqInt(GfxRasterDrawGlyph(NULL, &draw),

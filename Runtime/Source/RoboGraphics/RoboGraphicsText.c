@@ -457,6 +457,73 @@ static Result StrokePath(GfxRaster *raster,
     return RoboOk;
 }
 
+/*
+ * The coverage path (Phase 12.1).
+ *
+ * Three stages, and the middle one is the whole of the new module: this file turns a
+ * face + glyph id into an outline and the raster's clip, `RoboGraphicsGlyph.c` turns
+ * that outline into coverage in device pixels, and `GfxRasterDrawGlyphMask` spends the
+ * coverage through the module's existing source-over blend.
+ *
+ * The outline is **released before the mask is drawn**, so nothing here outlives its
+ * borrow of the face. The clip is the raster's own, which is what makes "clipping is
+ * the graphics layer's rule" hold for glyphs exactly as it does for a fill: the caller
+ * never passes one in twice.
+ */
+Result GfxRasterDrawGlyphCoverage(GfxRaster *raster,
+                                  const GfxGlyphDraw *draw,
+                                  const GfxGlyphRasterParams *params)
+{
+    FontOutline *outline = NULL;
+    GfxGlyphMask *mask = NULL;
+    GfxGlyphRasterStats stats;
+    GfxCoverageGamma gamma;
+    GfxRect clip;
+    uint16_t upem = 0u;
+    Result res;
+
+    if (!raster || !draw || !draw->face) {
+        return RoboInvalidArgument;
+    }
+    if (!GfxRasterTarget(raster)) {
+        return RoboInvalidArgument;
+    }
+    res = FaceUpem(draw->face, &upem);
+    if (res != RoboOk) {
+        return res;
+    }
+    res = FontFaceParseOutlines(draw->face);
+    if (res != RoboOk) {
+        return res;
+    }
+    res = FontFaceGlyphOutline(draw->face, draw->glyphId, &outline);
+    if (res != RoboOk) {
+        return res;
+    }
+    if (GfxRasterClip(raster, &clip) != RoboOk) {
+        FontOutlineRelease(outline);
+        return RoboInvalidArgument;
+    }
+    memset(&stats, 0, sizeof(stats));
+    res = GfxGlyphMaskRasterizeOutline(outline, upem, draw->sizePx, draw->origin, &clip,
+                                       params, &mask, &stats);
+    FontOutlineRelease(outline);
+    if (res != RoboOk) {
+        return res;
+    }
+
+    /* An unrecognized model is the linear one here as well as in the table: a caller's bad
+     * configuration must not be able to draw a *darker* pixel than the glyph's own colour. */
+    gamma = params ? params->gamma : RoboGfxCoverageGammaDefault;
+    if (gamma != RoboGfxCoverageGammaLinear && gamma != RoboGfxCoverageGammaDarkOnLight &&
+        gamma != RoboGfxCoverageGammaLightOnDark) {
+        gamma = RoboGfxCoverageGammaDefault;
+    }
+    res = GfxRasterDrawGlyphMask(raster, mask, draw->color, gamma);
+    GfxGlyphMaskRelease(mask);
+    return res;
+}
+
 Result GfxRasterDrawGlyph(GfxRaster *raster,
                                          const GfxGlyphDraw *draw)
 {
@@ -477,6 +544,12 @@ Result GfxRasterDrawGlyph(GfxRaster *raster,
     mode = draw->mode;
     if (mode == 0) {
         mode = RoboGfxGlyphModeOutlineStroke;
+    }
+    if (mode == RoboGfxGlyphModeAlpha) {
+        /* Phase 12.1: the same door, the coverage path behind it. The arguments were
+         * checked above, so this is a second door onto one implementation rather than
+         * a second set of rules. */
+        return GfxRasterDrawGlyphCoverage(raster, draw, NULL);
     }
     if (mode != RoboGfxGlyphModeOutlineStroke) {
         return RoboNotSupported;

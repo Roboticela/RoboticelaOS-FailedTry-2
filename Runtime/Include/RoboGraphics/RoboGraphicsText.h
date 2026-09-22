@@ -10,10 +10,22 @@
  *   device_x = originX + (fontX / upem) * sizePx
  *   device_y = originY - (fontY / upem) * sizePx
  *
- * Goal 6.12 draw mode strokes outlines with 1-pixel lines (no fill / AA).
- * Mask / alpha / color glyph modes are reserved for later goals.
+ * Goal 6.12's draw mode strokes outlines with 1-pixel lines along the flattened
+ * contour. It is kept because it is cheap to audit and because a caller comparing
+ * it against the coverage path is exactly the before/after this module's Phase 12.1
+ * documents — but it is **not** what UI text should use.
  *
- * See graphics/docs/TextBridge.md.
+ * Phase 12.1 adds `RoboGfxGlyphModeAlpha`: the same outline, flattened without
+ * snapping and rasterized into a grayscale **coverage mask** with 8×8 supersampling,
+ * composited through the module's own source-over blend with a documented
+ * coverage → alpha model (`RoboGraphicsGlyph.h`). This is the mode the paint stack's
+ * text path selects, and the mode every later typography phase should reach
+ * through. `MASK` (binary) and `COLOR` (COLR/bitmap/SVG) remain unimplemented, and
+ * returning `RoboNotSupported` for them is the honest answer rather than a silent
+ * outline stroke.
+ *
+ * See graphics/docs/TextBridge.md and
+ * Documentation/Runtime/Typography/TextRasterQuality.md.
  */
 
 #ifndef ROBO_GRAPHICS_TEXT_H
@@ -26,6 +38,7 @@
 #include "RoboFont/RoboFontTypes.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
+#include "RoboGraphics/RoboGraphicsGlyph.h"
 #include "RoboGraphics/RoboGraphicsPath.h"
 #include "RoboGraphics/RoboGraphicsRaster.h"
 
@@ -36,14 +49,18 @@ extern "C" {
 #endif
 
 /**
- * Future / current glyph paint modes.
- * OUTLINE_STROKE is the only implemented paint path in Goal 6.12.
+ * Glyph paint modes.
+ *
+ * OUTLINE_STROKE (and a zeroed @c mode, which means the same) and
+ * ALPHA (Phase 12.1's grayscale coverage AA) are implemented.
+ * MASK and COLOR are not, and are reported as unsupported rather than
+ * approximated.
  */
 typedef enum GfxGlyphRenderMode {
-    RoboGfxGlyphModeOutlineStroke = 1, /* 1px outline stroke */
-    RoboGfxGlyphModeMask = 2,           /* future monochrome coverage */
-    RoboGfxGlyphModeAlpha = 3,          /* future grayscale AA */
-    RoboGfxGlyphModeColor = 4           /* future COLR/bitmap/SVG */
+    RoboGfxGlyphModeOutlineStroke = 1, /* 1px outline stroke (Goal 6.12) */
+    RoboGfxGlyphModeMask = 2,           /* not implemented: binary coverage */
+    RoboGfxGlyphModeAlpha = 3,          /* grayscale coverage AA (Phase 12.1) */
+    RoboGfxGlyphModeColor = 4           /* not implemented: COLR/bitmap/SVG */
 } GfxGlyphRenderMode;
 
 /**
@@ -141,15 +158,43 @@ Result GfxOutlineToPath(const FontOutline *outline,
 /**
  * Draw a glyph through the CPU raster backend.
  *
- * Goal 6.12: OUTLINE_STROKE — 1-pixel Bresenham strokes of the converted
- * outline (clip + opacity from @p raster). MASK/ALPHA/COLOR →
- * RoboNotSupported.
+ * OUTLINE_STROKE (or @c mode == 0) — 1-pixel Bresenham strokes of the converted
+ * outline, snapped to whole pixels, with the clip and opacity from @p raster.
  *
- * Completely outside clip / empty outline → RoboOk no-op.
- * Honors raster clip; never writes outside the surface.
+ * ALPHA (Phase 12.1) — the outline rasterized into a grayscale coverage mask at
+ * the draw's own (possibly fractional) origin and composited with
+ * @ref RoboGfxCoverageGammaDefault. This is the UI-text mode.
+ *
+ * MASK / COLOR → RoboNotSupported.
+ *
+ * Completely outside the clip / empty outline → RoboOk no-op.
+ * Honors the raster clip; never writes outside the surface.
  */
 Result GfxRasterDrawGlyph(GfxRaster *raster,
                                          const GfxGlyphDraw *draw);
+
+/**
+ * Draw @p draw's glyph as a coverage mask (Phase 12.1), with explicit
+ * rasterization parameters.
+ *
+ * The same door @ref GfxRasterDrawGlyph reaches for `ALPHA`, opened so a caller —
+ * the typography quality fixture, a future glyph-run renderer — can choose the
+ * gamma model and the supersample count instead of taking the defaults. @p params
+ * may be NULL, which means `GfxGlyphRasterParamsInit`'s values.
+ *
+ * The glyph's placement is @p draw's `origin` in device pixels, honoured to a
+ * 1/256 pixel; the mask is clipped to the raster's own clip, so a glyph whose ink
+ * runs off the surface costs only the pixels that are on it and can never write
+ * outside it.
+ *
+ * An outline this build cannot use answers with the same status
+ * `GfxGlyphOutlineToPath` gives it (invalid or malformed → RoboInvalidArgument,
+ * unavailable or unsupported → RoboNotSupported); ink that simply has no area is a
+ * successful no-op.
+ */
+Result GfxRasterDrawGlyphCoverage(GfxRaster *raster,
+                                  const GfxGlyphDraw *draw,
+                                  const GfxGlyphRasterParams *params);
 
 #ifdef __cplusplus
 }

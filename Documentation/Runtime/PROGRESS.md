@@ -6347,6 +6347,121 @@ display markers, the component groups, the `ROBO_DESKTOP_*` run settings),
 `user/init/config.c`, `docs/{Build.md,kernel/vfs.md,filesystems/robofs.md,userspace/terminal-and-robo.md}`,
 `html/docs/ElementModel.md`, `PROGRESS.md`.
 
+## Goal 12.1 — Text raster quality (coverage antialiasing, gamma-correct fills)
+
+_Implemented. **RoboGraphics** gains one new file and header — `RoboGraphicsGlyph.c/.h` — and one
+implemented paint mode: `RoboGfxGlyphModeAlpha` stops being reserved and becomes the mode the paint
+stack's text path and the desktop's labels select. Two suite files over **21** cases
+(`graphics.glyph.*` and the visual fixture `graphics.typography.*`). Nothing about text **placement**
+changed: no pen, no baseline, no advance, no line break, no shaping._
+
+Phase 6.12's text path strokes a glyph's contour with one-pixel Bresenham lines. At 12 px a one-pixel
+stroke is about as wide as the stem it is tracing, so UI text read as a hard-edged blob with **two**
+gray levels — the ink's exact bytes or the page's — and at 32 px it read as a hollow double outline,
+because the contour was drawn and the interior was not. The fixture measures that before/after as a
+number rather than as a claim: the same specimen, through the same face at 12/14/16/18/24/32 px, has
+**65** distinct gray levels through the coverage path and **2** through the stroke path, with 2 660
+partial-coverage pixels in the 12 px band where the stroke path can have none.
+
+The phase's rule is that **rasterizing a glyph and shaping text are separate jobs**, and the seam
+between them is a `GlyphId` plus a device-space baseline origin — the record `GfxGlyphDraw` already
+carried. Everything below that seam is new and knows nothing about cmap, font files, runs, kerning or
+fallback; everything above it is untouched and keeps deciding which glyphs are drawn. That is what
+makes Phase 12.4's shaped runs a replacement of the *chooser* rather than a rewrite.
+
+| Piece | Where |
+|---|---|
+| The rasterizer: 1/256 px lattice, adaptive flattening, an edge list, sorted scanline crossings under a non-zero winding rule, an 8×8 sample grid per pixel, coverage in `uint8` | `RoboGraphics/RoboGraphicsGlyph.c` |
+| The contract: the mask, its accessors, the parameters, the statistics, the three gamma models, `GfxGammaCoverageToAlpha`, `GfxRasterDrawGlyphMask` | `RoboGraphics/RoboGraphicsGlyph.h` |
+| The mode: `ALPHA` implemented, `MASK`/`COLOR` still refused, and a `GfxRasterDrawGlyphCoverage` door for explicit parameters | `RoboGraphics/RoboGraphicsText.h/.c` |
+| The two call sites: document text and shell labels, each selecting the mode where it knows it is drawing UI text | `RoboPaint/RoboPaintDecoration.c`, `RoboDesktop/RoboDesktopChrome.c` |
+| The suites: 19 coverage/bounds/gamma/alpha/determinism/integration cases, and the specimen with its two PNGs | `Tests/Graphics/SuiteRoboGraphicsGlyph.c`, `Tests/Graphics/SuiteRoboGraphicsTypography.c` |
+| The document, and the two documents that had to stop claiming a snap | `Documentation/Runtime/Typography/TextRasterQuality.md`, `Documentation/Runtime/Graphics/TextBridge.md`, `RoboRenderVersion.h`, `AGENTS.md` |
+
+Five decisions worth naming, each with a version that looks right.
+
+**Coverage is not alpha, and neither is opacity.** A mask byte is the linear area fraction of a pixel
+that is ink. It carries no colour, and the three factors meet at exactly one place:
+`effective = coverage × colour.alpha × raster.opacity`. Folding opacity into the mask — the obvious
+shortcut, since the compositor is going to multiply by it anyway — is the mistake the module's
+contract forbids in as many words, because it makes "half-covered pixel" and "half-transparent ink"
+the same number and no later phase can tell them apart again.
+
+**Gamma is a choice with three documented answers, not a constant.** The framebuffer stores
+sRGB-encoded bytes and the compositor blends those bytes, so writing linear coverage into that blend is
+a *decision*. `RoboGfxCoverageGammaLinear` is the default because it is the polarity-neutral one —
+linear-light alpha is below coverage for dark ink on a light page and above it for light ink on a dark
+one, two errors of comparable size and opposite sign — and the two polarity models are the exact
+mixture when a caller knows which it has. The conversion is one function and two `const` 256-entry
+tables, evaluated at build time, with no floating point and no magic factor.
+
+**Integer after the quantizer, because the guest builds this file too.** Every vertex is quantized to
+a 1/256 device-pixel lattice before a pixel is touched, and everything downstream — bounds, scanline
+intersections, span-to-sample mapping, coverage counts, the gamma tables — is integer arithmetic. The
+only floating point is the font-units→device mapping and the curve subdivision that feeds the
+quantizer, so determinism is a property of the code rather than of the platform's floating point. There
+is no `sqrt`, no `pow` and no libm call in the file.
+
+**Sub-pixel placement, and the two documents that had to be corrected.** The outline is *placed* at the
+pen's own fraction instead of snapped to a whole pixel, so a run sits on its accumulated advances
+rather than on rounded copies of them. That change made two existing comments false — `RoboPaint`'s
+run-drawing preamble and `RoboRenderVersion.h`'s coordinate statement both said the pen was snapped one
+layer down — and they were rewritten rather than left to be discovered. `GfxGlyphSnapPoint` remains the
+module's whole-pixel policy for a caller that wants it.
+
+**No mask cache, and the absence is argued.** The outline fetch is already cached one module down, a
+mask is one pass over its own ink, and a cache keyed on (face, glyph, size, mode, gamma) would need
+lifetime, invalidation and mutation-isolation rules that this phase has no consumer to justify. Phase
+12.4's glyph runs are that consumer; `GfxGlyphMaskRetain`/`…Release` are the ownership primitives it
+will need, and they exist now because the fixture needed them first.
+
+## Goal 12.2 — System typeface pack (UI Display + UI Text, weights, packaging, discovery)
+
+_Implemented. The OS now ships a real system typography package instead of a stopgap face: a
+`System/Fonts/` pack, its manifest, the faces and licences it names, and a `RoboFontSystemPack`
+door that resolves a **semantic role** through the existing Phase 5 pipeline. Six suite cases
+(`font.systempack.*`) open the shipped pack itself. The rasterizer is untouched; no shaping was
+added._
+
+Phase 12.1 gave text a rasterizer that fills a glyph at a fractional position and keeps coverage
+separate from colour. 12.2 answers the question 12.1 left open — *which faces exist, and where do
+they live* — and it answers it with one authoritative root rather than another path constant.
+
+| Piece | Where |
+|---|---|
+| The pack source of truth: `UI/Inter.ttf`, `licenses/Inter-OFL.txt`, `system-fonts.manifest` | `System/Fonts/` |
+| The manifest parser, the registry binding, role resolution, cache warming, fallback and generic bridges | `RoboFont/RoboFontSystemPack.c/.h` |
+| The suites: manifest parse/reject, shipped open, role/weight resolution, fallback + generics, missing manifest/file | `Tests/Font/SuiteRoboFontSystemPack.c` |
+| The build: `BuildFont.ps1` and the image packer packing the face, manifest and licence under `/System/Fonts/` | `Runtime/Tools/Build.ps1`, `scripts/roboboot-build-common.ps1` |
+| The contract and the legal record | `Documentation/Development/SystemTypefacePack.md`, `Documentation/Legal/FontLicenses.md`, `AGENTS.md` |
+
+**The face is Inter, and the doc says why that is honest.** The design target is SF-class metrics,
+proportions and spacing. Inter is an independent, OFL-1.1 face; it is never renamed, never presented
+as Apple's SF, and no proprietary font is copied. It is **variable** — `wght` 100–400–900 and `opsz`
+14–14–32 — so "multiple weights" is a real axis rather than a synthesized emboldening, and the
+manifest preserves `opsz` for the phase that will drive it. RoboFont's own boundary is respected:
+`fvar` is parsed and selectable as a hint, but outlines are not interpolated
+(`FontOutlineVariationApplied` stays 0), so nothing in this phase pretends to instancing it does not
+do.
+
+**UI Display and UI Text are a semantic distinction over one physical family, not two files.** The
+manifest binds `display` to weight 600 and `text` to weight 400 on the same Inter file, and a caller
+asks for `RoboFontSystemRoleUIText`, never a filename. The roles exist at the layer that should own
+them — selection — while the pack adds no parser, no loader and no rasterizer of its own: it binds the
+existing discovery → registry → loader → selection pipeline to one root.
+
+**A partial pack is a failure, not a degraded mode.** A manifest that cannot be read, a face file that
+is absent, or a family whose registered faces do not resolve to the declared family name all fail the
+open, and the image build throws if the face, manifest or licence is missing. That strictness is what
+makes "the image shipped its system font" a checkable claim, and it is why the suite opens the
+**shipped** pack through a host IO adapter rather than a synthetic stand-in: a suite that tested a
+substitute could pass while the real pack was broken.
+
+**Desktop binding is 12.3, and the plan says so.** The guest program and the host launcher load the
+pack's face from `/System/Fonts/UI/Inter.ttf`; binding the shell's chrome and document text to the
+*roles* by name is the runtime plan's 12.3 ("Desktop + document face binding"), which keeps this phase
+from reaching into the shell. Optical-size policy likewise waits for Phase 14.
+
 ## Next
 
 - **Phase 11.13 — framebuffer presentation and the desktop shell: landed.** The paragraph that used to
@@ -6371,7 +6486,14 @@ display markers, the component groups, the `ROBO_DESKTOP_*` run settings),
   two suite headers and one deferral list that named the picture as untestable now name it as covered
   *by construction* with the pixel case **owed** -- a gap stated rather than a gap papered over.
 
-- **Phase 12 — event dispatch.** The next goal, and one 11.10 handed a result to: a hit test that
+- **Phase 12.2 — the system typeface pack: landed** (`## Goal 12.2`, above). It decided which faces
+  exist and where they live, not how their ink lands: one `/System/Fonts/` root, a deterministic
+  manifest, semantic UI Display / UI Text / Monospace roles over a real variable Inter face, and a
+  build that refuses to ship the image without them. The next goal under the reordered plan
+  (`.cursor/rules/runtime-plan.mdc`) is **12.3 — desktop + document face binding**, which points the
+  shell's chrome and document text at the pack's roles by name.
+
+- **Event dispatch — now Phase 13 (RoboInput).** One 11.10 handed a result to: a hit test that
   answers *which node is at this point* is what a dispatch walks, so the phase consumes
   `PaintHitTest`'s answer rather than replacing it -- the shell's pointer reaches a window's
   contents for the first time, which is the `input_delivery` 0 in `RoboDesktop.h`'s table. Then
