@@ -204,7 +204,8 @@ int HwSubsystemInit(const RoboBootInfo *info)
 
     BindAll();
     NetBringup();
-    PciReport();
+    if (KbootSelftest(info) || KbootDebug(info))
+        PciReport();
 
     if (KbootSelftest(info)) {
         int cryptoOk, regOk, pciOk, gfxOk, inOk, stOk, pkgOk;
@@ -235,7 +236,7 @@ int HwSubsystemInit(const RoboBootInfo *info)
             kprintf("[PASS] STORAGE DRIVER\n");
         else
             kprintf("[FAIL] STORAGE DRIVER\n");
-    } else {
+    } else if (KbootDebug(info)) {
         report();
         FbDebug(info);
     }

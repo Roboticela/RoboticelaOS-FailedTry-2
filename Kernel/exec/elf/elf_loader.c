@@ -6,7 +6,7 @@
 #include "mm/page.h"
 #include "kio.h"
 
-static int gElfQuiet;
+static int gElfQuiet = 1;
 
 void ElfSetQuiet(int quiet)
 {

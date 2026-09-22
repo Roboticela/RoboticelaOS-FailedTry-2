@@ -48,13 +48,15 @@ void InitStart(const RoboBootInfo *info)
     started = 1;
     tests = KbootSelftest(info);
 
-    kprintf("[ OK ] RoboFS mounted\n");
+    if (tests)
+        kprintf("[ OK ] RoboFS mounted\n");
 
     r = VfsStatPath(RoboInitPath, &st);
     if (r != 0 || st.size == 0 || st.type == RoboVnodeDirectory)
         PanicStartup(RoboInitPath, "filesystem error",
                       "-", "-", "VFS lookup failed");
-    kprintf("[ OK ] /System/init found\n");
+    if (tests)
+        kprintf("[ OK ] /System/init found\n");
 
     av.argc = 1;
     av.args[0][0] = 'i';
@@ -69,8 +71,12 @@ void InitStart(const RoboBootInfo *info)
             av.args[1][i] = t[i];
         av.args[1][i] = 0;
         kprintf("Init  selftest\n");
-    } else {
-        kprintf("Init  production\n");
+    } else if (KbootCmdHas(info, "dtest")) {
+        const char *t = "checkpoint";
+        av.argc = 2;
+        for (i = 0; t[i] && i < RoboExecArgMax; i++)
+            av.args[1][i] = t[i];
+        av.args[1][i] = 0;
     }
 
     p = ProcessCreateInitElf(RoboInitPath, &av);
@@ -81,7 +87,8 @@ void InitStart(const RoboBootInfo *info)
                       "create failed",
                       "memory allocation or ELF load");
     }
-    kprintf("[ OK ] ELF loaded\n");
+    if (tests)
+        kprintf("[ OK ] ELF loaded\n");
 
     if (p->id != RoboProcessIdInit)
         PanicStartup(RoboInitPath, "process creation error",
@@ -100,8 +107,10 @@ void InitStart(const RoboBootInfo *info)
         PanicStartup(RoboInitPath, "process creation error",
                       "ok", "stdio fds missing", "-");
 
-    kprintf("[ OK ] Init process created\n");
-    kprintf("[ OK ] Entering user space\n");
+    if (tests) {
+        kprintf("[ OK ] Init process created\n");
+        kprintf("[ OK ] Entering user space\n");
+    }
     if (KbootDebug(info)) {
         KfbPuts("Init  PID 1  ", 0xA1A1A6u);
         KfbPuts(RoboInitPath, 0xFFFFFFFFu);

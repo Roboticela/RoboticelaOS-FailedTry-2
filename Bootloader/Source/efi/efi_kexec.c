@@ -276,6 +276,8 @@ int EfiStartKernel(const Target *t, const Handoff *h, int debug)
         CmdlineAddToken(info->cmdline, sizeof(info->cmdline), "debug");
     if (EfiFlagKtest())
         CmdlineAddToken(info->cmdline, sizeof(info->cmdline), "selftest");
+    if (EfiFlagDtest())
+        CmdlineAddToken(info->cmdline, sizeof(info->cmdline), "dtest");
 
     mapSize = 0;
     if (!gBS || !gBS->GetMemoryMap || !gBS->ExitBootServices) {

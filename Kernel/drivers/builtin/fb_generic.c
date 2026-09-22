@@ -15,8 +15,8 @@ static int FbStart(RoboDevice *d)
     (void)d;
     if (!DisplayGetInfo(&info))
         return -1;
-    kprintf("[INFO] [DRIVER] UEFI framebuffer initialized\n");
-    kprintf("[INFO] [DRIVER] Resolution : %u x %u\n",
+    kinfo("[INFO] [DRIVER] UEFI framebuffer initialized\n");
+    kinfo("[INFO] [DRIVER] Resolution : %u x %u\n",
             info.width, info.height);
     return 0;
 }

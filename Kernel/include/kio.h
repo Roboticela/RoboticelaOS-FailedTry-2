@@ -10,6 +10,9 @@ void KserialPutc(char c);
 void KserialPuts(const char *s);
 void kwrite(const char *s, unsigned n);
 void kprintf(const char *fmt, ...);
+void kinfo(const char *fmt, ...);
+void KlogSetTalk(int on);
+int KlogTalk(void);
 
 void KfbInit(const RoboBootInfo *info);
 void KfbClear(uint32_t rgb);

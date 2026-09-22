@@ -477,7 +477,7 @@ function Invoke-RoboQemuUserSpaceTest {
 function Invoke-RoboQemuDisplayTest {
     param([switch]$Continue)
     Invoke-RoboStep -Name "QEMU: the desktop shell on the display" -Layer "TEST" -Continue:$Continue -Action {
-        Invoke-RoboBuildImageCommand -Flags "splash_ms 0"
+        Invoke-RoboBuildImageCommand -Flags "dtest`nsplash_ms 0"
         $echo = Start-RoboNetEcho
         try {
             $res = Invoke-RoboQemuSerialRun -Markers $script:RoboDisplayMarkers `

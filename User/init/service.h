@@ -54,5 +54,6 @@ int ServiceStartDue(void);
 uint64_t ServiceNextDelayMs(void);
 int ServiceLive(void);
 void ServiceSetSelftest(int on);
+void ServiceSetCheckpoint(int on);
 
 #endif

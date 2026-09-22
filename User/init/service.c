@@ -7,6 +7,7 @@
 static RoboService gSvc[RoboSvcMax];
 static unsigned gN;
 static int gSelftest;
+static int gCheckpoint;
 
 static int IsErr(Long r)
 {
@@ -16,6 +17,11 @@ static int IsErr(Long r)
 void ServiceSetSelftest(int on)
 {
     gSelftest = on ? 1 : 0;
+}
+
+void ServiceSetCheckpoint(int on)
+{
+    gCheckpoint = on ? 1 : 0;
 }
 
 void ServiceTableInit(void)
@@ -66,6 +72,17 @@ RoboService *ServiceFindPid(uint64_t pid)
     return 0;
 }
 
+static int NameIs(const char *a, const char *b)
+{
+    unsigned i = 0;
+
+    if (!a || !b)
+        return 0;
+    while (a[i] && b[i] && a[i] == b[i])
+        i++;
+    return a[i] == 0 && b[i] == 0;
+}
+
 int ServiceStart(RoboService *svc)
 {
     Long r;
@@ -79,6 +96,13 @@ int ServiceStart(RoboService *svc)
         char *av[3];
         av[0] = (char *)svc->cfg->path;
         av[1] = "selftest";
+        av[2] = 0;
+        r = ProcessSpawn(svc->cfg->path, av, 2);
+    } else if (gCheckpoint && NameIs(svc->cfg->name, "robo-runtime")) {
+        /* Desktop checkpoint for QEMU display tests: only robo-runtime. */
+        char *av[3];
+        av[0] = (char *)svc->cfg->path;
+        av[1] = "checkpoint";
         av[2] = 0;
         r = ProcessSpawn(svc->cfg->path, av, 2);
     } else {

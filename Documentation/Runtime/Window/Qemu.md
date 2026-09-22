@@ -82,6 +82,10 @@ framebuffer for unit tests without QEMU or syscalls. Host production builds do
 scripts\robo test-qemu-display
 ```
 
+Rebuilds the image with `dtest` and `splash_ms 0` so the guest emits serial
+markers. A production image (`debug=0`, no `qemu.flags`) boots the same
+shell without that checkpoint.
+
 Waits for serial markers from `/System/runtime/robo-runtime`:
 
 - `ROBO_QEMU_DISPLAY_OK`

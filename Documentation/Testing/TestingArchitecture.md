@@ -27,6 +27,11 @@ Build is always on the development machine (`Scripts/Build/Build*.ps1`). Tests c
 
 Unit tests for HTML/CSS/layout/paint stay on the host. Do not send them through QEMU.
 
+Production boot (`build-image` / USB tree / `run-runtime-qemu`) does **not**
+enable debug or self-tests. `debug=0` is forced into `roboboot.env`. QEMU
+acceptance writes `qemu.flags` only for that run: `selftest` (bootloader),
+`ktest` (kernel + init), `dtest` (desktop serial checkpoint).
+
 ## Pipeline
 
 `Scripts/pipeline/robo.ps1 test-all` remains the full orchestrator. `TestEverything.ps1` calls it. Per-component `test-html` commands still exist on the pipeline for the same filters.

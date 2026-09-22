@@ -83,74 +83,87 @@ int main(int argc, char **argv)
     int reported = 0;
     int systemRunning = 1;
     int selftest = 0;
+    int checkpoint = 0;
 
     for (i = 1; i < (unsigned)argc; i++) {
         if (argv && seq(argv[i], "selftest"))
             selftest = 1;
+        if (argv && seq(argv[i], "checkpoint"))
+            checkpoint = 1;
     }
     ServiceSetSelftest(selftest);
+    ServiceSetCheckpoint(checkpoint);
 
-    line("========================================");
-    line("        ROBOTICELA OS INIT");
-    line("========================================");
-    line("");
+    if (selftest) {
+        line("========================================");
+        line("        ROBOTICELA OS INIT");
+        line("========================================");
+        line("");
+    }
 
     self = Getpid();
-    put("PID             : ");
-    PutU((unsigned long long)self);
-    put("\n");
-    line("Executable      : /System/init");
-    line("Address Space   : OK");
-    line("stdin           : fd 0");
-    line("stdout          : fd 1");
-    line("stderr          : fd 2");
-    line("");
-
     okPid = (self == 1);
     okFd = 1;
-    if (Write(1, "", 0) < 0)
-        okFd = 0;
+    okSys = 1;
+    if (selftest) {
+        put("PID             : ");
+        PutU((unsigned long long)self);
+        put("\n");
+        line("Executable      : /System/init");
+        line("Address Space   : OK");
+        line("stdin           : fd 0");
+        line("stdout          : fd 1");
+        line("stderr          : fd 2");
+        line("");
 
-    fd = (int)Open("/System/init", (int)RoboORdonly, 0);
-    if (!IsErr((Long)fd) && fd >= 0) {
-        if (Stat("/System/init", &st) == 0 && st.size > 0)
-            okFs = 1;
-        Close(fd);
+        if (Write(1, "", 0) < 0)
+            okFd = 0;
+
+        fd = (int)Open("/System/init", (int)RoboORdonly, 0);
+        if (!IsErr((Long)fd) && fd >= 0) {
+            if (Stat("/System/init", &st) == 0 && st.size > 0)
+                okFs = 1;
+            Close(fd);
+        }
+        okSys = (Time() != 0 || Time() == 0);
+
+        if (okPid && okFd)
+            line("[ OK ] /System/init started");
+        else
+            line("[FAIL] /System/init started");
+
+        line("");
+        line("========================================");
+        line("      ROBOTICELA OS USER SPACE");
+        line("========================================");
+        line("");
+        line("PID 1");
+        line("Executable : /System/init");
+        line("");
+        line(okFs ? "Filesystem : READY" : "Filesystem : FAIL");
+        line(okSys ? "Syscalls   : READY" : "Syscalls   : FAIL");
+        line("Scheduler  : READY");
+        line("");
+        line("Starting services...");
+        line("");
     }
-    okSys = (Time() != 0 || Time() == 0);
-
-    if (okPid && okFd)
-        line("[ OK ] /System/init started");
-    else
-        line("[FAIL] /System/init started");
-
-    line("");
-    line("========================================");
-    line("      ROBOTICELA OS USER SPACE");
-    line("========================================");
-    line("");
-    line("PID 1");
-    line("Executable : /System/init");
-    line("");
-    line(okFs ? "Filesystem : READY" : "Filesystem : FAIL");
-    line(okSys ? "Syscalls   : READY" : "Syscalls   : FAIL");
-    line("Scheduler  : READY");
-    line("");
-    line("Starting services...");
-    line("");
 
     ServiceTableInit();
     for (i = 0; i < ServiceCount(); i++) {
         RoboService *s = ServiceAt(i);
-        put("Starting ");
-        put(s->cfg->name);
-        line("...");
-        if (ServiceStart(s)) {
-            put("[ OK ] ");
+        if (selftest) {
+            put("Starting ");
             put(s->cfg->name);
-            line(" started");
-            if (seq(s->cfg->name, "test-service"))
-                line("[ OK ] test-service running");
+            line("...");
+        }
+        if (ServiceStart(s)) {
+            if (selftest) {
+                put("[ OK ] ");
+                put(s->cfg->name);
+                line(" started");
+                if (seq(s->cfg->name, "test-service"))
+                    line("[ OK ] test-service running");
+            }
             okCreate = 1;
             okTrack = 1;
         } else {
@@ -158,10 +171,12 @@ int main(int argc, char **argv)
             line(s->cfg->name);
         }
     }
-    line("");
-    line("System initialization complete.");
-    line("========================================");
-    line("");
+    if (selftest) {
+        line("");
+        line("System initialization complete.");
+        line("========================================");
+        line("");
+    }
 
     while (systemRunning) {
         uint64_t delay;

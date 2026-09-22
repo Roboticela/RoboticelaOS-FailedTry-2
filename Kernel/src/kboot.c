@@ -101,10 +101,12 @@ void KbootReport(const RoboBootInfo *info)
     reservedMb = (unsigned)(reserved / (1024ull * 1024ull));
     verbose = KbootDebug(info);
 
-    kprintf("Roboticela Kernel\n");
-    kprintf("Boot protocol: Roboticela\n");
-    kprintf("CPU: x86_64\n");
-    kprintf("Memory available: %u MB reserved: %u MB\n", availMb, reservedMb);
+    if (KbootSelftest(info)) {
+        kprintf("Roboticela Kernel\n");
+        kprintf("Boot protocol: Roboticela\n");
+        kprintf("CPU: x86_64\n");
+        kprintf("Memory available: %u MB reserved: %u MB\n", availMb, reservedMb);
+    }
 
     if (verbose) {
         int x = 40, y = 0, w = 0, h = 220;

@@ -302,7 +302,7 @@ def pad_env(blob: bytes) -> bytes:
         keys[k] = v
     if b"debug" not in keys:
         order.append(b"debug")
-        keys[b"debug"] = b"0"
+    keys[b"debug"] = b"0"
     out = b"ROBOENV1\n" + b"".join(k + b"=" + keys[k] + b"\n" for k in order)
     if len(out) >= ENV_BLOCK:
         return out[:ENV_BLOCK]

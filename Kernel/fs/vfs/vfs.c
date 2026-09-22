@@ -718,7 +718,7 @@ int VfsImportInitrd(void)
                  */
                 FilePut(f);
                 (void)VfsUnlink(name);
-                kprintf("VFS_IMPORT_SKIP  %s\n", name);
+                kinfo("VFS_IMPORT_SKIP  %s\n", name);
                 skipped++;
                 continue;
             }

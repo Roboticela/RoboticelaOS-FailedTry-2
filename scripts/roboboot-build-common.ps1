@@ -1709,7 +1709,11 @@ function Write-PaddedEnv([string]$Src, [string]$Dst) {
         if ($have.StartsWith("ROBOENV1")) { $text = $have }
     }
     $text = $text -replace "`0", "" -replace "`r`n", "`n" -replace "`r", "`n"
-    if ($text -notmatch '(?m)^debug=') { $text = $text.TrimEnd("`n") + "`ndebug=0`n" }
+    if ($text -match '(?m)^debug=') {
+        $text = [regex]::Replace($text, '(?m)^debug=.*$', 'debug=0')
+    } else {
+        $text = $text.TrimEnd("`n") + "`ndebug=0`n"
+    }
     $block = New-Object byte[] 4096
     for ($i = 0; $i -lt 4096; $i++) { $block[$i] = 35 }
     $payload = [Text.Encoding]::ASCII.GetBytes($text)

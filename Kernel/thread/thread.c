@@ -39,11 +39,11 @@ int ThreadSubsystemInit(void)
     gStackSlot = 0;
     gThreadReady = 1;
     (void)gThreadReady;
-    kprintf("Thread Subsystem\n");
-    kprintf("----------------\n");
-    kprintf("[ OK ] Initialized\n");
-    kprintf("[ OK ] Thread ID allocator\n");
-    kprintf("[ OK ] Thread stacks\n");
+    kinfo("Thread Subsystem\n");
+    kinfo("----------------\n");
+    kinfo("[ OK ] Initialized\n");
+    kinfo("[ OK ] Thread ID allocator\n");
+    kinfo("[ OK ] Thread stacks\n");
     return 1;
 }
 

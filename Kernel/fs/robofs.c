@@ -51,7 +51,7 @@ int FsInit(const RoboBootInfo *info)
     gImg = p;
     gSize = sz;
     gReady = 1;
-    kprintf("RoboFS  ready  %u files  %u bytes\n", (unsigned)n, (unsigned)sz);
+    kinfo("RoboFS  ready  %u files  %u bytes\n", (unsigned)n, (unsigned)sz);
     return 1;
 }
 

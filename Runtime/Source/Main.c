@@ -15,8 +15,7 @@ int main(void)
     RoboAssert(st == RoboOk);
 
     LogInfo("Roboticela Runtime %s", ROBOTICELA_RUNTIME_VERSION_STRING);
-    LogInfo("RoboBase %s (debug=%d)", BaseVersion(),
-                  (int)RoboDebugEnabled());
+    LogInfo("RoboBase %s", BaseVersion());
     LogDebug("Goal 1.4 RoboDebug active");
 
     st = BaseShutdown();

@@ -140,6 +140,7 @@ Do not force unit tests through QEMU.
 - Do not create a fake Host Runtime / FakeOS / BrowserRuntime.
 - Do not make the entire project rebuild for a single-module change. Use the module script. Objects are incremental.
 - Do not create unnecessary global state.
+- Do not add logs to real OS, logs must be only in tests.
 
 ---
 

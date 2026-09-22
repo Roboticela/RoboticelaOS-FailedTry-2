@@ -11,7 +11,7 @@
 
 #define RoboExecMaxBytes (512u * 1024u)
 
-static int gExecQuiet;
+static int gExecQuiet = 1;
 static ExecStatus gLastExec;
 
 void ExecSetQuiet(int quiet)

@@ -1,18 +1,18 @@
-/*
- * RoboticelaOS Runtime — the desktop shell on the QEMU display (Phase 11.13).
+﻿/*
+ * RoboticelaOS Runtime â€” the desktop shell on the QEMU display (Phase 11.13).
  *
  * The chain this program drives, end to end, inside the OS:
  *
  *   the checkpoint's markup and author sheet   (RoboDesktopScene)
- *     → RoboHTML tokenizer + tree builder
- *     → RoboCSS style context → RoboLayout → RoboPaint (a display list)
- *     → RoboRender rasteriser (a frame)
- *     → RoboDesktop (background, panel, the window and its decorations)
- *     → RoboWindow begin/end/present_frame
- *     → SYS_DISPLAY → the UEFI GOP framebuffer
+ *     â†’ RoboHTML tokenizer + tree builder
+ *     â†’ RoboCSS style context â†’ RoboLayout â†’ RoboPaint (a display list)
+ *     â†’ RoboRender rasteriser (a frame)
+ *     â†’ RoboDesktop (background, panel, the window and its decorations)
+ *     â†’ RoboWindow begin/end/present_frame
+ *     â†’ SYS_DISPLAY â†’ the UEFI GOP framebuffer
  *
- * Input travels the other way: SYS_DISPLAY INJECT → the kernel's input queue → this program's RoboWindow
- * backend → the window queue → `RoboDesktopScene` → `DesktopObservePointer` → the shell's action.
+ * Input travels the other way: SYS_DISPLAY INJECT â†’ the kernel's input queue â†’ this program's RoboWindow
+ * backend â†’ the window queue â†’ `RoboDesktopScene` â†’ `DesktopObservePointer` â†’ the shell's action.
  *
  * The host launcher (`RoboTest.host.exe --desktop`) drives the *same* scene into a Win32 client area, so
  * the two backends share one definition of what the desktop shows; only window creation and presentation
@@ -20,10 +20,11 @@
  *
  * What this program is not: it is not the demo layer that used to live here. That layer painted one HTML
  * page straight into the framebuffer with its own throwaway adapter and its own bitmap font, and it was
- * deleted when the shell landed — a page on a screen is not a desktop, and the shell is the thing the OS
+ * deleted when the shell landed â€” a page on a screen is not a desktop, and the shell is the thing the OS
  * actually boots to.
  *
- * Serial markers for automated validation:
+ * Serial markers for automated validation (only when argv is
+ * `checkpoint` or `selftest`; a normal boot does not print them):
  *   ROBO_QEMU_DISPLAY_OK                  the framebuffer is described (see the FB markers below)
  *   ROBO_QEMU_FB_W / _FB_H / _FB_PITCH / _FB_PIXFMT
  *   ROBO_QEMU_FACE_OK                     /System/Fonts/Inter.ttf was read, parsed and mapped
@@ -50,6 +51,7 @@
  */
 
 #include "RoboBase/RoboBase.h"
+#include "RoboBase/RoboLog.h"
 #include "RoboCSS/RoboCSS.h"
 #include "RoboDesktop/RoboDesktop.h"
 #include "RoboDesktop/RoboDesktopDocument.h"
@@ -103,6 +105,34 @@ static unsigned slen(const char *s)
         n++;
     }
     return n;
+}
+
+static int seq(const char *a, const char *b)
+{
+    unsigned i = 0;
+
+    if (!a || !b) {
+        return 0;
+    }
+    while (a[i] && b[i] && a[i] == b[i]) {
+        i++;
+    }
+    return a[i] == 0 && b[i] == 0;
+}
+
+static int GuestCheckpoint(int argc, char **argv)
+{
+    int i;
+
+    if (argc < 2 || !argv) {
+        return 0;
+    }
+    for (i = 1; i < argc; i++) {
+        if (seq(argv[i], "selftest") || seq(argv[i], "checkpoint")) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static void serial(const char *s)
@@ -197,7 +227,7 @@ static void GuestStatusText(uint32_t width, uint32_t height)
  * The file is read whole into one buffer, copied into a `FontSource`, and the buffer is released: a
  * face keeps the source it was made from (`FontFaceSource`), so what outlives this call is the
  * source and nothing else. A missing or unparseable file returns NULL, and the caller reports it rather
- * than pretending — the shell would still draw, with `labelsUnshaped` counting every label it could not
+ * than pretending â€” the shell would still draw, with `labelsUnshaped` counting every label it could not
  * shape, which is a *worse* checkpoint and must not pass as a good one.
  *
  * The size comes from `Stat` rather than from seeking the descriptor to its end, which is the idiom
@@ -294,7 +324,7 @@ static void GuestInject(uint32_t type, uint32_t code, uint32_t value, int32_t x,
  * A press on the checkpoint window's title bar.
  *
  * Its job is the shell's own: a press there raises and focuses that window, and `pointerActions` is the
- * count of presses the shell acted on — so the marker that follows is about an *action* rather than about
+ * count of presses the shell acted on â€” so the marker that follows is about an *action* rather than about
  * an event having been posted. The key press beside it travels the same queue for the same reason: this
  * build routes keys to nothing (`RoboDesktop.h` reports `inputDelivery == 0`), and a guest that claimed
  * a shell action for a key would be claiming a feature the shell does not have.
@@ -328,7 +358,7 @@ static void GuestInjectInput(DesktopScene *scene)
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
-int main(void)
+int main(int argc, char **argv)
 {
     const QemuFbInfo *framebuffer;
     DesktopSceneConfig config;
@@ -342,9 +372,13 @@ int main(void)
     uint32_t steps = 0u;
     int injected = 0;
     int sawAction = 0;
+    int checkpoint = GuestCheckpoint(argc, argv);
     Result result;
 
-    serial("robo-runtime: the desktop shell (QEMU display)\n");
+    if (checkpoint) {
+        LogSetMinLevel(RoboLogDebug);
+        serial("robo-runtime: the desktop shell (QEMU display)\n");
+    }
 
     if (!BaseIsInitialized() && BaseInit() != RoboOk) {
         GuestFail("base_init");
@@ -372,21 +406,25 @@ int main(void)
         GuestFail("no_fb");
         GuestStop();
     }
-    serial("ROBO_QEMU_DISPLAY_OK\n");
-    SerialU32("ROBO_QEMU_FB_W=", framebuffer->ready ? framebuffer->width : 0u);
-    SerialU32("ROBO_QEMU_FB_H=", framebuffer->ready ? framebuffer->height : 0u);
-    SerialU32("ROBO_QEMU_FB_PITCH=", framebuffer->ready ? framebuffer->pitchBytes : 0u);
-    SerialU32("ROBO_QEMU_FB_PIXFMT=", framebuffer->ready ? framebuffer->pixfmt : 0u);
+    if (checkpoint) {
+        serial("ROBO_QEMU_DISPLAY_OK\n");
+        SerialU32("ROBO_QEMU_FB_W=", framebuffer->ready ? framebuffer->width : 0u);
+        SerialU32("ROBO_QEMU_FB_H=", framebuffer->ready ? framebuffer->height : 0u);
+        SerialU32("ROBO_QEMU_FB_PITCH=", framebuffer->ready ? framebuffer->pitchBytes : 0u);
+        SerialU32("ROBO_QEMU_FB_PIXFMT=", framebuffer->ready ? framebuffer->pixfmt : 0u);
+    }
 
     face = GuestFaceLoad(&faceStage);
-    if (!face) {
-        serial("ROBO_QEMU_FACE_FAIL ");
-        serial(faceStage);
-        serial(" ");
-        serial(GUEST_FACE_PATH);
-        serial("\n");
-    } else {
-        serial("ROBO_QEMU_FACE_OK\n");
+    if (checkpoint) {
+        if (!face) {
+            serial("ROBO_QEMU_FACE_FAIL ");
+            serial(faceStage);
+            serial(" ");
+            serial(GUEST_FACE_PATH);
+            serial("\n");
+        } else {
+            serial("ROBO_QEMU_FACE_OK\n");
+        }
     }
 
     GuestStatusText(framebuffer->ready ? framebuffer->width : RoboDesktopSceneDefaultWidth,
@@ -407,69 +445,61 @@ int main(void)
         GuestFail("scene_open");
         GuestStop();
     }
-    serial("ROBO_QEMU_DESKTOP_OK\n");
-    SerialText("ROBO_QEMU_DESKTOP_WINDOW=", RoboDesktopSceneWindowTitle);
-    SerialText("ROBO_QEMU_DESKTOP_STATUS=", gStatus);
+    if (checkpoint) {
+        serial("ROBO_QEMU_DESKTOP_OK\n");
+        SerialText("ROBO_QEMU_DESKTOP_WINDOW=", RoboDesktopSceneWindowTitle);
+        SerialText("ROBO_QEMU_DESKTOP_STATUS=", gStatus);
+    }
 
-    /*
-     * Drive the scene until the picture has been painted once and the injected press has been *acted* on.
-     * A press is asynchronous — it is posted into the kernel's queue and collected by the window backend on
-     * a later pump — so the loop runs on rather than checking the counter at the moment of the injection.
-     */
-    while (steps < GUEST_MAX_STEPS) {
-        steps++;
-        if (GetDesktopSceneStep(scene, GUEST_STEP_WAIT_MS, &step, &diag) != RoboOk) {
-            SerialText("ROBO_QEMU_DESKTOP_FAIL ", diag.message ? diag.message : "(none)");
-            GuestFail("scene_step");
-            GuestStop();
-        }
-        if (step.painted) {
-            paintedFrames++;
-            SerialU32("ROBO_QEMU_DESKTOP_WINDOWS=", (uint32_t)step.frame.windows);
-            SerialU32("ROBO_QEMU_DESKTOP_CONTENT_RUNS=", (uint32_t)step.frame.contentRuns);
-            SerialU32("ROBO_QEMU_DESKTOP_LABELS=", (uint32_t)step.frame.labels);
-            SerialU32("ROBO_QEMU_DESKTOP_UNSHAPED=", (uint32_t)step.frame.labelsUnshaped);
-            SerialU32("ROBO_QEMU_DESKTOP_FILLS=", (uint32_t)step.frame.fills);
-            SerialU32("ROBO_QEMU_DESKTOP_PIXELS=", (uint32_t)step.frame.contentPixels);
-            if (step.presented) {
-                serial("ROBO_QEMU_PRESENT_OK\n");
-                SerialU32("ROBO_QEMU_PRESENT_COMPLETE=", (uint32_t)step.present.complete);
-                SerialU32("ROBO_QEMU_PRESENT_PIXELS=", (uint32_t)step.present.presentedPixels);
-            } else {
-                /* A scene with nowhere to present is a desktop that renders; a *windowed* one that did not
-                 * present is a failure and says so. */
-                GuestFail("present");
+    if (checkpoint) {
+        while (steps < GUEST_MAX_STEPS) {
+            steps++;
+            if (GetDesktopSceneStep(scene, GUEST_STEP_WAIT_MS, &step, &diag) != RoboOk) {
+                SerialText("ROBO_QEMU_DESKTOP_FAIL ", diag.message ? diag.message : "(none)");
+                GuestFail("scene_step");
                 GuestStop();
             }
-            if (!injected) {
-                injected = 1;
-                GuestInjectInput(scene);
+            if (step.painted) {
+                paintedFrames++;
+                SerialU32("ROBO_QEMU_DESKTOP_WINDOWS=", (uint32_t)step.frame.windows);
+                SerialU32("ROBO_QEMU_DESKTOP_CONTENT_RUNS=", (uint32_t)step.frame.contentRuns);
+                SerialU32("ROBO_QEMU_DESKTOP_LABELS=", (uint32_t)step.frame.labels);
+                SerialU32("ROBO_QEMU_DESKTOP_UNSHAPED=", (uint32_t)step.frame.labelsUnshaped);
+                SerialU32("ROBO_QEMU_DESKTOP_FILLS=", (uint32_t)step.frame.fills);
+                SerialU32("ROBO_QEMU_DESKTOP_PIXELS=", (uint32_t)step.frame.contentPixels);
+                if (step.presented) {
+                    serial("ROBO_QEMU_PRESENT_OK\n");
+                    SerialU32("ROBO_QEMU_PRESENT_COMPLETE=", (uint32_t)step.present.complete);
+                    SerialU32("ROBO_QEMU_PRESENT_PIXELS=", (uint32_t)step.present.presentedPixels);
+                } else {
+                    GuestFail("present");
+                    GuestStop();
+                }
+                if (!injected) {
+                    injected = 1;
+                    GuestInjectInput(scene);
+                }
+            }
+            if (step.pointerActions > 0u) {
+                sawAction = 1;
+            }
+            if (sawAction && paintedFrames > 0u) {
+                break;
             }
         }
-        if (step.pointerActions > 0u) {
-            sawAction = 1;
+
+        memset(&stats, 0, sizeof(stats));
+        (void)GetDesktopStats(DesktopSceneDesktop(scene), &stats);
+        SerialU32("ROBO_QEMU_DESKTOP_FRAMES=", (uint32_t)stats.frames);
+        SerialU32("ROBO_QEMU_INPUT_ACTIONS=", (uint32_t)stats.pointerActions);
+        if (sawAction) {
+            serial("ROBO_QEMU_INPUT_OK\n");
+        } else {
+            serial("ROBO_QEMU_INPUT_PARTIAL\n");
         }
-        if (sawAction && paintedFrames > 0u) {
-            break;
-        }
+        serial("ROBO_QEMU_DESKTOP_LIVE\n");
     }
 
-    memset(&stats, 0, sizeof(stats));
-    (void)GetDesktopStats(DesktopSceneDesktop(scene), &stats);
-    SerialU32("ROBO_QEMU_DESKTOP_FRAMES=", (uint32_t)stats.frames);
-    SerialU32("ROBO_QEMU_INPUT_ACTIONS=", (uint32_t)stats.pointerActions);
-    if (sawAction) {
-        serial("ROBO_QEMU_INPUT_OK\n");
-    } else {
-        serial("ROBO_QEMU_INPUT_PARTIAL\n");
-    }
-
-    /*
-     * The checkpoint is over. Keep pumping: a guest that tore the shell down here left a still picture
-     * in the GOP with only QEMU's host cursor moving over it, and PS/2 keyboard/mouse had nobody to
-     * poll them. Escape still finishes the *scene's window*; the desktop itself stays the OS shell.
-     */
-    serial("ROBO_QEMU_DESKTOP_LIVE\n");
     for (;;) {
         if (GetDesktopSceneStep(scene, GUEST_STEP_WAIT_MS, &step, &diag) != RoboOk) {
             SerialText("ROBO_QEMU_DESKTOP_FAIL ", diag.message ? diag.message : "(none)");

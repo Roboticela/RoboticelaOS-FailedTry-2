@@ -31,6 +31,7 @@
 #include "ipc/ipc.h"
 #include "display/display.h"
 #include "arch/x86_64/mm/paging_cpu.h"
+#include "kio.h"
 #include <robosys/types.h>
 
 #define RoboFdNone       ((uint64_t)-1)
@@ -389,7 +390,6 @@ uint64_t SysProcessCreate(RoboSyscallContext *ctx)
 {
     char path[RoboSyscallPathMax + 1];
     RoboProcess *child;
-    int quiet;
     RoboAddressSpace *as = CtxAs(ctx);
     ExecStatus st;
     uint64_t uargv = arg(ctx, 2);
@@ -423,11 +423,10 @@ uint64_t SysProcessCreate(RoboSyscallContext *ctx)
         av.argc = (unsigned)argc;
     }
 
-    quiet = 1;
-    ExecSetQuiet(quiet);
+    ExecSetQuiet(1);
     child = av.argc ? ProcessCreateFromElfArgv(path, &av)
                     : ProcessCreateFromElf(path);
-    ExecSetQuiet(0);
+    ExecSetQuiet(!KlogTalk());
     if (!child) {
         st = ExecLastStatus();
         if (st == RoboElfFileFailure)

@@ -15,6 +15,7 @@ static inline uint8_t inb(uint16_t port)
 }
 
 static int gUart; /* 0 unknown, 1 present, -1 absent */
+static int gTalk;
 
 static int UartReady(void)
 {
@@ -100,11 +101,18 @@ static void FmtNum(unsigned long long v, int base, int width)
     for (i = n - 1; i >= 0; i--) KprintChar(tmp[i]);
 }
 
-void kprintf(const char *fmt, ...)
+void KlogSetTalk(int on)
 {
-    va_list ap;
-    if (!fmt) return;
-    va_start(ap, fmt);
+    gTalk = on ? 1 : 0;
+}
+
+int KlogTalk(void)
+{
+    return gTalk;
+}
+
+static void Kvprintf(const char *fmt, va_list ap)
+{
     while (*fmt) {
         if (*fmt != '%') {
             KprintChar(*fmt++);
@@ -138,5 +146,24 @@ void kprintf(const char *fmt, ...)
             KprintChar('%');
         }
     }
+}
+
+void kprintf(const char *fmt, ...)
+{
+    va_list ap;
+    if (!fmt)
+        return;
+    va_start(ap, fmt);
+    Kvprintf(fmt, ap);
+    va_end(ap);
+}
+
+void kinfo(const char *fmt, ...)
+{
+    va_list ap;
+    if (!gTalk || !fmt)
+        return;
+    va_start(ap, fmt);
+    Kvprintf(fmt, ap);
     va_end(ap);
 }

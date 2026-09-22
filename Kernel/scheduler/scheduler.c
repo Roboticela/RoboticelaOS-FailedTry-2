@@ -406,7 +406,7 @@ int SchedulerInit(void)
 
     if (!AdoptBootstrap())
         SchedPanicInit("bootstrap thread allocation failed");
-    kprintf("[ OK ] Bootstrap thread\n");
+    kinfo("[ OK ] Bootstrap thread\n");
 
     gSchedState = RoboSchedInitialized;
 
@@ -422,15 +422,15 @@ int SchedulerInit(void)
             gIdle->state = RoboThreadReady;
         SchedUnlock(flags);
     }
-    kprintf("[ OK ] Idle thread\n");
-    kprintf("[ OK ] Scheduler integration\n");
+    kinfo("[ OK ] Idle thread\n");
+    kinfo("[ OK ] Scheduler integration\n");
 
     IdtSet(RoboVecResched, Isr48, 0);
     if (!IdtGatePresent(RoboVecResched))
         SchedPanicInit("reschedule vector missing");
 
     gSchedState = RoboSchedInitialized;
-    kprintf("Scheduler init  quantum %u ms  bootstrap 0 idle 1\n",
+    kinfo("Scheduler init  quantum %u ms  bootstrap 0 idle 1\n",
             (unsigned)RoboSchedulerQuantumMs);
     return 1;
 }
@@ -457,7 +457,7 @@ void SchedulerStart(void)
     TssSetRsp0(gCurrent->StackTop);
     SyscallKstack = gCurrent->StackTop;
     SchedUnlock(flags);
-    kprintf("Scheduler start  current %llu %s\n",
+    kinfo("Scheduler start  current %llu %s\n",
             (unsigned long long)gCurrent->id, gCurrent->name);
 }
 

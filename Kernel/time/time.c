@@ -304,16 +304,16 @@ int TimerInit(void)
         if (HzSane(cal)) {
             gHz = cal;
             gSource = RoboClockTsc;
-            kprintf("Timer  TSC calibrated against PIT\n");
+            kinfo("Timer  TSC calibrated against PIT\n");
         } else if (HzSane(gTsc.hz)) {
             gHz = gTsc.hz;
             gSource = RoboClockTsc;
-            kprintf("Timer  TSC frequency from CPUID 0x15\n");
+            kinfo("Timer  TSC frequency from CPUID 0x15\n");
         } else {
-            kprintf("Timer  TSC present but frequency unknown\n");
+            kinfo("Timer  TSC present but frequency unknown\n");
         }
     } else {
-        kprintf("Timer  TSC unavailable\n");
+        kinfo("Timer  TSC unavailable\n");
     }
 
     if (gSource == RoboClockTsc) {
@@ -322,7 +322,7 @@ int TimerInit(void)
     } else {
         gSource = RoboClockPit;
         gHz = RoboPitHz;
-        kprintf("Timer  using PIT fallback\n");
+        kinfo("Timer  using PIT fallback\n");
     }
 
     gReady = 1;

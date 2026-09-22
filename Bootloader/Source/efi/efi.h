@@ -415,6 +415,7 @@ void EfiGraphicsInfo(uint64_t *fb, uint32_t *w, uint32_t *h, uint32_t *pitch, ui
 void EfiShutdown(void);
 int EfiFlagSelftest(void);
 int EfiFlagKtest(void);
+int EfiFlagDtest(void);
 int EfiFlagMenu(void);
 int EfiFlagSplashMs(void);
 const char *EfiLastBoot(void);

@@ -238,7 +238,7 @@ static int HeapGrow(size_t extra)
 
     gHeap.mappedEnd = va;
     gHeap.pages += pages;
-    kprintf("HEAP  grow %llu pages  0x%llx-0x%llx\n",
+    kinfo("HEAP  grow %llu pages  0x%llx-0x%llx\n",
             (unsigned long long)pages,
             (unsigned long long)start,
             (unsigned long long)va);
@@ -588,7 +588,7 @@ void HeapFbReport(void)
 bool HeapInit(void)
 {
     HeapFill(&gHeap, 0, sizeof(gHeap));
-    kprintf("HEAP init\n");
+    kinfo("HEAP init\n");
     if (!PmmReady() || !VmmReady()) {
         kprintf("HEAP: PMM/VMM not ready\n");
         return false;
@@ -605,7 +605,7 @@ bool HeapInit(void)
         gHeap.ready = 0;
         return false;
     }
-    kprintf("HEAP ready  base 0x%llx  end 0x%llx  mapped %llu\n",
+    kinfo("HEAP ready  base 0x%llx  end 0x%llx  mapped %llu\n",
             (unsigned long long)RoboHeapBase,
             (unsigned long long)RoboHeapEnd,
             (unsigned long long)gHeap.pages);

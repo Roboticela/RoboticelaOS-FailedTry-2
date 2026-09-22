@@ -169,7 +169,7 @@ static int FindCaps(RoboPciDevice *d, struct virtioBlk *v)
         ptr = next;
     }
     v->notifyMul = notifyMul;
-    kprintf("[INFO] [DRIVER] VirtIO caps common=%llx notify=%llx cfg=%llx\n",
+    kinfo("[INFO] [DRIVER] VirtIO caps common=%llx notify=%llx cfg=%llx\n",
             (unsigned long long)(uintptr_t)v->common,
             (unsigned long long)(uintptr_t)v->notify,
             (unsigned long long)(uintptr_t)v->devcfg);
@@ -403,7 +403,7 @@ static int VirtioSetupLegacy(struct virtioBlk *v, RoboPciDevice *pci)
     v->bdev.write = VbWrite;
     v->bdev.flush = VbFlush;
     v->bdev.destroy = 0;
-    kprintf("[INFO] [DRIVER] VirtIO legacy I/O 0x%x qsz %u\n",
+    kinfo("[INFO] [DRIVER] VirtIO legacy I/O 0x%x qsz %u\n",
             (unsigned)v->iobase, (unsigned)qsz);
     return 1;
 }
@@ -421,14 +421,14 @@ static int VirtioSetup(struct virtioBlk *v, RoboPciDevice *pci)
     PciEnableMmio(pci);
     PciEnableBusmaster(pci);
     if (!FindCaps(pci, v)) {
-        kprintf("[INFO] [DRIVER] VirtIO modern caps missing\n");
+        kinfo("[INFO] [DRIVER] VirtIO modern caps missing\n");
         return VirtioSetupLegacy(v, pci);
     }
 
     CW8(v, VIRTIO_CFG_STATUS, 0);
     CW8(v, VIRTIO_CFG_STATUS, VIRTIO_ACK);
     CW8(v, VIRTIO_CFG_STATUS, (uint8_t)(VIRTIO_ACK | VIRTIO_DRIVER));
-    kprintf("[INFO] [DRIVER] VirtIO status after ack %x\n",
+    kinfo("[INFO] [DRIVER] VirtIO status after ack %x\n",
             (unsigned)CR8(v, VIRTIO_CFG_STATUS));
 
     CW32(v, VIRTIO_CFG_DFSELECT, 0);
@@ -445,7 +445,7 @@ static int VirtioSetup(struct virtioBlk *v, RoboPciDevice *pci)
     if (feat & VIRTIO_BLK_F_FLUSH)
         drv |= VIRTIO_BLK_F_FLUSH;
     v->flushOk = (drv & VIRTIO_BLK_F_FLUSH) != 0;
-    kprintf("[INFO] [DRIVER] VirtIO feat=%llx drv=%llx\n",
+    kinfo("[INFO] [DRIVER] VirtIO feat=%llx drv=%llx\n",
             (unsigned long long)feat, (unsigned long long)drv);
     CW32(v, VIRTIO_CFG_GFSELECT, 0);
     CW32(v, VIRTIO_CFG_GF, (uint32_t)drv);
@@ -457,7 +457,7 @@ static int VirtioSetup(struct virtioBlk *v, RoboPciDevice *pci)
     wmb();
     {
         uint8_t st = CR8(v, VIRTIO_CFG_STATUS);
-        kprintf("[INFO] [DRIVER] VirtIO status after feat %x\n", (unsigned)st);
+        kinfo("[INFO] [DRIVER] VirtIO status after feat %x\n", (unsigned)st);
         if (!(st & VIRTIO_FEAT_OK)) {
             kprintf("[ERROR] [DRIVER] VirtIO features rejected feat=%llx\n",
                     (unsigned long long)feat);
@@ -477,7 +477,7 @@ static int VirtioSetup(struct virtioBlk *v, RoboPciDevice *pci)
         CW16(v, VIRTIO_CFG_QSIZE, qsz);
     }
     v->qsz = qsz;
-    kprintf("[INFO] [DRIVER] VirtIO qsz %u notify_mul %u\n",
+    kinfo("[INFO] [DRIVER] VirtIO qsz %u notify_mul %u\n",
             (unsigned)qsz, (unsigned)v->notifyMul);
     v->desc = DmaPage(&v->descPa);
     v->avail = DmaPage(&v->availPa);
@@ -504,7 +504,7 @@ static int VirtioSetup(struct virtioBlk *v, RoboPciDevice *pci)
     CW8(v, VIRTIO_CFG_STATUS,
          (uint8_t)(VIRTIO_ACK | VIRTIO_DRIVER | VIRTIO_FEAT_OK |
                    VIRTIO_DRIVER_OK));
-    kprintf("[INFO] [DRIVER] VirtIO status driver_ok %x\n",
+    kinfo("[INFO] [DRIVER] VirtIO status driver_ok %x\n",
             (unsigned)CR8(v, VIRTIO_CFG_STATUS));
 
     v->bdev.blockSize = 4096;
@@ -540,10 +540,10 @@ static int VirtioStart(RoboDevice *dev)
         return -1;
     }
     gVbReady = 1;
-    kprintf("[INFO] [DRIVER] VirtIO Block detected\n");
-    kprintf("[INFO] [DRIVER] Device %x:%x\n",
+    kinfo("[INFO] [DRIVER] VirtIO Block detected\n");
+    kinfo("[INFO] [DRIVER] Device %x:%x\n",
             (unsigned)gVb.pci->vendor, (unsigned)gVb.pci->device);
-    kprintf("[INFO] [DRIVER] sectors %llu  blocks %llu\n",
+    kinfo("[INFO] [DRIVER] sectors %llu  blocks %llu\n",
             (unsigned long long)gVb.sectors,
             (unsigned long long)gVb.bdev.blockCount);
     return 0;

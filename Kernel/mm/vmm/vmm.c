@@ -11,6 +11,7 @@
 #ifdef VMM_HOST_TEST
 #include <stdio.h>
 #define kprintf printf
+#define kinfo printf
 #else
 #include "kio.h"
 #include "mm/heap/heap.h"
@@ -362,19 +363,19 @@ bool VmmInit(const RoboBootInfo *info)
 #endif
 
     VmmFill(&gVmm, 0, sizeof(gVmm));
-    kprintf("VMM init\n");
+    kinfo("VMM init\n");
     if (!PmmReady()) {
         kprintf("VMM: PMM not ready\n");
         return false;
     }
 
     oldCr3 = CpuReadCr3();
-    kprintf("VMM  firmware CR3 0x%llx\n", (unsigned long long)oldCr3);
+    kinfo("VMM  firmware CR3 0x%llx\n", (unsigned long long)oldCr3);
 
     CpuEnableNx();
     CpuEnableWp();
     gVmm.nx = CpuNxSupported() && CpuNxEnabled();
-    kprintf("VMM  NX %s\n", gVmm.nx ? "enabled" : "unavailable");
+    kinfo("VMM  NX %s\n", gVmm.nx ? "enabled" : "unavailable");
 
     gVmm.pml4Phys = TableAlloc();
     if (gVmm.pml4Phys == RoboInvalidPhysAddr) {
@@ -385,7 +386,7 @@ bool VmmInit(const RoboBootInfo *info)
 
     limit = PmmLimit();
     gVmm.identLimit = limit;
-    kprintf("VMM  identity 0x0-0x%llx\n", (unsigned long long)limit);
+    kinfo("VMM  identity 0x0-0x%llx\n", (unsigned long long)limit);
     if (!MapRangeIdentity(0, limit, RoboVmRead | RoboVmWrite | RoboVmExecute | RoboVmKernel)) {
         kprintf("VMM: identity map failed\n");
         VmmFill(&gVmm, 0, sizeof(gVmm));
@@ -439,14 +440,14 @@ bool VmmInit(const RoboBootInfo *info)
     k0 = (VirtAddr)(uintptr_t)__kernel_start;
     k1 = (VirtAddr)(uintptr_t)__kernel_end;
     if (t1 > t0 && !ProtectRange(t0, t1, RoboVmRead | RoboVmExecute | RoboVmKernel))
-        kprintf("VMM: text protect skipped\n");
+        kinfo("VMM: text protect skipped\n");
     if (r1 > r0 && !ProtectRange(r0, r1, RoboVmRead | RoboVmKernel))
-        kprintf("VMM: rodata protect skipped\n");
+        kinfo("VMM: rodata protect skipped\n");
     if (k1 > d0 && !ProtectRange(d0, k1, RoboVmRead | RoboVmWrite | RoboVmKernel))
-        kprintf("VMM: data protect skipped\n");
-    kprintf("VMM  kernel 0x%llx-0x%llx  text RX  rodata R  data RW\n",
+        kinfo("VMM: data protect skipped\n");
+    kinfo("VMM  kernel 0x%llx-0x%llx  text RX  rodata R  data RW\n",
             (unsigned long long)k0, (unsigned long long)k1);
-    kprintf("VMM  stack  0x%llx-0x%llx\n",
+    kinfo("VMM  stack  0x%llx-0x%llx\n",
             (unsigned long long)(uintptr_t)kstack,
             (unsigned long long)(uintptr_t)kstackEnd);
 #else
@@ -454,7 +455,7 @@ bool VmmInit(const RoboBootInfo *info)
 #endif
 
     gVmm.ready = 1;
-    kprintf("VMM  load CR3 0x%llx  tables %llu\n",
+    kinfo("VMM  load CR3 0x%llx  tables %llu\n",
             (unsigned long long)gVmm.pml4Phys,
             (unsigned long long)gVmm.tablePages);
     VmmLoadAddressSpace(gVmm.pml4Phys);
@@ -463,7 +464,7 @@ bool VmmInit(const RoboBootInfo *info)
         gVmm.ready = 0;
         return false;
     }
-    kprintf("VMM ready\n");
+    kinfo("VMM ready\n");
     return true;
 }
 

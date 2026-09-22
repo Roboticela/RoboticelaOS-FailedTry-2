@@ -47,7 +47,7 @@ RoboNetIf *NetifRegister(const char *name, const uint8_t mac[6],
     {
         char macs[18];
         MacFmt(ifp->mac, macs);
-        kprintf("[INFO] [NET] interface %s mac %s mtu %u\n",
+        kinfo("[INFO] [NET] interface %s mac %s mtu %u\n",
                 ifp->name, macs, (unsigned)ifp->mtu);
     }
     return ifp;

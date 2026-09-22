@@ -303,7 +303,7 @@ static int KbdStart(RoboDevice *d)
         return -1;
     gKbdOk = 1;
     InputSetKeyboardReady(1);
-    kprintf("[INFO] [DRIVER] PS/2 keyboard initialized\n");
+    kinfo("[INFO] [DRIVER] PS/2 keyboard initialized\n");
     return 0;
 }
 
@@ -335,7 +335,7 @@ static int MouseStart(RoboDevice *d)
         return -1;
     gMouseOk = 1;
     InputSetMouseReady(1);
-    kprintf("[INFO] [DRIVER] PS/2 mouse initialized\n");
+    kinfo("[INFO] [DRIVER] PS/2 mouse initialized\n");
     return 0;
 }
 

@@ -10,6 +10,7 @@
 #define kmalloc malloc
 #define kfree free
 #define kprintf printf
+#define kinfo printf
 static uint64_t SchedLock(void) { return 0; }
 static void SchedUnlock(uint64_t flags) { (void)flags; }
 static uint64_t TimeNow(void) { return 0; }
@@ -307,14 +308,14 @@ int ProcessSubsystemInit(void)
         gKernel->state = RoboProcessRunning;
     gProcessReady = 1;
 #ifndef PROCESS_HOST_TEST
-    kprintf("Process Subsystem\n");
-    kprintf("-----------------\n");
-    kprintf("[ OK ] Kernel process  PID %llu\n",
+    kinfo("Process Subsystem\n");
+    kinfo("-----------------\n");
+    kinfo("[ OK ] Kernel process  PID %llu\n",
             (unsigned long long)gKernel->id);
-    kprintf("[ OK ] Kernel address space  CR3 0x%llx\n",
+    kinfo("[ OK ] Kernel address space  CR3 0x%llx\n",
             (unsigned long long)(gKernel->addressSpace ?
                                  gKernel->addressSpace->cr3 : 0));
-    kprintf("[ OK ] Process table\n");
+    kinfo("[ OK ] Process table\n");
 #endif
     return 1;
 }

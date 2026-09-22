@@ -13,7 +13,7 @@
 
 #define RoboLogLineMax 1024
 
-static LogLevel gRoboLogMinLevel = RoboLogDebug;
+static LogLevel gRoboLogMinLevel = RoboLogWarn;
 static LogWriterFn gRoboLogWriter = NULL;
 static void *gRoboLogWriterUserdata = NULL;
 

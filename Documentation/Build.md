@@ -161,6 +161,10 @@ JUnit XML file for CI. A `skip` is recorded as `skip`, never as a pass.
 
 Two shapes, both real. The file tree is the one you **copy** onto a stick; the disk image is the one you **write** to the whole device.
 
+A flash-ready image is a **production boot**: `config/roboboot.env` has
+`debug=0`, there is no `qemu.flags`, the kernel skips self-tests, init
+starts only the desktop, and the runtime does not dump serial checkpoints.
+
 ### The file tree (copy onto a FAT32 stick)
 
 `Build/dist/` is the whole OS in one folder: the UEFI file tree, `roboticelaos.img`, `roboticelaos-usb.zip`, and loose `BOOTX64.EFI` / `kernel.elf` / `initrd`. Format a USB stick as FAT32, then copy **EFI\, config\, assets\ and volumes\** onto it (not the image or zip). The stick root must contain `EFI\BOOT\BOOTX64.EFI`; do not nest an extra folder.

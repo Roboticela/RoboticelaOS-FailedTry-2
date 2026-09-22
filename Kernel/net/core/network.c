@@ -128,23 +128,23 @@ static void NetReportIf(void)
 {
     RoboNetIf *ifp = NetifDefault();
     char mac[18], ip[16], mask[16], gw[16];
-    kprintf("\nNetwork\n-------\n\n");
+    kinfo("\nNetwork\n-------\n\n");
     if (!ifp) {
-        kprintf("Interface : (none)\n");
-        kprintf("Link      : DOWN\n\n");
+        kinfo("Interface : (none)\n");
+        kinfo("Link      : DOWN\n\n");
         return;
     }
     MacFmt(ifp->mac, mac);
     Ipv4Fmt(ifp->ipv4, ip);
     Ipv4Fmt(ifp->netmask, mask);
     Ipv4Fmt(ifp->gateway, gw);
-    kprintf("Interface : %s\n", ifp->name);
-    kprintf("MAC       : %s\n", mac);
-    kprintf("Link      : %s\n", ifp->linkUp ? "UP" : "DOWN");
-    kprintf("IP        : %s\n", ip);
-    kprintf("Netmask   : %s\n", mask);
-    kprintf("Gateway   : %s\n", gw);
-    kprintf("MTU       : %u\n\n", (unsigned)ifp->mtu);
+    kinfo("Interface : %s\n", ifp->name);
+    kinfo("MAC       : %s\n", mac);
+    kinfo("Link      : %s\n", ifp->linkUp ? "UP" : "DOWN");
+    kinfo("IP        : %s\n", ip);
+    kinfo("Netmask   : %s\n", mask);
+    kinfo("Gateway   : %s\n", gw);
+    kinfo("MTU       : %u\n\n", (unsigned)ifp->mtu);
 }
 
 void NetReport(void)
@@ -183,7 +183,7 @@ int NetBringup(void)
         gWorker = ThreadCreate("net", NetWorker, 0);
     NetReportIf();
     if (gWorker)
-        kprintf("[INFO] [NET] worker started\n");
-    kprintf("[PASS] NETWORK STACK\n");
+        kinfo("[INFO] [NET] worker started\n");
+    kinfo("[PASS] NETWORK STACK\n");
     return 1;
 }

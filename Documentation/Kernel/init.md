@@ -21,11 +21,26 @@ The kernel creates init **once** during normal boot. Failure to load it
 is a kernel panic (`INIT STARTUP FAILURE`). Unexpected exit of PID 1 is
 a kernel panic (`INIT PROCESS EXITED`).
 
+## Production vs tests
+
+A normal boot (`roboboot.env` `debug=0`, no `qemu.flags`) starts only
+`/System/runtime/robo-runtime` and does not run kernel or init self-tests.
+The kernel keeps serial and on-screen init chatter off; failures still
+print. Runtime logging defaults to warnings.
+
+QEMU tests opt in with ESP flags, never with a production `debug=1` env:
+
+| Flag | What runs |
+|---|---|
+| `selftest` | bootloader self-test (no kernel jump) |
+| `ktest` | kernel suites + init `selftest` (test services, banners, probes) |
+| `dtest` | init `checkpoint` → robo-runtime serial markers, no kernel suites |
+
 ## Initial-process ABI (v1)
 
-The ELF loader does not place `argc` / `argv` / `envp` on the user
-stack. `_start` calls `main` with no arguments. Init identifies itself
-as `/System/init`. There is no Unix environment block and no `PATH`.
+The kernel's init loader can pass one extra argument. A production boot
+calls `main` with `argv[0]` only. `ktest` adds `selftest`; `dtest` adds
+`checkpoint`. There is no Unix environment block and no `PATH`.
 
 `SYS_GETPID` returns the calling process id (1 for init).
 

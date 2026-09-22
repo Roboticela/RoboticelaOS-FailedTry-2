@@ -91,7 +91,7 @@ int ArpInsert(RoboNetIf *ifp, uint32_t ip, const uint8_t mac[6],
         char ips[16], macs[18];
         Ipv4Fmt(ip, ips);
         MacFmt(e->mac, macs);
-        kprintf("[INFO] [NET] ARP %s -> %s state %u\n",
+        kinfo("[INFO] [NET] ARP %s -> %s state %u\n",
                 ips, macs, (unsigned)state);
     }
     return 0;

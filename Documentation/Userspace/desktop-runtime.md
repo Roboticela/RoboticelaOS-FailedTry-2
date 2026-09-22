@@ -71,8 +71,14 @@ an unparseable one.
 
 ## Serial markers
 
-The program reports facts rather than verdicts: the pipeline's marker list is what
-pins their values (`scripts/pipeline/commands.test.ps1`), because a guest that checked
+Serial markers (`ROBO_QEMU_*`) are a **test checkpoint**, not a production
+boot. Init starts `robo-runtime` with `checkpoint` only when the ESP has
+`dtest` (display tests) or `selftest` (kernel tests). A normal boot opens
+the shell and pumps input with no serial dump and with log level at warn.
+
+When a checkpoint is requested, the program reports facts rather than
+verdicts: the pipeline's marker list is what pins their values
+(`scripts/pipeline/commands.test.ps1`), because a guest that checked
 its own arithmetic against itself would be checking nothing.
 
 | Marker | Means |

@@ -22,6 +22,7 @@ static int gPickerChord;
 static uint64_t gUsbKickMs;
 static int gSelftest;
 static int gKtest;
+static int gDtest;
 static int gMenu;
 static int gSplashMs = -1;
 static char gLastBoot[64];
@@ -36,6 +37,7 @@ static EFI_GUID kConinGuid = {0x387477c1, 0x69c7, 0x11d2, {0x8e, 0x39, 0x00, 0xa
 
 int EfiFlagSelftest(void) { return gSelftest; }
 int EfiFlagKtest(void) { return gKtest; }
+int EfiFlagDtest(void) { return gDtest; }
 int EfiFlagMenu(void) { return gMenu; }
 int EfiFlagSplashMs(void) { return gSplashMs; }
 const char *EfiLastBoot(void) { return gLastBoot; }
@@ -573,6 +575,7 @@ static void ParseFlags(const char *text)
         while (*p == '\n' || *p == '\r') p++;
         if (StrEq(line, "selftest")) gSelftest = 1;
         else if (StrEq(line, "ktest")) gKtest = 1;
+        else if (StrEq(line, "dtest")) gDtest = 1;
         else if (StrEq(line, "menu")) gMenu = 1;
         else if (Strncmp(line, "splash_ms ", 10) == 0) gSplashMs = atoi(line + 10);
     }
@@ -759,8 +762,8 @@ int EfiPlatformInit(EFI_HANDLE image, EFI_SYSTEM_TABLE *st)
             free(text);
         }
         free(blob);
-        Bootlogf(NULL, "Flags  selftest=%d  ktest=%d  menu=%d  splash=%d",
-                    gSelftest, gKtest, gMenu, gSplashMs);
+        Bootlogf(NULL, "Flags  selftest=%d  ktest=%d  dtest=%d  menu=%d  splash=%d",
+                    gSelftest, gKtest, gDtest, gMenu, gSplashMs);
     } else
         Bootlog(NULL, "Flags  none");
 

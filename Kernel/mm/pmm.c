@@ -3,6 +3,7 @@
 #ifdef PMM_HOST_TEST
 #include <stdio.h>
 #define kprintf printf
+#define kinfo printf
 #else
 #include "kio.h"
 extern char __kernel_start[];
@@ -414,7 +415,7 @@ bool PmmInit(const RoboBootInfo *info)
 
     PmmFill(&gPmm, 0, sizeof(gPmm));
 
-    kprintf("PMM init\n");
+    kinfo("PMM init\n");
     if (!info || info->magic != RoboBootinfoMagic) {
         kprintf("PMM: missing bootinfo\n");
         return false;
@@ -533,9 +534,9 @@ bool PmmInit(const RoboBootInfo *info)
     gPmm.freePages = 0;
     gPmm.allocHint = 0;
 
-    kprintf("PMM  usable limit 0x%llx  pages %llu\n",
+    kinfo("PMM  usable limit 0x%llx  pages %llu\n",
             (unsigned long long)limit, (unsigned long long)gPmm.pageCount);
-    kprintf("PMM  bitmap 0x%llx  %llu bytes\n",
+    kinfo("PMM  bitmap 0x%llx  %llu bytes\n",
             (unsigned long long)home, (unsigned long long)storage);
 
     ReleaseUsable(&map);
@@ -561,12 +562,12 @@ bool PmmInit(const RoboBootInfo *info)
     }
 
     gPmm.ready = 1;
-    kprintf("PMM  kernel 0x%llx +%llu  bootinfo 0x%llx +%llu\n",
+    kinfo("PMM  kernel 0x%llx +%llu  bootinfo 0x%llx +%llu\n",
             (unsigned long long)gPmm.kernelBase,
             (unsigned long long)gPmm.kernelSize,
             (unsigned long long)bootinfoPhys,
             (unsigned long long)bootinfoSize);
-    kprintf("PMM  free %llu  reserved %llu\n",
+    kinfo("PMM  free %llu  reserved %llu\n",
             (unsigned long long)gPmm.freePages,
             (unsigned long long)UsedPageCount());
     return true;

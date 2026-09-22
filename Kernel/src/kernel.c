@@ -20,10 +20,14 @@
 #include "process/init.h"
 #include "drivers/manager.h"
 
+static int gTalk;
+
+#define Talk(...) do { if (gTalk) kprintf(__VA_ARGS__); } while (0)
+
 static void BootBar(unsigned p)
 {
     KfbSplashSet(p);
-    kprintf("Loader  %u percent\n", (unsigned)(p / 100u));
+    Talk("Loader  %u percent\n", (unsigned)(p / 100u));
 }
 
 static int RunUserProg(const char *path)
@@ -53,21 +57,22 @@ void kmain(const RoboBootInfo *info)
     int tests;
     KserialInit();
     KfbInit(info);
-    kprintf("kmain\n");
-    kprintf("serial init\n");
-    kprintf("framebuffer init %u x %u\n",
+    tests = KbootSelftest(info);
+    gTalk = tests || KbootDebug(info);
+    KlogSetTalk(gTalk);
+    ExecSetQuiet(!gTalk);
+    Talk("kmain\n");
+    Talk("serial init\n");
+    Talk("framebuffer init %u x %u\n",
             info ? info->framebufferWidth : 0,
             info ? info->framebufferHeight : 0);
     BootBar(RoboBootProgressHandoff);
     KbootReport(info);
-    tests = KbootSelftest(info);
     if (tests)
         kprintf("Kernel  selftest\n");
-    else
-        kprintf("Kernel  production boot\n");
     BootBar(4200);
 
-    kprintf("CPU  init\n");
+    Talk("CPU  init\n");
     if (!CpuInit()) {
         if (tests) {
             kprintf("CPU_TEST_FAIL\n");
@@ -75,15 +80,16 @@ void kmain(const RoboBootInfo *info)
             kprintf("VMM_TEST_FAIL\n");
             kprintf("HEAP_TEST_FAIL\n");
         }
-        kprintf("idle\n");
+        Talk("idle\n");
         BootBar(RoboBootProgressMax);
-        kprintf("Desktop  ready\n");
+        Talk("Desktop  ready\n");
         for (;;) {
             KfbPoll();
             __asm__ volatile ("pause");
         }
     }
-    CpuReport();
+    if (gTalk)
+        CpuReport();
     if (KbootDebug(info))
         CpuFbReport();
     BootBar(4600);
@@ -95,14 +101,14 @@ void kmain(const RoboBootInfo *info)
     }
     BootBar(5000);
 
-    kprintf("PMM  bootinfo %s  ver %u\n",
+    Talk("PMM  bootinfo %s  ver %u\n",
             info ? "present" : "missing",
             info ? (unsigned)info->version : 0);
     if (info) {
-        kprintf("PMM  map 0x%llx  %llu regions\n",
+        Talk("PMM  map 0x%llx  %llu regions\n",
                 (unsigned long long)info->memoryMap,
                 (unsigned long long)info->memoryMapCount);
-        kprintf("PMM  kernel 0x%llx +%llu  bootinfo 0x%llx +%llu\n",
+        Talk("PMM  kernel 0x%llx +%llu  bootinfo 0x%llx +%llu\n",
                 (unsigned long long)info->kernelBase,
                 (unsigned long long)info->kernelSize,
                 (unsigned long long)info->bootinfoAddress,
@@ -116,7 +122,8 @@ void kmain(const RoboBootInfo *info)
             kprintf("HEAP_TEST_FAIL\n");
         }
     } else {
-        PmmReport();
+        if (gTalk)
+            PmmReport();
         if (KbootDebug(info))
             PmmFbReport();
         BootBar(5400);
@@ -134,7 +141,8 @@ void kmain(const RoboBootInfo *info)
                 kprintf("HEAP_TEST_FAIL\n");
             }
         } else {
-            VmmReport();
+            if (gTalk)
+                VmmReport();
             if (KbootDebug(info))
                 VmmFbReport();
             BootBar(6200);
@@ -150,7 +158,8 @@ void kmain(const RoboBootInfo *info)
                 if (tests)
                     kprintf("HEAP_TEST_FAIL\n");
             } else {
-                HeapReport();
+                if (gTalk)
+                    HeapReport();
                 if (KbootDebug(info))
                     HeapFbReport();
                 BootBar(7000);
@@ -181,7 +190,8 @@ void kmain(const RoboBootInfo *info)
         if (tests)
             kprintf("TIMER_TEST_FAIL\n");
     } else {
-        TimerReport();
+        if (gTalk)
+            TimerReport();
         if (KbootDebug(info))
             TimerFbReport();
         BootBar(8200);
@@ -203,11 +213,13 @@ void kmain(const RoboBootInfo *info)
                 kprintf("PROC_TEST_FAIL\n");
             }
         } else {
-            SchedulerReport();
+            if (gTalk)
+                SchedulerReport();
             if (KbootDebug(info))
                 SchedulerFbReport();
             SchedulerStart();
-            X86ContextReport();
+            if (gTalk)
+                X86ContextReport();
             if (KbootDebug(info))
                 X86ContextFbReport();
             BootBar(9000);
@@ -226,7 +238,8 @@ void kmain(const RoboBootInfo *info)
                 else
                     kprintf("SCHED_TEST_FAIL\n");
             }
-            ThreadReport();
+            if (gTalk)
+                ThreadReport();
             if (KbootDebug(info))
                 ThreadFbReport();
             BootBar(9400);
@@ -236,7 +249,8 @@ void kmain(const RoboBootInfo *info)
                 else
                     kprintf("THREAD_TEST_FAIL\n");
             }
-            ProcessReport();
+            if (gTalk)
+                ProcessReport();
             if (KbootDebug(info))
                 ProcessFbReport();
             BootBar(9600);
@@ -251,7 +265,8 @@ void kmain(const RoboBootInfo *info)
                 static RoboBlockDevice *rootDisk;
                 int imported;
 
-                FsReport();
+                if (gTalk)
+                    FsReport();
                 VfsInit();
                 RobofsRegister();
                 if (tests && !VfsSelftest())
@@ -323,9 +338,9 @@ void kmain(const RoboBootInfo *info)
         kprintf("PROC_TEST_FAIL\n");
     }
 
-    kprintf("idle\n");
+    Talk("idle\n");
     BootBar(RoboBootProgressMax);
-    kprintf("Desktop  ready\n");
+    Talk("Desktop  ready\n");
     if (handoff)
         InitStart(info);
     for (;;) {

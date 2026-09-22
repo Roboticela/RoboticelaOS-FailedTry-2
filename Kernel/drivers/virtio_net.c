@@ -406,7 +406,7 @@ static int VnetSetup(struct virtioNet *v, RoboPciDevice *pci)
     {
         char macs[18];
         MacFmt(v->mac, macs);
-        kprintf("[INFO] [NET] VirtIO-net mac %s qsz %u irq %u\n",
+        kinfo("[INFO] [NET] VirtIO-net mac %s qsz %u irq %u\n",
                 macs, (unsigned)v->rx.qsz, (unsigned)pci->irqLine);
     }
     return 1;
