@@ -9,10 +9,10 @@
  *                    invariants are enforced by the mutators (`Append` refuses a glyph with no source,
  *                    `Replace` refuses an empty replacement for a non-empty span) rather than believed.
  *
- *   **the plan**     `RoboTextGsubPlanResolve` walks the font's ScriptList → LangSys → FeatureList and
+ *   **the plan**     `RoboTextOtPlanResolve` walks the font's ScriptList → LangSys → FeatureList and
  *                    answers, in the font's own terms, which lookups this script, language and feature set
  *                    turn on. Two properties are load-bearing. The plan never branches on a script: a
- *                    script is a *tag* (`RoboTextGsubScriptTag`) and the font decides the rest, so Arabic
+ *                    script is a *tag* (`RoboTextOtScriptTag`) and the font decides the rest, so Arabic
  *                    joining and Indic reordering arrive through the same code path Latin ligatures do.
  *                    And the execution order is the **Lookup List's** order, not the features': lookups are
  *                    numbered so that a later one sees an earlier one's work, and applying them in feature
@@ -29,14 +29,14 @@
  *                    different table, and a diagnostic that lies is worse than one that refuses.
  *
  * Nothing here allocates per glyph, per position or per probe. A call allocates only when the buffer grows
- * (doubling, bounded by `RoboTextGsubLimits::maxGlyphs`) and, inside the subtable readers, once per
- * coverage or class definition it uses — see `RoboTextGsubInternal.h` for why that is the right place for
+ * (doubling, bounded by `RoboTextOtLimits::maxGlyphs`) and, inside the subtable readers, once per
+ * coverage or class definition it uses — see `RoboTextOtInternal.h` for why that is the right place for
  * that cost.
  */
 
 #include "RoboText/RoboTextGsub.h"
 
-#include "RoboTextGsubInternal.h"
+#include "RoboTextOtInternal.h"
 #include "RoboMem/RoboMem.h"
 #include "RoboFont/RoboFontOtCommon.h"
 #include "RoboText/RoboTextBidi.h"
@@ -48,7 +48,7 @@
 /* Tags                                                                */
 /* ------------------------------------------------------------------ */
 
-uint32_t RoboTextGsubTagOf(const char *tag)
+uint32_t RoboTextOtTagOf(const char *tag)
 {
     if (!tag || strlen(tag) != 4u) {
         return 0u;
@@ -57,7 +57,7 @@ uint32_t RoboTextGsubTagOf(const char *tag)
            ((uint32_t)(uint8_t)tag[2] << 8) | (uint32_t)(uint8_t)tag[3];
 }
 
-void RoboTextGsubTagWrite(uint32_t tag, char *buffer)
+void RoboTextOtTagWrite(uint32_t tag, char *buffer)
 {
     if (!buffer) {
         return;
@@ -80,7 +80,7 @@ void RoboTextGsubTagWrite(uint32_t tag, char *buffer)
  * with `LRE`-style controls, which are not this engine's business). Every limit is reported in
  * `RoboTextGsubStats` when it fires, so a caller can tell "the font ended" from "we stopped".
  */
-const RoboTextGsubLimits RoboTextGsubDefaultLimits = {
+const RoboTextOtLimits RoboTextOtDefaultLimits = {
     4096u,     /* maxLookupApplications */
     1048576u,  /* maxGlyphProbes */
     65536u,    /* maxGlyphs */
@@ -133,14 +133,14 @@ int RoboTextShapingGlyphEqual(const RoboTextShapingGlyph *a, const RoboTextShapi
 /* The buffer                                                          */
 /* ------------------------------------------------------------------ */
 
-struct RoboTextGsubBuffer {
+struct RoboTextShapingBuffer {
     RoboTextShapingGlyph *glyphs;
     size_t count;
     size_t capacity;
 };
 
 /** Room for @p wanted glyphs, doubling the capacity. Non-zero on success. */
-static int GsubBufferReserve(RoboTextGsubBuffer *buffer, size_t wanted)
+static int GsubBufferReserve(RoboTextShapingBuffer *buffer, size_t wanted)
 {
     size_t capacity;
     RoboTextShapingGlyph *grown;
@@ -164,9 +164,9 @@ static int GsubBufferReserve(RoboTextGsubBuffer *buffer, size_t wanted)
     return 1;
 }
 
-RoboTextGsubBuffer *RoboTextGsubBufferCreate(size_t capacity)
+RoboTextShapingBuffer *RoboTextShapingBufferCreate(size_t capacity)
 {
-    RoboTextGsubBuffer *buffer = (RoboTextGsubBuffer *)RoboCalloc(1u, sizeof(*buffer));
+    RoboTextShapingBuffer *buffer = (RoboTextShapingBuffer *)RoboCalloc(1u, sizeof(*buffer));
 
     if (!buffer) {
         return NULL;
@@ -183,7 +183,7 @@ RoboTextGsubBuffer *RoboTextGsubBufferCreate(size_t capacity)
     return buffer;
 }
 
-void RoboTextGsubBufferDestroy(RoboTextGsubBuffer *buffer)
+void RoboTextShapingBufferDestroy(RoboTextShapingBuffer *buffer)
 {
     if (!buffer) {
         return;
@@ -192,22 +192,22 @@ void RoboTextGsubBufferDestroy(RoboTextGsubBuffer *buffer)
     RoboFree(buffer);
 }
 
-size_t RoboTextGsubBufferCount(const RoboTextGsubBuffer *buffer)
+size_t RoboTextShapingBufferCount(const RoboTextShapingBuffer *buffer)
 {
     return buffer ? buffer->count : 0u;
 }
 
-const RoboTextShapingGlyph *RoboTextGsubBufferAt(const RoboTextGsubBuffer *buffer, size_t index)
+const RoboTextShapingGlyph *RoboTextShapingBufferAt(const RoboTextShapingBuffer *buffer, size_t index)
 {
     return (buffer && index < buffer->count) ? &buffer->glyphs[index] : NULL;
 }
 
-RoboTextShapingGlyph *RoboTextGsubBufferAtMutable(RoboTextGsubBuffer *buffer, size_t index)
+RoboTextShapingGlyph *RoboTextShapingBufferAtMutable(RoboTextShapingBuffer *buffer, size_t index)
 {
     return (buffer && index < buffer->count) ? &buffer->glyphs[index] : NULL;
 }
 
-Result RoboTextGsubBufferAppend(RoboTextGsubBuffer *buffer, const RoboTextShapingGlyph *glyph)
+Result RoboTextShapingBufferAppend(RoboTextShapingBuffer *buffer, const RoboTextShapingGlyph *glyph)
 {
     if (!buffer || !glyph) {
         return RoboInvalidArgument;
@@ -223,7 +223,7 @@ Result RoboTextGsubBufferAppend(RoboTextGsubBuffer *buffer, const RoboTextShapin
     return RoboOk;
 }
 
-Result RoboTextGsubBufferSetGlyph(RoboTextGsubBuffer *buffer, size_t index, GlyphId glyphId)
+Result RoboTextShapingBufferSetGlyph(RoboTextShapingBuffer *buffer, size_t index, GlyphId glyphId)
 {
     if (!buffer || index >= buffer->count) {
         return RoboInvalidArgument;
@@ -232,7 +232,7 @@ Result RoboTextGsubBufferSetGlyph(RoboTextGsubBuffer *buffer, size_t index, Glyp
     return RoboOk;
 }
 
-Result RoboTextGsubBufferReplace(RoboTextGsubBuffer *buffer,
+Result RoboTextShapingBufferReplace(RoboTextShapingBuffer *buffer,
                                  size_t index,
                                  size_t count,
                                  const RoboTextShapingGlyph *replacement,
@@ -278,7 +278,7 @@ Result RoboTextGsubBufferReplace(RoboTextGsubBuffer *buffer,
 /* The feature plan                                                    */
 /* ------------------------------------------------------------------ */
 
-void RoboTextGsubPlanInit(RoboTextGsubPlan *plan)
+void RoboTextOtPlanInit(RoboTextOtPlan *plan)
 {
     if (!plan) {
         return;
@@ -287,12 +287,12 @@ void RoboTextGsubPlanInit(RoboTextGsubPlan *plan)
     plan->empty = 1;
 }
 
-int RoboTextGsubPlanIsValid(const RoboTextGsubPlan *plan)
+int RoboTextOtPlanIsValid(const RoboTextOtPlan *plan)
 {
     if (!plan) {
         return 0;
     }
-    if (plan->featureCount > (size_t)RoboTextGsubMaxPlanFeatures) {
+    if (plan->featureCount > (size_t)RoboTextOtMaxPlanFeatures) {
         return 0;
     }
     if (plan->lookupCount > (size_t)RoboFontOtMaxLookups) {
@@ -322,7 +322,7 @@ int RoboTextGsubPlanIsValid(const RoboTextGsubPlan *plan)
  * the font decides everything else, which is what makes Arabic joining and Indic reordering arrive through
  * the same code path Latin ligatures do.
  */
-uint32_t RoboTextGsubScriptTag(RoboTextScript script)
+uint32_t RoboTextOtScriptTag(RoboTextScript script)
 {
     const char *iso = UcdScriptShortName(script);
     char tag[4];
@@ -502,7 +502,7 @@ static const FontOtLangSys *GsubLanguageSystem(const FontOtScript *script,
     }
     for (size_t index = 0u; index < script->langSysCount; index++) {
         memset(tag, 0, sizeof(tag));
-        RoboTextGsubTagWrite(script->langSysRecords[index].langTag, tag);
+        RoboTextOtTagWrite(script->langSysRecords[index].langTag, tag);
         /* A layout table's language tag is four bytes, right-padded with spaces and conventionally upper
          * case ("UR  "), while a caller states a language the way the web does ("ur"). Both spellings are
          * tried, in both cases, because a font may use either — and a tag that matches neither leaves the
@@ -517,11 +517,11 @@ static const FontOtLangSys *GsubLanguageSystem(const FontOtScript *script,
     return NULL;
 }
 
-/** Where a lookup's index is first named by an enabled feature, for the trace's `feature` bytes. */
-static const char *GsubFeatureForLookup(const RoboTextGsubPlan *plan, uint16_t lookupIndex)
+/** See @ref RoboTextOtFeatureForLookup. */
+const char *RoboTextOtFeatureForLookup(const RoboTextOtPlan *plan, uint16_t lookupIndex)
 {
     for (size_t feature = 0u; feature < plan->featureCount; feature++) {
-        const RoboTextGsubFeature *entry = &plan->features[feature];
+        const RoboTextOtFeature *entry = &plan->features[feature];
 
         for (uint16_t lookup = 0u; lookup < entry->lookupIndexCount; lookup++) {
             if (entry->lookupIndices[lookup] == lookupIndex) {
@@ -532,12 +532,13 @@ static const char *GsubFeatureForLookup(const RoboTextGsubPlan *plan, uint16_t l
     return "    ";
 }
 
-Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
-                               RoboTextScript script,
-                               const RoboTextLanguage *language,
-                               const RoboTextFeatureSet *features,
-                               RoboTextGsubPlan *out,
-                               RoboTextDiag *diag)
+Result RoboTextOtPlanResolve(const FontOtLayout *layout,
+                             RoboTextScript script,
+                             const RoboTextLanguage *language,
+                             const RoboTextFeatureSet *features,
+                             const RoboTextFeatureSet *scriptDefaults,
+                             RoboTextOtPlan *out,
+                             RoboTextDiag *diag)
 {
     uint32_t scriptTag;
     const FontOtScript *record = NULL;
@@ -548,21 +549,22 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
         return RoboTextDiagMsg(diag, RoboTextDomainGsub, RoboInvalidArgument,
                                "an out plan is required");
     }
-    RoboTextGsubPlanInit(out);
-    if (!gsub) {
-        /* No GSUB is not an error: the caller shapes with the glyphs the cmap gave it. */
+    RoboTextOtPlanInit(out);
+    if (!layout) {
+        /* No table is not an error: the caller shapes with the glyphs the cmap gave it, or positions them
+         * with the advances the face gave it. */
         return RoboOk;
     }
-    if (gsub->kind != RoboFontOtLayoutGsub) {
+    if (layout->kind != RoboFontOtLayoutGsub && layout->kind != RoboFontOtLayoutGpos) {
         return RoboTextDiagMsg(diag, RoboTextDomainGsub, RoboInvalidArgument,
-                               "the layout handed to the substitution engine is not GSUB");
+                               "the layout handed to the layout core is neither GSUB nor GPOS");
     }
 
-    scriptTag = RoboTextGsubScriptTag(script);
+    scriptTag = RoboTextOtScriptTag(script);
     if (scriptTag != 0u) {
-        for (size_t index = 0u; index < gsub->scripts.scriptCount; index++) {
-            if (gsub->scripts.scripts[index].scriptTag == scriptTag) {
-                record = &gsub->scripts.scripts[index];
+        for (size_t index = 0u; index < layout->scripts.scriptCount; index++) {
+            if (layout->scripts.scripts[index].scriptTag == scriptTag) {
+                record = &layout->scripts.scripts[index];
                 break;
             }
         }
@@ -570,9 +572,9 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
     if (!record) {
         /* `DFLT`: the record a font puts behaviour common to every script under, and the answer for a script
          * the font has no record for (or for Common/Inherited text, which has no tag of its own). */
-        for (size_t index = 0u; index < gsub->scripts.scriptCount; index++) {
-            if (gsub->scripts.scripts[index].scriptTag == RoboFontTag('D', 'F', 'L', 'T')) {
-                record = &gsub->scripts.scripts[index];
+        for (size_t index = 0u; index < layout->scripts.scriptCount; index++) {
+            if (layout->scripts.scripts[index].scriptTag == RoboFontTag('D', 'F', 'L', 'T')) {
+                record = &layout->scripts.scripts[index];
                 out->usedDefaultScript = 1;
                 break;
             }
@@ -609,24 +611,26 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
         uint32_t value = 0u;
         char tag[RoboTextFeatureTagBytes];
 
-        if (featureIndex >= gsub->features.featureCount) {
+        if (featureIndex >= layout->features.featureCount) {
             continue;
         }
-        feature = &gsub->features.features[featureIndex];
-        RoboTextGsubTagWrite(feature->featureTag, tag);
+        feature = &layout->features.features[featureIndex];
+        RoboTextOtTagWrite(feature->featureTag, tag);
         state = GsubCallerState(features, tag, &value);
         if (state == RoboTextFeatureDefault) {
-            /* The caller said nothing, so the script's defaults decide — which is what makes `liga` ligate
-             * without anyone asking and `dlig` stay off without anyone saying so. */
-            RoboTextFeatureSet defaults;
-
-            RoboTextGsubDefaultFeatureSet(script, &defaults);
-            state = RoboTextFeatureSetFind(&defaults, tag) ? RoboTextFeatureOn : RoboTextFeatureOff;
+            /*
+             * The caller said nothing, so the **engine's** defaults for this script decide: GSUB's
+             * feature list for substitution, GPOS's for positioning. That is what makes `liga` ligate and
+             * `kern` kern without anyone asking, and what leaves `dlig` off without anyone saying so. A
+             * tag the engine's defaults do not name is off — the font's own "no opinion" answer.
+             */
+            state = (scriptDefaults && RoboTextFeatureSetFind(scriptDefaults, tag)) ? RoboTextFeatureOn
+                                                                                   : RoboTextFeatureOff;
         }
         if (state != RoboTextFeatureOn) {
             continue;
         }
-        if (out->featureCount >= (size_t)RoboTextGsubMaxPlanFeatures) {
+        if (out->featureCount >= (size_t)RoboTextOtMaxPlanFeatures) {
             return RoboTextDiagMsg(diag, RoboTextDomainGsub, RoboNotSupported,
                                    "the plan cannot hold another enabled feature");
         }
@@ -646,7 +650,7 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
             uint16_t lookupIndex = feature->lookupIndices[lookup];
             int seen = 0;
 
-            if (lookupIndex >= gsub->lookups.lookupCount) {
+            if (lookupIndex >= layout->lookups.lookupCount) {
                 continue;
             }
             for (size_t known = 0u; known < out->lookupCount; known++) {
@@ -672,8 +676,8 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
      * LangSys's own feature indices.
      */
     if (langSys->requiredFeatureIndex != 0xFFFFu &&
-        langSys->requiredFeatureIndex < gsub->features.featureCount) {
-        const FontOtFeature *feature = &gsub->features.features[langSys->requiredFeatureIndex];
+        langSys->requiredFeatureIndex < layout->features.featureCount) {
+        const FontOtFeature *feature = &layout->features.features[langSys->requiredFeatureIndex];
         int known = 0;
 
         for (size_t index = 0u; index < out->featureCount; index++) {
@@ -682,10 +686,10 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
                 break;
             }
         }
-        if (!known && out->featureCount < (size_t)RoboTextGsubMaxPlanFeatures) {
+        if (!known && out->featureCount < (size_t)RoboTextOtMaxPlanFeatures) {
             char tag[RoboTextFeatureTagBytes];
 
-            RoboTextGsubTagWrite(feature->featureTag, tag);
+            RoboTextOtTagWrite(feature->featureTag, tag);
             memcpy(out->features[out->featureCount].tag, tag, RoboTextFeatureTagBytes);
             out->features[out->featureCount].tagValue = feature->featureTag;
             out->features[out->featureCount].featureIndex = langSys->requiredFeatureIndex;
@@ -697,7 +701,7 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
                 uint16_t lookupIndex = feature->lookupIndices[lookup];
                 int seen = 0;
 
-                if (lookupIndex >= gsub->lookups.lookupCount) {
+                if (lookupIndex >= layout->lookups.lookupCount) {
                     continue;
                 }
                 for (size_t index = 0u; index < out->lookupCount; index++) {
@@ -726,6 +730,26 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
         out->lookupOrder[slot] = value;
     }
     return RoboOk;
+}
+
+/**
+ * GSUB's own door onto the shared core: the same resolution with **GSUB's** defaults for the script.
+ *
+ * A script's defaults belong to the engine because the two engines want different things from an unstated
+ * feature — `liga` is on for substitution and `kern` is on for positioning — and that is the *only*
+ * difference between resolving a GSUB plan and a GPOS plan.
+ */
+Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
+                               RoboTextScript script,
+                               const RoboTextLanguage *language,
+                               const RoboTextFeatureSet *features,
+                               RoboTextOtPlan *out,
+                               RoboTextDiag *diag)
+{
+    RoboTextFeatureSet defaults;
+
+    RoboTextGsubDefaultFeatureSet(script, &defaults);
+    return RoboTextOtPlanResolve(gsub, script, language, features, &defaults, out, diag);
 }
 
 /* ------------------------------------------------------------------ */
@@ -811,6 +835,7 @@ Result RoboTextGsubStatsWrite(const RoboTextGsubStats *stats,
         GsubCounterLine(sink, "lookups applied ", stats->lookupsApplied);
         GsubCounterLine(sink, "lookups skipped ", stats->lookupsSkipped);
         GsubCounterLine(sink, "subtables tried ", stats->subtablesTried);
+        GsubCounterLine(sink, "subtables malformed ", stats->subtablesMalformed);
         GsubCounterLine(sink, "single ", stats->singleSubstitutions);
         GsubCounterLine(sink, "multiple ", stats->multipleSubstitutions);
         GsubCounterLine(sink, "alternate ", stats->alternateSubstitutions);
@@ -838,7 +863,7 @@ Result RoboTextGsubStatsWrite(const RoboTextGsubStats *stats,
     return RoboOk;
 }
 
-Result RoboTextGsubBufferWrite(const RoboTextGsubBuffer *buffer,
+Result RoboTextShapingBufferWrite(const RoboTextShapingBuffer *buffer,
                                char *bufferOut,
                                size_t capacity,
                                size_t *outLength)
@@ -988,7 +1013,7 @@ Result RoboTextGsubEventsWrite(const RoboTextGsubEvent *events,
     return RoboOk;
 }
 
-Result RoboTextGsubPlanWrite(const RoboTextGsubPlan *plan,
+Result RoboTextOtPlanWrite(const RoboTextOtPlan *plan,
                              char *buffer,
                              size_t capacity,
                              size_t *outLength)
@@ -1009,11 +1034,11 @@ Result RoboTextGsubPlanWrite(const RoboTextGsubPlan *plan,
         char scriptTag[RoboTextFeatureTagBytes];
         char languageTag[RoboTextFeatureTagBytes];
 
-        RoboTextGsubTagWrite(plan->scriptTag, scriptTag);
+        RoboTextOtTagWrite(plan->scriptTag, scriptTag);
         length = RoboTextWriterText(line, sizeof(line), length, scriptTag);
         length = RoboTextWriterText(line, sizeof(line), length, "/");
         if (plan->languageTag != 0u) {
-            RoboTextGsubTagWrite(plan->languageTag, languageTag);
+            RoboTextOtTagWrite(plan->languageTag, languageTag);
             length = RoboTextWriterText(line, sizeof(line), length, languageTag);
         } else {
             length = RoboTextWriterText(line, sizeof(line), length, "dflt");
@@ -1061,7 +1086,7 @@ static const FontOtLookup *GsubLookupAt(const FontOtLayout *gsub, uint16_t index
     return &gsub->lookups.lookups[index];
 }
 
-void RoboTextGsubTrace(RoboTextGsubCall *apply,
+void RoboTextGsubTrace(RoboTextOtCall *apply,
                        size_t position,
                        const GlyphId *from,
                        size_t fromCount,
@@ -1091,7 +1116,7 @@ void RoboTextGsubTrace(RoboTextGsubCall *apply,
     event->toCount = toCount;
 }
 
-int RoboTextGsubLookupAppliesToDirection(const RoboTextGsubCall *apply)
+int RoboTextOtLookupAppliesToDirection(const RoboTextOtCall *apply)
 {
     if (!apply || !apply->lookup) {
         return 0;
@@ -1114,13 +1139,25 @@ int RoboTextGsubLookupAppliesToDirection(const RoboTextGsubCall *apply)
  * format's own name describes. Nothing about the run's direction follows from it, and the buffer's length
  * cannot change under this scan because that format substitutes one glyph for one.
  */
-static int GsubApplyLookupScan(RoboTextGsubCall *apply)
+static int GsubApplyLookupScan(RoboTextOtCall *apply)
 {
     size_t index;
     int applied = 0;
 
+    /*
+     * A subtable offset that lands on the lookup's own header is refused **once**, before either scan: how many
+     * times a run of text would have stepped over it is a fact about the text, not about the font.
+     */
+    for (uint16_t subtable = 0u; subtable < apply->lookup->subtableCount; subtable++) {
+        const FontOtLookupSubtable *entry = &apply->lookup->subtables[subtable];
+
+        if (entry->offset == 0u || RoboTextOtSubtableInsideLookup(apply->lookup, entry->offset)) {
+            apply->stats.subtablesMalformed++;
+        }
+    }
+
     if (apply->lookupType == RoboTextGsubLookupReverseChaining) {
-        size_t reverse = RoboTextGsubBufferCount(apply->buffer);
+        size_t reverse = RoboTextShapingBufferCount(apply->buffer);
 
         while (reverse != 0u) {
             size_t resolved = 0u;
@@ -1129,7 +1166,7 @@ static int GsubApplyLookupScan(RoboTextGsubCall *apply)
             for (uint16_t subtable = 0u; subtable < apply->lookup->subtableCount; subtable++) {
                 const FontOtLookupSubtable *entry = &apply->lookup->subtables[subtable];
 
-                if (entry->offset == 0u) {
+                if (entry->offset == 0u || RoboTextOtSubtableInsideLookup(apply->lookup, entry->offset)) {
                     continue;
                 }
                 apply->stats.subtablesTried++;
@@ -1147,7 +1184,7 @@ static int GsubApplyLookupScan(RoboTextGsubCall *apply)
     }
 
     index = 0u;
-    while (index < RoboTextGsubBufferCount(apply->buffer)) {
+    while (index < RoboTextShapingBufferCount(apply->buffer)) {
         size_t next = index + 1u;
         int substituted = 0;
 
@@ -1155,7 +1192,7 @@ static int GsubApplyLookupScan(RoboTextGsubCall *apply)
             const FontOtLookupSubtable *entry = &apply->lookup->subtables[subtable];
             size_t resolved = index;
 
-            if (entry->offset == 0u) {
+            if (entry->offset == 0u || RoboTextOtSubtableInsideLookup(apply->lookup, entry->offset)) {
                 continue;
             }
             apply->stats.subtablesTried++;
@@ -1178,12 +1215,12 @@ static int GsubApplyLookupScan(RoboTextGsubCall *apply)
     return applied;
 }
 
-int RoboTextGsubApplyLookupAt(RoboTextGsubCall *apply,
+int RoboTextGsubApplyLookupAt(RoboTextOtCall *apply,
                               uint16_t lookupIndex,
                               size_t position,
                               size_t *outNext)
 {
-    const FontOtLookup *lookup = GsubLookupAt(apply->gsub, lookupIndex);
+    const FontOtLookup *lookup = GsubLookupAt(apply->layout, lookupIndex);
     const FontOtLookup *outer = apply->lookup;
     uint16_t outerType = apply->lookupType;
     char outerTag[4];
@@ -1239,13 +1276,13 @@ int RoboTextGsubApplyLookupAt(RoboTextGsubCall *apply,
 
 Result RoboTextGsubApply(const FontOtLayout *gsub,
                          const FontGdef *gdef,
-                         const RoboTextGsubPlan *plan,
+                         const RoboTextOtPlan *plan,
                          const RoboTextGsubOptions *options,
-                         RoboTextGsubBuffer *buffer,
+                         RoboTextShapingBuffer *buffer,
                          RoboTextGsubStats *outStats,
                          RoboTextDiag *diag)
 {
-    RoboTextGsubCall apply;
+    RoboTextOtCall apply;
     RoboTextGsubOptions defaults;
 
     if (!buffer || !outStats) {
@@ -1255,20 +1292,20 @@ Result RoboTextGsubApply(const FontOtLayout *gsub,
     RoboTextGsubStatsInit(outStats);
     memset(&apply, 0, sizeof(apply));
     memset(&defaults, 0, sizeof(defaults));
-    apply.gsub = gsub;
+    apply.layout = gsub;
     apply.gdef = gdef;
     apply.plan = plan;
     apply.buffer = buffer;
-    apply.limits = (options && options->limits) ? options->limits : &RoboTextGsubDefaultLimits;
+    apply.limits = (options && options->limits) ? options->limits : &RoboTextOtDefaultLimits;
     apply.direction = options ? options->direction : RoboTextDirectionUnknown;
     apply.bidiLevel = options ? options->bidiLevel : RoboTextBidiLevelNone;
     if (options) {
         apply.trace = options->trace;
         apply.traceCapacity = options->traceCapacity;
     }
-    apply.stats.glyphsBefore = RoboTextGsubBufferCount(buffer);
+    apply.stats.glyphsBefore = RoboTextShapingBufferCount(buffer);
     for (size_t index = 0u; index < apply.stats.glyphsBefore; index++) {
-        const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(buffer, index);
+        const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(buffer, index);
 
         if (glyph && glyph->glyphId == RoboGlyphIdNone) {
             apply.stats.unmappedGlyphs++;
@@ -1298,8 +1335,8 @@ Result RoboTextGsubApply(const FontOtLayout *gsub,
             apply.lookup = lookup;
             apply.lookupIndex = plan->lookupOrder[index];
             apply.lookupType = type;
-            memcpy(apply.featureTag, GsubFeatureForLookup(plan, apply.lookupIndex), 4u);
-            if (!RoboTextGsubLookupAppliesToDirection(&apply)) {
+            memcpy(apply.featureTag, RoboTextOtFeatureForLookup(plan, apply.lookupIndex), 4u);
+            if (!RoboTextOtLookupAppliesToDirection(&apply)) {
                 /* The font's own condition, not a failure: a right-to-left-only lookup on left-to-right
                  * text simply does not apply. */
                 continue;
@@ -1317,11 +1354,11 @@ Result RoboTextGsubApply(const FontOtLayout *gsub,
         }
     }
 
-    apply.stats.glyphsAfter = RoboTextGsubBufferCount(buffer);
+    apply.stats.glyphsAfter = RoboTextShapingBufferCount(buffer);
     apply.stats.traceEvents = apply.traceCount;
     apply.stats.limitReached = (apply.limitReached || apply.failed) ? 1 : 0;
     *outStats = apply.stats;
-    RoboTextGsubCacheClear(&apply);
+    RoboTextOtCacheClear(&apply);
     if (apply.failed) {
         return RoboTextDiagMsg(diag, RoboTextDomainGsub, RoboOutOfMemory,
                                "the shaping buffer could not grow");

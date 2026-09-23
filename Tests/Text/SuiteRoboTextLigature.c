@@ -429,7 +429,17 @@ static void TestLigatureRunSet(void)
     setting = RoboTextFeatureSetFind(&run->features, "dlig");
     RoboCheck(setting != NULL);
     RoboCheckEqInt((int)setting->state, (int)RoboTextFeatureOff);
-    RoboCheckEqInt((int)RoboTextFeatureSetCount(&run->features), 5);
+    /*
+     * The count is the ligature policy's five **plus** the tags another policy states for the same run — the
+     * kerning policy's `kern` since Phase 12.13. Asserted as "at least the five, each of them right" rather
+     * than as an exact number, because a count that grows when an unrelated policy is added says nothing about
+     * ligatures, while a missing `liga` says everything.
+     */
+    RoboCheck((int)RoboTextFeatureSetCount(&run->features) >= 5);
+    for (size_t kind = 0u; kind < RoboTextLigatureKindCount; kind++) {
+        RoboCheck(RoboTextFeatureSetFind(&run->features, RoboTextLigatureKindTag((RoboTextLigatureKind)kind)) !=
+                  NULL);
+    }
 
     /* A caller's `liga=off` outranks the default policy, and the other four tags still arrive. */
     RoboTextShapeOptionsInit(&options);
@@ -518,7 +528,9 @@ static void TestLigatureShippedPack(void)
         RoboCheckEqInt((int)RoboTextGlyphRunScalarCount(ligatedRun), 2);
         RoboCheckEqInt((int)RoboTextGlyphRunLigatures(ligatedRun), 1);
         RoboCheckEqInt((int)RoboTextGlyphRunSubstituted(ligatedRun), 1);
-        RoboCheckEqInt((int)RoboTextGlyphRunGenerationMode(ligatedRun), (int)RoboTextGlyphGenerationGsub);
+        /* The furthest stage: Inter carries GPOS as well as GSUB, so the ligature this run got is a glyph
+         * the face then positioned. 12.13's kerning is what that stage is for. */
+        RoboCheckEqInt((int)RoboTextGlyphRunGenerationMode(ligatedRun), (int)RoboTextGlyphGenerationGpos);
 
         RoboCheckEqInt((int)RoboTextGlyphRunLigatureAt(ligatedRun, 0u, &ligatureIndex, NULL), (int)RoboOk);
         RoboCheckEqInt((int)ligatureIndex, 0);

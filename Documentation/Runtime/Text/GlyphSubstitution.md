@@ -169,7 +169,8 @@ After the buffer is final, `RoboTextGlyphs.c` rebuilds `RoboTextGlyphRun` from i
   `PDI`, …) keeps its slot with no id and no advance so that source positions still line up;
 - `missing` counts glyphs with no id or no metrics — a control is *not* one of them.
 
-GSUB does **not** position: offsets stay zero and `RoboTextCapabilities.positioning` stays `0` until 12.11.
+GSUB does **not** position: substitution decides ids, and the offsets and advances a face's GPOS states are
+12.11's engine (`Positioning.md`), which runs on this engine's output rather than beside it.
 Kerning and mark attachment are 12.11/12.13's, and nothing in this file assumes anything about them.
 
 ## 10. Ordering and recursion

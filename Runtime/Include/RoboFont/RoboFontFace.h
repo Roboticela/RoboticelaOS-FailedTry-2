@@ -98,6 +98,15 @@ Result FontFaceParseOtLayout(FontFace *face);
 /** The cached GSUB layout, or NULL when the face has none or it has not been parsed. */
 const FontOtLayout *FontFaceGsub(const FontFace *face);
 
+/**
+ * The face's GPOS table, parsed once and cached, or NULL when the face carries none (Goal 5.4).
+ *
+ * The positioning half of @ref FontFaceGsub, and the same parse: one `FontOtParse` reads the whole layout
+ * group (GSUB, GPOS, GDEF) under `RoboFontOtFlagsParseLayout`, so asking for either table costs the same
+ * walk and a face that carries only GPOS is as usable as one that carries only GSUB.
+ */
+const FontOtLayout *FontFaceGpos(const FontFace *face);
+
 /** The cached GDEF, or NULL when the face has none or it has not been parsed. */
 const FontGdef *FontFaceGdef(const FontFace *face);
 

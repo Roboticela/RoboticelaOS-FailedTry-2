@@ -137,7 +137,7 @@ static void Wpad4(ByteWriter *w)
 
 static uint32_t FixtureTag(const char *tag)
 {
-    return RoboTextGsubTagOf(tag);
+    return RoboTextOtTagOf(tag);
 }
 
 /* ------------------------------------------------------------------ */
@@ -885,7 +885,131 @@ static uint8_t g_fontBytes[8192];
 static size_t g_fontLength;
 
 /** Build the fixture font and answer the GSUB layout it recorded. */
-static void FixtureBuildFont(FixtureLayout *layout)
+/**
+ * Build a **GPOS** table whose `kern` feature carries one explicit pair: @p first against @p second, moved by
+ * @p xAdvance font units.
+ *
+ * It lives in this file because of what the *pair of tables* proves together: the same face carries a GSUB
+ * ligature and a GPOS pair, so a test can shape `ffiC` and see the font's pair apply to the ligature glyph the
+ * substitution produced rather than to the three characters that made it. Neither the shipped pack nor a
+ * GSUB-only fixture can show that — Inter's kerning involves no ligature.
+ *
+ * The layout is the format's — header, ScriptList, FeatureList, LookupList, then the subtable — and every
+ * offset is stated against the list it lives in, which is the part a hand-written table gets wrong first.
+ */
+static size_t BuildGpos(uint8_t *out,
+                        size_t capacity,
+                        uint16_t first,
+                        uint16_t second,
+                        int16_t xAdvance)
+{
+    ByteWriter w;
+    size_t header;
+    size_t scriptList;
+    size_t scriptTable;
+    size_t langSys;
+    size_t featureList;
+    size_t featureTable;
+    size_t lookupList;
+    size_t lookupTable;
+    size_t subtableOffsetField;
+    size_t base;
+    size_t coverageOffsetField;
+    size_t pairSetOffsetField;
+    size_t pairSet;
+    size_t coverage;
+
+    w.data = out;
+    w.capacity = capacity;
+    w.length = 0u;
+
+    header = Wreserve(&w, 10u);
+
+    /* ---- ScriptList: one `latn` record whose default LangSys names feature 0. ---- */
+    scriptList = w.length;
+    (void)Wu16At(&w, 1u);
+    (void)Wu32At(&w, RoboFontTag('l', 'a', 't', 'n'));
+    {
+        size_t record = Wu16At(&w, 0u);
+
+        scriptTable = w.length;
+        Wu16(&w, record, (uint16_t)(scriptTable - scriptList));
+    }
+    {
+        size_t field = Wu16At(&w, 0u);
+
+        (void)Wu16At(&w, 0u); /* langSysCount */
+        langSys = w.length;
+        Wu16(&w, field, (uint16_t)(langSys - scriptTable));
+    }
+    (void)Wu16At(&w, 0u);      /* lookupOrder, reserved */
+    (void)Wu16At(&w, 0xFFFFu); /* requiredFeatureIndex: none */
+    (void)Wu16At(&w, 1u);
+    (void)Wu16At(&w, 0u); /* feature 0 */
+
+    /* ---- FeatureList: one `kern` feature naming lookup 0. ---- */
+    featureList = w.length;
+    (void)Wu16At(&w, 1u);
+    (void)Wu32At(&w, RoboFontTag('k', 'e', 'r', 'n'));
+    {
+        size_t field = Wu16At(&w, 0u);
+
+        featureTable = w.length;
+        Wu16(&w, field, (uint16_t)(featureTable - featureList));
+    }
+    (void)Wu16At(&w, 0u); /* featureParams */
+    (void)Wu16At(&w, 1u);
+    (void)Wu16At(&w, 0u); /* lookup 0 */
+
+    /* ---- LookupList: one pair lookup with one subtable. ---- */
+    lookupList = w.length;
+    (void)Wu16At(&w, 1u);
+    {
+        size_t field = Wu16At(&w, 0u);
+
+        lookupTable = w.length;
+        Wu16(&w, field, (uint16_t)(lookupTable - lookupList));
+    }
+    (void)Wu16At(&w, 2u); /* lookupType: pair adjustment */
+    (void)Wu16At(&w, 0u); /* lookupFlag: nothing ignored */
+    (void)Wu16At(&w, 1u); /* subtableCount */
+    subtableOffsetField = Wu16At(&w, 0u);
+
+    /* ---- The subtable: pair adjustment, format 1, one pair set with one pair. ---- */
+    base = w.length;
+    Wu16(&w, subtableOffsetField, (uint16_t)(base - lookupTable));
+    (void)Wu16At(&w, 1u); /* posFormat */
+    coverageOffsetField = Wu16At(&w, 0u);
+    (void)Wu16At(&w, 0x0004u); /* valueFormat1: xAdvance */
+    (void)Wu16At(&w, 0u);      /* valueFormat2 */
+    (void)Wu16At(&w, 1u);      /* pairSetCount */
+    pairSetOffsetField = Wu16At(&w, 0u);
+    pairSet = w.length;
+    Wu16(&w, pairSetOffsetField, (uint16_t)(pairSet - base));
+    (void)Wu16At(&w, 1u); /* pairValueCount */
+    (void)Wu16At(&w, second);
+    (void)Wu16At(&w, (uint16_t)xAdvance);
+    coverage = w.length;
+    Wu16(&w, coverageOffsetField, (uint16_t)(coverage - base));
+    (void)Wu16At(&w, 1u); /* coverageFormat */
+    (void)Wu16At(&w, 1u); /* glyphCount */
+    (void)Wu16At(&w, first);
+
+    Wu32(&w, header, 0x00010000u);
+    Wu16(&w, header + 4u, (uint16_t)scriptList);
+    Wu16(&w, header + 6u, (uint16_t)featureList);
+    Wu16(&w, header + 8u, (uint16_t)lookupList);
+    return w.length;
+}
+
+/**
+ * Build the fixture font, optionally with the GPOS table above.
+ *
+ * Positioned separately from @ref FixtureBuildFont so that the substitution suites keep a face with *no*
+ * positioning: adding a `kern` feature to the shared font would move every `text.gsub.*` run's generation
+ * mode from `Gsub` to `Gpos` and blur what those cases are measuring.
+ */
+static void FixtureBuildFontMode(FixtureLayout *layout, int withGpos)
 {
     static uint8_t head[54];
     static uint8_t hhea[36];
@@ -897,7 +1021,7 @@ static void FixtureBuildFont(FixtureLayout *layout)
     static uint8_t post[32];
     static uint8_t os2[96];
     static uint8_t gsub[4096];
-    SynthTable tables[9];
+    SynthTable tables[10];
     ByteWriter writer;
     size_t cmapLength;
     size_t gdefLength;
@@ -942,8 +1066,22 @@ static void FixtureBuildFont(FixtureLayout *layout)
     tables[8].tag = RoboFontTag('O', 'S', '/', '2');
     tables[8].data = os2;
     tables[8].length = (uint32_t)BuildOs2(os2);
-    g_fontLength = BuildSfnt(g_fontBytes, sizeof(g_fontBytes), tables, 9u);
+    if (withGpos) {
+        static uint8_t gpos[512];
+
+        tables[9].tag = RoboFontTag('G', 'P', 'O', 'S');
+        tables[9].data = gpos;
+        tables[9].length = (uint32_t)BuildGpos(gpos, sizeof(gpos), FixtureFfi, FixtureC, -100);
+        g_fontLength = BuildSfnt(g_fontBytes, sizeof(g_fontBytes), tables, 10u);
+    } else {
+        g_fontLength = BuildSfnt(g_fontBytes, sizeof(g_fontBytes), tables, 9u);
+    }
     RoboCheck(g_fontLength != 0u);
+}
+
+static void FixtureBuildFont(FixtureLayout *layout)
+{
+    FixtureBuildFontMode(layout, 0);
 }
 
 typedef struct GsubFixture {
@@ -1007,7 +1145,7 @@ static void PlanFor(FontFace *face,
                     RoboTextScript script,
                     const RoboTextLanguage *language,
                     const RoboTextFeatureSet *features,
-                    RoboTextGsubPlan *out)
+                    RoboTextOtPlan *out)
 {
     const FontOtLayout *gsub = NULL;
 
@@ -1016,22 +1154,22 @@ static void PlanFor(FontFace *face,
     RoboCheck(gsub != NULL);
     RoboCheckEqInt((int)RoboTextGsubPlanResolve(gsub, script, language, features, out, NULL),
                    (int)RoboOk);
-    RoboCheck(RoboTextGsubPlanIsValid(out));
+    RoboCheck(RoboTextOtPlanIsValid(out));
 }
 
 /** Apply @p plan to the glyph ids of @p text (through the face's cmap) and answer the buffer. */
-static RoboTextGsubBuffer *RunPlan(FontFace *face,
-                                   const RoboTextGsubPlan *plan,
+static RoboTextShapingBuffer *RunPlan(FontFace *face,
+                                   const RoboTextOtPlan *plan,
                                    const char *text,
                                    const RoboTextFeatureSet *features,
                                    RoboTextGsubStats *stats,
                                    RoboTextGsubEvent *trace,
                                    size_t traceCapacity,
-                                   RoboTextGsubLimits *limits)
+                                   RoboTextOtLimits *limits)
 {
     const FontOtLayout *gsub = NULL;
     const FontGdef *gdef = NULL;
-    RoboTextGsubBuffer *buffer = NULL;
+    RoboTextShapingBuffer *buffer = NULL;
     RoboTextRunSet *set = NULL;
     RoboTextFontContext font;
     RoboTextFontStyle style;
@@ -1050,7 +1188,7 @@ static RoboTextGsubBuffer *RunPlan(FontFace *face,
     gsub = FontFaceGsub(face);
     gdef = FontFaceGdef(face);
 
-    buffer = RoboTextGsubBufferCreate(16u);
+    buffer = RoboTextShapingBufferCreate(16u);
     RoboCheck(buffer != NULL);
     for (RoboTextScalarIndex scalar = 0u; scalar < (RoboTextScalarIndex)strlen(text); scalar++) {
         RoboTextShapingGlyph glyph;
@@ -1067,7 +1205,7 @@ static RoboTextGsubBuffer *RunPlan(FontFace *face,
         glyph.source = RoboTextRangeMake(scalar, scalar + 1u);
         glyph.cluster = scalar;
         glyph.bidiLevel = 0u;
-        RoboCheckEqInt((int)RoboTextGsubBufferAppend(buffer, &glyph), (int)RoboOk);
+        RoboCheckEqInt((int)RoboTextShapingBufferAppend(buffer, &glyph), (int)RoboOk);
     }
     {
         RoboTextGsubOptions applyOptions;
@@ -1095,37 +1233,37 @@ static RoboTextGsubBuffer *RunPlan(FontFace *face,
 
 static void TestGsubVocabulary(void)
 {
-    RoboTextGsubPlan plan;
+    RoboTextOtPlan plan;
     RoboTextGsubStats stats;
     RoboTextShapingGlyph glyph;
     RoboTextShapingGlyph other;
     char tag[RoboTextFeatureTagBytes];
 
-    RoboCheckEqInt((int)RoboTextGsubTagOf("liga"), (int)0x6C696761u);
-    RoboCheckEqInt((int)RoboTextGsubTagOf("li"), 0);
-    RoboCheckEqInt((int)RoboTextGsubTagOf("ligaa"), 0);
-    RoboCheckEqInt((int)RoboTextGsubTagOf(NULL), 0);
-    RoboTextGsubTagWrite(0x6C696761u, tag);
+    RoboCheckEqInt((int)RoboTextOtTagOf("liga"), (int)0x6C696761u);
+    RoboCheckEqInt((int)RoboTextOtTagOf("li"), 0);
+    RoboCheckEqInt((int)RoboTextOtTagOf("ligaa"), 0);
+    RoboCheckEqInt((int)RoboTextOtTagOf(NULL), 0);
+    RoboTextOtTagWrite(0x6C696761u, tag);
     RoboCheckStrEq(tag, "liga");
 
     /* The script tag is the ISO 15924 code in lower case, with the registry's five exceptions. */
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptLatin), (int)RoboFontTag('l', 'a', 't', 'n'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptArabic), (int)RoboFontTag('a', 'r', 'a', 'b'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptHebrew), (int)RoboFontTag('h', 'e', 'b', 'r'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptDevanagari),
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptLatin), (int)RoboFontTag('l', 'a', 't', 'n'));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptArabic), (int)RoboFontTag('a', 'r', 'a', 'b'));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptHebrew), (int)RoboFontTag('h', 'e', 'b', 'r'));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptDevanagari),
                    (int)RoboFontTag('d', 'e', 'v', 'a'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptHan), (int)RoboFontTag('h', 'a', 'n', 'i'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptHangul), (int)RoboFontTag('h', 'a', 'n', 'g'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptLao), (int)RoboFontTag('l', 'a', 'o', ' '));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptNko), (int)RoboFontTag('n', 'k', 'o', ' '));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptYi), (int)RoboFontTag('y', 'i', ' ', ' '));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptVai), (int)RoboFontTag('v', 'a', 'i', ' '));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptHan), (int)RoboFontTag('h', 'a', 'n', 'i'));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptHangul), (int)RoboFontTag('h', 'a', 'n', 'g'));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptLao), (int)RoboFontTag('l', 'a', 'o', ' '));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptNko), (int)RoboFontTag('n', 'k', 'o', ' '));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptYi), (int)RoboFontTag('y', 'i', ' ', ' '));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptVai), (int)RoboFontTag('v', 'a', 'i', ' '));
     /* Hiragana shares Katakana's record; Common, Inherited and Unknown ask for `DFLT` (0). */
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptHiragana), (int)RoboFontTag('k', 'a', 'n', 'a'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptKatakana), (int)RoboFontTag('k', 'a', 'n', 'a'));
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptCommon), 0);
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptInherited), 0);
-    RoboCheckEqInt((int)RoboTextGsubScriptTag(RoboUScriptUnknown), 0);
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptHiragana), (int)RoboFontTag('k', 'a', 'n', 'a'));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptKatakana), (int)RoboFontTag('k', 'a', 'n', 'a'));
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptCommon), 0);
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptInherited), 0);
+    RoboCheckEqInt((int)RoboTextOtScriptTag(RoboUScriptUnknown), 0);
 
     /* A glyph record's own contract: a source is required, and equality is field for field. */
     RoboTextShapingGlyphInit(&glyph);
@@ -1144,35 +1282,35 @@ static void TestGsubVocabulary(void)
     RoboCheck(!RoboTextShapingGlyphEqual(&glyph, &other));
     RoboCheck(RoboTextShapingGlyphEqual(NULL, NULL));
 
-    RoboTextGsubPlanInit(&plan);
-    RoboCheck(RoboTextGsubPlanIsValid(&plan));
+    RoboTextOtPlanInit(&plan);
+    RoboCheck(RoboTextOtPlanIsValid(&plan));
     RoboCheck(plan.empty);
-    RoboCheck(!RoboTextGsubPlanIsValid(NULL));
+    RoboCheck(!RoboTextOtPlanIsValid(NULL));
     RoboTextGsubStatsInit(&stats);
     RoboCheckEqInt((int)stats.glyphsBefore, 0);
     RoboTextGsubStatsInit(NULL); /* Safe. */
 
     /* The buffer refuses what it cannot answer for, and deletes only when told to. */
     {
-        RoboTextGsubBuffer *buffer = RoboTextGsubBufferCreate(2u);
+        RoboTextShapingBuffer *buffer = RoboTextShapingBufferCreate(2u);
         RoboTextShapingGlyph empty;
 
         RoboTextShapingGlyphInit(&empty);
-        RoboCheckEqInt((int)RoboTextGsubBufferAppend(buffer, &empty), (int)RoboInvalidArgument);
-        RoboCheckEqInt((int)RoboTextGsubBufferAppend(NULL, &glyph), (int)RoboInvalidArgument);
-        RoboCheckEqInt((int)RoboTextGsubBufferAppend(buffer, &glyph), (int)RoboOk);
-        RoboCheckEqInt((int)RoboTextGsubBufferCount(buffer), 1);
-        RoboCheckEqInt((int)RoboTextGsubBufferSetGlyph(buffer, 0u, 9u), (int)RoboOk);
-        RoboCheckEqInt((int)RoboTextGsubBufferAt(buffer, 0u)->glyphId, 9);
-        RoboCheckEqInt((int)RoboTextGsubBufferSetGlyph(buffer, 5u, 9u), (int)RoboInvalidArgument);
-        RoboCheck(RoboTextGsubBufferAt(buffer, 1u) == NULL);
-        RoboCheck(RoboTextGsubBufferAtMutable(buffer, 0u) != NULL);
-        RoboCheckEqInt((int)RoboTextGsubBufferReplace(buffer, 4u, 1u, NULL, 0u),
+        RoboCheckEqInt((int)RoboTextShapingBufferAppend(buffer, &empty), (int)RoboInvalidArgument);
+        RoboCheckEqInt((int)RoboTextShapingBufferAppend(NULL, &glyph), (int)RoboInvalidArgument);
+        RoboCheckEqInt((int)RoboTextShapingBufferAppend(buffer, &glyph), (int)RoboOk);
+        RoboCheckEqInt((int)RoboTextShapingBufferCount(buffer), 1);
+        RoboCheckEqInt((int)RoboTextShapingBufferSetGlyph(buffer, 0u, 9u), (int)RoboOk);
+        RoboCheckEqInt((int)RoboTextShapingBufferAt(buffer, 0u)->glyphId, 9);
+        RoboCheckEqInt((int)RoboTextShapingBufferSetGlyph(buffer, 5u, 9u), (int)RoboInvalidArgument);
+        RoboCheck(RoboTextShapingBufferAt(buffer, 1u) == NULL);
+        RoboCheck(RoboTextShapingBufferAtMutable(buffer, 0u) != NULL);
+        RoboCheckEqInt((int)RoboTextShapingBufferReplace(buffer, 4u, 1u, NULL, 0u),
                        (int)RoboInvalidArgument);
-        RoboCheckEqInt((int)RoboTextGsubBufferReplace(buffer, 0u, 1u, NULL, 0u), (int)RoboOk);
-        RoboCheckEqInt((int)RoboTextGsubBufferCount(buffer), 0);
-        RoboTextGsubBufferDestroy(buffer);
-        RoboTextGsubBufferDestroy(NULL);
+        RoboCheckEqInt((int)RoboTextShapingBufferReplace(buffer, 0u, 1u, NULL, 0u), (int)RoboOk);
+        RoboCheckEqInt((int)RoboTextShapingBufferCount(buffer), 0);
+        RoboTextShapingBufferDestroy(buffer);
+        RoboTextShapingBufferDestroy(NULL);
     }
 }
 
@@ -1185,12 +1323,12 @@ static void TestGsubPlan(void)
     GsubFixture fixture;
     FixtureLayout layout;
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan;
+    RoboTextOtPlan plan;
 
     FixtureOpen(&fixture, &layout);
 
     /* No features asked: the script's defaults, which are `ccmp`, `liga` and `calt` in this font. */
-    RoboTextGsubPlanInit(&plan);
+    RoboTextOtPlanInit(&plan);
     PlanFor(fixture.face, RoboUScriptLatin, NULL, NULL, &plan);
     RoboCheck(!plan.empty);
     RoboCheck(!plan.usedDefaultScript);
@@ -1260,8 +1398,8 @@ static void TestGsubPlan(void)
 
     /* A face with no GSUB at all resolves an empty plan rather than failing. */
     {
-        RoboTextGsubPlan empty;
-        RoboTextGsubPlanInit(&empty);
+        RoboTextOtPlan empty;
+        RoboTextOtPlanInit(&empty);
         RoboCheckEqInt((int)RoboTextGsubPlanResolve(NULL, RoboUScriptLatin, NULL, NULL, &empty, NULL),
                        (int)RoboOk);
         RoboCheck(empty.empty);
@@ -1277,13 +1415,13 @@ static void TestGsubPlan(void)
 /* ------------------------------------------------------------------ */
 
 /** Answer the buffer for @p text with every feature off except @p tag (and the B letters `calt` sees). */
-static RoboTextGsubBuffer *RunIsolated(GsubFixture *fixture,
+static RoboTextShapingBuffer *RunIsolated(GsubFixture *fixture,
                                        const char *tag,
                                        const char *text,
                                        RoboTextGsubStats *stats)
 {
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
+    RoboTextOtPlan plan = {0};
 
     RoboTextFeatureSetInit(&features);
     /* The three script defaults this font carries are turned off, so the lookup under test is the only one
@@ -1299,22 +1437,22 @@ static RoboTextGsubBuffer *RunIsolated(GsubFixture *fixture,
 }
 
 /** The buffer for @p text with the **script's defaults** (ccmp, liga, calt) and nothing asked for. */
-static RoboTextGsubBuffer *RunDefaults(GsubFixture *fixture, const char *text, RoboTextGsubStats *stats)
+static RoboTextShapingBuffer *RunDefaults(GsubFixture *fixture, const char *text, RoboTextGsubStats *stats)
 {
-    RoboTextGsubPlan plan = {0};
+    RoboTextOtPlan plan = {0};
 
     PlanFor(fixture->face, RoboUScriptLatin, NULL, NULL, &plan);
     return RunPlan(fixture->face, &plan, text, NULL, stats, NULL, 0u, NULL);
 }
 
 /** The glyph ids the buffer holds, into @p out. @return how many. */
-static size_t BufferIds(const RoboTextGsubBuffer *buffer, uint32_t *out, size_t capacity)
+static size_t BufferIds(const RoboTextShapingBuffer *buffer, uint32_t *out, size_t capacity)
 {
-    size_t count = RoboTextGsubBufferCount(buffer);
+    size_t count = RoboTextShapingBufferCount(buffer);
 
     RoboCheck(count <= capacity);
     for (size_t index = 0u; index < count; index++) {
-        out[index] = (uint32_t)RoboTextGsubBufferAt(buffer, index)->glyphId;
+        out[index] = (uint32_t)RoboTextShapingBufferAt(buffer, index)->glyphId;
     }
     return count;
 }
@@ -1323,12 +1461,12 @@ static void TestGsubSingle(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     RoboTextGsubEvent trace[4];
     uint32_t ids[8];
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
+    RoboTextOtPlan plan = {0};
     const RoboTextShapingGlyph *glyph;
 
     FixtureOpen(&fixture, &layout);
@@ -1339,8 +1477,8 @@ static void TestGsubSingle(void)
 
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 1);
     RoboCheckEqInt((int)ids[0], FixtureBAlt);
-    RoboCheckEqInt((int)RoboTextGsubBufferCount(buffer), 1); /* One in, one out. */
-    glyph = RoboTextGsubBufferAt(buffer, 0u);
+    RoboCheckEqInt((int)RoboTextShapingBufferCount(buffer), 1); /* One in, one out. */
+    glyph = RoboTextShapingBufferAt(buffer, 0u);
     RoboCheckEqInt((int)glyph->source.start, 0);
     RoboCheckEqInt((int)glyph->source.end, 1);
     RoboCheckEqInt((int)glyph->cluster, 0);
@@ -1372,14 +1510,14 @@ static void TestGsubSingle(void)
         eventTag[4] = '\0';
         RoboCheckStrEq(eventTag, "tst1");
     }
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* With the feature off the id is the cmap's, and nothing is recorded. */
     buffer = RunDefaults(&fixture, "B", &stats);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 1);
     RoboCheckEqInt((int)ids[0], FixtureB);
     RoboCheckEqInt((int)stats.singleSubstitutions, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1395,7 +1533,7 @@ static void TestGsubSingleDelta(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     uint32_t ids[4];
 
@@ -1406,14 +1544,14 @@ static void TestGsubSingleDelta(void)
     RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
     RoboCheckEqInt((int)ids[0], FixtureAAlt1);
     RoboCheckEqInt((int)stats.singleSubstitutions, 1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* A glyph the coverage does not list is untouched: the delta is not a blanket shift. */
     buffer = RunIsolated(&fixture, "tst5", "D", &stats);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
     RoboCheckEqInt((int)ids[0], FixtureD);
     RoboCheckEqInt((int)stats.singleSubstitutions, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1422,7 +1560,7 @@ static void TestGsubMultiple(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     uint32_t ids[8];
     const RoboTextShapingGlyph *first;
@@ -1433,8 +1571,8 @@ static void TestGsubMultiple(void)
     buffer = RunIsolated(&fixture, "ccmp", "X", &stats);    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
     RoboCheckEqInt((int)ids[0], FixtureB);
     RoboCheckEqInt((int)ids[1], FixtureC);
-    first = RoboTextGsubBufferAt(buffer, 0u);
-    second = RoboTextGsubBufferAt(buffer, 1u);
+    first = RoboTextShapingBufferAt(buffer, 0u);
+    second = RoboTextShapingBufferAt(buffer, 1u);
     /* Both products name the one scalar that produced them: one in, two out, same source. */
     RoboCheckEqInt((int)first->source.start, 0);
     RoboCheckEqInt((int)first->source.end, 1);
@@ -1447,7 +1585,7 @@ static void TestGsubMultiple(void)
     RoboCheckEqInt((int)stats.multipleSubstitutions, 1);
     RoboCheckEqInt((int)stats.glyphsBefore, 1);
     RoboCheckEqInt((int)stats.glyphsAfter, 2);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
     FixtureClose(&fixture);
 }
 
@@ -1455,10 +1593,10 @@ static void TestGsubAlternate(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
+    RoboTextOtPlan plan = {0};
     uint32_t ids[4];
 
     FixtureOpen(&fixture, &layout);
@@ -1471,7 +1609,7 @@ static void TestGsubAlternate(void)
     RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
     RoboCheckEqInt((int)ids[0], FixtureAAlt1);
     RoboCheckEqInt((int)stats.alternateSubstitutions, 1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* The second, asked for by the feature's value. */
     RoboCheckEqInt((int)RoboTextFeatureSetSet(&features, "salt", RoboTextFeatureOn, 1u), (int)RoboOk);
@@ -1479,7 +1617,7 @@ static void TestGsubAlternate(void)
     buffer = RunPlan(fixture.face, &plan, "A", &features, &stats, NULL, 0u, NULL);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
     RoboCheckEqInt((int)ids[0], FixtureAAlt2);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* Out of range clamps to the first rather than reading past the set. */
     RoboCheckEqInt((int)RoboTextFeatureSetSet(&features, "salt", RoboTextFeatureOn, 9u), (int)RoboOk);
@@ -1487,7 +1625,7 @@ static void TestGsubAlternate(void)
     buffer = RunPlan(fixture.face, &plan, "A", &features, &stats, NULL, 0u, NULL);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
     RoboCheckEqInt((int)ids[0], FixtureAAlt1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1496,10 +1634,10 @@ static void TestGsubLigature(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
+    RoboTextOtPlan plan = {0};
     uint32_t ids[8];
     const RoboTextShapingGlyph *glyph;
 
@@ -1511,7 +1649,7 @@ static void TestGsubLigature(void)
     /* Three in, one out — and the one names all three scalars. */
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 1);
     RoboCheckEqInt((int)ids[0], FixtureFfi);
-    glyph = RoboTextGsubBufferAt(buffer, 0u);
+    glyph = RoboTextShapingBufferAt(buffer, 0u);
     RoboCheckEqInt((int)glyph->source.start, 0);
     RoboCheckEqInt((int)glyph->source.end, 3);
     RoboCheckEqInt((int)glyph->cluster, 0);
@@ -1520,7 +1658,7 @@ static void TestGsubLigature(void)
     RoboCheck((glyph->flags & RoboTextShapingGlyphLigature) != 0u);
     RoboCheckEqInt((int)stats.ligatureSubstitutions, 1);
     RoboCheckEqInt((int)stats.glyphsAfter, 1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /*
      * The longest match wins because the font listed it first (Phase 12.12 §"longest-match behavior"): four
@@ -1530,12 +1668,12 @@ static void TestGsubLigature(void)
     buffer = RunPlan(fixture.face, &plan, "fffi", &features, &stats, NULL, 0u, NULL);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 1);
     RoboCheckEqInt((int)ids[0], FixtureFffi);
-    glyph = RoboTextGsubBufferAt(buffer, 0u);
+    glyph = RoboTextShapingBufferAt(buffer, 0u);
     RoboCheckEqInt((int)glyph->ligatureComponents, 4);
     RoboCheckEqInt((int)glyph->source.start, 0);
     RoboCheckEqInt((int)glyph->source.end, 4);
     RoboCheckEqInt((int)stats.ligatureSubstitutions, 1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* Two glyphs are not a ligature in this font, and no candidate matches at all. */
     buffer = RunPlan(fixture.face, &plan, "ff", &features, &stats, NULL, 0u, NULL);
@@ -1543,7 +1681,7 @@ static void TestGsubLigature(void)
     RoboCheckEqInt((int)ids[0], FixtureF);
     RoboCheckEqInt((int)ids[1], FixtureF);
     RoboCheckEqInt((int)stats.ligatureSubstitutions, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* The feature toggles it: `liga` off leaves the three glyphs alone (12.10 §62). */
     RoboCheckEqInt((int)RoboTextFeatureSetSet(&features, "liga", RoboTextFeatureOff, 0u), (int)RoboOk);
@@ -1554,7 +1692,7 @@ static void TestGsubLigature(void)
     RoboCheckEqInt((int)ids[1], FixtureF);
     RoboCheckEqInt((int)ids[2], FixtureI);
     RoboCheckEqInt((int)stats.ligatureSubstitutions, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* `fi` alone is not a ligature in this font: the font's own data decides, not the engine. */
     RoboTextFeatureSetInit(&features);
@@ -1563,7 +1701,7 @@ static void TestGsubLigature(void)
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
     RoboCheckEqInt((int)ids[0], FixtureF);
     RoboCheckEqInt((int)ids[1], FixtureI);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1572,7 +1710,7 @@ static void TestGsubContext(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     uint32_t ids[8];
 
@@ -1587,20 +1725,20 @@ static void TestGsubContext(void)
     RoboCheckEqInt((int)ids[1], FixtureC);
     RoboCheckEqInt((int)stats.contextualMatches, 1);
     RoboCheckEqInt((int)stats.singleSubstitutions, 1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* The context fails and nothing happens. */
     buffer = RunIsolated(&fixture, "calt", "BD", &stats);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
     RoboCheckEqInt((int)ids[0], FixtureB);
     RoboCheckEqInt((int)stats.contextualMatches, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* `B` at the end has no lookahead. */
     buffer = RunIsolated(&fixture, "calt", "B", &stats);
     RoboCheckEqInt((int)ids[0], FixtureB);
     RoboCheckEqInt((int)stats.contextualMatches, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1610,7 +1748,7 @@ static void TestGsubIgnoredGlyphs(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     uint32_t ids[8];
 
@@ -1624,7 +1762,7 @@ static void TestGsubIgnoredGlyphs(void)
     RoboCheckEqInt((int)ids[1], FixtureM);
     RoboCheckEqInt((int)ids[2], FixtureC);
     RoboCheckEqInt((int)stats.contextualMatches, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* The `IgnoreMarks` twin shares the same subtable bytes and matches *across* the mark. */
     buffer = RunIsolated(&fixture, "tst6", "BmC", &stats);
@@ -1635,9 +1773,9 @@ static void TestGsubIgnoredGlyphs(void)
     RoboCheckEqInt((int)stats.contextualMatches, 1);
 
     /* The mark itself survives with its own source, which is what keeps selection honest. */
-    RoboCheckEqInt((int)RoboTextGsubBufferAt(buffer, 1u)->source.start, 1);
-    RoboCheckEqInt((int)RoboTextGsubBufferAt(buffer, 1u)->source.end, 2);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboCheckEqInt((int)RoboTextShapingBufferAt(buffer, 1u)->source.start, 1);
+    RoboCheckEqInt((int)RoboTextShapingBufferAt(buffer, 1u)->source.end, 2);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1646,7 +1784,7 @@ static void TestGsubChain(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     uint32_t ids[8];
 
@@ -1659,21 +1797,21 @@ static void TestGsubChain(void)
     RoboCheckEqInt((int)ids[1], FixtureBAlt);
     RoboCheckEqInt((int)ids[2], FixtureC);
     RoboCheckEqInt((int)stats.contextualMatches, 1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* No backtrack: the rule does not apply. */
     buffer = RunIsolated(&fixture, "tst2", "BC", &stats);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
     RoboCheckEqInt((int)ids[0], FixtureB);
     RoboCheckEqInt((int)stats.contextualMatches, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* Backtrack present, lookahead wrong. */
     buffer = RunIsolated(&fixture, "tst2", "DBA", &stats);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 3);
     RoboCheckEqInt((int)ids[1], FixtureB);
     RoboCheckEqInt((int)stats.contextualMatches, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1682,7 +1820,7 @@ static void TestGsubReverse(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     uint32_t ids[8];
 
@@ -1693,14 +1831,14 @@ static void TestGsubReverse(void)
     RoboCheckEqInt((int)ids[0], FixtureX);
     RoboCheckEqInt((int)ids[1], FixtureD);
     RoboCheckEqInt((int)stats.reverseSubstitutions, 1);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* Without the lookahead the reverse lookup does not fire. */
     buffer = RunIsolated(&fixture, "tst3", "C", &stats);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 1);
     RoboCheckEqInt((int)ids[0], FixtureC);
     RoboCheckEqInt((int)stats.reverseSubstitutions, 0);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* And the scan is a scan, not a single probe: the matching position is the one that is covered. */
     buffer = RunIsolated(&fixture, "tst3", "CCD", &stats);
@@ -1708,7 +1846,7 @@ static void TestGsubReverse(void)
     RoboCheckEqInt((int)ids[0], FixtureC);
     RoboCheckEqInt((int)ids[1], FixtureX);
     RoboCheckEqInt((int)ids[2], FixtureD);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1717,11 +1855,11 @@ static void TestGsubExtension(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     RoboTextGsubEvent trace[2];
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
+    RoboTextOtPlan plan = {0};
     uint32_t ids[4];
     const RoboTextShapingGlyph *glyph;
 
@@ -1735,13 +1873,13 @@ static void TestGsubExtension(void)
     buffer = RunPlan(fixture.face, &plan, "B", &features, &stats, trace, 2u, NULL);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
     RoboCheckEqInt((int)ids[0], FixtureBAlt);
-    glyph = RoboTextGsubBufferAt(buffer, 0u);
+    glyph = RoboTextShapingBufferAt(buffer, 0u);
     RoboCheckEqInt((int)glyph->inputGlyphId, FixtureB);
     RoboCheckEqInt((int)stats.singleSubstitutions, 1);
     RoboCheckEqInt((int)stats.traceEvents, 1);
     RoboCheckEqInt((int)trace[0].lookupType, 1); /* Not 7: the real type, after unwrapping. */
     RoboCheckEqInt((int)trace[0].lookupIndex, 7);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
     FixtureClose(&fixture);
 }
 
@@ -1754,8 +1892,8 @@ static void TestGsubLookupOrder(void)
     GsubFixture fixture;
     FixtureLayout layout;
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
-    RoboTextGsubBuffer *buffer;
+    RoboTextOtPlan plan = {0};
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     uint32_t ids[8];
 
@@ -1788,7 +1926,7 @@ static void TestGsubLookupOrder(void)
     /* Nine top-level lookups, and the context's record names lookup 0 again: nested applications are
      * applications, which is what the counter documents. */
     RoboCheckEqInt((int)stats.lookupsApplied, 10);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1797,8 +1935,8 @@ static void TestGsubControls(void)
 {
     GsubFixture fixture;
     FixtureLayout layout;
-    RoboTextGsubPlan plan;
-    RoboTextGsubBuffer *buffer;
+    RoboTextOtPlan plan;
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
     RoboTextFeatureSet features;
     const RoboTextShapingGlyph *control;
@@ -1809,7 +1947,7 @@ static void TestGsubControls(void)
 
     /* A control is in the buffer — so every later source position still has a slot — and is flagged so no
      * lookup sees it. The engine is handed one by hand here because the *generator* is what builds them. */
-    buffer = RoboTextGsubBufferCreate(4u);
+    buffer = RoboTextShapingBufferCreate(4u);
     {
         RoboTextShapingGlyph glyph;
 
@@ -1818,16 +1956,16 @@ static void TestGsubControls(void)
         glyph.source = RoboTextRangeMake(0u, 1u);
         glyph.cluster = 0u;
         glyph.flags = RoboTextShapingGlyphControl;
-        RoboCheckEqInt((int)RoboTextGsubBufferAppend(buffer, &glyph), (int)RoboOk);
+        RoboCheckEqInt((int)RoboTextShapingBufferAppend(buffer, &glyph), (int)RoboOk);
         glyph.flags = 0u;
         glyph.glyphId = FixtureB;
         glyph.source = RoboTextRangeMake(1u, 2u);
         glyph.cluster = 1u;
-        RoboCheckEqInt((int)RoboTextGsubBufferAppend(buffer, &glyph), (int)RoboOk);
+        RoboCheckEqInt((int)RoboTextShapingBufferAppend(buffer, &glyph), (int)RoboOk);
         glyph.glyphId = FixtureC;
         glyph.source = RoboTextRangeMake(2u, 3u);
         glyph.cluster = 2u;
-        RoboCheckEqInt((int)RoboTextGsubBufferAppend(buffer, &glyph), (int)RoboOk);
+        RoboCheckEqInt((int)RoboTextShapingBufferAppend(buffer, &glyph), (int)RoboOk);
     }
     {
         RoboTextGsubOptions options;
@@ -1842,14 +1980,14 @@ static void TestGsubControls(void)
             (int)RoboOk);
     }
     /* Three slots in, three out: the control held its place and `B C` matched across it. */
-    RoboCheckEqInt((int)RoboTextGsubBufferCount(buffer), 3);
-    control = RoboTextGsubBufferAt(buffer, 0u);
+    RoboCheckEqInt((int)RoboTextShapingBufferCount(buffer), 3);
+    control = RoboTextShapingBufferAt(buffer, 0u);
     RoboCheckEqInt((int)control->glyphId, (int)RoboGlyphIdNone);
     RoboCheck((control->flags & RoboTextShapingGlyphControl) != 0u);
     RoboCheck((control->flags & RoboTextShapingGlyphSubstituted) == 0u);
-    RoboCheckEqInt((int)RoboTextGsubBufferAt(buffer, 1u)->glyphId, FixtureBAlt);
-    RoboCheckEqInt((int)RoboTextGsubBufferAt(buffer, 2u)->glyphId, FixtureC);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboCheckEqInt((int)RoboTextShapingBufferAt(buffer, 1u)->glyphId, FixtureBAlt);
+    RoboCheckEqInt((int)RoboTextShapingBufferAt(buffer, 2u)->glyphId, FixtureC);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 }
@@ -1859,10 +1997,10 @@ static void TestGsubLimitsAndMalformed(void)
     GsubFixture fixture;
     FixtureLayout layout;
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
-    RoboTextGsubBuffer *buffer;
+    RoboTextOtPlan plan = {0};
+    RoboTextShapingBuffer *buffer;
     RoboTextGsubStats stats;
-    RoboTextGsubLimits limits;
+    RoboTextOtLimits limits;
     uint32_t ids[8];
 
     FixtureOpen(&fixture, &layout);
@@ -1871,25 +2009,25 @@ static void TestGsubLimitsAndMalformed(void)
 
     /* A probe budget of one refuses the context lookup's second comparison: the lookup is abandoned, the
      * call still succeeds, and the limit is *reported* rather than silently swallowed. */
-    limits = RoboTextGsubDefaultLimits;
+    limits = RoboTextOtDefaultLimits;
     limits.maxGlyphProbes = 1u;
     buffer = RunPlan(fixture.face, &plan, "ffi", &features, &stats, NULL, 0u, &limits);
-    RoboCheckEqInt((int)RoboTextGsubBufferCount(buffer), 3);
+    RoboCheckEqInt((int)RoboTextShapingBufferCount(buffer), 3);
     RoboCheckEqInt((int)stats.ligatureSubstitutions, 0);
     RoboCheck(stats.limitReached);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* A glyph ceiling of one refuses the multiple substitution before it allocates. */
-    limits = RoboTextGsubDefaultLimits;
+    limits = RoboTextOtDefaultLimits;
     limits.maxGlyphs = 1u;
     buffer = RunPlan(fixture.face, &plan, "X", &features, &stats, NULL, 0u, &limits);
-    RoboCheckEqInt((int)RoboTextGsubBufferCount(buffer), 1);
+    RoboCheckEqInt((int)RoboTextShapingBufferCount(buffer), 1);
     RoboCheckEqInt((int)stats.multipleSubstitutions, 0);
     RoboCheck(stats.limitReached);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     /* A lookup-application budget of one runs `ccmp` and stops. */
-    limits = RoboTextGsubDefaultLimits;
+    limits = RoboTextOtDefaultLimits;
     limits.maxLookupApplications = 1u;
     buffer = RunPlan(fixture.face, &plan, "Xffi", &features, &stats, NULL, 0u, &limits);
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 5); /* `X` became `B C`; the ligature never ran. */
@@ -1899,7 +2037,7 @@ static void TestGsubLimitsAndMalformed(void)
     RoboCheckEqInt((int)stats.multipleSubstitutions, 1);
     RoboCheckEqInt((int)stats.ligatureSubstitutions, 0);
     RoboCheck(stats.limitReached);
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
 
     FixtureClose(&fixture);
 
@@ -1912,8 +2050,8 @@ static void TestGsubLimitsAndMalformed(void)
     {
         GsubFixture broken;
         RoboTextFeatureSet features;
-        RoboTextGsubPlan plan = {0};
-        RoboTextGsubBuffer *buffer;
+        RoboTextOtPlan plan = {0};
+        RoboTextShapingBuffer *buffer;
         RoboTextGsubStats stats;
         uint32_t ids[4];
         size_t gsubOffset = 0u;
@@ -1947,7 +2085,7 @@ static void TestGsubLimitsAndMalformed(void)
         RoboCheckEqInt((int)stats.singleSubstitutions, 0);
         /* The plan's four lookups all ran; only the corrupted one could not read what it needed. */
         RoboCheckEqInt((int)stats.lookupsApplied, 4);
-        RoboTextGsubBufferDestroy(buffer);
+        RoboTextShapingBufferDestroy(buffer);
         FixtureClose(&broken);
     }
 }
@@ -2025,7 +2163,7 @@ static void TestGsubShippedPack(void)
     RoboTextRunSet *set = NULL;
     RoboTextGlyphRun *run = NULL;
     const FontOtLayout *gsub = NULL;
-    RoboTextGsubPlan plan;
+    RoboTextOtPlan plan;
     RoboTextGsubStats stats;
     RoboTextScalarIndex scalars = 0u;
     size_t index;
@@ -2036,7 +2174,7 @@ static void TestGsubShippedPack(void)
     if (gsub) {
         RoboCheckEqInt((int)RoboTextGsubPlanResolve(gsub, RoboUScriptLatin, NULL, NULL, &plan, NULL),
                        (int)RoboOk);
-        RoboCheck(RoboTextGsubPlanIsValid(&plan));
+        RoboCheck(RoboTextOtPlanIsValid(&plan));
         /* Whatever this face's plan is, it must be one the engine can walk: ascending, in range. */
         for (index = 0u; index < plan.lookupCount; index++) {
             RoboCheck(plan.lookupOrder[index] < gsub->lookups.lookupCount);
@@ -2074,10 +2212,10 @@ static void TestGsubDiagnostics(void)
     GsubFixture fixture;
     FixtureLayout layout;
     RoboTextFeatureSet features;
-    RoboTextGsubPlan plan = {0};
+    RoboTextOtPlan plan = {0};
     RoboTextGsubStats stats;
     RoboTextGsubEvent trace[4];
-    RoboTextGsubBuffer *buffer;
+    RoboTextShapingBuffer *buffer;
     char text[1024];
     size_t length = 0u;
 
@@ -2088,14 +2226,14 @@ static void TestGsubDiagnostics(void)
     buffer = RunPlan(fixture.face, &plan, "B", &features, &stats, trace, 4u, NULL);
 
     /* The plan reads as the font's script, language and lookups. */
-    RoboCheckEqInt((int)RoboTextGsubPlanWrite(&plan, text, sizeof(text), &length), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextOtPlanWrite(&plan, text, sizeof(text), &length), (int)RoboOk);
     RoboCheck(length != 0u);
     RoboCheck(strstr(text, "latn") != NULL);
     RoboCheck(strstr(text, "tst1") != NULL);
     RoboCheck(strstr(text, "lookups:") != NULL);
 
     /* The buffer, the counters and the trace each print one line per thing. */
-    RoboCheckEqInt((int)RoboTextGsubBufferWrite(buffer, text, sizeof(text), &length), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextShapingBufferWrite(buffer, text, sizeof(text), &length), (int)RoboOk);
     RoboCheck(strstr(text, "glyphs 1") != NULL);
     RoboCheck(strstr(text, "from=") != NULL);
     RoboCheckEqInt((int)RoboTextGsubStatsWrite(&stats, text, sizeof(text), &length), (int)RoboOk);
@@ -2106,20 +2244,105 @@ static void TestGsubDiagnostics(void)
     RoboCheck(strstr(text, "->") != NULL);
 
     /* Complete-or-absent: a buffer that cannot hold the table is left as the empty string. */
-    RoboCheckEqInt((int)RoboTextGsubPlanWrite(&plan, text, 8u, &length), (int)RoboNotSupported);
+    RoboCheckEqInt((int)RoboTextOtPlanWrite(&plan, text, 8u, &length), (int)RoboNotSupported);
     RoboCheckStrEq(text, "");
     RoboCheckEqInt((int)RoboTextGsubStatsWrite(&stats, text, 8u, &length), (int)RoboNotSupported);
     RoboCheckStrEq(text, "");
-    RoboCheckEqInt((int)RoboTextGsubBufferWrite(buffer, text, 8u, &length), (int)RoboNotSupported);
+    RoboCheckEqInt((int)RoboTextShapingBufferWrite(buffer, text, 8u, &length), (int)RoboNotSupported);
     RoboCheckStrEq(text, "");
-    RoboCheckEqInt((int)RoboTextGsubPlanWrite(NULL, text, sizeof(text), &length),
+    RoboCheckEqInt((int)RoboTextOtPlanWrite(NULL, text, sizeof(text), &length),
                    (int)RoboInvalidArgument);
     RoboCheckEqInt((int)RoboTextGsubStatsWrite(&stats, NULL, sizeof(text), &length),
                    (int)RoboInvalidArgument);
     RoboCheckEqInt((int)RoboTextGsubEventsWrite(trace, 1u, NULL, sizeof(text), &length),
                    (int)RoboInvalidArgument);
 
-    RoboTextGsubBufferDestroy(buffer);
+    RoboTextShapingBufferDestroy(buffer);
+    FixtureClose(&fixture);
+}
+
+/**
+ * The order the phase mandates, proved by one face that carries both tables: `ffiC` must ligate **first** and
+ * then kern the ligature, because a pair stated against three characters that no longer exist cannot apply.
+ *
+ * The fixture font's GPOS carries exactly one pair — `(Ffi, C)`, -100 font units — and its GSUB ligates `f f i`
+ * into `Ffi`. So the assertion `advanceAdjustX == -100` on the **first** glyph is a statement about the order
+ * and not merely about the pair: had positioning run first, there would be three glyphs to pair and no `Ffi`
+ * for the coverage to match. And the ligature's advance is its own `hmtx` advance plus that adjustment, never
+ * the sum of the three components' advances.
+ */
+static void TestGsubLigaturePositioning(void)
+{
+    GsubFixture fixture;
+    FixtureLayout layout;
+    RoboTextFontContext font;
+    RoboTextFontStyle style;
+    RoboTextShapeOptions options;
+    RoboTextRunSet *set = NULL;
+    RoboTextGlyphRun *run = NULL;
+    const char *text = "ffiC";
+    RoboTextView view = RoboTextViewMake(text, 4u);
+
+    FixtureBuildFontMode(&layout, 1);
+    FixtureAdopt(&fixture);
+    RoboTextFontStyleInit(&style);
+    style.sizePx = 1000.0f; /* One em equals one font unit. */
+    RoboCheckEqInt((int)RoboTextFontContextSet(&font, fixture.face, &style), (int)RoboOk);
+    RoboTextShapeOptionsInit(&options);
+    RoboCheckEqInt((int)RoboTextRunSetCreate(view, &font, &options, &set, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextGlyphRunGenerate(view, RoboTextRunSetTextRun(set, 0u), &run, NULL),
+                   (int)RoboOk);
+
+    /* Four scalars, two glyphs: the ligature, then the glyph the pair is stated against. */
+    RoboCheckEqInt((int)RoboTextGlyphRunCount(run), 2);
+    RoboCheckEqInt((int)RoboTextGlyphRunScalarCount(run), 4);
+    RoboCheckEqInt((int)RoboTextGlyphRunGenerationMode(run), (int)RoboTextGlyphGenerationGpos);
+    RoboCheck(RoboTextGlyphRunPositioned(run) > 0u);
+    {
+        const RoboTextGlyph *ligature = RoboTextGlyphRunGlyph(run, 0u);
+        const RoboTextGlyph *next = RoboTextGlyphRunGlyph(run, 1u);
+
+        RoboCheckEqInt((int)ligature->glyphId, FixtureFfi);
+        RoboCheckEqInt((int)next->glyphId, FixtureC);
+        RoboCheck(ligature->substituted);
+        RoboCheck((int)ligature->ligatureComponents >= 2);
+        /* The pair applies to the ligature: positioning saw one glyph where the font's `cmap` had three. */
+        RoboCheck(ligature->positioned);
+        RoboCheckEqInt((int)ligature->advanceAdjustX, -100);
+        RoboCheckEqInt((int)ligature->advanceX, (int)(FixtureAdvance(FixtureFfi) - 100u));
+        RoboCheckEqInt((int)next->advanceAdjustX, 0);
+        RoboCheckEqInt((int)next->advanceX, (int)FixtureAdvance(FixtureC));
+    }
+    /* The pen and the measurer read the same numbers, so the kerning is in the measurement. */
+    RoboCheckEqInt((int)RoboTextGlyphRunAdvance(run),
+                   (int)(FixtureAdvance(FixtureFfi) + FixtureAdvance(FixtureC) - 100u));
+    RoboCheckEqInt((int)RoboTextGlyphRunSubstituted(run), 1);
+    RoboTextGlyphRunDestroy(run);
+    run = NULL;
+
+    /* `kern` off: the same two glyphs, the same ids, the face's own advances back. */
+    RoboCheckEqInt((int)RoboTextShapeOptionsSetFeature(&options, "kern", RoboTextFeatureOff, 0u),
+                   (int)RoboOk);
+    RoboTextRunSetDestroy(set);
+    set = NULL;
+    RoboCheckEqInt((int)RoboTextRunSetCreate(view, &font, &options, &set, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextGlyphRunGenerate(view, RoboTextRunSetTextRun(set, 0u), &run, NULL),
+                   (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextGlyphRunCount(run), 2);
+    {
+        const RoboTextGlyph *ligature = RoboTextGlyphRunGlyph(run, 0u);
+
+        RoboCheckEqInt((int)ligature->glyphId, FixtureFfi);
+        /* The substitution is untouched by the positioning feature: `kern` off is not `GSUB` off. */
+        RoboCheck(ligature->substituted);
+        RoboCheckEqInt((int)ligature->advanceAdjustX, 0);
+        RoboCheckEqInt((int)ligature->advanceX, (int)FixtureAdvance(FixtureFfi));
+    }
+    RoboCheckEqInt((int)RoboTextGlyphRunAdvance(run),
+                   (int)(FixtureAdvance(FixtureFfi) + FixtureAdvance(FixtureC)));
+
+    RoboTextGlyphRunDestroy(run);
+    RoboTextRunSetDestroy(set);
     FixtureClose(&fixture);
 }
 
@@ -2146,5 +2369,6 @@ void TestRegisterTextGsub(void)
     TestRegister("text.gsub.limits", TestGsubLimitsAndMalformed);
     TestRegister("text.gsub.run_integration", TestGsubRunIntegration);
     TestRegister("text.gsub.shipped_pack", TestGsubShippedPack);
+    TestRegister("text.gsub.ligature_positioning", TestGsubLigaturePositioning);
     TestRegister("text.gsub.diagnostics", TestGsubDiagnostics);
 }

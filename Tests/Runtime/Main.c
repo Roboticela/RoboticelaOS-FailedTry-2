@@ -113,9 +113,11 @@ void TestRegisterTextAnalysis(void);
  * the script-run diagnostics. The algorithm lives in the same resolver the analysis consumes. */
 void TestRegisterTextScript(void);
 void TestRegisterTextGsub(void);
+void TestRegisterTextGpos(void);
 /* Phase 12.12 — the ligature layer: the five-tag policy, the stylesheet's vocabulary over it, and what the
  * font's substitutions actually produced. */
 void TestRegisterTextLigature(void);
+void TestRegisterTextKerning(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -422,7 +424,9 @@ int main(int argc, char **argv)
     TestRegisterTextDirection();
     TestRegisterTextBidi();
     TestRegisterTextGsub();
+    TestRegisterTextGpos();
     TestRegisterTextLigature();
+    TestRegisterTextKerning();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

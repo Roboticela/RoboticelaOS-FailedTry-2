@@ -247,11 +247,20 @@ RunSetCreate → GlyphRunGenerate (once per text run) → the measurement, summe
 would otherwise run two of them twice. The result **owns** the run set and the glyph runs and borrows only
 the text and the face.
 
-`RoboTextMeasurement` is the layout seam, and it is deliberately **not** a shaped measurement: kerning,
-mark advance adjustment and per-glyph positioning all move a run's width and none of them exist yet. What
-it has is the property that matters now:
+Since Phase 12.11 the generator is a **shaping** pass and not a lookup: GSUB decides which glyphs there are,
+GPOS decides where they sit, and the run is rebuilt once at the end. The pipeline a caller should hold in
+mind:
 
-- `width` is the sum of the glyphs' own device advances, accumulated in `double`, rounded once;
+```text
+UTF-8 → scalars → scripts → direction → bidi → font selection → features → cmap
+      → GSUB (substitution) → GPOS (positioning / kerning) → glyph run → measurement → layout → paint
+```
+
+`RoboTextMeasurement` is the layout seam. That is why positioning came *before* kerning as a separate goal
+even though kerning is GPOS: a kerning layer over an engine that does not exist would have had to invent one.
+
+- `width` is the sum of the glyphs' final device advances — their own plus the font's adjustments —
+  accumulated in `double`, rounded once;
 - `ascent`/`descent`/`lineHeight` come from the face through its own metrics door, and the line height
   honours a declared leading when the context declares one (`RoboTextLineHeightFromFontMetrics` = CSS's
   `normal` = the face's own extent);
@@ -319,14 +328,19 @@ typography layer from existing at all.
 `RoboTextGetCapabilities` is the honest record, and `text.conformance.capabilities` asserts it field by
 field: the twelve model flags are present, and every algorithm flag is **absent**.
 
+| Present | Since |
+|---|---|
+| the Unicode bidirectional algorithm | 12.8 |
+| GSUB / substitution | 12.10 |
+| ligatures (with the policy and the provenance) | 12.12 |
+| GPOS / positioning | 12.11 |
+| kerning (with the policy and the report) | 12.13 |
+
 | Absent | Goal |
 |---|---|
 | variable-axis application (`wght`/`opsz` beyond face selection) | unowned until RoboFont interpolates outlines |
-| GSUB / substitution | 12.10 |
-| GPOS / positioning | 12.11 |
-| ligatures | 12.12 |
-| kerning | 12.13 |
-| the Unicode bidirectional algorithm | 12.8 |
+| mark and cursive attachment, contextual positioning | no goal yet; recognised and skipped |
+| the legacy `kern` table | Phase 5 owns the parser |
 | complex scripts | 12.19 |
 | vertical text | 12.20 |
 
@@ -342,8 +356,8 @@ instance**: a style records them and nothing applies an axis.
 | | |
 |---|---|
 | Build | `Scripts/Build/BuildRoboText.ps1` (module + the shipped pack's presence check) |
-| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 39 cases |
-| Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Conformance,Gallery}.c` |
+| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 157 cases |
+| Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Script,Direction,Bidi,Unicode,FontSelection,Analysis,Gsub,Ligature,Gpos,Kerning,Conformance,Gallery}.c` |
 | Fixture | `Tests/Text/RoboTextTestSupport.h` — opens the **shipped** pack through RoboFont alone |
 | Dev surface | `Build/Text-GlyphTable.txt`, written by `text.gallery.glyph_table` |
 
@@ -437,11 +451,12 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 12.4  RoboText architecture           ✓
 12.5  Unicode / font integration       ✓  (UnicodeIntegration / FontIntegration / FontFallback)
 12.6  Script runs                      ✓  (ScriptRuns)
-12.7  Direction runs
-12.8  Bidirectional algorithm          → fills the direction runs this phase classifies
-12.10 Glyph substitution (GSUB)        → replaces RoboTextGlyphRunGenerate's body
-12.11 Glyph positioning (GPOS)         → fills RoboTextGlyph.offsetX/offsetY
-12.13 Kerning                          → moves advances inside the same records
+12.7  Direction runs                   ✓  (DirectionRuns)
+12.8  Bidirectional algorithm          ✓  (Bidi)
+12.10 Glyph substitution (GSUB)        ✓  (GlyphSubstitution)  → replaces RoboTextGlyphRunGenerate's body
+12.11 Glyph positioning (GPOS)         ✓  (Positioning)        → fills RoboTextGlyph.offsetX/offsetY
+12.12 Ligatures                        ✓  (Ligatures)
+12.13 Kerning                          ✓  (Kerning)            → the policy and the report over 12.11
 ```
 
 Every one of those consumes this layer rather than replacing it. That is the milestone: the seams
@@ -603,4 +618,64 @@ The two properties the phase adds:
    answers the ligature glyph for every scalar inside it. The data a caret needs exists; the caret is later.
 
 The version moved to `1.6.0` with 12.10. `RoboTextGetCapabilities` reports `ligatures`, `ligaturePolicy` and
-`ligatureProvenance` `1`, and `positioning`/`kerning`/`complexScripts`/`verticalText` stay `0`.
+`ligatureProvenance` `1`.
+
+---
+
+## 18. Phase 12.11 — glyph positioning
+
+12.11 is the second half of shaping: GSUB answers *which glyphs*, GPOS answers *where they sit*. It is one
+engine in two files over the **same shared layout core** GSUB uses, which is the point — not two OpenType
+implementations that happen to agree.
+
+| Area | Where | Contract |
+|---|---|---|
+| The plan, the apply loop, the counters, the trace, the writers | `RoboTextGpos.c`, `RoboTextGpos.h` | [Positioning.md](Positioning.md) |
+| One reader per lookup type this build executes | `RoboTextGposSubst.c` | Positioning.md §4 |
+| The GPOS step in the generator, after GSUB | `RoboTextGlyphs.c` | Positioning.md §1 |
+| The font's own part of a glyph's vectors | `RoboTextGlyphs.h`, `RoboTextGlyphs.c` | Positioning.md §2 |
+
+The three properties the phase adds:
+
+1. **Positioning writes an adjustment, never a total.** `advanceAdjustX`/`offsetAdjustX` sit beside the totals
+   the run build computes once, so a diagnostic can say "12.40px, of which -1.25 is the font's kerning".
+2. **The order GSUB → GPOS is not interchangeable, and the suite proves it.** `text.gsub.ligature_positioning`
+   shapes a face that carries both tables, where the GPOS pair is stated against the *ligature's* glyph id: the
+   pair can only apply if substitution ran first, and the ligature's advance is its own plus the adjustment
+   rather than the sum of its components'.
+3. **A font's contents never fail a run of text.** A malformed subtable skips and is counted, a subtable offset
+   that lands inside its own lookup's header is refused once per lookup, and the probe budget is recorded in the
+   engine that spent it.
+
+The version moved to `1.7.0` (with 12.13). `RoboTextGetCapabilities` reports `positioning` `1`.
+
+---
+
+## 19. Phase 12.13 — kerning
+
+12.13 is a *policy and report* phase, exactly as 12.12 was for ligatures: 12.11 already reads a pair
+adjustment, so what is added is the caller's decision as data, the resolution of which source may answer, and the
+per-glyph record of what the font did. There is no second kerning engine and no hard-coded pair.
+
+| Area | Where | Contract |
+|---|---|---|
+| The policy, the resolution, the report | `RoboTextKerning.c`, `RoboTextKerning.h` | [Kerning.md](Kerning.md) |
+| The policy's value types, beside the feature set they become | `RoboTextTypes.h` | Kerning.md §2 |
+| Where the policy is applied (explicit settings win) | `RoboTextRuns.c` | Kerning.md §3 |
+| Per-range feature overrides, cut into runs | `RoboTextTypes.h`, `RoboTextRuns.c` | Kerning.md §9 |
+| The per-glyph adjustment facts the report reads | `RoboTextGlyphs.h` | Kerning.md §12 |
+
+The three properties the phase adds:
+
+1. **`kern` is a feature, and the policy is data.** `RoboTextKerningPolicy` becomes entries in a
+   `RoboTextFeatureSet` and reaches the positioning plan through the same door every other tag uses, so
+   `font-kerning: none` cannot become a special case in a paint layer.
+2. **One source answers, and the fallback is never an addition.** A face may carry kerning in GPOS *and* in a
+   legacy `kern` table; the rule is a choice (`RoboTextKerningLegacy`), and the resolution reports the table's
+   *presence* separately from which source *answered*, because this build does not read the legacy table.
+3. **Range overrides are a shaping boundary.** `RoboTextShapeOptionsSetFeatureRange` cuts the text into runs
+   where the effective settings change — before any plan is resolved — and the consequence (a pair straddling
+   the seam is not a pair) is asserted by `text.kern.range_override` rather than hidden.
+
+The version moved to `1.7.0` with 12.11. `RoboTextGetCapabilities` reports `kerning`, `kerningPolicy` and
+`kerningReport` `1`, and `complexScripts`/`verticalText`/`variableAxisApplication` stay `0`.

@@ -202,12 +202,24 @@ $ProdSrcs = @(
     # through `RoboTextFontGsub`, so this module interprets offsets and never parses a container.
     (Join-Path $SourceDir "RoboText\RoboTextGsub.c"),
     (Join-Path $SourceDir "RoboText\RoboTextGsubSubst.c"),
+    # Phase 12.11 -- glyph positioning. `RoboTextGpos.c` is the engine's spine (the defaults, the plan, the
+    # apply loop, the trace and the writers) and `RoboTextGposSubst.c` the readers: a value record, single
+    # adjustment, pair adjustment in both formats, and the extension wrapper. Both resolve their lookups with
+    # the shared core `RoboTextGsub.c` implements, so GSUB and GPOS are one OpenType layout implementation
+    # with two sets of readers rather than two parsers.
+    (Join-Path $SourceDir "RoboText\RoboTextGpos.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextGposSubst.c"),
     # Phase 12.12 -- ligatures. `RoboTextLigature.c` is the *policy* layer and the record of what the font
     # produced: five tags (liga/clig/rlig/dlig/hlig) as caller-visible data, the stylesheet's
     # `font-variant-ligatures` vocabulary translated into that data, and the glyph-run report. It holds no
     # second engine: 12.10's GSUB substitutes, and a ligature is what a substitution looks like when one
     # glyph's source range covers several scalars.
     (Join-Path $SourceDir "RoboText\RoboTextLigature.c"),
+    # Phase 12.13 -- kerning. `RoboTextKerning.c` is the *policy* over the `kern` feature, the resolution of
+    # which source may answer (GPOS's pair lists, or a legacy `kern` table as a fallback and never as an
+    # addition), and the record of what the face did to the run's advances. It holds no engine of its own:
+    # 12.11's GPOS moves the glyphs, and a kerning pair is what one of its value records looks like.
+    (Join-Path $SourceDir "RoboText\RoboTextKerning.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -500,7 +512,9 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextDirection.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextBidi.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextGsub.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextGpos.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextLigature.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextKerning.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

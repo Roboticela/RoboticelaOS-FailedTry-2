@@ -4,7 +4,7 @@
  * ## The one rule
  *
  * **GSUB changes glyph identity and glyph sequence structure. It never changes the text.** The source is a
- * `RoboTextView` that this module only reads; what a lookup rewrites is a @ref RoboTextGsubBuffer, whose
+ * `RoboTextView` that this module only reads; what a lookup rewrites is a @ref RoboTextShapingBuffer, whose
  * entries carry the source range they came from. So `"f" "f" "i"` becoming one glyph is a change to the
  * glyph buffer and *not* to the three scalars, and the ligature glyph's `source` still names all three —
  * which is what makes a selection, a caret and a copy answer with `ffi` the way the author wrote it.
@@ -44,7 +44,7 @@
  * checked against the bytes the table actually has, and every failure is a *skip*: a malformed subtable is
  * reported, its lookup is abandoned, and the caller keeps the glyphs it has. `RoboTextGsubApply` cannot
  * crash on a malformed table and never returns a buffer in a state that violates its own invariants. The
- * four limits in @ref RoboTextGsubLimits bound the work a hostile table can ask for.
+ * four limits in @ref RoboTextOtLimits bound the work a hostile table can ask for.
  */
 #ifndef ROBO_TEXT_GSUB_H
 #define ROBO_TEXT_GSUB_H
@@ -53,6 +53,7 @@
 #include "RoboFont/RoboFontOt.h"
 #include "RoboFont/RoboFontOtCommon.h"
 #include "RoboText/RoboTextBidi.h"
+#include "RoboText/RoboTextOtLayout.h"
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextTypes.h"
 
@@ -62,126 +63,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* ------------------------------------------------------------------ */
-/* Tags                                                                */
-/* ------------------------------------------------------------------ */
-
-/**
- * The OpenType tag a four-byte feature or script tag denotes, as the big-endian word a font stores.
- *
- * `"liga"` answers `0x6C696761`. A tag that is not exactly four bytes answers 0, which no real tag is.
- */
-uint32_t RoboTextGsubTagOf(const char *tag);
-
-/** Write @p tag back as four characters into @p buffer (which needs 5 bytes). Never fails. */
-void RoboTextGsubTagWrite(uint32_t tag, char *buffer);
-
-/* ------------------------------------------------------------------ */
-/* The feature plan                                                    */
-/* ------------------------------------------------------------------ */
-
-/** Features one resolved plan can hold. A font may carry more; the plan keeps the enabled ones. */
-#define RoboTextGsubMaxPlanFeatures 32u
-
-/**
- * One feature the plan turns on, and the lookups the **font** says it owns.
- *
- * `lookupIndices` is borrowed from the font's own Feature table and never copied, so a plan is valid for
- * exactly as long as the layout it was resolved against — which is the same lifetime as the face, and the
- * reason a plan is a value a caller builds per face rather than per run.
- */
-typedef struct RoboTextGsubFeature {
-    /** The feature tag, four ASCII bytes and a terminator. */
-    char tag[RoboTextFeatureTagBytes];
-    /** The tag as a word, for comparing against the font's records. */
-    uint32_t tagValue;
-    /** The index of the feature record in the font's FeatureList. */
-    uint16_t featureIndex;
-    /** Lookups this feature names, in the font's order. Borrowed from the font. */
-    const uint16_t *lookupIndices;
-    uint16_t lookupIndexCount;
-    /** The feature's parameter: an alternate index for the alternate features, else 0. */
-    uint32_t value;
-} RoboTextGsubFeature;
-
-/**
- * The lookups one shaping call will run, in the order the font defines them.
- *
- * Resolution is two steps and both are the font's, not this module's:
- *
- *   the **script**     a `TextScript` is mapped to the four-byte script tag a font uses
- *                      (`RoboTextGsubScriptTag`), the font's ScriptList is asked for that record, and the
- *                      `DFLT` record answers when the font has no record for the script. A script the font
- *                      does not know is not an error: the answer is an empty plan, which runs nothing.
- *   the **language**   the caller's `TextLanguage`, if any, selects a LangSys in that script record; when
- *                      the font has no such LangSys the **script's default LangSys** answers, which is the
- *                      deterministic fallback the phase requires. A LangSys's `requiredFeatureIndex`
- *                      (rare, and real) is added whichever way its feature list reads.
- *
- * Only features the script's LangSys *lists* are reachable: a feature tag that exists in the font but is not
- * in this script's LangSys is not applied, which is what stops a `latn`-only `liga` from running on Arabic.
- */
-typedef struct RoboTextGsubPlan {
-    /** The script record the plan resolved against. */
-    uint32_t scriptTag;
-    /** Non-zero when the `DFLT` record answered because the font had no record for the script. */
-    int usedDefaultScript;
-    /** The LangSys the plan resolved against; 0 when the script's default LangSys answered. */
-    uint32_t languageTag;
-    /** Non-zero when the default LangSys answered (either the language was absent, or none was named). */
-    int usedDefaultLangSys;
-    /** Non-zero when the font has no GSUB script or feature records this plan could use. */
-    int empty;
-    /** The enabled features, in the order the font's LangSys lists them. */
-    RoboTextGsubFeature features[RoboTextGsubMaxPlanFeatures];
-    size_t featureCount;
-    /**
-     * Lookup indices to apply, ascending and deduplicated — the execution order.
-     *
-     * Built by collecting every enabled feature's lookups and sorting them, which is the order the **Lookup
-     * List** defines and therefore the order the font intends: OpenType numbers lookups so that a later
-     * lookup sees an earlier lookup's work, and applying them in feature order instead would reverse that
-     * for every font that lists them out of order (most do). A lookup two features both name runs **once**,
-     * at its own index — dedup by index cannot change the font's answer, because the answer is a function of
-     * the lookup sequence rather than of the paths that reached it.
-     */
-    uint16_t lookupOrder[RoboFontOtMaxLookups];
-    /** Lookups in @ref lookupOrder. */
-    size_t lookupCount;
-} RoboTextGsubPlan;
-
-/** Clear @p plan to "nothing resolved": no script, no features, no lookups. Safe on NULL. */
-void RoboTextGsubPlanInit(RoboTextGsubPlan *plan);
-
-/** Non-zero when @p plan is a plan this build produced (@ref RoboTextGsubPlanInit at least). */
-int RoboTextGsubPlanIsValid(const RoboTextGsubPlan *plan);
-
-/**
- * The four-byte OpenType script tag for @p script, or 0 when the script has no registered tag.
- *
- * The mapping is the OpenType registry's, and it is *data*: Latin is `latn`, Arabic `arab`, Hebrew `hebr`,
- * Devanagari `deva`, Han `hani`, Hangul `hang`, Common/Inherited/Unknown answer 0 — a font records common
- * features under `DFLT`, so "no tag" is the right answer for a script that has none rather than a made-up
- * one. The phase's §"script selection" is this function plus the `DFLT` fallback below: no shaping decision
- * anywhere in this module branches on a script, and none may be added.
- */
-uint32_t RoboTextGsubScriptTag(RoboTextScript script);
-
-/**
- * Resolve @p features against @p gsub — the plan the engine then applies.
- *
- * @param gsub the face's GSUB layout, from `RoboTextFontGsub`. NULL resolves an empty plan (no font
- *             substitution is not an error).
- * @param features the caller's settings; NULL means "the script's defaults".
- * @return RoboOk (including the empty plan); RoboInvalidArgument for a NULL @p out.
- */
-Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
-                               RoboTextScript script,
-                               const RoboTextLanguage *language,
-                               const RoboTextFeatureSet *features,
-                               RoboTextGsubPlan *out,
-                               RoboTextDiag *diag);
 
 /**
  * The features a script's text gets when the caller names none.
@@ -199,11 +80,24 @@ Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
  */
 void RoboTextGsubDefaultFeatureSet(RoboTextScript script, RoboTextFeatureSet *out);
 
-/** Human-readable plan summary (`"latn/ur  features: ccmp liga  lookups: 3 5 8"`). Complete-or-absent. */
-Result RoboTextGsubPlanWrite(const RoboTextGsubPlan *plan,
-                             char *buffer,
-                             size_t capacity,
-                             size_t *outLength);
+/**
+ * Resolve @p features against @p gsub — the plan the substitution engine then applies.
+ *
+ * The shared layout core's resolution (`RoboTextOtPlanResolve`) with **GSUB's** defaults for @p script
+ * handed in, which is the whole of this function: a caller that substitutes names a script and its
+ * features and gets the lookups the font turns on, without either table knowing about the other.
+ *
+ * @param gsub the face's GSUB layout, from `RoboTextFontGsub`. NULL resolves an empty plan (no font
+ *             substitution is not an error).
+ * @param features the caller's settings; NULL means "the script's defaults".
+ * @return RoboOk (including the empty plan); RoboInvalidArgument for a NULL @p out.
+ */
+Result RoboTextGsubPlanResolve(const FontOtLayout *gsub,
+                               RoboTextScript script,
+                               const RoboTextLanguage *language,
+                               const RoboTextFeatureSet *features,
+                               RoboTextOtPlan *out,
+                               RoboTextDiag *diag);
 
 /* ------------------------------------------------------------------ */
 /* The shaping glyph and its buffer                                    */
@@ -243,7 +137,20 @@ typedef enum RoboTextShapingGlyphFlags {
      * rather than added with a different meaning, and a glyph with no source is a bug in whatever produced
      * it, not a state a consumer must handle.
      */
-    RoboTextShapingGlyphSynthetic = 1u << 7
+    RoboTextShapingGlyphSynthetic = 1u << 7,
+    /**
+     * The face's GPOS moved this glyph: a non-zero adjustment is on it (Phase 12.11).
+     *
+     * A separate bit from the four adjustment fields being non-zero, because "the font had an opinion here"
+     * and "the opinion happened to be zero" are different answers: a pair whose value record exists but
+     * says `0` is a font that positioned the glyphs, and a diagnostic that conflated the two would report a
+     * kerning table as absent.
+     *
+     * The bit is 8 rather than the next free low bit so that the flags a **substitution** sets keep their
+     * values across the positioning stage — a reader comparing `flags` before and after positioning sees
+     * only the addition of this one.
+     */
+    RoboTextShapingGlyphPositioned = 1u << 8
 } RoboTextShapingGlyphFlags;
 
 /**
@@ -286,6 +193,25 @@ typedef struct RoboTextShapingGlyph {
      * and the count the trace records.
      */
     uint16_t ligatureComponents;
+    /**
+     * Where the glyph sits relative to the pen, from the face's GPOS, in device pixels (Phase 12.11).
+     *
+     * An **adjustment**, not a position: the pen's own place is @ref RoboTextGlyphRunAdvanceUpTo's answer,
+     * and a caller adds the two. Zero for a glyph the font said nothing about, which is every glyph of a
+     * face with no GPOS and every glyph of a run whose plan turned none of its lookups on.
+     */
+    float offsetAdjustX;
+    /** See @ref offsetAdjustX. */
+    float offsetAdjustY;
+    /**
+     * How much further the pen moves after this glyph, from the face's GPOS, in device pixels.
+     *
+     * **In addition to** the face's own `hmtx` advance, never instead of it: the run build adds the two, so
+     * a kerning pair is `advance = hmtx + kern` and no reader has to know which of the two moved.
+     */
+    float advanceAdjustX;
+    /** See @ref advanceAdjustX. */
+    float advanceAdjustY;
 } RoboTextShapingGlyph;
 
 /** Clear @p glyph to a null glyph: id 0, empty source, level none, no flags. Safe on NULL. */
@@ -297,7 +223,7 @@ int RoboTextShapingGlyphIsValid(const RoboTextShapingGlyph *glyph);
 /** Field-for-field equality. Safe on NULL (NULL == NULL). */
 int RoboTextShapingGlyphEqual(const RoboTextShapingGlyph *a, const RoboTextShapingGlyph *b);
 
-typedef struct RoboTextGsubBuffer RoboTextGsubBuffer;
+typedef struct RoboTextShapingBuffer RoboTextShapingBuffer;
 
 /**
  * A buffer holding @p capacity glyphs before it must grow.
@@ -310,19 +236,19 @@ typedef struct RoboTextGsubBuffer RoboTextGsubBuffer;
  *
  * @return NULL when @p capacity is 0 or the allocation fails.
  */
-RoboTextGsubBuffer *RoboTextGsubBufferCreate(size_t capacity);
+RoboTextShapingBuffer *RoboTextShapingBufferCreate(size_t capacity);
 
 /** Append @p glyph, growing if needed. @return RoboOk, or RoboInvalidArgument for a glyph with no source. */
-Result RoboTextGsubBufferAppend(RoboTextGsubBuffer *buffer, const RoboTextShapingGlyph *glyph);
+Result RoboTextShapingBufferAppend(RoboTextShapingBuffer *buffer, const RoboTextShapingGlyph *glyph);
 
 /** Glyphs held. */
-size_t RoboTextGsubBufferCount(const RoboTextGsubBuffer *buffer);
+size_t RoboTextShapingBufferCount(const RoboTextShapingBuffer *buffer);
 
 /** Glyph @p index, or NULL when out of range. The pointer is invalidated by any mutation. */
-const RoboTextShapingGlyph *RoboTextGsubBufferAt(const RoboTextGsubBuffer *buffer, size_t index);
+const RoboTextShapingGlyph *RoboTextShapingBufferAt(const RoboTextShapingBuffer *buffer, size_t index);
 
 /** Mutable glyph @p index, or NULL when out of range. For a caller building a buffer by hand. */
-RoboTextShapingGlyph *RoboTextGsubBufferAtMutable(RoboTextGsubBuffer *buffer, size_t index);
+RoboTextShapingGlyph *RoboTextShapingBufferAtMutable(RoboTextShapingBuffer *buffer, size_t index);
 
 /**
  * Replace glyph @p index's id, keeping its provenance — the single-substitution primitive.
@@ -331,7 +257,7 @@ RoboTextShapingGlyph *RoboTextGsubBufferAtMutable(RoboTextGsubBuffer *buffer, si
  * changes and nothing else does, and a caller that had to reconstruct the record could lose `source` or the
  * level without noticing.
  */
-Result RoboTextGsubBufferSetGlyph(RoboTextGsubBuffer *buffer, size_t index, GlyphId glyphId);
+Result RoboTextShapingBufferSetGlyph(RoboTextShapingBuffer *buffer, size_t index, GlyphId glyphId);
 
 /**
  * Replace @p count glyphs starting at @p index with @p replacement.
@@ -341,47 +267,19 @@ Result RoboTextGsubBufferSetGlyph(RoboTextGsubBuffer *buffer, size_t index, Glyp
  * replacement of zero glyphs deletes. Refuses an empty replacement array for a non-empty @p count — a
  * deletion is expressed with `replacementCount == 0` and a NULL array, which says what it means.
  */
-Result RoboTextGsubBufferReplace(RoboTextGsubBuffer *buffer,
+Result RoboTextShapingBufferReplace(RoboTextShapingBuffer *buffer,
                                  size_t index,
                                  size_t count,
                                  const RoboTextShapingGlyph *replacement,
                                  size_t replacementCount);
 
 /** Release @p buffer. Safe on NULL. */
-void RoboTextGsubBufferDestroy(RoboTextGsubBuffer *buffer);
+void RoboTextShapingBufferDestroy(RoboTextShapingBuffer *buffer);
 
 /* ------------------------------------------------------------------ */
 /* Limits, options, stats                                              */
 /* ------------------------------------------------------------------ */
 
-/**
- * The bounds a hostile font is held to. Centralised because they are a policy, not a constant of any
- * algorithm, and because a limit discovered five call frames down is a limit nobody can tune.
- */
-typedef struct RoboTextGsubLimits {
-    /**
-     * Lookup applications one call may perform — the outer loop's own bound.
-     *
-     * A lookup is applied once per call by construction, so this bounds *nested* work too (a contextual
-     * lookup's inner lookups), and it exists because a font can nest extension lookups and contextual
-     * lookups until a naive engine does exponential work.
-     */
-    uint32_t maxLookupApplications;
-    /**
-     * Glyph-to-glyph probes one call may perform — the inner bound.
-     *
-     * Every match attempt costs O(pattern length); this bounds the product of positions and patterns, which
-     * is the shape a pathological context table attacks. Hitting it abandons the lookup, not the call.
-     */
-    uint32_t maxGlyphProbes;
-    /** Glyphs one call's buffer may hold, so a multiple substitution cannot grow it without bound. */
-    size_t maxGlyphs;
-    /** Nesting depth for a contextual lookup that invokes another lookup (and for extension unwrapping). */
-    uint32_t maxNesting;
-} RoboTextGsubLimits;
-
-/** The defaults: 4096 lookup applications, 1 048 576 probes, 65 536 glyphs, nesting 6. */
-extern const RoboTextGsubLimits RoboTextGsubDefaultLimits;
 
 /* Declared before the options because they point at one; defined below. */
 typedef struct RoboTextGsubEvent RoboTextGsubEvent;
@@ -392,8 +290,8 @@ typedef struct RoboTextGsubOptions {
     RoboTextDirection direction;
     /** The run's resolved bidi level, carried onto every glyph the call produces. */
     RoboTextBidiLevel bidiLevel;
-    /** The limits for this call; NULL uses @ref RoboTextGsubDefaultLimits. */
-    const RoboTextGsubLimits *limits;
+    /** The limits for this call; NULL uses @ref RoboTextOtDefaultLimits. */
+    const RoboTextOtLimits *limits;
     /**
      * Where to record substitution events, or NULL to record none.
      *
@@ -439,6 +337,13 @@ typedef struct RoboTextGsubStats {
     size_t lookupsSkipped;
     /** Subtables tried across every lookup. */
     size_t subtablesTried;
+    /**
+     * Subtable offsets that pointed at no subtable at all: a zero offset, which OpenType states against the
+     * lookup table and therefore resolves onto the lookup's own header, or any offset inside that header.
+     * Counted once per lookup — the defect is the font's, and the number should not follow the text — and not
+     * silently stepped over, because a font that says nothing here is a font worth being told about.
+     */
+    size_t subtablesMalformed;
     /** Single substitutions performed. */
     size_t singleSubstitutions;
     /** Multiple substitutions performed (one source glyph becoming several). */
@@ -461,7 +366,7 @@ typedef struct RoboTextGsubStats {
      * off this is 0 and the two are otherwise identical.
      */
     size_t traceEvents;
-    /** Probes the call spent (against @ref RoboTextGsubLimits::maxGlyphProbes). */
+    /** Probes the call spent (against @ref RoboTextOtLimits::maxGlyphProbes). */
     uint32_t probes;
     /** Non-zero when a limit stopped something, so a caller can tell a limit from a font that ended. */
     int limitReached;
@@ -473,7 +378,7 @@ void RoboTextGsubStatsInit(RoboTextGsubStats *stats);
 /**
  * Run the plan over @p buffer.
  *
- * The whole engine, and its order is the font's: the plan's @ref RoboTextGsubPlan::lookupOrder is walked
+ * The whole engine, and its order is the font's: the plan's @ref RoboTextOtPlan::lookupOrder is walked
  * once, each lookup's subtables are tried in order at each position, and a position whose match produced a
  * substitution continues *after* what the lookup produced — never re-matching the output with the same
  * lookup, which is the recursion the phase warns about and which no OpenType lookup asks for. A lookup that
@@ -481,16 +386,16 @@ void RoboTextGsubStatsInit(RoboTextGsubStats *stats);
  * RoboTextGsubStats::lookupsSkipped) and shaping continues with the glyphs produced so far: nothing here can
  * fail a run of text.
  *
- * @param plan a plan from @ref RoboTextGsubPlanResolve; an empty plan applies nothing.
+ * @param plan a plan from @ref RoboTextOtPlanResolve; an empty plan applies nothing.
  * @param options may be NULL (the defaults).
  * @return RoboOk; RoboInvalidArgument for a NULL @p buffer or @p stats; RoboOutOfMemory when the buffer
  *         could not grow (the buffer is left holding what it had).
  */
 Result RoboTextGsubApply(const FontOtLayout *gsub,
                          const FontGdef *gdef,
-                         const RoboTextGsubPlan *plan,
+                         const RoboTextOtPlan *plan,
                          const RoboTextGsubOptions *options,
-                         RoboTextGsubBuffer *buffer,
+                         RoboTextShapingBuffer *buffer,
                          RoboTextGsubStats *outStats,
                          RoboTextDiag *diag);
 
@@ -501,7 +406,7 @@ Result RoboTextGsubStatsWrite(const RoboTextGsubStats *stats,
                               size_t *outLength);
 
 /** One line per glyph (`"#0 gid=42 src=[0,1) cluster=0 lvl=0 flags=0x1 from=41"`). Complete-or-absent. */
-Result RoboTextGsubBufferWrite(const RoboTextGsubBuffer *buffer,
+Result RoboTextShapingBufferWrite(const RoboTextShapingBuffer *buffer,
                                char *bufferOut,
                                size_t capacity,
                                size_t *outLength);

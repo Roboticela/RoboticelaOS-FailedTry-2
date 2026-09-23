@@ -38,6 +38,9 @@ const char *RoboTextDomainName(RoboTextDiagnosticDomain domain)
             return "bidi";
         case RoboTextDomainGsub:
             return "gsub";
+        case RoboTextDomainGpos:
+            return "gpos";
+            return "gsub";
         default:
             return "unknown";
     }

@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.6.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.7.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -42,8 +42,10 @@ static void TestConformanceVersion(void)
      * record layouts moved without the API's shape changing. */
     /* 12.10 added the substitution engine and 12.12 the ligature layer, both additively: the glyph and
      * shape records grew a ligature field and kept their shape, which is the condition the version header
-     * names for a minor move rather than a major one. */
-    RoboCheckEqInt((int)minor, 6);
+     * names for a minor move rather than a major one. 12.11 added the positioning engine and 12.13 the
+     * kerning layer, the second of which gave `RoboTextGlyph` the font's own part of its two vectors — a field
+     * beside the totals rather than a reshaped record, so the minor moves once more and the major stays. */
+    RoboCheckEqInt((int)minor, 7);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -56,6 +58,10 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.buffer, 0);
     RoboCheckEqInt(capabilities.substitution, 0);
     RoboCheckEqInt(capabilities.ligaturePolicy, 0);
+    RoboCheckEqInt(capabilities.positioning, 0);
+    RoboCheckEqInt(capabilities.kerning, 0);
+    RoboCheckEqInt(capabilities.kerningPolicy, 0);
+    RoboCheckEqInt(capabilities.kerningReport, 0);
     RoboTextCapabilitiesInit(NULL); /* Safe. */
     RoboCheckEqInt((int)RoboTextGetCapabilities(NULL), (int)RoboInvalidArgument);
 
@@ -141,15 +147,26 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.ligatureProvenance, 1);
 
     /*
-     * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan
-     * rather than an oversight: positioning 12.11, kerning 12.13, complex scripts 12.19, vertical text
-     * 12.20, and variable-axis application unowned until RoboFont interpolates outlines. A `1` here without
-     * the implementation would be the exact failure the phase's boundary section forbids. `bidiAlgorithm`
-     * left this list in 12.8, and `substitution`/`ligatures` in 12.10 and 12.12, and each is asserted
-     * present above.
+     * Positioning (12.11) and kerning (12.13), the two that left the absent list. `positioning` is a claim
+     * `text.gpos.*` contradicts if it is wrong — the pair formats, the value records and the shipped pack's
+     * kerning reaching the pen — and `kerning`/`kerningPolicy`/`kerningReport` are 12.13's three: the feature
+     * as a policy, the resolution of which source answers, and the per-glyph record of what the font moved.
+     * They are separate flags because they are separate claims: a build could position and not read `kern`,
+     * or read `kern` and not report it.
      */
-    RoboCheckEqInt(capabilities.positioning, 0);
-    RoboCheckEqInt(capabilities.kerning, 0);
+    RoboCheckEqInt(capabilities.positioning, 1);
+    RoboCheckEqInt(capabilities.kerning, 1);
+    RoboCheckEqInt(capabilities.kerningPolicy, 1);
+    RoboCheckEqInt(capabilities.kerningReport, 1);
+
+    /*
+     * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan
+     * rather than an oversight: complex scripts 12.19, vertical text 12.20, and variable-axis application
+     * unowned until RoboFont interpolates outlines. A `1` here without the implementation would be the exact
+     * failure the phase's boundary section forbids. `bidiAlgorithm` left this list in 12.8,
+     * `substitution`/`ligatures` in 12.10 and 12.12, and `positioning`/`kerning` in 12.11 and 12.13 — each
+     * is asserted present above.
+     */
     RoboCheckEqInt(capabilities.complexScripts, 0);
     RoboCheckEqInt(capabilities.verticalText, 0);
     RoboCheckEqInt(capabilities.variableAxisApplication, 0);

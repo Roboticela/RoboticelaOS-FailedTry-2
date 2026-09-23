@@ -156,12 +156,23 @@ Nothing here measures or paints, and that is the point:
 - **paint** receives glyph runs, so a ligature is drawn because the run says so and not because a painter
   looked at the characters. There is no code-point paint path to bypass the shaped result.
 
-## 8. GPOS: what is *not* here
+## 8. GPOS: the ligature is what positioning sees
 
-Ligatures and marks interact — a mark following a ligature attaches to it — and that is positioning, 12.11's
-and 12.13's work. In this build a ligature's advance is its own and its offsets are zero, which is exactly
-the state `RoboTextCapabilities.positioning = 0` reports. Nothing in this file assumes anything about what
-positioning will do with a ligature glyph, and the glyph record keeps what it will need.
+Ligatures and positioning interact, and since 12.11 the interaction is real rather than anticipated: the
+positioning pass runs **after** substitution, so a value record stated against a ligature's glyph id applies to
+the ligature — not to the characters that produced it. `text.gsub.ligature_positioning` is that claim executed:
+one fixture face carries a GSUB ligature (`f f i` → one glyph) and a GPOS pair stated against that glyph, and
+the suite asserts the pair moved the ligature's advance while `kern` off left the substitution untouched.
+
+Three consequences worth stating:
+
+* a ligature's advance is still **its own** `hmtx` entry; positioning *adds* to it
+  (`RoboTextGlyph::advanceAdjustX`), and the total is what the pen and the measurer read;
+* nothing in this file assumes anything about what positioning will do with a ligature glyph, which is why the
+  claim above lives in the other suites' fixtures rather than here;
+* **mark attachment** after a ligature is still absent: GPOS lookup types 4–6 are recognised and skipped
+  (12.11 §10), so an accent following a ligature keeps the position its advance implies. That is
+  `RoboTextCapabilities.positioning`'s documented limitation, not a ligature one.
 
 ## 9. Diagnostics
 
@@ -225,9 +236,11 @@ gallery draws through the same pipeline.
 
 1. **No `liga` in the shipped pack.** Standard-ligature behaviour is proven against the synthetic fixture,
    not against the system UI font. A pack change that added a `liga` face would be the way to change that.
-2. **No GPOS.** A mark after a ligature is not positioned by this build at all; see §8.
-3. **No range-scoped policy.** A policy applies to a whole run set. Per-range overrides need the range
-   model 12.9's feature work would bring, and the run's feature set is already per-run so the seam is there.
+2. **No mark attachment.** A ligature *is* positioned by the font's GPOS (12.11) and a pair stated against it
+   applies, but a combining mark following it is not attached: types 4–6 are skipped. See §8.
+3. **No range-scoped ligature policy.** A policy applies to a whole run set; per-range feature overrides exist
+   as of 12.13 (`RoboTextShapeOptionsSetFeatureRange`) and cut the text into runs, so the seam is there — but
+   nothing yet converts `font-variant-ligatures` on a *span* into one.
 4. **No caret geometry inside a ligature.** §6: the mapping exists, its use does not yet.
 5. **`clig` and `hlig` are exercised as tags, not as substitutions.** No face in this tree ships a
    contextual-only or historical ligature, so the suite proves the tag reaches the plan and the font decides

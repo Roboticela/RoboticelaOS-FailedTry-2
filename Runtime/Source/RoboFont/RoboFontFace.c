@@ -445,9 +445,11 @@ Result FontFaceParseOtLayout(FontFace *face)
         face->otBuilding = 0;
         return res;
     }
-    if (!FontOtGsub(ot) && !FontOtGdef(ot)) {
+    if (!FontOtGsub(ot) && !FontOtGpos(ot) && !FontOtGdef(ot)) {
         /* No layout tables: "absent" rather than an empty parse, so a caller's second call does not
-         * re-walk a table directory that has nothing in it. */
+         * re-walk a table directory that has nothing in it. GPOS counts as a layout table in its own right:
+         * a face that positions and does not substitute is a real font, and calling it absent would have
+         * made 12.11's kerning unreachable for it. */
         FontOtRelease(ot);
         face->otAbsent = 1;
     } else {
@@ -460,6 +462,11 @@ Result FontFaceParseOtLayout(FontFace *face)
 const FontOtLayout *FontFaceGsub(const FontFace *face)
 {
     return (face && face->ot) ? FontOtGsub(face->ot) : NULL;
+}
+
+const FontOtLayout *FontFaceGpos(const FontFace *face)
+{
+    return (face && face->ot) ? FontOtGpos(face->ot) : NULL;
 }
 
 const FontGdef *FontFaceGdef(const FontFace *face)

@@ -245,6 +245,22 @@ Result RoboTextFontGsub(const RoboTextFontContext *context,
  */
 Result RoboTextFontGdef(const RoboTextFontContext *context, const FontGdef **out, RoboTextDiag *diag);
 
+/**
+ * The face's GPOS table, parsed once (Phase 12.11).
+ *
+ * The positioning half of @ref RoboTextFontGsub and the same bargain: Phase 5 parses the table
+ * (`FontGposParse`, through `FontFaceParseOtLayout`), the face caches it, and it is immutable afterwards, so
+ * a shaping call borrows it and concurrent runs are safe. A face with no GPOS is not an error — the caller
+ * gets NULL and the glyphs keep the positions their own advances gave them.
+ *
+ * @param out receives the table, or NULL when the face carries none.
+ * @return RoboOk (including the "no GPOS" answer); RoboInvalidArgument for a NULL argument; RoboNotSupported
+ *         when no face is bound; RoboError when the container will not parse.
+ */
+Result RoboTextFontGpos(const RoboTextFontContext *context,
+                        const FontOtLayout **out,
+                        RoboTextDiag *diag);
+
 #ifdef __cplusplus
 }
 #endif

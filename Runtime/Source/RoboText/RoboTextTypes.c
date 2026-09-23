@@ -17,6 +17,7 @@
 
 #include "RoboText/RoboTextTypes.h"
 
+#include "RoboText/RoboTextKerning.h"
 #include "RoboText/RoboTextLigature.h"
 
 #include <string.h>
@@ -611,6 +612,10 @@ void RoboTextShapeOptionsInit(RoboTextShapeOptions *options)
      * discretionary and historical off. Stated as data rather than left implicit, so "the default" is one
      * table in one place and a caller can change it one kind at a time. */
     RoboTextLigaturePolicyDefault(&options->ligatures);
+    /* The kerning policy a caller gets without asking (Phase 12.13): `kern` on, no legacy fallback. Stated as
+     * data for the same reason the ligature policy is — "kerning is on by default" is a decision, and it
+     * belongs where a caller can read and change it. */
+    RoboTextKerningPolicyDefault(&options->kerning);
     options->flags = 0u;
 }
 
@@ -624,6 +629,23 @@ int RoboTextShapeOptionsIsValid(const RoboTextShapeOptions *options)
     }
     if (!RoboTextLigaturePolicyIsValid(&options->ligatures)) {
         return 0;
+    }
+    if (!RoboTextKerningPolicyIsValid(&options->kerning)) {
+        return 0;
+    }
+    if (options->featureRangeCount > RoboTextMaxFeatureRanges) {
+        return 0;
+    }
+    for (size_t index = 0u; index < options->featureRangeCount; index++) {
+        /* An empty or inverted range is not a range: it would cover no scalar and silently do nothing, which
+         * is the failure a refusal exists to prevent. */
+        if (RoboTextRangeIsEmpty(options->featureRanges[index].range) ||
+            RoboTextRangeIsInverted(options->featureRanges[index].range)) {
+            return 0;
+        }
+        if (!RoboTextFeatureSetIsValid(&options->featureRanges[index].features)) {
+            return 0;
+        }
     }
     return RoboTextFeatureSetIsValid(&options->features);
 }
@@ -663,6 +685,58 @@ Result RoboTextShapeOptionsSetFeature(RoboTextShapeOptions *options,
         return RoboInvalidArgument;
     }
     return RoboTextFeatureSetSet(&options->features, tag, state, value);
+}
+
+Result RoboTextShapeOptionsSetFeatureRange(RoboTextShapeOptions *options,
+                                           RoboTextRange range,
+                                           const char *tag,
+                                           RoboTextFeatureState state,
+                                           uint32_t value)
+{
+    RoboTextFeatureRange *entry = NULL;
+
+    if (!options) {
+        return RoboInvalidArgument;
+    }
+    if (RoboTextRangeIsEmpty(range) || RoboTextRangeIsInverted(range) ||
+        !RoboTextFeatureStateIsKnown(state) || !FeatureTagIsValid(tag)) {
+        return RoboInvalidArgument;
+    }
+    /*
+     * One entry per range, found by its bounds: two calls for the same range are two settings on one rule, and
+     * a second entry for the same scalars would leave the *order* of the request deciding which wins — which is
+     * exactly the kind of implicit precedence this record exists to avoid.
+     */
+    for (size_t index = 0u; index < options->featureRangeCount; index++) {
+        if (RoboTextRangeEqual(&options->featureRanges[index].range, &range)) {
+            entry = &options->featureRanges[index];
+            break;
+        }
+    }
+    if (!entry) {
+        if (options->featureRangeCount >= RoboTextMaxFeatureRanges) {
+            return RoboNotSupported;
+        }
+        entry = &options->featureRanges[options->featureRangeCount];
+        entry->range = range;
+        RoboTextFeatureSetInit(&entry->features);
+        options->featureRangeCount++;
+    }
+    return RoboTextFeatureSetSet(&entry->features, tag, state, value);
+}
+
+size_t RoboTextShapeOptionsFeatureRangeCount(const RoboTextShapeOptions *options)
+{
+    return options ? options->featureRangeCount : 0u;
+}
+
+const RoboTextFeatureRange *RoboTextShapeOptionsFeatureRange(const RoboTextShapeOptions *options,
+                                                             size_t index)
+{
+    if (!options || index >= options->featureRangeCount) {
+        return NULL;
+    }
+    return &options->featureRanges[index];
 }
 
 void RoboTextFeatureSetInit(RoboTextFeatureSet *set)

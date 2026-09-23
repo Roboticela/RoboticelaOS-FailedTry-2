@@ -50,13 +50,14 @@ static void TestGlyphGenerate(void)
     RoboCheckEqInt((int)RoboTextGlyphRunScalarCount(run), 18);
     RoboCheckEqInt((int)RoboTextGlyphRunMissingGlyphs(run), 0);
     /*
-     * Since 12.10 the mode is `Gsub`: the shipped pack's Inter carries a GSUB table with a record for Latin,
-     * so a Latin run's ids are the cmap's result *and* whatever the face's own lookups did to it. That the
-     * glyph count below is still the scalar count is the other half of the claim: nothing here invented a
-     * glyph, so this face's lookups had nothing to join in "Hello, world!".
+     * Since 12.11 the mode is `Gpos`, the furthest stage that ran: the shipped pack's Inter carries both
+     * tables, and a Latin run's ids *and* positions are the face's own work. That the glyph count below is
+     * still the scalar count is the other half of the claim: no lookup invented a glyph, so the face had
+     * nothing to join in "Hello, world!" — and the run being *positioned* is why `positioned` is readable
+     * from a stat rather than assumed.
      */
-    RoboCheckEqInt((int)RoboTextGlyphRunGenerationMode(run), (int)RoboTextGlyphGenerationGsub);
-    RoboCheckStrEq(RoboTextGlyphGenerationModeName(RoboTextGlyphRunGenerationMode(run)), "cmap+gsub");
+    RoboCheckEqInt((int)RoboTextGlyphRunGenerationMode(run), (int)RoboTextGlyphGenerationGpos);
+    RoboCheckStrEq(RoboTextGlyphGenerationModeName(RoboTextGlyphRunGenerationMode(run)), "cmap+gsub+gpos");
     RoboCheckEqInt((int)RoboTextGlyphRunScript(run), (int)RoboUScriptLatin);
     RoboCheckEqInt((int)RoboTextGlyphRunDirection(run), (int)RoboTextDirectionLtr);
     RoboCheckEqInt((int)RoboTextGlyphRunBaseDirection(run), (int)RoboTextDirectionLtr);

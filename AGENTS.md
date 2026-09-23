@@ -404,12 +404,79 @@ its default or a variant's meaning changes.
   `RoboTextGlyphRunLigatureAt` are the read doors; nothing here re-derives a component count from a glyph
   count a later lookup could have changed.
 - Measurement and paint follow for free: the advance is the resulting glyph's own `hmtx` entry and the
-  display list receives glyph runs, so **no code-point paint path may be added**. GPOS interaction (a mark
-  after a ligature) is 12.11/12.13's and `positioning` is still `0`.
+  display list receives glyph runs, so **no code-point paint path may be added**. GPOS sees the ligature and
+  not its components (12.11), so a pair the font states against a ligature's glyph id applies to it:
+  `text.gsub.ligature_positioning` is that order, executed.
 - Capabilities: 12.12 set `ligatures`/`ligaturePolicy`/`ligatureProvenance` (version `1.6.0`). Tests:
   `Tests/Text/SuiteRoboTextLigature.c` (`text.ligature.*`) plus the fixture's longest-match case in
   `text.gsub.ligature`. The shipped Inter carries `dlig` but **no `liga`**, so standard ligatures are proven
   against the synthetic fixture and the real-font evidence is `!?` → `‽` under `dlig`.
+
+### Glyph positioning (Phase 12.11)
+
+**GPOS answers *where a glyph sits*, changes glyph positions and advances, never the ids, the order or the
+Unicode text.** It is one engine in two files over the **same** layout core GSUB uses:
+`Runtime/Source/RoboText/RoboTextGpos.c` (the plan, the apply loop, the counters, the trace) and
+`RoboTextGposSubst.c` (one reader per lookup type this build executes), public contract
+`Runtime/Include/RoboText/RoboTextGpos.h`, authority `Documentation/Runtime/Text/Positioning.md`.
+
+- Feature selection is the shared resolver's (`RoboTextOtPlanResolve`) with **positioning's** defaults: `kern`,
+  `mark`, `mkmk`, `curs`, `dist` and the Indic mark features. That list is the one place the two tables'
+  defaults differ, and it is why the resolver takes the defaults as an argument. A caller's own setting always
+  wins — there is no `if (script == Latin)` anywhere.
+- Positioning writes **adjustments, not totals**: `RoboTextShapingGlyph::advanceAdjustX`/`offsetAdjustX` beside
+  the face's own advance, added once by the run build. `RoboTextGlyph` keeps both (`advanceX` the total,
+  `advanceAdjustX` the font's part) so a diagnostic can say what moved. `RoboTextShapingGlyphPositioned` is set
+  even for a zero value record — "the font said 0" is not "the font said nothing".
+- Values are font units scaled **once**, through `RoboTextFontUnitsToDevice`; the engine multiplies by
+  `RoboTextGposOptions::deviceScale` and rounds nothing. A device-table delta is applied only when the caller
+  supplied a device ppem; otherwise it is counted (`deviceUnevaluated`).
+- Lookup types 1, 2 and 9 run; 3–8 are recognised and **skipped** (`lookupsUnsupported`), which leaves the
+  glyph where its advance put it — not a wrong answer, but not mark attachment either. Do not add a second
+  positioning engine or a per-script special case.
+- Two reading rules that were real defects here: a resolved coverage offset is a `size_t` (**never**
+  `uint16_t` — narrowing it silently loses every pair past 64 KiB, which is where the shipped face's kerning
+  lives), and a subtable offset that lands inside its own lookup's header is refused **once per lookup** by
+  `RoboTextOtSubtableInsideLookup`. `RoboTextOtSpendProbes` records the probe count in the **owning** engine's
+  statistics.
+- Capabilities/version: 12.11 set `positioning`; version `1.7.0` with 12.13. Tests:
+  `Tests/Text/SuiteRoboTextGpos.c` (`text.gpos.*`, synthetic tables parsed directly plus the shipped pack),
+  `text.gsub.ligature_positioning` for the GSUB→GPOS order, and `text.kern.*` for the policy over it.
+
+### Kerning (Phase 12.13)
+
+**Kerning is GPOS pair adjustment and nothing else; it changes advances, never glyphs or Unicode.** The layer
+is `Runtime/Source/RoboText/RoboTextKerning.c` + `Runtime/Include/RoboText/RoboTextKerning.h`, with the value
+types (`RoboTextKerningPolicy`, `RoboTextKerningLegacy`) beside `RoboTextShapeOptions` in `RoboTextTypes.h`
+because the options carry one. `Documentation/Runtime/Text/Kerning.md` is the phase's authority; update it (and
+this section) when a default, a source rule or a reported field changes.
+
+- `kern` is a feature: the policy becomes entries in a `RoboTextFeatureSet` and reaches the plan through the
+  same door every tag uses. `RoboTextKerningPolicyApplyIfUnset` in `RoboTextRunSetCreate` is a default **under**
+  the caller's settings, so `"kern" off` wins. **No paint, layout or per-script check for kerning may be
+  added** — there is nothing downstream of the feature set to special-case.
+- Defaults: `RoboTextKerningPolicyDefault` asks for `kern` **on** and no legacy source; `RoboTextShapeOptionsInit`
+  installs it. A face that carries no `kern` feature simply kerns nothing — the font's answer, not a policy.
+- One source answers, never two: `RoboTextKerningLegacyNever` (default) or
+  `RoboTextKerningLegacyIfNoGposKern`, which uses the legacy table **only** when GPOS has no `kern` feature.
+  There is no "add them together" enumerator. **This build does not read the legacy `kern` table** (Phase 5
+  does not parse it), so `RoboTextKerningResolution` reports the table's *presence*
+  (`legacyTableAvailable`) separately from which source *answered* (`source`) — do not collapse those two
+  fields into one, and do not set `source` to `LegacyKern` until a parser exists.
+- `RoboTextKerningResolve` asks the face **twice** — once with the engine's defaults (what the face offers) and
+  once with the caller's settings (what applies) — because a caller turning kerning off has not changed the
+  face. Keep both answers.
+- Range overrides are 12.13 §9's: `RoboTextShapeOptionsSetFeatureRange` stores a range and the **run set** cuts
+  the text where the effective settings change, before any plan is resolved. A range boundary is a shaping
+  boundary — a pair straddling it is not a pair — and `text.kern.range_override` asserts that rather than
+  hiding it. Do not move the cut into an engine.
+- Measurement follows the final advances: `painted width = measured width = GlyphRun advance`, and
+  `advanceX == units→device(advanceUnits) + advanceAdjustX` per glyph. Nothing above the glyph run may
+  re-derive kerning.
+- Capabilities: 12.13 set `kerning`/`kerningPolicy`/`kerningReport` (version `1.7.0` with 12.11). Tests:
+  `Tests/Text/SuiteRoboTextKerning.c` (`text.kern.*`) over the **shipped** pack, whose real kerning sits in a
+  class matrix behind an extension lookup past 64 KiB — the face that found both reading defects — plus
+  `text.gsub.ligature_positioning` for the ligature interaction.
 
 ---
 
@@ -432,8 +499,10 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Unicode / font integration (RoboText 12.5) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.unicode.*`, `text.fontselection.*`, `text.analysis.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Script runs (RoboText 12.6) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.script.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Direction runs (RoboText 12.7) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.direction.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: the `dir[i]`/`base` rows of `Build/Text-GlyphTable.txt` |
+| Glyph positioning (RoboText 12.11) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.gpos.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: the `text.gpos.shipped_pack` advance difference and the `text.gpos.glyph_dump` geometry |
 | Glyph substitution (RoboText 12.10) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.gsub.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `Build/Text-GlyphTable.txt` (the glyph ids and advances the substitution produced) |
-| Ligatures (RoboText 12.12) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.ligature.*` and `text.gsub.ligature`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
+| Ligatures (RoboText 12.12) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.ligature.*`, `text.gsub.ligature` and `text.gsub.ligature_positioning`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
+| Kerning (RoboText 12.13) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.kern.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.kern.pairs` (the shipped face's own kerning moving the advance) and `text.kern.range_override` (the per-range split) |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

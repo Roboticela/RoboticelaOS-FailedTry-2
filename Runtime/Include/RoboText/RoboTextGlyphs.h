@@ -97,7 +97,17 @@ typedef enum RoboTextGlyphGenerationMode {
      * `CmapPerScalar` — which is a fact about the font rather than about the text, and the reason the mode is
      * a value a caller can read instead of an assumption.
      */
-    RoboTextGlyphGenerationGsub = 2
+    RoboTextGlyphGenerationGsub = 2,
+    /**
+     * The same, then the face's own GPOS lookups. **This build**, for a face that has positioning to apply
+     * to this run — which is most of them: a UI face kerns its capital pairs, and 12.11 is what turns that
+     * into an advance the pen and the measurer both see.
+     *
+     * The mode is the *furthest* stage that ran, so a run of a face with GPOS and no GSUB is `Gpos` and a
+     * run of a face with GSUB and no GPOS is `Gsub`. A face with neither, or none for this run's script, is
+     * `CmapPerScalar` — which is a fact about the font rather than about the text.
+     */
+    RoboTextGlyphGenerationGpos = 3
 } RoboTextGlyphGenerationMode;
 
 /** Non-zero if @p mode is a defined enumerator. */
@@ -125,10 +135,34 @@ typedef struct RoboTextGlyph {
     float advanceX;
     /** The vertical advance. Zero for horizontal text, and present for vertical text (12.20). */
     float advanceY;
-    /** Where the glyph sits relative to the pen, in device pixels. Zero in this build. */
+    /** Where the glyph sits relative to the pen, in device pixels. */
     float offsetX;
     /** See @ref offsetX. */
     float offsetY;
+    /**
+     * The **font's own** part of @ref advanceX: what its GPOS value records added to the `hmtx` advance
+     * (Phase 12.11/12.13). `advanceX` is this plus the face's advance, and keeping the two apart is what lets
+     * a diagnostic say "the pen moves 12.4px, of which -1.25 is the font's kerning" instead of guessing.
+     *
+     * Zero for a glyph the font positioned with a placement adjustment only, and for one it said nothing
+     * about — @ref positioned is the flag that tells those two apart, never this number.
+     */
+    float advanceAdjustX;
+    /** See @ref advanceAdjustX. */
+    float advanceAdjustY;
+    /** The font's own part of @ref offsetX: a placement adjustment, in device pixels. */
+    float offsetAdjustX;
+    /** See @ref offsetAdjustX. */
+    float offsetAdjustY;
+    /**
+     * Non-zero when the face's GPOS positioned this glyph (Phase 12.11): it carries a placement offset, an
+     * advance adjustment, or a value record the font wrote for it.
+     *
+     * Distinct from "`offsetX` is non-zero", because the two questions are different: a kerning pair moves
+     * the *advance* and leaves the placement at zero, and a dump that inferred "the font said nothing" from
+     * an offset of zero would report a kerned pair as unpositioned.
+     */
+    int positioned;
     /**
      * Non-zero when a GSUB lookup chose this id rather than the `cmap` (Phase 12.10).
      *
@@ -281,6 +315,9 @@ size_t RoboTextGlyphRunSubstituted(const RoboTextGlyphRun *run);
  */
 size_t RoboTextGlyphRunLigatures(const RoboTextGlyphRun *run);
 
+/** Glyphs the face's GPOS positioned in @p run (Phase 12.11). See `RoboTextGlyphRunPositioned`. */
+size_t RoboTextGlyphRunPositioned(const RoboTextGlyphRun *run);
+
 /** The direction the caller declared for the whole text. */
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run);
 
@@ -386,7 +423,7 @@ typedef struct RoboTextGlyphStats {
     size_t ligatureGlyphs;
     /** Scalars those glyphs stand for: three for one `ffi`, zero for a text with no ligature. */
     size_t ligatureScalars;
-    /** Glyphs that carry a non-zero offset. Zero in this build (no positioning). */
+    /** Glyphs the face's GPOS positioned (Phase 12.11). Zero for a face with no GPOS. */
     size_t positioned;
     /** Glyphs whose id came from a mirrored code point (UAX #9 L4 applies to their scalar). */
     size_t mirrored;

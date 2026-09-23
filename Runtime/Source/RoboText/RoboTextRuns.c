@@ -37,6 +37,7 @@
 
 #include "RoboMem/RoboMem.h"
 #include "RoboText/RoboTextBidi.h"
+#include "RoboText/RoboTextKerning.h"
 #include "RoboText/RoboTextLigature.h"
 #include "RoboText/RoboTextDirection.h"
 #include "RoboText/RoboTextUnicode.h"
@@ -61,6 +62,41 @@ struct RoboTextRunSet {
     /** The setting every text run carries. Copied, so the set keeps nothing borrowed but the text. */
     RoboTextFontContext font;
 };
+
+/* ------------------------------------------------------------------ */
+/* Per-range feature overrides                                         */
+/* ------------------------------------------------------------------ */
+
+/** "No range covers this scalar", as an index no entry can have. */
+#define RoboTextNoFeatureRange ((size_t)-1)
+
+/** The index of the **first** range @p options states that covers @p scalar, or @ref RoboTextNoFeatureRange. */
+static size_t FeatureRangeAt(const RoboTextShapeOptions *options, RoboTextScalarIndex scalar)
+{
+    for (size_t index = 0u; index < options->featureRangeCount; index++) {
+        if (RoboTextRangeContains(options->featureRanges[index].range, scalar)) {
+            return index;
+        }
+    }
+    return RoboTextNoFeatureRange;
+}
+
+/**
+ * @p base with @p range's settings merged over it.
+ *
+ * The range is the **more specific** statement, so its tags win and the ones it does not name keep the
+ * whole-text answer — the rule a stylesheet's cascade applies, and the reason a range holds a whole set rather
+ * than one tag. A set with no room left for a tag the range names keeps what it has: the cap on
+ * `RoboTextMaxFeatures` is a fact about the request, not an error this layer can act on.
+ */
+static void FeatureRangeMerge(const RoboTextFeatureRange *range, RoboTextFeatureSet *base)
+{
+    for (size_t index = 0u; index < range->features.count; index++) {
+        const RoboTextFeatureSetting *setting = &range->features.settings[index];
+
+        (void)RoboTextFeatureSetSet(base, setting->tag, setting->state, setting->value);
+    }
+}
 
 /* ------------------------------------------------------------------ */
 /* Lifetime                                                            */
@@ -93,6 +129,10 @@ Result RoboTextRunSetCreate(RoboTextView view,
      * `directions` stays the classification the direction runs are built from. Two arrays, because the
      * two stages answer different questions about the same scalar (Phase 12.8). */
     RoboTextDirection *resolvedDirections = NULL;
+    /* One entry per scalar: the range that covers it, or @ref RoboTextNoFeatureRange. Computed once, because
+     * the text-run loop's third cut condition is "the effective features change" and asking the range list per
+     * scalar inside that loop would compute the same answer `count x ranges` times. */
+    size_t *featureRanges = NULL;
     Result status;
 
     if (!out) {
@@ -135,6 +175,10 @@ Result RoboTextRunSetCreate(RoboTextView view,
      * here, once per run set, so the measurer and the painter read one resolved feature set — the same
      * property `RoboTypographyStyle` gives the shell, at the text layer's own seam. */
     RoboTextLigaturePolicyApplyIfUnset(&options->ligatures, &set->features);
+    /* Kerning's policy lands in the same set, and after it: the two policies are about different tags, so the
+     * order between them decides nothing — what matters is that both run *before* the engine's defaults are
+     * consulted, which is where the run set hands the set to each run (Phase 12.13). */
+    RoboTextKerningPolicyApplyIfUnset(&options->kerning, &set->features);
 
     status = RoboTextUnicodeDecodeAll(view, &scalars, &count, diag);
     if (status != RoboOk) {
@@ -167,8 +211,10 @@ Result RoboTextRunSetCreate(RoboTextView view,
     set->scriptRuns = (RoboTextScriptRun *)RoboCalloc(count, sizeof(*set->scriptRuns));
     set->directionRuns = (RoboTextDirectionRun *)RoboCalloc(count, sizeof(*set->directionRuns));
     set->textRuns = (RoboTextRun *)RoboCalloc(count, sizeof(*set->textRuns));
+    featureRanges = (size_t *)RoboCalloc(count, sizeof(*featureRanges));
     if (!directions || !resolvedDirections || !set->scriptRuns || !set->directionRuns ||
-        !set->textRuns) {
+        !set->textRuns || !featureRanges) {
+        RoboFree(featureRanges);
         RoboFree(resolvedDirections);
         RoboFree(directions);
         RoboFree(scalars);
@@ -198,6 +244,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                            set->scriptRuns, (size_t)count, &set->scriptRunCount, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(featureRanges);
             RoboFree(resolvedDirections);
             RoboFree(directions);
             RoboFree(scalars);
@@ -218,6 +265,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                              &set->directionRunCount, &set->baseDirection, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(featureRanges);
             RoboFree(resolvedDirections);
             RoboFree(directions);
             RoboFree(scalars);
@@ -234,6 +282,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                              &set->paragraph, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(featureRanges);
             RoboFree(resolvedDirections);
             RoboFree(directions);
             RoboFree(scalars);
@@ -243,6 +292,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
         for (RoboTextScalarIndex index = 0u; index < count; index++) {
             resolvedDirections[index] =
                 RoboTextBidiLevelDirection(RoboTextBidiParagraphResolvedLevel(set->paragraph, index));
+            featureRanges[index] = FeatureRangeAt(options, index);
         }
         /*
          * The text runs are the *intersection* of the two walks, which is why this loop tests both arrays
@@ -258,8 +308,15 @@ Result RoboTextRunSetCreate(RoboTextView view,
         for (RoboTextScalarIndex index = 0u; index < count;) {
             RoboTextScalarIndex end = index + 1u;
 
+            /*
+             * Three conditions, and the third is 12.9's feature ranges: a run carries **one** feature set, so
+             * where the effective settings change the run must end. That is what makes a per-range override a
+             * fact about the shaping pass rather than a note a paint layer has to remember, and it is why the
+             * cut happens here — before any plan is resolved.
+             */
             while (end < count && scripts[end] == scripts[index] &&
-                   resolvedDirections[end] == resolvedDirections[index]) {
+                   resolvedDirections[end] == resolvedDirections[index] &&
+                   featureRanges[end] == featureRanges[index]) {
                 end++;
             }
             set->textRuns[set->textRunCount].range = RoboTextRangeMake(index, end);
@@ -271,12 +328,17 @@ Result RoboTextRunSetCreate(RoboTextView view,
             set->textRuns[set->textRunCount].font = set->font;
             set->textRuns[set->textRunCount].language = set->language;
             set->textRuns[set->textRunCount].features = set->features;
+            if (featureRanges[index] != RoboTextNoFeatureRange) {
+                FeatureRangeMerge(&options->featureRanges[featureRanges[index]],
+                                  &set->textRuns[set->textRunCount].features);
+            }
             set->textRunCount++;
             index = end;
         }
         RoboFree(scripts);
     }
 
+    RoboFree(featureRanges);
     RoboFree(resolvedDirections);
     RoboFree(directions);
     RoboFree(scalars);

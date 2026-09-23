@@ -41,10 +41,13 @@ extern "C" {
  * shapes gained a level field rather than changing shape, so the major stays and the minor moves.
  *
  * 12.10 added the glyph-substitution engine (`RoboTextGsub.h`: the feature plan, the lookup readers and the
- * shaping buffer) and 12.12 the ligature layer (`RoboTextLigature.h`: the five-tag policy, the stylesheet's
- * variant vocabulary and the glyph-run report). Both are additive — the run, glyph and shape records grew a
- * ligature field and kept their shape — so the minor moves once for each and the major stays. */
-#define RoboTextVersionMinor 6
+ * shaping buffer), 12.12 the ligature layer (`RoboTextLigature.h`: the five-tag policy, the stylesheet's
+ * variant vocabulary and the glyph-run report), 12.11 the positioning engine (`RoboTextGpos.h`: the value
+ * records, the pair adjustments in both formats, the extension wrapper and the per-glyph adjustments) and
+ * 12.13 the kerning layer (`RoboTextKerning.h`: the `kern` policy, the source resolution and the per-glyph
+ * report). All four are additive — the glyph record grew the font's own part of its two vectors and kept its
+ * shape — so the minor moves once for each and the major stays. */
+#define RoboTextVersionMinor 7
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -155,10 +158,32 @@ typedef struct RoboTextCapabilities {
      * extension wrapper included.
      */
     int substitution;
-    /** GPOS / glyph positioning. **0**: Phase 12.11. */
+    /**
+     * GPOS / glyph positioning. **1** since Phase 12.11: the face's table is parsed once, the feature plan is
+     * resolved from the face's own ScriptList/LangSys/FeatureList with positioning's defaults, and the single,
+     * pair (both formats) and extension lookups are read into per-glyph adjustments.
+     *
+     * What this does *not* claim: cursive attachment, the three mark attachments and the two contextual
+     * lookups are recognised and **skipped** — `RoboTextGposStats::lookupsUnsupported` counts them — so a face
+     * whose marks ride on GPOS attachment is positioned by its advances alone.
+     */
     int positioning;
-    /** Kerning, including the `kern` table. **0**: Phase 12.13. */
+    /**
+     * Kerning. **1** since Phase 12.13: the `kern` feature is a caller-visible policy
+     * (`RoboTextKerningPolicy`), a run's kerning is resolved against the face and reported
+     * (`RoboTextKerningResolution`), and the adjustments the font made are readable per glyph
+     * (`RoboTextKerningReport`).
+     *
+     * What this does *not* claim: the legacy `kern` table is **not read** — the policy's fallback names the
+     * shape it will take (`RoboTextKerningLegacyIfNoGposKern`) and the resolution says whether the face even
+     * has one (`legacyTableAvailable`), which is the honest record until Phase 5 parses it. Optical kerning,
+     * tracking and letter-spacing are not here either.
+     */
     int kerning;
+    /** The `kern` feature as a policy: on by default, off on request, converted into a feature set. */
+    int kerningPolicy;
+    /** Kerning diagnostics: what applies and from where, and the adjustments a run received. */
+    int kerningReport;
     /**
      * Ligatures. **1** since Phase 12.12: many-to-one substitution through the font's own `liga`/`clig`/
      * `rlig`/`dlig`/`hlig` lookups, with the source range and component count of every product kept.

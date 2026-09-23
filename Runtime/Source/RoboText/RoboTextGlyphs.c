@@ -32,6 +32,7 @@
 
 #include "RoboMem/RoboMem.h"
 #include "RoboText/RoboTextBidi.h"
+#include "RoboText/RoboTextGpos.h"
 #include "RoboText/RoboTextGsub.h"
 #include "RoboTextInternal.h"
 #include "RoboUnicode/RoboUnicode.h"
@@ -59,6 +60,8 @@ struct RoboTextGlyphRun {
     size_t substituted;
     /** Glyphs a ligature produced: several scalars folded into one glyph (Phase 12.12). */
     size_t ligatures;
+    /** Glyphs the face's GPOS positioned (Phase 12.11). */
+    size_t positioned;
     /** Accumulated in `double` from the glyphs' own `float` advances, so a long run's total is the sum of
      *  what the painter accumulates rather than a second rounding of it. */
     double advanceTotal;
@@ -71,7 +74,7 @@ struct RoboTextGlyphRun {
 int RoboTextGlyphGenerationModeIsKnown(RoboTextGlyphGenerationMode mode)
 {
     return mode == RoboTextGlyphGenerationNone || mode == RoboTextGlyphGenerationCmapPerScalar ||
-           mode == RoboTextGlyphGenerationGsub;
+           mode == RoboTextGlyphGenerationGsub || mode == RoboTextGlyphGenerationGpos;
 }
 
 const char *RoboTextGlyphGenerationModeName(RoboTextGlyphGenerationMode mode)
@@ -81,6 +84,8 @@ const char *RoboTextGlyphGenerationModeName(RoboTextGlyphGenerationMode mode)
             return "cmap-per-scalar";
         case RoboTextGlyphGenerationGsub:
             return "cmap+gsub";
+        case RoboTextGlyphGenerationGpos:
+            return "cmap+gsub+gpos";
         case RoboTextGlyphGenerationNone:
         default:
             return "none";
@@ -130,9 +135,12 @@ int RoboTextGlyphEqual(const RoboTextGlyph *a, const RoboTextGlyph *b)
     return a->glyphId == b->glyphId && RoboTextRangeEqual(&a->source, &b->source) &&
            a->cluster == b->cluster && a->advanceUnits == b->advanceUnits &&
            a->advanceX == b->advanceX && a->advanceY == b->advanceY && a->offsetX == b->offsetX &&
-           a->offsetY == b->offsetY && a->mapped == b->mapped &&
+           a->offsetY == b->offsetY && a->advanceAdjustX == b->advanceAdjustX &&
+           a->advanceAdjustY == b->advanceAdjustY && a->offsetAdjustX == b->offsetAdjustX &&
+           a->offsetAdjustY == b->offsetAdjustY && a->mapped == b->mapped &&
            a->control == b->control && a->mirrored == b->mirrored &&
-           a->substituted == b->substituted && a->metricsStatus == b->metricsStatus;
+           a->substituted == b->substituted && a->positioned == b->positioned &&
+           a->metricsStatus == b->metricsStatus;
 }
 
 /* ------------------------------------------------------------------ */
@@ -143,13 +151,13 @@ int RoboTextGlyphEqual(const RoboTextGlyph *a, const RoboTextGlyph *b)
  * The glyph run as a shaping buffer: one entry per glyph slot, in source order.
  *
  * A control is carried and flagged rather than dropped, because its slot is what keeps every later glyph's
- * index agreeing with its scalar; `RoboTextGsubSkipped` is where the flag does its work.
+ * index agreeing with its scalar; `RoboTextOtSkipped` is where the flag does its work.
  */
-static Result GsubBufferFromRun(const RoboTextGlyphRun *glyphRun,
-                                RoboTextGsubBuffer **out,
+static Result ShapeBufferFromRun(const RoboTextGlyphRun *glyphRun,
+                                RoboTextShapingBuffer **out,
                                 RoboTextDiag *diag)
 {
-    RoboTextGsubBuffer *buffer = RoboTextGsubBufferCreate(glyphRun->count);
+    RoboTextShapingBuffer *buffer = RoboTextShapingBufferCreate(glyphRun->count);
 
     if (!buffer) {
         return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
@@ -170,8 +178,8 @@ static Result GsubBufferFromRun(const RoboTextGlyphRun *glyphRun,
         if (glyph->mirrored) {
             shaping.flags |= RoboTextShapingGlyphMirrored;
         }
-        if (RoboTextGsubBufferAppend(buffer, &shaping) != RoboOk) {
-            RoboTextGsubBufferDestroy(buffer);
+        if (RoboTextShapingBufferAppend(buffer, &shaping) != RoboOk) {
+            RoboTextShapingBufferDestroy(buffer);
             return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
                                    "the shaping buffer could not grow");
         }
@@ -186,12 +194,12 @@ static Result GsubBufferFromRun(const RoboTextGlyphRun *glyphRun,
  * Every glyph's advance is asked of the face **for its own id**, which is the one number substitution
  * changes that a reader would notice: a ligature's advance is not the sum of its components'.
  */
-static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
-                                const RoboTextGsubBuffer *buffer,
+static Result ShapeRunFromBuffer(RoboTextGlyphRun *glyphRun,
+                                const RoboTextShapingBuffer *buffer,
                                 const RoboTextRun *run,
                                 RoboTextDiag *diag)
 {
-    size_t produced = RoboTextGsubBufferCount(buffer);
+    size_t produced = RoboTextShapingBufferCount(buffer);
     RoboTextGlyph *rebuilt =
         (RoboTextGlyph *)RoboCalloc(produced != 0u ? produced : 1u, sizeof(*rebuilt));
 
@@ -204,10 +212,11 @@ static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
     glyphRun->controls = 0u;
     glyphRun->substituted = 0u;
     glyphRun->ligatures = 0u;
+    glyphRun->positioned = 0u;
     glyphRun->advanceTotal = 0.0;
 
     for (size_t index = 0u; index < produced; index++) {
-        const RoboTextShapingGlyph *shaping = RoboTextGsubBufferAt(buffer, index);
+        const RoboTextShapingGlyph *shaping = RoboTextShapingBufferAt(buffer, index);
         RoboTextGlyph *glyph = &rebuilt[index];
         FontGlyphMetrics metrics;
         float advance = 0.0f;
@@ -232,6 +241,10 @@ static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
             glyph->substituted = 1;
             glyphRun->substituted++;
         }
+        if ((shaping->flags & RoboTextShapingGlyphPositioned) != 0u) {
+            glyph->positioned = 1;
+            glyphRun->positioned++;
+        }
         glyph->ligatureComponents = shaping->ligatureComponents;
         if (glyph->ligatureComponents >= 2u) {
             /*
@@ -253,7 +266,21 @@ static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
         if (metrics.status == RoboFontGlyphMetricsOk) {
             glyph->advanceUnits = metrics.advanceWidth;
         }
-        glyph->advanceX = advance;
+        /*
+         * The face's own advance **plus** whatever its GPOS said, and the placement as the offset the
+         * rasterizer will apply. This is the one place the two are added, which is what makes a kerning pair
+         * visible to the measurer (`advanceTotal` sums `advanceX`) and to the painter (it draws at
+         * `offsetX`) without either of them knowing that kerning exists.
+         */
+        glyph->advanceX = advance + shaping->advanceAdjustX;
+        glyph->advanceY = shaping->advanceAdjustY;
+        glyph->offsetX = shaping->offsetAdjustX;
+        glyph->offsetY = shaping->offsetAdjustY;
+        /* The font's own part, kept beside the total rather than folded into it: see `advanceAdjustX`. */
+        glyph->advanceAdjustX = shaping->advanceAdjustX;
+        glyph->advanceAdjustY = shaping->advanceAdjustY;
+        glyph->offsetAdjustX = shaping->offsetAdjustX;
+        glyph->offsetAdjustY = shaping->offsetAdjustY;
         if (!mapped || metrics.status != RoboFontGlyphMetricsOk) {
             glyphRun->missing++;
         }
@@ -267,53 +294,120 @@ static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
 }
 
 /**
- * Apply the face's GSUB to @p glyphRun, in place.
+ * Shape @p glyphRun in place: the face's GSUB, then the face's GPOS (Phases 12.10, 12.11).
  *
- * The three answers that are not a substitution: a face with no GSUB, a face whose GSUB has no record for
- * this run's script, and an empty run — each leaves the cmap pass's result alone, and the mode stays
- * @ref RoboTextGlyphGenerationCmapPerScalar, which is a fact about the font rather than about the text.
+ * The order is the phase's, and it is not interchangeable: substitution changes *which* glyphs there are, so
+ * positioning has to see its result — a ligature is one glyph with one advance to kern, and kerning the
+ * three characters that made it would be kerning glyphs that no longer exist. Both stages resolve their
+ * lookups against the same run (script, language, features) and read the same face tables, cached on the
+ * face and immutable.
+ *
+ * The answers that are not a stage running: a face with no table, a table with no record for this run's
+ * script, an empty plan and an empty run. Each leaves the cmap pass's result alone, and the mode stays
+ * @ref RoboTextGlyphGenerationCmapPerScalar — a fact about the font rather than about the text.
+ *
+ * The buffer is built once, both engines mutate it, and the run is rebuilt once at the end. That is the
+ * whole point of the intermediate: positioning writes adjustments onto the glyphs substitution produced,
+ * and the rebuild is where an adjustment becomes an advance the pen and the measurer both see.
  */
-static Result GsubShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboTextDiag *diag)
+static Result ShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboTextDiag *diag)
 {
     const FontOtLayout *gsub = NULL;
+    const FontOtLayout *gpos = NULL;
     const FontGdef *gdef = NULL;
-    RoboTextGsubPlan plan;
-    RoboTextGsubOptions options;
-    RoboTextGsubStats stats;
-    RoboTextGsubBuffer *buffer = NULL;
+    RoboTextOtPlan gsubPlan;
+    RoboTextOtPlan gposPlan;
+    RoboTextShapingBuffer *buffer = NULL;
     Result status;
+    int substitutes = 0;
+    int positions = 0;
+
+    RoboTextOtPlanInit(&gsubPlan);
+    RoboTextOtPlanInit(&gposPlan);
 
     status = RoboTextFontGsub(&run->font, &gsub, diag);
-    if (status != RoboOk || !gsub) {
+    if (status != RoboOk) {
         return status;
     }
+    if (gsub) {
+        status = RoboTextGsubPlanResolve(gsub, run->script, &run->language, &run->features, &gsubPlan, diag);
+        if (status != RoboOk) {
+            return status;
+        }
+        substitutes = (gsubPlan.empty || glyphRun->count == 0u) ? 0 : 1;
+    }
+    status = RoboTextFontGpos(&run->font, &gpos, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    if (gpos) {
+        status = RoboTextGposPlanResolve(gpos, run->script, &run->language, &run->features, &gposPlan, diag);
+        if (status != RoboOk) {
+            return status;
+        }
+        positions = (gposPlan.empty || glyphRun->count == 0u) ? 0 : 1;
+    }
+    if (!substitutes && !positions) {
+        return RoboOk;
+    }
+
     status = RoboTextFontGdef(&run->font, &gdef, diag);
     if (status != RoboOk) {
         return status;
     }
-    status = RoboTextGsubPlanResolve(gsub, run->script, &run->language, &run->features, &plan, diag);
-    if (status != RoboOk || plan.empty || glyphRun->count == 0u) {
-        return status;
-    }
-    status = GsubBufferFromRun(glyphRun, &buffer, diag);
+    status = ShapeBufferFromRun(glyphRun, &buffer, diag);
     if (status != RoboOk) {
         return status;
     }
-    memset(&options, 0, sizeof(options));
-    options.direction = run->direction;
-    options.bidiLevel = glyphRun->bidiLevel;
-    status = RoboTextGsubApply(gsub, gdef, &plan, &options, buffer, &stats, diag);
-    if (status == RoboOk) {
-        status = GsubRunFromBuffer(glyphRun, buffer, run, diag);
+
+    if (substitutes) {
+        RoboTextGsubOptions options;
+        RoboTextGsubStats stats;
+
+        memset(&options, 0, sizeof(options));
+        options.direction = run->direction;
+        options.bidiLevel = glyphRun->bidiLevel;
+        status = RoboTextGsubApply(gsub, gdef, &gsubPlan, &options, buffer, &stats, diag);
+        if (status != RoboOk) {
+            RoboTextShapingBufferDestroy(buffer);
+            return status;
+        }
+        /* A plan resolved and ran, whatever it did: that is what `Gsub` records, and it is why a run of text
+         * a font substitutes nothing in still reports the mode honestly. */
+        glyphRun->mode = RoboTextGlyphGenerationGsub;
     }
-    RoboTextGsubBufferDestroy(buffer);
-    if (status != RoboOk) {
-        return status;
+    if (positions) {
+        RoboTextGposOptions options;
+        RoboTextGposStats stats;
+        float unitScale = 0.0f;
+
+        memset(&options, 0, sizeof(options));
+        options.direction = run->direction;
+        options.bidiLevel = glyphRun->bidiLevel;
+        /*
+         * The device scale, asked of the module's one scaling door: the engine multiplies by this rather than
+         * scaling a font-unit number itself, so `RoboTextFontUnitsToDevice` stays the only place a font unit
+         * becomes a pixel. The ppem is the context's own size rounded — the size a device table is recorded
+         * for — and a face asked at a fractional size gets the nearest whole one, which is what device
+         * corrections are defined against.
+         */
+        if (RoboTextFontUnitsToDevice(&run->font, 1.0, &unitScale, diag) != RoboOk) {
+            unitScale = 0.0f;
+        }
+        options.deviceScale = unitScale;
+        options.devicePpem = (uint16_t)(run->font.style.sizePx + 0.5f);
+        status = RoboTextGposApply(gpos, gdef, &gposPlan, &options, buffer, &stats, diag);
+        if (status != RoboOk) {
+            RoboTextShapingBufferDestroy(buffer);
+            return status;
+        }
+        /* The furthest stage that ran, which is what the mode reports. */
+        glyphRun->mode = RoboTextGlyphGenerationGpos;
     }
-    /* A plan resolved and ran, whatever it did: that is what `Gsub` records, and it is why a run of text a
-     * font substitutes nothing in still reports the mode honestly. */
-    glyphRun->mode = RoboTextGlyphGenerationGsub;
-    return RoboOk;
+
+    status = ShapeRunFromBuffer(glyphRun, buffer, run, diag);
+    RoboTextShapingBufferDestroy(buffer);
+    return status;
 }
 
 /* ------------------------------------------------------------------ */
@@ -483,8 +577,9 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
             glyph->advanceUnits = metrics.advanceWidth;
         }
         glyph->advanceX = advance;
-        /* `advanceY`, `offsetX` and `offsetY` stay zero: nothing positions anything yet, and a field that
-         * carried a plausible-looking value would be a claim no goal has made. */
+        /* `advanceY`, `offsetX` and `offsetY` stay zero *here*, at the map stage: the face's GPOS writes them
+         * when the run is positioned, a few lines below, and a value written here would be a number the font
+         * never gave. */
         if (!mapped || metrics.status != RoboFontGlyphMetricsOk) {
             glyphRun->missing++;
         }
@@ -492,7 +587,7 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
     }
 
     glyphRun->count = (size_t)length;
-    status = GsubShapeRun(run, glyphRun, diag);
+    status = ShapeRun(run, glyphRun, diag);
     if (status != RoboOk) {
         RoboTextGlyphRunDestroy(glyphRun);
         return status;
@@ -551,6 +646,18 @@ size_t RoboTextGlyphRunSubstituted(const RoboTextGlyphRun *run)
 size_t RoboTextGlyphRunLigatures(const RoboTextGlyphRun *run)
 {
     return run ? run->ligatures : 0u;
+}
+
+/**
+ * Glyphs the face's GPOS positioned in @p run (Phase 12.11).
+ *
+ * The count of glyphs a value record touched — which includes a pair whose adjustment the font recorded as
+ * zero, because "the font said this pair is 0" is a font that positioned the pair and not a font that had
+ * nothing to say.
+ */
+size_t RoboTextGlyphRunPositioned(const RoboTextGlyphRun *run)
+{
+    return run ? run->positioned : 0u;
 }
 
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run)
@@ -721,7 +828,7 @@ Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats 
             out->ligatureGlyphs++;
             out->ligatureScalars += (size_t)RoboTextRangeLength(glyph->source);
         }
-        if (glyph->offsetX != 0.0f || glyph->offsetY != 0.0f) {
+        if (glyph->positioned) {
             out->positioned++;
         }
     }
@@ -766,6 +873,8 @@ Result RoboTextGlyphWrite(const RoboTextGlyph *glyph, char *buffer, size_t capac
     length = RoboTextWriterText(line, sizeof(line), length, " mirrored=");
     length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->mirrored);
     /* The bidi-control flag, because it is the reason a glyph with `id=0` must not be drawn. */
+    length = RoboTextWriterText(line, sizeof(line), length, " positioned=");
+    length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->positioned);
     length = RoboTextWriterText(line, sizeof(line), length, " control=");
     length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->control);
     length = RoboTextWriterText(line, sizeof(line), length, " metrics=");

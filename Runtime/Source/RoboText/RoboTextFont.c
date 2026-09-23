@@ -455,3 +455,29 @@ Result RoboTextFontGdef(const RoboTextFontContext *context, const FontGdef **out
     *out = FontFaceGdef(context->face);
     return RoboOk;
 }
+
+Result RoboTextFontGpos(const RoboTextFontContext *context,
+                        const FontOtLayout **out,
+                        RoboTextDiag *diag)
+{
+    Result status;
+
+    if (!context || !out) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboInvalidArgument,
+                               "a font context and an out table are required");
+    }
+    *out = NULL;
+    if (!context->face) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboNotSupported,
+                               "no face is bound to the font context");
+    }
+    status = FontFaceParseOtLayout(context->face);
+    if (status != RoboOk) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, status,
+                               "the face's OpenType layout tables could not be parsed");
+    }
+    /* A face with no GPOS is a face without positioning, which is not an error: the caller gets NULL and the
+     * pen follows the advances the metrics gave it, which is what this runtime drew before 12.11. */
+    *out = FontFaceGpos(context->face);
+    return RoboOk;
+}

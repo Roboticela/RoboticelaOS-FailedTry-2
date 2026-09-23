@@ -1,5 +1,5 @@
 /*
- * The GSUB subtable readers (Phase 12.10) — see `RoboTextGsubInternal.h` for the contract and
+ * The GSUB subtable readers (Phase 12.10) — see `RoboTextOtInternal.h` for the contract and
  * `RoboTextGsub.h` for the module's rule.
  *
  * One GSUB lookup type per reader, plus the machinery they share. The file's shape follows the binary
@@ -10,7 +10,7 @@
  *   untrusted input, so a malformed table answers "this subtable did not match" (0), which the engine
  *   counts as a skip, rather than reading whatever followed the offset.
  *
- *   **Matching walks *participating* glyphs, never adjacent ones.** `RoboTextGsubNextParticipating` steps
+ *   **Matching walks *participating* glyphs, never adjacent ones.** `RoboTextOtNextParticipating` steps
  *   over glyphs the lookup's flags exclude, so a ligature whose components are separated by a mark still
  *   matches, and the mark is still in the buffer afterwards — the phase's §"ignored glyphs" and §"ligature
  *   matching" in one helper. The positions a pattern matched on are then the ones a lookup record applies
@@ -38,7 +38,7 @@
  * three parts are matched against three different class definitions.
  */
 
-#include "RoboTextGsubInternal.h"
+#include "RoboTextOtInternal.h"
 #include "RoboMem/RoboMem.h"
 
 #include <string.h>
@@ -47,7 +47,7 @@
 /* Reads                                                               */
 /* ------------------------------------------------------------------ */
 
-static Result GsubReadU16(FontSpan table, size_t offset, uint16_t *out)
+Result RoboTextOtReadU16(FontSpan table, size_t offset, uint16_t *out)
 {
     FontReader reader;
 
@@ -61,7 +61,7 @@ static Result GsubReadU16(FontSpan table, size_t offset, uint16_t *out)
     return FontReadU16be(&reader, out);
 }
 
-static Result GsubReadI16(FontSpan table, size_t offset, int16_t *out)
+Result RoboTextOtReadI16(FontSpan table, size_t offset, int16_t *out)
 {
     FontReader reader;
 
@@ -75,7 +75,7 @@ static Result GsubReadI16(FontSpan table, size_t offset, int16_t *out)
     return FontReadI16be(&reader, out);
 }
 
-static Result GsubReadU32(FontSpan table, size_t offset, uint32_t *out)
+Result RoboTextOtReadU32(FontSpan table, size_t offset, uint32_t *out)
 {
     FontReader reader;
 
@@ -93,13 +93,13 @@ static Result GsubReadU32(FontSpan table, size_t offset, uint32_t *out)
  * A `uint16` field at @p offset. Every field read below is one of these, and each guards the next.
  *
  * The three macros exist because `GsubReadU16/U32/I16` answer a `Result` and `RoboOk` is **zero**: writing
- * `if (!GsubReadU32(...))` inverts the question and takes the failure branch on every successful read. That
+ * `if (!RoboTextOtReadU32(...))` inverts the question and takes the failure branch on every successful read. That
  * mistake hid single-substitution format 1 (`!GsubReadI16`), the extension wrapper's inner offset and GDEF's
  * mark filtering set, so no reader below calls one of those functions outside a macro.
  */
-#define GsubU16(table, offset, out) (GsubReadU16((table), (offset), (out)) == RoboOk)
-#define GsubU32(table, offset, out) (GsubReadU32((table), (offset), (out)) == RoboOk)
-#define GsubI16(table, offset, out) (GsubReadI16((table), (offset), (out)) == RoboOk)
+#define GsubU16(table, offset, out) (RoboTextOtReadU16((table), (offset), (out)) == RoboOk)
+#define GsubU32(table, offset, out) (RoboTextOtReadU32((table), (offset), (out)) == RoboOk)
+#define GsubI16(table, offset, out) (RoboTextOtReadI16((table), (offset), (out)) == RoboOk)
 
 /**
  * @p offset resolved against @p base, or 0 when the field is 0.
@@ -108,7 +108,7 @@ static Result GsubReadU32(FontSpan table, size_t offset, uint32_t *out)
  * cannot express it: it would answer `base` itself, which is a real location in the parent and would then be
  * parsed as a coverage table. So absent is answered as absent.
  */
-static size_t GsubOffset16(FontSpan table, size_t base, uint16_t offset)
+size_t RoboTextOtOffset16(FontSpan table, size_t base, uint16_t offset)
 {
     size_t absolute = 0u;
 
@@ -118,7 +118,7 @@ static size_t GsubOffset16(FontSpan table, size_t base, uint16_t offset)
     return absolute;
 }
 
-static size_t GsubOffset32(FontSpan table, size_t base, uint32_t offset)
+size_t RoboTextOtOffset32(FontSpan table, size_t base, uint32_t offset)
 {
     size_t absolute = 0u;
 
@@ -132,7 +132,7 @@ static size_t GsubOffset32(FontSpan table, size_t base, uint32_t offset)
 /* The parsed-subtable cache                                           */
 /* ------------------------------------------------------------------ */
 
-static void GsubCacheDropOldest(RoboTextGsubCall *apply)
+static void GsubCacheDropOldest(RoboTextOtCall *apply)
 {
     if (apply->cacheCount == 0u) {
         return;
@@ -148,7 +148,7 @@ static void GsubCacheDropOldest(RoboTextGsubCall *apply)
     apply->cacheCount--;
 }
 
-void RoboTextGsubCacheClear(RoboTextGsubCall *apply)
+void RoboTextOtCacheClear(RoboTextOtCall *apply)
 {
     if (!apply) {
         return;
@@ -159,11 +159,11 @@ void RoboTextGsubCacheClear(RoboTextGsubCall *apply)
     apply->cacheCount = 0u;
 }
 
-const FontOtCoverage *RoboTextGsubCacheCoverage(RoboTextGsubCall *apply, size_t offset)
+const FontOtCoverage *RoboTextOtCacheCoverage(RoboTextOtCall *apply, size_t offset)
 {
-    RoboTextGsubCacheEntry *entry;
+    RoboTextOtCacheEntry *entry;
 
-    if (!apply || !apply->gsub || offset == 0u) {
+    if (!apply || !apply->layout || offset == 0u) {
         return NULL;
     }
     for (size_t index = 0u; index < apply->cacheCount; index++) {
@@ -171,12 +171,12 @@ const FontOtCoverage *RoboTextGsubCacheCoverage(RoboTextGsubCall *apply, size_t 
             return &apply->cache[index].coverage;
         }
     }
-    if (apply->cacheCount >= RoboTextGsubCacheSlots) {
+    if (apply->cacheCount >= RoboTextOtCacheSlots) {
         GsubCacheDropOldest(apply);
     }
     entry = &apply->cache[apply->cacheCount];
     memset(entry, 0, sizeof(*entry));
-    if (FontOtCoverageParse(apply->gsub->table, offset, &entry->coverage) != RoboOk) {
+    if (FontOtCoverageParse(apply->layout->table, offset, &entry->coverage) != RoboOk) {
         FontOtCoverageClear(&entry->coverage);
         memset(entry, 0, sizeof(*entry));
         return NULL;
@@ -187,11 +187,11 @@ const FontOtCoverage *RoboTextGsubCacheCoverage(RoboTextGsubCall *apply, size_t 
     return &entry->coverage;
 }
 
-const FontOtClassDef *RoboTextGsubCacheClassDef(RoboTextGsubCall *apply, size_t offset)
+const FontOtClassDef *RoboTextOtCacheClassDef(RoboTextOtCall *apply, size_t offset)
 {
-    RoboTextGsubCacheEntry *entry;
+    RoboTextOtCacheEntry *entry;
 
-    if (!apply || !apply->gsub || offset == 0u) {
+    if (!apply || !apply->layout || offset == 0u) {
         return NULL;
     }
     for (size_t index = 0u; index < apply->cacheCount; index++) {
@@ -199,12 +199,12 @@ const FontOtClassDef *RoboTextGsubCacheClassDef(RoboTextGsubCall *apply, size_t 
             return &apply->cache[index].classDef;
         }
     }
-    if (apply->cacheCount >= RoboTextGsubCacheSlots) {
+    if (apply->cacheCount >= RoboTextOtCacheSlots) {
         GsubCacheDropOldest(apply);
     }
     entry = &apply->cache[apply->cacheCount];
     memset(entry, 0, sizeof(*entry));
-    if (FontOtClassDefParse(apply->gsub->table, offset, &entry->classDef) != RoboOk) {
+    if (FontOtClassDefParse(apply->layout->table, offset, &entry->classDef) != RoboOk) {
         FontOtClassDefClear(&entry->classDef);
         memset(entry, 0, sizeof(*entry));
         return NULL;
@@ -215,9 +215,9 @@ const FontOtClassDef *RoboTextGsubCacheClassDef(RoboTextGsubCall *apply, size_t 
     return &entry->classDef;
 }
 
-int RoboTextGsubCovered(RoboTextGsubCall *apply, size_t offset, GlyphId glyphId, uint16_t *outIndex)
+int RoboTextOtCovered(RoboTextOtCall *apply, size_t offset, GlyphId glyphId, uint16_t *outIndex)
 {
-    const FontOtCoverage *coverage = RoboTextGsubCacheCoverage(apply, offset);
+    const FontOtCoverage *coverage = RoboTextOtCacheCoverage(apply, offset);
     uint16_t index = 0u;
 
     if (!coverage) {
@@ -232,9 +232,9 @@ int RoboTextGsubCovered(RoboTextGsubCall *apply, size_t offset, GlyphId glyphId,
     return 1;
 }
 
-uint16_t RoboTextGsubClassOf(RoboTextGsubCall *apply, size_t offset, GlyphId glyphId)
+uint16_t RoboTextOtClassOf(RoboTextOtCall *apply, size_t offset, GlyphId glyphId)
 {
-    const FontOtClassDef *classDef = RoboTextGsubCacheClassDef(apply, offset);
+    const FontOtClassDef *classDef = RoboTextOtCacheClassDef(apply, offset);
     uint16_t value = 0u;
 
     if (!classDef) {
@@ -250,20 +250,41 @@ uint16_t RoboTextGsubClassOf(RoboTextGsubCall *apply, size_t offset, GlyphId gly
 /* Limits                                                              */
 /* ------------------------------------------------------------------ */
 
-int RoboTextGsubSpendProbes(RoboTextGsubCall *apply, uint32_t count)
+int RoboTextOtSubtableInsideLookup(const FontOtLookup *lookup, size_t offset)
 {
+    size_t header = 6u;
+
+    if (!lookup) {
+        return 1;
+    }
+    if ((lookup->lookupFlag & RoboFontOtLookupFlagUseMarkFilteringSet) != 0u) {
+        header += 2u;
+    }
+    return (offset >= lookup->lookupOffset && offset < lookup->lookupOffset + header) ? 1 : 0;
+}
+
+int RoboTextOtSpendProbes(RoboTextOtCall *apply, uint32_t count)
+{
+    /*
+     * The budget is one number either way, but it is *recorded* in the statistics of the engine that owns the
+     * call: substitution and positioning have their own `probes` and `limitReached`, and a reader of
+     * `RoboTextGposStats::probes` must not be reading a count substitution spent.
+     */
+    uint32_t *spent;
+
     if (!apply || !apply->limits || count > apply->limits->maxGlyphProbes) {
         return 0;
     }
-    if (apply->stats.probes > apply->limits->maxGlyphProbes - count) {
+    spent = apply->positioning ? &apply->gposStats.probes : &apply->stats.probes;
+    if (*spent > apply->limits->maxGlyphProbes - count) {
         apply->limitReached = 1;
         return 0;
     }
-    apply->stats.probes += count;
+    *spent += count;
     return 1;
 }
 
-int RoboTextGsubExceedsGlyphLimit(const RoboTextGsubCall *apply, size_t after)
+int RoboTextOtExceedsGlyphLimit(const RoboTextOtCall *apply, size_t after)
 {
     if (!apply || !apply->limits) {
         return 1;
@@ -275,7 +296,7 @@ int RoboTextGsubExceedsGlyphLimit(const RoboTextGsubCall *apply, size_t after)
 /* Which glyphs a lookup sees                                          */
 /* ------------------------------------------------------------------ */
 
-int RoboTextGsubSkipped(RoboTextGsubCall *apply, size_t index)
+int RoboTextOtSkipped(RoboTextOtCall *apply, size_t index)
 {
     const FontOtLookup *lookup;
     const RoboTextShapingGlyph *at;
@@ -285,7 +306,7 @@ int RoboTextGsubSkipped(RoboTextGsubCall *apply, size_t index)
     if (!apply || !(lookup = apply->lookup)) {
         return 0;
     }
-    at = RoboTextGsubBufferAt(apply->buffer, index);
+    at = RoboTextShapingBufferAt(apply->buffer, index);
     if (!at) {
         return 1;
     }
@@ -349,20 +370,20 @@ int RoboTextGsubSkipped(RoboTextGsubCall *apply, size_t index)
             !GsubU32(gdefTable, sets + 4u + (size_t)lookup->markFilteringSet * 4u, &coverageField)) {
             return 0;
         }
-        coverage = GsubOffset32(gdefTable, sets, coverageField);
-        if (coverage == 0u || !RoboTextGsubCovered(apply, coverage, glyphId, NULL)) {
+        coverage = RoboTextOtOffset32(gdefTable, sets, coverageField);
+        if (coverage == 0u || !RoboTextOtCovered(apply, coverage, glyphId, NULL)) {
             return 1;
         }
     }
     return 0;
 }
 
-size_t RoboTextGsubNextParticipating(RoboTextGsubCall *apply, size_t index)
+size_t RoboTextOtNextParticipating(RoboTextOtCall *apply, size_t index)
 {
-    size_t count = RoboTextGsubBufferCount(apply->buffer);
+    size_t count = RoboTextShapingBufferCount(apply->buffer);
 
     while (index < count) {
-        if (!RoboTextGsubSkipped(apply, index)) {
+        if (!RoboTextOtSkipped(apply, index)) {
             return index;
         }
         index++;
@@ -370,9 +391,9 @@ size_t RoboTextGsubNextParticipating(RoboTextGsubCall *apply, size_t index)
     return count;
 }
 
-size_t RoboTextGsubPrevParticipating(RoboTextGsubCall *apply, size_t index, size_t steps)
+size_t RoboTextOtPrevParticipating(RoboTextOtCall *apply, size_t index, size_t steps)
 {
-    size_t count = RoboTextGsubBufferCount(apply->buffer);
+    size_t count = RoboTextShapingBufferCount(apply->buffer);
     size_t position = index;
 
     while (steps != 0u) {
@@ -385,10 +406,10 @@ size_t RoboTextGsubPrevParticipating(RoboTextGsubCall *apply, size_t index, size
          * glyph against its backtrack pattern and could only match when the two happened to be equal.
          */
         position--;
-        while (position != 0u && RoboTextGsubSkipped(apply, position)) {
+        while (position != 0u && RoboTextOtSkipped(apply, position)) {
             position--;
         }
-        if (RoboTextGsubSkipped(apply, position)) {
+        if (RoboTextOtSkipped(apply, position)) {
             /* Down to the buffer's first glyph and it is skipped too: nothing before @p index
              * participates, so the caller gets the sentinel. */
             return count;
@@ -404,7 +425,7 @@ size_t RoboTextGsubPrevParticipating(RoboTextGsubCall *apply, size_t index, size
 
 /** The participating buffer indices a pattern matched at, in ascending order. */
 typedef struct GsubMatch {
-    size_t positions[RoboTextGsubMaxMatchGlyphs];
+    size_t positions[RoboTextOtMaxMatchGlyphs];
     size_t count;
 } GsubMatch;
 
@@ -415,7 +436,7 @@ typedef struct GsubMatch {
  * failure.
  */
 
-static int GsubMatchGlyphIds(RoboTextGsubCall *apply,
+static int GsubMatchGlyphIds(RoboTextOtCall *apply,
                              size_t start,
                              const GlyphId *wanted,
                              size_t count,
@@ -426,13 +447,13 @@ static int GsubMatchGlyphIds(RoboTextGsubCall *apply,
     for (size_t index = 0u; index < count; index++) {
         const RoboTextShapingGlyph *glyph;
 
-        at = RoboTextGsubNextParticipating(apply, at);
-        if (at >= RoboTextGsubBufferCount(apply->buffer) || match->count >=
-                                                              RoboTextGsubMaxMatchGlyphs ||
-            !RoboTextGsubSpendProbes(apply, 1u)) {
+        at = RoboTextOtNextParticipating(apply, at);
+        if (at >= RoboTextShapingBufferCount(apply->buffer) || match->count >=
+                                                              RoboTextOtMaxMatchGlyphs ||
+            !RoboTextOtSpendProbes(apply, 1u)) {
             return 0;
         }
-        glyph = RoboTextGsubBufferAt(apply->buffer, at);
+        glyph = RoboTextShapingBufferAt(apply->buffer, at);
         if (!glyph || glyph->glyphId != wanted[index]) {
             return 0;
         }
@@ -442,7 +463,7 @@ static int GsubMatchGlyphIds(RoboTextGsubCall *apply,
     return 1;
 }
 
-static int GsubMatchClasses(RoboTextGsubCall *apply,
+static int GsubMatchClasses(RoboTextOtCall *apply,
                             size_t start,
                             size_t classDefOffset,
                             const uint16_t *wanted,
@@ -454,13 +475,13 @@ static int GsubMatchClasses(RoboTextGsubCall *apply,
     for (size_t index = 0u; index < count; index++) {
         const RoboTextShapingGlyph *glyph;
 
-        at = RoboTextGsubNextParticipating(apply, at);
-        if (at >= RoboTextGsubBufferCount(apply->buffer) ||
-            match->count >= RoboTextGsubMaxMatchGlyphs || !RoboTextGsubSpendProbes(apply, 1u)) {
+        at = RoboTextOtNextParticipating(apply, at);
+        if (at >= RoboTextShapingBufferCount(apply->buffer) ||
+            match->count >= RoboTextOtMaxMatchGlyphs || !RoboTextOtSpendProbes(apply, 1u)) {
             return 0;
         }
-        glyph = RoboTextGsubBufferAt(apply->buffer, at);
-        if (!glyph || RoboTextGsubClassOf(apply, classDefOffset, glyph->glyphId) != wanted[index]) {
+        glyph = RoboTextShapingBufferAt(apply->buffer, at);
+        if (!glyph || RoboTextOtClassOf(apply, classDefOffset, glyph->glyphId) != wanted[index]) {
             return 0;
         }
         match->positions[match->count++] = at;
@@ -470,7 +491,7 @@ static int GsubMatchClasses(RoboTextGsubCall *apply,
 }
 
 /** Match @p count coverages, one per position — the format 3 rule shape. */
-static int GsubMatchCoverages(RoboTextGsubCall *apply,
+static int GsubMatchCoverages(RoboTextOtCall *apply,
                               size_t start,
                               const size_t *coverageOffsets,
                               size_t count,
@@ -481,14 +502,14 @@ static int GsubMatchCoverages(RoboTextGsubCall *apply,
     for (size_t index = 0u; index < count; index++) {
         const RoboTextShapingGlyph *glyph;
 
-        at = RoboTextGsubNextParticipating(apply, at);
-        if (at >= RoboTextGsubBufferCount(apply->buffer) ||
-            match->count >= RoboTextGsubMaxMatchGlyphs || !RoboTextGsubSpendProbes(apply, 1u)) {
+        at = RoboTextOtNextParticipating(apply, at);
+        if (at >= RoboTextShapingBufferCount(apply->buffer) ||
+            match->count >= RoboTextOtMaxMatchGlyphs || !RoboTextOtSpendProbes(apply, 1u)) {
             return 0;
         }
-        glyph = RoboTextGsubBufferAt(apply->buffer, at);
+        glyph = RoboTextShapingBufferAt(apply->buffer, at);
         if (!glyph || coverageOffsets[index] == 0u ||
-            !RoboTextGsubCovered(apply, coverageOffsets[index], glyph->glyphId, NULL)) {
+            !RoboTextOtCovered(apply, coverageOffsets[index], glyph->glyphId, NULL)) {
             return 0;
         }
         match->positions[match->count++] = at;
@@ -498,7 +519,7 @@ static int GsubMatchCoverages(RoboTextGsubCall *apply,
 }
 
 /** Match @p count participating glyphs *backwards* from @p before, nearest first. */
-static int GsubMatchGlyphIdsBackward(RoboTextGsubCall *apply,
+static int GsubMatchGlyphIdsBackward(RoboTextOtCall *apply,
                                      size_t before,
                                      const GlyphId *wanted,
                                      size_t count)
@@ -508,11 +529,11 @@ static int GsubMatchGlyphIdsBackward(RoboTextGsubCall *apply,
     for (size_t index = 0u; index < count; index++) {
         const RoboTextShapingGlyph *glyph;
 
-        at = RoboTextGsubPrevParticipating(apply, at, 1u);
-        if (at >= RoboTextGsubBufferCount(apply->buffer) || !RoboTextGsubSpendProbes(apply, 1u)) {
+        at = RoboTextOtPrevParticipating(apply, at, 1u);
+        if (at >= RoboTextShapingBufferCount(apply->buffer) || !RoboTextOtSpendProbes(apply, 1u)) {
             return 0;
         }
-        glyph = RoboTextGsubBufferAt(apply->buffer, at);
+        glyph = RoboTextShapingBufferAt(apply->buffer, at);
         if (!glyph || glyph->glyphId != wanted[index]) {
             return 0;
         }
@@ -520,7 +541,7 @@ static int GsubMatchGlyphIdsBackward(RoboTextGsubCall *apply,
     return 1;
 }
 
-static int GsubMatchClassesBackward(RoboTextGsubCall *apply,
+static int GsubMatchClassesBackward(RoboTextOtCall *apply,
                                     size_t before,
                                     size_t classDefOffset,
                                     const uint16_t *wanted,
@@ -531,19 +552,19 @@ static int GsubMatchClassesBackward(RoboTextGsubCall *apply,
     for (size_t index = 0u; index < count; index++) {
         const RoboTextShapingGlyph *glyph;
 
-        at = RoboTextGsubPrevParticipating(apply, at, 1u);
-        if (at >= RoboTextGsubBufferCount(apply->buffer) || !RoboTextGsubSpendProbes(apply, 1u)) {
+        at = RoboTextOtPrevParticipating(apply, at, 1u);
+        if (at >= RoboTextShapingBufferCount(apply->buffer) || !RoboTextOtSpendProbes(apply, 1u)) {
             return 0;
         }
-        glyph = RoboTextGsubBufferAt(apply->buffer, at);
-        if (!glyph || RoboTextGsubClassOf(apply, classDefOffset, glyph->glyphId) != wanted[index]) {
+        glyph = RoboTextShapingBufferAt(apply->buffer, at);
+        if (!glyph || RoboTextOtClassOf(apply, classDefOffset, glyph->glyphId) != wanted[index]) {
             return 0;
         }
     }
     return 1;
 }
 
-static int GsubMatchCoveragesBackward(RoboTextGsubCall *apply,
+static int GsubMatchCoveragesBackward(RoboTextOtCall *apply,
                                       size_t before,
                                       const size_t *coverageOffsets,
                                       size_t count)
@@ -553,13 +574,13 @@ static int GsubMatchCoveragesBackward(RoboTextGsubCall *apply,
     for (size_t index = 0u; index < count; index++) {
         const RoboTextShapingGlyph *glyph;
 
-        at = RoboTextGsubPrevParticipating(apply, at, 1u);
-        if (at >= RoboTextGsubBufferCount(apply->buffer) || !RoboTextGsubSpendProbes(apply, 1u)) {
+        at = RoboTextOtPrevParticipating(apply, at, 1u);
+        if (at >= RoboTextShapingBufferCount(apply->buffer) || !RoboTextOtSpendProbes(apply, 1u)) {
             return 0;
         }
-        glyph = RoboTextGsubBufferAt(apply->buffer, at);
+        glyph = RoboTextShapingBufferAt(apply->buffer, at);
         if (!glyph || coverageOffsets[index] == 0u ||
-            !RoboTextGsubCovered(apply, coverageOffsets[index], glyph->glyphId, NULL)) {
+            !RoboTextOtCovered(apply, coverageOffsets[index], glyph->glyphId, NULL)) {
             return 0;
         }
     }
@@ -571,7 +592,7 @@ static int GsubMatchCoveragesBackward(RoboTextGsubCall *apply,
 /* ------------------------------------------------------------------ */
 
 /** Record a substitution in the trace and tell the caller where its scan continues. */
-static int GsubFinish(RoboTextGsubCall *apply,
+static int GsubFinish(RoboTextOtCall *apply,
                       size_t *outNext,
                       size_t index,
                       const GlyphId *from,
@@ -589,12 +610,12 @@ static int GsubFinish(RoboTextGsubCall *apply,
 }
 
 /** The source range of the glyphs at @p positions: the first's start to the last's end. */
-static RoboTextRange GsubSpanOf(const RoboTextGsubCall *apply, const size_t *positions, size_t count)
+static RoboTextRange GsubSpanOf(const RoboTextOtCall *apply, const size_t *positions, size_t count)
 {
     RoboTextRange span = RoboTextRangeMake(0u, 0u);
 
     for (size_t index = 0u; index < count; index++) {
-        const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, positions[index]);
+        const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, positions[index]);
 
         if (!glyph) {
             continue;
@@ -617,7 +638,7 @@ static RoboTextRange GsubSpanOf(const RoboTextGsubCall *apply, const size_t *pos
 /* Single (type 1)                                                     */
 /* ------------------------------------------------------------------ */
 
-static int GsubApplySingle(RoboTextGsubCall *apply,
+static int GsubApplySingle(RoboTextOtCall *apply,
                            FontSpan table,
                            size_t offset,
                            size_t index,
@@ -626,7 +647,7 @@ static int GsubApplySingle(RoboTextGsubCall *apply,
     uint16_t format = 0u;
     uint16_t coverageOffset = 0u;
     size_t coverage;
-    const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, index);
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
     uint16_t coverageIndex = 0u;
     GlyphId replaced;
     GlyphId substitute;
@@ -634,8 +655,8 @@ static int GsubApplySingle(RoboTextGsubCall *apply,
     if (!glyph || !GsubU16(table, offset, &format) || !GsubU16(table, offset + 2u, &coverageOffset)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex)) {
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex)) {
         return 0;
     }
     replaced = (GlyphId)glyph->glyphId;
@@ -661,13 +682,13 @@ static int GsubApplySingle(RoboTextGsubCall *apply,
     } else {
         return 0;
     }
-    if (RoboTextGsubBufferSetGlyph(apply->buffer, index, substitute) != RoboOk) {
+    if (RoboTextShapingBufferSetGlyph(apply->buffer, index, substitute) != RoboOk) {
         return 0;
     }
     {
         /* The id changes and nothing else does: same source, same cluster, same level. That is what makes
          * `A -> A.alt` invisible to selection and to every later stage. */
-        RoboTextShapingGlyph *edited = RoboTextGsubBufferAtMutable(apply->buffer, index);
+        RoboTextShapingGlyph *edited = RoboTextShapingBufferAtMutable(apply->buffer, index);
 
         if (edited) {
             edited->inputGlyphId = replaced;
@@ -688,7 +709,7 @@ static int GsubApplySingle(RoboTextGsubCall *apply,
 /* Multiple (type 2)                                                   */
 /* ------------------------------------------------------------------ */
 
-static int GsubApplyMultiple(RoboTextGsubCall *apply,
+static int GsubApplyMultiple(RoboTextOtCall *apply,
                              FontSpan table,
                              size_t offset,
                              size_t index,
@@ -697,7 +718,7 @@ static int GsubApplyMultiple(RoboTextGsubCall *apply,
     uint16_t format = 0u;
     uint16_t coverageOffset = 0u;
     size_t coverage;
-    const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, index);
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
     uint16_t coverageIndex = 0u;
     uint16_t sequenceCount = 0u;
     uint16_t sequenceOffset = 0u;
@@ -712,13 +733,13 @@ static int GsubApplyMultiple(RoboTextGsubCall *apply,
         !GsubU16(table, offset + 2u, &coverageOffset) || !GsubU16(table, offset + 4u, &sequenceCount)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
         coverageIndex >= sequenceCount ||
         !GsubU16(table, offset + 6u + (size_t)coverageIndex * 2u, &sequenceOffset)) {
         return 0;
     }
-    sequence = GsubOffset16(table, offset, sequenceOffset);
+    sequence = RoboTextOtOffset16(table, offset, sequenceOffset);
     if (sequence == 0u || !GsubU16(table, sequence, &glyphCount) || glyphCount == 0u) {
         return 0;
     }
@@ -726,12 +747,12 @@ static int GsubApplyMultiple(RoboTextGsubCall *apply,
      * The one place the buffer grows, so the one place the glyph limit has to be checked — before the
      * allocation, because the count comes from the font.
      */
-    if (RoboTextGsubExceedsGlyphLimit(apply,
-                                      RoboTextGsubBufferCount(apply->buffer) - 1u + (size_t)glyphCount)) {
+    if (RoboTextOtExceedsGlyphLimit(apply,
+                                      RoboTextShapingBufferCount(apply->buffer) - 1u + (size_t)glyphCount)) {
         apply->limitReached = 1;
         return 0;
     }
-    if (!RoboTextGsubSpendProbes(apply, glyphCount)) {
+    if (!RoboTextOtSpendProbes(apply, glyphCount)) {
         return 0;
     }
     products = (RoboTextShapingGlyph *)RoboCalloc(glyphCount, sizeof(*products));
@@ -764,7 +785,7 @@ static int GsubApplyMultiple(RoboTextGsubCall *apply,
         products[product].flags = RoboTextShapingGlyphSubstituted | RoboTextShapingGlyphMultiple;
         ids[product] = (GlyphId)value;
     }
-    if (RoboTextGsubBufferReplace(apply->buffer, index, 1u, products, glyphCount) != RoboOk) {
+    if (RoboTextShapingBufferReplace(apply->buffer, index, 1u, products, glyphCount) != RoboOk) {
         RoboFree(products);
         RoboFree(ids);
         apply->failed = 1;
@@ -783,13 +804,13 @@ static int GsubApplyMultiple(RoboTextGsubCall *apply,
 /* ------------------------------------------------------------------ */
 
 /** The alternate index the caller asked of the feature that named the running lookup; 0 by default. */
-static uint32_t GsubAlternateIndex(const RoboTextGsubCall *apply)
+static uint32_t GsubAlternateIndex(const RoboTextOtCall *apply)
 {
     if (!apply || !apply->plan) {
         return 0u;
     }
     for (size_t index = 0u; index < apply->plan->featureCount; index++) {
-        const RoboTextGsubFeature *feature = &apply->plan->features[index];
+        const RoboTextOtFeature *feature = &apply->plan->features[index];
 
         if (memcmp(feature->tag, apply->featureTag, 4u) == 0) {
             return feature->value;
@@ -798,7 +819,7 @@ static uint32_t GsubAlternateIndex(const RoboTextGsubCall *apply)
     return 0u;
 }
 
-static int GsubApplyAlternate(RoboTextGsubCall *apply,
+static int GsubApplyAlternate(RoboTextOtCall *apply,
                               FontSpan table,
                               size_t offset,
                               size_t index,
@@ -807,7 +828,7 @@ static int GsubApplyAlternate(RoboTextGsubCall *apply,
     uint16_t format = 0u;
     uint16_t coverageOffset = 0u;
     size_t coverage;
-    const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, index);
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
     uint16_t coverageIndex = 0u;
     uint16_t setCount = 0u;
     uint16_t setOffset = 0u;
@@ -821,13 +842,13 @@ static int GsubApplyAlternate(RoboTextGsubCall *apply,
         !GsubU16(table, offset + 2u, &coverageOffset) || !GsubU16(table, offset + 4u, &setCount)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
         coverageIndex >= setCount ||
         !GsubU16(table, offset + 6u + (size_t)coverageIndex * 2u, &setOffset)) {
         return 0;
     }
-    set = GsubOffset16(table, offset, setOffset);
+    set = RoboTextOtOffset16(table, offset, setOffset);
     if (set == 0u || !GsubU16(table, set, &glyphCount) || glyphCount == 0u) {
         return 0;
     }
@@ -845,11 +866,11 @@ static int GsubApplyAlternate(RoboTextGsubCall *apply,
         return 0;
     }
     replaced = (GlyphId)glyph->glyphId;
-    if (RoboTextGsubBufferSetGlyph(apply->buffer, index, (GlyphId)chosen) != RoboOk) {
+    if (RoboTextShapingBufferSetGlyph(apply->buffer, index, (GlyphId)chosen) != RoboOk) {
         return 0;
     }
     {
-        RoboTextShapingGlyph *edited = RoboTextGsubBufferAtMutable(apply->buffer, index);
+        RoboTextShapingGlyph *edited = RoboTextShapingBufferAtMutable(apply->buffer, index);
 
         if (edited) {
             edited->inputGlyphId = replaced;
@@ -869,7 +890,7 @@ static int GsubApplyAlternate(RoboTextGsubCall *apply,
 /* Ligature (type 4)                                                   */
 /* ------------------------------------------------------------------ */
 
-static int GsubApplyLigature(RoboTextGsubCall *apply,
+static int GsubApplyLigature(RoboTextOtCall *apply,
                              FontSpan table,
                              size_t offset,
                              size_t index,
@@ -878,7 +899,7 @@ static int GsubApplyLigature(RoboTextGsubCall *apply,
     uint16_t format = 0u;
     uint16_t coverageOffset = 0u;
     size_t coverage;
-    const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, index);
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
     uint16_t coverageIndex = 0u;
     uint16_t setCount = 0u;
     uint16_t setOffset = 0u;
@@ -889,13 +910,13 @@ static int GsubApplyLigature(RoboTextGsubCall *apply,
         !GsubU16(table, offset + 2u, &coverageOffset) || !GsubU16(table, offset + 4u, &setCount)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
         coverageIndex >= setCount ||
         !GsubU16(table, offset + 6u + (size_t)coverageIndex * 2u, &setOffset)) {
         return 0;
     }
-    set = GsubOffset16(table, offset, setOffset);
+    set = RoboTextOtOffset16(table, offset, setOffset);
     if (set == 0u || !GsubU16(table, set, &ligatureCount)) {
         return 0;
     }
@@ -911,7 +932,7 @@ static int GsubApplyLigature(RoboTextGsubCall *apply,
         size_t ligature;
         uint16_t ligatureGlyph = 0u;
         uint16_t componentCount = 0u;
-        GlyphId components[RoboTextGsubMaxMatchGlyphs];
+        GlyphId components[RoboTextOtMaxMatchGlyphs];
         GsubMatch match;
         RoboTextRange span;
         GlyphId replaced;
@@ -919,12 +940,12 @@ static int GsubApplyLigature(RoboTextGsubCall *apply,
         if (!GsubU16(table, set + 2u + (size_t)candidate * 2u, &ligatureOffset)) {
             return 0;
         }
-        ligature = GsubOffset16(table, set, ligatureOffset);
+        ligature = RoboTextOtOffset16(table, set, ligatureOffset);
         if (ligature == 0u || !GsubU16(table, ligature, &ligatureGlyph) ||
             !GsubU16(table, ligature + 2u, &componentCount)) {
             return 0;
         }
-        if (componentCount < 2u || componentCount > RoboTextGsubMaxMatchGlyphs) {
+        if (componentCount < 2u || componentCount > RoboTextOtMaxMatchGlyphs) {
             continue;
         }
         for (uint16_t component = 0u; component + 1u < componentCount; component++) {
@@ -965,13 +986,13 @@ static int GsubApplyLigature(RoboTextGsubCall *apply,
             product.ligatureComponents = componentCount;
             /* Highest position first, so the earlier indices stay valid while the later ones go. */
             for (size_t drop = match.count; drop > 1u; drop--) {
-                if (RoboTextGsubBufferReplace(apply->buffer, match.positions[drop - 1u], 1u, NULL, 0u) !=
+                if (RoboTextShapingBufferReplace(apply->buffer, match.positions[drop - 1u], 1u, NULL, 0u) !=
                     RoboOk) {
                     apply->failed = 1;
                     return 0;
                 }
             }
-            if (RoboTextGsubBufferReplace(apply->buffer, index, 1u, &product, 1u) != RoboOk) {
+            if (RoboTextShapingBufferReplace(apply->buffer, index, 1u, &product, 1u) != RoboOk) {
                 apply->failed = 1;
                 return 0;
             }
@@ -1003,7 +1024,7 @@ static int GsubApplyLigature(RoboTextGsubCall *apply,
  *                    scan resumes past the whole context rather than inside work it just did.
  * @return non-zero when at least one record substituted.
  */
-static int GsubApplyRecords(RoboTextGsubCall *apply,
+static int GsubApplyRecords(RoboTextOtCall *apply,
                             GsubMatch *match,
                             FontSpan table,
                             size_t records,
@@ -1029,14 +1050,14 @@ static int GsubApplyRecords(RoboTextGsubCall *apply,
             continue;
         }
         at = match->positions[sequenceIndex];
-        if (at >= RoboTextGsubBufferCount(apply->buffer)) {
+        if (at >= RoboTextShapingBufferCount(apply->buffer)) {
             continue;
         }
-        before = RoboTextGsubBufferCount(apply->buffer);
+        before = RoboTextShapingBufferCount(apply->buffer);
         if (RoboTextGsubApplyLookupAt(apply, lookupIndex, at, &resolved)) {
             applied = 1;
         }
-        after = RoboTextGsubBufferCount(apply->buffer);
+        after = RoboTextShapingBufferCount(apply->buffer);
         if (after != before) {
             long long delta = (long long)after - (long long)before;
 
@@ -1071,7 +1092,7 @@ static int GsubApplyRecords(RoboTextGsubCall *apply,
 /* Context (type 5)                                                    */
 /* ------------------------------------------------------------------ */
 
-static int GsubApplyContextFormat1(RoboTextGsubCall *apply,
+static int GsubApplyContextFormat1(RoboTextOtCall *apply,
                                    FontSpan table,
                                    size_t offset,
                                    size_t index,
@@ -1089,13 +1110,13 @@ static int GsubApplyContextFormat1(RoboTextGsubCall *apply,
     if (!GsubU16(table, offset + 2u, &coverageOffset) || !GsubU16(table, offset + 4u, &setCount)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
         coverageIndex >= setCount ||
         !GsubU16(table, offset + 6u + (size_t)coverageIndex * 2u, &setOffset)) {
         return 0;
     }
-    set = GsubOffset16(table, offset, setOffset);
+    set = RoboTextOtOffset16(table, offset, setOffset);
     if (set == 0u || !GsubU16(table, set, &ruleCount)) {
         return 0;
     }
@@ -1104,16 +1125,16 @@ static int GsubApplyContextFormat1(RoboTextGsubCall *apply,
         size_t rule;
         uint16_t glyphCount = 0u;
         uint16_t lookupCount = 0u;
-        GlyphId input[RoboTextGsubMaxMatchGlyphs];
+        GlyphId input[RoboTextOtMaxMatchGlyphs];
         GsubMatch match;
         size_t continueAt = 0u;
 
         if (!GsubU16(table, set + 2u + (size_t)candidate * 2u, &ruleOffset)) {
             return 0;
         }
-        rule = GsubOffset16(table, set, ruleOffset);
+        rule = RoboTextOtOffset16(table, set, ruleOffset);
         if (rule == 0u || !GsubU16(table, rule, &glyphCount) || glyphCount == 0u ||
-            glyphCount > RoboTextGsubMaxMatchGlyphs) {
+            glyphCount > RoboTextOtMaxMatchGlyphs) {
             continue;
         }
         for (uint16_t glyphIndex = 0u; glyphIndex + 1u < glyphCount; glyphIndex++) {
@@ -1143,7 +1164,7 @@ static int GsubApplyContextFormat1(RoboTextGsubCall *apply,
     return 0;
 }
 
-static int GsubApplyContextFormat2(RoboTextGsubCall *apply,
+static int GsubApplyContextFormat2(RoboTextOtCall *apply,
                                    FontSpan table,
                                    size_t offset,
                                    size_t index,
@@ -1164,14 +1185,14 @@ static int GsubApplyContextFormat2(RoboTextGsubCall *apply,
         !GsubU16(table, offset + 4u, &classDefOffset) || !GsubU16(table, offset + 6u, &setCount)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    classDef = GsubOffset16(table, offset, classDefOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    classDef = RoboTextOtOffset16(table, offset, classDefOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
         coverageIndex >= setCount || classDef == 0u ||
         !GsubU16(table, offset + 8u + (size_t)coverageIndex * 2u, &setOffset)) {
         return 0;
     }
-    set = GsubOffset16(table, offset, setOffset);
+    set = RoboTextOtOffset16(table, offset, setOffset);
     if (set == 0u || !GsubU16(table, set, &ruleCount)) {
         return 0;
     }
@@ -1179,7 +1200,7 @@ static int GsubApplyContextFormat2(RoboTextGsubCall *apply,
         uint16_t ruleOffset = 0u;
         size_t rule;
         uint16_t glyphCount = 0u;
-        uint16_t classes[RoboTextGsubMaxMatchGlyphs];
+        uint16_t classes[RoboTextOtMaxMatchGlyphs];
         uint16_t lookupCount = 0u;
         GsubMatch match;
         size_t continueAt = 0u;
@@ -1187,9 +1208,9 @@ static int GsubApplyContextFormat2(RoboTextGsubCall *apply,
         if (!GsubU16(table, set + 2u + (size_t)candidate * 2u, &ruleOffset)) {
             return 0;
         }
-        rule = GsubOffset16(table, set, ruleOffset);
+        rule = RoboTextOtOffset16(table, set, ruleOffset);
         if (rule == 0u || !GsubU16(table, rule, &glyphCount) || glyphCount == 0u ||
-            glyphCount > RoboTextGsubMaxMatchGlyphs) {
+            glyphCount > RoboTextOtMaxMatchGlyphs) {
             continue;
         }
         for (uint16_t glyphIndex = 0u; glyphIndex + 1u < glyphCount; glyphIndex++) {
@@ -1219,7 +1240,7 @@ static int GsubApplyContextFormat2(RoboTextGsubCall *apply,
     return 0;
 }
 
-static int GsubApplyContextFormat3(RoboTextGsubCall *apply,
+static int GsubApplyContextFormat3(RoboTextOtCall *apply,
                                    FontSpan table,
                                    size_t offset,
                                    size_t index,
@@ -1227,14 +1248,14 @@ static int GsubApplyContextFormat3(RoboTextGsubCall *apply,
 {
     uint16_t glyphCount = 0u;
     uint16_t lookupCount = 0u;
-    size_t coverages[RoboTextGsubMaxMatchGlyphs];
+    size_t coverages[RoboTextOtMaxMatchGlyphs];
     GsubMatch match;
     size_t continueAt = 0u;
 
     if (!GsubU16(table, offset + 2u, &glyphCount) || !GsubU16(table, offset + 4u, &lookupCount)) {
         return 0;
     }
-    if (glyphCount == 0u || glyphCount > RoboTextGsubMaxMatchGlyphs) {
+    if (glyphCount == 0u || glyphCount > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     for (uint16_t glyphIndex = 0u; glyphIndex < glyphCount; glyphIndex++) {
@@ -1243,7 +1264,7 @@ static int GsubApplyContextFormat3(RoboTextGsubCall *apply,
         if (!GsubU16(table, offset + 6u + (size_t)glyphIndex * 2u, &value)) {
             return 0;
         }
-        coverages[glyphIndex] = GsubOffset16(table, offset, value);
+        coverages[glyphIndex] = RoboTextOtOffset16(table, offset, value);
     }
     match.count = 0u;
     if (!GsubMatchCoverages(apply, index, coverages, glyphCount, &match)) {
@@ -1259,14 +1280,14 @@ static int GsubApplyContextFormat3(RoboTextGsubCall *apply,
     return 0;
 }
 
-static int GsubApplyContext(RoboTextGsubCall *apply,
+static int GsubApplyContext(RoboTextOtCall *apply,
                             FontSpan table,
                             size_t offset,
                             size_t index,
                             size_t *outNext)
 {
     uint16_t format = 0u;
-    const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, index);
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
 
     if (!glyph || !GsubU16(table, offset, &format)) {
         return 0;
@@ -1289,14 +1310,14 @@ static int GsubApplyContext(RoboTextGsubCall *apply,
 
 /** A chaining rule's three parts, as read from either a glyph or a class rule body. */
 typedef struct GsubChainPattern {
-    GlyphId backtrackIds[RoboTextGsubMaxMatchGlyphs];
-    uint16_t backtrackClasses[RoboTextGsubMaxMatchGlyphs];
+    GlyphId backtrackIds[RoboTextOtMaxMatchGlyphs];
+    uint16_t backtrackClasses[RoboTextOtMaxMatchGlyphs];
     size_t backtrackCount;
-    GlyphId inputIds[RoboTextGsubMaxMatchGlyphs];
-    uint16_t inputClasses[RoboTextGsubMaxMatchGlyphs];
+    GlyphId inputIds[RoboTextOtMaxMatchGlyphs];
+    uint16_t inputClasses[RoboTextOtMaxMatchGlyphs];
     size_t inputCount;
-    GlyphId lookaheadIds[RoboTextGsubMaxMatchGlyphs];
-    uint16_t lookaheadClasses[RoboTextGsubMaxMatchGlyphs];
+    GlyphId lookaheadIds[RoboTextOtMaxMatchGlyphs];
+    uint16_t lookaheadClasses[RoboTextOtMaxMatchGlyphs];
     size_t lookaheadCount;
     size_t records;
     uint16_t recordCount;
@@ -1307,7 +1328,7 @@ static int GsubReadChainGlyphRule(FontSpan table, size_t rule, GsubChainPattern 
     uint16_t count = 0u;
     size_t at = rule;
 
-    if (!GsubU16(table, at, &count) || count > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &count) || count > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     pattern->backtrackCount = count;
@@ -1321,7 +1342,7 @@ static int GsubReadChainGlyphRule(FontSpan table, size_t rule, GsubChainPattern 
         pattern->backtrackIds[index] = (GlyphId)value;
     }
     at += pattern->backtrackCount * 2u;
-    if (!GsubU16(table, at, &count) || count == 0u || count > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &count) || count == 0u || count > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     pattern->inputCount = count;
@@ -1335,7 +1356,7 @@ static int GsubReadChainGlyphRule(FontSpan table, size_t rule, GsubChainPattern 
         pattern->inputIds[index] = (GlyphId)value;
     }
     at += (pattern->inputCount - 1u) * 2u;
-    if (!GsubU16(table, at, &count) || count > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &count) || count > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     pattern->lookaheadCount = count;
@@ -1361,7 +1382,7 @@ static int GsubReadChainClassRule(FontSpan table, size_t rule, GsubChainPattern 
     uint16_t count = 0u;
     size_t at = rule;
 
-    if (!GsubU16(table, at, &count) || count > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &count) || count > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     pattern->backtrackCount = count;
@@ -1372,7 +1393,7 @@ static int GsubReadChainClassRule(FontSpan table, size_t rule, GsubChainPattern 
         }
     }
     at += pattern->backtrackCount * 2u;
-    if (!GsubU16(table, at, &count) || count == 0u || count > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &count) || count == 0u || count > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     pattern->inputCount = count;
@@ -1383,7 +1404,7 @@ static int GsubReadChainClassRule(FontSpan table, size_t rule, GsubChainPattern 
         }
     }
     at += (pattern->inputCount - 1u) * 2u;
-    if (!GsubU16(table, at, &count) || count > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &count) || count > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     pattern->lookaheadCount = count;
@@ -1408,7 +1429,7 @@ static int GsubReadChainClassRule(FontSpan table, size_t rule, GsubChainPattern 
  * lookup's backtrack, input and lookahead may each be defined by class. A zero parameter means that part is
  * matched by glyph id instead, which is what the format 1 (and 3) rules state.
  */
-static int GsubMatchChain(RoboTextGsubCall *apply,
+static int GsubMatchChain(RoboTextOtCall *apply,
                           FontSpan table,
                           const GsubChainPattern *pattern,
                           size_t index,
@@ -1452,16 +1473,16 @@ static int GsubMatchChain(RoboTextGsubCall *apply,
             const RoboTextShapingGlyph *glyph;
             int ok;
 
-            at = RoboTextGsubNextParticipating(apply, at);
-            if (at >= RoboTextGsubBufferCount(apply->buffer) || !RoboTextGsubSpendProbes(apply, 1u)) {
+            at = RoboTextOtNextParticipating(apply, at);
+            if (at >= RoboTextShapingBufferCount(apply->buffer) || !RoboTextOtSpendProbes(apply, 1u)) {
                 return 0;
             }
-            glyph = RoboTextGsubBufferAt(apply->buffer, at);
+            glyph = RoboTextShapingBufferAt(apply->buffer, at);
             if (!glyph) {
                 return 0;
             }
             if (lookaheadClassDef != 0u) {
-                ok = RoboTextGsubClassOf(apply, lookaheadClassDef, glyph->glyphId) ==
+                ok = RoboTextOtClassOf(apply, lookaheadClassDef, glyph->glyphId) ==
                      pattern->lookaheadClasses[step];
             } else {
                 ok = glyph->glyphId == pattern->lookaheadIds[step];
@@ -1481,7 +1502,7 @@ static int GsubMatchChain(RoboTextGsubCall *apply,
     return 0;
 }
 
-static int GsubApplyChainFormat1(RoboTextGsubCall *apply,
+static int GsubApplyChainFormat1(RoboTextOtCall *apply,
                                  FontSpan table,
                                  size_t offset,
                                  size_t index,
@@ -1499,13 +1520,13 @@ static int GsubApplyChainFormat1(RoboTextGsubCall *apply,
     if (!GsubU16(table, offset + 2u, &coverageOffset) || !GsubU16(table, offset + 4u, &setCount)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
         coverageIndex >= setCount ||
         !GsubU16(table, offset + 6u + (size_t)coverageIndex * 2u, &setOffset)) {
         return 0;
     }
-    set = GsubOffset16(table, offset, setOffset);
+    set = RoboTextOtOffset16(table, offset, setOffset);
     if (set == 0u || !GsubU16(table, set, &ruleCount)) {
         return 0;
     }
@@ -1517,7 +1538,7 @@ static int GsubApplyChainFormat1(RoboTextGsubCall *apply,
         if (!GsubU16(table, set + 2u + (size_t)candidate * 2u, &ruleOffset)) {
             return 0;
         }
-        rule = GsubOffset16(table, set, ruleOffset);
+        rule = RoboTextOtOffset16(table, set, ruleOffset);
         memset(&pattern, 0, sizeof(pattern));
         if (rule == 0u || !GsubReadChainGlyphRule(table, rule, &pattern)) {
             continue;
@@ -1529,7 +1550,7 @@ static int GsubApplyChainFormat1(RoboTextGsubCall *apply,
     return 0;
 }
 
-static int GsubApplyChainFormat2(RoboTextGsubCall *apply,
+static int GsubApplyChainFormat2(RoboTextOtCall *apply,
                                  FontSpan table,
                                  size_t offset,
                                  size_t index,
@@ -1556,16 +1577,16 @@ static int GsubApplyChainFormat2(RoboTextGsubCall *apply,
         !GsubU16(table, offset + 8u, &lookaheadDefOffset) || !GsubU16(table, offset + 10u, &setCount)) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    backtrackDef = GsubOffset16(table, offset, backtrackDefOffset);
-    inputDef = GsubOffset16(table, offset, inputDefOffset);
-    lookaheadDef = GsubOffset16(table, offset, lookaheadDefOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    backtrackDef = RoboTextOtOffset16(table, offset, backtrackDefOffset);
+    inputDef = RoboTextOtOffset16(table, offset, inputDefOffset);
+    lookaheadDef = RoboTextOtOffset16(table, offset, lookaheadDefOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex) ||
         coverageIndex >= setCount ||
         !GsubU16(table, offset + 12u + (size_t)coverageIndex * 2u, &setOffset)) {
         return 0;
     }
-    set = GsubOffset16(table, offset, setOffset);
+    set = RoboTextOtOffset16(table, offset, setOffset);
     if (set == 0u || !GsubU16(table, set, &ruleCount)) {
         return 0;
     }
@@ -1577,7 +1598,7 @@ static int GsubApplyChainFormat2(RoboTextGsubCall *apply,
         if (!GsubU16(table, set + 2u + (size_t)candidate * 2u, &ruleOffset)) {
             return 0;
         }
-        rule = GsubOffset16(table, set, ruleOffset);
+        rule = RoboTextOtOffset16(table, set, ruleOffset);
         memset(&pattern, 0, sizeof(pattern));
         if (rule == 0u || !GsubReadChainClassRule(table, rule, &pattern)) {
             continue;
@@ -1590,7 +1611,7 @@ static int GsubApplyChainFormat2(RoboTextGsubCall *apply,
     return 0;
 }
 
-static int GsubApplyChainFormat3(RoboTextGsubCall *apply,
+static int GsubApplyChainFormat3(RoboTextOtCall *apply,
                                  FontSpan table,
                                  size_t offset,
                                  size_t index,
@@ -1601,13 +1622,13 @@ static int GsubApplyChainFormat3(RoboTextGsubCall *apply,
     uint16_t lookaheadCount = 0u;
     uint16_t recordCount = 0u;
     size_t at = offset + 2u;
-    size_t backtracks[RoboTextGsubMaxMatchGlyphs];
-    size_t inputs[RoboTextGsubMaxMatchGlyphs];
-    size_t lookaheads[RoboTextGsubMaxMatchGlyphs];
+    size_t backtracks[RoboTextOtMaxMatchGlyphs];
+    size_t inputs[RoboTextOtMaxMatchGlyphs];
+    size_t lookaheads[RoboTextOtMaxMatchGlyphs];
     GsubMatch match;
     size_t continueAt = 0u;
 
-    if (!GsubU16(table, at, &backtrackCount) || backtrackCount > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &backtrackCount) || backtrackCount > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     at += 2u;
@@ -1617,11 +1638,11 @@ static int GsubApplyChainFormat3(RoboTextGsubCall *apply,
         if (!GsubU16(table, at + step * 2u, &value)) {
             return 0;
         }
-        backtracks[step] = GsubOffset16(table, offset, value);
+        backtracks[step] = RoboTextOtOffset16(table, offset, value);
     }
     at += (size_t)backtrackCount * 2u;
     if (!GsubU16(table, at, &inputCount) || inputCount == 0u ||
-        inputCount > RoboTextGsubMaxMatchGlyphs) {
+        inputCount > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     at += 2u;
@@ -1631,10 +1652,10 @@ static int GsubApplyChainFormat3(RoboTextGsubCall *apply,
         if (!GsubU16(table, at + step * 2u, &value)) {
             return 0;
         }
-        inputs[step] = GsubOffset16(table, offset, value);
+        inputs[step] = RoboTextOtOffset16(table, offset, value);
     }
     at += (size_t)inputCount * 2u;
-    if (!GsubU16(table, at, &lookaheadCount) || lookaheadCount > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &lookaheadCount) || lookaheadCount > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     at += 2u;
@@ -1644,7 +1665,7 @@ static int GsubApplyChainFormat3(RoboTextGsubCall *apply,
         if (!GsubU16(table, at + step * 2u, &value)) {
             return 0;
         }
-        lookaheads[step] = GsubOffset16(table, offset, value);
+        lookaheads[step] = RoboTextOtOffset16(table, offset, value);
     }
     at += (size_t)lookaheadCount * 2u;
     if (!GsubU16(table, at, &recordCount)) {
@@ -1665,14 +1686,14 @@ static int GsubApplyChainFormat3(RoboTextGsubCall *apply,
         for (size_t step = 0u; step < lookaheadCount; step++) {
             const RoboTextShapingGlyph *seen;
 
-            look = RoboTextGsubNextParticipating(apply, look);
-            if (look >= RoboTextGsubBufferCount(apply->buffer) ||
-                !RoboTextGsubSpendProbes(apply, 1u)) {
+            look = RoboTextOtNextParticipating(apply, look);
+            if (look >= RoboTextShapingBufferCount(apply->buffer) ||
+                !RoboTextOtSpendProbes(apply, 1u)) {
                 return 0;
             }
-            seen = RoboTextGsubBufferAt(apply->buffer, look);
+            seen = RoboTextShapingBufferAt(apply->buffer, look);
             if (!seen || lookaheads[step] == 0u ||
-                !RoboTextGsubCovered(apply, lookaheads[step], seen->glyphId, NULL)) {
+                !RoboTextOtCovered(apply, lookaheads[step], seen->glyphId, NULL)) {
                 return 0;
             }
             look++;
@@ -1687,14 +1708,14 @@ static int GsubApplyChainFormat3(RoboTextGsubCall *apply,
     return 0;
 }
 
-static int GsubApplyChainingContext(RoboTextGsubCall *apply,
+static int GsubApplyChainingContext(RoboTextOtCall *apply,
                                     FontSpan table,
                                     size_t offset,
                                     size_t index,
                                     size_t *outNext)
 {
     uint16_t format = 0u;
-    const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, index);
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
 
     if (!glyph || !GsubU16(table, offset, &format)) {
         return 0;
@@ -1723,7 +1744,7 @@ static int GsubApplyChainingContext(RoboTextGsubCall *apply,
  * would have to be searched for. Nothing about the direction of the *text* follows from the scan order —
  * that is the bidi stage's, and this lookup's own name is the only thing that is backwards.
  */
-static int GsubApplyReverse(RoboTextGsubCall *apply,
+static int GsubApplyReverse(RoboTextOtCall *apply,
                             FontSpan table,
                             size_t offset,
                             size_t index,
@@ -1736,20 +1757,20 @@ static int GsubApplyReverse(RoboTextGsubCall *apply,
     uint16_t glyphCount = 0u;
     size_t coverage;
     size_t at;
-    const RoboTextShapingGlyph *glyph = RoboTextGsubBufferAt(apply->buffer, index);
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
     uint16_t coverageIndex = 0u;
-    size_t backtracks[RoboTextGsubMaxMatchGlyphs];
-    size_t lookaheads[RoboTextGsubMaxMatchGlyphs];
+    size_t backtracks[RoboTextOtMaxMatchGlyphs];
+    size_t lookaheads[RoboTextOtMaxMatchGlyphs];
     uint16_t substitute = 0u;
     GlyphId replaced;
 
     if (!glyph || !GsubU16(table, offset, &format) || format != 1u ||
         !GsubU16(table, offset + 2u, &coverageOffset) || !GsubU16(table, offset + 4u, &backtrackCount) ||
-        backtrackCount > RoboTextGsubMaxMatchGlyphs) {
+        backtrackCount > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
-    coverage = GsubOffset16(table, offset, coverageOffset);
-    if (!RoboTextGsubCovered(apply, coverage, glyph->glyphId, &coverageIndex)) {
+    coverage = RoboTextOtOffset16(table, offset, coverageOffset);
+    if (!RoboTextOtCovered(apply, coverage, glyph->glyphId, &coverageIndex)) {
         return 0;
     }
     at = offset + 6u;
@@ -1759,10 +1780,10 @@ static int GsubApplyReverse(RoboTextGsubCall *apply,
         if (!GsubU16(table, at + step * 2u, &value)) {
             return 0;
         }
-        backtracks[step] = GsubOffset16(table, offset, value);
+        backtracks[step] = RoboTextOtOffset16(table, offset, value);
     }
     at += (size_t)backtrackCount * 2u;
-    if (!GsubU16(table, at, &lookaheadCount) || lookaheadCount > RoboTextGsubMaxMatchGlyphs) {
+    if (!GsubU16(table, at, &lookaheadCount) || lookaheadCount > RoboTextOtMaxMatchGlyphs) {
         return 0;
     }
     at += 2u;
@@ -1772,7 +1793,7 @@ static int GsubApplyReverse(RoboTextGsubCall *apply,
         if (!GsubU16(table, at + step * 2u, &value)) {
             return 0;
         }
-        lookaheads[step] = GsubOffset16(table, offset, value);
+        lookaheads[step] = RoboTextOtOffset16(table, offset, value);
     }
     at += (size_t)lookaheadCount * 2u;
     if (!GsubU16(table, at, &glyphCount) || coverageIndex >= glyphCount ||
@@ -1788,25 +1809,25 @@ static int GsubApplyReverse(RoboTextGsubCall *apply,
         for (size_t step = 0u; step < lookaheadCount; step++) {
             const RoboTextShapingGlyph *seen;
 
-            look = RoboTextGsubNextParticipating(apply, look);
-            if (look >= RoboTextGsubBufferCount(apply->buffer) ||
-                !RoboTextGsubSpendProbes(apply, 1u)) {
+            look = RoboTextOtNextParticipating(apply, look);
+            if (look >= RoboTextShapingBufferCount(apply->buffer) ||
+                !RoboTextOtSpendProbes(apply, 1u)) {
                 return 0;
             }
-            seen = RoboTextGsubBufferAt(apply->buffer, look);
+            seen = RoboTextShapingBufferAt(apply->buffer, look);
             if (!seen || lookaheads[step] == 0u ||
-                !RoboTextGsubCovered(apply, lookaheads[step], seen->glyphId, NULL)) {
+                !RoboTextOtCovered(apply, lookaheads[step], seen->glyphId, NULL)) {
                 return 0;
             }
             look++;
         }
     }
     replaced = (GlyphId)glyph->glyphId;
-    if (RoboTextGsubBufferSetGlyph(apply->buffer, index, (GlyphId)substitute) != RoboOk) {
+    if (RoboTextShapingBufferSetGlyph(apply->buffer, index, (GlyphId)substitute) != RoboOk) {
         return 0;
     }
     {
-        RoboTextShapingGlyph *edited = RoboTextGsubBufferAtMutable(apply->buffer, index);
+        RoboTextShapingGlyph *edited = RoboTextShapingBufferAtMutable(apply->buffer, index);
 
         if (edited) {
             edited->inputGlyphId = replaced;
@@ -1826,7 +1847,7 @@ static int GsubApplyReverse(RoboTextGsubCall *apply,
 /* Dispatch                                                            */
 /* ------------------------------------------------------------------ */
 
-int RoboTextGsubApplySubtable(RoboTextGsubCall *apply,
+int RoboTextGsubApplySubtable(RoboTextOtCall *apply,
                               uint16_t lookupType,
                               size_t offset,
                               size_t index,
@@ -1834,11 +1855,11 @@ int RoboTextGsubApplySubtable(RoboTextGsubCall *apply,
 {
     FontSpan table;
 
-    if (!apply || !apply->gsub || !apply->buffer || offset == 0u ||
-        index >= RoboTextGsubBufferCount(apply->buffer)) {
+    if (!apply || !apply->layout || !apply->buffer || offset == 0u ||
+        index >= RoboTextShapingBufferCount(apply->buffer)) {
         return 0;
     }
-    table = apply->gsub->table;
+    table = apply->layout->table;
     switch (lookupType) {
         case RoboTextGsubLookupSingle:
             return GsubApplySingle(apply, table, offset, index, outNext);
@@ -1877,7 +1898,7 @@ int RoboTextGsubApplySubtable(RoboTextGsubCall *apply,
             if (innerType == RoboTextGsubLookupExtension || !FontGsubLookupTypeIsKnown(innerType)) {
                 return 0;
             }
-            resolved = GsubOffset32(table, offset, innerOffset);
+            resolved = RoboTextOtOffset32(table, offset, innerOffset);
             if (resolved == 0u) {
                 return 0;
             }

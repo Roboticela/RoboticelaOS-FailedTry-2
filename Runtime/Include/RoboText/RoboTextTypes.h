@@ -691,6 +691,80 @@ typedef enum RoboTextLigatureVariant {
 } RoboTextLigatureVariant;
 
 /* ------------------------------------------------------------------ */
+/* Per-range feature overrides (Phase 12.9, applied by 12.13)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * At most this many per-range feature overrides in one shape request.
+ *
+ * A bound rather than a convenience: the options are a value copied into every run, and the cut points a
+ * range introduces multiply with the script and direction boundaries a run set already has. Eight is more
+ * than a stylesheet writes (`font-feature-settings` on a span, a `font-kerning: none` on a pull quote) and it
+ * is enough that the feature is real rather than aspirational.
+ */
+#define RoboTextMaxFeatureRanges 8u
+
+/**
+ * Feature settings that apply to one scalar range and to nothing else.
+ *
+ * The point of the type is that a range is a *more specific* statement than the whole-text settings beside
+ * it, which is the same rule a stylesheet's cascade uses: a tag the range names is the range's, and a tag it
+ * does not name keeps the whole-text answer. That is why the range carries a whole `RoboTextFeatureSet`
+ * rather than a tag and a state — a span can state several, and the resolution is one merge.
+ *
+ * The range is in the text's **scalar** index space, half-open, and a range that reaches past the end of the
+ * text simply stops at it.
+ */
+typedef struct RoboTextFeatureRange {
+    RoboTextRange range;
+    RoboTextFeatureSet features;
+} RoboTextFeatureRange;
+
+/* ------------------------------------------------------------------ */
+/* Kerning policy (Phase 12.13)                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where a face's kerning may come from, in the order the two sources are allowed to be used.
+ *
+ * **One source, never both.** A face can carry kerning in its GPOS `kern` feature *and* in a legacy `kern`
+ * table, and adding the two would kern the same pair twice — the same glyph pair moved by two tables that
+ * were each written as the whole answer for their era. So the rule is a choice rather than an accumulation:
+ * GPOS answers when it has anything to say, and a legacy table is a **fallback** for a face whose GPOS does
+ * not, which is what `RoboTextKerningLegacyIfNoGposKern` means and why there is no "both" enumerator.
+ */
+typedef enum RoboTextKerningLegacy {
+    /**
+     * The legacy `kern` table is never consulted. **The default**, and the policy of a build that has not
+     * implemented reading it: a fallback that does nothing would be a caller-visible lie, so this is what a
+     * caller gets unless it explicitly asks for the fallback and the fallback is there.
+     */
+    RoboTextKerningLegacyNever = 0,
+    /**
+     * Consult the legacy `kern` table **only** when the face's GPOS carries no `kern` feature for the run's
+     * script and language — the non-double-counting rule stated above.
+     */
+    RoboTextKerningLegacyIfNoGposKern = 1,
+    RoboTextKerningLegacyCount = 2
+} RoboTextKerningLegacy;
+
+/**
+ * What a caller asks of kerning, as data (Phase 12.13).
+ *
+ * The phase's `KerningPolicy`, and its whole job is to be **converted into the feature set**: `kern` is an
+ * OpenType feature like any other, so a policy that has to be honoured by a special case in the paint layer
+ * would be a policy in the wrong place. @ref RoboTextKerningPolicyApplyIfUnset is that conversion, and like
+ * the ligature policy it is a **default under** the caller's own `features` rather than over them: a caller
+ * that wrote `"kern" off` keeps its answer.
+ */
+typedef struct RoboTextKerningPolicy {
+    /** What is asked of the `kern` feature when the caller's own features say nothing. */
+    RoboTextFeatureState kern;
+    /** Which source may answer. See @ref RoboTextKerningLegacy. */
+    RoboTextKerningLegacy legacy;
+} RoboTextKerningPolicy;
+
+/* ------------------------------------------------------------------ */
 /* Shape options                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -706,6 +780,11 @@ typedef enum RoboTextLigatureVariant {
  * resolves these settings against the face's own GSUB ScriptList/LangSys/FeatureList and runs the lookups of
  * the features that end up on. A caller that names nothing gets the script's defaults, which is what makes
  * `"office"` ligate without anyone asking and what makes `"liga" off` meaningful.
+ *
+ * `kerning` is the Phase 12.13 policy over the same rule: `kern` is a feature, so the policy becomes one
+ * entry in `features` and reaches the positioning plan through the same door every other tag uses. That is
+ * why `font-kerning: none` is `RoboTextShapeOptionsSetFeature(options, "kern", RoboTextFeatureOff, 0)` and
+ * nothing else — no paint layer, no layout stage and no per-script branch ever learns that kerning exists.
  *
  * `ligatures` is the five-tag policy of Phase 12.12 applied **only where `features` says nothing** — a
  * policy entry is written into a run's features when @ref RoboTextFeatureSetFind of its tag answers
@@ -724,6 +803,18 @@ typedef struct RoboTextShapeOptions {
     RoboTextFeatureSet features;
     /** The ligature policy, for the tags @ref features does not state. */
     RoboTextLigaturePolicy ligatures;
+    /** The kerning policy, for the `kern` tag @ref features does not state (Phase 12.13). */
+    RoboTextKerningPolicy kerning;
+    /**
+     * Settings that apply to one scalar range each, merged **over** @ref features for the scalars they cover.
+     *
+     * A run set is cut at every range boundary before shaping, so each run carries one feature set and the
+     * engine resolves one plan per run — which is what makes "`kern` off in the first two scalars of
+     * `AVATAR`" a fact about the runs rather than something a paint layer has to remember.
+     */
+    RoboTextFeatureRange featureRanges[RoboTextMaxFeatureRanges];
+    /** Ranges held. Always @<= @ref RoboTextMaxFeatureRanges for options this module produced. */
+    size_t featureRangeCount;
     /** Reserved; pass 0. */
     uint32_t flags;
 } RoboTextShapeOptions;
@@ -756,6 +847,30 @@ Result RoboTextShapeOptionsSetFeature(RoboTextShapeOptions *options,
                                       const char *tag,
                                       RoboTextFeatureState state,
                                       uint32_t value);
+
+/**
+ * State a feature for the scalars of @p range only.
+ *
+ * Adds the setting to the request's range for @p range — an existing entry with the same bounds is reused, so
+ * two calls for one range compose the way two declarations on one rule do — and refuses an empty or inverted
+ * range rather than storing a range that covers nothing.
+ *
+ * @param value the feature's parameter, as @ref RoboTextShapeOptionsSetFeature takes it.
+ * @return RoboOk; RoboInvalidArgument for a NULL @p options, a bad tag, an undefined state or an empty range;
+ *         RoboNotSupported when the request already holds @ref RoboTextMaxFeatureRanges *other* ranges.
+ */
+Result RoboTextShapeOptionsSetFeatureRange(RoboTextShapeOptions *options,
+                                           RoboTextRange range,
+                                           const char *tag,
+                                           RoboTextFeatureState state,
+                                           uint32_t value);
+
+/** How many ranges @p options holds. Zero for NULL. */
+size_t RoboTextShapeOptionsFeatureRangeCount(const RoboTextShapeOptions *options);
+
+/** The @p index'th range, or NULL when @p index is out of range. */
+const RoboTextFeatureRange *RoboTextShapeOptionsFeatureRange(const RoboTextShapeOptions *options,
+                                                             size_t index);
 
 #ifdef __cplusplus
 }

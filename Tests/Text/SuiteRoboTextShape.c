@@ -427,7 +427,7 @@ static void TestShapeDiagnostics(void)
 
     /* A domain vocabulary that is complete, distinct and closed. `None` is the *absence* of a domain, so
      * `IsKnown` says no for it — the same line RoboTypography and RoboPaint draw at the same place. */
-    RoboCheckEqInt((int)RoboTextDomainCount, 8);
+    RoboCheckEqInt((int)RoboTextDomainCount, 9);
     RoboCheck(RoboTextDomainIsKnown(RoboTextDomainBuffer));
     RoboCheck(RoboTextDomainIsKnown(RoboTextDomainRange));
     RoboCheck(RoboTextDomainIsKnown(RoboTextDomainFont));

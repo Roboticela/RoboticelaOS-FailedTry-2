@@ -50,6 +50,7 @@
 #include "RoboText/RoboTextFont.h"
 #include "RoboText/RoboTextFontSelection.h"
 #include "RoboText/RoboTextGlyphs.h"
+#include "RoboText/RoboTextKerning.h"
 #include "RoboText/RoboTextLigature.h"
 #include "RoboText/RoboTextRuns.h"
 #include "RoboText/RoboTextShape.h"

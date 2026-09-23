@@ -164,7 +164,9 @@ non-goals are enforced by `RoboTextGetCapabilities`:
 |---|---|
 | Full UAX #9 bidi, visual reordering | Phase 12.8 (`bidiAlgorithm` = 0) |
 | GSUB, ligatures, contextual forms, Arabic joining, Indic reordering | Phase 12.10 / 12.19 (`substitution`, `complexScripts` = 0) |
-| GPOS, kerning, mark attachment | Phase 12.11 / 12.13 (`positioning`, `kerning` = 0) |
+| GPOS (pair adjustment and positioning) | Phase 12.11 — [Positioning.md](Positioning.md) |
+| Kerning as a policy over GPOS | Phase 12.13 — [Kerning.md](Kerning.md) |
+| Mark attachment, cursive attachment, contextual positioning | no goal yet; GPOS types 3–8 are skipped |
 | Line breaking, hyphenation | later |
 | Font selection and fallback | Phase 12.5's selector, which consumes these runs |
 | Grapheme clusters | later (`RoboTextGlyph.cluster` is the identity mapping) |

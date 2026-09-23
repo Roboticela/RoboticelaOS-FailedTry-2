@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.6.0";
+    static const char version[] = "1.7.0";
 
     return version;
 }
@@ -99,15 +99,25 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->glyphGenerationIsPlaceholder = 0;
 
     /*
-     * Glyph substitution (12.10) and ligatures (12.12). `substitution` is exercised by every `text.gsub.*`
-     * case — the plan, the eight lookup types, the flags, the limits and the malformed table — and the three
-     * ligature flags by `text.ligature.*`: the policy and its variants, the provenance of a product, and the
-     * report. `positioning` and `kerning` stay 0 because nothing in this build reads GPOS.
+     * Glyph substitution (12.10), ligatures (12.12), positioning (12.11) and kerning (12.13). `substitution`
+     * is exercised by every `text.gsub.*` case — the plan, the eight lookup types, the flags, the limits and
+     * the malformed table — and the three ligature flags by `text.ligature.*`: the policy and its variants,
+     * the provenance of a product, and the report.
+     *
+     * `positioning` is exercised by `text.gpos.*` — the two pair formats, the value records, the device
+     * corrections, the extension wrapper, the ignored-glyph walk and the shipped pack's own kerning reaching
+     * the pen — and `kerning` by `text.kern.*`, which is the *policy* and the *report* over that same engine
+     * rather than a second one. The two ks flags are what a caller reads to know that `kern` is a feature it
+     * can state and that the font's adjustments are readable per glyph.
      */
     out->substitution = 1;
     out->ligatures = 1;
     out->ligaturePolicy = 1;
     out->ligatureProvenance = 1;
+    out->positioning = 1;
+    out->kerning = 1;
+    out->kerningPolicy = 1;
+    out->kerningReport = 1;
 
     /*
      * The bidi stage (12.8). Every flag is exercised by a case: the paragraph base and its four sources by
@@ -126,13 +136,11 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
 
     /*
      * The rest of the algorithms, all absent, and each one is a row in the phase plan rather than an
-     * omission: positioning is 12.11, kerning 12.13, complex scripts 12.19, vertical text 12.20.
+     * omission: complex scripts 12.19, vertical text 12.20.
      * Variable-axis application is unowned by a numbered goal and is reported absent until RoboFont
      * interpolates outlines (`FontOutlineVariationApplied` is 0).
      */
     out->variableAxisApplication = 0;
-    out->positioning = 0;
-    out->kerning = 0;
     out->complexScripts = 0;
     out->verticalText = 0;
     return RoboOk;
