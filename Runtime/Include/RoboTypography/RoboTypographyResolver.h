@@ -130,6 +130,16 @@ const RoboTypographyScaleEntry *RoboTypographyResolverScale(
 size_t RoboTypographyResolverScaleCount(const TypographyResolver *resolver);
 
 /**
+ * The pack this resolver was created over, borrowed; NULL for a NULL resolver.
+ *
+ * Read by a consumer that needs the **system pack itself** rather than one resolved role -- 12.17's
+ * `DesktopFontProvider`, which asks the pack for its generic-family mappings so a document's
+ * `font-family: system-ui` resolves the system's way. The resolver's own role bindings are unchanged;
+ * this is a window onto its borrowed input, not a second one.
+ */
+const FontSystemPack *RoboTypographyResolverPack(const TypographyResolver *resolver);
+
+/**
  * Resolve @p role at the scale's own weight and an upright slope.
  *
  * Never fails for a missing family: a role whose face cannot be selected returns RoboOk with a

@@ -67,6 +67,18 @@ void LayoutTextFontDetach(LayoutTextFont *font)
     font->parsed = 0;
 }
 
+void LayoutTextFontSetProvider(LayoutTextFont *font, const LayoutFontProvider *provider)
+{
+    if (!font) {
+        return;
+    }
+    if (provider) {
+        font->provider = *provider;
+    } else {
+        LayoutFontProviderInit(&font->provider);
+    }
+}
+
 int LayoutTextFontIsAttached(const LayoutTextFont *font)
 {
     return font && font->face != NULL;
@@ -85,25 +97,65 @@ int LayoutTextFontIsAttached(const LayoutTextFont *font)
  * across faces.
  */
 static Result MeasurePrepare(LayoutTextFont *font,
+                                     FontFace *face,
                                      LayoutDiag *diag)
 {
-    if (!LayoutTextFontIsAttached(font)) {
+    if (!face) {
         return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboError,
                                 "text measurement needs an attached font face");
     }
-    if (font->parsed) {
+    if (face == font->face && font->parsed) {
         return RoboOk;
     }
-    if (FontFaceParseCmap(font->face) != RoboOk) {
+    if (FontFaceParseCmap(face) != RoboOk) {
         return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboError,
                                 "the font face has no usable character map");
     }
-    if (FontFaceParseMetrics(font->face) != RoboOk) {
+    if (FontFaceParseMetrics(face) != RoboOk) {
         return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboError,
                                 "the font face has no usable metrics");
     }
-    font->parsed = 1;
+    if (face == font->face) {
+        /* The fast path is only meaningful for the attached face; a per-run face is parsed idempotently
+         * each time rather than remembered in one flag shared across faces. */
+        font->parsed = 1;
+    }
     return RoboOk;
+}
+
+/**
+ * The face this run will be measured with (Phase 12.17).
+ *
+ * The attached face, or -- when a provider is installed and the request carries a computed style -- the
+ * face the run's own font request resolves to. A request no family answers leaves the attached face in
+ * place, which is the honest degradation: a document still draws in its system face rather than drawing
+ * nothing because an author named a family this build does not have.
+ */
+static FontFace *MeasureSelectFace(LayoutTextFont *font,
+                                   const LayoutTextRequest *request,
+                                   int *outFallback,
+                                   LayoutDiag *diag)
+{
+    LayoutFontRequest fontRequest;
+    LayoutFontSelection selection;
+
+    if (outFallback) {
+        *outFallback = 0;
+    }
+    if (!LayoutFontProviderIsUsable(&font->provider) || !request->computed) {
+        return font->face;
+    }
+    LayoutFontRequestResolve(request->computed, &fontRequest);
+    if (LayoutFontRequestSelect(&fontRequest, &font->provider, &selection, diag) != RoboOk) {
+        return font->face;
+    }
+    if (LayoutFontSelectionIsSet(&selection)) {
+        if (outFallback) {
+            *outFallback = selection.fallback;
+        }
+        return selection.face;
+    }
+    return font->face;
 }
 
 /* ------------------------------------------------------------------ */
@@ -124,12 +176,14 @@ static Result MeasurePrepare(LayoutTextFont *font,
  * was never given.
  */
 static Result MeasureContext(LayoutTextFont *font,
+                             FontFace *face,
                              const LayoutTextStyle *style,
                              RoboTextFontContext *out,
                              LayoutDiag *diag)
 {
     RoboTextFontStyle textStyle;
 
+    (void)font;
     RoboTextFontStyleInit(&textStyle);
     textStyle.sizePx = (float)style->fontSizePx;
     textStyle.weight = (FontWeight)(style->fontWeight < 100 ? 100
@@ -137,7 +191,7 @@ static Result MeasureContext(LayoutTextFont *font,
                                                               : style->fontWeight);
     textStyle.style = style->italic ? RoboFontStyleItalic : RoboFontStyleNormal;
     RoboTextFontContextInit(out);
-    if (RoboTextFontContextSet(out, font->face, &textStyle) != RoboOk) {
+    if (RoboTextFontContextSet(out, face, &textStyle) != RoboOk) {
         return RoboLayoutDiag(diag, RoboLayoutDomainTextLayout, RoboInvalidArgument,
                                 "a text run's font inputs are not a setting this build can measure");
     }
@@ -158,6 +212,7 @@ static Result MeasureContext(LayoutTextFont *font,
  * off.
  */
 static Result MeasureLineExtent(LayoutTextFont *font,
+                                FontFace *face,
                                 const LayoutTextStyle *style,
                                 LayoutTextRun *run,
                                 LayoutDiag *diag)
@@ -166,7 +221,7 @@ static Result MeasureLineExtent(LayoutTextFont *font,
     RoboTextFontMetrics metrics;
     Result status;
 
-    status = MeasureContext(font, style, &context, diag);
+    status = MeasureContext(font, face, style, &context, diag);
     if (status != RoboOk) {
         return status;
     }
@@ -197,6 +252,8 @@ Result LayoutTextFontMeasure(LayoutTextFont *font,
                                            LayoutDiag *diag)
 {
     HtmlNodeView view;
+    FontFace *face;
+    int fallback = 0;
     size_t rangeStartByte = 0u;
     size_t rangeByteLength = 0u;
     float width = 0.0f;
@@ -239,10 +296,18 @@ Result LayoutTextFontMeasure(LayoutTextFont *font,
         return status;
     }
 
-    status = MeasurePrepare(font, diag);
+    /*
+     * The face, selected once for this run and recorded on it (12.17). The painter draws with the face the
+     * run carries rather than resolving the request again, so a run's width and its glyphs come from one
+     * selection.
+     */
+    face = MeasureSelectFace(font, request, &fallback, diag);
+    status = MeasurePrepare(font, face, diag);
     if (status != RoboOk) {
         return status;
     }
+    outRun->face = face;
+    outRun->fontFallback = fallback;
 
     /*
      * The range's **bytes**, handed to the text layer as a view.
@@ -258,7 +323,7 @@ Result LayoutTextFontMeasure(LayoutTextFont *font,
         RoboTextFontContext context;
         RoboTextMeasurement measurement;
 
-        status = MeasureContext(font, request->style, &context, diag);
+        status = MeasureContext(font, face, request->style, &context, diag);
         if (status != RoboOk) {
             return status;
         }
@@ -290,7 +355,7 @@ Result LayoutTextFontMeasure(LayoutTextFont *font,
         width = 0.0f;
     }
     outRun->width = (int32_t)(width + 0.5f);
-    status = MeasureLineExtent(font, request->style, outRun, diag);
+    status = MeasureLineExtent(font, face, request->style, outRun, diag);
     if (status != RoboOk) {
         return status;
     }

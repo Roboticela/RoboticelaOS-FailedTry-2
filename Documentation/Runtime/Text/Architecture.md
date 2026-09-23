@@ -444,10 +444,13 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
    back into the same generator. See [FontIntegration](FontIntegration.md).
 4. **No grapheme clusters.** `cluster` is the identity mapping.
 5. **Weights and optical size bind but do not instance.** A style records them; no axis is applied.
-6. **Per-run faces are selected but the shell/document path still paints one face per surface.** A
-   document paints through a single face, so `font-weight: 700` reaches layout as a number rather than a
-   bolder face, and the analysis layer's multi-face runs are not yet what the desktop walks. Items 5 and 6
-   are the same missing thing: a shaped run that can carry an axis value and a face.
+6. **A run carries one face, selected from its `font-family` as of 12.17 — but not a face per script.**
+   The request reaches layout and the provider answers it, so a document's run is measured and drawn with
+   the face its declaration resolves to, and `font-weight: 700` selects (never synthesizes) among the faces
+   the database has. What is still absent is a *mixed-font run*: the analysis layer's per-script faces are
+   not yet what the desktop walks, so a run that spans faces falls back to one of them. Items 5 and 6 are
+   the same missing thing: a shaped run that can carry an axis value, and a run set the shell walks
+   run by run.
 7. **No letter spacing applied.** `letterSpacingPx` is carried and not read.
 8. **`text.*` has no QEMU-only cases.** The module computes on the development machine; the guest-visible
    half of the phase is the desktop's rendering check above.

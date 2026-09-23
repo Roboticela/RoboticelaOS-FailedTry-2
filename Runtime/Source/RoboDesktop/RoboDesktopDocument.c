@@ -26,6 +26,7 @@
 
 #include "RoboDesktop/RoboDesktopDocument.h"
 
+#include "RoboDesktop/RoboDesktopFontProvider.h"
 #include "RoboDesktopInternal.h"
 
 #include "RoboBase/RoboError.h"
@@ -65,6 +66,8 @@ struct DesktopDocument {
     LayoutStyleSource source;
     LayoutTree *tree;
     LayoutTextFont font;
+    /** The per-run family resolver (Phase 12.17), or NULL for a single-face document. */
+    DesktopFontProvider *fontProvider;
     PaintList *records;
     PaintDisplayList *display;
     GfxSize viewport;
@@ -82,6 +85,7 @@ void DesktopDocumentConfigInit(DesktopDocumentConfig *config)
     config->height = 600;
     config->face = NULL;
     config->typography = NULL;
+    config->registry = NULL;
 }
 
 int DesktopDocumentIsImplemented(void)
@@ -101,6 +105,10 @@ static void DesktopDocumentRelease(DesktopDocument *document)
         document->records = NULL;
     }
     LayoutTextFontDetach(&document->font);
+    if (document->fontProvider) {
+        DesktopFontProviderDestroy(document->fontProvider);
+        document->fontProvider = NULL;
+    }
     if (document->tree) {
         /* The tree goes before the bridge: its boxes hold pointers into the bridge's styles. */
         LayoutTreeDestroy(document->tree);
@@ -397,6 +405,23 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
         LayoutTextMetrics metrics;
 
         status = LayoutTextFontAttach(&document->font, document->face);
+        if (status == RoboOk && config->registry) {
+            /*
+             * The per-run family resolver (Phase 12.17). With a registry, each run's CSS `font-family`
+             * resolves to its own face; without one the measurer measures every run with the single
+             * attached face, which is the pre-12.17 behaviour and still correct for a caller that has one
+             * system face and no registry to hand.
+             */
+            status = DesktopFontProviderCreate(
+                config->registry,
+                config->typography ? RoboTypographyResolverPack(config->typography) : NULL,
+                &document->fontProvider, NULL);
+        }
+        if (status == RoboOk && document->fontProvider) {
+            LayoutFontProvider provider = DesktopFontProviderLayout(document->fontProvider);
+
+            LayoutTextFontSetProvider(&document->font, &provider);
+        }
         if (status == RoboOk) {
             /* RoboLayout's own font-backed measurer, attached to the caller's face: text runs are measured
              * by the real face rather than by a scripted answer, which is the whole difference between a
@@ -463,6 +488,9 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
     }
     document->report.records = PaintListCount(document->records);
     document->report.commands = PaintDisplayListCount(document->display);
+    document->report.fontFamiliesResolved = DesktopFontProviderResolved(document->fontProvider);
+    document->report.fontFamiliesUnresolved =
+        DesktopFontProviderUnresolved(document->fontProvider);
     document->live = 1;
     *out = document;
     /* The five stage counts, in pipeline order: when a window is blank, this line says which stage

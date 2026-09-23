@@ -93,6 +93,7 @@
 
 #include "RoboBase/RoboError.h"
 #include "RoboCSS/RoboCSSComputed.h"
+#include "RoboFont/RoboFontFace.h"
 #include "RoboHTML/RoboHTMLNode.h"
 
 #include "RoboLayout/RoboLayoutDiagnostics.h"
@@ -329,6 +330,24 @@ typedef struct LayoutTextRun {
      * would be the single failure no later phase could detect.
      */
     uint32_t glyphsMissing;
+    /**
+     * The face this run was **measured** with (Phase 12.17), borrowed, or NULL.
+     *
+     * Carried on the run so the painter draws with the face the measurer measured with rather than
+     * resolving the request a second time: `RoboPaintText.h` states the rule for the style one field
+     * above it, and it is the same one -- a fact a later layer needs is *threaded*, not recomputed. The
+     * face is borrowed from whatever database the selection came out of (the caller owns it), so this
+     * record holds no reference and releases nothing.
+     */
+    FontFace *face;
+    /**
+     * Non-zero when a family other than the request's **first** answered (Phase 12.17).
+     *
+     * The one bit of provenance a caller needs to tell "the author's own family" from "fallback", which
+     * is what a diagnostic and a later accessibility story both ask. The full selection (which index, the
+     * settings) is `LayoutFontSelection`'s and is not duplicated here.
+     */
+    int fontFallback;
 } LayoutTextRun;
 
 /** Clear @p run: no source, empty range, LTR, every measurement zero. Safe on

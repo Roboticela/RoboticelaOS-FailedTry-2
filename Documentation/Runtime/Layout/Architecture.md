@@ -69,25 +69,26 @@ one-inset box into a four-box model without touching the sizing layer's seam.
 rather than leaving a caller to find out. 10.3 flipped all three, and the shape of
 that flip is the part worth keeping:
 
-| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | 10.11 | 10.12 | 10.13 | 10.14 | What it means now |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| `RoboLayoutGeometryImplemented` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a compile-time constant per direction, and the same one for both |
-| `LayoutCapabilities.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | *this build* computes coordinates |
-| `LayoutCapabilities.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the block direction |
-| `LayoutCapabilities.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | the inline direction |
-| `LayoutCapabilities.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | derived: their conjunction |
-| `LayoutCapabilities.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **measure a run**, not that a pass was given a source |
-| `LayoutCapabilities.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build can **produce a line a caller reads** |
-| `LayoutCapabilities.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build gives a line a **floor** and places its members on it |
-| `LayoutCapabilities.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
-| `LayoutCapabilities.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
-| `LayoutCapabilities.padding` | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
-| `LayoutCapabilities.border` | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
-| `LayoutCapabilities.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that a percentage inset resolves |
-| `LayoutCapabilities.overflow` | — | — | — | — | — | — | — | — | — | — | — | `1` | `1` | the contents that do not fit are **recorded beside the box** as four extents measured from its padding box, with a mode per axis — **not** that anything scrolls, clips a pixel, or turns `visible` into `auto` |
-| `LayoutCapabilities.invalidation` | — | — | — | — | — | — | — | — | — | — | — | — | `1` | a box carries a **state** saying what about it is stale and a reason for a reader, a property name is classified into what changing it costs, and a pass can be skipped when nothing needs one — **not** that partial layout exists: the dirty root is computed and reported, and the pass still recomputes from the tree root |
-| `LayoutGeometryIsImplemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | a function a caller cannot read past |
-| `LayoutResultState()` | — | — | — | — | — | — | — | — | — | — | — | — | `—` | *this box* has one — the per-box authority |
+| Door | 10.1 / 10.2 | 10.3 | 10.4 | 10.5 | 10.6 | 10.7 | 10.8 | 10.9 | 10.10 | 10.11 | 10.12 | 10.13 | 10.14 | 12.17 | What it means now |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `RoboLayoutGeometryImplemented` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | a compile-time constant per direction, and the same one for both |
+| `LayoutCapabilities.geometry` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | *this build* computes coordinates |
+| `LayoutCapabilities.block_layout` | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | the block direction |
+| `LayoutCapabilities.inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | the inline direction |
+| `LayoutCapabilities.block_and_inline_layout` | `0` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | derived: their conjunction |
+| `LayoutCapabilities.text_layout` | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | this build can **measure a run**, not that a pass was given a source |
+| `LayoutCapabilities.line_boxes` | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | this build can **produce a line a caller reads** |
+| `LayoutCapabilities.baselines` | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | this build gives a line a **floor** and places its members on it |
+| `LayoutCapabilities.sizing` | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | this build turns a declared `px` `width`/`height` into geometry — **not** that sizing is finished |
+| `LayoutCapabilities.margins` | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | `1` | — | this build places a box at its **margin** origin and stacks by its children's margin boxes — **not** that collapsing is implemented |
+| `LayoutCapabilities.padding` | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | `1` | — | this build's `size` is a **padding** box built on the sizing layer's answer, and an `auto` width fills what the margins and the padding left — **not** that `box-sizing: border-box` exists |
+| `LayoutCapabilities.border` | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | `1` | — | this build's `size` is the **border** box, a side's used width is zero unless its style draws, and the whole record — width, style, colour — is readable for paint — **not** that `border-radius` exists, and not that a border paints |
+| `LayoutCapabilities.positioning` | — | — | — | — | — | — | — | — | — | — | `1` | `1` | `1` | — | a `relative` box is **drawn** where its offset puts it while its size and its flow contribution are untouched, and the used offset is readable from the object — **not** that `absolute`/`fixed`/`sticky` place, and not that a percentage inset resolves |
+| `LayoutCapabilities.overflow` | — | — | — | — | — | — | — | — | — | — | — | `1` | `1` | — | the contents that do not fit are **recorded beside the box** as four extents measured from its padding box, with a mode per axis — **not** that anything scrolls, clips a pixel, or turns `visible` into `auto` |
+| `LayoutCapabilities.invalidation` | — | — | — | — | — | — | — | — | — | — | — | — | `1` | — | a box carries a **state** saying what about it is stale and a reason for a reader, a property name is classified into what changing it costs, and a pass can be skipped when nothing needs one — **not** that partial layout exists: the dirty root is computed and reported, and the pass still recomputes from the tree root |
+| `LayoutCapabilities.font_request` | — | — | — | — | — | — | — | — | — | — | — | — | — | `1` | a computed style's font properties become one **value** request — an ordered, classified family list plus size, weight, stretch, slope and direction — an installed `LayoutFontProvider` answers its entries in author order, and the answering face is recorded on the run — **not** that layout owns a font database: no coverage walk, no fallback chain, no per-scalar splitting, no `@font-face`, and no provider means the single attached face |
+| `LayoutGeometryIsImplemented()` | `0` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | `1` | — | a function a caller cannot read past |
+| `LayoutResultState()` | — | — | — | — | — | — | — | — | — | — | — | — | `—` | — | *this box* has one — the per-box authority |
 
 Three doors for one fact is deliberate: the constant is what a later goal flips,
 the field is what a feature query sees, and the function is what a caller that has
@@ -191,6 +192,22 @@ asserts the field against the *shape of the dirty set* rather than against a sav
 (`layout.invalidation.position_dirty_is_narrow` marks one box and asserts that its
 following sibling is still clean), because the model is the claim and the skip is only
 what the model is for.
+
+12.17 has the ninth kind, and it is the first one that is about a **declaration this
+module did not author**: `fontRequest == 1` is true of a build that turns five computed
+font properties into one value record and offers it to a provider the caller installs,
+and false of the build the word invites — the one that *knows* which face a family is.
+Layout keeps the request and the seam; the answer belongs to whoever owns the font
+database, which is why `LayoutFontProvider` is a pair of a function and an opaque
+pointer and not a registry this module links. A caller with one system face installs
+nothing and every run is measured with that face, exactly as before the phase — so
+the claim is about a *seam*, not about a feature being on. What it does **not** say is
+that layout walks coverage, chooses a fallback chain, splits a run per script, reads
+`@font-face`, or synthesizes a weight or a slope the face does not have. The suite
+asserts it against the *shape of the walk* rather than against a resolution
+(`layout.fontselect.fallback` offers two families to a provider that answers only the
+second and asserts the count of asks as well as the answer), because the order and the
+number of questions are what the seam promises.
 
 10.15 has no ninth kind of narrowness, and the absence is the phase: it adds no field to
 this table at all, because what it asks is whether the fourteen answers above are

@@ -86,6 +86,7 @@
 #include "RoboBase/RoboError.h"
 #include "RoboDesktop/RoboDesktopDiagnostics.h"
 #include "RoboFont/RoboFontFace.h"
+#include "RoboFont/RoboFontRegistry.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
 #include "RoboTypography/RoboTypographyResolver.h"
@@ -120,9 +121,23 @@ typedef struct DesktopDocumentConfig {
      * from it (see the header comment). Borrowed, and its pack must outlive the build.
      */
     TypographyResolver *typography;
+    /**
+     * Optional font registry (Phase 12.17): the faces a run's CSS `font-family` is resolved from.
+     *
+     * When set, each text run's **resolved font request** (`RoboLayoutFontRequest.h`) is walked against
+     * this registry — a named family through `FontSelect`, a generic through the pack's own mappings — and
+     * the first family that yields a face is the face the run is measured and drawn with. A document with
+     * a registry therefore produces **mixed-font runs** (a bold heading's own face, a monospace code span's
+     * own face); one without keeps the single-face behaviour and draws every run in @ref face.
+     *
+     * Borrowed, and it must outlive the build: the selected faces live in it. The generic mappings come
+     * from @ref typography's pack when one is given.
+     */
+    FontRegistry *registry;
 } DesktopDocumentConfig;
 
-/** Fill @p config with the defaults: no markup, no stylesheet, 800x600, no face, no typography. */
+/** Fill @p config with the defaults: no markup, no stylesheet, 800x600, no face, no typography, no
+ *  registry. */
 void DesktopDocumentConfigInit(DesktopDocumentConfig *config);
 
 /** Non-zero when this build can turn markup into a display list. See `RoboDesktopDocumentsImplemented`. */
@@ -140,6 +155,17 @@ typedef struct DesktopDocumentReport {
     size_t records;
     /** Display-list commands built from them. */
     size_t commands;
+    /**
+     * Family lookups the per-run font resolver **matched** (Phase 12.17).
+     *
+     * Zero for a document built without @ref DesktopDocumentConfig::registry, and the number a caller reads
+     * to tell "every family the document asked for resolved" from "the document has text and no family was
+     * ever consulted". One lookup per `font-family` entry tried, so a two-family request whose first name
+     * misses and generic hits counts two -- which is the point: the walk is visible.
+     */
+    size_t fontFamiliesResolved;
+    /** Family lookups that matched nothing, and whose request moved on (or ended). */
+    size_t fontFamiliesUnresolved;
 } DesktopDocumentReport;
 
 /**

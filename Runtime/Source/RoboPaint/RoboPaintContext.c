@@ -582,6 +582,7 @@ static void PaintTextFontFromStyle(RoboTextFontContext *font,
  */
 static Result PaintShapeRun(PaintContext *context,
                                       PaintList *list,
+                                      FontFace *face,
                                       const uint32_t *codePoints,
                                       PaintTextSpan span,
                                       const LayoutTextStyle *style,
@@ -602,9 +603,10 @@ static Result PaintShapeRun(PaintContext *context,
     size_t written = 0u;
     Result status;
 
+    (void)context;
     *outGlyphs = PaintGlyphSpanAt(0u);
     *outToken = PaintFontTokenNone;
-    if (!context->textFace) {
+    if (!face) {
         /* The characters are the document's and are already stored; the glyphs are what a missing face
          * costs, and a drawing pass counts the run `noFont` rather than drawing boxes it would have to
          * invent a face to find. */
@@ -620,7 +622,7 @@ static Result PaintShapeRun(PaintContext *context,
                                "a run's characters are not text this build can shape");
     }
 
-    PaintTextFontFromStyle(&font, context->textFace, style);
+    PaintTextFontFromStyle(&font, face, style);
     RoboTextShapeOptionsInit(&options);
     options.baseDirection = style->direction == RoboLayoutTextDirectionRtl
                                     ? RoboTextDirectionRtl
@@ -741,7 +743,7 @@ static Result PaintShapeRun(PaintContext *context,
      * and the table is the **list's**, which is what makes the token meaningful to the list the record lands
      * in and to the display list the builder copies it into.
      */
-    status = PaintFontTableAdd(PaintListFontTable(list), context->textFace, outToken, diag);
+    status = PaintFontTableAdd(PaintListFontTable(list), face, outToken, diag);
     if (status != RoboOk) {
         return status;
     }
@@ -960,8 +962,19 @@ static Result PaintEmitText(PaintContext *context,
         const uint32_t *codePoints = PaintTextPoolCodePoints(PaintListTextPool(list));
         PaintGlyphSpan glyphSpan;
         PaintFontToken fontToken;
+        /*
+         * The face, **from the run** when it carries one (Phase 12.17) and from the pass's own argument
+         * otherwise.
+         *
+         * The measurer selected it from the run's font request and recorded it on the run, so a mixed-font
+         * document draws each run in the face it was measured with -- one selection, threaded, rather than
+         * a second resolution here that could disagree. A run with no face (a document built with a single
+         * face and no provider) falls back to the pass's face, which keeps the pre-12.17 configuration
+         * working unchanged, and a run with neither records its characters and no glyphs (`noFont`).
+         */
+        FontFace *face = run.face ? run.face : context->textFace;
 
-        result = PaintShapeRun(context, list, codePoints, text.span, &font, &glyphSpan,
+        result = PaintShapeRun(context, list, face, codePoints, text.span, &font, &glyphSpan,
                                  &fontToken, diag);
         if (result != RoboOk) {
             return result;

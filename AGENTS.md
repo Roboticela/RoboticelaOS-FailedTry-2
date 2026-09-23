@@ -190,15 +190,16 @@ owns it. It binds and caches; it does not parse, rasterize or shape.
   Host` (which includes the three galleries and the boundary scan) passes. `TestDesktop.ps1 -Target
   Qemu` when the guest image is involved.
 
-### CSS font wiring — the resolved font request (Phase 12.17, in progress)
+### CSS font wiring — the resolved font request, and the face it resolves to (Phase 12.17)
 
-**CSS chooses the requested typography; RoboText chooses the actual font.** 12.17 is landing in two halves and
-only the first is in the tree.
+**CSS chooses the requested typography; the font database chooses the actual font, and RoboLayout owns only
+the request and the seam between them.** Two landed halves, one contract; `fontRequest` is set in
+`LayoutCapabilities` and `Documentation/Runtime/Layout/FontRequest.md` is the phase's authority.
 
-**Landed: the resolved font request** in `Runtime/Source/RoboLayout/RoboLayoutFontRequest.c` + public
-`Runtime/Include/RoboLayout/RoboLayoutFontRequest.h` (`layout.fontrequest.*`,
-`Documentation/Runtime/Layout/FontRequest.md`). It is a **value** record — an ordered, classified family list
-plus `sizePx`/`weight`/`stretch`/`italic`/`direction` — never a second font system.
+**The resolved font request** in `Runtime/Source/RoboLayout/RoboLayoutFontRequest.c` + public
+`Runtime/Include/RoboLayout/RoboLayoutFontRequest.h` (`layout.fontrequest.*`). It is a **value** record — an
+ordered, classified family list plus `sizePx`/`weight`/`stretch`/`italic`/`direction` — never a second font
+system.
 
 - `font-family` is kept **ordered and classified**: a name stays a name, a keyword (`sans-serif`, `system-ui`,
   `ui-monospace`, …) stays a `FontGenericFamily` via RoboFont's own `FontGenericFamilyFromName`. **Never
@@ -214,10 +215,34 @@ plus `sizePx`/`weight`/`stretch`/`italic`/`direction` — never a second font sy
 - RoboLayout's invalidation table already classifies every font property as layout-affecting; do not add a
   second invalidation path for a font change.
 
-**Not yet landed (the second half):** the system/generic family binding (a family → a pack face, centrally),
-per-run face selection through 12.5's `RoboTextFontSelector`, mixed-font `GlyphRun`s, requested-vs-selected
-diagnostics, the desktop/document wiring and the QEMU visual evidence. The document still measures and draws
-with one face (`DesktopDocumentFace`).
+**The selection seam** in `Runtime/Source/RoboLayout/RoboLayoutFontResolver.c` + public
+`Runtime/Include/RoboLayout/RoboLayoutFontResolver.h` (`layout.fontselect.*`). `LayoutFontRequestSelect` walks
+the request's family entries **in author order** and asks a `LayoutFontProvider` — a two-field vtable
+(`userdata` + `resolveFamily`), the same shape as the text metrics seam — for each. The first entry that
+yields a face wins and the walk **stops**; `LayoutFontSelection.familyIndex`/`fallback` record which one
+answered. A miss is `RoboOk` with a NULL face; a provider *failure* propagates and must never be read as "no
+match".
+
+- **RoboLayout must not grow a font database.** No file open, no `/System/Fonts/` scan, no `cmap`, no coverage
+  walk, no registry, no fallback chain, no per-scalar or per-script splitting, no `@font-face`, no synthesized
+  weight or slope. A generic is handed to the provider **as a generic** (`FontGenericFamily`), never as a name.
+- The measurer resolves **once per run** and records the answer on the run (`LayoutTextRun.face`,
+  `fontFallback`); paint draws with *that* face (`PaintContextRun`'s `run.face ? run.face : textFace`) rather
+  than resolving again. A fact a later layer needs is carried, not recomputed — do not add a second
+  resolution below layout.
+- A build with **no provider** measures every run with the single attached face, exactly as before the phase,
+  and that is a supported configuration rather than a degenerate one. `LayoutTextFontSetProvider` is the only
+  thing that changes it.
+- The one concrete provider is `RoboDesktopFontProvider` (`Runtime/Source/RoboDesktop/RoboDesktopFontProvider.c`),
+  over the registry and the system pack: a generic through the pack's configured mapping (then the pack's role),
+  the two role spellings `ui-text`/`ui-display` through `FontSystemPackResolveRole`, and a named family through
+  `FontRegistryCollectFacesForFamily` + Phase 5's `FontSelect`. Its `resolved`/`unresolved` counters are
+  published as `DesktopDocumentReport.fontFamiliesResolved`/`…Unresolved`.
+- Diagnostics are two complete-or-absent writers, not a second log: `LayoutFontRequestWrite` (the ask) and
+  `LayoutFontSelectionWrite` (the answer), beside the run's own `face`/`fontFallback`.
+- Still another row's work, and named rather than implied: per-script fallback chains and mixed-font
+  `GlyphRun`s (12.5's `RoboTextFontSelector`, driven from the family list this record preserves), `@font-face`,
+  web fonts, and the QEMU visual evidence.
 
 ### RoboText architecture (Phase 12.4)
 
@@ -669,6 +694,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Glyph runs (RoboText 12.14) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.glyphrun.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.glyphrun.clusters_ligature` (one glyph, one cluster, two scalars), `text.glyphrun.order_visual` (the Latin word painted between two Hebrew ones) and `text.glyphrun.performance` (the baseline) |
 | Text measurement (RoboText 12.15) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.measure.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.measure.kern` and `text.measure.ligature` (the two things that move a width, on the shipped face), `text.measure.mark_ink` (an accent raising the ink while the width stays the base's) and `text.measure.performance` (the two baselines) |
 | Paint / layout bridge (12.16) | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` (`paint.text.*`, `paint.glyphrun.*`), then `TestRoboText/Font/Graphics/Layout/Rasterizer/Desktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Evidence: `paint.glyphrun.recorded` (the glyphs on the record), `paint.glyphrun.snapshot` (a display list drawing the same bytes after its records are freed) and `paint.glyphrun.without_a_face` (a counted `noFont`) |
+| CSS font wiring (12.17) | `BuildLayout.ps1` (+ `BuildDesktop.ps1` when the provider or the document changed) | `TestLayout.ps1 -Target Host` (`layout.fontrequest.*`, `layout.fontselect.*`), then `TestPaint.ps1 -Target Host` (the pen draws the run's own face) and `TestDesktop.ps1 -Target Host` (`desktop.document.font_families` resolves a shipped name, an unknown name and a generic over the real registry); `-Target Qemu` when the guest image is involved |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

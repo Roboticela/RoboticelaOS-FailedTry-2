@@ -67,6 +67,7 @@
 #include "RoboFont/RoboFontFace.h"
 
 #include "RoboLayout/RoboLayoutDiagnostics.h"
+#include "RoboLayout/RoboLayoutFontResolver.h"
 #include "RoboLayout/RoboLayoutText.h"
 
 #ifdef __cplusplus
@@ -97,6 +98,16 @@ typedef struct LayoutTextFont {
     size_t runsMeasured;
     /** Code points it has measured with no glyph in the face. */
     size_t glyphsMissing;
+    /**
+     * Optional family-selection provider (Phase 12.17).
+     *
+     * When usable and the request carries a computed style, the measurer resolves the run's font
+     * **request** and selects a face per run, rather than measuring every run with @ref face. @ref face
+     * stays the fallback for a request no family answers, so a measurer with a provider and a primary
+     * face is the ordinary configuration and one with neither measures nothing. Borrowed: the caller owns
+     * whatever produced it.
+     */
+    LayoutFontProvider provider;
 } LayoutTextFont;
 
 /** Clear @p font to detached. Safe on NULL. */
@@ -113,6 +124,14 @@ Result LayoutTextFontAttach(LayoutTextFont *font,
 
 /** Release the borrow. Safe on NULL and on an already-detached measurer. */
 void LayoutTextFontDetach(LayoutTextFont *font);
+
+/**
+ * Install (or clear) the family-selection provider. Borrowed by value; safe on NULL `font`.
+ *
+ * A NULL `provider` — or one with no callback — restores the single-face behaviour: every run is measured
+ * with @ref LayoutTextFont::face.
+ */
+void LayoutTextFontSetProvider(LayoutTextFont *font, const LayoutFontProvider *provider);
 
 /** Non-zero when a face is attached. */
 int LayoutTextFontIsAttached(const LayoutTextFont *font);

@@ -209,7 +209,8 @@ contents by the contents' own classes), W2/W4/W5 in full, isolates, and the visu
   Inter alone, so a Hebrew or Arabic line in that specimen would draw `.notdef` boxes into a picture whose
   only assertion is determinism, which reads as a regression rather than as the pack's coverage limit.
   Making those pages a direction fixture is a **pack** change (assets, manifest, licence, image check), and
-  the shell and the document bridge still paint one face per surface.
+  a run still paints through the single face its `font-family` resolved to (12.17) rather than through one
+  face per script.
 - **The shell declares its surfaces left-to-right, and the document bridge does not yet.**
   `RoboPaintDecoration.c` passes `{ baseDirection = Ltr }` (the phase's §28 default, declared rather than
   implied, so a digits-only label is left-to-right rather than `Unknown`). The document's text still goes

@@ -14,6 +14,7 @@
  */
 
 #include "RoboDesktopTestSupport.h"
+#include "RoboTypographyTestSupport.h"
 
 static const char *DOC_HTML =
     "<html><body><div class='card'><p>Hello from RoboticelaOS Runtime</p></div></body></html>";
@@ -157,6 +158,62 @@ static void TestDocumentWithFace(void)
     RenderFaceDestroy(&face);
 }
 
+/*
+ * The per-run family resolver (Phase 12.17).
+ *
+ * Two paragraphs, one naming the shipped face and one naming a family the pack does not have followed by a
+ * generic: the report says one family *name* missed and the pack's generic (and the shipped name) resolved,
+ * which is the whole of "a document's `font-family` reaches the font database" in two numbers. Without a
+ * registry the provider is not built and nothing is consulted -- the single-face behaviour, stated.
+ */
+static void TestDocumentFontFamilies(void)
+{
+    TypographyFixture fixture = TypographyFixtureOpen(NULL);
+    RoboTypographyStyle body;
+    DesktopDocumentConfig config;
+    DesktopDocument *document = NULL;
+    DesktopDocumentReport report;
+
+    RoboCheckEqInt(RoboTypographyResolve(fixture.resolver, RoboTypographyRoleDocumentBody, &body,
+                                         NULL),
+                   RoboOk);
+    RoboCheck(body.face != NULL);
+
+    DesktopFixture();
+    DesktopDocumentConfigInit(&config);
+    config.html = "<html><body><p class='a'>one</p><p class='b'>two</p></body></html>";
+    config.css =
+        "html,body,p{display:block}"
+        "p.a{font-family:\"Inter\"}"
+        "p.b{font-family:\"Not Shipped\",sans-serif}";
+    config.width = 320;
+    config.height = 200;
+    config.face = body.face;
+    config.typography = fixture.resolver;
+    config.registry = fixture.registry;
+
+    RoboCheckEqInt(DesktopDocumentBuild(&config, &document, NULL), RoboOk);
+    RoboCheckEqInt(GetDesktopDocumentReport(document, &report), RoboOk);
+    /* `Inter` and the generic both resolve; the unknown name does not. Two paragraphs, three
+     * entries walked: the exact counts rather than `>= 1`, so a selection that stopped after the
+     * first entry (or walked the list twice) would show here. */
+    RoboCheckEqInt((int)report.fontFamiliesResolved, 2);
+    RoboCheckEqInt((int)report.fontFamiliesUnresolved, 1);
+    DesktopDocumentDestroy(document);
+
+    /* No registry: no provider, no lookups, and the document is still built and drawn with one face. */
+    config.registry = NULL;
+    document = NULL;
+    RoboCheckEqInt(DesktopDocumentBuild(&config, &document, NULL), RoboOk);
+    RoboCheckEqInt(GetDesktopDocumentReport(document, &report), RoboOk);
+    RoboCheckEqInt((int)report.fontFamiliesResolved, 0);
+    RoboCheckEqInt((int)report.fontFamiliesUnresolved, 0);
+    RoboCheck(PaintDisplayListCount(DesktopDocumentDisplayList(document)) > 0u);
+    DesktopDocumentDestroy(document);
+
+    TypographyFixtureClose(&fixture);
+}
+
 static void TestDocumentDestroyReleases(void)
 {
     size_t baseline = DesktopLiveBlocks();
@@ -189,5 +246,6 @@ void TestRegisterDesktopDocument(void)
     TestRegister("desktop.document.build_refusals", TestDocumentBuildRefusals);
     TestRegister("desktop.document.without_style", TestDocumentWithoutStyle);
     TestRegister("desktop.document.with_face", TestDocumentWithFace);
+    TestRegister("desktop.document.font_families", TestDocumentFontFamilies);
     TestRegister("desktop.document.destroy_releases", TestDocumentDestroyReleases);
 }

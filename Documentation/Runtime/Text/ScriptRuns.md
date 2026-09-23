@@ -267,6 +267,7 @@ should not have to infer:
   reference picture whose only assertion is determinism, which would look like a regression rather than the
   coverage limit it is. Making that picture *meaningful* for Arabic or CJK requires a second family in the
   pack (assets + manifest + licence + image check) — a pack change, not a text-layer one.
-- The shell and the document bridge still paint through one face per surface. Walking a run's selected face
-  is the same follow-on work 12.4 and 12.5 both flag; this phase gives the segmentation and the per-run
-  selection that it will consume.
+- A run still paints through **one** face. 12.17 made that face the one the run's own `font-family`
+  resolved to (a provider answers the request; the run records the answer), but a *mixed-font* run — one
+  whose scalars need two faces — is still not something the shell walks. That is the follow-on work 12.4 and
+  12.5 both flag; this phase gives the segmentation and the per-run selection it will consume.

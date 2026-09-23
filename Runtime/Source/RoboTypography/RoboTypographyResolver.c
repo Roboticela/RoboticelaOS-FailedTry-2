@@ -159,6 +159,11 @@ const RoboTypographyScaleEntry *RoboTypographyResolverScale(
     return resolver ? resolver->scale : NULL;
 }
 
+const FontSystemPack *RoboTypographyResolverPack(const TypographyResolver *resolver)
+{
+    return resolver ? resolver->pack : NULL;
+}
+
 size_t RoboTypographyResolverScaleCount(const TypographyResolver *resolver)
 {
     return resolver ? resolver->scaleCount : 0u;

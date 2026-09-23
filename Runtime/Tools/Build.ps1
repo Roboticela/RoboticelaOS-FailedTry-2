@@ -361,6 +361,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboLayout\RoboLayoutText.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTextFont.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutFontRequest.c"),
+    (Join-Path $SourceDir "RoboLayout\RoboLayoutFontResolver.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutLineBox.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutBaseline.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutSizing.c"),
@@ -420,6 +421,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDiagnostics.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDump.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDocument.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopFontProvider.c"),
     # RoboInput (12.1) -- the input *model*: an event type vocabulary and its payloads, a device and
     # source identity, four explicitly named coordinate planes with the conversions between them, a routing
     # target carried as inert identity, an owned FIFO queue and a deterministic dump. It reads no device
@@ -653,6 +655,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutInline.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutText.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutFontRequest.c"),
+    (Join-Path $TestsRoot "Layout\SuiteRoboLayoutFontSelect.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutLineBox.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutBaseline.c"),
     (Join-Path $TestsRoot "Layout\SuiteRoboLayoutSizing.c"),

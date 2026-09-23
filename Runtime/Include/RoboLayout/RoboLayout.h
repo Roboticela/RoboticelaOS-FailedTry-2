@@ -332,6 +332,18 @@ typedef struct LayoutCapabilities {
      * claiming that if it were named for "invalidation is finished".
      */
     int invalidation;
+    /**
+     * Resolving a CSS `font-family` to a face (12.17). **1** since 12.17.
+     *
+     * A claim about the *build* and not about a pass, exactly as `textLayout` is: a caller with one
+     * system face and no provider installs nothing and every run is measured with that face, which is
+     * the pre-12.17 behaviour and still correct -- `LayoutTextFontSetProvider` is what changes it. Kept
+     * narrow for the same reason the other flags are: **no font database**. RoboLayout owns the
+     * *request* and the *seam*; the face a family resolves to is the provider's answer, and there is no
+     * coverage walk, no fallback chain, no `@font-face` and no per-script run splitting in this module.
+     * `font-request` would be claiming those if it were named for "fonts are finished".
+     */
+    int fontRequest;
     /** Painting a box. **0**: Phase 11. */
     int painting;
 } LayoutCapabilities;

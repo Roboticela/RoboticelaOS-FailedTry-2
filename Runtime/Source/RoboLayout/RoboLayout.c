@@ -156,6 +156,16 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      * a paint phase would consume.
      */
     out->invalidation = RoboLayoutInvalidationImplemented;
+    /*
+     * And 12.17's, the first capability in this struct that is about a **document's own typography**
+     * rather than about a box. A computed style's five font properties become one value record, a
+     * `LayoutFontProvider` answers its family entries in author order, and the answering face is
+     * recorded on the run so that "how wide is it?" and "which face drew it?" are one answer. **Not**
+     * "fonts are finished": there is no font database in this module (the provider is a callback),
+     * no coverage walk, no fallback chain, no per-scalar splitting, no synthetic weight or slope, and
+     * no `@font-face`. A build that installs no provider measures with the single attached face.
+     */
+    out->fontRequest = RoboLayoutFontRequestImplemented;
     out->painting = 0;
     return RoboOk;
 }

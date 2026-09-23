@@ -1,6 +1,17 @@
 /*
  * RoboLayout version pin — Phase 10.15 layout tests, and the last goal of Phase 10.
  *
+ * 0.16.0 is 0.15.0 plus **the CSS font request and the face it resolves to** (Phase 12.17): a
+ * `font-family` declaration becomes an ordered, classified family list, the scalar half is delegated
+ * to the measurer's own resolver so a request and a `LayoutTextStyle` cannot disagree, a caller-supplied
+ * `LayoutFontProvider` answers each entry in author order, and the face that answered is recorded **on
+ * the run** so its width and its glyphs come from one selection. The version moves with the capability
+ * because this phase does add surface: two headers, five doors and `LayoutCapabilities.fontRequest`.
+ *
+ * What 0.16.0 does **not** claim is named at the flag and in `RoboLayoutFontResolver.h`: layout selects
+ * a face, it does not *own* a font database -- the resolution is a callback the caller installs, and a
+ * build with no provider measures every run with the single attached face exactly as it did before.
+ *
  * 0.15.0 is 0.14.0 plus the layer that asks whether the module is *right*: a
  * twenty-first suite (`layout/tests/SuiteRoboLayoutIntegration.c`) that stops testing
  * one layer at a time and lays out whole trees -- a card inside a column inside a
@@ -307,9 +318,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 15
+#define RoboLayoutVersionMinor 16
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.15.0"
+#define RoboLayoutVersionString "0.16.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -685,5 +696,26 @@
  * otherwise be assumed.
  */
 #define RoboLayoutInvalidationImplemented 1
+
+/**
+ * 1 once this build resolves a CSS `font-family` to a face (12.17).
+ *
+ * A compiler constant rather than a runtime decision, read by the two doors that must not disagree --
+ * `LayoutGetCapabilities().fontRequest` and the suite that asserts both -- exactly as the other
+ * `RoboLayout*Implemented` macros are.
+ *
+ * What it claims, in one sentence: a computed style's font properties become a **value** record -- an
+ * ordered, classified family list plus size, weight, stretch, slope and direction -- and that record
+ * is offered, entry by entry and in author order, to a `LayoutFontProvider` the caller installs, whose
+ * answer is recorded on the measured run (`LayoutTextRun.face`, `…fontFallback`).
+ *
+ * What it does **not** claim, and each of these is a feature a later phase owns: there is no font
+ * database here (the provider is a callback; RoboLayout neither loads a face, reads a `cmap`, consults
+ * coverage nor picks a fallback chain of its own), no per-scalar or per-script run splitting (one run,
+ * one face -- the request carries the family list a later splitter would cut on), no metric synthesis
+ * for a weight or a slope the face does not have, no `@font-face`, no web font and no device-scale
+ * figure. `font-request` would be claiming those if it were named for "fonts are finished".
+ */
+#define RoboLayoutFontRequestImplemented 1
 
 #endif /* ROBO_LAYOUT_VERSION_H */

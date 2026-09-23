@@ -200,9 +200,11 @@ Each named where a reader would look for it rather than implied:
 
 - **no glyph cache, no atlas, no batching** across compatible runs, no subpixel-phase-keyed rasterization, no
   `UnicodeCodePoint`-keyed identity — `shapedTextRecording`'s "what it does not claim";
-- **one face per recorder today.** The token vocabulary is what a later phase lifts that with, and
-  `glyphRuns`'s "what it does not claim" says so; a real multi-family recorder is a pack/selection change and
-  not a record-shape change;
+- **one face per run.** Since 12.17 that face is the one the run's own `font-family` selected (`run.face`,
+  with `context->textFace` as the fallback for a document built with no provider), so a mixed-font document
+  already records the right face per run — but a run that *straddles* two faces is still one token. The token
+  vocabulary is what a later phase lifts that with, and `glyphRuns`'s "what it does not claim" says so; a
+  real multi-family recorder is a pack/selection change and not a record-shape change;
 - **no new drawing kind, no `SAVE_STATE`/`RESTORE_STATE`.** The three drawing kinds and the two scope pairs are
   exactly what 11.12 executed, with one of them carrying a different payload;
 - **no layout, no line breaking, no caret or selection geometry, no hit testing inside a run.** The clusters

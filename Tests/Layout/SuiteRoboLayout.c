@@ -43,10 +43,10 @@ static void TestModuleVersion(void)
     I32 patch = -1;
 
     RoboCheckEqInt(RoboLayoutVersionMajor, 0);
-    RoboCheckEqInt(RoboLayoutVersionMinor, 15);
+    RoboCheckEqInt(RoboLayoutVersionMinor, 16);
     RoboCheckEqInt(RoboLayoutVersionPatch, 0);
-    RoboCheckStrEq(RoboLayoutVersionString, "0.15.0");
-    RoboCheckStrEq(LayoutVersionString(), "0.15.0");
+    RoboCheckStrEq(RoboLayoutVersionString, "0.16.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.16.0");
 
     RoboCheckEqInt(LayoutGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, RoboLayoutVersionMajor);
@@ -122,6 +122,7 @@ static const struct {
     { "position", 1 },
     { "overflow", 1 },
     { "invalidation", 1 },
+    { "font_request", 1 },
     { "painting", 0 }
 };
 
@@ -586,7 +587,7 @@ static void TestModuleAllocatorBalance(void)
         RoboCheckEqInt(LayoutGetVersion(&caps.objectModel, &caps.constraints,
                                                   &caps.resultModel),
                           RoboOk);
-        RoboCheckStrEq(LayoutVersionString(), "0.15.0");
+        RoboCheckStrEq(LayoutVersionString(), "0.16.0");
         RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, LayoutObjectKindName(RoboLayoutObjectBox),

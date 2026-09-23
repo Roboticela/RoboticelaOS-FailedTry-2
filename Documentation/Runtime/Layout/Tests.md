@@ -1,6 +1,6 @@
 # RoboLayout Test Organisation (through Phase 10.15)
 
-Twenty-one suites, 344 tests, one framework. Each phase adds no test runner, no reporter
+Twenty-three suites, 359 tests, one framework. Each phase adds no test runner, no reporter
 and no assertion vocabulary: everything here goes through
 `runtime/Tests/Framework` (`RoboCheck*` and `TestRegister`), the same as
 every other subsystem.
@@ -48,6 +48,8 @@ phase that made it.
 | `SuiteRoboLayoutPosition.c` | `layout.positioning.*` | 20 | does a relative box move without leaving its flow space, and does `static` stay exactly what it was? |
 | `SuiteRoboLayoutInvalidation.c` | `layout.invalidation.*` | 25 | does the module know which of its own conclusions are still true, and does it skip a pass exactly when nothing needs one? |
 | `SuiteRoboLayoutOverflow.c` | `layout.overflow.*` | 26 | is an overflow a *record* rather than a size, does a child contribute its region rather than its contents, and does a clipping box contribute only what it kept? |
+| `SuiteRoboLayoutFontRequest.c` | `layout.fontrequest.*` | 7 | is a CSS declaration turned into a value record — an ordered, classified family list plus size, weight, stretch, slope and direction — with no font system invented to hold it? |
+| `SuiteRoboLayoutFontSelect.c` | `layout.fontselect.*` | 8 | is the request offered to a caller-supplied provider in author order, does the first answer win, and is a miss told apart from a failure? |
 | `SuiteRoboLayoutConformance.c` | `layout.conformance.*` | 7 | the whole-product questions no single suite can ask |
 | `SuiteRoboLayoutIntegration.c` | `layout.integration.*` | 12 | do the fourteen layers agree with *each other* on one document, and is a whole tree's geometry the geometry the layers promise? |
 
@@ -1669,3 +1671,45 @@ reported `ALL TESTS PASS` at **2367/2367** in the same session. The diff touches
 is the seventh consecutive phase — and this time the pair, not just the keyboard case
 — so §14's proposal to either fix the focus race or quarantine the cases is now overdue
 by five phases rather than one.
+
+## 21. What the 12.17 suites found
+
+Two suites, fifteen cases, and neither of them needed a font file: `layout.fontrequest.*` drives
+`CssComputedStyle` through 9.8's makers, and `layout.fontselect.*` drives a **scripted provider** that
+records how many times it was asked and in what order. That is the phase's testing decision — the seam is a
+callback, so the honest way to test it is to be the callback.
+
+**1. The seat of the claim is a *value*, and that is what the suites are shaped around.**
+`LayoutTextStyle` is copied by value into a `PaintTextRun` (12.16), so the family list could not live on it.
+`layout.fontrequest.resolve` asserts the resolved record and the measurer's `LayoutTextStyle` agree on the
+four scalars *by asking the measurer's own resolver*, which is what makes "the request and the measurer
+cannot disagree" a test rather than an intention.
+
+**2. Two answers that look alike are kept apart, twice.** `familyUnresolved` separates "the declaration was
+unusable" from "the declaration was absent", and both fall to the same initial list —
+`layout.fontrequest.resolve` pins both sides. `layout.fontselect.none` does the same for a provider: a miss is
+`RoboOk` with a NULL face and the walk continues, and a provider *failure* propagates, because reading a
+broken database as "that family does not exist" would silently degrade a whole document.
+
+**3. Order is the fallback policy, so it is asserted as a count.** `layout.fontselect.fallback` offers two
+families to a provider that answers only the second and asserts the answer, `familyIndex == 1`, `fallback`,
+*and* `stub.calls == 2` — the number of questions is the claim. `layout.fontselect.first_family` asserts
+`calls == 1` for the other half: the walk stops at the first answer rather than resolving the tail it no
+longer needs. A generic is asserted to arrive **as a generic** (`layout.fontselect.generic`), which is what
+keeps `sans-serif → Inter` out of this module.
+
+**4. The last version-pinned red, and it was three files again.** Raising the module to `0.16.0` for the
+capability reddened `layout.module.version`, `layout.module.allocator_balance` (64 checks, because its loop
+re-asserts the version on every iteration) and `layout.conformance.statement`, exactly as §20 predicted for
+every remaining goal. `layoutCapabilityFlags[]` and `layoutConformanceCapabilities[]` also grew a row, and
+the **positional** read (`sizeof(LayoutCapabilities) == count * sizeof(int)`) is what caught the new field
+before any case did.
+
+**5. The document-level case found a testing mistake rather than a defect.** `desktop.document.font_families`
+resolves two paragraphs over the *real* registry — one naming the shipped face, one naming an unknown family
+followed by a generic — and asserts the exact counts (2 resolved, 1 missed). Its first draft declared
+`display:block` nowhere, and the document laid out **no text at all**: this build has no user-agent
+stylesheet, so `<p>` is `display: inline` (CSS's own initial, which the registry spells), no inline formatting
+context is established, and the measurer is never asked. The case passed its `texts >= 1` neighbour either
+way, because a *text object* is built regardless. The lesson is the one §5 of `FontRequest.md` states for a
+different reason: a document that measures nothing is not a document that fails to measure.

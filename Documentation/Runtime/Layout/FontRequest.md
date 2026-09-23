@@ -1,12 +1,23 @@
-# The resolved font request (Phase 12.17, the CSS seam)
+# The resolved font request, and the face it resolves to (Phase 12.17)
 
-12.17 connects CSS font properties to the RoboText typography pipeline. This document covers the
-**first, foundational half** that has landed: the CSS-side *resolved font request* — an ordered family
-list plus the scalar settings — in `Runtime/Source/RoboLayout/RoboLayoutFontRequest.c`, public header
-`Runtime/Include/RoboLayout/RoboLayoutFontRequest.h`.
+12.17 connects CSS font properties to the RoboText typography pipeline, and it does so in **two halves
+that are now both in the tree**:
 
-The second half (per-run face selection through RoboText's selector, and per-element mixed-font runs) is
-described in §5 as the remaining work.
+1. the CSS-side *resolved font request* — an ordered family list plus the scalar settings — in
+   `Runtime/Source/RoboLayout/RoboLayoutFontRequest.c`, public header
+   `Runtime/Include/RoboLayout/RoboLayoutFontRequest.h`; and
+2. the *selection seam* — request in, one borrowed face out, through a provider the caller supplies — in
+   `Runtime/Source/RoboLayout/RoboLayoutFontResolver.c`, public header
+   `Runtime/Include/RoboLayout/RoboLayoutFontResolver.h`, with the one concrete provider above this module
+   (`Runtime/Source/RoboDesktop/RoboDesktopFontProvider.c`).
+
+The rule the whole phase turns on:
+
+> **CSS chooses the requested typography; the font database chooses the actual font.**
+
+Layout owns the *request* and the *seam*. It never owns the database: which face a family is stays in
+RoboFont and the system pack, behind a callback. A build that installs no provider measures every run with
+the one attached face, exactly as it did before the phase, and `LayoutCapabilities.fontRequest` says so.
 
 ---
 
@@ -29,10 +40,19 @@ selector.
 CssComputedStyle
       │  font-family / font-size / font-weight / font-style / font-stretch / direction
       ▼
-LayoutFontRequest            ← this document
+LayoutFontRequest            ← this document, §1–§4
       │  families (ordered) + sizePx + weight + stretch + italic + direction
       ▼
-(a font resolver selects a face per shaping run — RoboText's selector over the pack)
+LayoutFontRequestSelect      ← this document, §5
+      │  a LayoutFontProvider the caller installed (RoboDesktop's, over the registry + the pack)
+      ▼
+LayoutFontSelection          (face, familyIndex, fallback)
+      │
+      ▼
+LayoutTextRun.face           (recorded once, so width and glyphs come from one selection)
+      │
+      ▼
+RoboText measurement · RoboPaint's pen
 ```
 
 ## 2. What the request is, and what it is not
@@ -115,21 +135,83 @@ invalidation table already classifies every one of these properties (`font-famil
 already invalidates text layout — the phase's "font property change invalidates layout" requirement is
 satisfied by the existing classification.
 
-## 5. What remains (the phase's second half)
+## 5. The selection seam
 
-This landed half satisfies the *representation* half of 12.17. The wiring half — turning a request into
-selected **faces** per shaping run and feeding them to measurement and paint — is not yet in place:
+`LayoutFontRequestSelect(request, provider, out, diag)` walks the request's family entries **in author
+order** and asks the provider for each. The first entry that yields a face wins; the walk **stops there**,
+which is why `LayoutFontSelection.familyIndex` and `fallback` are recorded rather than inferred — "which
+family answered" and "was that the first" are the two facts a diagnostic or a cache key needs.
 
-- a **system/generic family binding**: mapping `system-ui`/`ui-display`/`sans-serif`/`monospace` and a
-  named family to a face in the system pack, centrally (a candidate home is `RoboTypography`, which
-  already owns role → face and may depend on RoboFont);
-- **per-run face selection**: the document's text pass currently measures and draws with one face
-  (`DesktopDocumentFace`). Selecting a face per shaping run through 12.5's `RoboTextFontSelector` over a
-  fallback chain is what produces mixed-font `GlyphRun`s and per-script fallback;
-- **diagnostics** exposing requested vs. selected font, and the desktop/document integration and QEMU
-  visual evidence the phase's §33–§34 ask for.
+The provider is a **vtable of two fields** (`userdata` and a `resolveFamily` callback), the same shape
+`LayoutTextMetrics` uses for measurement and `LayoutStyleSource` for computed styles. That is the whole of
+the module's font abstraction: `RoboLayout` does not open a file, scan `/System/Fonts/`, parse a `cmap`,
+walk coverage or hold a registry. A generic entry is handed over **as a generic** — a `RoboFontGenericFamily`
+— so `sans-serif → Inter` is a mapping the database owns and this module never sees.
 
-Until that lands, the request is the CSS-side answer and nothing consumes it yet beyond its own suite.
+Three answers, and the third is the one that matters:
+
+| Provider says | Meaning |
+|---|---|
+| a face | that family answered; record it and stop |
+| nothing (`RoboOk`, `outFace == NULL`) | this database has no such family; try the next entry |
+| a failure code | the database could not be consulted; propagate, do not read it as "no match" |
+
+A NULL or unusable provider, or a request no entry answers, leaves the selection **unset** (`resolved ==
+0`) and is not an error: the caller degrades to its own default face, which is exactly what a document
+without a registry does.
+
+### 5.1 One selection, threaded
+
+The measurer resolves the request **once per run** and records the answer on the run
+(`LayoutTextRun.face`, and `fontFallback`), and the paint pass draws with *that* face instead of resolving
+again. The project's rule, applied: a fact a later layer needs is carried, not recomputed. It is what
+makes a run's width and a run's glyphs come from one selection, and it is why
+`PaintContextSetTextFace`'s single face is now only the *fallback* the recorder uses when a run carries
+none.
+
+The face is **borrowed** throughout — the caller owns whatever registry the provider selected out of, and
+the run holds no reference it would have to release.
+
+### 5.2 The one concrete provider
+
+`RoboDesktopFontProvider` (`Runtime/Source/RoboDesktop/RoboDesktopFontProvider.c`) is the implementation
+`RoboLayout` must not contain, and it is built from things the desktop already has:
+
+| Entry kind | How it resolves |
+|---|---|
+| a **generic** (`sans-serif`, `system-ui`, `ui-monospace`, …) | the pack's configured generic mapping (`FontGenericResolver`, fed by `FontSystemPackApplyGenericConfig`), falling back to the pack's own role for that generic |
+| the two **role names** a pack may spell (`ui-text`, `ui-display`) | `FontSystemPackResolveRole` — the same door 12.3's chrome roles use |
+| a **named family** | `FontRegistryCollectFacesForFamily` + Phase 5's `FontSelect` |
+
+It counts `resolved`/`unresolved` asks; `DesktopDocumentReport.fontFamiliesResolved` and
+`…fontFamiliesUnresolved` publish them, so "did a document's `font-family` reach the font database?" is two
+numbers on the document's own report.
+
+### 5.3 What selection does *not* do
+
+- **No per-scalar or per-script splitting.** One run, one face: the request carries the family list a
+  later splitter would cut on, and 12.5's `RoboTextFontSelector` is what walks a fallback chain per script
+  run. Selection here answers "the first family entry that exists", which is CSS's own answer for a list.
+- **No coverage walk.** A face is not tested against the text; if it lacks a glyph, that is the text
+  layer's miss to count (and a later phase's fallback to answer).
+- **No synthesis.** A requested weight or slope the selected face does not have is *recorded*, not
+  faked — the no-emboldening rule 12.3 states.
+- **No `@font-face`, no web fonts.**
+
+### 5.4 Diagnostics
+
+Requested and selected are two records with two complete-or-absent writers: `LayoutFontRequestWrite`
+(the ask: families, size, weight, stretch, italic, and whether the declaration was unusable) and
+`LayoutFontSelectionWrite` (the answer: which family index, whether it was a fallback, the settings).
+Together with the run's own `face`/`fontFallback` fields that is the phase's §29 "requested vs selected"
+representation, without a second logging path.
+
+### 5.5 Invalidation
+
+Unchanged from §4.3 and sufficient: `RoboLayout`'s invalidation table already classifies `font-family`,
+`font-size`, `font-weight`, `font-style` and `font-stretch` as layout-affecting, so a change to any of
+them invalidates text layout — and therefore the request, the selection, the measurement and the paint.
+No second invalidation path was added for a font change, which is the point.
 
 ## 6. Tests
 
@@ -145,4 +227,33 @@ Until that lands, the request is the CSS-side answer and nothing consumes it yet
 | `layout.fontrequest.equal` | the field-for-field rule the run-splitting walk will depend on |
 | `layout.fontrequest.write` | the one-line writer, complete or absent |
 
-Run `Scripts/Test/TestLayout.ps1 -Target Host`.
+`Tests/Layout/SuiteRoboLayoutFontSelect.c` (`layout.fontselect.*`, a **scripted** provider, so the seam is
+proved without a font file):
+
+| Case | What it pins |
+|---|---|
+| `layout.fontselect.provider` | the usable/unusable predicate, including NULL |
+| `layout.fontselect.init` | an unset selection: no face, no family, the initial settings |
+| `layout.fontselect.first_family` | the first entry answers, one ask, not a fallback |
+| `layout.fontselect.fallback` | a miss then a hit: the second entry answers, `familyIndex == 1`, `fallback`, two asks |
+| `layout.fontselect.generic` | a keyword reaches the provider **as a generic**, not as a name |
+| `layout.fontselect.none` | nothing matches: unset, every entry still asked; a provider failure propagates rather than reading as "no match" |
+| `layout.fontselect.settings` | weight/stretch/style carried into the selection |
+| `layout.fontselect.equal_write` | the equality rule and the writer, including the unset spelling and the too-small buffer |
+
+The document-level case is `Tests/Desktop/SuiteRoboDesktopDocument.c`'s
+`desktop.document.font_families`: two paragraphs whose `font-family` declarations are a shipped name, an
+unknown name, and a generic, built once over the real registry that the desktop's provider is made from.
+It asserts the **exact** resolved/unresolved counts (2 and 1), and that the same document with no registry
+consults nothing and still draws.
+
+Run `Scripts/Test/TestLayout.ps1 -Target Host`, then `Scripts/Test/TestDesktop.ps1 -Target Host`.
+
+## 7. What still belongs to another phase
+
+Selection here is one face for one run, resolved from a family list. Named features a later row owns: the
+system/generic **role vocabulary** beyond the two role spellings a pack may use (`ui-text`/`ui-display`
+already resolve through the pack; `system-ui`, `ui-monospace` and the rest resolve through the configured
+generic mapping), per-script **fallback chains** and mixed-font runs (12.5's selector, driven from the list
+this record preserves), `@font-face` and web fonts, and the QEMU visual evidence. The recorded face on the
+run is what those will thread through; nothing needs to be re-derived.
