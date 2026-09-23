@@ -298,8 +298,8 @@ static void TestAnalysisShapeRequest(void)
     RoboCheck(request.font.face == fixture.face);
     RoboCheck(request.font.style.sizePx == 16.0f);
     RoboCheckStrEq(RoboTextLanguageTag(&request.language), "ur");
-    RoboCheckEqInt((int)request.featureCount, 1);
-    RoboCheckStrEq(request.features[0], "kern");
+    RoboCheckEqInt((int)request.features.count, 1);
+    RoboCheckStrEq(RoboTextFeatureSetAt(&request.features, 0u)->tag, "kern");
 
     /* The bridge: the request denotes exactly the run the 12.4 generator consumes. */
     RoboCheckEqInt((int)RoboTextShapeRequestToRun(&request, &run), (int)RoboOk);
@@ -373,7 +373,7 @@ static void TestAnalysisEmptyRefusalsDeterminism(void)
         RoboTextShapeOptions broken;
 
         RoboTextShapeOptionsInit(&broken);
-        broken.featureCount = RoboTextMaxFeatures + 1u;
+        broken.features.count = RoboTextMaxFeatures + 1u;
         RoboCheckEqInt((int)RoboTextAnalysisCreate(ViewOf("A"), selector, &broken, &analysis, NULL),
                        (int)RoboInvalidArgument);
     }

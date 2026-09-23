@@ -512,14 +512,120 @@ Result RoboTextFontStyleWrite(const RoboTextFontStyle *style,
                               size_t *outLength);
 
 /* ------------------------------------------------------------------ */
-/* Shape options                                                       */
+/* Feature settings                                                    */
 /* ------------------------------------------------------------------ */
 
 /** Bytes a feature tag holds, NUL included. OpenType tags are four ASCII bytes. */
 #define RoboTextFeatureTagBytes 5u
 
-/** Features a shape request can carry. Reserved: nothing reads them yet. */
+/** Features one settings set (and therefore one shape request) can carry. */
 #define RoboTextMaxFeatures 16u
+
+/**
+ * What a caller asked of one feature.
+ *
+ * Three states rather than a boolean, because "the caller said nothing" and "the caller turned it off"
+ * are different requests: a feature the caller does not name takes the script's default (which is on for
+ * `ccmp`, `liga` and `calt` and off for `dlig`, `ss01` and friends), and a feature the caller turns **off**
+ * overrides a default that would otherwise have run it. A two-state model cannot express the second, and
+ * the difference is exactly what a `font-feature-settings: "liga" 0` is for.
+ */
+typedef enum RoboTextFeatureState {
+    /** The caller said nothing: the script's own default decides. */
+    RoboTextFeatureDefault = 0,
+    /** Run it, whether or not the script would have. */
+    RoboTextFeatureOn = 1,
+    /** Do not run it, even though the script's defaults would have. */
+    RoboTextFeatureOff = 2
+} RoboTextFeatureState;
+
+/** Number of defined states. */
+#define RoboTextFeatureStateCount 3u
+
+/** Non-zero if @p state is a defined enumerator. */
+int RoboTextFeatureStateIsKnown(RoboTextFeatureState state);
+
+/** Lower-case name (`"default"`, `"on"`, `"off"`); never NULL. */
+const char *RoboTextFeatureStateName(RoboTextFeatureState state);
+
+/**
+ * One feature and what was asked of it.
+ *
+ * `value` is the feature's *parameter*, and it is used by the one feature family that has one in this
+ * build: an alternate-substitution feature (`aalt`, `salt`, `ss01`…) selects the `value`-th alternate, and
+ * zero means "the first", which is the deterministic default the phase requires. It is not a switch
+ * count: a caller that wants a different alternate writes `value = 2`, and a caller that wants the feature
+ * off writes `state = Off`.
+ */
+typedef struct RoboTextFeatureSetting {
+    /** The OpenType tag, four ASCII bytes and a terminator. */
+    char tag[RoboTextFeatureTagBytes];
+    /** What was asked of it. */
+    RoboTextFeatureState state;
+    /** The feature's parameter (the alternate index, for the alternate features). */
+    uint32_t value;
+} RoboTextFeatureSetting;
+
+/**
+ * A caller's feature settings — at most @ref RoboTextMaxFeatures of them.
+ *
+ * A fixed-capacity value rather than a list, for the same reason `RoboTextFontStyle` is one: it is copied
+ * into every run (~200 bytes), and a run that owned a pointer would need a lifetime rule. The cap is
+ * generous for real use — a CSS rule that names more than sixteen features is not a stylesheet anyone
+ * writes — and `RoboTextFeatureSetSet` refuses the seventeenth rather than silently dropping it.
+ */
+typedef struct RoboTextFeatureSet {
+    RoboTextFeatureSetting settings[RoboTextMaxFeatures];
+    /** Settings held. Always @<= @ref RoboTextMaxFeatures for a set this module produced. */
+    size_t count;
+} RoboTextFeatureSet;
+
+/** Clear @p set to "the caller said nothing". Safe on NULL. */
+void RoboTextFeatureSetInit(RoboTextFeatureSet *set);
+
+/** Non-zero when @p set is a set this build can act on. Safe on NULL. */
+int RoboTextFeatureSetIsValid(const RoboTextFeatureSet *set);
+
+/**
+ * Add or replace the setting for @p tag.
+ *
+ * Replacing rather than appending is what makes the *last* word the caller's: a caller that enables `liga`
+ * and then disables it holds one setting, and the resolution below reads one answer.
+ *
+ * @return RoboOk; RoboInvalidArgument for a NULL argument, a tag that is not exactly four ASCII bytes, or
+ *         an undefined state; RoboNotSupported when @p set is full of *other* tags.
+ */
+Result RoboTextFeatureSetSet(RoboTextFeatureSet *set,
+                             const char *tag,
+                             RoboTextFeatureState state,
+                             uint32_t value);
+
+/** Settings held. Zero for NULL. */
+size_t RoboTextFeatureSetCount(const RoboTextFeatureSet *set);
+
+/** Setting @p index, borrowed, or NULL when out of range. */
+const RoboTextFeatureSetting *RoboTextFeatureSetAt(const RoboTextFeatureSet *set, size_t index);
+
+/**
+ * The setting for @p tag, borrowed, or NULL when the caller named it.
+ *
+ * The lookup the engine makes once per feature, and the reason a set is a value: a caller comparing two
+ * runs' features asks this question rather than walking an array in its own order.
+ */
+const RoboTextFeatureSetting *RoboTextFeatureSetFind(const RoboTextFeatureSet *set, const char *tag);
+
+/** Field-for-field equality, tag by tag and regardless of insertion order. Safe on NULL (NULL == NULL). */
+int RoboTextFeatureSetEqual(const RoboTextFeatureSet *a, const RoboTextFeatureSet *b);
+
+/** Space-separated `"liga" "kern=1"`-style listing (`"(none)"` for an empty set). */
+Result RoboTextFeatureSetWrite(const RoboTextFeatureSet *set,
+                               char *buffer,
+                               size_t capacity,
+                               size_t *outLength);
+
+/* ------------------------------------------------------------------ */
+/* Shape options                                                       */
+/* ------------------------------------------------------------------ */
 
 /**
  * What a shaping request asks for beyond the text and the font.
@@ -529,11 +635,10 @@ Result RoboTextFontStyleWrite(const RoboTextFontStyle *style,
  * "these scalars are RTL-class" apart from "no strong direction was found in them"; resolving the
  * paragraph level from the text (P2/P3) is the bidi algorithm's, in Phase 12.8.
  *
- * `features` is the OpenType feature list, and it is **present and unread**: the tags are validated and
- * stored so that the field exists in the shape request a later goal extends, and no generator consults
- * them. A `features` array that silently did nothing would be worse than no array — so
- * `RoboTextShapeOptionsInit` leaves the count at zero and a caller that sets one gets it echoed into
- * every run's options, where a test can see it.
+ * `features` is the OpenType feature list, and since Phase 12.10 it is **read**: the substitution engine
+ * resolves these settings against the face's own GSUB ScriptList/LangSys/FeatureList and runs the lookups
+ * of the features that end up on. A caller that names nothing gets the script's defaults, which is what
+ * makes `"office"` ligate without anyone asking and what makes `"liga" off` meaningful.
  */
 typedef struct RoboTextShapeOptions {
     /** The declared paragraph direction. `Unknown` means "nothing declared". */
@@ -542,10 +647,8 @@ typedef struct RoboTextShapeOptions {
     RoboTextScript scriptHint;
     /** A language for the whole text; empty means "none declared". */
     RoboTextLanguage language;
-    /** OpenType feature tags, validated and reserved. */
-    char features[RoboTextMaxFeatures][RoboTextFeatureTagBytes];
-    /** Tags set in @p features. Zero in this build. */
-    size_t featureCount;
+    /** The caller's OpenType feature settings. */
+    RoboTextFeatureSet features;
     /** Reserved; pass 0. */
     uint32_t flags;
 } RoboTextShapeOptions;
@@ -557,12 +660,26 @@ void RoboTextShapeOptionsInit(RoboTextShapeOptions *options);
 int RoboTextShapeOptionsIsValid(const RoboTextShapeOptions *options);
 
 /**
- * Add a feature tag to @p options.
+ * Turn a feature tag **on** in @p options.
  *
- * @return RoboOk; RoboInvalidArgument for a NULL argument, a tag that is not exactly four ASCII bytes,
- *         or options already holding @ref RoboTextMaxFeatures tags.
+ * The door a caller that wants one more feature uses, and the same thing as
+ * `RoboTextFeatureSetSet(&options->features, tag, RoboTextFeatureOn, 0)`.
+ *
+ * @return RoboOk; RoboInvalidArgument for a NULL argument or a tag that is not exactly four ASCII bytes;
+ *         RoboNotSupported when the options already carry @ref RoboTextMaxFeatures *other* tags.
  */
 Result RoboTextShapeOptionsAddFeature(RoboTextShapeOptions *options, const char *tag);
+
+/**
+ * State a feature explicitly in @p options — including **off**, which `…AddFeature` cannot express.
+ *
+ * @param value the feature's parameter: for an alternate-substitution feature, the alternate to select
+ *              (zero-based); ignored by every other feature.
+ */
+Result RoboTextShapeOptionsSetFeature(RoboTextShapeOptions *options,
+                                      const char *tag,
+                                      RoboTextFeatureState state,
+                                      uint32_t value);
 
 #ifdef __cplusplus
 }

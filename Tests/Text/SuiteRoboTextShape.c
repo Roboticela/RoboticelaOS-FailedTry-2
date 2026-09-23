@@ -427,7 +427,7 @@ static void TestShapeDiagnostics(void)
 
     /* A domain vocabulary that is complete, distinct and closed. `None` is the *absence* of a domain, so
      * `IsKnown` says no for it — the same line RoboTypography and RoboPaint draw at the same place. */
-    RoboCheckEqInt((int)RoboTextDomainCount, 7);
+    RoboCheckEqInt((int)RoboTextDomainCount, 8);
     RoboCheck(RoboTextDomainIsKnown(RoboTextDomainBuffer));
     RoboCheck(RoboTextDomainIsKnown(RoboTextDomainRange));
     RoboCheck(RoboTextDomainIsKnown(RoboTextDomainFont));
@@ -436,6 +436,9 @@ static void TestShapeDiagnostics(void)
     /* 12.8's domain: the bidi paragraph is its own object, so it is its own domain. */
     RoboCheck(RoboTextDomainIsKnown(RoboTextDomainBidi));
     RoboCheckStrEq(RoboTextDomainName(RoboTextDomainBidi), "bidi");
+    /* 12.10's domain: substitution is its own stage, so a malformed table names itself. */
+    RoboCheck(RoboTextDomainIsKnown(RoboTextDomainGsub));
+    RoboCheckStrEq(RoboTextDomainName(RoboTextDomainGsub), "gsub");
     RoboCheck(!RoboTextDomainIsKnown(RoboTextDomainNone));
     RoboCheck(!RoboTextDomainIsKnown((RoboTextDiagnosticDomain)RoboTextDomainCount));
     RoboCheck(!RoboTextDomainIsKnown((RoboTextDiagnosticDomain)-1));

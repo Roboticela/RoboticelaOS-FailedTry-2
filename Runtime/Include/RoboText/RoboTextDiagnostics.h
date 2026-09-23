@@ -43,14 +43,16 @@ typedef enum RoboTextDiagnosticDomain {
     /** Glyphs, glyph runs and source mapping. */
     RoboTextDomainGlyph = 5,
     /** A bidi paragraph: its resolution, its levels, or its visual order. */
-    RoboTextDomainBidi = 6
+    RoboTextDomainBidi = 6,
+    /** Glyph substitution: a plan, a lookup, a subtable, or a limit. */
+    RoboTextDomainGsub = 7
 } RoboTextDiagnosticDomain;
 
 /**
- * One past the last real domain. @ref RoboTextDomainNone is **not** one of them, so the count is the six
+ * One past the last real domain. @ref RoboTextDomainNone is **not** one of them, so the count is the seven
  * real domains plus the sentinel; `text.conformance.*` asserts the two facts together.
  */
-#define RoboTextDomainCount 7u
+#define RoboTextDomainCount 8u
 
 /** Non-zero if @p domain names an object. False for @ref RoboTextDomainNone, which is the *absence* of a
  *  domain rather than one of them. */

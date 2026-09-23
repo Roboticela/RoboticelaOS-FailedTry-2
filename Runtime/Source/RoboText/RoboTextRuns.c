@@ -56,6 +56,7 @@ struct RoboTextRunSet {
     RoboTextBidiParagraph *paragraph;
     RoboTextScript scriptHint;
     RoboTextLanguage language;
+    RoboTextFeatureSet features;
     /** The setting every text run carries. Copied, so the set keeps nothing borrowed but the text. */
     RoboTextFontContext font;
 };
@@ -128,6 +129,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
     }
     set->scriptHint = options->scriptHint;
     set->language = options->language;
+    set->features = options->features;
 
     status = RoboTextUnicodeDecodeAll(view, &scalars, &count, diag);
     if (status != RoboOk) {
@@ -263,6 +265,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
             set->textRuns[set->textRunCount].baseDirection = set->baseDirection;
             set->textRuns[set->textRunCount].font = set->font;
             set->textRuns[set->textRunCount].language = set->language;
+            set->textRuns[set->textRunCount].features = set->features;
             set->textRunCount++;
             index = end;
         }

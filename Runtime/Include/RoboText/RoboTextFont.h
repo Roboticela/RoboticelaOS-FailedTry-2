@@ -35,6 +35,7 @@
 #include "RoboFont/RoboFontCmap.h"
 #include "RoboFont/RoboFontFace.h"
 #include "RoboFont/RoboFontMetrics.h"
+#include "RoboFont/RoboFontOt.h"
 #include "RoboFont/RoboFontTypes.h"
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextTypes.h"
@@ -215,6 +216,34 @@ Result RoboTextFontGlyphMetrics(const RoboTextFontContext *context,
                                 FontGlyphMetrics *outMetrics,
                                 float *outAdvancePx,
                                 RoboTextDiag *diag);
+
+/**
+ * The face's GSUB table, parsed once (Phase 12.10).
+ *
+ * The font owns the table and this door borrows it: the parse is Phase 5's (`FontGsubParse`, reached
+ * through `FontFaceParseOtLayout`), it is cached on the face, and it is immutable afterwards — which is
+ * what lets a shaping call read it without owning anything and what makes concurrent runs safe
+ * (Phase 12.10 §"thread safety"). RoboText does **not** parse a second copy and must not start: the
+ * subtable readers in `RoboTextGsub*.c` interpret offsets *within* this table's own bytes, which is a
+ * different job from finding the table in the container.
+ *
+ * @param out receives the table, or NULL when the face carries none.
+ * @return RoboOk (including the "no GSUB" answer, which is not an error — most text never needs one);
+ *         RoboInvalidArgument for a NULL argument; RoboNotSupported when no face is bound; RoboError when
+ *         the container will not parse.
+ */
+Result RoboTextFontGsub(const RoboTextFontContext *context,
+                        const FontOtLayout **out,
+                        RoboTextDiag *diag);
+
+/**
+ * The face's GDEF table, parsed once, or NULL when it carries none (Phase 12.10).
+ *
+ * The lookup-flag machinery needs exactly two things from it: the glyph class definition (so `IgnoreMarks`, `IgnoreBaseGlyphs` and `IgnoreLigatures` can tell a mark from a base) and the mark attachment
+ * class definition (so a lookup that filters by `markAttachmentType` can). A face without GDEF still
+ * shapes; it simply has no classes to filter by.
+ */
+Result RoboTextFontGdef(const RoboTextFontContext *context, const FontGdef **out, RoboTextDiag *diag);
 
 #ifdef __cplusplus
 }

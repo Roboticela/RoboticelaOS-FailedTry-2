@@ -124,11 +124,7 @@ Result RoboTextShapeRequestFromRun(const RoboTextAnalysisRun *run,
         out->language = *language;
     }
     if (options) {
-        out->featureCount = options->featureCount;
-        if (options->featureCount != 0u) {
-            memcpy(out->features, options->features,
-                   options->featureCount * (size_t)RoboTextFeatureTagBytes);
-        }
+        out->features = options->features;
     }
     return RoboOk;
 }
@@ -146,6 +142,7 @@ Result RoboTextShapeRequestToRun(const RoboTextShapeRequest *request, RoboTextRu
     out->baseDirection = request->baseDirection;
     out->font = request->font;
     out->language = request->language;
+    out->features = request->features;
     return RoboOk;
 }
 

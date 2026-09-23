@@ -41,6 +41,10 @@ typedef struct FontEmojiInfo FontEmojiInfo;
 typedef struct FontVariationModel FontVariationModel;
 typedef struct FontColorInfo FontColorInfo;
 typedef struct FontOutlineRequest FontOutlineRequest;
+/* Declared in `RoboFontOt.h`; repeated here (legal in C11) so this header need not pull in the OpenType
+ * layout vocabulary to name the two tables a face caches. */
+typedef struct FontOtLayout FontOtLayout;
+typedef struct FontGdef FontGdef;
 
 Result FontFaceCreate(FontSource *source,
                                     uint32_t faceIndex,
@@ -77,6 +81,25 @@ const FontCoverage *FontFaceCoverage(const FontFace *face);
 /** Ensure SFNT container is parsed (shared by metrics/emoji/…). */
 Result FontFaceParseSfnt(FontFace *face);
 const FontSfnt *FontFaceSfnt(const FontFace *face);
+
+/**
+ * Lazy OpenType layout parse — GSUB and GDEF, cached on the face (Goal 5.4 door, Phase 12.10).
+ *
+ * Idempotent and immutable once built, like every other lazy parse here: the *parsed* layout tables are
+ * shared by every shaping call, which is what keeps a text run from re-parsing a font's GSUB table, and
+ * what makes a lookup application read-only. A face with no GSUB (or no GDEF) parses to NULL for that
+ * table rather than failing: a font without substitution is a font, not an error.
+ *
+ * @return RoboOk; RoboBusy when another thread is building it; RoboNotFound when the container carries no
+ *         GSUB/GPOS tables at all (a `glyf`-only face with no layout); the parse error otherwise.
+ */
+Result FontFaceParseOtLayout(FontFace *face);
+
+/** The cached GSUB layout, or NULL when the face has none or it has not been parsed. */
+const FontOtLayout *FontFaceGsub(const FontFace *face);
+
+/** The cached GDEF, or NULL when the face has none or it has not been parsed. */
+const FontGdef *FontFaceGdef(const FontFace *face);
 
 /** Lazy emoji capability analysis (Goal 5.17). Idempotent; immutable after build. */
 Result FontFaceParseEmoji(FontFace *face);

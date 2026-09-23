@@ -407,3 +407,51 @@ Result RoboTextFontGlyphAdvance(const RoboTextFontContext *context,
     }
     return RoboOk;
 }
+
+Result RoboTextFontGsub(const RoboTextFontContext *context,
+                        const FontOtLayout **out,
+                        RoboTextDiag *diag)
+{
+    Result status;
+
+    if (!context || !out) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboInvalidArgument,
+                               "a font context and an out table are required");
+    }
+    *out = NULL;
+    if (!context->face) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboNotSupported,
+                               "no face is bound to the font context");
+    }
+    status = FontFaceParseOtLayout(context->face);
+    if (status != RoboOk) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, status,
+                               "the face's OpenType layout tables could not be parsed");
+    }
+    /* A face with no GSUB is a face without substitution, which is not an error: the caller gets NULL and
+     * shapes with the glyphs the cmap gave it. */
+    *out = FontFaceGsub(context->face);
+    return RoboOk;
+}
+
+Result RoboTextFontGdef(const RoboTextFontContext *context, const FontGdef **out, RoboTextDiag *diag)
+{
+    Result status;
+
+    if (!context || !out) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboInvalidArgument,
+                               "a font context and an out table are required");
+    }
+    *out = NULL;
+    if (!context->face) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboNotSupported,
+                               "no face is bound to the font context");
+    }
+    status = FontFaceParseOtLayout(context->face);
+    if (status != RoboOk) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, status,
+                               "the face's OpenType layout tables could not be parsed");
+    }
+    *out = FontFaceGdef(context->face);
+    return RoboOk;
+}

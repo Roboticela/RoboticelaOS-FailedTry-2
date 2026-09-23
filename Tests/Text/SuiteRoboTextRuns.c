@@ -348,16 +348,33 @@ static void TestRunsHintAndLanguage(void)
         RoboCheckStrEq(RoboTextLanguageTag(NULL), "");
     }
 
-    /* Features are validated and stored, and nothing reads them: the field exists so 12.10's shaper does
-     * not have to add one. */
+    /*
+     * Features are validated, stored, and — since 12.10 — read: the shape options carry a setting set, the
+     * run echoes it, and the substitution engine resolves it against the face's own GSUB. The set's own
+     * behaviour is what this case pins: a tag is four printable bytes, the last word wins, and the cap
+     * refuses the seventeenth tag rather than dropping it.
+     */
     RoboTextShapeOptionsInit(&options);
     RoboCheckEqInt((int)RoboTextShapeOptionsAddFeature(&options, "liga"), (int)RoboOk);
     RoboCheckEqInt((int)RoboTextShapeOptionsAddFeature(&options, "kern"), (int)RoboOk);
-    RoboCheckEqInt((int)options.featureCount, 2);
-    RoboCheckStrEq(options.features[1], "kern");
+    RoboCheckEqInt((int)options.features.count, 2);
+    RoboCheckStrEq(RoboTextFeatureSetAt(&options.features, 1u)->tag, "kern");
+    RoboCheckEqInt((int)RoboTextFeatureSetAt(&options.features, 1u)->state, (int)RoboTextFeatureOn);
+    RoboCheck(RoboTextFeatureSetAt(&options.features, 9u) == NULL); /* Out of range: NULL. */
     RoboCheckEqInt((int)RoboTextShapeOptionsAddFeature(&options, "li"), (int)RoboInvalidArgument);
     RoboCheckEqInt((int)RoboTextShapeOptionsAddFeature(&options, "ligas"), (int)RoboInvalidArgument);
     RoboCheckEqInt((int)RoboTextShapeOptionsAddFeature(NULL, "liga"), (int)RoboInvalidArgument);
+    /* Off is expressible, and the second setting for a tag replaces the first. */
+    RoboCheckEqInt((int)RoboTextShapeOptionsSetFeature(&options, "liga", RoboTextFeatureOff, 0u),
+                   (int)RoboOk);
+    RoboCheckEqInt((int)options.features.count, 2);
+    RoboCheckEqInt((int)RoboTextFeatureSetFind(&options.features, "liga")->state,
+                   (int)RoboTextFeatureOff);
+    RoboCheckEqInt((int)RoboTextShapeOptionsSetFeature(&options, "salt", (RoboTextFeatureState)9, 0u),
+                   (int)RoboInvalidArgument);
+    RoboCheckEqInt((int)RoboTextShapeOptionsSetFeature(&options, "salt", RoboTextFeatureOn, 2u),
+                   (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextFeatureSetFind(&options.features, "salt")->value, 2);
     RoboCheck(RoboTextShapeOptionsIsValid(&options));
     RoboCheck(!RoboTextShapeOptionsIsValid(NULL));
     {
@@ -366,7 +383,7 @@ static void TestRunsHintAndLanguage(void)
         RoboTextShapeOptions broken;
 
         RoboTextShapeOptionsInit(&broken);
-        broken.featureCount = RoboTextMaxFeatures + 1u;
+        broken.features.count = RoboTextMaxFeatures + 1u;
         RoboCheck(!RoboTextShapeOptionsIsValid(&broken));
         {
             RoboTextRunSet *none = NULL;

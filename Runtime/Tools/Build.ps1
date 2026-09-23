@@ -196,6 +196,12 @@ $ProdSrcs = @(
     # window onto Phase 4's UBA: the paragraph base (P2/P3, with P3's level-0 default), the levels, the
     # §5.2 retention of X9-removed scalars, the logical runs, L2's visual order and the L4 mirroring gate.
     (Join-Path $SourceDir "RoboText\RoboTextBidi.c"),
+    # Phase 12.10 -- glyph substitution. `RoboTextGsub.c` is the engine (the feature plan the font resolves
+    # for a script/language, and the one pass that applies its lookups in the Lookup List's order) and
+    # `RoboTextGsubSubst.c` is the readers, one per GSUB lookup type. The table itself is Phase 5's, reached
+    # through `RoboTextFontGsub`, so this module interprets offsets and never parses a container.
+    (Join-Path $SourceDir "RoboText\RoboTextGsub.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextGsubSubst.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -487,6 +493,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextScript.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextDirection.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextBidi.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextGsub.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

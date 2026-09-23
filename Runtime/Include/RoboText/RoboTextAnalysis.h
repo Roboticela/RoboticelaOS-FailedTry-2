@@ -125,10 +125,14 @@ typedef struct RoboTextShapeRequest {
     RoboTextDirection baseDirection;
     /** The declared language, carried and not interpreted. */
     RoboTextLanguage language;
-    /** OpenType feature tags, validated and reserved. */
-    char features[RoboTextMaxFeatures][RoboTextFeatureTagBytes];
-    /** Tags set in @p features. Zero in this build. */
-    size_t featureCount;
+    /**
+     * The caller's OpenType feature settings (Phase 12.10).
+     *
+     * A shaper reads the *features*, not only the script, because the same tag means different lookups in
+     * different fonts and only the font knows which: the set below is what the caller asked for, and the
+     * resolution against the face's own ScriptList/FeatureList happens one layer down.
+     */
+    RoboTextFeatureSet features;
 } RoboTextShapeRequest;
 
 /** Clear @p request to "nothing asked": no text, no font, no features. Safe on NULL. */

@@ -32,6 +32,7 @@
 
 #include "RoboMem/RoboMem.h"
 #include "RoboText/RoboTextBidi.h"
+#include "RoboText/RoboTextGsub.h"
 #include "RoboTextInternal.h"
 #include "RoboUnicode/RoboUnicode.h"
 
@@ -54,6 +55,8 @@ struct RoboTextGlyphRun {
     size_t mirrored;
     /** Glyphs that stand for a bidi formatting control: no id, no advance, nothing drawn. */
     size_t controls;
+    /** Glyphs whose id a GSUB lookup produced rather than the `cmap` (Phase 12.10). */
+    size_t substituted;
     /** Accumulated in `double` from the glyphs' own `float` advances, so a long run's total is the sum of
      *  what the painter accumulates rather than a second rounding of it. */
     double advanceTotal;
@@ -65,7 +68,8 @@ struct RoboTextGlyphRun {
 
 int RoboTextGlyphGenerationModeIsKnown(RoboTextGlyphGenerationMode mode)
 {
-    return mode == RoboTextGlyphGenerationNone || mode == RoboTextGlyphGenerationCmapPerScalar;
+    return mode == RoboTextGlyphGenerationNone || mode == RoboTextGlyphGenerationCmapPerScalar ||
+           mode == RoboTextGlyphGenerationGsub;
 }
 
 const char *RoboTextGlyphGenerationModeName(RoboTextGlyphGenerationMode mode)
@@ -73,6 +77,8 @@ const char *RoboTextGlyphGenerationModeName(RoboTextGlyphGenerationMode mode)
     switch (mode) {
         case RoboTextGlyphGenerationCmapPerScalar:
             return "cmap-per-scalar";
+        case RoboTextGlyphGenerationGsub:
+            return "cmap+gsub";
         case RoboTextGlyphGenerationNone:
         default:
             return "none";
@@ -124,7 +130,178 @@ int RoboTextGlyphEqual(const RoboTextGlyph *a, const RoboTextGlyph *b)
            a->advanceX == b->advanceX && a->advanceY == b->advanceY && a->offsetX == b->offsetX &&
            a->offsetY == b->offsetY && a->mapped == b->mapped &&
            a->control == b->control && a->mirrored == b->mirrored &&
-           a->metricsStatus == b->metricsStatus;
+           a->substituted == b->substituted && a->metricsStatus == b->metricsStatus;
+}
+
+/* ------------------------------------------------------------------ */
+/* Substitution (Phase 12.10)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The glyph run as a shaping buffer: one entry per glyph slot, in source order.
+ *
+ * A control is carried and flagged rather than dropped, because its slot is what keeps every later glyph's
+ * index agreeing with its scalar; `RoboTextGsubSkipped` is where the flag does its work.
+ */
+static Result GsubBufferFromRun(const RoboTextGlyphRun *glyphRun,
+                                RoboTextGsubBuffer **out,
+                                RoboTextDiag *diag)
+{
+    RoboTextGsubBuffer *buffer = RoboTextGsubBufferCreate(glyphRun->count);
+
+    if (!buffer) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
+                               "the shaping buffer could not be allocated");
+    }
+    for (size_t index = 0u; index < glyphRun->count; index++) {
+        const RoboTextGlyph *glyph = &glyphRun->glyphs[index];
+        RoboTextShapingGlyph shaping;
+
+        RoboTextShapingGlyphInit(&shaping);
+        shaping.glyphId = glyph->glyphId;
+        shaping.source = glyph->source;
+        shaping.cluster = glyph->cluster;
+        shaping.bidiLevel = glyphRun->bidiLevel;
+        if (glyph->control) {
+            shaping.flags |= RoboTextShapingGlyphControl;
+        }
+        if (glyph->mirrored) {
+            shaping.flags |= RoboTextShapingGlyphMirrored;
+        }
+        if (RoboTextGsubBufferAppend(buffer, &shaping) != RoboOk) {
+            RoboTextGsubBufferDestroy(buffer);
+            return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
+                                   "the shaping buffer could not grow");
+        }
+    }
+    *out = buffer;
+    return RoboOk;
+}
+
+/**
+ * Rebuild @p glyphRun from @p buffer, after a substitution changed the glyph count.
+ *
+ * Every glyph's advance is asked of the face **for its own id**, which is the one number substitution
+ * changes that a reader would notice: a ligature's advance is not the sum of its components'.
+ */
+static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
+                                const RoboTextGsubBuffer *buffer,
+                                const RoboTextRun *run,
+                                RoboTextDiag *diag)
+{
+    size_t produced = RoboTextGsubBufferCount(buffer);
+    RoboTextGlyph *rebuilt =
+        (RoboTextGlyph *)RoboCalloc(produced != 0u ? produced : 1u, sizeof(*rebuilt));
+
+    if (!rebuilt) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
+                               "the rebuilt glyph array could not be allocated");
+    }
+    glyphRun->missing = 0u;
+    glyphRun->mirrored = 0u;
+    glyphRun->controls = 0u;
+    glyphRun->substituted = 0u;
+    glyphRun->advanceTotal = 0.0;
+
+    for (size_t index = 0u; index < produced; index++) {
+        const RoboTextShapingGlyph *shaping = RoboTextGsubBufferAt(buffer, index);
+        RoboTextGlyph *glyph = &rebuilt[index];
+        FontGlyphMetrics metrics;
+        float advance = 0.0f;
+        Result status;
+        int mapped;
+
+        RoboTextGlyphInit(glyph);
+        glyph->glyphId = shaping->glyphId;
+        glyph->source = shaping->source;
+        glyph->cluster = shaping->cluster;
+        if ((shaping->flags & RoboTextShapingGlyphControl) != 0u) {
+            /* A control keeps its slot and stays empty; it is not a `.notdef` and is not counted as one. */
+            glyph->control = 1;
+            glyphRun->controls++;
+            continue;
+        }
+        glyph->mirrored = (shaping->flags & RoboTextShapingGlyphMirrored) != 0u ? 1 : 0;
+        if (glyph->mirrored) {
+            glyphRun->mirrored++;
+        }
+        if ((shaping->flags & RoboTextShapingGlyphSubstituted) != 0u) {
+            glyph->substituted = 1;
+            glyphRun->substituted++;
+        }
+        mapped = (shaping->glyphId != RoboGlyphIdNone) ? 1 : 0;
+        glyph->mapped = mapped;
+
+        status = RoboTextFontGlyphMetrics(&run->font, glyph->glyphId, &metrics, &advance, diag);
+        if (status != RoboOk) {
+            RoboFree(rebuilt);
+            return status;
+        }
+        glyph->metricsStatus = metrics.status;
+        if (metrics.status == RoboFontGlyphMetricsOk) {
+            glyph->advanceUnits = metrics.advanceWidth;
+        }
+        glyph->advanceX = advance;
+        if (!mapped || metrics.status != RoboFontGlyphMetricsOk) {
+            glyphRun->missing++;
+        }
+        glyphRun->advanceTotal += (double)glyph->advanceX;
+    }
+
+    RoboFree(glyphRun->glyphs);
+    glyphRun->glyphs = rebuilt;
+    glyphRun->count = produced;
+    return RoboOk;
+}
+
+/**
+ * Apply the face's GSUB to @p glyphRun, in place.
+ *
+ * The three answers that are not a substitution: a face with no GSUB, a face whose GSUB has no record for
+ * this run's script, and an empty run — each leaves the cmap pass's result alone, and the mode stays
+ * @ref RoboTextGlyphGenerationCmapPerScalar, which is a fact about the font rather than about the text.
+ */
+static Result GsubShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboTextDiag *diag)
+{
+    const FontOtLayout *gsub = NULL;
+    const FontGdef *gdef = NULL;
+    RoboTextGsubPlan plan;
+    RoboTextGsubOptions options;
+    RoboTextGsubStats stats;
+    RoboTextGsubBuffer *buffer = NULL;
+    Result status;
+
+    status = RoboTextFontGsub(&run->font, &gsub, diag);
+    if (status != RoboOk || !gsub) {
+        return status;
+    }
+    status = RoboTextFontGdef(&run->font, &gdef, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    status = RoboTextGsubPlanResolve(gsub, run->script, &run->language, &run->features, &plan, diag);
+    if (status != RoboOk || plan.empty || glyphRun->count == 0u) {
+        return status;
+    }
+    status = GsubBufferFromRun(glyphRun, &buffer, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    memset(&options, 0, sizeof(options));
+    options.direction = run->direction;
+    options.bidiLevel = glyphRun->bidiLevel;
+    status = RoboTextGsubApply(gsub, gdef, &plan, &options, buffer, &stats, diag);
+    if (status == RoboOk) {
+        status = GsubRunFromBuffer(glyphRun, buffer, run, diag);
+    }
+    RoboTextGsubBufferDestroy(buffer);
+    if (status != RoboOk) {
+        return status;
+    }
+    /* A plan resolved and ran, whatever it did: that is what `Gsub` records, and it is why a run of text a
+     * font substitutes nothing in still reports the mode honestly. */
+    glyphRun->mode = RoboTextGlyphGenerationGsub;
+    return RoboOk;
 }
 
 /* ------------------------------------------------------------------ */
@@ -303,6 +480,11 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
     }
 
     glyphRun->count = (size_t)length;
+    status = GsubShapeRun(run, glyphRun, diag);
+    if (status != RoboOk) {
+        RoboTextGlyphRunDestroy(glyphRun);
+        return status;
+    }
     *out = glyphRun;
     return RoboOk;
 }
@@ -347,6 +529,11 @@ RoboTextBidiLevel RoboTextGlyphRunBidiLevel(const RoboTextGlyphRun *run)
 size_t RoboTextGlyphRunMirrored(const RoboTextGlyphRun *run)
 {
     return run ? run->mirrored : 0u;
+}
+
+size_t RoboTextGlyphRunSubstituted(const RoboTextGlyphRun *run)
+{
+    return run ? run->substituted : 0u;
 }
 
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run)

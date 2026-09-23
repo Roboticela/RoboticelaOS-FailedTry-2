@@ -49,10 +49,14 @@ static void TestGlyphGenerate(void)
     RoboCheckEqInt((int)RoboTextGlyphRunCount(run), 18);
     RoboCheckEqInt((int)RoboTextGlyphRunScalarCount(run), 18);
     RoboCheckEqInt((int)RoboTextGlyphRunMissingGlyphs(run), 0);
-    RoboCheckEqInt((int)RoboTextGlyphRunGenerationMode(run),
-                   (int)RoboTextGlyphGenerationCmapPerScalar);
-    RoboCheckStrEq(RoboTextGlyphGenerationModeName(RoboTextGlyphRunGenerationMode(run)),
-                   "cmap-per-scalar");
+    /*
+     * Since 12.10 the mode is `Gsub`: the shipped pack's Inter carries a GSUB table with a record for Latin,
+     * so a Latin run's ids are the cmap's result *and* whatever the face's own lookups did to it. That the
+     * glyph count below is still the scalar count is the other half of the claim: nothing here invented a
+     * glyph, so this face's lookups had nothing to join in "Hello, world!".
+     */
+    RoboCheckEqInt((int)RoboTextGlyphRunGenerationMode(run), (int)RoboTextGlyphGenerationGsub);
+    RoboCheckStrEq(RoboTextGlyphGenerationModeName(RoboTextGlyphRunGenerationMode(run)), "cmap+gsub");
     RoboCheckEqInt((int)RoboTextGlyphRunScript(run), (int)RoboUScriptLatin);
     RoboCheckEqInt((int)RoboTextGlyphRunDirection(run), (int)RoboTextDirectionLtr);
     RoboCheckEqInt((int)RoboTextGlyphRunBaseDirection(run), (int)RoboTextDirectionLtr);

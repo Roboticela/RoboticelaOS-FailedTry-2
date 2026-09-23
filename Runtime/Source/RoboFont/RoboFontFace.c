@@ -40,6 +40,11 @@ struct FontFace {
     FontOutlineCache *outlineCache;
     FontNameInfo *nameInfo;
     FontClassificationInfo *classification;
+    /* OpenType layout (Goal 5.4 door, cached for Phase 12.10). One parse serves both tables: GSUB and GDEF
+     * come from the same `FontOt` and a face that has one usually has the other. */
+    FontOt *ot;
+    int otBuilding; /* concurrent lazy-init: RoboBusy while set */
+    int otAbsent;   /* 1 if the parse found neither GSUB nor GDEF */
 };
 
 static uint64_t gNextFaceId = 1u;
@@ -139,6 +144,10 @@ void FontFaceRelease(FontFace *face)
     if (face->cff) {
         FontCffRelease(face->cff);
         face->cff = NULL;
+    }
+    if (face->ot) {
+        FontOtRelease(face->ot);
+        face->ot = NULL;
     }
     if (face->coverage) {
         FontCoverageRelease(face->coverage);
@@ -409,6 +418,53 @@ Result FontFaceParseSfnt(FontFace *face)
         return RoboInvalidArgument;
     }
     return FaceEnsureSfnt(face);
+}
+
+Result FontFaceParseOtLayout(FontFace *face)
+{
+    FontOt *ot = NULL;
+    Result res;
+
+    if (!face) {
+        return RoboInvalidArgument;
+    }
+    if (face->ot || face->otAbsent) {
+        return RoboOk;
+    }
+    if (face->otBuilding) {
+        return RoboBusy;
+    }
+    face->otBuilding = 1;
+    res = FaceEnsureSfnt(face);
+    if (res != RoboOk) {
+        face->otBuilding = 0;
+        return res;
+    }
+    res = FontOtParse(face->sfnt, RoboFontOtFlagsParseLayout, &ot);
+    if (res != RoboOk) {
+        face->otBuilding = 0;
+        return res;
+    }
+    if (!FontOtGsub(ot) && !FontOtGdef(ot)) {
+        /* No layout tables: "absent" rather than an empty parse, so a caller's second call does not
+         * re-walk a table directory that has nothing in it. */
+        FontOtRelease(ot);
+        face->otAbsent = 1;
+    } else {
+        face->ot = ot;
+    }
+    face->otBuilding = 0;
+    return RoboOk;
+}
+
+const FontOtLayout *FontFaceGsub(const FontFace *face)
+{
+    return (face && face->ot) ? FontOtGsub(face->ot) : NULL;
+}
+
+const FontGdef *FontFaceGdef(const FontFace *face)
+{
+    return (face && face->ot) ? FontOtGdef(face->ot) : NULL;
 }
 
 const FontSfnt *FontFaceSfnt(const FontFace *face)

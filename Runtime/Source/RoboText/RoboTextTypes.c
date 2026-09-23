@@ -604,7 +604,7 @@ void RoboTextShapeOptionsInit(RoboTextShapeOptions *options)
     options->baseDirection = RoboTextDirectionUnknown;
     options->scriptHint = RoboTextScriptCommon;
     RoboTextLanguageInit(&options->language);
-    options->featureCount = 0u;
+    RoboTextFeatureSetInit(&options->features);
     options->flags = 0u;
 }
 
@@ -616,13 +616,21 @@ int RoboTextShapeOptionsIsValid(const RoboTextShapeOptions *options)
     if (!RoboTextDirectionIsKnown(options->baseDirection)) {
         return 0;
     }
-    if (options->featureCount > (size_t)RoboTextMaxFeatures) {
+    return RoboTextFeatureSetIsValid(&options->features);
+}
+
+/** Non-zero when @p tag is four printable ASCII bytes, which is what an OpenType tag is. */
+static int FeatureTagIsValid(const char *tag)
+{
+    if (!tag || strlen(tag) != 4u) {
+        /* An OpenType feature tag is exactly four bytes. A three- or five-character tag would be stored
+         * and then looked up by nothing, which is the failure this refusal exists to prevent. */
         return 0;
     }
-    for (size_t index = 0u; index < options->featureCount; index++) {
-        /* A stored feature is four printable bytes, because every one of them was validated on the way
-         * in: a count within range over a malformed tag would mean somebody wrote the array directly. */
-        if (strlen(options->features[index]) != 4u) {
+    for (size_t index = 0u; index < 4u; index++) {
+        char c = tag[index];
+
+        if ((unsigned char)c < 0x20u || (unsigned char)c > 0x7Eu) {
             return 0;
         }
     }
@@ -631,26 +639,210 @@ int RoboTextShapeOptionsIsValid(const RoboTextShapeOptions *options)
 
 Result RoboTextShapeOptionsAddFeature(RoboTextShapeOptions *options, const char *tag)
 {
-    if (!options || !tag) {
+    if (!options) {
         return RoboInvalidArgument;
     }
-    if (strlen(tag) != 4u) {
-        /* An OpenType feature tag is exactly four bytes. A three- or five-character tag would be
-         * stored and then looked up by nothing, which is the failure this refusal exists to prevent. */
-        return RoboInvalidArgument;
-    }
-    if (options->featureCount >= (size_t)RoboTextMaxFeatures) {
-        return RoboInvalidArgument;
-    }
-    for (size_t index = 0u; index < 4u; index++) {
-        char c = tag[index];
+    return RoboTextFeatureSetSet(&options->features, tag, RoboTextFeatureOn, 0u);
+}
 
-        if ((unsigned char)c < 0x20u || (unsigned char)c > 0x7Eu) {
-            return RoboInvalidArgument;
+Result RoboTextShapeOptionsSetFeature(RoboTextShapeOptions *options,
+                                      const char *tag,
+                                      RoboTextFeatureState state,
+                                      uint32_t value)
+{
+    if (!options) {
+        return RoboInvalidArgument;
+    }
+    return RoboTextFeatureSetSet(&options->features, tag, state, value);
+}
+
+void RoboTextFeatureSetInit(RoboTextFeatureSet *set)
+{
+    if (!set) {
+        return;
+    }
+    memset(set, 0, sizeof(*set));
+}
+
+int RoboTextFeatureSetIsValid(const RoboTextFeatureSet *set)
+{
+    if (!set) {
+        return 0;
+    }
+    if (set->count > (size_t)RoboTextMaxFeatures) {
+        return 0;
+    }
+    for (size_t index = 0u; index < set->count; index++) {
+        /* Every stored tag was validated on the way in, so a count within range over a malformed tag
+         * means somebody wrote the array directly — which is the one thing this check is for. */
+        if (!FeatureTagIsValid(set->settings[index].tag)) {
+            return 0;
+        }
+        if (!RoboTextFeatureStateIsKnown(set->settings[index].state)) {
+            return 0;
         }
     }
-    memset(options->features[options->featureCount], 0, RoboTextFeatureTagBytes);
-    memcpy(options->features[options->featureCount], tag, 4u);
-    options->featureCount++;
+    return 1;
+}
+
+Result RoboTextFeatureSetSet(RoboTextFeatureSet *set,
+                             const char *tag,
+                             RoboTextFeatureState state,
+                             uint32_t value)
+{
+    if (!set || !RoboTextFeatureStateIsKnown(state)) {
+        return RoboInvalidArgument;
+    }
+    if (!FeatureTagIsValid(tag)) {
+        return RoboInvalidArgument;
+    }
+    for (size_t index = 0u; index < set->count; index++) {
+        if (strncmp(set->settings[index].tag, tag, 4u) == 0) {
+            /* The last word wins, in place: a caller that says `liga` on and then off holds one answer. */
+            set->settings[index].state = state;
+            set->settings[index].value = value;
+            return RoboOk;
+        }
+    }
+    if (set->count >= (size_t)RoboTextMaxFeatures) {
+        return RoboNotSupported;
+    }
+    memset(set->settings[set->count].tag, 0, RoboTextFeatureTagBytes);
+    memcpy(set->settings[set->count].tag, tag, 4u);
+    set->settings[set->count].state = state;
+    set->settings[set->count].value = value;
+    set->count++;
+    return RoboOk;
+}
+
+size_t RoboTextFeatureSetCount(const RoboTextFeatureSet *set)
+{
+    return set ? set->count : 0u;
+}
+
+const RoboTextFeatureSetting *RoboTextFeatureSetAt(const RoboTextFeatureSet *set, size_t index)
+{
+    return (set && index < set->count) ? &set->settings[index] : NULL;
+}
+
+const RoboTextFeatureSetting *RoboTextFeatureSetFind(const RoboTextFeatureSet *set, const char *tag)
+{
+    if (!set || !tag) {
+        return NULL;
+    }
+    for (size_t index = 0u; index < set->count; index++) {
+        if (strncmp(set->settings[index].tag, tag, 4u) == 0) {
+            return &set->settings[index];
+        }
+    }
+    return NULL;
+}
+
+int RoboTextFeatureStateIsKnown(RoboTextFeatureState state)
+{
+    return state == RoboTextFeatureDefault || state == RoboTextFeatureOn || state == RoboTextFeatureOff;
+}
+
+const char *RoboTextFeatureStateName(RoboTextFeatureState state)
+{
+    switch (state) {
+        case RoboTextFeatureDefault:
+            return "default";
+        case RoboTextFeatureOn:
+            return "on";
+        case RoboTextFeatureOff:
+            return "off";
+        default:
+            return "unknown";
+    }
+}
+
+int RoboTextFeatureSetEqual(const RoboTextFeatureSet *a, const RoboTextFeatureSet *b)
+{
+    if (a == b) {
+        return 1;
+    }
+    if (!a || !b || a->count != b->count) {
+        return 0;
+    }
+    for (size_t index = 0u; index < a->count; index++) {
+        const RoboTextFeatureSetting *other =
+            RoboTextFeatureSetFind(b, a->settings[index].tag);
+
+        if (!other || other->state != a->settings[index].state ||
+            other->value != a->settings[index].value) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+Result RoboTextFeatureSetWrite(const RoboTextFeatureSet *set,
+                               char *buffer,
+                               size_t capacity,
+                               size_t *outLength)
+{
+    size_t length = 0u;
+
+    if (outLength) {
+        *outLength = 0u;
+    }
+    if (!set || !buffer || capacity == 0u) {
+        return RoboInvalidArgument;
+    }
+    buffer[0] = '\0';
+    for (size_t index = 0u; index < set->count; index++) {
+        const RoboTextFeatureSetting *setting = &set->settings[index];
+        char word[24];
+        size_t wordLength = 0u;
+        int wrote;
+
+        /* `tag`, then its state: nothing for an enabled feature (the plain form a stylesheet writes),
+         * `=0` for one turned off, `=?` for one left to the script's default. A non-zero `value` is the
+         * alternate index and is written as `tag=N`. */
+        memcpy(word, setting->tag, 4u);
+        wordLength = 4u;
+        word[wordLength] = '\0';
+        if (setting->state == RoboTextFeatureOff) {
+            memcpy(word + wordLength, "=0", 3u);
+            wordLength += 2u;
+        } else if (setting->state == RoboTextFeatureDefault) {
+            memcpy(word + wordLength, "=?", 3u);
+            wordLength += 2u;
+        } else if (setting->value != 0u) {
+            word[wordLength++] = '=';
+            wrote = StyleAppendUnsigned(word, sizeof(word), wordLength, setting->value);
+            if (wrote < 0) {
+                return RoboNotSupported;
+            }
+            wordLength = (size_t)wrote;
+        }
+        if (length + wordLength + 1u > capacity) {
+            /* Complete-or-absent, as every writer here is: a truncated listing reads as other settings. */
+            buffer[0] = '\0';
+            if (outLength) {
+                *outLength = length + wordLength;
+            }
+            return RoboNotSupported;
+        }
+        if (index != 0u) {
+            buffer[length++] = ' ';
+        }
+        memcpy(buffer + length, word, wordLength);
+        length += wordLength;
+        buffer[length] = '\0';
+    }
+    if (set->count == 0u) {
+        static const char kNone[] = "(none)";
+
+        if (sizeof(kNone) > capacity) {
+            return RoboNotSupported;
+        }
+        memcpy(buffer, kNone, sizeof(kNone));
+        length = sizeof(kNone) - 1u;
+    }
+    if (outLength) {
+        *outLength = length;
+    }
     return RoboOk;
 }

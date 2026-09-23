@@ -41,10 +41,22 @@
  *
  * ## What is deliberately absent
  *
- * No substitution, no positioning, no kerning, no ligatures, no mark attachment, no cluster merging, no
- * cache. A glyph run is generated, consumed and released. `RoboTextCapabilities` reports each absence as
- * a flag, and `RoboTextGlyphGenerationMode` names what *is* implemented so that a caller cannot mistake
- * "one cmap lookup per scalar" for shaping.
+ * No positioning, no kerning, no mark attachment, no cluster merging, no cache. A glyph run is generated,
+ * consumed and released. `RoboTextCapabilities` reports each absence as a flag, and
+ * `RoboTextGlyphGenerationMode` names what *is* implemented so that a caller cannot mistake "one cmap
+ * lookup per scalar" for shaping.
+ *
+ * ## Substitution (Phase 12.10)
+ *
+ * The cmap pass produces one glyph per scalar. When the face carries a GSUB table and the run's script,
+ * language and features turn any of its lookups on, those lookups then run — through `RoboTextGsub.h`, on a
+ * shaping buffer, and the run is **rebuilt** from the buffer's result. Rebuilding is what the glyph count
+ * changing costs: a ligature is one glyph where the pass made three, a multiple substitution is three where
+ * it made one, and a bidi control keeps its slot through both so that every source position still has one.
+ *
+ * The rebuild is why a glyph's device advance is computed from *its own* id: the substitute a font chose
+ * carries the font's advance for that glyph, and reusing the input glyph's advance would put the pen a
+ * millimetre out on a ligature — the one number substitution changes that a reader would notice.
  */
 #ifndef ROBO_TEXT_GLYPHS_H
 #define ROBO_TEXT_GLYPHS_H
@@ -74,8 +86,18 @@ extern "C" {
 typedef enum RoboTextGlyphGenerationMode {
     /** No mode: an uninitialised record. */
     RoboTextGlyphGenerationNone = 0,
-    /** One `cmap` lookup per scalar, in logical order, with no substitution. **This build.** */
-    RoboTextGlyphGenerationCmapPerScalar = 1
+    /** One `cmap` lookup per scalar, in logical order, with no substitution. */
+    RoboTextGlyphGenerationCmapPerScalar = 1,
+    /**
+     * One `cmap` lookup per scalar, then the face's own GSUB lookups. **This build**, for a face that has
+     * substitution to apply to this run.
+     *
+     * The two modes are not two code paths: `Gsub` means the map pass ran *and* a plan resolved against the
+     * face was applied to its result. A run whose face has no GSUB, or none for its script, is
+     * `CmapPerScalar` — which is a fact about the font rather than about the text, and the reason the mode is
+     * a value a caller can read instead of an assumption.
+     */
+    RoboTextGlyphGenerationGsub = 2
 } RoboTextGlyphGenerationMode;
 
 /** Non-zero if @p mode is a defined enumerator. */
@@ -107,6 +129,15 @@ typedef struct RoboTextGlyph {
     float offsetX;
     /** See @ref offsetX. */
     float offsetY;
+    /**
+     * Non-zero when a GSUB lookup chose this id rather than the `cmap` (Phase 12.10).
+     *
+     * The reason this is a field rather than something a caller infers from
+     * @ref RoboTextGlyphRunGenerationMode: a ligature's product and the glyphs around it are one run, and
+     * only *some* of them were substituted. A diagnostic that wanted to know which would otherwise have to
+     * re-run the lookups.
+     */
+    int substituted;
     /** Non-zero when the face's cmap claimed the source scalars. */
     int mapped;
     /**
@@ -160,6 +191,9 @@ typedef struct RoboTextGlyphRun RoboTextGlyphRun;
  * `run->direction` is carried into the glyph run and does **not** reorder anything: the glyphs are in
  * logical order, and painting them in that order from the run's origin is right-to-left rendering only
  * in the sense that the caller places the run's origin. Reordering is Phase 12.8's.
+ *
+ * A malformed GSUB table cannot fail a run of text: the engine skips what it cannot read and the glyphs the
+ * cmap produced are what the caller gets, which is the phase's §"malformed fonts" applied at this level.
  *
  * @return RoboOk and @p out; RoboInvalidArgument for a NULL argument or a run whose range does not lie
  *         in @p view; RoboNotSupported when the run's context has no face — which is reported rather
@@ -220,6 +254,15 @@ size_t RoboTextGlyphRunMirrored(const RoboTextGlyphRun *run);
  * why). The two facts are different and only one of them means "do not draw".
  */
 size_t RoboTextGlyphRunControls(const RoboTextGlyphRun *run);
+
+/**
+ * Glyphs whose id came from a GSUB lookup rather than from the `cmap` (Phase 12.10).
+ *
+ * Not a count of *substitutions*: a ligature is one substituted glyph covering several scalars, and a
+ * multiple substitution is several covering one, so this counts glyphs. It is zero exactly when the run's
+ * mode is @ref RoboTextGlyphGenerationCmapPerScalar.
+ */
+size_t RoboTextGlyphRunSubstituted(const RoboTextGlyphRun *run);
 
 /** The direction the caller declared for the whole text. */
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run);

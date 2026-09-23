@@ -133,6 +133,15 @@ typedef struct RoboTextRun {
     RoboTextFontContext font;
     /** The language the caller declared, valid for the whole text and echoed per run. */
     RoboTextLanguage language;
+    /**
+     * The caller's OpenType feature settings, echoed per run (Phase 12.10).
+     *
+     * On the run rather than only on the options because a shaper consumes a *run*: the substitution engine
+     * resolves the settings against the face's GSUB ScriptList/LangSys, which needs the run's script and
+     * language — the other two fields here — and a generator handed a bare `RoboTextRange` would have to be
+     * told them again. A run with no settings carries an empty set, which means "the script's defaults".
+     */
+    RoboTextFeatureSet features;
 } RoboTextRun;
 
 typedef struct RoboTextRunSet RoboTextRunSet;
