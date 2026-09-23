@@ -61,6 +61,10 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboUnicode\RoboUnicodeSentence.c"),
     (Join-Path $SourceDir "RoboUnicode\RoboUnicodeLine.c"),
     (Join-Path $SourceDir "RoboUnicode\RoboUnicodeBidi.c"),
+    # UAX #9 L4's `Bidi_Mirroring_Glyph` pairing, generated from the vendored BidiMirroring.txt by
+    # Tools/ucd/generate_mirror.py. Unicode data stays in RoboUnicode, so RoboText *asks* for a mirror
+    # rather than carrying a second table (Phase 12.8).
+    (Join-Path $SourceDir "RoboUnicode\RoboUnicodeBidiMirror.c"),
     (Join-Path $SourceDir "RoboUnicode\RoboUnicodeEmoji.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18N.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NLocale.c"),
@@ -188,6 +192,10 @@ $ProdSrcs = @(
     # `Bidi_Class` -> direction-class projection, the paragraph direction a context names, and the single
     # pass that turns the two into direction runs.
     (Join-Path $SourceDir "RoboText\RoboTextDirection.c"),
+    # Phase 12.8 -- the bidirectional stage. `RoboTextBidi.c` is the module's one resolver *and* its one
+    # window onto Phase 4's UBA: the paragraph base (P2/P3, with P3's level-0 default), the levels, the
+    # §5.2 retention of X9-removed scalars, the logical runs, L2's visual order and the L4 mirroring gate.
+    (Join-Path $SourceDir "RoboText\RoboTextBidi.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -478,6 +486,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextAnalysis.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextScript.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextDirection.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextBidi.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

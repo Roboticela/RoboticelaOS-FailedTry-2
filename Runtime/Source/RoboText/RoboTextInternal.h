@@ -49,6 +49,24 @@ size_t RoboTextWriterSigned(char *buffer, size_t capacity, size_t length, int32_
 size_t RoboTextWriterFloat(char *buffer, size_t capacity, size_t length, float value);
 
 /**
+ * One run row, formatted once for every stage that prints runs.
+ *
+ * `[a..b) scalars  bytes [c..d)  <label>` when @p hasBytes and `[a..b) scalars  <label>` when not. The
+ * script table, the direction table and the bidi dump all print this shape, and this is the only place it
+ * is spelled: a stage that formatted its own row would drift, and a reader comparing two dumps would be
+ * comparing two formats.
+ *
+ * @return the row's length, or @ref RoboTextWriterOverflow when it does not fit @p capacity.
+ */
+size_t RoboTextWriterRunRow(char *line,
+                            size_t capacity,
+                            RoboTextRange range,
+                            const char *label,
+                            int hasBytes,
+                            RoboTextByteIndex byteStart,
+                            RoboTextByteIndex byteEnd);
+
+/**
  * How a run table asks for one of its rows.
  *
  * A callback rather than a copy of the table loop in each stage: the *shape* of the table — the header, both

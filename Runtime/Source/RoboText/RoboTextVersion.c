@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.3.0";
+    static const char version[] = "1.4.0";
 
     return version;
 }
@@ -98,8 +98,23 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->glyphGenerationIsPlaceholder = 1;
 
     /*
-     * The algorithms, all absent, and each one is a row in the phase plan rather than an omission:
-     * substitution is 12.10, positioning 12.11, kerning 12.13, ligatures 12.12, bidi 12.8, complex
+     * The bidi stage (12.8). Every flag is exercised by a case: the paragraph base and its four sources by
+     * `text.bidi.paragraph`, the levels by `text.bidi.levels`, the level runs and L2 by
+     * `text.bidi.visual_order`, the isolates by `text.bidi.isolates`, the mirroring by
+     * `text.bidi.mirroring`, and the dump by `text.bidi.diagnostics`. `bidiAlgorithm` is the flag 12.7
+     * declared absent and 12.8 flips; the classification flags above it are unchanged.
+     */
+    out->bidiAlgorithm = 1;
+    out->bidiParagraphs = 1;
+    out->bidiLevels = 1;
+    out->bidiVisualOrder = 1;
+    out->bidiIsolates = 1;
+    out->bidiMirroring = 1;
+    out->bidiDiagnostics = 1;
+
+    /*
+     * The rest of the algorithms, all absent, and each one is a row in the phase plan rather than an
+     * omission: substitution is 12.10, positioning 12.11, kerning 12.13, ligatures 12.12, complex
      * scripts 12.19, vertical text 12.20. Variable-axis application is unowned by a numbered goal and
      * is reported absent until RoboFont interpolates outlines (`FontOutlineVariationApplied` is 0).
      */
@@ -108,7 +123,6 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->positioning = 0;
     out->kerning = 0;
     out->ligatures = 0;
-    out->bidiAlgorithm = 0;
     out->complexScripts = 0;
     out->verticalText = 0;
     return RoboOk;

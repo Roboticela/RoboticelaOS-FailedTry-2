@@ -52,6 +52,7 @@
 #define ROBO_TEXT_ANALYSIS_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboText/RoboTextBidi.h"
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextFont.h"
 #include "RoboText/RoboTextFontSelection.h"
@@ -75,8 +76,16 @@ typedef struct RoboTextAnalysisRun {
     RoboTextRange range;
     /** The script every scalar in the run resolves to. */
     RoboTextScript script;
-    /** The direction every scalar in the run is classified as. */
+    /**
+     * The direction that applies to the run — the **resolved** direction since 12.8.
+     *
+     * 12.7 classified this; UAX #9 resolves it, and a shaper is entitled to the latter (Phase 12.8 §"do
+     * not use only `ScriptRun.direction` after 12.8"). The classification is not lost: the direction runs
+     * beside these still carry 12.7's answer, `Unknown` included.
+     */
     RoboTextDirection direction;
+    /** The resolved bidi level of the run's first scalar (Phase 12.8). */
+    RoboTextBidiLevel bidiLevel;
     /** The font selected for the run, and where that selection came from. */
     RoboTextResolvedFont font;
 } RoboTextAnalysisRun;
@@ -101,8 +110,17 @@ typedef struct RoboTextShapeRequest {
     RoboTextFontContext font;
     /** The script classification for the range. */
     RoboTextScript script;
-    /** The direction the range's scalars were classified as. */
+    /** The direction that applies to the range: the resolved direction of its level. */
     RoboTextDirection direction;
+    /**
+     * The resolved bidi level of the range's first scalar (Phase 12.8), or `RoboTextBidiLevelNone` when
+     * the request was not built from a resolved run.
+     *
+     * The paragraph's *base* level is deliberately **not** here: it is a property of the paragraph rather
+     * than of a run, and the paragraph this request came from is one call away (the run set and the
+     * analysis both publish theirs).
+     */
+    RoboTextBidiLevel bidiLevel;
     /** The direction the caller declared for the whole text. */
     RoboTextDirection baseDirection;
     /** The declared language, carried and not interpreted. */
@@ -194,15 +212,55 @@ size_t RoboTextAnalysisScriptRunCount(const RoboTextAnalysis *analysis);
 const RoboTextScriptRun *RoboTextAnalysisScriptRun(const RoboTextAnalysis *analysis, size_t index);
 
 /**
- * Direction runs, from the direction resolver (Phase 12.7).
+ * Direction runs, from the direction resolver (Phase 12.7) — the **classification**.
  *
- * The same array the analysis runs are cut against, so the two can be compared: an analysis run's
- * `direction` is the direction of the direction run covering it, and the analysis run's range is inside it.
+ * Since 12.8 the analysis runs are cut against the *resolution* (the levels) rather than against this
+ * array, so the two are no longer required to agree boundary for boundary — and they do not, in exactly
+ * the cases where the algorithm adds information. What this array is, unchanged, is 12.7's answer: the
+ * class projection, the paragraph context and the neutral rules, with `RoboTextDirectionUnknown` a real
+ * state. It stays public because a caller debugging a mixed-direction line wants to see both readings.
  */
 size_t RoboTextAnalysisDirectionRunCount(const RoboTextAnalysis *analysis);
 
 /** Direction run @p index, or NULL when out of range. */
 const RoboTextDirectionRun *RoboTextAnalysisDirectionRun(const RoboTextAnalysis *analysis, size_t index);
+
+/* --- Phase 12.8: the resolution ---------------------------------------------------------- */
+
+/**
+ * The bidi paragraph the analysis was resolved with: levels, logical runs and L2's visual order.
+ *
+ * Borrowed and owned by the analysis. Never NULL for an analysis this module produced, including an empty
+ * one, so `RoboTextBidiParagraphBaseLevel` always answers.
+ */
+const RoboTextBidiParagraph *RoboTextAnalysisBidiParagraph(const RoboTextAnalysis *analysis);
+
+/**
+ * The **level runs**: the algorithm's own segmentation, beside the script and direction runs.
+ *
+ * An analysis run is cut where the script or the resolved *direction* changes; these are cut where the
+ * *level* changes. The two differ only where a level moves without changing the parity — so the analysis
+ * run is the shaping unit and the level run is the algorithm's own boundary. A consumer that needs the
+ * latter — a caret, a mirrored glyph, a diagnostic — reads these.
+ */
+size_t RoboTextAnalysisBidiRunCount(const RoboTextAnalysis *analysis);
+
+/** Level run @p index, or NULL when out of range. */
+const RoboTextBidiRun *RoboTextAnalysisBidiRun(const RoboTextAnalysis *analysis, size_t index);
+
+/**
+ * The **visual** order of the level runs (L2), as logical level-run indices — what a painter walks.
+ *
+ * @return RoboOk; RoboInvalidArgument for a NULL argument or @p visual past the last run.
+ */
+Result RoboTextAnalysisVisualBidiRun(const RoboTextAnalysis *analysis,
+                                     size_t visual,
+                                     size_t *outLogicalRunIndex,
+                                     RoboTextDiag *diag);
+
+/** The resolved bidi level of @p scalar, or @ref RoboTextBidiLevelRemoved when it has none. */
+RoboTextBidiLevel RoboTextAnalysisBidiLevelAt(const RoboTextAnalysis *analysis,
+                                              RoboTextScalarIndex scalar);
 
 /**
  * The context the analysis was classified in, and the paragraph direction it resolved to.
@@ -241,9 +299,19 @@ typedef struct RoboTextAnalysisStats {
     size_t unresolvedRuns;
     /** Script runs the resolver produced. */
     size_t scriptRuns;
-    /** Direction runs the resolver produced (Phase 12.7). */
+    /** Direction runs the resolver produced (Phase 12.7) — the classification. */
     size_t directionRuns;
-    /** Runs whose classified direction is RTL. */
+    /** Level runs the bidi stage produced (Phase 12.8) — the resolution. */
+    size_t bidiRuns;
+    /** The resolved paragraph level: 0 or 1. */
+    RoboTextBidiLevel baseLevel;
+    /** Scalars X9 removed from reordering (format controls and `BN`). */
+    size_t removedScalars;
+    /** Scalars whose resolved level is odd. */
+    size_t rtlScalars;
+    /** Scalars that are right-to-left and have a mirroring glyph (L4 applies to them). */
+    size_t mirroredScalars;
+    /** Runs whose resolved direction is RTL. */
     size_t rtlRuns;
     /** Combining marks seen (and folded into their base's font). */
     size_t combiningMarks;

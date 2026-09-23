@@ -290,6 +290,16 @@ static Result DecorationDrawText(GfxRaster *raster,
         for (glyphIndex = 0u; glyphIndex < RoboTextGlyphRunCount(glyphRun); glyphIndex++) {
             const RoboTextGlyph *glyph = RoboTextGlyphRunGlyph(glyphRun, glyphIndex);
 
+            /*
+             * A bidi formatting control is not drawn and does not move the pen (Phase 12.8 §"formatting
+             * characters"). It is a glyph all the same, so the source mapping stays one-per-scalar — and
+             * because `.notdef` is id 0 as well, this is `control` and **not** "the id is zero": an
+             * unmapped character is drawn as a box and advanced over, which is the answer the comment
+             * below gives for it.
+             */
+            if (glyph->control) {
+                continue;
+            }
             draw.glyphId = glyph->glyphId;
             draw.origin = MakeGfxPointF(penX + glyph->offsetX, baselineY + glyph->offsetY);
             if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {

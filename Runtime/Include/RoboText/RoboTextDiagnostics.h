@@ -13,7 +13,11 @@
  *   run          segmentation: a run set that would not allocate, or a run that does not lie in the
  *                text it was segmented from;
  *   glyph        glyph generation and mapping: a glyph id the face does not have, a glyph index
- *                past the end of a run.
+ *                past the end of a run;
+ *   bidi         the bidirectional stage: a paragraph that would not allocate, a context that is not
+ *                usable, a visual index past the end. Its own domain because the object that refuses is
+ *                the paragraph rather than a run set, and because a mixed-direction bug is diagnosed at
+ *                that boundary (Phase 12.8).
  */
 #ifndef ROBO_TEXT_DIAGNOSTICS_H
 #define ROBO_TEXT_DIAGNOSTICS_H
@@ -37,14 +41,16 @@ typedef enum RoboTextDiagnosticDomain {
     /** Script/direction/text runs. */
     RoboTextDomainRun = 4,
     /** Glyphs, glyph runs and source mapping. */
-    RoboTextDomainGlyph = 5
+    RoboTextDomainGlyph = 5,
+    /** A bidi paragraph: its resolution, its levels, or its visual order. */
+    RoboTextDomainBidi = 6
 } RoboTextDiagnosticDomain;
 
 /**
- * One past the last real domain. @ref RoboTextDomainNone is **not** one of them, so the count is the five
+ * One past the last real domain. @ref RoboTextDomainNone is **not** one of them, so the count is the six
  * real domains plus the sentinel; `text.conformance.*` asserts the two facts together.
  */
-#define RoboTextDomainCount 6u
+#define RoboTextDomainCount 7u
 
 /** Non-zero if @p domain names an object. False for @ref RoboTextDomainNone, which is the *absence* of a
  *  domain rather than one of them. */

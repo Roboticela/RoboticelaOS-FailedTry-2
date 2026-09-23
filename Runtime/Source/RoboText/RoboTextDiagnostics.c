@@ -34,6 +34,8 @@ const char *RoboTextDomainName(RoboTextDiagnosticDomain domain)
             return "run";
         case RoboTextDomainGlyph:
             return "glyph";
+        case RoboTextDomainBidi:
+            return "bidi";
         default:
             return "unknown";
     }

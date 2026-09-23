@@ -46,6 +46,22 @@
  * character of its own, and it does not need a level: the answer here is a direction, and the level is
  * 12.8's.
  *
+ * ## 12.8: the resolution, alongside the classification
+ *
+ * Since Phase 12.8 a run set also resolves a **bidi paragraph** (`RoboTextBidiParagraphResolve`) and
+ * publishes it. The text runs and the level runs read it, and the two readings coexist on purpose:
+ *
+ *   `RoboTextRun.direction`/`bidiLevel`   the **resolution**: the direction the level implies, and the
+ *                                         level itself;
+ *   `RoboTextRunSetDirectionRun`          the **classification** (12.7), unchanged, `Unknown` included;
+ *   `RoboTextRunSetBidiRun`               the algorithm's own level runs, plus L2's visual order.
+ *
+ * A text run is still cut where the *script* or the *direction* changes, not where the level changes: a
+ * level move that does not change the parity does not change what a shaper does with the stretch, and
+ * splitting there would hand every consumer two runs where one is intended. The level travels on the run,
+ * so a consumer that needs it has it, and `RoboTextRunSetBidiRun` has the algorithm's own boundaries for
+ * one that needs those instead.
+ *
  * ## Ownership
  *
  * A run set is an opaque handle owning three arrays of run records. It borrows the buffer's bytes (the
@@ -57,6 +73,7 @@
 #define ROBO_TEXT_RUNS_H
 
 #include "RoboBase/RoboError.h"
+#include "RoboText/RoboTextBidi.h"
 #include "RoboText/RoboTextBuffer.h"
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextFont.h"
@@ -92,8 +109,24 @@ extern "C" {
 typedef struct RoboTextRun {
     RoboTextRange range;
     RoboTextScript script;
-    /** The direction the run's scalars were classified as. */
+    /**
+     * The direction that **applies** to the run — since 12.8, the direction its resolved bidi level
+     * implies rather than a classification of its own scalars.
+     *
+     * The two are the same answer for ordinary text and differ exactly where the algorithm adds
+     * information: `"123 456"` with nothing declared is `Unknown` to 12.7 and level 0 to UAX #9, because
+     * P2/P3 answer a paragraph with no strong character. A shaper needs the second, and a caller that
+     * wants the first reads the direction runs — which are 12.7's classification, published beside these
+     * (Phase 12.8 §"do not couple script and direction").
+     */
     RoboTextDirection direction;
+    /**
+     * The resolved bidi level of the run's first scalar (Phase 12.8).
+     *
+     * `RoboTextBidiLevelNone` only for a record a caller built without resolving; every run this module
+     * produces carries a level, because a paragraph always has one.
+     */
+    RoboTextBidiLevel bidiLevel;
     /** The direction the caller declared for the whole text. */
     RoboTextDirection baseDirection;
     /** The font the run is set in, by value; its `face` is borrowed. */
@@ -157,8 +190,65 @@ const RoboTextRun *RoboTextRunSetTextRun(const RoboTextRunSet *set, size_t index
 /** Scalars in the set: the whole text that was segmented. */
 RoboTextScalarIndex RoboTextRunSetScalarCount(const RoboTextRunSet *set);
 
-/** The base direction the set was segmented with. */
+/**
+ * The base direction the **classification** ran with (Phase 12.7's answer).
+ *
+ * `RoboTextDirectionUnknown` is a real state here and 12.7's header argues for it: nothing was declared
+ * and the text had no strong scalar, so the classification refuses to claim a direction. The base the
+ * **resolution** ran with is @ref RoboTextRunSetBaseLevel — always 0 or 1, because UAX #9's P3 answers
+ * level 0 — and @ref RoboTextRunSetBaseSource says where it came from, so a caller can tell the two
+ * apart instead of having to choose between them.
+ */
 RoboTextDirection RoboTextRunSetBaseDirection(const RoboTextRunSet *set);
+
+/* --- Phase 12.8: the resolution, beside the classification ------------------------------- */
+
+/**
+ * The paragraph's resolved base level: 0 for left-to-right, 1 for right-to-left.
+ *
+ * Never `RoboTextBidiLevelRemoved` and never `RoboTextBidiLevelNone`: an empty run set still has a
+ * paragraph, and its base is whatever P2/P3 or the caller's declaration said.
+ */
+RoboTextBidiLevel RoboTextRunSetBaseLevel(const RoboTextRunSet *set);
+
+/** Where the resolved base came from — declared, first strong, fallback, or P3's default. */
+RoboTextBidiBaseSource RoboTextRunSetBaseSource(const RoboTextRunSet *set);
+
+/**
+ * The paragraph this set was resolved with: its levels, its logical runs and its visual order.
+ *
+ * Borrowed and owned by the set: it lives exactly as long as the set does. Never NULL for a set this
+ * module produced, so `RoboTextBidiParagraphScalarCount` on it always answers.
+ */
+const RoboTextBidiParagraph *RoboTextRunSetBidiParagraph(const RoboTextRunSet *set);
+
+/**
+ * The **level runs** (UAX #9's own segmentation, `RoboTextBidiRun`): maximal spans sharing one level.
+ *
+ * Distinct from the direction runs beside them, and deliberately: a level run is a stretch of *one level*,
+ * while a direction run — and a text run — is a stretch of one *parity*. They coincide for almost every
+ * text and part company where a level moves without changing which way it runs: `"123 456"` in a
+ * right-to-left paragraph is three level runs (2, 1, 2 — the digits keep their `EN` under an odd paragraph
+ * level and I2 lifts them to 2, while the space between them takes the `R` they lend it under N1) and three
+ * direction runs; the same text left-to-right is *one* level run at 0, because W7 finds the `sor` is `L`
+ * and rewrites the digits as `L`. A consumer that needs the algorithm's own boundaries — a caret, a
+ * mirrored glyph, a diagnostic — reads these; a consumer that needs shaping contexts reads the text runs.
+ */
+size_t RoboTextRunSetBidiRunCount(const RoboTextRunSet *set);
+
+/** Level run @p index, or NULL when out of range. */
+const RoboTextBidiRun *RoboTextRunSetBidiRun(const RoboTextRunSet *set, size_t index);
+
+/**
+ * The **visual** order of the level runs (L2), as logical level-run indices.
+ *
+ * What a painter walks. The direction runs and the text runs stay in source order: nothing in this module
+ * is ever reordered, and the visual order is an array *beside* the runs.
+ */
+Result RoboTextRunSetVisualBidiRun(const RoboTextRunSet *set,
+                                   size_t visual,
+                                   size_t *outLogicalRunIndex,
+                                   RoboTextDiag *diag);
 
 /** The declared script hint, or `RoboTextScriptCommon` when none was given. */
 RoboTextScript RoboTextRunSetScriptHint(const RoboTextRunSet *set);
@@ -184,14 +274,29 @@ typedef struct RoboTextRunStats {
     size_t scriptRuns;
     size_t directionRuns;
     size_t textRuns;
-    /** Text runs whose classified direction is RTL. */
+    /** Text runs whose direction is RTL. */
     size_t rtlRuns;
-    /** Text runs whose classified direction is Unknown (no strong scalar, no declared base). */
+    /**
+     * Text runs whose direction is `RoboTextDirectionUnknown`.
+     *
+     * **Zero for every set this build produces**, and that is the honest number rather than a dead field:
+     * 12.8 resolves a level for every scalar, so every text run has a direction. The `Unknown` state 12.7
+     * established now lives on the *direction runs*, which are published beside these and keep their
+     * classification; a set built by a caller that skipped resolution would report it here again.
+     */
     size_t unknownDirectionRuns;
     /** Distinct scripts across the text runs. */
     size_t distinctScripts;
     /** Scalars segmented. */
     RoboTextScalarIndex scalars;
+    /** Level runs (Phase 12.8). */
+    size_t bidiRuns;
+    /** The resolved paragraph level: 0 or 1. */
+    RoboTextBidiLevel baseLevel;
+    /** Scalars X9 removed from reordering (format controls and `BN`). */
+    size_t removedScalars;
+    /** Scalars whose resolved level is odd. */
+    size_t rtlScalars;
 } RoboTextRunStats;
 
 Result RoboTextRunSetGetStats(const RoboTextRunSet *set, RoboTextRunStats *out);

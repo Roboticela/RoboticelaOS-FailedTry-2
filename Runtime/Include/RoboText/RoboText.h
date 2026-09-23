@@ -54,6 +54,7 @@
 #include "RoboText/RoboTextShape.h"
 #include "RoboText/RoboTextTypes.h"
 #include "RoboText/RoboTextDirection.h"
+#include "RoboText/RoboTextBidi.h"
 #include "RoboText/RoboTextUnicode.h"
 #include "RoboText/RoboTextVersion.h"
 

@@ -14,15 +14,14 @@
 
 #include <string.h>
 
-/* One row, with or without the byte span. Returns the row's length or RoboTextWriterOverflow. */
-static size_t RunTableRow(char *line,
+size_t RoboTextWriterRunRow(char *line,
                           size_t capacity,
                           RoboTextRange range,
                           const char *label,
                           int hasBytes,
-                          RoboTextByteIndex byteStart,
-                          RoboTextByteIndex byteEnd)
+                          RoboTextByteIndex byteStart,                            RoboTextByteIndex byteEnd)
 {
+    /* One row, with or without the byte span. Returns the row's length or RoboTextWriterOverflow. */
     size_t length = 0u;
 
     length = RoboTextWriterText(line, capacity, length, "[");
@@ -99,9 +98,9 @@ Result RoboTextWriterRunTable(RoboTextView view,
             size_t rowLength;
 
             row(runs, index, &range, &label);
-            rowLength = RunTableRow(line, sizeof(line), range, label, hasBytes,
-                                    hasBytes ? offsets[range.start] : 0u,
-                                    hasBytes ? offsets[range.end] : 0u);
+            rowLength = RoboTextWriterRunRow(line, sizeof(line), range, label, hasBytes,
+                                             hasBytes ? offsets[range.start] : 0u,
+                                             hasBytes ? offsets[range.end] : 0u);
             if (rowLength == RoboTextWriterOverflow) {
                 RoboFree(offsets);
                 return RoboNotSupported;
@@ -129,9 +128,9 @@ Result RoboTextWriterRunTable(RoboTextView view,
             size_t rowLength;
 
             row(runs, index, &range, &label);
-            rowLength = RunTableRow(line, sizeof(line), range, label, hasBytes,
-                                    hasBytes ? offsets[range.start] : 0u,
-                                    hasBytes ? offsets[range.end] : 0u);
+            rowLength = RoboTextWriterRunRow(line, sizeof(line), range, label, hasBytes,
+                                             hasBytes ? offsets[range.start] : 0u,
+                                             hasBytes ? offsets[range.end] : 0u);
             memcpy(buffer + length, line, rowLength);
             length += rowLength;
             buffer[length++] = '\n';

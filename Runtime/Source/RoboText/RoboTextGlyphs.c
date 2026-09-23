@@ -31,6 +31,7 @@
 #include "RoboText/RoboTextGlyphs.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboText/RoboTextBidi.h"
 #include "RoboTextInternal.h"
 #include "RoboUnicode/RoboUnicode.h"
 
@@ -42,11 +43,17 @@ struct RoboTextGlyphRun {
     RoboTextRange source;
     RoboTextScript script;
     RoboTextDirection direction;
+    /** The resolved level the run was generated at (Phase 12.8). */
+    RoboTextBidiLevel bidiLevel;
     RoboTextDirection baseDirection;
     RoboTextFontContext font;
     RoboTextLanguage language;
     RoboTextGlyphGenerationMode mode;
     size_t missing;
+    /** Glyphs whose id came from a mirrored code point (UAX #9 L4). */
+    size_t mirrored;
+    /** Glyphs that stand for a bidi formatting control: no id, no advance, nothing drawn. */
+    size_t controls;
     /** Accumulated in `double` from the glyphs' own `float` advances, so a long run's total is the sum of
      *  what the painter accumulates rather than a second rounding of it. */
     double advanceTotal;
@@ -116,12 +123,18 @@ int RoboTextGlyphEqual(const RoboTextGlyph *a, const RoboTextGlyph *b)
            a->cluster == b->cluster && a->advanceUnits == b->advanceUnits &&
            a->advanceX == b->advanceX && a->advanceY == b->advanceY && a->offsetX == b->offsetX &&
            a->offsetY == b->offsetY && a->mapped == b->mapped &&
+           a->control == b->control && a->mirrored == b->mirrored &&
            a->metricsStatus == b->metricsStatus;
 }
 
 /* ------------------------------------------------------------------ */
 /* Generation                                                          */
 /* ------------------------------------------------------------------ */
+
+size_t RoboTextGlyphRunControls(const RoboTextGlyphRun *run)
+{
+    return run ? run->controls : 0u;
+}
 
 void RoboTextGlyphRunDestroy(RoboTextGlyphRun *run)
 {
@@ -185,6 +198,7 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
     glyphRun->source = run->range;
     glyphRun->script = run->script;
     glyphRun->direction = run->direction;
+    glyphRun->bidiLevel = run->bidiLevel;
     glyphRun->baseDirection = run->baseDirection;
     glyphRun->font = run->font;
     glyphRun->language = run->language;
@@ -202,6 +216,7 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
     for (RoboTextScalarIndex index = 0u; index < length; index++) {
         RoboTextGlyph *glyph = &glyphRun->glyphs[index];
         Uchar32 scalar = 0u;
+        Uchar32 draw = 0u;
         size_t next = offset;
         FontGlyphMetrics metrics;
         float advance = 0.0f;
@@ -222,7 +237,47 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
          * segmentation fills it differently rather than adding it. */
         glyph->cluster = glyph->source.start;
 
-        status = RoboTextFontLookupGlyph(&run->font, scalar, &glyph->glyphId, &mapped, diag);
+        /*
+         * A bidi formatting control is not a character: Phase 12.8 §"formatting characters" asks that the
+         * nine controls create no visible glyph while their source positions are preserved for editing and
+         * selection. Both halves are satisfied by *keeping the slot* — one glyph per scalar, so
+         * `source`/`cluster` still map exactly — and emptying it (no id, no advance, `control` set). The
+         * alternative, dropping the slot, would make every later glyph's index disagree with its scalar;
+         * the alternative of drawing it would put a `.notdef` box in the reader's text.
+         */
+        if (RoboTextBidiScalarIsFormattingControl((RoboTextCodePoint)scalar)) {
+            glyph->control = 1;
+            glyph->mapped = 0;
+            glyph->glyphId = RoboGlyphIdNone;
+            glyph->advanceUnits = 0u;
+            glyph->advanceX = 0.0f;
+            glyphRun->controls++;
+            continue;
+        }
+
+        /*
+         * UAX #9 L4, and the one place this build honours it: a scalar in a right-to-left context is
+         * depicted by its mirrored code point, so the *lookup* uses the mirror while the glyph's `source`
+         * stays the scalar. That split is the phase's rule — "do not mutate the source text" — and it is
+         * what keeps a copy, a selection and a hit test reading the text the author wrote.
+         *
+         * Both readings of "this run is right-to-left" are honoured, because a run built before 12.8
+         * carries only the direction and one built from the analysis carries a level as well; a caller that
+         * hand-builds a run gets the direction's answer, which is what it declared.
+         */
+        draw = scalar;
+        if (RoboTextDirectionIsRightToLeft(run->direction) ||
+            RoboTextBidiLevelIsRightToLeft(run->bidiLevel)) {
+            RoboTextCodePoint mirror = (RoboTextCodePoint)scalar;
+
+            if (RoboTextBidiMirrorOf((RoboTextCodePoint)scalar, &mirror) && mirror != (RoboTextCodePoint)scalar) {
+                draw = (Uchar32)mirror;
+                glyph->mirrored = 1;
+                glyphRun->mirrored++;
+            }
+        }
+
+        status = RoboTextFontLookupGlyph(&run->font, draw, &glyph->glyphId, &mapped, diag);
         if (status != RoboOk) {
             RoboTextGlyphRunDestroy(glyphRun);
             return status;
@@ -282,6 +337,16 @@ RoboTextScript RoboTextGlyphRunScript(const RoboTextGlyphRun *run)
 RoboTextDirection RoboTextGlyphRunDirection(const RoboTextGlyphRun *run)
 {
     return run ? run->direction : RoboTextDirectionUnknown;
+}
+
+RoboTextBidiLevel RoboTextGlyphRunBidiLevel(const RoboTextGlyphRun *run)
+{
+    return run ? run->bidiLevel : RoboTextBidiLevelNone;
+}
+
+size_t RoboTextGlyphRunMirrored(const RoboTextGlyphRun *run)
+{
+    return run ? run->mirrored : 0u;
 }
 
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run)
@@ -439,6 +504,8 @@ Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats 
     out->glyphRuns = 1u;
     out->glyphs = run->count;
     out->missing = run->missing;
+    out->mirrored = run->mirrored;
+    out->controls = run->controls;
     out->advancePx = run->advanceTotal;
     for (size_t index = 0u; index < run->count; index++) {
         const RoboTextGlyph *glyph = &run->glyphs[index];
@@ -484,6 +551,11 @@ Result RoboTextGlyphWrite(const RoboTextGlyph *glyph, char *buffer, size_t capac
     length = RoboTextWriterFloat(line, sizeof(line), length, glyph->offsetY);
     length = RoboTextWriterText(line, sizeof(line), length, " mapped=");
     length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->mapped);
+    length = RoboTextWriterText(line, sizeof(line), length, " mirrored=");
+    length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->mirrored);
+    /* The bidi-control flag, because it is the reason a glyph with `id=0` must not be drawn. */
+    length = RoboTextWriterText(line, sizeof(line), length, " control=");
+    length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->control);
     length = RoboTextWriterText(line, sizeof(line), length, " metrics=");
     length = RoboTextWriterText(line, sizeof(line), length,
                                 glyph->metricsStatus == RoboFontGlyphMetricsOk         ? "ok"

@@ -121,26 +121,55 @@ static void TestRunsNeutrality(void)
     /*
      * And a text with **no** script-bearing scalar at all is `Common` rather than a guess: nothing resolved,
      * so nothing is claimed.
+     *
+     * Its *direction*, though, is left-to-right since Phase 12.8 — and the difference between this and the
+     * `Unknown` it was in 12.7 is the whole point of the bidi stage. 12.7 classifies: the digits are not
+     * strong, the text has no strong scalar and nothing was declared, so it refuses to claim a direction.
+     * 12.8 resolves: UAX #9's P3 answers level 0 for exactly that paragraph, so the text run carries the
+     * direction that applies and `RoboTextRunSetBaseSource` says the text did not ask for it. The refused
+     * answer is not lost — it is the **direction runs'**, asserted below and in the following case.
      */
     set = Segment("123 456", NULL);
     RoboCheckEqInt((int)RoboTextRunSetTextRunCount(set), 1);
     RoboCheckEqInt((int)RoboTextRunSetTextRun(set, 0u)->script, (int)RoboTextScriptCommon);
-    RoboCheckEqInt((int)RoboTextRunSetTextRun(set, 0u)->direction, (int)RoboTextDirectionUnknown);
+    RoboCheckEqInt((int)RoboTextRunSetTextRun(set, 0u)->direction, (int)RoboTextDirectionLtr);
+    RoboCheckEqInt((int)RoboTextRunSetTextRun(set, 0u)->bidiLevel, 0);
     RoboCheckEqInt((int)RoboTextRunSetBaseDirection(set), (int)RoboTextDirectionUnknown);
+    RoboCheckEqInt((int)RoboTextRunSetBaseLevel(set), 0);
+    RoboCheckEqInt((int)RoboTextRunSetBaseSource(set), (int)RoboTextBidiBaseDefault);
     RoboTextRunSetDestroy(set);
 
     /*
-     * `"123 456"` with nothing declared is the one real `Unknown` state: the digits are not strong, the
-     * text has no strong scalar, and no base was declared — so the honest answer is "not resolved" rather
-     * than an LTR claim UAX #9's P2/P3 does not make. Declaring a base resolves it (below).
+     * The same text, read through the two stages at once: the direction runs keep 12.7's `Unknown` — the
+     * classification refuses to claim what UAX #9's P2/P3 has not assigned — while the text run beside
+     * them carries the level the algorithm resolved. One fact, two readings, and this is the case that
+     * pins them apart.
      */
     set = Segment("123 456", NULL);
     {
         RoboTextRunStats stats2;
 
         RoboCheckEqInt((int)RoboTextRunSetGetStats(set, &stats2), (int)RoboOk);
+        /* The counter counts the direction runs' classification, so it still sees the state 12.8 resolved. */
         RoboCheckEqInt((int)stats2.unknownDirectionRuns, 1);
         RoboCheckEqInt((int)stats2.rtlRuns, 0);
+        RoboCheckEqInt((int)stats2.bidiRuns, 1);
+        RoboCheckEqInt((int)stats2.baseLevel, 0);
+        /*
+         * And the algorithm's own segmentation, which here is **one** run at level 0 — the case that
+         * shows why "a digit is not left-to-right" is a statement about classes rather than about levels.
+         * The digits are `EN`, but W7 searches back from each European number for the first strong type
+         * and finds L — `sor` is L, because the paragraph level is even — so it *changes them to L*, and
+         * L at an even level stays at 0. The same digits in a right-to-left paragraph keep their `EN` and
+         * land at level 2 (I2), which the declared-base case below asserts.
+         */
+        RoboCheckEqInt((int)RoboTextRunSetBidiRunCount(set), 1);
+        RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->level, 0);
+        RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->direction, (int)RoboTextDirectionLtr);
+        /* The level runs cover the text with no gaps, which is the invariant the phase names. */
+        RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->range.start, 0);
+        RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->range.end, 7);
+        RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->logicalIndex, 0);
     }
     RoboTextRunSetDestroy(set);
 }
@@ -238,6 +267,22 @@ static void TestRunsDeclaredBase(void)
      * because that is what a number lends a neutral beside it (UAX #9 N1). */
     RoboCheckEqInt((int)RoboTextRunSetTextRunCount(set), 3);
     RoboCheckEqInt((int)RoboTextRunSetDirectionRunCount(set), 3);
+    /*
+     * The **level** runs for the same text, and the case where a digit really is at level 2: with an odd
+     * paragraph level W7 finds no L to change the `EN` into (it finds `sor`, which is R), so the digits
+     * stay `EN` and I2 lifts them one level — to 2, which is even and therefore left-to-right. The space
+     * between them takes the `R` they lend it (N1) and stays at the paragraph's level 1.
+     */
+    RoboCheckEqInt((int)RoboTextRunSetBidiRunCount(set), 3);
+    RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->level, 2);
+    RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->direction, (int)RoboTextDirectionLtr);
+    RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 0u)->range.end, 3);
+    RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 1u)->level, 1);
+    RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 1u)->direction, (int)RoboTextDirectionRtl);
+    RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 2u)->level, 2);
+    RoboCheckEqInt((int)RoboTextRunSetBidiRun(set, 2u)->range.end, 7);
+    RoboCheckEqInt((int)RoboTextRunSetBaseLevel(set), 1);
+    RoboCheckEqInt((int)RoboTextRunSetBaseSource(set), (int)RoboTextBidiBaseDeclared);
     RoboCheckEqInt((int)RoboTextRunSetDirectionRun(set, 0u)->direction, (int)RoboTextDirectionLtr);
     RoboCheckEqInt((int)RoboTextRunSetDirectionRun(set, 0u)->range.end, 3);
     RoboCheckEqInt((int)RoboTextRunSetTextRun(set, 0u)->direction, (int)RoboTextDirectionLtr);

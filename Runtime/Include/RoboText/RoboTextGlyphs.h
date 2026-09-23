@@ -109,6 +109,28 @@ typedef struct RoboTextGlyph {
     float offsetY;
     /** Non-zero when the face's cmap claimed the source scalars. */
     int mapped;
+    /**
+     * Non-zero when the glyph stands for a bidi **formatting control** rather than for a character.
+     *
+     * The nine controls (`LRE`/`RLE`/`LRO`/`RLO`/`PDF` and `LRI`/`RLI`/`FSI`/`PDI`) do not paint: Phase
+     * 12.8 §"formatting characters" says they are logical controls and not visible glyphs, and a control
+     * that reached this layer as an ordinary scalar would draw `.notdef` — a box the reader would see and
+     * the pen would advance over. So it becomes a glyph with no id, no advance and this flag set, which
+     * keeps the array one-per-scalar (and therefore the source mapping exact) while telling a painter to
+     * draw nothing. Such a glyph is **not** counted in @ref RoboTextGlyphStats::missing — it is not a
+     * character the face failed to cover.
+     */
+    int control;
+    /**
+     * Non-zero when the id was looked up from the **mirrored** code point rather than from the scalar.
+     *
+     * UAX #9 L4: a scalar whose resolved level is odd is depicted by its `Bidi_Mirroring_Glyph`, so an
+     * `(` in right-to-left text draws as `)`. The mirroring is data (`RoboUnicode/RoboBidiMirror.h`) and
+     * this flag is the record of it — the *source* is untouched, which is what makes selection, copy and
+     * accessibility still see `(` (Phase 12.8 §"mirroring and glyph mapping"). Phase 12.10's shaping will
+     * reach the same result through a font's alternate glyphs; until then this is how L4 is honoured.
+     */
+    int mirrored;
     /** The metrics door's status: three ways a glyph can have no advance, none of them zero. */
     FontGlyphMetricsStatus metricsStatus;
 } RoboTextGlyph;
@@ -158,14 +180,46 @@ size_t RoboTextGlyphRunCount(const RoboTextGlyphRun *run);
 /** Glyph @p index, or NULL when out of range. */
 const RoboTextGlyph *RoboTextGlyphRunGlyph(const RoboTextGlyphRun *run, RoboTextGlyphIndex index);
 
-/** The scalars the run covers. */
+/**
+ * The scalars the run covers.
+ *
+ * Mirroring does not appear here: a glyph generated from a mirrored code point still names the scalar it
+ * came from, so this is the logical source range in every case (Phase 12.8 §"mirroring and glyph
+ * mapping").
+ */
 RoboTextRange RoboTextGlyphRunSourceRange(const RoboTextGlyphRun *run);
 
 /** The script the run was generated for. */
 RoboTextScript RoboTextGlyphRunScript(const RoboTextGlyphRun *run);
 
-/** The direction the run's scalars were classified as. */
+/** The direction that applies to the run — the resolved direction of its level (Phase 12.8). */
 RoboTextDirection RoboTextGlyphRunDirection(const RoboTextGlyphRun *run);
+
+/**
+ * The resolved bidi level the run was generated at (Phase 12.8), or `RoboTextBidiLevelNone`.
+ *
+ * Carried for diagnostics and for the cursor/selection work that follows: a caret needs to know which
+ * level's direction it is moving *within*, which a single direction per run cannot say when a line holds
+ * two levels of the same parity.
+ */
+RoboTextBidiLevel RoboTextGlyphRunBidiLevel(const RoboTextGlyphRun *run);
+
+/**
+ * Glyphs whose id came from a mirrored code point (UAX #9 L4) rather than from the scalar.
+ *
+ * Not a defect count: it is the L4 record, and the glyphs' **sources are unaffected** by it — mapping a
+ * glyph back to the text answers `(` for a glyph that drew `)`.
+ */
+size_t RoboTextGlyphRunMirrored(const RoboTextGlyphRun *run);
+
+/**
+ * Glyphs that stand for a bidi formatting control — the ones a painter draws nothing for.
+ *
+ * Read @ref RoboTextGlyph::control per glyph rather than searching for a zero id: `.notdef` is id 0 as
+ * well, and an unmapped *character* is drawn and advanced over deliberately (`RoboTextGlyphs.c` explains
+ * why). The two facts are different and only one of them means "do not draw".
+ */
+size_t RoboTextGlyphRunControls(const RoboTextGlyphRun *run);
 
 /** The direction the caller declared for the whole text. */
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run);
@@ -269,6 +323,10 @@ typedef struct RoboTextGlyphStats {
     size_t multiScalarSources;
     /** Glyphs that carry a non-zero offset. Zero in this build (no positioning). */
     size_t positioned;
+    /** Glyphs whose id came from a mirrored code point (UAX #9 L4 applies to their scalar). */
+    size_t mirrored;
+    /** Glyphs that stand for a bidi formatting control: no id, no advance, nothing drawn. */
+    size_t controls;
     /** Total advance across every run, in device pixels. */
     double advancePx;
 } RoboTextGlyphStats;
@@ -279,7 +337,8 @@ Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats 
 /**
  * Human-readable one-line dump of a glyph, for the visual test surface the phase asks for.
  *
- * Writes `id=<id> scalar=<n>..<n> advance=<f> units=<n> offset=<f>,<f> mapped=<0|1>`. The glyph's index
+ * Writes `id=<id> scalar=<n>..<n> advance=<f> units=<n> offset=<f>,<f> mapped=<0|1> mirrored=<0|1>`.
+ * The glyph's index
  * in its run is deliberately **not** part of the line: the record does not carry one (a glyph does not
  * know where it sits), and a caller dumping a run is already walking the indices.
  *

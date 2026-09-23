@@ -113,6 +113,9 @@ void TestRegisterTextAnalysis(void);
  * the script-run diagnostics. The algorithm lives in the same resolver the analysis consumes. */
 void TestRegisterTextScript(void);
 void TestRegisterTextDirection(void);
+/* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
+ * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
+void TestRegisterTextBidi(void);
 void TestRegisterGraphics(void);
 void TestRegisterGraphicsPixelFormat(void);
 void TestRegisterGraphicsFramebuffer(void);
@@ -413,6 +416,7 @@ int main(int argc, char **argv)
     TestRegisterTextAnalysis();
     TestRegisterTextScript();
     TestRegisterTextDirection();
+    TestRegisterTextBidi();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

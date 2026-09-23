@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.3.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.4.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -36,9 +36,11 @@ static void TestConformanceVersion(void)
     /* The version string and the components are the same fact. */
     RoboCheckEqInt((int)major, 1);
     /* 12.5 added the Unicode/font integration, 12.6 the script-extension facts and the contextual script
-     * resolver, and 12.7 the direction stage — none of which changed the run or glyph record shapes, which
-     * is exactly the condition the version header names for a minor move rather than a major one. */
-    RoboCheckEqInt((int)minor, 3);
+     * resolver, 12.7 the direction stage and 12.8 the bidirectional stage — none of which changed the run
+     * or glyph record *shapes*, which is exactly the condition the version header names for a minor move
+     * rather than a major one. 12.8 gave the run and glyph records a level *field*, which is why the
+     * record layouts moved without the API's shape changing. */
+    RoboCheckEqInt((int)minor, 4);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -93,14 +95,29 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.scriptRunDiagnostics, 1);
 
     /*
-     * The direction stage (12.7): the paragraph direction (P2/P3 and nothing after it — `bidiAlgorithm`
-     * below is still 0), the per-span context, the class projection that keeps `EN` apart from `ES`, and
-     * the run dump. Each is exercised by a case in `text.direction.*`.
+     * The direction stage (12.7): the paragraph direction (P2/P3), the per-span context, the class
+     * projection that keeps `EN` apart from `ES`, and the run dump. Each is exercised by a case in
+     * `text.direction.*`. These stay **1** after 12.8 and mean what they meant: the classification,
+     * whose `RoboTextDirectionUnknown` is still a real state on the direction runs.
      */
     RoboCheckEqInt(capabilities.paragraphDirection, 1);
     RoboCheckEqInt(capabilities.directionContext, 1);
     RoboCheckEqInt(capabilities.directionClasses, 1);
     RoboCheckEqInt(capabilities.directionRunDiagnostics, 1);
+
+    /*
+     * The bidi stage (12.8): the flag 12.7 declared absent, and its six companions. Each is exercised by a
+     * case in `text.bidi.*` — the paragraph base and its four sources, the levels and X9's removals, the
+     * level runs and L2's visual order, the isolates, L4's mirroring, and the paragraph dump — so a `1`
+     * here is a claim the suite can contradict rather than a sentence in a comment.
+     */
+    RoboCheckEqInt(capabilities.bidiAlgorithm, 1);
+    RoboCheckEqInt(capabilities.bidiParagraphs, 1);
+    RoboCheckEqInt(capabilities.bidiLevels, 1);
+    RoboCheckEqInt(capabilities.bidiVisualOrder, 1);
+    RoboCheckEqInt(capabilities.bidiIsolates, 1);
+    RoboCheckEqInt(capabilities.bidiMirroring, 1);
+    RoboCheckEqInt(capabilities.bidiDiagnostics, 1);
 
     /* The generator, named as the placeholder it is. */
     RoboCheckEqInt(capabilities.glyphGenerationIsPlaceholder, 1);
@@ -108,15 +125,14 @@ static void TestConformanceCapabilities(void)
     /*
      * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan
      * rather than an oversight: substitution 12.10, positioning 12.11, ligatures 12.12, kerning 12.13,
-     * bidi 12.8, complex scripts 12.19, vertical text 12.20, and variable-axis application unowned until
-     * RoboFont interpolates outlines. A `1` here without the implementation would be the exact failure the
-     * phase's boundary section forbids.
+     * complex scripts 12.19, vertical text 12.20, and variable-axis application unowned until RoboFont
+     * interpolates outlines. A `1` here without the implementation would be the exact failure the phase's
+     * boundary section forbids. `bidiAlgorithm` left this list in 12.8 and is asserted present above.
      */
     RoboCheckEqInt(capabilities.substitution, 0);
     RoboCheckEqInt(capabilities.positioning, 0);
     RoboCheckEqInt(capabilities.ligatures, 0);
     RoboCheckEqInt(capabilities.kerning, 0);
-    RoboCheckEqInt(capabilities.bidiAlgorithm, 0);
     RoboCheckEqInt(capabilities.complexScripts, 0);
     RoboCheckEqInt(capabilities.verticalText, 0);
     RoboCheckEqInt(capabilities.variableAxisApplication, 0);

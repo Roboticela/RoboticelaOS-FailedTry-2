@@ -27,11 +27,16 @@
  * strong scalar, a number's even level, or a neutral block's both-sides answer — and never a level or a
  * visual order. `RoboTextDirectionUnknown` remains a real state (`"123 456"` with nothing declared) rather
  * than an error, so the resolver answers it rather than inventing an LTR claim the algorithm has not made.
+ *
+ * 12.8 added a fourth thing to the same pass: the **resolution**. The direction runs are unchanged and stay
+ * 12.7's; the text runs carry the direction the resolved level implies plus that level; and the paragraph
+ * itself is published. Nothing is reordered, and the source text is never touched.
  */
 
 #include "RoboText/RoboTextRuns.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboText/RoboTextBidi.h"
 #include "RoboText/RoboTextDirection.h"
 #include "RoboText/RoboTextUnicode.h"
 
@@ -45,7 +50,10 @@ struct RoboTextRunSet {
     RoboTextRun *textRuns;
     size_t textRunCount;
     RoboTextScalarIndex scalarCount;
+    /** 12.7's classification of the paragraph; `Unknown` is a real state here (see the header). */
     RoboTextDirection baseDirection;
+    /** 12.8's resolution of the same paragraph. Owned; freed with the set. */
+    RoboTextBidiParagraph *paragraph;
     RoboTextScript scriptHint;
     RoboTextLanguage language;
     /** The setting every text run carries. Copied, so the set keeps nothing borrowed but the text. */
@@ -64,6 +72,7 @@ void RoboTextRunSetDestroy(RoboTextRunSet *set)
     RoboFree(set->scriptRuns);
     RoboFree(set->directionRuns);
     RoboFree(set->textRuns);
+    RoboTextBidiParagraphDestroy(set->paragraph);
     RoboFree(set);
 }
 
@@ -78,6 +87,10 @@ Result RoboTextRunSetCreate(RoboTextView view,
     Uchar32 *scalars = NULL;
     RoboTextScalarIndex count = 0u;
     RoboTextDirection *directions = NULL;
+    /* The directions the *resolution* implies, per scalar: what a text run's `direction` reads, while
+     * `directions` stays the classification the direction runs are built from. Two arrays, because the
+     * two stages answer different questions about the same scalar (Phase 12.8). */
+    RoboTextDirection *resolvedDirections = NULL;
     Result status;
 
     if (!out) {
@@ -123,19 +136,33 @@ Result RoboTextRunSetCreate(RoboTextView view,
     }
     set->scalarCount = count;
     if (count == 0u) {
-        /* No text is a fact about a document. An empty set answers every door below without a run. */
+        /*
+         * No text is a fact about a document. An empty set answers every door below without a run — and it
+         * still gets a paragraph, because its base level is a fact too (declared, or P3's default) and a
+         * caller reading `RoboTextRunSetBaseLevel` should not have to special-case emptiness.
+         */
+        RoboTextDirectionContext emptyContext = RoboTextDirectionContextForBase(options->baseDirection);
+
         set->baseDirection = (options->baseDirection == RoboTextDirectionUnknown)
                                  ? RoboTextDirectionUnknown
                                  : options->baseDirection;
+        status = RoboTextBidiParagraphResolve(NULL, 0u, &emptyContext, &set->paragraph, diag);
+        if (status != RoboOk) {
+            RoboFree(set);
+            return status;
+        }
         *out = set;
         return RoboOk;
     }
 
     directions = (RoboTextDirection *)RoboCalloc(count, sizeof(*directions));
+    resolvedDirections = (RoboTextDirection *)RoboCalloc(count, sizeof(*resolvedDirections));
     set->scriptRuns = (RoboTextScriptRun *)RoboCalloc(count, sizeof(*set->scriptRuns));
     set->directionRuns = (RoboTextDirectionRun *)RoboCalloc(count, sizeof(*set->directionRuns));
     set->textRuns = (RoboTextRun *)RoboCalloc(count, sizeof(*set->textRuns));
-    if (!directions || !set->scriptRuns || !set->directionRuns || !set->textRuns) {
+    if (!directions || !resolvedDirections || !set->scriptRuns || !set->directionRuns ||
+        !set->textRuns) {
+        RoboFree(resolvedDirections);
         RoboFree(directions);
         RoboFree(scalars);
         RoboTextRunSetDestroy(set);
@@ -153,6 +180,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
         RoboTextScript *scripts = (RoboTextScript *)RoboCalloc(count, sizeof(*scripts));
 
         if (!scripts) {
+            RoboFree(resolvedDirections);
             RoboFree(directions);
             RoboFree(scalars);
             RoboTextRunSetDestroy(set);
@@ -163,6 +191,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                            set->scriptRuns, (size_t)count, &set->scriptRunCount, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(resolvedDirections);
             RoboFree(directions);
             RoboFree(scalars);
             RoboTextRunSetDestroy(set);
@@ -182,27 +211,55 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                              &set->directionRunCount, &set->baseDirection, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(resolvedDirections);
             RoboFree(directions);
             RoboFree(scalars);
             RoboTextRunSetDestroy(set);
             return status;
         }
         /*
+         * And the **resolution**, through the phase's own one door (Phase 12.8). It takes the same context
+         * the classification did, so the paragraph a caller declared and the paragraph that was classified
+         * are the same paragraph, and it owns its answer: levels, logical runs and L2's visual order all
+         * come from it, and this file only reads them.
+         */
+        status = RoboTextBidiParagraphResolve(scalars, (size_t)count, &directionContext,
+                                             &set->paragraph, diag);
+        if (status != RoboOk) {
+            RoboFree(scripts);
+            RoboFree(resolvedDirections);
+            RoboFree(directions);
+            RoboFree(scalars);
+            RoboTextRunSetDestroy(set);
+            return status;
+        }
+        for (RoboTextScalarIndex index = 0u; index < count; index++) {
+            resolvedDirections[index] =
+                RoboTextBidiLevelDirection(RoboTextBidiParagraphResolvedLevel(set->paragraph, index));
+        }
+        /*
          * The text runs are the *intersection* of the two walks, which is why this loop tests both arrays
-         * rather than walking either: a boundary in either segmentation is a boundary here, and the result
-         * is contiguous and ascending by construction — the property `RunAtScalar`'s binary search relies
-         * on.
+         * rather than walking either: a boundary in either the script segmentation or the resolved
+         * direction is a boundary here, and the result is contiguous and ascending by construction — the
+         * property `RunAtScalar`'s binary search relies on.
+         *
+         * The direction it cuts on is the **resolved** one, and the level travels on the run beside it.
+         * Cutting on the level instead would split wherever a level moves without changing the parity —
+         * two stretches a shaper does the same thing with. The algorithm's own boundaries are not lost:
+         * they are `RoboTextRunSetBidiRun`'s.
          */
         for (RoboTextScalarIndex index = 0u; index < count;) {
             RoboTextScalarIndex end = index + 1u;
 
             while (end < count && scripts[end] == scripts[index] &&
-                   directions[end] == directions[index]) {
+                   resolvedDirections[end] == resolvedDirections[index]) {
                 end++;
             }
             set->textRuns[set->textRunCount].range = RoboTextRangeMake(index, end);
             set->textRuns[set->textRunCount].script = scripts[index];
-            set->textRuns[set->textRunCount].direction = directions[index];
+            set->textRuns[set->textRunCount].direction = resolvedDirections[index];
+            set->textRuns[set->textRunCount].bidiLevel =
+                RoboTextBidiParagraphResolvedLevel(set->paragraph, index);
             set->textRuns[set->textRunCount].baseDirection = set->baseDirection;
             set->textRuns[set->textRunCount].font = set->font;
             set->textRuns[set->textRunCount].language = set->language;
@@ -212,6 +269,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
         RoboFree(scripts);
     }
 
+    RoboFree(resolvedDirections);
     RoboFree(directions);
     RoboFree(scalars);
     *out = set;
@@ -271,6 +329,43 @@ RoboTextDirection RoboTextRunSetBaseDirection(const RoboTextRunSet *set)
     return set ? set->baseDirection : RoboTextDirectionUnknown;
 }
 
+RoboTextBidiLevel RoboTextRunSetBaseLevel(const RoboTextRunSet *set)
+{
+    return RoboTextBidiParagraphBaseLevel(set ? set->paragraph : NULL);
+}
+
+RoboTextBidiBaseSource RoboTextRunSetBaseSource(const RoboTextRunSet *set)
+{
+    return RoboTextBidiParagraphBaseSource(set ? set->paragraph : NULL);
+}
+
+const RoboTextBidiParagraph *RoboTextRunSetBidiParagraph(const RoboTextRunSet *set)
+{
+    return set ? set->paragraph : NULL;
+}
+
+size_t RoboTextRunSetBidiRunCount(const RoboTextRunSet *set)
+{
+    return RoboTextBidiParagraphRunCount(set ? set->paragraph : NULL);
+}
+
+const RoboTextBidiRun *RoboTextRunSetBidiRun(const RoboTextRunSet *set, size_t index)
+{
+    return RoboTextBidiParagraphRun(set ? set->paragraph : NULL, index);
+}
+
+Result RoboTextRunSetVisualBidiRun(const RoboTextRunSet *set,
+                                   size_t visual,
+                                   size_t *outLogicalRunIndex,
+                                   RoboTextDiag *diag)
+{
+    if (!set || !set->paragraph) {
+        return RoboTextDiagMsg(diag, RoboTextDomainBidi, RoboInvalidArgument,
+                               "a run set with a resolved paragraph is required");
+    }
+    return RoboTextBidiParagraphVisualRun(set->paragraph, visual, outLogicalRunIndex, diag);
+}
+
 RoboTextScript RoboTextRunSetScriptHint(const RoboTextRunSet *set)
 {
     return set ? set->scriptHint : RoboTextScriptCommon;
@@ -321,14 +416,30 @@ Result RoboTextRunSetGetStats(const RoboTextRunSet *set, RoboTextRunStats *out)
     out->directionRuns = set->directionRunCount;
     out->textRuns = set->textRunCount;
     out->scalars = set->scalarCount;
+    out->bidiRuns = RoboTextBidiParagraphRunCount(set->paragraph);
+    out->baseLevel = RoboTextBidiParagraphBaseLevel(set->paragraph);
+    {
+        RoboTextBidiStats bidiStats;
+
+        if (RoboTextBidiParagraphGetStats(set->paragraph, &bidiStats) == RoboOk) {
+            out->removedScalars = bidiStats.removedScalars;
+            out->rtlScalars = bidiStats.rtlScalars;
+        }
+    }
+    /* The direction runs' own classification, which is the state `unknownDirectionRuns` describes now
+     * that the text runs are resolved: `"123 456"` with nothing declared has one unknown *direction* run
+     * and no unknown text run. Counting both would double-count one fact under one name. */
+    for (size_t index = 0u; index < set->directionRunCount; index++) {
+        if (set->directionRuns[index].direction == RoboTextDirectionUnknown) {
+            out->unknownDirectionRuns++;
+        }
+    }
     for (size_t index = 0u; index < set->textRunCount; index++) {
         const RoboTextRun *run = &set->textRuns[index];
         int seen = 0;
 
         if (run->direction == RoboTextDirectionRtl) {
             out->rtlRuns++;
-        } else if (run->direction == RoboTextDirectionUnknown) {
-            out->unknownDirectionRuns++;
         }
         /* Distinct scripts by a scan over the runs already counted: a run count is small (a handful even
          * for a mixed-script paragraph) and a hash set here would be more machinery than the answer is

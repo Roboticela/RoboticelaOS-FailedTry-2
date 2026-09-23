@@ -42,7 +42,10 @@ struct RoboTextAnalysis {
     RoboTextDirectionRun *directionRuns;
     size_t directionRunCount;
     RoboTextScalarIndex scalarCount;
+    /** 12.7's classification of the paragraph. */
     RoboTextDirection baseDirection;
+    /** 12.8's resolution of the same paragraph. Owned; freed with the analysis. */
+    RoboTextBidiParagraph *paragraph;
     RoboTextDirectionContext directionContext;
     RoboTextScript scriptHint;
     RoboTextLanguage language;
@@ -100,6 +103,7 @@ Result RoboTextShapeRequestFromRun(const RoboTextAnalysisRun *run,
     out->range = run->range;
     out->script = run->script;
     out->direction = run->direction;
+    out->bidiLevel = run->bidiLevel;
     out->baseDirection = baseDirection;
     out->font.face = run->font.face;
     /*
@@ -138,6 +142,7 @@ Result RoboTextShapeRequestToRun(const RoboTextShapeRequest *request, RoboTextRu
     out->range = request->range;
     out->script = request->script;
     out->direction = request->direction;
+    out->bidiLevel = request->bidiLevel;
     out->baseDirection = request->baseDirection;
     out->font = request->font;
     out->language = request->language;
@@ -156,6 +161,7 @@ void RoboTextAnalysisDestroy(RoboTextAnalysis *analysis)
     RoboFree(analysis->runs);
     RoboFree(analysis->scriptRuns);
     RoboFree(analysis->directionRuns);
+    RoboTextBidiParagraphDestroy(analysis->paragraph);
     RoboFree(analysis);
 }
 
@@ -171,6 +177,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     Uchar32 *scalars = NULL;
     RoboTextScalarIndex count = 0u;
     RoboTextDirection *directions = NULL;
+    RoboTextDirection *bidiDirections = NULL;
     RoboTextResolvedFont *runFonts = NULL;
     size_t runCount = 0u;
     Result status;
@@ -223,6 +230,14 @@ Result RoboTextAnalysisCreate(RoboTextView view,
         analysis->baseDirection = (options->baseDirection == RoboTextDirectionUnknown)
                                       ? RoboTextDirectionUnknown
                                       : options->baseDirection;
+        /* Even an empty analysis carries a paragraph, so `…BidiParagraph` and its base level answer for
+         * it rather than making every caller special-case emptiness. */
+        status = RoboTextBidiParagraphResolve(NULL, 0u, &analysis->directionContext,
+                                              &analysis->paragraph, diag);
+        if (status != RoboOk) {
+            RoboTextAnalysisDestroy(analysis);
+            return status;
+        }
         *out = analysis;
         return RoboOk;
     }
@@ -231,7 +246,10 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     analysis->directionRuns = (RoboTextDirectionRun *)RoboCalloc(count, sizeof(*analysis->directionRuns));
     analysis->runs = (RoboTextAnalysisRun *)RoboCalloc(count, sizeof(*analysis->runs));
     directions = (RoboTextDirection *)RoboCalloc(count, sizeof(*directions));
-    if (!analysis->scriptRuns || !analysis->directionRuns || !analysis->runs || !directions) {
+    bidiDirections = (RoboTextDirection *)RoboCalloc(count, sizeof(*bidiDirections));
+    if (!analysis->scriptRuns || !analysis->directionRuns || !analysis->runs || !directions ||
+        !bidiDirections) {
+        RoboFree(bidiDirections);
         RoboFree(directions);
         RoboTextUnicodeScalarsFree(scalars);
         RoboTextAnalysisDestroy(analysis);
@@ -258,10 +276,31 @@ Result RoboTextAnalysisCreate(RoboTextView view,
                                           analysis->directionRuns, (size_t)count,
                                           &analysis->directionRunCount, &analysis->baseDirection, diag);
     if (status != RoboOk) {
+        RoboFree(bidiDirections);
         RoboFree(directions);
         RoboTextUnicodeScalarsFree(scalars);
         RoboTextAnalysisDestroy(analysis);
         return status;
+    }
+    /*
+     * And the **resolution** (Phase 12.8), from the module's one bidi door, against the same context the
+     * classification ran with — so the paragraph a caller declared and the paragraph that was classified
+     * are one paragraph. The analysis runs below are cut against *this* answer: a shaper is entitled to the
+     * direction UAX #9 resolved rather than to a classification of the same scalars, and the classification
+     * is still published beside it for a reader who wants both.
+     */
+    status = RoboTextBidiParagraphResolve(scalars, (size_t)count, &analysis->directionContext,
+                                         &analysis->paragraph, diag);
+    if (status != RoboOk) {
+        RoboFree(bidiDirections);
+        RoboFree(directions);
+        RoboTextUnicodeScalarsFree(scalars);
+        RoboTextAnalysisDestroy(analysis);
+        return status;
+    }
+    for (RoboTextScalarIndex index = 0u; index < count; index++) {
+        bidiDirections[index] =
+            RoboTextBidiLevelDirection(RoboTextBidiParagraphResolvedLevel(analysis->paragraph, index));
     }
 
     for (RoboTextScalarIndex index = 0u; index < count; index++) {
@@ -273,6 +312,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     runFonts = (RoboTextResolvedFont *)RoboCalloc((analysis->scriptRunCount != 0u) ? analysis->scriptRunCount : 1u,
                                                   sizeof(*runFonts));
     if (!runFonts) {
+        RoboFree(bidiDirections);
         RoboFree(directions);
         RoboTextUnicodeScalarsFree(scalars);
         RoboTextAnalysisDestroy(analysis);
@@ -288,6 +328,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
                                                  &runFonts[scriptIndex], diag);
         if (status != RoboOk) {
             RoboFree(runFonts);
+            RoboFree(bidiDirections);
             RoboFree(directions);
             RoboTextUnicodeScalarsFree(scalars);
             RoboTextAnalysisDestroy(analysis);
@@ -296,9 +337,16 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     }
 
     /*
-     * The analysis runs are the script runs cut again by classified direction. There is no third cut for
-     * the font, because the font is constant across a script run by construction — which is exactly the
-     * property that keeps a base character and its combining mark in one face.
+     * The analysis runs are the script runs cut again by **resolved** direction, with the resolved level
+     * carried on each one. There is no third cut for the font, because the font is constant across a script
+     * run by construction — which is exactly the property that keeps a base character and its combining
+     * mark in one face.
+     *
+     * The cut is on the direction rather than on the level, and that is a choice the phase's §"script +
+     * bidi run intersection" should be read against: a level change that does not change the parity does not
+     * change what a shaper does with the stretch, and splitting there would hand every consumer two runs
+     * where one is intended. The algorithm's own boundaries are not lost — `RoboTextAnalysisBidiRun` is
+     * exactly them, and every level travels on the run that carries it.
      */
     for (size_t scriptIndex = 0u; scriptIndex < analysis->scriptRunCount; scriptIndex++) {
         const RoboTextScriptRun *scriptRun = &analysis->scriptRuns[scriptIndex];
@@ -306,14 +354,16 @@ Result RoboTextAnalysisCreate(RoboTextView view,
 
         while (index < scriptRun->range.end) {
             RoboTextScalarIndex end = index + 1u;
-            RoboTextDirection direction = directions[index];
+            RoboTextDirection direction = bidiDirections[index];
 
-            while (end < scriptRun->range.end && directions[end] == direction) {
+            while (end < scriptRun->range.end && bidiDirections[end] == direction) {
                 end++;
             }
             analysis->runs[runCount].range = RoboTextRangeMake(index, end);
             analysis->runs[runCount].script = scriptRun->script;
             analysis->runs[runCount].direction = direction;
+            analysis->runs[runCount].bidiLevel =
+                RoboTextBidiParagraphResolvedLevel(analysis->paragraph, index);
             analysis->runs[runCount].font = runFonts[scriptIndex];
             runCount++;
             index = end;
@@ -322,6 +372,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
 
     analysis->runCount = runCount;
     RoboFree(runFonts);
+    RoboFree(bidiDirections);
     RoboFree(directions);
     RoboTextUnicodeScalarsFree(scalars);
     *out = analysis;
@@ -400,6 +451,39 @@ const RoboTextDirectionRun *RoboTextAnalysisDirectionRun(const RoboTextAnalysis 
     return &analysis->directionRuns[index];
 }
 
+const RoboTextBidiParagraph *RoboTextAnalysisBidiParagraph(const RoboTextAnalysis *analysis)
+{
+    return analysis ? analysis->paragraph : NULL;
+}
+
+size_t RoboTextAnalysisBidiRunCount(const RoboTextAnalysis *analysis)
+{
+    return RoboTextBidiParagraphRunCount(analysis ? analysis->paragraph : NULL);
+}
+
+const RoboTextBidiRun *RoboTextAnalysisBidiRun(const RoboTextAnalysis *analysis, size_t index)
+{
+    return RoboTextBidiParagraphRun(analysis ? analysis->paragraph : NULL, index);
+}
+
+Result RoboTextAnalysisVisualBidiRun(const RoboTextAnalysis *analysis,
+                                     size_t visual,
+                                     size_t *outLogicalRunIndex,
+                                     RoboTextDiag *diag)
+{
+    if (!analysis || !analysis->paragraph) {
+        return RoboTextDiagMsg(diag, RoboTextDomainBidi, RoboInvalidArgument,
+                               "an analysis with a resolved paragraph is required");
+    }
+    return RoboTextBidiParagraphVisualRun(analysis->paragraph, visual, outLogicalRunIndex, diag);
+}
+
+RoboTextBidiLevel RoboTextAnalysisBidiLevelAt(const RoboTextAnalysis *analysis,
+                                              RoboTextScalarIndex scalar)
+{
+    return RoboTextBidiParagraphLevel(analysis ? analysis->paragraph : NULL, scalar);
+}
+
 RoboTextDirection RoboTextAnalysisDirectionContext(const RoboTextAnalysis *analysis,
                                                    RoboTextDirectionContext *out)
 {
@@ -461,6 +545,17 @@ Result RoboTextAnalysisGetStats(const RoboTextAnalysis *analysis, RoboTextAnalys
     out->directionRuns = analysis->directionRunCount;
     out->combiningMarks = analysis->combiningMarks;
     out->scalars = analysis->scalarCount;
+    {
+        RoboTextBidiStats bidiStats;
+
+        out->bidiRuns = RoboTextBidiParagraphRunCount(analysis->paragraph);
+        out->baseLevel = RoboTextBidiParagraphBaseLevel(analysis->paragraph);
+        if (RoboTextBidiParagraphGetStats(analysis->paragraph, &bidiStats) == RoboOk) {
+            out->removedScalars = bidiStats.removedScalars;
+            out->rtlScalars = bidiStats.rtlScalars;
+            out->mirroredScalars = bidiStats.mirroredScalars;
+        }
+    }
     for (size_t index = 0u; index < analysis->runCount; index++) {
         const RoboTextAnalysisRun *run = &analysis->runs[index];
 

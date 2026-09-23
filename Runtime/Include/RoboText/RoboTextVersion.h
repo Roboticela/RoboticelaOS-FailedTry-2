@@ -10,10 +10,12 @@
  *   the **model**      text, ranges, runs, fonts, glyphs, mapping. All present.
  *   the **generator**  how a glyph id is obtained from a scalar: one cmap lookup per scalar, with
  *                      no substitution. Present, and *named as the placeholder it is*.
- *   the **algorithms** GSUB, GPOS, kerning, ligatures, bidi reordering, complex scripts. Absent, and
- *                      each goal that adds one flips a flag here in the same change — with 12.7's
- *                      `directionRuns`/`paragraphDirection` and 12.8's `bidiAlgorithm` the split that
- *                      matters most: the *classification* is here and the *resolution* is not.
+ *   the **algorithms** GSUB, GPOS, kerning, ligatures, complex scripts. Absent, and each goal that adds
+ *                      one flips a flag here in the same change. 12.8 is where the split 12.7 announced
+ *                      closed: `directionRuns`/`paragraphDirection` are still the *classification*, and
+ *                      `bidiAlgorithm` with its six companions below is the *resolution* — levels, level
+ *                      runs, L2's visual order, isolates, L4's mirroring and the dump, each one a flag
+ *                      and each one a case in the suite.
  *
  * `RoboTextGlyphGenerationIsPlaceholder` is the flag that matters most this phase, and it is written
  * the way the phase's boundary demands: the cmap-per-scalar generator is **isolated and labelled**,
@@ -34,9 +36,10 @@ extern "C" {
 #define RoboTextVersionMajor 1
 /* 12.5 added the Unicode doors, the font selector and the analysis runs; 12.6 the script-extension facts,
  * the contextual script resolver and its diagnostics; 12.7 the direction stage — the class projection, the
- * paragraph context and the direction-run resolver. The run/glyph record shapes are unchanged throughout,
- * so the major stays and the minor moves. */
-#define RoboTextVersionMinor 3
+ * paragraph context and the direction-run resolver; 12.8 the bidirectional stage — the paragraph base, the
+ * levels, the level runs, L2's visual order, L4's mirroring and the paragraph dump. The run/glyph record
+ * shapes gained a level field rather than changing shape, so the major stays and the minor moves. */
+#define RoboTextVersionMinor 4
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -142,8 +145,33 @@ typedef struct RoboTextCapabilities {
     int kerning;
     /** Ligatures. **0**: Phase 12.12. */
     int ligatures;
-    /** The Unicode bidirectional algorithm, including reordering. **0**: Phase 12.8. */
+    /**
+     * The Unicode bidirectional algorithm, including reordering. **1** since Phase 12.8.
+     *
+     * The *classification* is 12.7's (`directionRuns`); this is the resolution: UAX #9's levels, runs and
+     * visual order, consumed from RoboUnicode's own implementation. Nothing is reordered in the source
+     * text — the visual order is an index array beside the runs.
+     */
     int bidiAlgorithm;
+
+    /* --- Phase 12.8: the bidirectional stage --- */
+
+    /** A paragraph's base direction and level, resolved from a declaration or from P2/P3 (P3's default
+     *  included, and reported as such rather than as a silent LTR). */
+    int bidiParagraphs;
+    /** A resolved level per scalar, with X9's removals marked as "no level" rather than level 0. */
+    int bidiLevels;
+    /** L2's visual order, over the level runs and over the visible scalars, with the inverse mapping a
+     *  hit test needs. */
+    int bidiVisualOrder;
+    /** Directional isolates (`LRI`/`RLI`/`FSI`/`PDI`) and the explicit embeddings, resolved by the
+     *  algorithm this stage consumes. */
+    int bidiIsolates;
+    /** L4's mirrored glyph selection, from the UCD's `Bidi_Mirroring_Glyph`, without touching the text. */
+    int bidiMirroring;
+    /** A paragraph can be written as a table: base, level runs in both index spaces, visual order and the
+     *  per-scalar class-and-level lines. */
+    int bidiDiagnostics;
     /** Complex-script shaping. **0**: Phase 12.19. */
     int complexScripts;
     /** Vertical text. **0**: Phase 12.20. */
