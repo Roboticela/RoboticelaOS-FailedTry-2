@@ -52,8 +52,14 @@ extern "C" {
  * metrics and its totals) and added the list over runs (`RoboTextRunList.h`: the key, the two orders, the
  * merge and the validation). Additive once more — the glyph record gained a `codePoint` field, the run's own
  * struct gained the four derived records, and every existing door kept its signature — so the minor moves
- * again and the major stays. */
-#define RoboTextVersionMinor 8
+ * again and the major stays.
+ *
+ * 12.15 moved the measurement record into its own header (`RoboTextMeasurement.h`) and added the engine over a
+ * finalized run list: the rect, the request and its options, the line-metrics policy, the tolerance, the
+ * validation and the diagnostic block. Additive for every door — the record grew fields and no existing
+ * signature changed — with one *architectural* consequence worth the minor: the result's own measurement is now
+ * this engine over the result's own list rather than a second walk in `RoboTextShape.c`. */
+#define RoboTextVersionMinor 9
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -276,6 +282,47 @@ typedef struct RoboTextCapabilities {
     int complexScripts;
     /** Vertical text. **0**: Phase 12.20. */
     int verticalText;
+
+    /* --- Phase 12.15: text measurement --- */
+
+    /**
+     * Measurement is a **door over a finalized run list**: a width is the runs' own advances, and nothing in
+     * the measurement path decodes, selects a font, resolves a script or a level, or runs GSUB/GPOS.
+     *
+     * Distinct from @ref measurement, which has been true since 12.4: that is the *existence* of a measurement,
+     * this is the property that makes it authoritative rather than a second opinion. `RoboTextShape.c` calls the
+     * engine, so the result's own measurement and a caller's second measurement of the same result are one
+     * implementation.
+     */
+    int measurementEngine;
+    /**
+     * Line metrics over a mixed-font line aggregate by the **maximum** rule (ascent, descent and gap each the
+     * maximum over the participating runs) rather than the first run's.
+     *
+     * What this does *not* claim: a CSS `line-height` algorithm. A declared leading is honoured as declared, and
+     * `lineMetrics.height` is the typographic sum beside it — the two are different questions and both answers
+     * are published.
+     */
+    int lineMetricsPolicy;
+    /**
+     * Ink bounds, from each glyph's own outline box as the face reports it (`glyf`'s per-glyph bbox), scaled
+     * through the module's one scaling door and translated by the pen and the glyph's placement offset.
+     *
+     * What this does *not* claim: a box for every glyph. A face whose outlines carry no box (a CFF face) leaves
+     * the measurement's `hasInkBounds` **0** and its `outComplete` false, which is reported rather than
+     * approximated with the advance box — a rectangle that paints nothing is worse than an absent one.
+     */
+    int inkBounds;
+    /** Logical bounds and ink bounds kept apart, so a mark that overhangs its base is a fact and not a
+     *  correction to the width. */
+    int measurementBounds;
+    /** The measurement invariants, by a door a test calls (`RoboTextMeasureValidate`). */
+    int measurementValidation;
+    /** A measurement as a diagnostic block: the totals, a line per run and a line per glyph with its pen
+     *  position and its ink box. */
+    int measurementDiagnostics;
+    /** The numerical tolerance a measurement comparison uses, published as `RoboTextMeasureTolerancePx`. */
+    int measurementTolerance;
 } RoboTextCapabilities;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

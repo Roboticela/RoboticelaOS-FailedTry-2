@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.8.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.9.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -50,8 +50,13 @@ static void TestConformanceVersion(void)
      * generation — and the run list over them. It is a minor move for the same reason as the last one:
      * `RoboTextGlyph` gained a field (`codePoint`, the character a glyph came from) rather than being reshaped,
      * and every existing door kept its signature. The one *new* type, `RoboTextGlyphRunList`, is built by the
-     * module over runs it already produced, so no caller had to change to keep working. */
-    RoboCheckEqInt((int)minor, 8);
+     * module over runs it already produced, so no caller had to change to keep working.
+     *
+     * 12.15 moved the measurement record into its own header and made it a door over that list. Every existing
+     * door and signature survived — the record *grew* fields — so the minor moves and the major stays; and the
+     * one architectural consequence (the shape result's measurement is now the engine over its own list rather
+     * than a second walk) is a change to *where a number is computed*, not to what a caller writes. */
+    RoboCheckEqInt((int)minor, 9);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -195,6 +200,22 @@ static void TestConformanceCapabilities(void)
      * measured a shaping workload where it would pay.
      */
     RoboCheckEqInt(capabilities.shapingCache, 0);
+
+    /*
+     * Measurement (12.15). `measurementEngine` is the claim this phase is about — the record is computed by a
+     * door over the finalized run list rather than by a walk inside the shape call — and the six beside it are
+     * the six things the engine actually provides: the maximum rule over a mixed-font line, an ink box from the
+     * glyphs' own outlines, the two boxes kept apart, the invariants, the block, and the tolerance a comparison
+     * uses. Each is contradicted by a case: `text.measure.{advances,mixed_font,ink_bounds,mark_ink,validation,
+     * write}`.
+     */
+    RoboCheckEqInt(capabilities.measurementEngine, 1);
+    RoboCheckEqInt(capabilities.lineMetricsPolicy, 1);
+    RoboCheckEqInt(capabilities.inkBounds, 1);
+    RoboCheckEqInt(capabilities.measurementBounds, 1);
+    RoboCheckEqInt(capabilities.measurementValidation, 1);
+    RoboCheckEqInt(capabilities.measurementDiagnostics, 1);
+    RoboCheckEqInt(capabilities.measurementTolerance, 1);
 
     /*
      * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan

@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.8.0";
+    static const char version[] = "1.9.0";
 
     return version;
 }
@@ -138,6 +138,22 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->glyphRunValidation = 1;
     out->glyphRunDiagnostics = 1;
     out->shapingCache = 0;
+
+    /*
+     * Measurement (12.15). `measurementEngine` is the one that matters: the record existed since 12.4, and what
+     * this phase changed is that the record is now computed by a door over the finalized run list rather than by
+     * a second walk inside the shape call. Every flag is exercised by a case: the engine by
+     * `text.measure.advances`, the aggregation by `text.measure.mixed_font`, the ink box by
+     * `text.measure.ink_bounds`, the two-box distinction by `text.measure.mark_ink`, the validation by
+     * `text.measure.validation` and the block by `text.measure.write`.
+     */
+    out->measurementEngine = 1;
+    out->lineMetricsPolicy = 1;
+    out->inkBounds = 1;
+    out->measurementBounds = 1;
+    out->measurementValidation = 1;
+    out->measurementDiagnostics = 1;
+    out->measurementTolerance = 1;
 
     /*
      * The bidi stage (12.8). Every flag is exercised by a case: the paragraph base and its four sources by

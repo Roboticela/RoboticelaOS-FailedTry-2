@@ -45,83 +45,15 @@ struct RoboTextShapeResult {
      * built once, at the end of shaping, so that a result is *complete* rather than complete-on-demand.
      */
     RoboTextGlyphRunList *list;
+    /**
+     * The context the text was shaped with, **borrowed** for exactly as long as the runs borrow its face.
+     *
+     * Kept because `RoboTextShapeResultMeasure` re-measures the result's own list and the engine needs a context
+     * to answer for a text with no runs at all (an empty text still has a line). It is the same borrowed lifetime
+     * the runs already have, so it adds no lifetime a caller did not already owe.
+     */
+    RoboTextFontContext font;
 };
-
-/* ------------------------------------------------------------------ */
-/* The measurement                                                     */
-/* ------------------------------------------------------------------ */
-
-void RoboTextMeasurementInit(RoboTextMeasurement *measurement)
-{
-    if (!measurement) {
-        return;
-    }
-    memset(measurement, 0, sizeof(*measurement));
-}
-
-int RoboTextMeasurementEqual(const RoboTextMeasurement *a, const RoboTextMeasurement *b)
-{
-    if (a == b) {
-        return 1;
-    }
-    if (!a || !b) {
-        return 0;
-    }
-    return a->width == b->width && a->ascent == b->ascent && a->descent == b->descent &&
-           a->lineHeight == b->lineHeight && a->glyphCount == b->glyphCount &&
-           a->glyphRunCount == b->glyphRunCount && a->scalarCount == b->scalarCount &&
-           a->missingGlyphs == b->missingGlyphs && a->advanceMax == b->advanceMax;
-}
-
-Result RoboTextMeasurementWrite(const RoboTextMeasurement *measurement,
-                                char *buffer,
-                                size_t capacity,
-                                size_t *outLength)
-{
-    char line[192];
-    size_t length = 0u;
-
-    if (outLength) {
-        *outLength = 0u;
-    }
-    if (!measurement || !buffer || capacity == 0u) {
-        return RoboInvalidArgument;
-    }
-    buffer[0] = '\0';
-
-    length = RoboTextWriterText(line, sizeof(line), length, "width=");
-    length = RoboTextWriterFloat(line, sizeof(line), length, measurement->width);
-    length = RoboTextWriterText(line, sizeof(line), length, " ascent=");
-    length = RoboTextWriterFloat(line, sizeof(line), length, measurement->ascent);
-    length = RoboTextWriterText(line, sizeof(line), length, " descent=");
-    length = RoboTextWriterFloat(line, sizeof(line), length, measurement->descent);
-    length = RoboTextWriterText(line, sizeof(line), length, " lineHeight=");
-    length = RoboTextWriterFloat(line, sizeof(line), length, measurement->lineHeight);
-    length = RoboTextWriterText(line, sizeof(line), length, " advanceMax=");
-    length = RoboTextWriterFloat(line, sizeof(line), length, measurement->advanceMax);
-    length = RoboTextWriterText(line, sizeof(line), length, " glyphs=");
-    length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)measurement->glyphCount);
-    length = RoboTextWriterText(line, sizeof(line), length, " runs=");
-    length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)measurement->glyphRunCount);
-    length = RoboTextWriterText(line, sizeof(line), length, " scalars=");
-    length = RoboTextWriterUnsigned(line, sizeof(line), length, measurement->scalarCount);
-    length = RoboTextWriterText(line, sizeof(line), length, " missing=");
-    length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)measurement->missingGlyphs);
-    if (length == RoboTextWriterOverflow) {
-        return RoboNotSupported;
-    }
-    if (length + 1u > capacity) {
-        if (outLength) {
-            *outLength = length;
-        }
-        return RoboNotSupported;
-    }
-    memcpy(buffer, line, length + 1u);
-    if (outLength) {
-        *outLength = length;
-    }
-    return RoboOk;
-}
 
 /* ------------------------------------------------------------------ */
 /* The pipeline                                                        */
@@ -147,52 +79,27 @@ void RoboTextShapeResultDestroy(RoboTextShapeResult *result)
 }
 
 /**
- * Fill @p measurement from the already-generated runs, and the font context they share.
+ * Fill @p measurement from the already-generated runs.
  *
- * Shared by `RoboTextShape` and by nothing else, because the measurement must be computed from *these*
- * glyph runs rather than from a second generation: a width computed by re-running the generator could
- * differ from the glyphs a painter walks, which is the disagreement this phase exists to end.
+ * The **engine's** door (Phase 12.15), not a second walk: `RoboTextMeasureGlyphRunList` computes the advances,
+ * the aggregated line metrics (from the runs' own metrics, by the maximum rule) and — when the request asks —
+ * the bounds. This function exists to supply the two things the engine deliberately does not: the list, which is
+ * built from the runs, and the font context, which answers for a text with **no runs at all**.
+ *
+ * The request is the default one, and that is a decision rather than an omission: ink bounds ask the face for a
+ * glyph's outline box per glyph, and a shaping call whose caller asked for a width must not pay for outlines it
+ * will never read. A caller that wants them asks `RoboTextShapeResultMeasure` or the engine, both of which run
+ * over this same list and therefore report the same advances.
  */
-static Result ShapeMeasure(const RoboTextRunSet *runs,
-                           RoboTextGlyphRun *const *glyphRuns,
-                           size_t glyphRunCount,
+static Result ShapeMeasure(const RoboTextGlyphRunList *list,
                            const RoboTextFontContext *font,
                            RoboTextMeasurement *out,
                            RoboTextDiag *diag)
 {
-    RoboTextFontMetrics metrics;
-    double width = 0.0;
-    Result status;
+    RoboTextMeasureRequest request;
 
-    RoboTextMeasurementInit(out);
-    out->glyphRunCount = glyphRunCount;
-    out->scalarCount = RoboTextRunSetScalarCount(runs);
-    for (size_t index = 0u; index < glyphRunCount; index++) {
-        const RoboTextGlyphRun *run = glyphRuns[index];
-        size_t count = RoboTextGlyphRunCount(run);
-
-        out->glyphCount += count;
-        out->missingGlyphs += RoboTextGlyphRunMissingGlyphs(run);
-        width += (double)RoboTextGlyphRunAdvance(run);
-        for (size_t glyphIndex = 0u; glyphIndex < count; glyphIndex++) {
-            const RoboTextGlyph *glyph = RoboTextGlyphRunGlyph(run, (RoboTextGlyphIndex)glyphIndex);
-
-            if (glyph->advanceX > out->advanceMax) {
-                out->advanceMax = glyph->advanceX;
-            }
-        }
-    }
-    /* One rounding, here, of a sum accumulated in `double` — the property the header states. */
-    out->width = (float)width;
-
-    status = RoboTextFontContextMetrics(font, &metrics, diag);
-    if (status != RoboOk) {
-        return status;
-    }
-    out->ascent = metrics.ascentPx;
-    out->descent = metrics.descentPx;
-    out->lineHeight = metrics.lineHeightPx;
-    return RoboOk;
+    RoboTextMeasureRequestInit(&request);
+    return RoboTextMeasureGlyphRunList(list, font, &request, out, diag);
 }
 
 Result RoboTextShape(RoboTextView view,
@@ -218,6 +125,7 @@ Result RoboTextShape(RoboTextView view,
         return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboOutOfMemory,
                                "the shape result could not be allocated");
     }
+    result->font = *font;
     {
         Result status = RoboTextRunSetCreate(view, font, options, &result->runs, diag);
 
@@ -250,21 +158,15 @@ Result RoboTextShape(RoboTextView view,
         }
     }
 
-    {
-        Result status = ShapeMeasure(result->runs, result->glyphRuns, result->glyphRunCount, font,
-                                     &result->measurement, diag);
-
-        if (status != RoboOk) {
-            RoboTextShapeResultDestroy(result);
-            return status;
-        }
-    }
-
     /*
-     * The list, last, because it is the record that says the result is finished: it needs the runs, the keys and
-     * the run set's paragraph, and every one of those exists by now. A run count of zero is legal and gets a
-     * list with no runs rather than none at all — "this text shaped to nothing" is an answer, and a result whose
-     * list accessor could be NULL would make every caller write the same check.
+     * The list, before the measurement rather than after it.
+     *
+     * The two orders are the same work in the same place except for one thing: since 12.15 the measurement **is**
+     * a door over the list (`RoboTextMeasureGlyphRunList`), so building the list first is what lets the result's
+     * own measurement and a caller's second measurement of the same result be one implementation. There is no
+     * second walk here for them to disagree in. A run count of zero is legal and gets a list with no runs rather
+     * than none at all — "this text shaped to nothing" is an answer, and a result whose list accessor could be
+     * NULL would make every caller write the same check.
      */
     {
         Result status = RoboTextGlyphRunListCreateView(result->glyphRuns, result->glyphRunCount,
@@ -275,6 +177,16 @@ Result RoboTextShape(RoboTextView view,
             return status;
         }
     }
+
+    {
+        Result status = ShapeMeasure(result->list, font, &result->measurement, diag);
+
+        if (status != RoboOk) {
+            RoboTextShapeResultDestroy(result);
+            return status;
+        }
+    }
+
     if (result->glyphRunCount != 0u) {
         /*
          * The visual order from the paragraph the run set already resolved (Phase 12.8) — read, never recomputed.
@@ -353,6 +265,22 @@ const RoboTextGlyphRun *RoboTextShapeResultGlyphRunForScalar(const RoboTextShape
 const RoboTextMeasurement *RoboTextShapeResultMeasurement(const RoboTextShapeResult *result)
 {
     return result ? &result->measurement : NULL;
+}
+
+Result RoboTextShapeResultMeasure(const RoboTextShapeResult *result,
+                                  const RoboTextMeasureRequest *request,
+                                  RoboTextMeasurement *out,
+                                  RoboTextDiag *diag)
+{
+    if (!result || !out) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboInvalidArgument,
+                               "a shape result and an out measurement are required");
+    }
+    /*
+     * The result's own list, through the engine — never a second walk over the runs. The face the result was
+     * shaped with answers only for a text with no runs at all; a list with runs carries them already.
+     */
+    return RoboTextMeasureGlyphRunList(result->list, &result->font, request, out, diag);
 }
 
 Result RoboTextShapeResultGetGlyphStats(const RoboTextShapeResult *result, RoboTextGlyphStats *out)

@@ -121,6 +121,10 @@ void TestRegisterTextKerning(void);
 /* Phase 12.14 — glyph runs: the finalized run (clusters, flags, metrics, totals), the run list, its keys,
  * its two orders and the validation of the set. */
 void TestRegisterTextGlyphRuns(void);
+/* Phase 12.15 — measurement: the engine over a finalized run list (advances from the runs' own totals, the
+ * line-metrics aggregation over a mixed-font line, the logical box, the ink box the glyphs' outlines give),
+ * the tolerance, the validation and the diagnostic block. */
+void TestRegisterTextMeasurement(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -431,6 +435,7 @@ int main(int argc, char **argv)
     TestRegisterTextLigature();
     TestRegisterTextKerning();
     TestRegisterTextGlyphRuns();
+    TestRegisterTextMeasurement();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

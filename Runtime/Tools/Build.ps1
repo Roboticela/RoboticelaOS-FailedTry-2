@@ -226,6 +226,12 @@ $ProdSrcs = @(
     # clusters, flags and metrics are derived by `RoboTextGlyphs.c`'s finalize, and the visual order is
     # *read* from 12.8's paragraph rather than recomputed: this file contains no bidirectional algorithm.
     (Join-Path $SourceDir "RoboText\RoboTextRunList.c"),
+    # Phase 12.15 -- measurement. `RoboTextMeasurement.c` is the module's one measurement engine over a
+    # finalized run list: the advances summed from the runs' own totals, the line metrics aggregated by the
+    # maximum rule, the logical box, the ink box the glyphs' outlines give, the tolerance, the validation and
+    # the diagnostic block. It shapes nothing: `RoboTextShape.c` calls it, so a result's own measurement and a
+    # caller's second measurement of the same result are one implementation rather than two that must agree.
+    (Join-Path $SourceDir "RoboText\RoboTextMeasurement.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -521,6 +527,9 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextGpos.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextLigature.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextKerning.c"),
+    # Phase 12.15 -- measurement: the engine over a finalized run list, the line-metrics aggregation over a
+    # mixed-font line, the logical and ink boxes, the tolerance, the validation and the diagnostic block.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextMeasurement.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextGlyphRuns.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),

@@ -240,12 +240,17 @@ an *answer*, not a refusal, because what is true is that its glyphs do not advan
 ## 6. The pipeline and measurement
 
 ```
-RunSetCreate → GlyphRunGenerate (once per text run) → GlyphRunFinalize → the run list → the measurement
+RunSetCreate → GlyphRunGenerate (once per text run) → GlyphRunFinalize → the run list → RoboTextMeasureGlyphRunList
 ```
 
-`RoboTextShape` does all three in one call, because a caller that wanted the runs *and* the measurement
+`RoboTextShape` does all of them in one call, because a caller that wanted the runs *and* the measurement
 would otherwise run two of them twice. The result **owns** the run set and the glyph runs and borrows only
 the text and the face.
+
+Since Phase 12.15 the last step is a **door over the run list** (`RoboTextMeasurement.c`) rather than a walk
+inside the shape call, which is what makes a result's own measurement and a caller's second measurement of the
+same result one implementation instead of two that have to agree. The engine's default request computes no
+bounds, so a caller that wants a width never pays for outlines.
 
 Since Phase 12.11 the generator is a **shaping** pass and not a lookup: GSUB decides which glyphs there are,
 GPOS decides where they sit, and the run is rebuilt once at the end. The pipeline a caller should hold in
@@ -260,13 +265,18 @@ UTF-8 → scalars → scripts → direction → bidi → font selection → feat
 `RoboTextMeasurement` is the layout seam. That is why positioning came *before* kerning as a separate goal
 even though kerning is GPOS: a kerning layer over an engine that does not exist would have had to invent one.
 
-- `width` is the sum of the glyphs' final device advances — their own plus the font's adjustments —
+- `width` is the sum of the runs' own final device advances — their own plus the font's adjustments —
   accumulated in `double`, rounded once;
-- `ascent`/`descent`/`lineHeight` come from the face through its own metrics door, and the line height
-  honours a declared leading when the context declares one (`RoboTextLineHeightFromFontMetrics` = CSS's
-  `normal` = the face's own extent);
+- `ascent`/`descent`/`lineGap` are the **maximum** over the participating runs (12.15 §5), and `lineHeight`
+  comes from the face through its own metrics door, honouring a declared leading when the context declares one
+  (`RoboTextLineHeightFromFontMetrics` = CSS's `normal` = the face's own extent);
 - `missingGlyphs` counts what the face cannot draw, which is the one number that keeps a plausible width
-  for undrawable text from passing as a measurement.
+  for undrawable text from passing as a measurement;
+- `logicalBounds` and `inkBounds` are two geometries rather than one, and `hasInkBounds` says whether the
+  second was computed at all.
+
+12.15's contract is [TextMeasurement.md](TextMeasurement.md); the numbers above are that engine's outputs, not
+a second walk's.
 
 ### Refusals versus answers
 
@@ -459,6 +469,7 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 12.12 Ligatures                        ✓  (Ligatures)
 12.13 Kerning                          ✓  (Kerning)            → the policy and the report over 12.11
 12.14 Glyph runs                       ✓  (GlyphRuns)          → finalizes the run and lists them
+12.15 Text measurement                  ✓  (TextMeasurement)   → the engine over the run list
 ```
 
 Every one of those consumes this layer rather than replacing it. That is the milestone: the seams
@@ -681,3 +692,41 @@ The three properties the phase adds:
 
 The version moved to `1.7.0` with 12.11. `RoboTextGetCapabilities` reports `kerning`, `kerningPolicy` and
 `kerningReport` `1`, and `complexScripts`/`verticalText`/`variableAxisApplication` stay `0`.
+
+---
+
+## 20. Phase 12.15 — text measurement
+
+12.15 turns the measurement from a walk inside the shape call into the module's **one engine over a finalized
+run list**. It adds no shaping, decodes nothing and selects nothing: the shaped result is already final, and the
+only question left is how much space it takes.
+
+| Area | Where | Contract |
+|---|---|---|
+| The engine, the record, the rect, the request, the tolerance | `RoboTextMeasurement.c`, `RoboTextMeasurement.h` | [TextMeasurement.md](TextMeasurement.md) |
+| The result's own measurement, and the re-measure door | `RoboTextShape.c`, `RoboTextShape.h` | TextMeasurement.md §2 |
+| The run list the engine reads | `RoboTextRunList.h` | GlyphRuns.md |
+| The glyph metrics door the ink box asks | `RoboTextFont.h`, `RoboFontMetrics.h` | TextMeasurement.md §7 |
+
+The four properties the phase adds:
+
+1. **Measurement consumes shaped output and never shapes.** `RoboTextMeasureGlyphRunList` reads the runs'
+   advances, metrics and glyphs. A width is therefore the sum of the same numbers the painter's pen accumulates,
+   which is what makes `measurement == layout advance == glyph-run advance` true by construction rather than by
+   two implementations agreeing.
+2. **Line metrics over a mixed-font line are the maximum over the runs.** A line of `"Hello مرحبا 中文"` is as
+   tall as its tallest run, and the aggregation is one function (`MeasureLineMetricsOf`) that both the engine's
+   fields and `RoboTextMeasureGlyphRunListLineMetrics` publish, so the record and the fields cannot disagree.
+3. **Advance, logical bounds and ink bounds are three geometries.** Advance is what the pen does (a space has
+   one and no ink), logical bounds is the box layout places, and ink is what the outlines occupy (a mark has no
+   advance and ink). Folding one into another is a defect, exactly as it is one phase down for coverage, alpha
+   and opacity.
+4. **An answer is either complete or absent.** Ink bounds are reported only when every glyph the face could
+   answer for contributed a box (`hasInkBounds`), and a glyph whose face carries none is skipped rather than
+   approximated with the advance box. Rendering an absent box as a guess would clip to something that paints
+   nothing.
+
+The version moved to `1.9.0`. `RoboTextGetCapabilities` reports `measurementEngine`, `lineMetricsPolicy`,
+`inkBounds`, `measurementBounds`, `measurementValidation`, `measurementDiagnostics` and `measurementTolerance`
+`1`; `verticalText` stays `0`, and `advanceY` is `0` for every text this build produces — published so that
+12.20 changes a value rather than a record.

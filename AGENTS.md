@@ -505,8 +505,10 @@ list, its keys, its two orders and the merge. `Documentation/Runtime/Text/GlyphR
   information for Phase 19's line breaker, **not** a breaker: it claims nothing about the boundaries it leaves
   clear.
 - Metrics come from `RoboTextFontContextMetrics`, the measurement's own door, so a line box built from a run
-  and one built from the measurement agree by construction. A paragraph's metrics are its **first** run's, which
-  is stated rather than hidden.
+  and one built from the measurement agree by construction. `RoboTextGlyphRunListMetrics` answers with the
+  **first** run's record — stated rather than hidden — while the measurement's line metrics (12.15) aggregate by
+  the maximum rule. Both answers are published; do not collapse them into one, and read the door the question
+  is actually about.
 - The visual order is Phase 12.8's answer **read**, never recomputed: `RoboTextGlyphRunListOrderVisual` sorts by
   the `visualIndex` of the level run each glyph run's source starts in. A second L2 in this module would drift
   from 12.8's the first time a level resolution changed. A run straddling two level runs goes with the one its
@@ -515,15 +517,59 @@ list, its keys, its two orders and the merge. `Documentation/Runtime/Text/GlyphR
   `RoboTextGlyphRunListCoalesce` merges only when the keys are equal **and** the sources are contiguous, and it
   merges by concatenating and re-finalizing — never by adding two totals and keeping one run's clusters. A
   **view** (`RoboTextGlyphRunListCreateView`) may not merge, because it does not own its runs.
-- `RoboTextShapeResultGlyphRunList` is that view, built once at the end of shaping. Do not add a second list
-  type, a second key, or a cache: `RoboTextCapabilities::shapingCache` is `0` on purpose (12.14.33), and a cache
-  added later is an optimization over these keys and must never be required for correctness.
+- `RoboTextShapeResultGlyphRunList` is that view, built once during shaping — before the measurement, because
+  since 12.15 the measurement **is** a door over it. Do not add a second list type, a second key, or a cache:
+  `RoboTextCapabilities::shapingCache` is `0` on purpose (12.14.33), and a cache added later is an optimization
+  over these keys and must never be required for correctness.
 - Capabilities: 12.14 set `glyphRunFinalization`/`glyphClusters`/`glyphFlags`/`glyphRunMetrics`/`glyphRunList`/
   `glyphRunKeys`/`glyphRunCoalescing`/`glyphRunValidation`/`glyphRunDiagnostics` and left `shapingCache` **0**,
   each read field by field in `Tests/Text/SuiteRoboTextConformance.c`; version `1.8.0`. Tests:
   `Tests/Text/SuiteRoboTextGlyphRuns.c` (`text.glyphrun.*`) via `TestRoboText.ps1 -Target Host`, and a
   glyph-run change is not done until `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass (with
   `-Target Qemu` when the guest image is involved). The measured baseline is `text.glyphrun.performance`.
+
+### Text measurement (Phase 12.15)
+
+**Measurement is a door over a finalized run list, and it never shapes.**
+`Runtime/Source/RoboText/RoboTextMeasurement.c` + public `Runtime/Include/RoboText/RoboTextMeasurement.h`
+(`RoboTextMeasureGlyphRunList`, the rect, the request, the line-metrics record, the tolerance, the validation and
+the diagnostic block). `Documentation/Runtime/Text/TextMeasurement.md` is the phase's contract.
+
+- The engine reads the runs' own advances, metrics and glyphs; it does **not** decode, select a font, resolve a
+  script or a level, or run GSUB/GPOS/kerning. `RoboTextShape.c` calls it over the result's own list, so a
+  result's measurement and `RoboTextShapeResultMeasure` are one implementation. A new measurement path that
+  re-shapes is a defect, not a shortcut.
+- `width` is the sum of the runs' own totals, each of which is its glyphs' device advances accumulated in
+  `double`, rounded **once** at the boundary. Never sum font units and scale afterwards, and never round per
+  glyph: `measurement.width == Σ run advance == the pen the painter accumulates`, and `text.measure.advances`
+  asserts both halves.
+- **Three geometries stay three** (the same rule as coverage/alpha/opacity one phase down): *advance* is what the
+  pen does, *logical bounds* is the box layout places, *ink bounds* is what the outlines occupy. A space has an
+  advance and no ink; a combining mark has no advance and ink. `hasInkBounds`/`hasLogicalBounds` say whether each
+  was computed — an all-zero rectangle and an uncomputed one are the same value.
+- Line metrics are one function (`MeasureLineMetricsOf`) and one policy: `ascent`/`descent`/`lineGap` are the
+  **maximum** over participating runs, `height` their sum, and `lineHeight` what a line box occupies (a declared
+  leading when declared). Never take the first run's for the measurement, and never compute the record
+  separately from the three fields.
+- Ink bounds come from each glyph's **outline** box (`glyf` through `RoboTextFontGlyphMetrics`), scaled by the
+  run's own context — the module's one scaling door — and translated by the pen position and the glyph's GPOS
+  placement offset. The advance box is never used as the ink box. A glyph with no box is skipped and reported
+  (`hasInkBounds` `0`); a partial box passed off as complete is the failure this flag exists to prevent.
+- The baseline is `0` and y increases **upward**; `RoboTextMeasureValidate` refuses a record whose baseline is
+  not zero or whose stored logical box disagrees with the width and metrics it derives from. Validation is a
+  door a test calls, never a hot-path step, and the engine does not call it.
+- The request's options are a cost boundary: the default computes no bounds, because ink bounds parse each
+  glyph's outline. `RoboTextShape` measures with the default, so a caller that wants a width never pays for
+  outlines. A vertical writing mode is `advanceY`, which is `0` today and stays a field rather than a second API.
+- No caching (see the run-list bullet above), no line breaking, no tab expansion and no grapheme segmentation:
+  a newline is an ordinary scalar, tab stops are layout's, and cluster-level ink is the union of its glyphs'.
+- Capabilities: 12.15 set `measurementEngine`/`lineMetricsPolicy`/`inkBounds`/`measurementBounds`/
+  `measurementValidation`/`measurementDiagnostics`/`measurementTolerance`, each read field by field in
+  `Tests/Text/SuiteRoboTextConformance.c`; version `1.9.0`. Tests: `Tests/Text/SuiteRoboTextMeasurement.c`
+  (`text.measure.*`) via `TestRoboText.ps1 -Target Host`, and a measurement change is not done until
+  `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass (with `-Target Qemu` when the guest image is
+  involved). The measured baselines are `text.measure.performance`'s two loops — advances, and ink bounds, which
+  are reported separately because they cost differently.
 
 ---
 
@@ -551,6 +597,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Ligatures (RoboText 12.12) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.ligature.*`, `text.gsub.ligature` and `text.gsub.ligature_positioning`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Kerning (RoboText 12.13) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.kern.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.kern.pairs` (the shipped face's own kerning moving the advance) and `text.kern.range_override` (the per-range split) |
 | Glyph runs (RoboText 12.14) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.glyphrun.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.glyphrun.clusters_ligature` (one glyph, one cluster, two scalars), `text.glyphrun.order_visual` (the Latin word painted between two Hebrew ones) and `text.glyphrun.performance` (the baseline) |
+| Text measurement (RoboText 12.15) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.measure.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.measure.kern` and `text.measure.ligature` (the two things that move a width, on the shipped face), `text.measure.mark_ink` (an accent raising the ink while the width stays the base's) and `text.measure.performance` (the two baselines) |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

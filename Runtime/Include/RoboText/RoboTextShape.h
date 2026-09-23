@@ -24,15 +24,20 @@
  * it releases everything, which is the lifetime a caller wants and the reason nothing here hands out a
  * pointer the caller must free.
  *
- * ## Measurement is a boundary, and 12.4's implementation is the simple one
+ * ## Measurement is a boundary, and it now lives next door
  *
- * `RoboTextMeasurement` is what the layout seam consumes, and it is deliberately *not* a shaped
- * measurement: kerning, mark advance adjustment and per-glyph positioning all move a run's width, and
- * none of them exist yet. What it does have is the property that matters for correctness *now*:
+ * `RoboTextMeasurement` is what the layout seam consumes, and since Phase 12.15 it is computed by
+ * `RoboTextMeasurement.h`'s engine over this result's own **run list** — so the number a caller reads here and
+ * the number `RoboTextMeasureGlyphRunList` returns for the same list are one implementation, not two. What the
+ * result keeps is the *default* measurement: advances, counts and line metrics, with bounds absent because
+ * asking for a glyph's outline box per glyph is work a caller who wants a width must not pay for. A caller that
+ * wants the bounded measurement asks the engine for it, or calls @ref RoboTextShapeResultMeasure.
+ *
+ * The three properties that matter for correctness:
  *
  *   - `width` is the sum of the glyphs' own device advances, accumulated in `double` and rounded once;
- *   - `ascent`/`descent`/`lineHeight` come from the face through its own metrics door, and the line
- *     height honours the context's declared leading when it declares one;
+ *   - `ascent`/`descent`/`lineGap` are the **maximum** over the participating runs, and `lineHeight` honours
+ *     the context's declared leading when it declares one;
  *   - `missingGlyphs` counts the scalars the face could not draw, which is the one number that keeps a
  *     plausible width for undrawable text from passing as a measurement.
  */
@@ -44,6 +49,7 @@
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextFont.h"
 #include "RoboText/RoboTextGlyphs.h"
+#include "RoboText/RoboTextMeasurement.h"
 #include "RoboText/RoboTextRunList.h"
 #include "RoboText/RoboTextRuns.h"
 #include "RoboText/RoboTextTypes.h"
@@ -53,40 +59,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/** What one text measures to, at one font context. */
-typedef struct RoboTextMeasurement {
-    /** Total advance, in device pixels: the sum of every glyph run's own advance, rounded once. */
-    float width;
-    /** Above the baseline, in px. The face's own ascent at the context's size. */
-    float ascent;
-    /** Below the baseline, in px, as a magnitude. */
-    float descent;
-    /** The leading a line box uses: the context's declared line height, or the face's line extent. */
-    float lineHeight;
-    /** Glyphs generated. */
-    size_t glyphCount;
-    /** Glyph runs the text produced. */
-    size_t glyphRunCount;
-    /** Scalars the text covered. */
-    RoboTextScalarIndex scalarCount;
-    /** Scalars the face had no glyph for. */
-    size_t missingGlyphs;
-    /** Widest single glyph advance, in px. Zero for empty text. */
-    float advanceMax;
-} RoboTextMeasurement;
-
-/** Clear @p measurement. Safe on NULL. */
-void RoboTextMeasurementInit(RoboTextMeasurement *measurement);
-
-/** Field-for-field equality. Safe on NULL (NULL == NULL). */
-int RoboTextMeasurementEqual(const RoboTextMeasurement *a, const RoboTextMeasurement *b);
-
-/** Human-readable one-line summary. RoboNotSupported when it does not fit @p capacity. */
-Result RoboTextMeasurementWrite(const RoboTextMeasurement *measurement,
-                                char *buffer,
-                                size_t capacity,
-                                size_t *outLength);
 
 typedef struct RoboTextShapeResult RoboTextShapeResult;
 
@@ -147,6 +119,24 @@ const RoboTextGlyphRun *RoboTextShapeResultGlyphRunForScalar(const RoboTextShape
 
 /** The measurement, borrowed from @p result. NULL for a NULL result. */
 const RoboTextMeasurement *RoboTextShapeResultMeasurement(const RoboTextShapeResult *result);
+
+/**
+ * Measure @p result again with @p request, without shaping anything a second time (Phase 12.15).
+ *
+ * The door for a caller that wants something the result's own measurement does not carry — ink bounds above
+ * all, which every shaping call deliberately does not compute. It runs the **same** engine over the same
+ * finalized run list, so the advances it reports are bit-identical to the ones the result already holds and
+ * the bounds are additional facts rather than a second opinion.
+ *
+ * @param request may be NULL, which means the default (advances and metrics, no bounds).
+ *
+ * @return RoboOk and @p out; RoboInvalidArgument for a NULL @p result or @p out; RoboError when a face's
+ *         metrics will not parse.
+ */
+Result RoboTextShapeResultMeasure(const RoboTextShapeResult *result,
+                                  const RoboTextMeasureRequest *request,
+                                  RoboTextMeasurement *out,
+                                  RoboTextDiag *diag);
 
 /**
  * The sum of every glyph run's counters.
