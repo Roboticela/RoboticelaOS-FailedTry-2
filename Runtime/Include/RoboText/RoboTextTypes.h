@@ -624,21 +624,94 @@ Result RoboTextFeatureSetWrite(const RoboTextFeatureSet *set,
                                size_t *outLength);
 
 /* ------------------------------------------------------------------ */
+/* Ligature policy (Phase 12.12)                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The kind of ligature a feature asks for (Phase 12.12).
+ *
+ * Five tags, and the kinds are named rather than the tags because the *policy* is about typography, not about
+ * OpenType: a stylesheet says "no common ligatures", and which tag that lands on is this module's business.
+ * @ref RoboTextLigatureKindTag is the one mapping, and `RoboTextLigature.c` is the only file that writes a
+ * tag literal.
+ */
+typedef enum RoboTextLigatureKind {
+    /** `liga` — the ligatures a reader expects to see: `fi`, `fl`, `ffi`. */
+    RoboTextLigatureStandard = 0,
+    /** `clig` — contextual ligatures: the font ligates only in a stated context. */
+    RoboTextLigatureContextual = 1,
+    /** `rlig` — required ligatures. Not optional typography: Arabic and Indic shaping depend on them. */
+    RoboTextLigatureRequired = 2,
+    /** `dlig` — discretionary ligatures: pretty, optional, and off unless asked for. */
+    RoboTextLigatureDiscretionary = 3,
+    /** `hlig` — historical ligatures: `ct`, `st`. Off unless asked for. */
+    RoboTextLigatureHistorical = 4,
+    RoboTextLigatureKindCount = 5
+} RoboTextLigatureKind;
+
+/**
+ * The ligature policy a caller states, per kind.
+ *
+ * Each entry is a @ref RoboTextFeatureState, so `RoboTextFeatureDefault` means "say nothing about this kind
+ * and let the font's own record decide" — which is not the same as `Off`, and is why the policy is not a
+ * struct of booleans. The default policy is `RoboTextLigatureStandard`/`…Contextual`/`…Required` on and
+ * `…Discretionary`/`…Historical` off, which is the same answer the GSUB plan's script defaults give: the
+ * point of stating it is that it becomes a *decision a caller can make* rather than a table in an engine.
+ */
+typedef struct RoboTextLigaturePolicy {
+    RoboTextFeatureState kinds[RoboTextLigatureKindCount];
+} RoboTextLigaturePolicy;
+
+/**
+ * How ligatures are asked for, in the vocabulary a stylesheet uses (Phase 12.12 §"CSS compatibility hook").
+ *
+ * This is the `font-variant-ligatures` vocabulary, and the enum is spelled in full because the values are
+ * not a scale: `Common` turns the common ligatures on *and* leaves the rest alone, while `None` turns the
+ * optional kinds off and must not touch `rlig`. `RoboTextLigaturePolicyFromVariant` is that translation,
+ * and it is the *only* place CSS lands — the CSS layer never writes an OpenType tag.
+ */
+typedef enum RoboTextLigatureVariant {
+    /** `normal`: the default policy. */
+    RoboTextLigatureVariantNormal = 0,
+    /** `none`: the optional kinds off, `rlig` left alone. */
+    RoboTextLigatureVariantNone = 1,
+    /** `common-ligatures`. */
+    RoboTextLigatureVariantCommon = 2,
+    /** `no-common-ligatures`. */
+    RoboTextLigatureVariantNoCommon = 3,
+    /** `contextual`. */
+    RoboTextLigatureVariantContextual = 4,
+    /** `no-contextual`. */
+    RoboTextLigatureVariantNoContextual = 5,
+    /** `discretionary-ligatures`. */
+    RoboTextLigatureVariantDiscretionary = 6,
+    /** `historical-ligatures`. */
+    RoboTextLigatureVariantHistorical = 7,
+    RoboTextLigatureVariantCount = 8
+} RoboTextLigatureVariant;
+
+/* ------------------------------------------------------------------ */
 /* Shape options                                                       */
 /* ------------------------------------------------------------------ */
 
 /**
  * What a shaping request asks for beyond the text and the font.
  *
- * `baseDirection` is the paragraph direction a caller *declares* — CSS's `direction`, and what the
- * shell's RTL support would set. It is carried into every run so a caller that declared RTL can tell
- * "these scalars are RTL-class" apart from "no strong direction was found in them"; resolving the
- * paragraph level from the text (P2/P3) is the bidi algorithm's, in Phase 12.8.
+ * `baseDirection` is the paragraph direction a caller *declares* — CSS's `direction`, and what the shell's
+ * RTL support would set. It is carried into every run so a caller that declared RTL can tell "these scalars
+ * are RTL-class" apart from "no strong direction was found in them"; resolving the paragraph level from the
+ * text (P2/P3) is the bidi algorithm's, in Phase 12.8.
  *
  * `features` is the OpenType feature list, and since Phase 12.10 it is **read**: the substitution engine
- * resolves these settings against the face's own GSUB ScriptList/LangSys/FeatureList and runs the lookups
- * of the features that end up on. A caller that names nothing gets the script's defaults, which is what
- * makes `"office"` ligate without anyone asking and what makes `"liga" off` meaningful.
+ * resolves these settings against the face's own GSUB ScriptList/LangSys/FeatureList and runs the lookups of
+ * the features that end up on. A caller that names nothing gets the script's defaults, which is what makes
+ * `"office"` ligate without anyone asking and what makes `"liga" off` meaningful.
+ *
+ * `ligatures` is the five-tag policy of Phase 12.12 applied **only where `features` says nothing** — a
+ * policy entry is written into a run's features when @ref RoboTextFeatureSetFind of its tag answers
+ * nothing, so `RoboTextShapeOptionsSetFeature(options, "liga", RoboTextFeatureOff, 0)` still wins over a
+ * policy that turns standard ligatures on. That order is deliberate and tested: an explicit setting is a
+ * caller's decision about one tag and a policy is a default about five, so the specific one comes first.
  */
 typedef struct RoboTextShapeOptions {
     /** The declared paragraph direction. `Unknown` means "nothing declared". */
@@ -649,11 +722,14 @@ typedef struct RoboTextShapeOptions {
     RoboTextLanguage language;
     /** The caller's OpenType feature settings. */
     RoboTextFeatureSet features;
+    /** The ligature policy, for the tags @ref features does not state. */
+    RoboTextLigaturePolicy ligatures;
     /** Reserved; pass 0. */
     uint32_t flags;
 } RoboTextShapeOptions;
 
-/** Fill @p options with the defaults: no declared direction, no script hint, no language, no features. */
+/** Fill @p options with the defaults: no declared direction, no script hint, no language, no features, and
+ *  @ref RoboTextLigaturePolicyDefault for `ligatures`. */
 void RoboTextShapeOptionsInit(RoboTextShapeOptions *options);
 
 /** Non-zero when @p options is usable. Safe on NULL. */

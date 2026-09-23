@@ -10,7 +10,7 @@
  *   the **model**      text, ranges, runs, fonts, glyphs, mapping. All present.
  *   the **generator**  how a glyph id is obtained from a scalar: one cmap lookup per scalar, with
  *                      no substitution. Present, and *named as the placeholder it is*.
- *   the **algorithms** GSUB, GPOS, kerning, ligatures, complex scripts. Absent, and each goal that adds
+ *   the **algorithms** GPOS, kerning, complex scripts. Ligatures and GSUB arrived in 12.10 and 12.12; each
  *                      one flips a flag here in the same change. 12.8 is where the split 12.7 announced
  *                      closed: `directionRuns`/`paragraphDirection` are still the *classification*, and
  *                      `bidiAlgorithm` with its six companions below is the *resolution* — levels, level
@@ -38,8 +38,13 @@ extern "C" {
  * the contextual script resolver and its diagnostics; 12.7 the direction stage — the class projection, the
  * paragraph context and the direction-run resolver; 12.8 the bidirectional stage — the paragraph base, the
  * levels, the level runs, L2's visual order, L4's mirroring and the paragraph dump. The run/glyph record
- * shapes gained a level field rather than changing shape, so the major stays and the minor moves. */
-#define RoboTextVersionMinor 4
+ * shapes gained a level field rather than changing shape, so the major stays and the minor moves.
+ *
+ * 12.10 added the glyph-substitution engine (`RoboTextGsub.h`: the feature plan, the lookup readers and the
+ * shaping buffer) and 12.12 the ligature layer (`RoboTextLigature.h`: the five-tag policy, the stylesheet's
+ * variant vocabulary and the glyph-run report). Both are additive — the run, glyph and shape records grew a
+ * ligature field and kept their shape — so the minor moves once for each and the major stays. */
+#define RoboTextVersionMinor 6
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -133,18 +138,39 @@ typedef struct RoboTextCapabilities {
     /** A direction run can be written as a line, and a whole run set as a table in both index spaces. */
     int directionRunDiagnostics;
 
-    /** One cmap lookup per scalar (no substitution). **1**. */
+    /**
+     * One cmap lookup per scalar, with **no** substitution anywhere. **0** since Phase 12.10.
+     *
+     * It was 1 through 12.9, when the generator was the placeholder that phase named. What 12.10 changed is
+     * that a face with a GSUB record for the run's script now substitutes, so the claim "there is no
+     * substitution pass" is no longer true of any text — the generators are `RoboTextGsub.c` and
+     * `RoboTextGsubSubst.c`, and the mode a run reports says which of the two paths produced it.
+     */
     int glyphGenerationIsPlaceholder;
     /** Variable-axis application (`wght`/`opsz` beyond face selection). **0**: a later goal. */
     int variableAxisApplication;
-    /** GSUB / glyph substitution. **0**: Phase 12.10. */
+    /**
+     * GSUB / glyph substitution. **1** since Phase 12.10: the table is parsed once per face, the feature plan
+     * is resolved from the face's own ScriptList/LangSys/FeatureList, and all eight lookup types run, the
+     * extension wrapper included.
+     */
     int substitution;
     /** GPOS / glyph positioning. **0**: Phase 12.11. */
     int positioning;
     /** Kerning, including the `kern` table. **0**: Phase 12.13. */
     int kerning;
-    /** Ligatures. **0**: Phase 12.12. */
+    /**
+     * Ligatures. **1** since Phase 12.12: many-to-one substitution through the font's own `liga`/`clig`/
+     * `rlig`/`dlig`/`hlig` lookups, with the source range and component count of every product kept.
+     *
+     * What this does *not* claim: no ligature is synthesized, no `fi` table lives in this module, and a face
+     * that ships no such feature gets no substitution — the font is the only authority (Phase 12.10 §14).
+     */
     int ligatures;
+    /** The five-tag ligature policy and the stylesheet's variant vocabulary over it (Phase 12.12). */
+    int ligaturePolicy;
+    /** A ligature glyph's provenance: the scalars it stands for and how many components produced it. */
+    int ligatureProvenance;
     /**
      * The Unicode bidirectional algorithm, including reordering. **1** since Phase 12.8.
      *

@@ -138,6 +138,15 @@ typedef struct RoboTextGlyph {
      * re-run the lookups.
      */
     int substituted;
+    /**
+     * Glyphs this one was substituted **from**, when the substitution was a ligature (Phase 12.12).
+     *
+     * Zero or one for everything else: a single substitution replaces one glyph, a multiple substitution
+     * replaces one, and the cmap's own mapping replaces none. So a count of two or more is exactly "this glyph
+     * is a ligature", and it is the number that tells a `ffi` apart from a decomposition — both have a
+     * multi-scalar @ref source, and only one of them folded characters *together*.
+     */
+    uint16_t ligatureComponents;
     /** Non-zero when the face's cmap claimed the source scalars. */
     int mapped;
     /**
@@ -264,6 +273,14 @@ size_t RoboTextGlyphRunControls(const RoboTextGlyphRun *run);
  */
 size_t RoboTextGlyphRunSubstituted(const RoboTextGlyphRun *run);
 
+/**
+ * Glyphs a ligature produced: the run's `ffi` count (Phase 12.12).
+ *
+ * The count `RoboTextGlyphRunLigatureAt` indexes into, and the number a caller watching a `liga` toggle
+ * compares between two runs.
+ */
+size_t RoboTextGlyphRunLigatures(const RoboTextGlyphRun *run);
+
 /** The direction the caller declared for the whole text. */
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run);
 
@@ -362,8 +379,13 @@ typedef struct RoboTextGlyphStats {
     size_t glyphs;
     /** Glyphs whose id is `.notdef` or whose metrics would not parse. */
     size_t missing;
-    /** Glyphs whose source range covers more than one scalar. Zero in this build (no ligatures). */
+    /** Glyphs whose source range covers more than one scalar: Phase 12.12's ligatures, and nothing else so
+     *  far. A ligature is the one thing that makes a glyph stand for several scalars at once. */
     size_t multiScalarSources;
+    /** Glyphs a ligature produced: `ligatureComponents` of two or more. */
+    size_t ligatureGlyphs;
+    /** Scalars those glyphs stand for: three for one `ffi`, zero for a text with no ligature. */
+    size_t ligatureScalars;
     /** Glyphs that carry a non-zero offset. Zero in this build (no positioning). */
     size_t positioned;
     /** Glyphs whose id came from a mirrored code point (UAX #9 L4 applies to their scalar). */

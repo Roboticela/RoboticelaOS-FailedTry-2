@@ -71,6 +71,8 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Typography roles / face binding | `Runtime/Source/RoboTypography/` + public `Runtime/Include/RoboTypography/`. Semantic role → the pack's face + size/weight/leading/optical class. It binds and caches; parsing stays in RoboFont, rasterizing in RoboGraphics. Docs: `Documentation/Runtime/Typography/TypeBinding.md` |
 | Text architecture (RoboText) | `Runtime/Source/RoboText/` + public `Runtime/Include/RoboText/`. Text as a first-class object: index spaces, buffer, ranges, script/direction/text runs, glyphs and glyph runs, measurement. It parses no font (RoboFont) and keeps no Unicode table (Phase 4 Unicode). Docs: `Documentation/Runtime/Text/Architecture.md` |
 | Direction runs (classification) | `Runtime/Source/RoboText/RoboTextDirection.c` + public `Runtime/Include/RoboText/RoboTextDirection.h`. A scalar's `Bidi_Class` → a direction class, a paragraph context, and one pass to direction runs. Not the bidi algorithm: no levels, no reordering (Phase 12.8). Docs: `Documentation/Runtime/Text/DirectionRuns.md` |
+| Glyph substitution (GSUB) | `Runtime/Source/RoboText/RoboTextGsub.c` (the plan, the scan, the counters) + `RoboTextGsubSubst.c` (one reader per lookup type) + public `Runtime/Include/RoboText/RoboTextGsub.h`. The GSUB table itself is Phase 5's (`FontFaceGsub`); this interprets its offsets and writes no font parser of its own. Ligature policy is 12.12's. Docs: `Documentation/Runtime/Text/GlyphSubstitution.md` |
+| Ligatures | `Runtime/Source/RoboText/RoboTextLigature.c` + public `Runtime/Include/RoboText/RoboTextLigature.h`; the policy types live beside `RoboTextFeatureSet` in `Runtime/Include/RoboText/RoboTextTypes.h`. Five tags (`liga`/`clig`/`rlig`/`dlig`/`hlig`) as caller-visible policy, the `font-variant-ligatures` vocabulary over it, and the glyph-run report. No second engine: it writes feature tags and GSUB substitutes. Docs: `Documentation/Runtime/Text/Ligatures.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -345,6 +347,70 @@ belong to — never a level, an order or a visual position.** The module's one r
   a direction change is not done until `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
   Measured cost is recorded by `text.direction.performance` (bytes, runs, allocations, time).
 
+### Glyph substitution (Phase 12.10)
+
+**GSUB changes glyph identity and sequence, never the Unicode text.** The table belongs to the font: Phase 5's
+`FontFaceGsub` parses and validates it once per face, and `Runtime/Source/RoboText/RoboTextGsub.c` (the plan,
+the scan and the counters) plus `RoboTextGsubSubst.c` (one reader per lookup type) interpret its offsets. A
+second font parser or a second coverage parser here is a defect. `Documentation/Runtime/Text/GlyphSubstitution.md`
+is the phase's contract.
+
+- Feature selection is the font's, in the font's order: `RoboTextGsubPlanResolve` walks the ScriptList → the
+  LangSys (the requested language's, else the script's default, else nothing) → the FeatureList filtered by
+  the caller's settings, and emits the enabled features' lookup indices **deduplicated and sorted**. Sorting
+  by feature tag or by mention order is a defect; `text.gsub.lookup_order` asserts the list's order, and a
+  contextual record's nested lookup is applied through `RoboTextGsubApplyLookupAt` and counted.
+- The **glyph buffer** is the mutable working set (`RoboTextShapingGlyph`: id, source range, cluster, level,
+  `inputGlyphId`, `ligatureComponents`, flags); `RoboTextGlyphRun` is the finished result, rebuilt once after
+  the last lookup so every advance is asked of the face for the *resulting* id. A ligature's advance is not
+  the sum of its components'.
+- **Ignored glyphs are stepped over, never removed**: matching walks `RoboTextGsubNextParticipating` /
+  `…PrevParticipating`, which read the lookup flag word against GDEF's glyph classes. Moving backwards without
+  decreasing is the bug that made every chaining backtrack compare the current glyph to its own pattern; the
+  helper's comment says so.
+- All eight lookup types run (`RoboTextGsubLookup*` in `RoboTextGsubInternal.h`), extension unwrapped to the
+  real type (and the trace reports the **inner** type). `RoboTextGsubLookupAppliesToDirection` is the font's
+  `RightToLeft` flag, not a heuristic on the script.
+- Reads go through `FontReader`/`FontCheckedRange` and `FontOtResolveOffset16/32`, and a `Result` door is
+  always compared (`GsubU16`/`GsubU32`/`GsubI16`): `!GsubReadU32(...)` inverts the question because `RoboOk` is
+  zero, and that mistake hid single-substitution format 1, the extension wrapper and GDEF's mark set once.
+- Malformed data **skips and continues** (`lookupsSkipped`), bounded by `RoboTextGsubLimits`
+  (probes/glyphs/nesting/applications) with `limitReached` reported. A font's contents never fail a call.
+- Capabilities: 12.10 set `substitution` and turned `glyphGenerationIsPlaceholder` off; version `1.6.0` with
+  12.12. Tests: `Tests/Text/SuiteRoboTextGsub.c` (`text.gsub.*`) over an in-code synthetic GSUB fixture.
+
+### Ligatures (Phase 12.12)
+
+**A ligature is a many-to-one substitution the font asked for, and the characters are never touched.** The
+layer is `Runtime/Source/RoboText/RoboTextLigature.c` + `Runtime/Include/RoboText/RoboTextLigature.h`, with the
+value types (`RoboTextLigatureKind`, `…Variant`, `…Policy`) beside `RoboTextFeatureSet` in
+`RoboTextTypes.h` because `RoboTextShapeOptions` carries one.
+`Documentation/Runtime/Text/Ligatures.md` is the phase's authority; update it (and this section) when a kind,
+its default or a variant's meaning changes.
+
+- **Five independent tags, not a scale**: `liga`/`clig`/`rlig`/`dlig`/`hlig` as
+  `RoboTextLigatureStandard`/`…Contextual`/`…Required`/`…Discretionary`/`…Historical`.
+  `RoboTextLigatureKindTag` is the only tag literal in the module; `RoboTextLigatureVariantNone` turns the
+  optional kinds off and **must not touch `rlig`** — required ligatures are not decoration, and a build that
+  switched them off would produce wrong letters in Arabic rather than a plainer `fi`.
+- The policy is a default under the caller, not over it: `RoboTextRunSetCreate` calls
+  `RoboTextLigaturePolicyApplyIfUnset`, so a tag the caller named in `options.features` is left alone.
+  `RoboTextLigaturePolicyApply` (overwriting) is for a layer that owns the whole answer.
+- The CSS boundary is `RoboTextLigatureVariant` → `RoboTextLigaturePolicyFromVariant` and nothing else: no CSS
+  parser, no tag written by a stylesheet layer, and two variants compose the way two declarations do.
+- **Provenance is not optional**: a ligature glyph keeps the union of its components' source range and
+  `RoboTextGlyph::ligatureComponents` (>= 2 means many-to-one), so selection, hit testing and later caret work
+  can still reach the scalars it swallowed. `RoboTextLigatureReport`/`…ReportWrite` and
+  `RoboTextGlyphRunLigatureAt` are the read doors; nothing here re-derives a component count from a glyph
+  count a later lookup could have changed.
+- Measurement and paint follow for free: the advance is the resulting glyph's own `hmtx` entry and the
+  display list receives glyph runs, so **no code-point paint path may be added**. GPOS interaction (a mark
+  after a ligature) is 12.11/12.13's and `positioning` is still `0`.
+- Capabilities: 12.12 set `ligatures`/`ligaturePolicy`/`ligatureProvenance` (version `1.6.0`). Tests:
+  `Tests/Text/SuiteRoboTextLigature.c` (`text.ligature.*`) plus the fixture's longest-match case in
+  `text.gsub.ligature`. The shipped Inter carries `dlig` but **no `liga`**, so standard ligatures are proven
+  against the synthetic fixture and the real-font evidence is `!?` → `‽` under `dlig`.
+
 ---
 
 ## Test rules
@@ -366,6 +432,8 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Unicode / font integration (RoboText 12.5) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.unicode.*`, `text.fontselection.*`, `text.analysis.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Script runs (RoboText 12.6) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.script.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Direction runs (RoboText 12.7) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.direction.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: the `dir[i]`/`base` rows of `Build/Text-GlyphTable.txt` |
+| Glyph substitution (RoboText 12.10) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.gsub.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `Build/Text-GlyphTable.txt` (the glyph ids and advances the substitution produced) |
+| Ligatures (RoboText 12.12) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.ligature.*` and `text.gsub.ligature`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

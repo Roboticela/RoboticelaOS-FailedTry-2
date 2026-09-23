@@ -89,8 +89,17 @@ static Result GsubReadU32(FontSpan table, size_t offset, uint32_t *out)
     return FontReadU32be(&reader, out);
 }
 
-/** A `uint16` field at @p offset. Every field read below is one of these, and each guards the next. */
+/**
+ * A `uint16` field at @p offset. Every field read below is one of these, and each guards the next.
+ *
+ * The three macros exist because `GsubReadU16/U32/I16` answer a `Result` and `RoboOk` is **zero**: writing
+ * `if (!GsubReadU32(...))` inverts the question and takes the failure branch on every successful read. That
+ * mistake hid single-substitution format 1 (`!GsubReadI16`), the extension wrapper's inner offset and GDEF's
+ * mark filtering set, so no reader below calls one of those functions outside a macro.
+ */
 #define GsubU16(table, offset, out) (GsubReadU16((table), (offset), (out)) == RoboOk)
+#define GsubU32(table, offset, out) (GsubReadU32((table), (offset), (out)) == RoboOk)
+#define GsubI16(table, offset, out) (GsubReadI16((table), (offset), (out)) == RoboOk)
 
 /**
  * @p offset resolved against @p base, or 0 when the field is 0.
@@ -337,7 +346,7 @@ int RoboTextGsubSkipped(RoboTextGsubCall *apply, size_t index)
 
         if (!GsubU16(gdefTable, sets, &format) || format != 1u ||
             !GsubU16(gdefTable, sets + 2u, &setCount) || lookup->markFilteringSet >= setCount ||
-            !GsubReadU32(gdefTable, sets + 4u + (size_t)lookup->markFilteringSet * 4u, &coverageField)) {
+            !GsubU32(gdefTable, sets + 4u + (size_t)lookup->markFilteringSet * 4u, &coverageField)) {
             return 0;
         }
         coverage = GsubOffset32(gdefTable, sets, coverageField);
@@ -370,14 +379,19 @@ size_t RoboTextGsubPrevParticipating(RoboTextGsubCall *apply, size_t index, size
         if (position == 0u) {
             return count;
         }
+        /*
+         * One glyph *down*, then past every glyph this lookup does not see. Moving down was the missing
+         * step: without it `steps == 1` answered @p index itself, so a chaining rule compared the current
+         * glyph against its backtrack pattern and could only match when the two happened to be equal.
+         */
+        position--;
+        while (position != 0u && RoboTextGsubSkipped(apply, position)) {
+            position--;
+        }
         if (RoboTextGsubSkipped(apply, position)) {
-            /* Walk down over the glyphs this lookup does not see; exhaustion ends it. */
-            while (position != 0u && RoboTextGsubSkipped(apply, position)) {
-                position--;
-            }
-            if (RoboTextGsubSkipped(apply, position)) {
-                return count;
-            }
+            /* Down to the buffer's first glyph and it is skipped too: nothing before @p index
+             * participates, so the caller gets the sentinel. */
+            return count;
         }
         steps--;
     }
@@ -631,7 +645,7 @@ static int GsubApplySingle(RoboTextGsubCall *apply,
          * may sit below the input glyph. */
         int16_t delta = 0;
 
-        if (!GsubReadI16(table, offset + 4u, &delta)) {
+        if (!GsubI16(table, offset + 4u, &delta)) {
             return 0;
         }
         substitute = (GlyphId)((int32_t)replaced + (int32_t)delta);
@@ -1857,7 +1871,7 @@ int RoboTextGsubApplySubtable(RoboTextGsubCall *apply,
 
             if (!GsubU16(table, offset, &format) || format != 1u ||
                 !GsubU16(table, offset + 2u, &innerType) ||
-                !GsubReadU32(table, offset + 4u, &innerOffset)) {
+                !GsubU32(table, offset + 4u, &innerOffset)) {
                 return 0;
             }
             if (innerType == RoboTextGsubLookupExtension || !FontGsubLookupTypeIsKnown(innerType)) {

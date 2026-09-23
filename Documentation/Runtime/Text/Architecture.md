@@ -544,3 +544,63 @@ The version moved to `1.3.0`. `RoboTextGetCapabilities` reports `paragraphDirect
 `directionClasses` and `directionRunDiagnostics` `1` — each exercised by a `text.direction.*` case — and
 still reports `bidiAlgorithm`, `substitution`, `positioning`, `kerning`, `ligatures`, `complexScripts`,
 `verticalText` and `variableAxisApplication` `0`.
+
+---
+
+## 16. Phase 12.10 — glyph substitution
+
+12.10 is the first phase where a font's own tables decide what a glyph *is*: the cmap's one-id-per-scalar
+sequence becomes the font's sequence, and the record the rest of the pipeline reads gains a flag saying a
+lookup chose this id. The table is Phase 5's (`FontFaceGsub`, parsed once per face and immutable); this phase
+is the plan and the readers.
+
+| Area | Where | Contract |
+|---|---|---|
+| The feature plan, the scan, the counters, the trace | `RoboTextGsub.c` | [GlyphSubstitution.md](GlyphSubstitution.md) |
+| One reader per lookup type (all eight) | `RoboTextGsubSubst.c` | GlyphSubstitution.md §8 |
+| The mutable shaping sequence and its calls | `RoboTextGsubInternal.h`, `RoboTextGsub.h` | GlyphSubstitution.md §4 |
+| The GSUB step in the generator | `RoboTextGlyphs.c` | GlyphSubstitution.md §9 |
+
+The three properties the phase adds:
+
+1. **The font's lookup order is the answer, and features are a filter over it.** The plan walks the face's
+   ScriptList → LangSys → FeatureList, keeps the tags the caller's feature set leaves on, and collects their
+   lookup indices sorted ascending — never in feature order, never alphabetical.
+2. **Substitution rebuilds the run rather than editing it in place.** The buffer is the mutable working set
+   and the run is rebuilt once, so an advance is asked of the face for the *resulting* id: a ligature's
+   advance is its own, which is the number a reader would notice if it were a sum.
+3. **A malformed font is a skip and a counter, never a failure.** Every reader answers "no match", the
+   lookup is abandoned, and the glyphs produced so far are the caller's; four limits bound what a hostile
+   font can spend. `RoboTextGsubApply` fails only for a programming error.
+
+The version moved to `1.6.0` (with 12.12). `RoboTextGetCapabilities` reports `substitution` `1`,
+`glyphGenerationIsPlaceholder` `0` — the placeholder was replaced — and every other algorithm flag the
+phase plan owns still `0`.
+
+---
+
+## 17. Phase 12.12 — ligatures
+
+12.12 is a *policy and provenance* phase: 12.10 already substitutes, so what is added is which five tags a
+caller wants, how a stylesheet names them, and what a product remembers about the characters it swallowed.
+It adds no engine, no second table and no `fi` list.
+
+| Area | Where | Contract |
+|---|---|---|
+| The policy, the variants, the feature-set application, the report | `RoboTextLigature.c`, `RoboTextLigature.h` | [Ligatures.md](Ligatures.md) |
+| The policy's value types, beside the feature set they become | `RoboTextTypes.h` | Ligatures.md §2 |
+| Where the policy is applied (explicit settings win) | `RoboTextRuns.c` | Ligatures.md §2 |
+| A product's source range and component count | `RoboTextGlyphs.h`, `RoboTextGlyphs.c` | Ligatures.md §6 |
+
+The two properties the phase adds:
+
+1. **Required ligatures are not decoration.** `liga`, `clig`, `rlig`, `dlig` and `hlig` are five independent
+   tags, `RoboTextLigatureVariantNone` switches the optional four off and leaves `rlig` alone, and a policy
+   cannot fold one kind's state into another's — the failure it prevents is wrong Arabic letters, not a
+   plainer `fi`.
+2. **A ligature's provenance survives it.** One glyph, several scalars: the source range is the union of its
+   components' and `ligatureComponents` says how many produced it, so `RoboTextGlyphRunGlyphsForScalar`
+   answers the ligature glyph for every scalar inside it. The data a caret needs exists; the caret is later.
+
+The version moved to `1.6.0` with 12.10. `RoboTextGetCapabilities` reports `ligatures`, `ligaturePolicy` and
+`ligatureProvenance` `1`, and `positioning`/`kerning`/`complexScripts`/`verticalText` stay `0`.

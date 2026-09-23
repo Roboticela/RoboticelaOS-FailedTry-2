@@ -37,6 +37,7 @@
 
 #include "RoboMem/RoboMem.h"
 #include "RoboText/RoboTextBidi.h"
+#include "RoboText/RoboTextLigature.h"
 #include "RoboText/RoboTextDirection.h"
 #include "RoboText/RoboTextUnicode.h"
 
@@ -130,6 +131,10 @@ Result RoboTextRunSetCreate(RoboTextView view,
     set->scriptHint = options->scriptHint;
     set->language = options->language;
     set->features = options->features;
+    /* The ligature policy supplies the five ligature tags the caller did not state (Phase 12.12). Applied
+     * here, once per run set, so the measurer and the painter read one resolved feature set — the same
+     * property `RoboTypographyStyle` gives the shell, at the text layer's own seam. */
+    RoboTextLigaturePolicyApplyIfUnset(&options->ligatures, &set->features);
 
     status = RoboTextUnicodeDecodeAll(view, &scalars, &count, diag);
     if (status != RoboOk) {

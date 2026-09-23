@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.4.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.6.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -40,7 +40,10 @@ static void TestConformanceVersion(void)
      * or glyph record *shapes*, which is exactly the condition the version header names for a minor move
      * rather than a major one. 12.8 gave the run and glyph records a level *field*, which is why the
      * record layouts moved without the API's shape changing. */
-    RoboCheckEqInt((int)minor, 4);
+    /* 12.10 added the substitution engine and 12.12 the ligature layer, both additively: the glyph and
+     * shape records grew a ligature field and kept their shape, which is the condition the version header
+     * names for a minor move rather than a major one. */
+    RoboCheckEqInt((int)minor, 6);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -52,6 +55,7 @@ static void TestConformanceCapabilities(void)
     /* A zeroed record claims nothing, which is what an uninitialised one should say. */
     RoboCheckEqInt(capabilities.buffer, 0);
     RoboCheckEqInt(capabilities.substitution, 0);
+    RoboCheckEqInt(capabilities.ligaturePolicy, 0);
     RoboTextCapabilitiesInit(NULL); /* Safe. */
     RoboCheckEqInt((int)RoboTextGetCapabilities(NULL), (int)RoboInvalidArgument);
 
@@ -119,19 +123,32 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.bidiMirroring, 1);
     RoboCheckEqInt(capabilities.bidiDiagnostics, 1);
 
-    /* The generator, named as the placeholder it is. */
-    RoboCheckEqInt(capabilities.glyphGenerationIsPlaceholder, 1);
+    /*
+     * The generator is no longer the placeholder: 12.10 put a substitution pass between the cmap and the
+     * glyph run, and the flag answers 0 from then on. A caller that read it as 1 in 12.9 learns from this
+     * field, and only from this field, that the claim changed — which is why it is still here.
+     */
+    RoboCheckEqInt(capabilities.glyphGenerationIsPlaceholder, 0);
+
+    /*
+     * The two algorithms this build *does* have beyond the model, each named with the suite that exercises
+     * it: substitution (12.10, every `text.gsub.*` case) and ligatures with the policy and provenance that
+     * go with it (12.12, `text.ligature.*`). `bidiAlgorithm` joined them in 12.8.
+     */
+    RoboCheckEqInt(capabilities.substitution, 1);
+    RoboCheckEqInt(capabilities.ligatures, 1);
+    RoboCheckEqInt(capabilities.ligaturePolicy, 1);
+    RoboCheckEqInt(capabilities.ligatureProvenance, 1);
 
     /*
      * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan
-     * rather than an oversight: substitution 12.10, positioning 12.11, ligatures 12.12, kerning 12.13,
-     * complex scripts 12.19, vertical text 12.20, and variable-axis application unowned until RoboFont
-     * interpolates outlines. A `1` here without the implementation would be the exact failure the phase's
-     * boundary section forbids. `bidiAlgorithm` left this list in 12.8 and is asserted present above.
+     * rather than an oversight: positioning 12.11, kerning 12.13, complex scripts 12.19, vertical text
+     * 12.20, and variable-axis application unowned until RoboFont interpolates outlines. A `1` here without
+     * the implementation would be the exact failure the phase's boundary section forbids. `bidiAlgorithm`
+     * left this list in 12.8, and `substitution`/`ligatures` in 12.10 and 12.12, and each is asserted
+     * present above.
      */
-    RoboCheckEqInt(capabilities.substitution, 0);
     RoboCheckEqInt(capabilities.positioning, 0);
-    RoboCheckEqInt(capabilities.ligatures, 0);
     RoboCheckEqInt(capabilities.kerning, 0);
     RoboCheckEqInt(capabilities.complexScripts, 0);
     RoboCheckEqInt(capabilities.verticalText, 0);

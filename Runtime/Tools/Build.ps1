@@ -202,6 +202,12 @@ $ProdSrcs = @(
     # through `RoboTextFontGsub`, so this module interprets offsets and never parses a container.
     (Join-Path $SourceDir "RoboText\RoboTextGsub.c"),
     (Join-Path $SourceDir "RoboText\RoboTextGsubSubst.c"),
+    # Phase 12.12 -- ligatures. `RoboTextLigature.c` is the *policy* layer and the record of what the font
+    # produced: five tags (liga/clig/rlig/dlig/hlig) as caller-visible data, the stylesheet's
+    # `font-variant-ligatures` vocabulary translated into that data, and the glyph-run report. It holds no
+    # second engine: 12.10's GSUB substitutes, and a ligature is what a substitution looks like when one
+    # glyph's source range covers several scalars.
+    (Join-Path $SourceDir "RoboText\RoboTextLigature.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -494,6 +500,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextDirection.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextBidi.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextGsub.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextLigature.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

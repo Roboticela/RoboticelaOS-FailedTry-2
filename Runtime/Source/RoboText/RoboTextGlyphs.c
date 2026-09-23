@@ -57,6 +57,8 @@ struct RoboTextGlyphRun {
     size_t controls;
     /** Glyphs whose id a GSUB lookup produced rather than the `cmap` (Phase 12.10). */
     size_t substituted;
+    /** Glyphs a ligature produced: several scalars folded into one glyph (Phase 12.12). */
+    size_t ligatures;
     /** Accumulated in `double` from the glyphs' own `float` advances, so a long run's total is the sum of
      *  what the painter accumulates rather than a second rounding of it. */
     double advanceTotal;
@@ -201,6 +203,7 @@ static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
     glyphRun->mirrored = 0u;
     glyphRun->controls = 0u;
     glyphRun->substituted = 0u;
+    glyphRun->ligatures = 0u;
     glyphRun->advanceTotal = 0.0;
 
     for (size_t index = 0u; index < produced; index++) {
@@ -228,6 +231,15 @@ static Result GsubRunFromBuffer(RoboTextGlyphRun *glyphRun,
         if ((shaping->flags & RoboTextShapingGlyphSubstituted) != 0u) {
             glyph->substituted = 1;
             glyphRun->substituted++;
+        }
+        glyph->ligatureComponents = shaping->ligatureComponents;
+        if (glyph->ligatureComponents >= 2u) {
+            /*
+             * A ligature, by the only definition that needs no extra bookkeeping: a substitution that folded
+             * several glyphs into this one. The engine records the count as it substitutes, so nothing here
+             * re-derives it from a glyph count that a later lookup could have changed.
+             */
+            glyphRun->ligatures++;
         }
         mapped = (shaping->glyphId != RoboGlyphIdNone) ? 1 : 0;
         glyph->mapped = mapped;
@@ -536,6 +548,11 @@ size_t RoboTextGlyphRunSubstituted(const RoboTextGlyphRun *run)
     return run ? run->substituted : 0u;
 }
 
+size_t RoboTextGlyphRunLigatures(const RoboTextGlyphRun *run)
+{
+    return run ? run->ligatures : 0u;
+}
+
 RoboTextDirection RoboTextGlyphRunBaseDirection(const RoboTextGlyphRun *run)
 {
     return run ? run->baseDirection : RoboTextDirectionUnknown;
@@ -700,6 +717,10 @@ Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats 
         if (RoboTextRangeLength(glyph->source) > 1u) {
             out->multiScalarSources++;
         }
+        if (glyph->ligatureComponents >= 2u) {
+            out->ligatureGlyphs++;
+            out->ligatureScalars += (size_t)RoboTextRangeLength(glyph->source);
+        }
         if (glyph->offsetX != 0.0f || glyph->offsetY != 0.0f) {
             out->positioned++;
         }
@@ -738,6 +759,10 @@ Result RoboTextGlyphWrite(const RoboTextGlyph *glyph, char *buffer, size_t capac
     length = RoboTextWriterFloat(line, sizeof(line), length, glyph->offsetY);
     length = RoboTextWriterText(line, sizeof(line), length, " mapped=");
     length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->mapped);
+    /* How many glyphs this one was substituted from: two or more is a ligature, and a dump that showed only
+     * `scalar=0..3` could not tell a ligature from a decomposition. */
+    length = RoboTextWriterText(line, sizeof(line), length, " from=");
+    length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->ligatureComponents);
     length = RoboTextWriterText(line, sizeof(line), length, " mirrored=");
     length = RoboTextWriterUnsigned(line, sizeof(line), length, (uint32_t)glyph->mirrored);
     /* The bidi-control flag, because it is the reason a glyph with `id=0` must not be drawn. */

@@ -14,7 +14,7 @@
  *   | 0 | single      | `B` -> `B.alt`                                            | tst1   |
  *   | 1 | multiple    | `X` -> `B C`                                              | ccmp    |
  *   | 2 | alternate   | `A` -> {`A.alt1`, `A.alt2`}                               | salt    |
- *   | 3 | ligature    | `f f i` -> `ffi`                                          | liga    |
+ *   | 3 | ligature    | `f f i` -> `ffi`, `f f f i` -> `fffi` (longest first)     | liga    |
  *   | 4 | context     | `B C` -> `B.alt C` (nested lookup 0)                      | calt    |
  *   | 5 | chain       | `D B C` -> `D B.alt C`                                    | tst2   |
  *   | 6 | reverse     | `C D` -> `X D`                                            | tst3   |
@@ -58,7 +58,8 @@ enum {
     FixtureD = 10,
     FixtureBAlt = 12,
     FixtureM = 13,
-    FixtureGlyphCount = 14
+    FixtureFffi = 14,
+    FixtureGlyphCount = 15
 };
 
 /** The advance each glyph carries, in font units: `0x100 + glyph id`, so a wrong id is a wrong number. */
@@ -160,13 +161,15 @@ static uint16_t Wcoverage1(ByteWriter *w, size_t base, const uint16_t *glyphs, s
 /* The GSUB table                                                      */
 /* ------------------------------------------------------------------ */
 
-#define FixtureFeatureCount 9u
-#define FixtureLookupCount 9u
+#define FixtureFeatureCount 10u
+#define FixtureLookupCount 10u
 
 /* Subtable starts, recorded while building so the extension wrapper can point at the single's. */
 typedef struct FixtureLayout {
     size_t singleSubtable;
+    size_t multipleSubtable;
     size_t contextSubtable;
+    size_t extensionSubtable;
 } FixtureLayout;
 
 /** One Feature table: a tag's lookup list. @return its offset, relative to @p base. */
@@ -204,7 +207,7 @@ static uint16_t WlangSys(ByteWriter *w, size_t base, const uint16_t *features, s
  */
 static void BuildGsub(ByteWriter *w, FixtureLayout *layout)
 {
-    static const uint16_t kLatnFeatures[FixtureFeatureCount] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u};
+    static const uint16_t kLatnFeatures[FixtureFeatureCount] = {0u, 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u, 9u};
     static const uint16_t kDfltFeatures[1] = {3u};
     static const uint16_t kTrkFeatures[1] = {0u};
 
@@ -285,8 +288,8 @@ static void BuildGsub(ByteWriter *w, FixtureLayout *layout)
 
         for (uint16_t index = 0u; index < FixtureFeatureCount; index++) {
             static const char *const kTags[FixtureFeatureCount] = {"tst1", "ccmp", "salt", "liga",
-                                                                   "calt",  "tst2", "tst3", "tst4",
-                                                                   "tst6"};
+                                                                   "calt", "tst2", "tst3", "tst4",
+                                                                   "tst6", "tst5"};
             uint16_t feature[1] = {index};
             size_t record = base + 2u + (size_t)index * 6u;
             size_t featureStart = w->length;
@@ -331,6 +334,10 @@ static void BuildGsub(ByteWriter *w, FixtureLayout *layout)
                     type = 7u; /* Extension */
                     flag = 0u;
                     break;
+                case 9:
+                    type = 1u; /* the second Single, in the *delta* format */
+                    flag = 0u;
+                    break;
                 default:
                     type = (uint16_t)(index + 1u);
                     flag = 0u;
@@ -363,17 +370,22 @@ static void BuildGsub(ByteWriter *w, FixtureLayout *layout)
                     size_t start = w->length;
                     size_t coverageOffset;
                     size_t sequenceOffset;
+                    size_t sequence;
 
                     (void)Wu16At(w, 1u);
                     coverageOffset = Wu16At(w, 0u);
                     (void)Wu16At(w, 1u);
                     sequenceOffset = Wu16At(w, 0u);
+                    /* The sequence is where the writer *is*, not where it ends up: the coverage table is
+                     * appended below and would otherwise push this offset past the sequences. */
+                    sequence = w->length;
                     (void)Wu16At(w, 2u);
                     (void)Wu16At(w, FixtureB);
                     (void)Wu16At(w, FixtureC);
+                    Wu16(w, sequenceOffset, (uint16_t)(sequence - start));
                     Wu16(w, coverageOffset, Wcoverage1(w, start, kCoverage, 1u));
-                    Wu16(w, sequenceOffset, (uint16_t)((w->length - 6u) - start));
                     subtable = start;
+                    layout->multipleSubtable = start;
                     break;
                 }
                 case 2: {
@@ -398,27 +410,48 @@ static void BuildGsub(ByteWriter *w, FixtureLayout *layout)
                     break;
                 }
                 case 3: {
-                    /* Ligature: f f i -> ffi. */
+                    /*
+                     * Ligature: `f f i` -> `ffi` and `f f f i` -> `fffi`, in one set. The four-glyph
+                     * candidate is listed **first** because a ligature set is resolved in the order the font
+                     * states it — which is how a font says "prefer the longest match" without the engine
+                     * knowing anything about `ffi`. Ordering the other way is what makes `fffi` come out as
+                     * `f` + `ffi` instead of one glyph, and that difference is the test.
+                     */
                     static const uint16_t kCoverage[1] = {FixtureF};
                     size_t start = w->length;
                     size_t coverageOffset;
                     size_t setOffset;
                     size_t set;
-                    size_t ligature;
+                    size_t four;
+                    size_t three;
 
                     (void)Wu16At(w, 1u);
                     coverageOffset = Wu16At(w, 0u);
                     (void)Wu16At(w, 1u);
                     setOffset = Wu16At(w, 0u);
                     set = w->length;
-                    (void)Wu16At(w, 1u);
-                    (void)Wu16At(w, 0u); /* ligatureOffset: patched below */
-                    ligature = w->length;
-                    (void)Wu16At(w, FixtureFfi);
-                    (void)Wu16At(w, 3u); /* componentCount, the covered glyph included */
-                    (void)Wu16At(w, FixtureF);
-                    (void)Wu16At(w, FixtureI);
-                    Wu16(w, set + 2u, (uint16_t)(ligature - set));
+                    (void)Wu16At(w, 2u); /* ligatureCount */
+                    four = Wu16At(w, 0u);  /* ligatureOffsets[0]: patched below */
+                    three = Wu16At(w, 0u); /* ligatureOffsets[1]: patched below */
+                    {
+                        size_t ligature = w->length;
+
+                        (void)Wu16At(w, FixtureFffi);
+                        (void)Wu16At(w, 4u); /* componentCount, the covered glyph included */
+                        (void)Wu16At(w, FixtureF);
+                        (void)Wu16At(w, FixtureF);
+                        (void)Wu16At(w, FixtureI);
+                        Wu16(w, four, (uint16_t)(ligature - set));
+                    }
+                    {
+                        size_t ligature = w->length;
+
+                        (void)Wu16At(w, FixtureFfi);
+                        (void)Wu16At(w, 3u);
+                        (void)Wu16At(w, FixtureF);
+                        (void)Wu16At(w, FixtureI);
+                        Wu16(w, three, (uint16_t)(ligature - set));
+                    }
                     Wu16(w, coverageOffset, Wcoverage1(w, start, kCoverage, 1u));
                     Wu16(w, setOffset, (uint16_t)(set - start));
                     subtable = start;
@@ -438,9 +471,10 @@ static void BuildGsub(ByteWriter *w, FixtureLayout *layout)
                     (void)Wu16At(w, 3u);
                     (void)Wu16At(w, 2u); /* glyphCount */
                     (void)Wu16At(w, 1u); /* lookupRecordCount */
-                    (void)Wu16At(w, 0u); /* sequenceIndex */
-                    (void)Wu16At(w, 0u); /* lookupListIndex */
+                    /* The spec's field order: a coverage per input glyph, *then* the lookup records. */
                     coverages = Wreserve(w, 4u);
+                    (void)Wu16At(w, 0u); /* SequenceLookupRecord.sequenceIndex */
+                    (void)Wu16At(w, 0u); /* SequenceLookupRecord.lookupListIndex */
                     Wu16(w, coverages, Wcoverage1(w, start, kFirst, 1u));
                     Wu16(w, coverages + 2u, Wcoverage1(w, start, kSecond, 1u));
                     subtable = start;
@@ -499,12 +533,48 @@ static void BuildGsub(ByteWriter *w, FixtureLayout *layout)
                     break;
                 }
                 case 7: {
-                    /* The wrapper, built now that lookup 0's own subtable offset is known. */
+                    /*
+                     * Extension, format 1: a wrapper whose payload — a plain single substitution — sits
+                     * *after* it. That order is the point: every OpenType offset is unsigned and measured
+                     * from the table it lives in, so a payload written *before* the wrapper could not be
+                     * expressed at all. Lookup 0's subtable is the same shape; this one is self-contained so
+                     * the wrapper's `uint32` offset has a real forward value to carry.
+                     */
+                    static const uint16_t kCoverage[1] = {FixtureB};
                     size_t start = w->length;
+                    size_t extensionOffset;
+                    size_t payload;
+                    size_t offsets;
 
                     (void)Wu16At(w, 1u); /* format */
                     (void)Wu16At(w, 1u); /* the real lookup type: single */
-                    (void)Wu32At(w, (uint32_t)layout->singleSubtable);
+                    extensionOffset = Wu32At(w, 0u); /* patched below, once the payload has landed */
+                    payload = w->length;
+                    Wu32(w, extensionOffset, (uint32_t)(payload - start));
+                    (void)Wu16At(w, 2u); /* the payload: single, format 2 */
+                    offsets = Wu16At(w, 0u);
+                    (void)Wu16At(w, 1u);
+                    (void)Wu16At(w, FixtureBAlt);
+                    Wu16(w, offsets, Wcoverage1(w, payload, kCoverage, 1u));
+                    subtable = start;
+                    layout->extensionSubtable = start;
+                    break;
+                }
+                case 9: {
+                    /*
+                     * Single, format 1: one signed delta for the whole coverage — `A` + 1 = `A.alt1`.
+                     * Format 2 is the other single substitution and lookup 0 carries it; this one exists
+                     * because format 1's delta is the shape a font uses when a covered run shifts by a
+                     * constant, and a reader that gets its signedness wrong is invisible otherwise.
+                     */
+                    static const uint16_t kCoverage[1] = {FixtureA};
+                    size_t start = w->length;
+                    size_t coverageOffset;
+
+                    (void)Wu16At(w, 1u); /* format */
+                    coverageOffset = Wu16At(w, 0u);
+                    (void)Wu16At(w, 1u); /* delta: +1, signed */
+                    Wu16(w, coverageOffset, Wcoverage1(w, start, kCoverage, 1u));
                     subtable = start;
                     break;
                 }
@@ -882,11 +952,15 @@ typedef struct GsubFixture {
     RoboTextFontContext font;
 } GsubFixture;
 
-static void FixtureOpen(GsubFixture *fixture, FixtureLayout *layout)
+/**
+ * Open a face over whatever @ref g_fontBytes currently holds. Separate from @ref FixtureOpen so the
+ * malformed-table case can patch the bytes *before* the face copies them — `FontSourceCreateMemoryCopy`
+ * takes a copy, so a patch applied after the open never reaches the parser.
+ */
+static void FixtureAdopt(GsubFixture *fixture)
 {
     RoboTextFontStyle style;
 
-    FixtureBuildFont(layout);
     fixture->source = NULL;
     RoboCheckEqInt((int)FontSourceCreateMemoryCopy(g_fontBytes, g_fontLength, &fixture->source),
                    (int)RoboOk);
@@ -908,6 +982,12 @@ static void FixtureOpen(GsubFixture *fixture, FixtureLayout *layout)
     RoboTextFontStyleInit(&style);
     style.sizePx = 16.0f;
     RoboCheckEqInt((int)RoboTextFontContextSet(&fixture->font, fixture->face, &style), (int)RoboOk);
+}
+
+static void FixtureOpen(GsubFixture *fixture, FixtureLayout *layout)
+{
+    FixtureBuildFont(layout);
+    FixtureAdopt(fixture);
 }
 
 static void FixtureClose(GsubFixture *fixture)
@@ -1270,7 +1350,9 @@ static void TestGsubSingle(void)
     RoboCheckEqInt((int)stats.singleSubstitutions, 1);
     RoboCheckEqInt((int)stats.glyphsBefore, 1);
     RoboCheckEqInt((int)stats.glyphsAfter, 1);
-    RoboCheckEqInt((int)stats.lookupsApplied, 1);
+    /* The plan is the font's Latin defaults (`ccmp`, `liga`, `calt`) plus the asked-for `tst1`, and every
+     * one of them is applied even when it substitutes nothing — only one of the four fires here. */
+    RoboCheckEqInt((int)stats.lookupsApplied, 4);
     RoboCheckEqInt((int)stats.traceEvents, 1);
     RoboCheckEqInt((int)trace[0].from[0], FixtureB);
     RoboCheckEqInt((int)trace[0].to[0], FixtureBAlt);
@@ -1302,6 +1384,40 @@ static void TestGsubSingle(void)
     FixtureClose(&fixture);
 }
 
+/**
+ * Single substitution, format 1 — the one signed delta for a whole coverage.
+ *
+ * This test exists because nothing else in the suite reached the path: every other single here is format 2,
+ * and the reader's `Result` question was inverted for format 1 (`if (!GsubReadI16(...))` always returned), so
+ * the delta branch was dead code that a green suite reported as working.
+ */
+static void TestGsubSingleDelta(void)
+{
+    GsubFixture fixture;
+    FixtureLayout layout;
+    RoboTextGsubBuffer *buffer;
+    RoboTextGsubStats stats;
+    uint32_t ids[4];
+
+    FixtureOpen(&fixture, &layout);
+
+    /* `A` is covered, so the substitute is `A` plus the delta the font states: 4 + 1. */
+    buffer = RunIsolated(&fixture, "tst5", "A", &stats);
+    RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
+    RoboCheckEqInt((int)ids[0], FixtureAAlt1);
+    RoboCheckEqInt((int)stats.singleSubstitutions, 1);
+    RoboTextGsubBufferDestroy(buffer);
+
+    /* A glyph the coverage does not list is untouched: the delta is not a blanket shift. */
+    buffer = RunIsolated(&fixture, "tst5", "D", &stats);
+    RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
+    RoboCheckEqInt((int)ids[0], FixtureD);
+    RoboCheckEqInt((int)stats.singleSubstitutions, 0);
+    RoboTextGsubBufferDestroy(buffer);
+
+    FixtureClose(&fixture);
+}
+
 static void TestGsubMultiple(void)
 {
     GsubFixture fixture;
@@ -1314,8 +1430,7 @@ static void TestGsubMultiple(void)
 
     FixtureOpen(&fixture, &layout);
     /* `ccmp` is a script default, so a Latin run gets it without asking. */
-    buffer = RunIsolated(&fixture, "ccmp", "X", &stats);
-    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
+    buffer = RunIsolated(&fixture, "ccmp", "X", &stats);    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
     RoboCheckEqInt((int)ids[0], FixtureB);
     RoboCheckEqInt((int)ids[1], FixtureC);
     first = RoboTextGsubBufferAt(buffer, 0u);
@@ -1405,6 +1520,29 @@ static void TestGsubLigature(void)
     RoboCheck((glyph->flags & RoboTextShapingGlyphLigature) != 0u);
     RoboCheckEqInt((int)stats.ligatureSubstitutions, 1);
     RoboCheckEqInt((int)stats.glyphsAfter, 1);
+    RoboTextGsubBufferDestroy(buffer);
+
+    /*
+     * The longest match wins because the font listed it first (Phase 12.12 §"longest-match behavior"): four
+     * scalars in, one glyph out, and the *four*-component candidate is the one that produced it. Had the set
+     * been ordered the other way this would be `f` plus `ffi`, which is what the pair below proves.
+     */
+    buffer = RunPlan(fixture.face, &plan, "fffi", &features, &stats, NULL, 0u, NULL);
+    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 1);
+    RoboCheckEqInt((int)ids[0], FixtureFffi);
+    glyph = RoboTextGsubBufferAt(buffer, 0u);
+    RoboCheckEqInt((int)glyph->ligatureComponents, 4);
+    RoboCheckEqInt((int)glyph->source.start, 0);
+    RoboCheckEqInt((int)glyph->source.end, 4);
+    RoboCheckEqInt((int)stats.ligatureSubstitutions, 1);
+    RoboTextGsubBufferDestroy(buffer);
+
+    /* Two glyphs are not a ligature in this font, and no candidate matches at all. */
+    buffer = RunPlan(fixture.face, &plan, "ff", &features, &stats, NULL, 0u, NULL);
+    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
+    RoboCheckEqInt((int)ids[0], FixtureF);
+    RoboCheckEqInt((int)ids[1], FixtureF);
+    RoboCheckEqInt((int)stats.ligatureSubstitutions, 0);
     RoboTextGsubBufferDestroy(buffer);
 
     /* The feature toggles it: `liga` off leaves the three glyphs alone (12.10 §62). */
@@ -1525,12 +1663,14 @@ static void TestGsubChain(void)
 
     /* No backtrack: the rule does not apply. */
     buffer = RunIsolated(&fixture, "tst2", "BC", &stats);
+    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
     RoboCheckEqInt((int)ids[0], FixtureB);
     RoboCheckEqInt((int)stats.contextualMatches, 0);
     RoboTextGsubBufferDestroy(buffer);
 
     /* Backtrack present, lookahead wrong. */
     buffer = RunIsolated(&fixture, "tst2", "DBA", &stats);
+    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 3);
     RoboCheckEqInt((int)ids[1], FixtureB);
     RoboCheckEqInt((int)stats.contextualMatches, 0);
     RoboTextGsubBufferDestroy(buffer);
@@ -1557,6 +1697,7 @@ static void TestGsubReverse(void)
 
     /* Without the lookahead the reverse lookup does not fire. */
     buffer = RunIsolated(&fixture, "tst3", "C", &stats);
+    RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 1);
     RoboCheckEqInt((int)ids[0], FixtureC);
     RoboCheckEqInt((int)stats.reverseSubstitutions, 0);
     RoboTextGsubBufferDestroy(buffer);
@@ -1592,7 +1733,6 @@ static void TestGsubExtension(void)
     RoboCheckEqInt((int)plan.lookupCount, 4);
     RoboCheckEqInt((int)plan.lookupOrder[3], 7); /* Last of the Lookup List's order, wrapper and all. */
     buffer = RunPlan(fixture.face, &plan, "B", &features, &stats, trace, 2u, NULL);
-
     RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
     RoboCheckEqInt((int)ids[0], FixtureBAlt);
     glyph = RoboTextGsubBufferAt(buffer, 0u);
@@ -1645,7 +1785,9 @@ static void TestGsubLookupOrder(void)
     RoboCheckEqInt((int)BufferIds(buffer, ids, 8u), 2);
     RoboCheckEqInt((int)ids[0], FixtureBAlt);
     RoboCheckEqInt((int)ids[1], FixtureC);
-    RoboCheckEqInt((int)stats.lookupsApplied, 9);
+    /* Nine top-level lookups, and the context's record names lookup 0 again: nested applications are
+     * applications, which is what the counter documents. */
+    RoboCheckEqInt((int)stats.lookupsApplied, 10);
     RoboTextGsubBufferDestroy(buffer);
 
     FixtureClose(&fixture);
@@ -1777,7 +1919,8 @@ static void TestGsubLimitsAndMalformed(void)
         size_t gsubOffset = 0u;
         size_t entry;
 
-        FixtureOpen(&broken, &layout);
+        /* Built, then patched, then opened: the copy the face parses is made by `FixtureAdopt`. */
+        FixtureBuildFont(&layout);
         /* Find the GSUB table's file offset in the directory the builder wrote. */
         for (entry = 0u; entry < 9u; entry++) {
             const uint8_t *record = g_fontBytes + 12u + entry * 16u;
@@ -1792,6 +1935,7 @@ static void TestGsubLimitsAndMalformed(void)
         /* The coverage offset field of lookup 0's subtable, now pointing past the table's end. */
         g_fontBytes[gsubOffset + layout.singleSubtable + 2u] = 0xFFu;
         g_fontBytes[gsubOffset + layout.singleSubtable + 3u] = 0xFEu;
+        FixtureAdopt(&broken);
 
         RoboTextFeatureSetInit(&features);
         RoboCheckEqInt((int)RoboTextFeatureSetSet(&features, "tst1", RoboTextFeatureOn, 0u),
@@ -1801,7 +1945,8 @@ static void TestGsubLimitsAndMalformed(void)
         RoboCheckEqInt((int)BufferIds(buffer, ids, 4u), 1);
         RoboCheckEqInt((int)ids[0], FixtureB); /* Not substituted: the lookup was skipped. */
         RoboCheckEqInt((int)stats.singleSubstitutions, 0);
-        RoboCheckEqInt((int)stats.lookupsApplied, 1);
+        /* The plan's four lookups all ran; only the corrupted one could not read what it needed. */
+        RoboCheckEqInt((int)stats.lookupsApplied, 4);
         RoboTextGsubBufferDestroy(buffer);
         FixtureClose(&broken);
     }
@@ -1987,6 +2132,7 @@ void TestRegisterTextGsub(void)
     TestRegister("text.gsub.vocabulary", TestGsubVocabulary);
     TestRegister("text.gsub.plan", TestGsubPlan);
     TestRegister("text.gsub.single", TestGsubSingle);
+    TestRegister("text.gsub.single_delta", TestGsubSingleDelta);
     TestRegister("text.gsub.multiple", TestGsubMultiple);
     TestRegister("text.gsub.alternate", TestGsubAlternate);
     TestRegister("text.gsub.ligature", TestGsubLigature);

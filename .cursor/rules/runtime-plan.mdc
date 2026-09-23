@@ -217,9 +217,9 @@ Goal: the **best font rendering the OS can have** before more product surface ar
 12.5 Unicode / font integration ✅
 12.6 Script runs ✅ (`Script_Extensions` read as its own property, neutral blocks resolved against both neighbours, ASCII answered from the block, one pass and no allocation, per-run font selection; `Documentation/Runtime/Text/ScriptRuns.md`)
 12.7 Direction runs ✅ (`Bidi_Class` → a direction class kept honest about digits, a paragraph context in `Auto`/explicit modes, one pass resolving a neutral block against both sides and a number at an even level, direction runs feeding the run set, the analysis runs and the shape requests; `Documentation/Runtime/Text/DirectionRuns.md`)
-12.8 Bidirectional text integration
-12.9 OpenType feature model
-12.10 Glyph substitution
+12.8 Bidirectional text integration ✅
+12.9 OpenType feature model ✅
+12.10 Glyph substitution ✅
 12.11 Glyph positioning
 12.12 Ligatures
 12.13 Kerning

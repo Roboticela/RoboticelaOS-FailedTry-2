@@ -17,6 +17,8 @@
 
 #include "RoboText/RoboTextTypes.h"
 
+#include "RoboText/RoboTextLigature.h"
+
 #include <string.h>
 
 /* ------------------------------------------------------------------ */
@@ -605,6 +607,10 @@ void RoboTextShapeOptionsInit(RoboTextShapeOptions *options)
     options->scriptHint = RoboTextScriptCommon;
     RoboTextLanguageInit(&options->language);
     RoboTextFeatureSetInit(&options->features);
+    /* The ligature policy a caller gets without asking (Phase 12.12): standard, contextual and required on;
+     * discretionary and historical off. Stated as data rather than left implicit, so "the default" is one
+     * table in one place and a caller can change it one kind at a time. */
+    RoboTextLigaturePolicyDefault(&options->ligatures);
     options->flags = 0u;
 }
 
@@ -614,6 +620,9 @@ int RoboTextShapeOptionsIsValid(const RoboTextShapeOptions *options)
         return 0;
     }
     if (!RoboTextDirectionIsKnown(options->baseDirection)) {
+        return 0;
+    }
+    if (!RoboTextLigaturePolicyIsValid(&options->ligatures)) {
         return 0;
     }
     return RoboTextFeatureSetIsValid(&options->features);
