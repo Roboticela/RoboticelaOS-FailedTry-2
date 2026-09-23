@@ -220,6 +220,12 @@ $ProdSrcs = @(
     # addition), and the record of what the face did to the run's advances. It holds no engine of its own:
     # 12.11's GPOS moves the glyphs, and a kerning pair is what one of its value records looks like.
     (Join-Path $SourceDir "RoboText\RoboTextKerning.c"),
+    # Phase 12.14 -- glyph runs. `RoboTextRunList.c` is the *list* over the runs shaping produced: the key that
+    # says what makes two runs different, the logical order that is the list itself and the visual order kept
+    # beside it, the merge of two runs that are provably one, and the validation of the set. The run's own
+    # clusters, flags and metrics are derived by `RoboTextGlyphs.c`'s finalize, and the visual order is
+    # *read* from 12.8's paragraph rather than recomputed: this file contains no bidirectional algorithm.
+    (Join-Path $SourceDir "RoboText\RoboTextRunList.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -515,6 +521,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextGpos.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextLigature.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextKerning.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextGlyphRuns.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

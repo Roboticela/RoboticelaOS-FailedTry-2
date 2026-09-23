@@ -32,9 +32,19 @@
 
 struct RoboTextShapeResult {
     RoboTextRunSet *runs;
+    /** The runs themselves, owned here: the array is the storage the list views (Phase 12.14). */
     RoboTextGlyphRun **glyphRuns;
     size_t glyphRunCount;
     RoboTextMeasurement measurement;
+    /**
+     * The logical list over @ref glyphRuns, ordered visually from the run set's own bidi paragraph.
+     *
+     * A **view**: the runs belong to @ref glyphRuns and the list only indexes them. It exists so that the four
+     * questions a paragraph asks — what it measures to, where each run sits visually, whether two runs are one
+     * shape run, whether the set is consistent — are answered by the module rather than by each caller. It is
+     * built once, at the end of shaping, so that a result is *complete* rather than complete-on-demand.
+     */
+    RoboTextGlyphRunList *list;
 };
 
 /* ------------------------------------------------------------------ */
@@ -122,6 +132,12 @@ void RoboTextShapeResultDestroy(RoboTextShapeResult *result)
     if (!result) {
         return;
     }
+    /*
+     * The list first: it is a view, so destroying it releases the list and its order arrays and **not** the runs
+     * below, which are this result's. The other order would leave the list holding freed pointers for the length
+     * of a destroy, which is exactly the kind of window a double free lives in.
+     */
+    RoboTextGlyphRunListDestroy(result->list);
     for (size_t index = 0u; index < result->glyphRunCount; index++) {
         RoboTextGlyphRunDestroy(result->glyphRuns[index]);
     }
@@ -243,6 +259,40 @@ Result RoboTextShape(RoboTextView view,
             return status;
         }
     }
+
+    /*
+     * The list, last, because it is the record that says the result is finished: it needs the runs, the keys and
+     * the run set's paragraph, and every one of those exists by now. A run count of zero is legal and gets a
+     * list with no runs rather than none at all — "this text shaped to nothing" is an answer, and a result whose
+     * list accessor could be NULL would make every caller write the same check.
+     */
+    {
+        Result status = RoboTextGlyphRunListCreateView(result->glyphRuns, result->glyphRunCount,
+                                                       &result->list, diag);
+
+        if (status != RoboOk) {
+            RoboTextShapeResultDestroy(result);
+            return status;
+        }
+    }
+    if (result->glyphRunCount != 0u) {
+        /*
+         * The visual order from the paragraph the run set already resolved (Phase 12.8) — read, never recomputed.
+         * A paragraph that does not cover the runs is a state this function cannot produce and does not pretend
+         * to handle: the runs came from the run set that owns the paragraph, so the two agree by construction, and
+         * the ordering door refuses what it cannot place rather than placing it by a level it never gave.
+         */
+        const RoboTextBidiParagraph *paragraph = RoboTextRunSetBidiParagraph(result->runs);
+
+        if (paragraph) {
+            Result status = RoboTextGlyphRunListOrderVisual(result->list, paragraph, diag);
+
+            if (status != RoboOk) {
+                RoboTextShapeResultDestroy(result);
+                return status;
+            }
+        }
+    }
     *out = result;
     return RoboOk;
 }
@@ -255,6 +305,11 @@ const RoboTextRunSet *RoboTextShapeResultRuns(const RoboTextShapeResult *result)
 size_t RoboTextShapeResultGlyphRunCount(const RoboTextShapeResult *result)
 {
     return result ? result->glyphRunCount : 0u;
+}
+
+const RoboTextGlyphRunList *RoboTextShapeResultGlyphRunList(const RoboTextShapeResult *result)
+{
+    return result ? result->list : NULL;
 }
 
 const RoboTextGlyphRun *RoboTextShapeResultGlyphRun(const RoboTextShapeResult *result, size_t index)
@@ -312,11 +367,25 @@ Result RoboTextShapeResultGetGlyphStats(const RoboTextShapeResult *result, RoboT
         if (RoboTextGlyphRunGetStats(result->glyphRuns[index], &stats) != RoboOk) {
             return RoboError;
         }
+        /*
+         * **Every** field of the record, and that is a correction rather than a formality: this loop used to
+         * sum six of the eleven, so `ligatureGlyphs`, `ligatureScalars`, `mirrored`, `controls` and the two
+         * 12.14 counters answered zero for a whole text however many runs held them. A record documented as
+         * "the sum of every glyph run's counters" has to be the sum of *every* counter, because the caller
+         * cannot tell an absent count from a zeroed one without walking the runs itself — which is the work
+         * this door exists to save.
+         */
         out->glyphRuns += stats.glyphRuns;
         out->glyphs += stats.glyphs;
         out->missing += stats.missing;
         out->multiScalarSources += stats.multiScalarSources;
+        out->ligatureGlyphs += stats.ligatureGlyphs;
+        out->ligatureScalars += stats.ligatureScalars;
         out->positioned += stats.positioned;
+        out->mirrored += stats.mirrored;
+        out->controls += stats.controls;
+        out->marks += stats.marks;
+        out->clusters += stats.clusters;
         out->advancePx += stats.advancePx;
     }
     return RoboOk;

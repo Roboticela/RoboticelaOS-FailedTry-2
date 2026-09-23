@@ -240,7 +240,7 @@ an *answer*, not a refusal, because what is true is that its glyphs do not advan
 ## 6. The pipeline and measurement
 
 ```
-RunSetCreate → GlyphRunGenerate (once per text run) → the measurement, summed across runs
+RunSetCreate → GlyphRunGenerate (once per text run) → GlyphRunFinalize → the run list → the measurement
 ```
 
 `RoboTextShape` does all three in one call, because a caller that wanted the runs *and* the measurement
@@ -253,7 +253,8 @@ mind:
 
 ```text
 UTF-8 → scalars → scripts → direction → bidi → font selection → features → cmap
-      → GSUB (substitution) → GPOS (positioning / kerning) → glyph run → measurement → layout → paint
+      → GSUB (substitution) → GPOS (positioning / kerning) → glyph run → finalize → run list
+      → measurement → layout → paint
 ```
 
 `RoboTextMeasurement` is the layout seam. That is why positioning came *before* kerning as a separate goal
@@ -457,6 +458,7 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 12.11 Glyph positioning (GPOS)         ✓  (Positioning)        → fills RoboTextGlyph.offsetX/offsetY
 12.12 Ligatures                        ✓  (Ligatures)
 12.13 Kerning                          ✓  (Kerning)            → the policy and the report over 12.11
+12.14 Glyph runs                       ✓  (GlyphRuns)          → finalizes the run and lists them
 ```
 
 Every one of those consumes this layer rather than replacing it. That is the milestone: the seams

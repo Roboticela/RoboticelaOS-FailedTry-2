@@ -41,10 +41,10 @@
  *
  * ## What is deliberately absent
  *
- * No positioning, no kerning, no mark attachment, no cluster merging, no cache. A glyph run is generated,
- * consumed and released. `RoboTextCapabilities` reports each absence as a flag, and
- * `RoboTextGlyphGenerationMode` names what *is* implemented so that a caller cannot mistake "one cmap
- * lookup per scalar" for shaping.
+ * No grapheme segmentation (the cluster rule is "a combining mark attaches left", and it is named as the
+ * approximation it is), no shaping cache, no line breaking. A glyph run is generated, consumed and released.
+ * `RoboTextCapabilities` reports each absence as a flag, and `RoboTextGlyphGenerationMode` names what *is*
+ * implemented so that a caller cannot mistake "one cmap lookup per scalar" for shaping.
  *
  * ## Substitution (Phase 12.10)
  *
@@ -117,6 +117,69 @@ int RoboTextGlyphGenerationModeIsKnown(RoboTextGlyphGenerationMode mode);
 const char *RoboTextGlyphGenerationModeName(RoboTextGlyphGenerationMode mode);
 
 /**
+ * The facts about a glyph that a reader needs to *group* it with its neighbours (Phase 12.14.22).
+ *
+ * Six flags and not twenty. Each is a question a later stage asks and could not answer from the glyph's id
+ * and source alone:
+ *
+ *   ClusterStart / ClusterContinuation  which glyph begins the cluster this one belongs to. A cluster is a
+ *                                       source range and a glyph range, so "where do I split" is a question
+ *                                       only the second glyph of a cluster can answer wrongly.
+ *   Mark                                a glyph that is a combining mark: it attaches to the glyph before
+ *                                       it, so it may not begin a line and may not be separated from its base.
+ *   Ligature                            a glyph several scalars folded into. `ligatureComponents >= 2` says
+ *                                       the same thing; the flag is here because the *group* of facts a reader
+ *                                       wants is this one, and a reader that had to know which field to test
+ *                                       for each of six facts would eventually test the wrong one.
+ *   UnsafeToBreak                       do not let a line begin at this glyph (Phase 12.14.23).
+ *   UnsafeToConcat                      do not shape across this boundary: concatenating another run here
+ *                                       could change this run's shaping (Phase 12.14.23).
+ *
+ * What is deliberately **not** here: `control`, `mirrored`, `mapped`, `substituted` and `positioned` are
+ * facts about a glyph's *id*, and each already has its own field below. Folding them into this word would
+ * state five of them twice, and a record that states a fact twice is a record that can contradict itself.
+ */
+typedef enum RoboTextGlyphFlag {
+    /** No flags: an uninitialised or flagless glyph. */
+    RoboTextGlyphFlagNone = 0,
+    /** The first glyph of its cluster. */
+    RoboTextGlyphFlagClusterStart = 1u << 0,
+    /** A later glyph of its cluster: the same source, the next glyph. */
+    RoboTextGlyphFlagClusterContinuation = 1u << 1,
+    /** A combining mark, by the source scalar's `General_Category` being `Mn`, `Mc` or `Me`. */
+    RoboTextGlyphFlagMark = 1u << 2,
+    /** A glyph several scalars were folded into: see @ref RoboTextGlyph::ligatureComponents. */
+    RoboTextGlyphFlagLigature = 1u << 3,
+    /** A line may not begin at this glyph. See @ref RoboTextGlyphRunUnsafeToBreak. */
+    RoboTextGlyphFlagUnsafeToBreak = 1u << 4,
+    /** Another run's glyphs may not be shaped against this glyph's boundary. */
+    RoboTextGlyphFlagUnsafeToConcat = 1u << 5
+} RoboTextGlyphFlag;
+
+/** A glyph's flags, as a bit word of @ref RoboTextGlyphFlag. */
+typedef uint32_t RoboTextGlyphFlags;
+
+/** Non-zero when @p flag is a defined single flag. */
+int RoboTextGlyphFlagIsKnown(RoboTextGlyphFlag flag);
+
+/** Name of a single @p flag (`"cluster-start"`); `"none"` for @ref RoboTextGlyphFlagNone. Never NULL. */
+const char *RoboTextGlyphFlagName(RoboTextGlyphFlag flag);
+
+/**
+ * @p flags as `"cluster-start|mark"`, into @p buffer.
+ *
+ * Complete or absent, like every dump in this module, and `@` for a word with no flags — a spelling that
+ * cannot be confused with a flag's name. @p outLength receives the length a complete word needs either way.
+ *
+ * @return RoboOk; RoboInvalidArgument for a NULL argument; RoboNotSupported when @p buffer cannot hold the
+ *         word.
+ */
+Result RoboTextGlyphFlagsWrite(RoboTextGlyphFlags flags,
+                                char *buffer,
+                                size_t capacity,
+                                size_t *outLength);
+
+/**
  * One glyph: what to draw, where it came from, and the two vectors that place it.
  *
  * A value with no pointers, so a glyph may be copied, compared and held by a test without a lifetime
@@ -127,7 +190,16 @@ typedef struct RoboTextGlyph {
     GlyphId glyphId;
     /** The scalars this glyph was generated from; a half-open range, never inverted. */
     RoboTextRange source;
-    /** The scalar index of this glyph's cluster. Identity mapping in this build (see the header). */
+    /**
+     * The character the glyph came from, or 0 when its source covers more than one scalar (Phase 12.14).
+     *
+     * @ref source is the scalar *index*; this is the code point at it. A glyph's properties are properties of
+     * the character — the one this build reads is `Mark`, from `General_Category` — and after substitution the
+     * text is no longer at hand to decode, so the character travels with the glyph. See
+     * @ref RoboTextShapingGlyph::codePoint for the two meanings of 0 and how they are told apart.
+     */
+    RoboTextCodePoint codePoint;
+    /** The **cluster** index of this glyph (Phase 12.14.6): which cluster of the run it belongs to. */
     RoboTextClusterIndex cluster;
     /** The face's own `hmtx` advance, in font units. Kept so a dump can show the raw number. */
     uint16_t advanceUnits;
@@ -207,6 +279,14 @@ typedef struct RoboTextGlyph {
     int mirrored;
     /** The metrics door's status: three ways a glyph can have no advance, none of them zero. */
     FontGlyphMetricsStatus metricsStatus;
+    /**
+     * The grouping facts about this glyph (Phase 12.14.22). See @ref RoboTextGlyphFlag for each flag's
+     * meaning and for why the id facts are fields rather than flags.
+     *
+     * A glyph that a caller built by hand rather than one this module produced carries
+     * @ref RoboTextGlyphFlagNone, which is what an unset flag word should say.
+     */
+    RoboTextGlyphFlags flags;
 } RoboTextGlyph;
 
 /** Clear @p glyph to a null glyph: no id, empty source, zero vectors. Safe on NULL. */
@@ -219,10 +299,108 @@ int RoboTextGlyphIsValid(const RoboTextGlyph *glyph);
 int RoboTextGlyphEqual(const RoboTextGlyph *a, const RoboTextGlyph *b);
 
 /* ------------------------------------------------------------------ */
-/* A glyph run                                                         */
+/* Clusters                                                            */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A cluster: a source range and the glyphs it produced (Phase 12.14.6).
+ *
+ * The mapping between the two index spaces, and the *only* place the many-to-many relation between scalars
+ * and glyphs is written down. All four shapes live in one type:
+ *
+ *   1 source → 1 glyph        one scalar, one glyph, the ordinary case.
+ *   1 source → many glyphs    a decomposition, or a scalar a font draws with several glyphs.
+ *   many source → 1 glyph     a ligature: `ffi` is one glyph and one cluster covering three scalars.
+ *   many source → many glyphs a cluster whose glyphs each cover part of the source — a base and a mark that
+ *                             a font composed into one glyph each.
+ *
+ * **Logical order, not visual order** (Phase 12.14.7): the clusters of a right-to-left run are in source
+ * order, and it is the run's *placement* that makes them right-to-left. Reversing this array for an RTL run
+ * would destroy the source mapping that selection and hit testing need, and is the single most common way a
+ * bidi implementation gets a caret wrong.
+ */
+typedef struct RoboTextGlyphCluster {
+    /** The scalars this cluster covers: half-open, never inverted, never empty. */
+    RoboTextRange source;
+    /** The first glyph of the cluster, as an index into the run's own glyph array. */
+    RoboTextGlyphIndex glyphStart;
+    /** One past the cluster's last glyph. `glyphStart < glyphEnd` always. */
+    RoboTextGlyphIndex glyphEnd;
+} RoboTextGlyphCluster;
+
 typedef struct RoboTextGlyphRun RoboTextGlyphRun;
+
+/**
+ * The run's clusters, in logical source order.
+ *
+ * They tile the glyph array: the first starts at glyph 0, each begins where the last ended, and the last ends
+ * at the run's glyph count. They tile the run's source the same way, and they never overlap.
+ */
+size_t RoboTextGlyphRunClusterCount(const RoboTextGlyphRun *run);
+
+/** Cluster @p index, or NULL when out of range. */
+const RoboTextGlyphCluster *RoboTextGlyphRunCluster(const RoboTextGlyphRun *run, RoboTextClusterIndex index);
+
+/**
+ * The cluster covering scalar @p scalar of the run's own source.
+ *
+ * The door a caret and a hit test use, and the reason a cluster is an object: `RoboTextGlyph::cluster` answers
+ * "which cluster does this glyph belong to" for a glyph the caller already has, and this answers the inverse
+ * question for a *source position*, which is the one a click produces.
+ *
+ * @return RoboOk and @p outCluster; RoboInvalidArgument for a NULL argument or a scalar outside the run;
+ *         RoboNotFound when no cluster covers it, which cannot happen for a run this module finalized and is
+ *         reported rather than answered with cluster 0.
+ */
+Result RoboTextGlyphRunClusterForScalar(const RoboTextGlyphRun *run,
+                                        RoboTextScalarIndex scalar,
+                                        RoboTextClusterIndex *outCluster,
+                                        RoboTextDiag *diag);
+
+/**
+ * Glyphs a combining mark (Phase 12.14.22): `General_Category` `Mn`, `Mc` or `Me`.
+ *
+ * Counted from the flags, so it is the same answer a caller gets by walking them.
+ */
+size_t RoboTextGlyphRunMarks(const RoboTextGlyphRun *run);
+
+/**
+ * Glyphs a line may not begin at (Phase 12.14.23).
+ *
+ * Not a line-breaking implementation — that is Phase 19's — but the information a line breaker will need and
+ * cannot recover once the shaping buffer is gone: a glyph that is a combining mark, or the product of a
+ * ligature, or one a font placed relative to its neighbour through GPOS, is a glyph whose removal from its
+ * neighbours' context would change what was drawn.
+ */
+size_t RoboTextGlyphRunUnsafeToBreak(const RoboTextGlyphRun *run);
+
+/**
+ * The face's metrics at the run's own context (Phase 12.14.18), in device pixels.
+ *
+ * The record line layout needs — ascent, descent, the leading a line box uses, and the optional cap and
+ * x-heights — so that a consumer never asks the font parser again. The values are the face's, scaled through
+ * the module's one scaling door, and `fromFace` is zero when a fallback estimate was used.
+ *
+ * @return RoboOk and @p out; RoboInvalidArgument for a NULL argument. A run whose face could not be asked
+ *         answers with a zeroed record and `fromFace == 0`, which is the same "not available" a context
+ *         reports.
+ */
+Result RoboTextGlyphRunMetrics(const RoboTextGlyphRun *run, RoboTextFontMetrics *out);
+
+/** The run's ascent in device pixels, or 0 when the face could not be asked. */
+float RoboTextGlyphRunAscent(const RoboTextGlyphRun *run);
+
+/** See @ref RoboTextGlyphRunAscent: the descent, as a positive magnitude. */
+float RoboTextGlyphRunDescent(const RoboTextGlyphRun *run);
+
+/** See @ref RoboTextGlyphRunAscent: the face's line gap. */
+float RoboTextGlyphRunLineGap(const RoboTextGlyphRun *run);
+
+/** See @ref RoboTextGlyphRunAscent: the leading a line box uses. */
+float RoboTextGlyphRunLineHeight(const RoboTextGlyphRun *run);
+
+/** The feature settings the run was shaped with (Phase 12.10), copied from its text run. */
+const RoboTextFeatureSet *RoboTextGlyphRunFeatures(const RoboTextGlyphRun *run);
 
 /**
  * Generate the glyph run for one text run.
@@ -346,6 +524,17 @@ size_t RoboTextGlyphRunMissingGlyphs(const RoboTextGlyphRun *run);
 float RoboTextGlyphRunAdvance(const RoboTextGlyphRun *run);
 
 /**
+ * The run's total **vertical** advance, in device pixels (Phase 12.14.19).
+ *
+ * Zero for every run this build produces, because nothing positions glyphs vertically yet: a glyph's
+ * `advanceY` comes from GPOS and the tables this build applies write none. Present rather than absent because
+ * a caller accumulating a line's progress in a writing mode it has not been given cannot ask which axis to
+ * read, and a vertical-writing-mode goal that had to add this field would have to change every consumer of
+ * the horizontal one.
+ */
+float RoboTextGlyphRunAdvanceY(const RoboTextGlyphRun *run);
+
+/**
  * The advance before glyph @p index: the pen position that glyph is drawn at, relative to the run's
  * origin.
  *
@@ -411,6 +600,103 @@ Result RoboTextGlyphRunGlyphForScalarIndex(const RoboTextGlyphRun *run,
                                            RoboTextDiag *diag);
 
 /** Counter record for a run or a shape result, for a dump or an assertion. */
+/**
+ * Why a run is not a valid record (Phase 12.14.37).
+ *
+ * One enumerator per invariant `RoboTextGlyphRunValidate` checks, rather than one `Invalid` answer, because a
+ * validation door that says only "no" is a door a failing test cannot use: the enumerator names the invariant
+ * that broke, which is the whole value of validating in a test rather than asserting.
+ */
+typedef enum RoboTextGlyphRunProblem {
+    /** Every invariant holds. */
+    RoboTextGlyphRunProblemNone = 0,
+    /** The source range is inverted. */
+    RoboTextGlyphRunProblemRange,
+    /** The run has a non-empty source and no glyphs, or glyphs and an empty source. */
+    RoboTextGlyphRunProblemGlyphCount,
+    /** No face, or a context this build cannot use. */
+    RoboTextGlyphRunProblemFont,
+    /** A glyph's source does not lie inside the run's. */
+    RoboTextGlyphRunProblemGlyphSource,
+    /** An advance or an offset is `NaN` or infinite. */
+    RoboTextGlyphRunProblemVector,
+    /** The clusters do not tile the glyph array. */
+    RoboTextGlyphRunProblemClusterTiling,
+    /** A cluster's source is empty or does not lie inside the run's. */
+    RoboTextGlyphRunProblemClusterSource,
+    /** The clusters are not in ascending logical source order. */
+    RoboTextGlyphRunProblemClusterOrder,
+    /** A glyph's cluster index names no cluster, or the wrong one for its source. */
+    RoboTextGlyphRunProblemClusterIndex,
+    /** The stored total disagrees with the sum of the glyphs' own advances. */
+    RoboTextGlyphRunProblemTotal,
+    /** A counter (`missing`, `ligatures`, `marks`, …) disagrees with the glyphs. */
+    RoboTextGlyphRunProblemCounter,
+    /** The direction disagrees with the resolved level's parity. */
+    RoboTextGlyphRunProblemDirection
+} RoboTextGlyphRunProblem;
+
+/** Non-zero when @p problem is a defined enumerator. */
+int RoboTextGlyphRunProblemIsKnown(RoboTextGlyphRunProblem problem);
+
+/** Name of @p problem (`"cluster-tiling"`); `"none"` for the valid answer. Never NULL. */
+const char *RoboTextGlyphRunProblemName(RoboTextGlyphRunProblem problem);
+
+/**
+ * Check every invariant a valid run holds (Phase 12.14.37). O(glyphs + clusters).
+ *
+ * The door the phase asks for as "validation enabled in debug and test builds", written as a function a
+ * caller invokes rather than as an `#ifdef` inside generation, because a check a test cannot call is a check
+ * no test can prove fires. Generation does not call it: a run it produced is valid by construction, and this
+ * exists to *prove* that in a suite rather than to be believed.
+ *
+ * The invariants, all of them:
+ *
+ *   glyphs and source agree in emptiness; every glyph's source lies inside the run's; every advance and
+ *   offset is finite; clusters tile the glyph array and their sources tile the run's in ascending order with
+ *   no overlap; every glyph's `cluster` names the cluster that contains it; the stored advance total is the
+ *   sum of the glyphs' own; every counter equals what the glyphs say; and the direction agrees with the
+ *   parity of the resolved level.
+ *
+ * @param outProblem receives the first broken invariant, or @ref RoboTextGlyphRunProblemNone.
+ *
+ * @return RoboOk when the run is valid; RoboInvalidArgument for a NULL argument or an invalid run — with
+ *         @p outProblem naming the invariant; RoboNotSupported when the run has no font context.
+ */
+Result RoboTextGlyphRunValidate(const RoboTextGlyphRun *run,
+                                RoboTextGlyphRunProblem *outProblem,
+                                RoboTextDiag *diag);
+
+/**
+ * The run as a multi-line diagnostic block (Phase 12.14.35).
+ *
+ * The artifact a typography bug is diagnosed from, and the reason it is a door rather than a test helper:
+ * `Build/Text-GlyphTable.txt` and a failing suite both want the same text, and a second spelling of it would
+ * drift from this one.
+ *
+ * ```
+ * GlyphRun {
+ *   source [0..6)  scalars 6
+ *   script latin  direction ltr  bidiLevel 0  base ltr
+ *   mode cmap+gsub+gpos  features kern=on
+ *   metrics ascent 15.10  descent 3.70  lineGap 0.00  lineHeight 18.80
+ *   advance 61.20, 0.00  glyphs 6  clusters 6
+ *   glyphs [0] id=42 ...
+ *   clusters [0] source [0..1) glyphs [0..1)
+ * }
+ * ```
+ *
+ * Complete or absent, like every dump here: a run that does not fit @p capacity leaves the buffer as the
+ * empty string, and `Build/Text-GlyphTable.txt`'s "absent" is a byte a reader can trust.
+ *
+ * @return RoboOk and @p outLength; RoboInvalidArgument for a NULL argument; RoboNotSupported when @p buffer
+ *         cannot hold the block.
+ */
+Result RoboTextGlyphRunWrite(const RoboTextGlyphRun *run,
+                             char *buffer,
+                             size_t capacity,
+                             size_t *outLength);
+
 typedef struct RoboTextGlyphStats {
     size_t glyphRuns;
     size_t glyphs;
@@ -429,6 +715,10 @@ typedef struct RoboTextGlyphStats {
     size_t mirrored;
     /** Glyphs that stand for a bidi formatting control: no id, no advance, nothing drawn. */
     size_t controls;
+    /** Glyphs that are a combining mark (Phase 12.14.22). */
+    size_t marks;
+    /** Clusters across every run (Phase 12.14.6). */
+    size_t clusters;
     /** Total advance across every run, in device pixels. */
     double advancePx;
 } RoboTextGlyphStats;
@@ -439,7 +729,9 @@ Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats 
 /**
  * Human-readable one-line dump of a glyph, for the visual test surface the phase asks for.
  *
- * Writes `id=<id> scalar=<n>..<n> advance=<f> units=<n> offset=<f>,<f> mapped=<0|1> mirrored=<0|1>`.
+ * Writes `id=<id> scalar=<n>..<n> advance=<f> units=<n> offset=<f>,<f> mapped=<0|1> mirrored=<0|1>
+ * flags=<word>` — the flags word since 12.14, because "is this the start of its cluster" is the question a
+ * reader of a glyph dump asks next and the one thing the old line could not answer.
  * The glyph's index
  * in its run is deliberately **not** part of the line: the record does not carry one (a glyph does not
  * know where it sits), and a caller dumping a run is already walking the indices.

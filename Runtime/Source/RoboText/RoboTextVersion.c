@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.7.0";
+    static const char version[] = "1.8.0";
 
     return version;
 }
@@ -118,6 +118,26 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->kerning = 1;
     out->kerningPolicy = 1;
     out->kerningReport = 1;
+
+    /*
+     * The finalized run and its list (12.14). One flag per record the phase adds, read field by field in
+     * `Tests/Text/SuiteRoboTextConformance.c`, and one flag that is deliberately **0**: `shapingCache`.
+     *
+     * The key such a cache would be built on is here (`RoboTextGlyphRunKey`, compared and *diagnosed* by
+     * `RoboTextGlyphRunKeyDifference`), and the cache is not — because the phase's own rule is that a cache is
+     * an optimization and never a correctness requirement, and nothing in this tree has yet measured a shaping
+     * workload where one pays. A false flag here would be the one thing the capability record must not be.
+     */
+    out->glyphRunFinalization = 1;
+    out->glyphClusters = 1;
+    out->glyphFlags = 1;
+    out->glyphRunMetrics = 1;
+    out->glyphRunList = 1;
+    out->glyphRunKeys = 1;
+    out->glyphRunCoalescing = 1;
+    out->glyphRunValidation = 1;
+    out->glyphRunDiagnostics = 1;
+    out->shapingCache = 0;
 
     /*
      * The bidi stage (12.8). Every flag is exercised by a case: the paragraph base and its four sources by

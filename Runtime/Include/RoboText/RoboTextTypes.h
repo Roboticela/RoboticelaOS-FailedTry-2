@@ -14,9 +14,11 @@
  *                          source span and a selection range use.
  *   RoboTextGlyphIndex     the ordinal of a glyph inside a glyph run. What a painter uses, and what a
  *                          shaped run will use after substitution has changed the count.
- *   RoboTextClusterIndex   the ordinal of a user-perceived character. **Nothing produces one yet** —
- *                          grapheme segmentation is a later goal — and the type exists so that the
- *                          field which will hold one is not an `int` a reader has to guess about.
+ *   RoboTextClusterIndex   the ordinal of a user-perceived character. Since Phase 12.14 the cluster array
+ *                          a glyph run carries is indexed by one, and `RoboTextGlyph::cluster` is a
+ *                          glyph's cluster. The grouping is *not* grapheme segmentation (UAX #29): it is
+ *                          "a combining mark attaches left", named as the approximation it is in
+ *                          `RoboTextGlyphs.h` and `Documentation/Runtime/Text/GlyphRuns.md`.
  *
  * They are distinct integer types rather than four `uint32_t`s, and the difference is not cosmetic:
  * C will let a caller pass a byte offset where a scalar index belongs, and the *only* defence a header

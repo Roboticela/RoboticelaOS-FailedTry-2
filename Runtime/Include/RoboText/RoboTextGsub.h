@@ -173,6 +173,19 @@ typedef struct RoboTextShapingGlyph {
      * selection. A ligature's range covers every component (and any ignored scalar between them).
      */
     RoboTextRange source;
+    /**
+     * The **character** the glyph came from, or 0 when its source covers more than one scalar.
+     *
+     * The scalar *index* is @ref source, and this is the code point at it: the two are different facts and a
+     * reader needs both (an index addresses the text, a code point is what the character is). It is carried
+     * because a glyph's properties — whether it is a combining mark, above all — are properties of the
+     * character, and after Phase 12.10's rebuild the text is no longer at hand to decode.
+     *
+     * 0 for a glyph whose source covers several scalars, which is the honest "no single character": a ligature
+     * is `ffi` and not any one of its three. The two readings of 0 — "several scalars" and "the character really
+     * is U+0000" — are told apart by @ref source's own length, which is always there.
+     */
+    RoboTextCodePoint codePoint;
     /** The glyph's cluster: the source index a caret treats as one unit. The `source.start` by default. */
     RoboTextClusterIndex cluster;
     /** The resolved bidi level the glyph is shaped at. Carried, never changed by substitution. */

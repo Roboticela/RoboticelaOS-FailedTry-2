@@ -26,6 +26,18 @@
  *
  *   **The decode walks, it does not index.** `ScalarAt` per scalar would be O(n²) over a run, and the
  *   range is contiguous, so the loop converts both endpoints once and then walks the bytes between them.
+ *
+ * ## 12.14: the run is finished, not just produced
+ *
+ * Generation used to end when the last glyph's advance was written. Since 12.14 it ends with
+ * `RoboTextGlyphRunFinalize`, which derives the four records the glyph array implies: the **cluster** array
+ * (the many-to-many mapping between scalars and glyphs), each glyph's **flag** word (which glyph begins a
+ * cluster, which is a mark, which is a ligature, which may not begin a line), the run's **metrics** (so line
+ * layout never asks the font parser again), and the run's own **totals**. The record is complete when the
+ * function returns, and `RoboTextGlyphRunValidate` is the door that checks the four agree with the glyphs.
+ *
+ * The struct itself is in `RoboTextGlyphsInternal.h`, because `RoboTextRunList.c` merges two adjacent runs and
+ * cannot do that through an accessor.
  */
 
 #include "RoboText/RoboTextGlyphs.h"
@@ -34,38 +46,12 @@
 #include "RoboText/RoboTextBidi.h"
 #include "RoboText/RoboTextGpos.h"
 #include "RoboText/RoboTextGsub.h"
+#include "RoboText/RoboTextUnicode.h"
+#include "RoboTextGlyphsInternal.h"
 #include "RoboTextInternal.h"
 #include "RoboUnicode/RoboUnicode.h"
 
 #include <string.h>
-
-struct RoboTextGlyphRun {
-    RoboTextGlyph *glyphs;
-    size_t count;
-    RoboTextRange source;
-    RoboTextScript script;
-    RoboTextDirection direction;
-    /** The resolved level the run was generated at (Phase 12.8). */
-    RoboTextBidiLevel bidiLevel;
-    RoboTextDirection baseDirection;
-    RoboTextFontContext font;
-    RoboTextLanguage language;
-    RoboTextGlyphGenerationMode mode;
-    size_t missing;
-    /** Glyphs whose id came from a mirrored code point (UAX #9 L4). */
-    size_t mirrored;
-    /** Glyphs that stand for a bidi formatting control: no id, no advance, nothing drawn. */
-    size_t controls;
-    /** Glyphs whose id a GSUB lookup produced rather than the `cmap` (Phase 12.10). */
-    size_t substituted;
-    /** Glyphs a ligature produced: several scalars folded into one glyph (Phase 12.12). */
-    size_t ligatures;
-    /** Glyphs the face's GPOS positioned (Phase 12.11). */
-    size_t positioned;
-    /** Accumulated in `double` from the glyphs' own `float` advances, so a long run's total is the sum of
-     *  what the painter accumulates rather than a second rounding of it. */
-    double advanceTotal;
-};
 
 /* ------------------------------------------------------------------ */
 /* The generation mode                                                 */
@@ -133,14 +119,139 @@ int RoboTextGlyphEqual(const RoboTextGlyph *a, const RoboTextGlyph *b)
         return 0;
     }
     return a->glyphId == b->glyphId && RoboTextRangeEqual(&a->source, &b->source) &&
-           a->cluster == b->cluster && a->advanceUnits == b->advanceUnits &&
+           a->codePoint == b->codePoint && a->cluster == b->cluster &&
+           a->advanceUnits == b->advanceUnits &&
            a->advanceX == b->advanceX && a->advanceY == b->advanceY && a->offsetX == b->offsetX &&
            a->offsetY == b->offsetY && a->advanceAdjustX == b->advanceAdjustX &&
            a->advanceAdjustY == b->advanceAdjustY && a->offsetAdjustX == b->offsetAdjustX &&
            a->offsetAdjustY == b->offsetAdjustY && a->mapped == b->mapped &&
            a->control == b->control && a->mirrored == b->mirrored &&
            a->substituted == b->substituted && a->positioned == b->positioned &&
+           a->ligatureComponents == b->ligatureComponents && a->flags == b->flags &&
            a->metricsStatus == b->metricsStatus;
+}
+
+/* ------------------------------------------------------------------ */
+/* Glyph flags (Phase 12.14.22)                                        */
+/* ------------------------------------------------------------------ */
+
+int RoboTextGlyphFlagIsKnown(RoboTextGlyphFlag flag)
+{
+    switch (flag) {
+        case RoboTextGlyphFlagNone:
+        case RoboTextGlyphFlagClusterStart:
+        case RoboTextGlyphFlagClusterContinuation:
+        case RoboTextGlyphFlagMark:
+        case RoboTextGlyphFlagLigature:
+        case RoboTextGlyphFlagUnsafeToBreak:
+        case RoboTextGlyphFlagUnsafeToConcat:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+const char *RoboTextGlyphFlagName(RoboTextGlyphFlag flag)
+{
+    switch (flag) {
+        case RoboTextGlyphFlagNone:
+            return "none";
+        case RoboTextGlyphFlagClusterStart:
+            return "cluster-start";
+        case RoboTextGlyphFlagClusterContinuation:
+            return "cluster-continuation";
+        case RoboTextGlyphFlagMark:
+            return "mark";
+        case RoboTextGlyphFlagLigature:
+            return "ligature";
+        case RoboTextGlyphFlagUnsafeToBreak:
+            return "unsafe-to-break";
+        case RoboTextGlyphFlagUnsafeToConcat:
+            return "unsafe-to-concat";
+        default:
+            return "unknown";
+    }
+}
+
+/*
+ * The flags a word is made of, in the order the enum lists them and never in the order they were set. A dump
+ * whose field order depended on which flag was set first would print two equal words differently, and a test
+ * that compared dumps would then be testing the setter rather than the value.
+ */
+/** The one way out of @ref RoboTextGlyphFlagsWrite when the word does not fit: empty buffer, no length. */
+static Result FlagsWriteOverflow(size_t *outLength)
+{
+    if (outLength) {
+        *outLength = 0u;
+    }
+    return RoboTextDiagMsg(NULL, RoboTextDomainGlyph, RoboNotSupported,
+                           "the flags word does not fit the caller's buffer");
+}
+
+static const RoboTextGlyphFlag GlyphFlagOrder[] = {
+    RoboTextGlyphFlagClusterStart,
+    RoboTextGlyphFlagClusterContinuation,
+    RoboTextGlyphFlagMark,
+    RoboTextGlyphFlagLigature,
+    RoboTextGlyphFlagUnsafeToBreak,
+    RoboTextGlyphFlagUnsafeToConcat
+};
+
+Result RoboTextGlyphFlagsWrite(RoboTextGlyphFlags flags,
+                               char *buffer,
+                               size_t capacity,
+                               size_t *outLength)
+{
+    size_t length = 0u;
+    int any = 0;
+
+    if (!buffer || capacity == 0u) {
+        return RoboTextDiagMsg(NULL, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "a flags word needs a buffer");
+    }
+    buffer[0] = '\0';
+    if (outLength) {
+        *outLength = 0u;
+    }
+
+    for (size_t index = 0u; index < sizeof(GlyphFlagOrder) / sizeof(GlyphFlagOrder[0]); index++) {
+        RoboTextGlyphFlags bit = (RoboTextGlyphFlags)GlyphFlagOrder[index];
+        const char *name;
+
+        if ((flags & bit) == 0u) {
+            continue;
+        }
+        name = RoboTextGlyphFlagName(GlyphFlagOrder[index]);
+        if (any) {
+            length = RoboTextWriterText(buffer, capacity, length, "|");
+            if (length == RoboTextWriterOverflow) {
+                break;
+            }
+        }
+        length = RoboTextWriterText(buffer, capacity, length, name);
+        if (length == RoboTextWriterOverflow) {
+            break;
+        }
+        any = 1;
+    }
+    if (length == RoboTextWriterOverflow) {
+        /*
+         * Abandon the word, like every dump in this module: a prefix of a flags word reads as a *different*
+         * set of flags, which is the one thing a dump must not do. The buffer is left as the empty string so
+         * that a caller which ignores the status prints nothing rather than a half-word.
+         */
+        return FlagsWriteOverflow(outLength);
+    }
+    if (!any) {
+        length = RoboTextWriterText(buffer, capacity, length, "@");
+        if (length == RoboTextWriterOverflow) {
+            return FlagsWriteOverflow(outLength);
+        }
+    }
+    if (outLength) {
+        *outLength = length;
+    }
+    return RoboOk;
 }
 
 /* ------------------------------------------------------------------ */
@@ -170,6 +281,7 @@ static Result ShapeBufferFromRun(const RoboTextGlyphRun *glyphRun,
         RoboTextShapingGlyphInit(&shaping);
         shaping.glyphId = glyph->glyphId;
         shaping.source = glyph->source;
+        shaping.codePoint = glyph->codePoint;
         shaping.cluster = glyph->cluster;
         shaping.bidiLevel = glyphRun->bidiLevel;
         if (glyph->control) {
@@ -226,6 +338,14 @@ static Result ShapeRunFromBuffer(RoboTextGlyphRun *glyphRun,
         RoboTextGlyphInit(glyph);
         glyph->glyphId = shaping->glyphId;
         glyph->source = shaping->source;
+        /*
+         * The character survives the rebuild, and is dropped to 0 exactly when the substitution gave the glyph
+         * more than one scalar to stand for: a ligature's product is `ffi` and not the `f` it started as, and a
+         * reader asking "what character is this" must get `no single character` rather than a plausible wrong
+         * one. A single substitution and a multiple substitution both keep exactly one scalar, so for those the
+         * character is still the character.
+         */
+        glyph->codePoint = RoboTextRangeLength(shaping->source) == 1u ? shaping->codePoint : 0u;
         glyph->cluster = shaping->cluster;
         if ((shaping->flags & RoboTextShapingGlyphControl) != 0u) {
             /* A control keeps its slot and stays empty; it is not a `.notdef` and is not counted as one. */
@@ -425,6 +545,7 @@ void RoboTextGlyphRunDestroy(RoboTextGlyphRun *run)
         return;
     }
     RoboFree(run->glyphs);
+    RoboFree(run->clusters);
     RoboFree(run);
 }
 
@@ -485,6 +606,7 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
     glyphRun->baseDirection = run->baseDirection;
     glyphRun->font = run->font;
     glyphRun->language = run->language;
+    glyphRun->features = run->features;
     glyphRun->mode = RoboTextGlyphGenerationCmapPerScalar;
     if (length != 0u) {
         glyphRun->glyphs = (RoboTextGlyph *)RoboCalloc(length, sizeof(*glyphRun->glyphs));
@@ -515,9 +637,17 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
 
         RoboTextGlyphInit(glyph);
         glyph->source = RoboTextRangeMake(run->range.start + index, run->range.start + index + 1u);
-        /* Identity clustering, stated rather than implied (see the header): with no grapheme
-         * segmentation a cluster is one scalar, and the field is filled now so that the goal which adds
-         * segmentation fills it differently rather than adding it. */
+        /*
+         * The character, recorded here because this is the one place it is at hand: the decode above already
+         * produced @p scalar, and Phase 12.10's rebuild runs after the text is out of scope.
+         */
+        glyph->codePoint = (RoboTextCodePoint)scalar;
+        /*
+         * The cluster, still the identity mapping at this stage — and deliberately still, because the shaping
+         * buffer carries this field and Phase 12.10's ligature work reads it while the glyphs are still one per
+         * scalar. `RoboTextGlyphRunFinalize` replaces it with the run's own cluster ordinal once substitution
+         * has settled which glyphs exist.
+         */
         glyph->cluster = glyph->source.start;
 
         /*
@@ -592,7 +722,302 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
         RoboTextGlyphRunDestroy(glyphRun);
         return status;
     }
+    /*
+     * The run is not finished until this runs: the clusters, the flags, the metrics and the totals are all
+     * functions of the glyph array *after* substitution and positioning, and computing them before `ShapeRun`
+     * would derive them from a glyph array the face had not finished choosing.
+     */
+    status = RoboTextGlyphRunFinalize(glyphRun, diag);
+    if (status != RoboOk) {
+        RoboTextGlyphRunDestroy(glyphRun);
+        return status;
+    }
     *out = glyphRun;
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
+/* Finalizing (Phase 12.14)                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The scalar a glyph's source begins at, as a mark test: a glyph is a **mark** when its source is exactly one
+ * scalar and that scalar is a combining mark.
+ *
+ * One scalar, not "any scalar", and the distinction is the reason the flag is trustworthy: a glyph that
+ * folded a base and its accent together is not a mark — it is the *product* of mark attachment, and calling it
+ * one would make a line breaker willing to split before it. `RoboTextUnicodeIsCombiningMark` is Phase 4's
+ * answer and the module keeps no category table of its own (Phase 12.5).
+ */
+static int GlyphIsMark(const RoboTextGlyph *glyph)
+{
+    if (glyph->control || RoboTextRangeLength(glyph->source) != 1u) {
+        return 0;
+    }
+    /*
+     * The **character**, not the index. `source.start` addresses the text; asking a category table about a
+     * scalar *index* answers about whichever character happens to live at that offset, so a mark on the first
+     * line would be found and the same mark on the tenth would not. The length check above is what makes
+     * @ref RoboTextGlyph::codePoint this glyph's sole character, and a glyph standing for several has 0 there.
+     */
+    return glyph->codePoint != 0u && RoboTextUnicodeIsCombiningMark(glyph->codePoint);
+}
+
+/**
+ * Does the glyph at @p index continue the cluster that @p cluster covers?
+ *
+ * The rule, and the four cases it is written for:
+ *
+ * | glyphs | answer | because |
+ * |---|---|---|
+ * | `1 scalar → 1 glyph` | new cluster | its source begins where the last one ended |
+ * | `1 scalar → many glyphs` | continues | its source *starts inside* the cluster's source |
+ * | `many scalars → 1 glyph` | new cluster | one glyph, one cluster, however many scalars |
+ * | a combining mark | continues | a mark belongs to the cluster of the base it attaches to |
+ *
+ * The mark rule is the one that is not a property of the ranges, and it is stated separately for that reason:
+ * Unicode's grapheme clusters (UAX #29) put a mark with its base, and Phase 4 exposes the mark predicate
+ * rather than a grapheme segmenter. So the approximation is exactly "a mark attaches left", which is correct
+ * for the scripts this build shapes and is *named* rather than implied — a grapheme-cluster goal that adds
+ * `Regional_Indicator` pairing or a spacing-mark rule extends this function.
+ */
+static int GlyphContinuesCluster(const RoboTextGlyph *glyph, const RoboTextGlyph *previous, int isMark)
+{
+    if (isMark) {
+        return 1;
+    }
+    /* A source that begins before the previous glyph's ends is inside the same cluster: a decomposition, or a
+     * glyph a font drew from part of the same scalar. */
+    return glyph->source.start < previous->source.end;
+}
+
+Result RoboTextGlyphRunFinalize(RoboTextGlyphRun *run, RoboTextDiag *diag)
+{
+    RoboTextGlyphCluster *clusters = NULL;
+    size_t clusterCount = 0u;
+    size_t marks = 0u;
+    size_t unsafeToBreak = 0u;
+    double totalX = 0.0;
+    double totalY = 0.0;
+    Result status;
+
+    if (!run) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "a run is required to finalize");
+    }
+
+    /*
+     * The flags first, because the cluster pass reads the mark flag and the flag pass reads the clusters' own
+     * answer for "which glyph is first in its cluster" — which is what the cluster pass computes. So the
+     * order inside one pass below is: mark, cluster membership, then the two unsafe flags, which read both.
+     */
+    if (run->count != 0u) {
+        clusters = (RoboTextGlyphCluster *)RoboCalloc(run->count, sizeof(*clusters));
+        if (!clusters) {
+            return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
+                                   "the cluster array could not be allocated");
+        }
+    }
+
+    for (size_t index = 0u; index < run->count; index++) {
+        RoboTextGlyph *glyph = &run->glyphs[index];
+        int isMark = GlyphIsMark(glyph);
+        int continues = 0;
+
+        if (isMark) {
+            glyph->flags |= (RoboTextGlyphFlags)RoboTextGlyphFlagMark;
+            marks++;
+        }
+        if (glyph->ligatureComponents >= 2u) {
+            glyph->flags |= (RoboTextGlyphFlags)RoboTextGlyphFlagLigature;
+        }
+        if (index != 0u) {
+            continues = GlyphContinuesCluster(glyph, &run->glyphs[index - 1u], isMark);
+        }
+        if (!continues) {
+            clusters[clusterCount].source = glyph->source;
+            clusters[clusterCount].glyphStart = (RoboTextGlyphIndex)index;
+            clusters[clusterCount].glyphEnd = (RoboTextGlyphIndex)index;
+            clusterCount++;
+        }
+        glyph->flags |= (RoboTextGlyphFlags)(continues ? RoboTextGlyphFlagClusterContinuation
+                                                      : RoboTextGlyphFlagClusterStart);
+        /*
+         * The cluster **index**, in the field that has meant "which cluster does this glyph belong to" since
+         * 12.4. It used to be the glyph's own source start (the identity mapping, and the header said so); it
+         * is now the index of the cluster the glyph's grouping rules put it in, which is the value a selection
+         * walk wants and the reason the identity mapping was called "useless for selection" rather than wrong.
+         */
+        glyph->cluster = (RoboTextClusterIndex)(clusterCount - 1u);
+        clusters[clusterCount - 1u].glyphEnd = (RoboTextGlyphIndex)(index + 1u);
+        /*
+         * The cluster's source is the **union** of its glyphs' sources, so it is extended and never replaced:
+         * assigning `Make(start, end)` outright would *shrink* a cluster whose later glyph ended before the one
+         * that opened it. That ordering cannot arise from the mappings this build produces, which is exactly why
+         * an assignment would be a silent wrong answer rather than a loud one.
+         */
+        if (glyph->source.end > clusters[clusterCount - 1u].source.end) {
+            clusters[clusterCount - 1u].source.end = glyph->source.end;
+        }
+    }
+
+    /*
+     * The two unsafe flags, and what each honestly claims.
+     *
+     * `UnsafeToBreak` — **a line may not begin here.** True for a glyph that continues a cluster (breaking
+     * before it would separate a mark from its base, or a ligature's part from the rest of it), and for a
+     * glyph a font positioned relative to its neighbour (a GPOS placement is an attachment, so the pairing is
+     * a unit). What it does **not** claim: that every boundary it leaves unset is safe. Line breaking needs
+     * script-specific rules this phase has no vocabulary for.
+     *
+     * `UnsafeToConcat` — **a shape run may not be cut here.** True for a glyph a ligature produced and for a
+     * glyph the font positioned: shaping the text on either side of it separately could resolve different
+     * lookups, because a contextual lookup's context reaches across the boundary. Set on the glyph *before*
+     * the boundary, so a caller cutting after the last glyph carrying it is cutting where the phase says.
+     */
+    for (size_t index = 0u; index < run->count; index++) {
+        RoboTextGlyph *glyph = &run->glyphs[index];
+        int attached = (glyph->offsetAdjustX != 0.0f || glyph->offsetAdjustY != 0.0f);
+
+        if (index != 0u &&
+            (glyph->flags & (RoboTextGlyphFlags)RoboTextGlyphFlagClusterContinuation) != 0u) {
+            glyph->flags |= (RoboTextGlyphFlags)RoboTextGlyphFlagUnsafeToBreak;
+        }
+        if (attached && index != 0u) {
+            glyph->flags |= (RoboTextGlyphFlags)RoboTextGlyphFlagUnsafeToBreak;
+        }
+        if ((glyph->flags & (RoboTextGlyphFlags)RoboTextGlyphFlagUnsafeToBreak) != 0u) {
+            unsafeToBreak++;
+        }
+        if ((glyph->flags & (RoboTextGlyphFlags)RoboTextGlyphFlagLigature) != 0u || attached) {
+            glyph->flags |= (RoboTextGlyphFlags)RoboTextGlyphFlagUnsafeToConcat;
+        }
+        totalX += (double)glyph->advanceX;
+        totalY += (double)glyph->advanceY;
+    }
+
+    run->clusters = clusters;
+    run->clusterCount = clusterCount;
+    run->marks = marks;
+    run->unsafeToBreak = unsafeToBreak;
+    run->advanceTotal = totalX;
+    run->advanceTotalY = totalY;
+    run->ligatures = 0u;
+    for (size_t index = 0u; index < run->count; index++) {
+        if ((run->glyphs[index].flags & (RoboTextGlyphFlags)RoboTextGlyphFlagLigature) != 0u) {
+            run->ligatures++;
+        }
+    }
+
+    /*
+     * The metrics, asked of the font context's own door rather than read from a face here: the same call the
+     * measurement makes, so a line box built from a run's metrics and one built from the measurement agree by
+     * construction. A face that cannot be asked is recorded as *not asked* (`haveMetrics`), never silently as
+     * a zero ascent — the distinction matters because a zero ascent is a real (if useless) metric.
+     */
+    memset(&run->metrics, 0, sizeof(run->metrics));
+    run->haveMetrics = 0;
+    status = RoboTextFontContextMetrics(&run->font, &run->metrics, diag);
+    if (status != RoboOk) {
+        /*
+         * Only one failure reaches here — a context with no face — and it is returned rather than recorded as
+         * absent metrics, because the two states a caller could then not tell apart are "this face declares no
+         * metrics" (a documented estimate, `fromFace == 0`) and "there is no face at all". Generation has
+         * already refused the second before it allocated anything; this is the same answer at the same door.
+         */
+        return status;
+    }
+    run->haveMetrics = 1;
+    return RoboOk;
+}
+
+Result RoboTextGlyphRunConcat(const RoboTextGlyphRun *first,
+                              const RoboTextGlyphRun *second,
+                              RoboTextGlyphRun **out,
+                              RoboTextDiag *diag)
+{
+    RoboTextGlyphRun *merged;
+    size_t total;
+    Result status;
+
+    if (!first || !second || !out) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "two runs and an out pointer are required to merge");
+    }
+    *out = NULL;
+    if (!first->font.face || !second->font.face) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "a run with no font context cannot be merged");
+    }
+    if (first->source.end != second->source.start) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "two runs can only be merged when their sources are contiguous");
+    }
+    if (first->script != second->script || first->direction != second->direction ||
+        first->bidiLevel != second->bidiLevel || first->baseDirection != second->baseDirection ||
+        first->mode != second->mode ||
+        !RoboTextFontContextEqual(&first->font, &second->font) ||
+        !RoboTextLanguageEqual(&first->language, &second->language) ||
+        !RoboTextFeatureSetEqual(&first->features, &second->features)) {
+        /*
+         * Reported rather than repaired: a merge of two runs that disagreed about their script or their level
+         * would produce a record whose own key is false, and every later reader of that key — the cache, the
+         * coalescer, a diagnostic — would be reading a lie. The caller asks `RoboTextGlyphRunKeyEqual` first;
+         * this is the second door of the same question, at the point where the answer becomes a record.
+         */
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "two runs that disagree about their shaping state cannot be merged");
+    }
+
+    total = first->count + second->count;
+    merged = (RoboTextGlyphRun *)RoboCalloc(1u, sizeof(*merged));
+    if (!merged) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
+                               "the merged run could not be allocated");
+    }
+    if (total != 0u) {
+        merged->glyphs = (RoboTextGlyph *)RoboCalloc(total, sizeof(*merged->glyphs));
+        if (!merged->glyphs) {
+            RoboTextGlyphRunDestroy(merged);
+            return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
+                                   "the merged glyph array could not be allocated");
+        }
+        if (first->count != 0u) {
+            memcpy(merged->glyphs, first->glyphs, first->count * sizeof(*merged->glyphs));
+        }
+        if (second->count != 0u) {
+            memcpy(merged->glyphs + first->count, second->glyphs,
+                   second->count * sizeof(*merged->glyphs));
+        }
+    }
+    merged->count = total;
+    merged->source = RoboTextRangeMake(first->source.start, second->source.end);
+    merged->script = first->script;
+    merged->direction = first->direction;
+    merged->bidiLevel = first->bidiLevel;
+    merged->baseDirection = first->baseDirection;
+    merged->font = first->font;
+    merged->language = first->language;
+    merged->features = first->features;
+    merged->mode = first->mode;
+    /*
+     * The counters that are *not* functions of the glyph array are the two the glyphs cannot restate: a
+     * missing glyph is `mapped` plus the metrics status, and both travel with the glyph, so the merge sums
+     * them. The rest — the ligature count, the marks, the two unsafe flags — are derived below from the
+     * concatenated glyphs, and deriving them here would be a second implementation of `Finalize`.
+     */
+    merged->missing = first->missing + second->missing;
+    merged->mirrored = first->mirrored + second->mirrored;
+    merged->controls = first->controls + second->controls;
+    merged->substituted = first->substituted + second->substituted;
+    merged->positioned = first->positioned + second->positioned;
+
+    status = RoboTextGlyphRunFinalize(merged, diag);
+    if (status != RoboOk) {
+        RoboTextGlyphRunDestroy(merged);
+        return status;
+    }
+    *out = merged;
     return RoboOk;
 }
 
@@ -806,6 +1231,324 @@ Result RoboTextGlyphRunGlyphForScalarIndex(const RoboTextGlyphRun *run,
     return RoboOk;
 }
 
+/* ------------------------------------------------------------------ */
+/* Clusters, flags, metrics (Phase 12.14)                              */
+/* ------------------------------------------------------------------ */
+
+size_t RoboTextGlyphRunClusterCount(const RoboTextGlyphRun *run)
+{
+    return run ? run->clusterCount : 0u;
+}
+
+const RoboTextGlyphCluster *RoboTextGlyphRunCluster(const RoboTextGlyphRun *run, RoboTextClusterIndex index)
+{
+    if (!run || (size_t)index >= run->clusterCount) {
+        return NULL;
+    }
+    return &run->clusters[index];
+}
+
+Result RoboTextGlyphRunClusterForScalar(const RoboTextGlyphRun *run,
+                                        RoboTextScalarIndex scalar,
+                                        RoboTextClusterIndex *outCluster,
+                                        RoboTextDiag *diag)
+{
+    if (!run || !outCluster) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "a run and an out pointer are required");
+    }
+    if (!RoboTextRangeContains(run->source, scalar)) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "that scalar is outside the run's source range");
+    }
+    /*
+     * A walk rather than a binary search: a cluster array is at most one entry per scalar, a caller asking this
+     * question is answering a click, and the invariant that makes a binary search valid (ascending, contiguous
+     * clusters) is one `RoboTextGlyphRunValidate` proves rather than one this trusts. O(clusters), and stated.
+     */
+    for (size_t index = 0u; index < run->clusterCount; index++) {
+        if (RoboTextRangeContains(run->clusters[index].source, scalar)) {
+            *outCluster = (RoboTextClusterIndex)index;
+            return RoboOk;
+        }
+    }
+    return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboNotFound,
+                           "no cluster covers that scalar");
+}
+
+size_t RoboTextGlyphRunMarks(const RoboTextGlyphRun *run)
+{
+    return run ? run->marks : 0u;
+}
+
+size_t RoboTextGlyphRunUnsafeToBreak(const RoboTextGlyphRun *run)
+{
+    return run ? run->unsafeToBreak : 0u;
+}
+
+Result RoboTextGlyphRunMetrics(const RoboTextGlyphRun *run, RoboTextFontMetrics *out)
+{
+    if (!run || !out) {
+        return RoboTextDiagMsg(NULL, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "a run and an out pointer are required");
+    }
+    *out = run->metrics;
+    if (!run->haveMetrics) {
+        /*
+         * A zeroed record whose `fromFace` is zero: the same "not available" a font context reports, and never
+         * a zero ascent passed off as a measurement. `RoboTextGlyphRunFinalize` writes the flag, so this cannot
+         * disagree with how the metrics were obtained.
+         */
+        memset(out, 0, sizeof(*out));
+    }
+    return RoboOk;
+}
+
+float RoboTextGlyphRunAscent(const RoboTextGlyphRun *run)
+{
+    return run ? run->metrics.ascentPx : 0.0f;
+}
+
+float RoboTextGlyphRunDescent(const RoboTextGlyphRun *run)
+{
+    return run ? run->metrics.descentPx : 0.0f;
+}
+
+float RoboTextGlyphRunLineGap(const RoboTextGlyphRun *run)
+{
+    return run ? run->metrics.lineGapPx : 0.0f;
+}
+
+float RoboTextGlyphRunLineHeight(const RoboTextGlyphRun *run)
+{
+    return run ? run->metrics.lineHeightPx : 0.0f;
+}
+
+float RoboTextGlyphRunAdvanceY(const RoboTextGlyphRun *run)
+{
+    return run ? (float)run->advanceTotalY : 0.0f;
+}
+
+const RoboTextFeatureSet *RoboTextGlyphRunFeatures(const RoboTextGlyphRun *run)
+{
+    return run ? &run->features : NULL;
+}
+
+/* ------------------------------------------------------------------ */
+/* Validation (Phase 12.14.37)                                         */
+/* ------------------------------------------------------------------ */
+
+int RoboTextGlyphRunProblemIsKnown(RoboTextGlyphRunProblem problem)
+{
+    return problem >= RoboTextGlyphRunProblemNone && problem <= RoboTextGlyphRunProblemDirection;
+}
+
+const char *RoboTextGlyphRunProblemName(RoboTextGlyphRunProblem problem)
+{
+    switch (problem) {
+        case RoboTextGlyphRunProblemNone:
+            return "none";
+        case RoboTextGlyphRunProblemRange:
+            return "range";
+        case RoboTextGlyphRunProblemGlyphCount:
+            return "glyph-count";
+        case RoboTextGlyphRunProblemFont:
+            return "font";
+        case RoboTextGlyphRunProblemGlyphSource:
+            return "glyph-source";
+        case RoboTextGlyphRunProblemVector:
+            return "vector";
+        case RoboTextGlyphRunProblemClusterTiling:
+            return "cluster-tiling";
+        case RoboTextGlyphRunProblemClusterSource:
+            return "cluster-source";
+        case RoboTextGlyphRunProblemClusterOrder:
+            return "cluster-order";
+        case RoboTextGlyphRunProblemClusterIndex:
+            return "cluster-index";
+        case RoboTextGlyphRunProblemTotal:
+            return "total";
+        case RoboTextGlyphRunProblemCounter:
+            return "counter";
+        case RoboTextGlyphRunProblemDirection:
+            return "direction";
+        default:
+            return "unknown";
+    }
+}
+
+/**
+ * @p value is a number paint may receive: Phase 12.14.37's "no NaN or infinity may reach paint".
+ *
+ * `v == v` and a magnitude bound rather than `isfinite`, because this file is compiled into the guest program
+ * and the freestanding target has no `math.h` — the same check `RoboGraphicsText.c` and `RoboFontStyle.c` make
+ * for the same reason, and the same three-lines-not-a-header decision they made.
+ */
+static int ValueIsFinite(float value)
+{
+    return (value == value) && (value <= 3.402823466e+38f) && (value >= -3.402823466e+38f);
+}
+
+/** See @ref ValueIsFinite: both components of a vector. */
+static int VectorIsFinite(float x, float y)
+{
+    return ValueIsFinite(x) && ValueIsFinite(y);
+}
+
+Result RoboTextGlyphRunValidate(const RoboTextGlyphRun *run,
+                                RoboTextGlyphRunProblem *outProblem,
+                                RoboTextDiag *diag)
+{
+    RoboTextGlyphRunProblem problem = RoboTextGlyphRunProblemNone;
+    double sum = 0.0;
+    size_t marks = 0u;
+    size_t ligatures = 0u;
+    size_t unsafeToBreak = 0u;
+    size_t missing = 0u;
+    size_t mirrored = 0u;
+    size_t controls = 0u;
+    size_t substituted = 0u;
+    size_t positioned = 0u;
+    RoboTextScalarIndex covered = 0u;
+
+    if (!run || !outProblem) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               "a run and an out pointer are required to validate");
+    }
+    *outProblem = RoboTextGlyphRunProblemNone;
+
+    if (RoboTextRangeIsInverted(run->source)) {
+        problem = RoboTextGlyphRunProblemRange;
+    } else if (!run->font.face) {
+        problem = RoboTextGlyphRunProblemFont;
+    } else if ((run->count == 0u) != RoboTextRangeIsEmpty(run->source)) {
+        problem = RoboTextGlyphRunProblemGlyphCount;
+    } else if (run->count != 0u && !run->glyphs) {
+        problem = RoboTextGlyphRunProblemGlyphCount;
+    }
+
+    for (size_t index = 0u; problem == RoboTextGlyphRunProblemNone && index < run->count; index++) {
+        const RoboTextGlyph *glyph = &run->glyphs[index];
+
+        if (!RoboTextRangeContains(run->source, glyph->source.start) ||
+            glyph->source.end > run->source.end || RoboTextRangeIsEmpty(glyph->source)) {
+            problem = RoboTextGlyphRunProblemGlyphSource;
+            break;
+        }
+        if (!VectorIsFinite(glyph->advanceX, glyph->advanceY) ||
+            !VectorIsFinite(glyph->offsetX, glyph->offsetY) ||
+            !VectorIsFinite(glyph->advanceAdjustX, glyph->advanceAdjustY) ||
+            !VectorIsFinite(glyph->offsetAdjustX, glyph->offsetAdjustY)) {
+            problem = RoboTextGlyphRunProblemVector;
+            break;
+        }
+        sum += (double)glyph->advanceX;
+        if ((glyph->flags & (RoboTextGlyphFlags)RoboTextGlyphFlagMark) != 0u) {
+            marks++;
+        }
+        if ((glyph->flags & (RoboTextGlyphFlags)RoboTextGlyphFlagLigature) != 0u) {
+            ligatures++;
+        }
+        if ((glyph->flags & (RoboTextGlyphFlags)RoboTextGlyphFlagUnsafeToBreak) != 0u) {
+            unsafeToBreak++;
+        }
+        if (glyph->mapped && glyph->metricsStatus == RoboFontGlyphMetricsOk) {
+            /* mapped and measurable, so not missing. */
+        } else if (glyph->control) {
+            /* a control is not a `.notdef` — see the header. */
+        } else {
+            missing++;
+        }
+        if (glyph->mirrored) {
+            mirrored++;
+        }
+        if (glyph->control) {
+            controls++;
+        }
+        if (glyph->substituted) {
+            substituted++;
+        }
+        if (glyph->positioned) {
+            positioned++;
+        }
+    }
+
+    /*
+     * The clusters, against all five of their invariants at once: they tile the glyph array (start 0, each
+     * beginning where the last ended, the last ending at the count), they tile the run's source without
+     * overlapping or gaps, a glyph's `cluster` names the cluster that contains it, and each cluster holds at
+     * least one glyph. `covered` is the source cursor the second and third are checked against.
+     */
+    for (size_t index = 0u; problem == RoboTextGlyphRunProblemNone && index < run->clusterCount; index++) {
+        const RoboTextGlyphCluster *cluster = &run->clusters[index];
+        size_t expectedStart = (index == 0u) ? 0u : (size_t)run->clusters[index - 1u].glyphEnd;
+
+        if ((size_t)cluster->glyphStart != expectedStart || cluster->glyphEnd <= cluster->glyphStart ||
+            (index + 1u == run->clusterCount
+                 ? (size_t)cluster->glyphEnd != run->count
+                 : (size_t)cluster->glyphEnd != (size_t)run->clusters[index + 1u].glyphStart)) {
+            problem = RoboTextGlyphRunProblemClusterTiling;
+            break;
+        }
+        if (RoboTextRangeIsEmpty(cluster->source) ||
+            !RoboTextRangeContains(run->source, cluster->source.start) ||
+            cluster->source.end > run->source.end) {
+            problem = RoboTextGlyphRunProblemClusterSource;
+            break;
+        }
+        if (cluster->source.start < covered) {
+            problem = RoboTextGlyphRunProblemClusterOrder;
+            break;
+        }
+        for (RoboTextGlyphIndex glyphIndex = cluster->glyphStart; glyphIndex < cluster->glyphEnd; glyphIndex++) {
+            if (run->glyphs[glyphIndex].cluster != (RoboTextClusterIndex)index) {
+                problem = RoboTextGlyphRunProblemClusterIndex;
+                break;
+            }
+        }
+        covered = cluster->source.end;
+    }
+
+    if (problem == RoboTextGlyphRunProblemNone) {
+        if ((run->count == 0u) != (run->clusterCount == 0u)) {
+            problem = RoboTextGlyphRunProblemClusterTiling;
+        } else if (run->clusterCount != 0u && covered != run->source.end) {
+            problem = RoboTextGlyphRunProblemClusterSource;
+        }
+    }
+    if (problem == RoboTextGlyphRunProblemNone &&
+        (run->advanceTotal < sum - 1e-6 || run->advanceTotal > sum + 1e-6)) {
+        problem = RoboTextGlyphRunProblemTotal;
+    }
+    if (problem == RoboTextGlyphRunProblemNone &&
+        (run->marks != marks || run->ligatures != ligatures || run->unsafeToBreak != unsafeToBreak ||
+         run->missing != missing || run->mirrored != mirrored || run->controls != controls ||
+         run->substituted != substituted || run->positioned != positioned)) {
+        problem = RoboTextGlyphRunProblemCounter;
+    }
+    /*
+     * The direction against the level's parity, and only when a level was resolved: a run a caller built by
+     * hand carries `RoboTextBidiLevelNone`, and "no level" is not a claim about parity. A run whose level is
+     * odd must say right-to-left, and this is the check that catches a reordering pass which forgot to update
+     * the direction it publishes beside the level it resolved.
+     */
+    if (problem == RoboTextGlyphRunProblemNone && run->bidiLevel != RoboTextBidiLevelNone &&
+        run->direction != RoboTextDirectionUnknown) {
+        RoboTextDirection implied = RoboTextBidiLevelDirection(run->bidiLevel);
+
+        if (implied != run->direction) {
+            problem = RoboTextGlyphRunProblemDirection;
+        }
+    }
+
+    *outProblem = problem;
+    if (problem != RoboTextGlyphRunProblemNone) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboInvalidArgument,
+                               RoboTextGlyphRunProblemName(problem));
+    }
+    return RoboOk;
+}
+
 Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats *out)
 {
     if (!run || !out) {
@@ -817,6 +1560,8 @@ Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats 
     out->missing = run->missing;
     out->mirrored = run->mirrored;
     out->controls = run->controls;
+    out->marks = run->marks;
+    out->clusters = run->clusterCount;
     out->advancePx = run->advanceTotal;
     for (size_t index = 0u; index < run->count; index++) {
         const RoboTextGlyph *glyph = &run->glyphs[index];
@@ -883,6 +1628,17 @@ Result RoboTextGlyphWrite(const RoboTextGlyph *glyph, char *buffer, size_t capac
                                 : glyph->metricsStatus == RoboFontGlyphMetricsInvalidId ? "invalid-id"
                                 : glyph->metricsStatus == RoboFontGlyphMetricsMalformed ? "malformed"
                                                                                        : "unavailable");
+    /* The grouping flags (Phase 12.14.22), last because they are the newest answer on the line. */
+    length = RoboTextWriterText(line, sizeof(line), length, " flags=");
+    if (length != RoboTextWriterOverflow) {
+        char flagsWord[80];
+
+        if (RoboTextGlyphFlagsWrite(glyph->flags, flagsWord, sizeof(flagsWord), NULL) == RoboOk) {
+            length = RoboTextWriterText(line, sizeof(line), length, flagsWord);
+        } else {
+            length = RoboTextWriterOverflow;
+        }
+    }
     if (length == RoboTextWriterOverflow) {
         return RoboNotSupported;
     }
@@ -896,6 +1652,287 @@ Result RoboTextGlyphWrite(const RoboTextGlyph *glyph, char *buffer, size_t capac
         return RoboNotSupported;
     }
     memcpy(buffer, line, length + 1u);
+    if (outLength) {
+        *outLength = length;
+    }
+    return RoboOk;
+}
+
+/**
+ * Append @p text to a dump, collapsing the two failure spellings into one.
+ *
+ * The writer returns @ref RoboTextWriterOverflow for "did not fit", and every append in
+ * @ref RoboTextGlyphRunWrite treats that as fatal for the whole dump: a block that stops halfway is a block a
+ * reader cannot tell from a complete one, and the caller is left with the empty string so that "absent" is
+ * unambiguous.
+ */
+static size_t RunWriteText(char *buffer, size_t capacity, size_t length, const char *text)
+{
+    return RoboTextWriterText(buffer, capacity, length, text);
+}
+
+Result RoboTextGlyphRunWrite(const RoboTextGlyphRun *run,
+                             char *buffer,
+                             size_t capacity,
+                             size_t *outLength)
+{
+    char line[256];
+    size_t length = 0u;
+    RoboTextGlyphRunProblem problem = RoboTextGlyphRunProblemNone;
+
+    if (outLength) {
+        *outLength = 0u;
+    }
+    if (!run || !buffer || capacity == 0u) {
+        return RoboInvalidArgument;
+    }
+    buffer[0] = '\0';
+
+    /*
+     * Validity first, and only when it fails: a block that prints is a block a reader trusts, so a record that
+     * breaks its own invariants says so on the first line rather than leaving it to the reader to spot an
+     * advance that does not add up. `RoboTextGlyphRunValidate` is the same door a test calls, so the mark on
+     * the block and the failure in a suite can never disagree about what "invalid" means.
+     */
+    if (RoboTextGlyphRunValidate(run, &problem, NULL) != RoboOk) {
+        length = RunWriteText(buffer, capacity, length, "INVALID ");
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, RoboTextGlyphRunProblemName(problem));
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, "\n");
+        }
+        if (length == RoboTextWriterOverflow) {
+            buffer[0] = '\0';
+            return RoboNotSupported;
+        }
+    }
+
+    length = RunWriteText(buffer, capacity, length, "GlyphRun {\n  source [");
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, run->source.start);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "..");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, run->source.end);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, ")  scalars ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)RoboTextGlyphRunScalarCount(run));
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "\n  script ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, RoboTextScriptName(run->script));
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  direction ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, RoboTextDirectionName(run->direction));
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  bidiLevel ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterSigned(buffer, capacity, length, (int32_t)run->bidiLevel);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  base ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, RoboTextDirectionName(run->baseDirection));
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "\n  mode ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, RoboTextGlyphGenerationModeName(run->mode));
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  features ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        char features[192];
+        size_t featuresLength = 0u;
+
+        if (RoboTextFeatureSetWrite(&run->features, features, sizeof(features), &featuresLength) == RoboOk) {
+            length = RunWriteText(buffer, capacity, length, features);
+        } else {
+            length = RunWriteText(buffer, capacity, length, "@");
+        }
+        (void)featuresLength;
+    }
+
+    /*
+     * The metrics line, with the four numbers line layout reads and the flag that says whether they came from
+     * the face — a dump that printed `ascent 0.00` without it would report an unavailable metric as a measured
+     * one, which is the mistake this whole record exists to prevent one level down.
+     */
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "\n  metrics ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, run->haveMetrics ? "from-face " : "estimated ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "ascent ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, run->metrics.ascentPx);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  descent ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, run->metrics.descentPx);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  lineGap ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, run->metrics.lineGapPx);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  lineHeight ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, run->metrics.lineHeightPx);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  cap ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, run->metrics.capHeightPx);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  x ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, run->metrics.xHeightPx);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "\n  advance ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, RoboTextGlyphRunAdvance(run));
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, ", ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterFloat(buffer, capacity, length, RoboTextGlyphRunAdvanceY(run));
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  glyphs ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)run->count);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  clusters ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)run->clusterCount);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  missing ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)run->missing);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "\n  flags marks ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)run->marks);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  ligatures ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)run->ligatures);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  positioned ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)run->positioned);
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "  unsafeToBreak ");
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)run->unsafeToBreak);
+    }
+
+    for (size_t index = 0u; length != RoboTextWriterOverflow && index < run->count; index++) {
+        size_t glyphLength = 0u;
+
+        if (RoboTextGlyphWrite(&run->glyphs[index], line, sizeof(line), &glyphLength) != RoboOk) {
+            length = RoboTextWriterOverflow;
+            break;
+        }
+        length = RunWriteText(buffer, capacity, length, "\n  glyph[");
+        if (length != RoboTextWriterOverflow) {
+            length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)index);
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, "] ");
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, line);
+        }
+    }
+    for (size_t index = 0u; length != RoboTextWriterOverflow && index < run->clusterCount; index++) {
+        const RoboTextGlyphCluster *cluster = &run->clusters[index];
+
+        length = RunWriteText(buffer, capacity, length, "\n  cluster[");
+        if (length != RoboTextWriterOverflow) {
+            length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)index);
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, "] source [");
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RoboTextWriterUnsigned(buffer, capacity, length, cluster->source.start);
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, "..");
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RoboTextWriterUnsigned(buffer, capacity, length, cluster->source.end);
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, ") glyphs [");
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)cluster->glyphStart);
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, "..");
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RoboTextWriterUnsigned(buffer, capacity, length, (uint32_t)cluster->glyphEnd);
+        }
+        if (length != RoboTextWriterOverflow) {
+            length = RunWriteText(buffer, capacity, length, ")");
+        }
+    }
+    if (length != RoboTextWriterOverflow) {
+        length = RunWriteText(buffer, capacity, length, "\n}\n");
+    }
+
+    if (length == RoboTextWriterOverflow) {
+        /* Nothing is left for the caller to mistake for a complete block. */
+        buffer[0] = '\0';
+        return RoboNotSupported;
+    }
     if (outLength) {
         *outLength = length;
     }

@@ -44,6 +44,7 @@
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextFont.h"
 #include "RoboText/RoboTextGlyphs.h"
+#include "RoboText/RoboTextRunList.h"
 #include "RoboText/RoboTextRuns.h"
 #include "RoboText/RoboTextTypes.h"
 
@@ -117,6 +118,21 @@ const RoboTextRunSet *RoboTextShapeResultRuns(const RoboTextShapeResult *result)
 
 /** Glyph runs held. */
 size_t RoboTextShapeResultGlyphRunCount(const RoboTextShapeResult *result);
+
+/**
+ * The result as a **list** (Phase 12.14.26), borrowed and complete.
+ *
+ * The same runs @ref RoboTextShapeResultGlyphRun hands out one at a time, arranged the way the rest of the
+ * pipeline wants them: logical order as the list, the visual order L2 resolved beside it, one key per run, and
+ * the four doors — metrics, total advance, split reason, validation — that a layout pass and a diagnostic ask.
+ *
+ * It is a **view**, so it is valid exactly as long as @p result is, and destroying the result releases it.
+ * Ordering is done; `RoboTextGlyphRunListVisualIsLogical` answers whether the paragraph needed any.
+ *
+ * Non-NULL for any result this module produced, including one over empty text, so a caller never has to test
+ * for the list before reading it.
+ */
+const RoboTextGlyphRunList *RoboTextShapeResultGlyphRunList(const RoboTextShapeResult *result);
 
 /** Glyph run @p index, borrowed, or NULL when out of range. */
 const RoboTextGlyphRun *RoboTextShapeResultGlyphRun(const RoboTextShapeResult *result, size_t index);

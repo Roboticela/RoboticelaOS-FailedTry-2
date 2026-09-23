@@ -46,8 +46,14 @@ extern "C" {
  * records, the pair adjustments in both formats, the extension wrapper and the per-glyph adjustments) and
  * 12.13 the kerning layer (`RoboTextKerning.h`: the `kern` policy, the source resolution and the per-glyph
  * report). All four are additive — the glyph record grew the font's own part of its two vectors and kept its
- * shape — so the minor moves once for each and the major stays. */
-#define RoboTextVersionMinor 7
+ * shape — so the minor moves once for each and the major stays.
+ *
+ * 12.14 finalized the run (`RoboTextGlyphs.h`: the cluster array, the per-glyph flag word, the run's own
+ * metrics and its totals) and added the list over runs (`RoboTextRunList.h`: the key, the two orders, the
+ * merge and the validation). Additive once more — the glyph record gained a `codePoint` field, the run's own
+ * struct gained the four derived records, and every existing door kept its signature — so the minor moves
+ * again and the major stays. */
+#define RoboTextVersionMinor 8
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -223,6 +229,49 @@ typedef struct RoboTextCapabilities {
     /** A paragraph can be written as a table: base, level runs in both index spaces, visual order and the
      *  per-scalar class-and-level lines. */
     int bidiDiagnostics;
+    /* --- Phase 12.14: glyph runs --- */
+
+    /**
+     * A run **finalized**: the records its glyph array implies — clusters, per-glyph flags, the face's metrics
+     * and its own totals — derived once at the end of generation and carried, rather than recomputed by each
+     * consumer.
+     *
+     * Distinct from @ref glyphRuns, which has been true since 12.4: that is the run *type* (an owned glyph
+     * array with its font, script, direction and source span), and this is the derived half of the record.
+     */
+    int glyphRunFinalization;
+    /**
+     * Clusters: the many-to-many mapping between scalars and glyphs, in **logical** source order.
+     *
+     * What this does *not* claim: grapheme segmentation. The rule is "a combining mark continues the cluster of
+     * the glyph before it", which is correct for the scripts this build shapes and is *named* as the
+     * approximation it is (UAX #29 is not implemented).
+     */
+    int glyphClusters;
+    /** The per-glyph flag word: cluster start/continuation, mark, ligature and the two unsafe-to-boundary
+     *  facts a later line breaker needs. */
+    int glyphFlags;
+    /** A run's own metrics, so that line layout never asks the font parser again. */
+    int glyphRunMetrics;
+    /** The run list: logical order as the list, the visual order L2 resolved beside it, and the two inverse
+     *  doors a painter and a caret use. */
+    int glyphRunList;
+    /** A run's key and the *field* that differs, which is what makes splitting and merging deterministic
+     *  rather than two comparisons someone has to keep in step. */
+    int glyphRunKeys;
+    /** Two adjacent runs provably one shape run, merged by concatenation and re-finalization. */
+    int glyphRunCoalescing;
+    /** The run and list invariants, checked by a door a test calls (`RoboTextGlyphRunValidate`). */
+    int glyphRunValidation;
+    /** A run and a list as a diagnostic block, with the invalid case marked rather than printed silently. */
+    int glyphRunDiagnostics;
+    /**
+     * A shaping cache. **0**, and deliberately so: the *key* a cache would use is here
+     * (`RoboTextGlyphRunKey`), the cache is not, because nothing has measured a case where it pays. The
+     * phase's own rule is that caching must never be required for correctness (Phase 12.14.33), so an absent
+     * cache is a capability this build reports honestly rather than one it pretends to have.
+     */
+    int shapingCache;
     /** Complex-script shaping. **0**: Phase 12.19. */
     int complexScripts;
     /** Vertical text. **0**: Phase 12.20. */

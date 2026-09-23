@@ -478,6 +478,53 @@ this section) when a default, a source rule or a reported field changes.
   class matrix behind an extension lookup past 64 KiB — the face that found both reading defects — plus
   `text.gsub.ligature_positioning` for the ligature interaction.
 
+### Glyph runs (Phase 12.14)
+
+**A run is finalized once and is immutable; a shaped text is a `RoboTextGlyphRunList` with the logical order
+as the list and the visual order in an array beside it.** `Runtime/Source/RoboText/RoboTextGlyphs.c` derives the
+four records a glyph array implies — clusters, per-glyph flags, the face's metrics and the run's totals — in
+`RoboTextGlyphRunFinalize`, the **only** writer of them; `Runtime/Source/RoboText/RoboTextRunList.c` owns the
+list, its keys, its two orders and the merge. `Documentation/Runtime/Text/GlyphRuns.md` is the phase's contract.
+
+- `RoboTextGlyphRun` is immutable and read-only through its accessors. Anything that needs a different shaped
+  result builds a new run; nothing edits one in place. The struct is in `RoboTextGlyphsInternal.h` for the one
+  reason an opaque type needs an internal header: the run list merges two runs, which is a concatenation of two
+  arrays and a re-derivation of everything derived from them.
+- Clusters are in **logical source order** and tile both the glyph array and the run's source. The grouping rule
+  is stated in `GlyphContinuesCluster`: a source that starts inside the cluster continues it, a combining mark
+  continues it, anything else opens a new one. **No grapheme segmentation** (UAX #29) is implemented, and the
+  approximation is named in the header and the doc rather than implied. `RoboTextGlyph::cluster` is the cluster
+  *index* — never re-derive it from a glyph count, and never reverse the array for an RTL run.
+- `RoboTextGlyph::codePoint` is the character a glyph came from, or `0` when its source covers more than one
+  scalar. It exists because a glyph's properties are the character's — `Mark` above all — and after substitution
+  the text is out of scope. `source` is the scalar *index*; do not confuse the two, and do not ask a category
+  table about an index.
+- The flag word is six flags and **no more** (`RoboTextGlyphFlag`): the two cluster flags, `Mark`, `Ligature`,
+  `UnsafeToBreak` and `UnsafeToConcat`. `control`/`mirrored`/`mapped`/`substituted`/`positioned` stay fields of
+  their own — stating a fact twice is how two readings of one record come to disagree. `UnsafeToBreak` is
+  information for Phase 19's line breaker, **not** a breaker: it claims nothing about the boundaries it leaves
+  clear.
+- Metrics come from `RoboTextFontContextMetrics`, the measurement's own door, so a line box built from a run
+  and one built from the measurement agree by construction. A paragraph's metrics are its **first** run's, which
+  is stated rather than hidden.
+- The visual order is Phase 12.8's answer **read**, never recomputed: `RoboTextGlyphRunListOrderVisual` sorts by
+  the `visualIndex` of the level run each glyph run's source starts in. A second L2 in this module would drift
+  from 12.8's the first time a level resolution changed. A run straddling two level runs goes with the one its
+  source starts in.
+- `RoboTextGlyphRunKey` is what makes two runs different runs; `RoboTextGlyphRunKeyDifference` names the field.
+  `RoboTextGlyphRunListCoalesce` merges only when the keys are equal **and** the sources are contiguous, and it
+  merges by concatenating and re-finalizing — never by adding two totals and keeping one run's clusters. A
+  **view** (`RoboTextGlyphRunListCreateView`) may not merge, because it does not own its runs.
+- `RoboTextShapeResultGlyphRunList` is that view, built once at the end of shaping. Do not add a second list
+  type, a second key, or a cache: `RoboTextCapabilities::shapingCache` is `0` on purpose (12.14.33), and a cache
+  added later is an optimization over these keys and must never be required for correctness.
+- Capabilities: 12.14 set `glyphRunFinalization`/`glyphClusters`/`glyphFlags`/`glyphRunMetrics`/`glyphRunList`/
+  `glyphRunKeys`/`glyphRunCoalescing`/`glyphRunValidation`/`glyphRunDiagnostics` and left `shapingCache` **0**,
+  each read field by field in `Tests/Text/SuiteRoboTextConformance.c`; version `1.8.0`. Tests:
+  `Tests/Text/SuiteRoboTextGlyphRuns.c` (`text.glyphrun.*`) via `TestRoboText.ps1 -Target Host`, and a
+  glyph-run change is not done until `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass (with
+  `-Target Qemu` when the guest image is involved). The measured baseline is `text.glyphrun.performance`.
+
 ---
 
 ## Test rules
@@ -503,6 +550,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Glyph substitution (RoboText 12.10) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.gsub.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `Build/Text-GlyphTable.txt` (the glyph ids and advances the substitution produced) |
 | Ligatures (RoboText 12.12) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.ligature.*`, `text.gsub.ligature` and `text.gsub.ligature_positioning`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Kerning (RoboText 12.13) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.kern.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.kern.pairs` (the shipped face's own kerning moving the advance) and `text.kern.range_override` (the per-range split) |
+| Glyph runs (RoboText 12.14) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.glyphrun.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.glyphrun.clusters_ligature` (one glyph, one cluster, two scalars), `text.glyphrun.order_visual` (the Latin word painted between two Hebrew ones) and `text.glyphrun.performance` (the baseline) |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

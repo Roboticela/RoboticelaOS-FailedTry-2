@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.7.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.8.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -44,8 +44,14 @@ static void TestConformanceVersion(void)
      * shape records grew a ligature field and kept their shape, which is the condition the version header
      * names for a minor move rather than a major one. 12.11 added the positioning engine and 12.13 the
      * kerning layer, the second of which gave `RoboTextGlyph` the font's own part of its two vectors — a field
-     * beside the totals rather than a reshaped record, so the minor moves once more and the major stays. */
-    RoboCheckEqInt((int)minor, 7);
+     * beside the totals rather than a reshaped record, so the minor moves once more and the major stays.
+     *
+     * 12.14 added the finalized run — clusters, flags, metrics and totals derived once at the end of
+     * generation — and the run list over them. It is a minor move for the same reason as the last one:
+     * `RoboTextGlyph` gained a field (`codePoint`, the character a glyph came from) rather than being reshaped,
+     * and every existing door kept its signature. The one *new* type, `RoboTextGlyphRunList`, is built by the
+     * module over runs it already produced, so no caller had to change to keep working. */
+    RoboCheckEqInt((int)minor, 8);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -62,6 +68,10 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.kerning, 0);
     RoboCheckEqInt(capabilities.kerningPolicy, 0);
     RoboCheckEqInt(capabilities.kerningReport, 0);
+    RoboCheckEqInt(capabilities.glyphRunFinalization, 0);
+    RoboCheckEqInt(capabilities.glyphClusters, 0);
+    RoboCheckEqInt(capabilities.glyphRunList, 0);
+    RoboCheckEqInt(capabilities.shapingCache, 0);
     RoboTextCapabilitiesInit(NULL); /* Safe. */
     RoboCheckEqInt((int)RoboTextGetCapabilities(NULL), (int)RoboInvalidArgument);
 
@@ -158,6 +168,33 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.kerning, 1);
     RoboCheckEqInt(capabilities.kerningPolicy, 1);
     RoboCheckEqInt(capabilities.kerningReport, 1);
+
+    /*
+     * The finalized run and its list (12.14), each flag with the suite that contradicts it: the run's four
+     * derived records by `text.glyphrun.{clusters,flags,metrics,totals}`, the key by `text.glyphrun.key` and
+     * `text.glyphrun.split`, the merge by `text.glyphrun.coalesce`, the validation by
+     * `text.glyphrun.validation`, the block by `text.glyphrun.write` and the two orders by
+     * `text.glyphrun.order_*`. Separate flags because they are separate claims — a build could finalize runs
+     * and have no list, or have a list and no merge.
+     */
+    RoboCheckEqInt(capabilities.glyphRunFinalization, 1);
+    RoboCheckEqInt(capabilities.glyphClusters, 1);
+    RoboCheckEqInt(capabilities.glyphFlags, 1);
+    RoboCheckEqInt(capabilities.glyphRunMetrics, 1);
+    RoboCheckEqInt(capabilities.glyphRunList, 1);
+    RoboCheckEqInt(capabilities.glyphRunKeys, 1);
+    RoboCheckEqInt(capabilities.glyphRunCoalescing, 1);
+    RoboCheckEqInt(capabilities.glyphRunValidation, 1);
+    RoboCheckEqInt(capabilities.glyphRunDiagnostics, 1);
+
+    /*
+     * The one 12.14 flag that is **0**, asserted here rather than left to the absent list below because it is
+     * an absence this phase *chose*: Phase 12.14.33's rule is that caching must never be required for
+     * correctness, so a build without one answers exactly as a build with one does. The key a cache would use is
+     * present and tested (`capabilities.glyphRunKeys`); the cache itself is not, because nothing here has
+     * measured a shaping workload where it would pay.
+     */
+    RoboCheckEqInt(capabilities.shapingCache, 0);
 
     /*
      * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan

@@ -118,6 +118,9 @@ void TestRegisterTextGpos(void);
  * font's substitutions actually produced. */
 void TestRegisterTextLigature(void);
 void TestRegisterTextKerning(void);
+/* Phase 12.14 — glyph runs: the finalized run (clusters, flags, metrics, totals), the run list, its keys,
+ * its two orders and the validation of the set. */
+void TestRegisterTextGlyphRuns(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -427,6 +430,7 @@ int main(int argc, char **argv)
     TestRegisterTextGpos();
     TestRegisterTextLigature();
     TestRegisterTextKerning();
+    TestRegisterTextGlyphRuns();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();
