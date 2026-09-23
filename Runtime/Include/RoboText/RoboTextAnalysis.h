@@ -193,6 +193,28 @@ size_t RoboTextAnalysisScriptRunCount(const RoboTextAnalysis *analysis);
 /** Script run @p index, or NULL when out of range. */
 const RoboTextScriptRun *RoboTextAnalysisScriptRun(const RoboTextAnalysis *analysis, size_t index);
 
+/**
+ * Direction runs, from the direction resolver (Phase 12.7).
+ *
+ * The same array the analysis runs are cut against, so the two can be compared: an analysis run's
+ * `direction` is the direction of the direction run covering it, and the analysis run's range is inside it.
+ */
+size_t RoboTextAnalysisDirectionRunCount(const RoboTextAnalysis *analysis);
+
+/** Direction run @p index, or NULL when out of range. */
+const RoboTextDirectionRun *RoboTextAnalysisDirectionRun(const RoboTextAnalysis *analysis, size_t index);
+
+/**
+ * The context the analysis was classified in, and the paragraph direction it resolved to.
+ *
+ * Fills @p out (which may be NULL) with the context the runs were resolved against and returns the
+ * resolved paragraph direction — the value @ref RoboTextAnalysisBaseDirection also answers, so a caller
+ * that wants both reads them in one call. A NULL @p analysis answers `Unknown` and leaves @p out at the
+ * default context.
+ */
+RoboTextDirection RoboTextAnalysisDirectionContext(const RoboTextAnalysis *analysis,
+                                                   RoboTextDirectionContext *out);
+
 /** Scalars analysed. */
 RoboTextScalarIndex RoboTextAnalysisScalarCount(const RoboTextAnalysis *analysis);
 
@@ -219,6 +241,8 @@ typedef struct RoboTextAnalysisStats {
     size_t unresolvedRuns;
     /** Script runs the resolver produced. */
     size_t scriptRuns;
+    /** Direction runs the resolver produced (Phase 12.7). */
+    size_t directionRuns;
     /** Runs whose classified direction is RTL. */
     size_t rtlRuns;
     /** Combining marks seen (and folded into their base's font). */

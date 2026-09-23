@@ -509,3 +509,38 @@ Three properties the phase adds, and what they replaced:
 The version moved to `1.2.0`, and `RoboTextGetCapabilities` reports `scriptExtensions`,
 `contextualScriptResolution` and `scriptRunDiagnostics` `1` — each exercised by a `text.script.*` case —
 while every algorithm flag the phase plan owns stays `0`.
+
+---
+
+## 15. Phase 12.7 — direction runs
+
+12.7 turns the direction *classification* 12.4 declared into a stage with a contract of its own. It adds
+one header and one source file, and no record shape: `RoboTextDirectionRun` is still
+`{ range, direction; }`, moved to `RoboTextTypes.h` so that the resolver's header can name it, and
+`RoboTextDirectionUnknown` is still what a paragraph with no strong character and no declaration answers.
+
+| Area | Where | Contract |
+|---|---|---|
+| The class projection, the paragraph direction, the resolver, the diagnostics | `RoboTextDirection.c`, `RoboTextDirection.h` | [DirectionRuns.md](DirectionRuns.md) |
+| The vocabulary: classes, modes, the context | `RoboTextTypes.h` | DirectionRuns.md §2, §4 |
+| The shared P2/P3 scan | `RoboTextUnicodeBaseDirection` | [UnicodeIntegration.md](UnicodeIntegration.md) §6 |
+| The direction runs' consumers | `RoboTextRuns.c`, `RoboTextAnalysis.c` | DirectionRuns.md §1, §8 |
+
+Three properties the phase adds, and what they replaced:
+
+1. **Direction is a classification with a vocabulary, not a per-scalar fallback.** 12.5 classified a scalar
+   as strong or "takes the base", which made neutrals and numbers the same kind of thing. 12.7 classifies
+   four kinds — strong, number, attaching mark, neutral — and resolves a *block* of them against both
+   sides, so `"Hello, world!"` is one run and `"ABC אבג 123 DEF"` is three.
+2. **A number is not a left-to-right scalar.** Its class is a weak one, and the direction it resolves to
+   comes from the paragraph (I1/I2) while what it *lends* its neighbours comes from W7. That distinction
+   is what stops an RTL paragraph from claiming a number and stops an LTR paragraph from putting a
+   right-to-left hole between two of them.
+3. **One resolver, three readers.** `RoboTextDirectionRunsResolve` fills the runs and the per-scalar array
+   in one pass; the run set, the analysis runs and the analysis's own run array all read that call, so the
+   boundaries they report cannot differ.
+
+The version moved to `1.3.0`. `RoboTextGetCapabilities` reports `paragraphDirection`, `directionContext`,
+`directionClasses` and `directionRunDiagnostics` `1` — each exercised by a `text.direction.*` case — and
+still reports `bidiAlgorithm`, `substitution`, `positioning`, `kerning`, `ligatures`, `complexScripts`,
+`verticalText` and `variableAxisApplication` `0`.

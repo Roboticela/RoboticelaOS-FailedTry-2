@@ -12,38 +12,39 @@
  *                   This is what a shaper will consume and what a painter walks.
  *
  * They are separate records rather than one with optional fields because they are produced by different
- * algorithms, are consumed by different goals, and change independently: script segmentation already
- * comes from the UCD, direction segmentation will be *replaced* by the bidirectional algorithm in
- * Phase 12.8, and the intersection is what stays stable across both.
+ * algorithms, are consumed by different goals, and change independently: script segmentation comes from the
+ * UCD through the script resolver, direction segmentation comes from the `Bidi_Class` through the direction
+ * resolver (Phase 12.7), and the intersection is what stays stable across both.
  *
  * ## What the direction classification is, exactly
  *
  * **Not the Unicode bidirectional algorithm**, and the difference is worth stating precisely because
  * "we have direction runs" is the kind of claim that hides it:
  *
- *   this phase   each scalar is classified from its own `Bidi_Class`: `R`/`AL` are right-to-left, `L`
- *                is left-to-right, and everything else — digits, punctuation, spaces, format controls —
- *                takes the **base direction** (the one the caller declared in
- *                `RoboTextShapeOptions.baseDirection`, or, when nothing was declared, the first-strong
- *                direction of the text, which is UAX #9's P2/P3 and is what
- *                `UnicodeBidiParagraphDirection` answers);
+ *   this phase   each scalar is projected from its own `Bidi_Class` to a `RoboTextDirectionClass` — strong,
+ *                number, attaching mark or neutral — and the classes are resolved into runs against the
+ *                paragraph direction the caller named in a `RoboTextDirectionContext`: strong scalars keep
+ *                their own direction, a mark takes the character before it (W1), a number is even-levelled
+ *                and therefore left-to-right in either base (I1/I2), and a neutral block joins the sides that
+ *                agree or takes the paragraph (N1). `RoboTextDirectionRunsResolve` is that pass, and
+ *                [DirectionRuns.md](../../../../Documentation/Runtime/Text/DirectionRuns.md) is its contract;
  *   Phase 12.8   resolves *embedding levels*, honours the explicit formatting characters (LRE/RLE/PDF,
- *                LRI/RLI/FSI/PDI), applies the weak and neutral rules (W1–W7, N0–N2) and reorders the
- *                runs (L1/L2).
+ *                LRI/RLI/FSI/PDI), applies the weak and neutral rules in full (W2/W4/W5, N0–N2) and
+ *                reorders the runs (L1/L2).
  *
  * What this phase produces is therefore the *input* the algorithm classifies, not its output: a run
- * here says "these scalars are strong RTL", never "these scalars are at level 1 and must be painted in
- * this visual order". `RoboTextDirectionUnknown` is not produced by the classification — it is what a
- * run carries when the text has no strong direction *and* the caller declared none, which is a real
- * state (`"123 456"`) and not a bug.
+ * here says "these scalars are strong RTL" or "these scalars are a number", never "these scalars are at
+ * level 1 and must be painted in this visual order". `RoboTextDirectionUnknown` is still what a run carries
+ * when the text has no strong direction *and* the caller declared none, which is a real state (`"123 456"`)
+ * and not a bug.
  *
- * ## Neutrals take the paragraph direction, and here is why that is the right default
+ * ## Neutrals are resolved, not left unknown
  *
  * The alternative — giving each neutral its own `Unknown` run — produces `[L][?][L]` for `"abc 123
- * def"`, three runs where every consumer wants one. Resolving a neutral to the base direction is what
- * UAX #9 does for the *paragraph* level, it is the rule CSS's `direction` property implies for text
- * that has no strong character of its own, and it is stable: the classification of a neutral never
- * depends on which side of it a strong character sits.
+ * def"`, three runs where every consumer wants one. Resolving a neutral against the units on both sides is
+ * what UAX #9's N1 does, it is the rule CSS's `direction` property implies for text that has no strong
+ * character of its own, and it does not need a level: the answer here is a direction, and the level is
+ * 12.8's.
  *
  * ## Ownership
  *
@@ -74,11 +75,12 @@ extern "C" {
  * must agree about the type. See `RoboTextScriptRunsResolve` in `RoboTextUnicode.h`.
  */
 
-/** A stretch of scalars sharing one classified direction. */
-typedef struct RoboTextDirectionRun {
-    RoboTextRange range;
-    RoboTextDirection direction;
-} RoboTextDirectionRun;
+/**
+ * A stretch of scalars sharing one classified direction.
+ *
+ * Declared in `RoboTextTypes.h` beside @ref RoboTextScriptRun, for the same reason: the direction resolver
+ * (`RoboTextDirection.h`) produces these before a run set exists, and the two must agree about the type.
+ */
 
 /**
  * The intersection of a script run and a direction run, with the font it is set in.

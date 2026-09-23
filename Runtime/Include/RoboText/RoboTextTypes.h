@@ -39,9 +39,15 @@
  *               Unicode database (Phase 4 owns that).
  *   direction   LTR/RTL/unknown, **classified per run**, not resolved. The Unicode bidirectional
  *               algorithm — which assigns levels, handles explicit embeddings and reorders — is
- *               Phase 12.8, and its flag in `RoboTextVersion.h` says so. What this phase produces is
- *               "these scalars are RTL-class, these are LTR-class", which is the input the algorithm
- *               will consume rather than a claim to have run it.
+ *               Phase 12.8, and its flag in `RoboTextVersion.h` says so. Phase 12.7 is the stage that
+ *               does the classification (`RoboTextDirection.h`): a scalar's `Bidi_Class` projects to a
+ *               `RoboTextDirectionClass` (strong / number / mark / neutral), the paragraph direction comes
+ *               from a `RoboTextDirectionContext`, and the two meet in one pass that emits direction runs.
+ *               What it produces is "these scalars are strong RTL, these are a number, these are neutral
+ *               and here is the direction the context gives them" — the input the algorithm will consume,
+ *               and *not* a level, an order or a claim to have run it. The one place the two stages touch
+ *               is the paragraph direction: `Auto` is UAX #9's P2/P3 (first strong character), because
+ *               consuming that single rule is what lets a run carry a direction at all before 12.8.
  *   language    a BCP 47 tag, carried and not interpreted. Shaping needs it (a `locl` feature is
  *               language-dependent); nothing in this phase reads it beyond echoing it into a run.
  *
@@ -199,6 +205,133 @@ const char *RoboTextDirectionName(RoboTextDirection direction);
 
 /** Non-zero when the direction *requires* reordering the visual order (RTL only). */
 int RoboTextDirectionIsRightToLeft(RoboTextDirection direction);
+
+/* ------------------------------------------------------------------ */
+/* Direction classes, modes and the paragraph context                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What a scalar's own `Bidi_Class` says about it, before any context is applied.
+ *
+ * The `Bidi_Class` itself is RoboUnicode's (23 values, `RoboUnicodeBidiClass`); this is the projection the
+ * *direction stage* reasons in, and the projection is the phase's point: five kinds, because the five are
+ * treated differently and because collapsing any two of them loses a decision.
+ *
+ *   Neutral        no directional evidence at all: `WS`, `ON`, `B`, `S`, `BN`, and every explicit
+ *                  formatting control (`LRE`/`RLE`/`LRO`/`RLO`/`PDF`/`LRI`/`RLI`/`FSI`/`PDI`). The control
+ *                  characters are neutral here **on purpose**: their *contents* are classified from the
+ *                  contents' own classes, and honouring the embedding they open is 12.8's, which is what
+ *                  `bidiAlgorithm` reports as absent.
+ *   LeftToRight    `L`.
+ *   RightToLeft    `R` and `AL` — two classes, one direction. They differ in what they do to adjacent
+ *                  numbers (W2) and in their mirroring, both of which are 12.8's.
+ *   Number         the weak classes `EN`, `AN`, `ES`, `ET` and `CS`. **A digit is not classified a
+ *                  direction by its own class here** — it is classified a *number*, which is the honest
+ *                  reading of `2` being `EN` rather than `L`.
+ *   AttachLeft     `NSM`: a nonspacing mark takes the type of the character before it (UAX #9 W1).
+ *
+ * `ES`/`ET`/`CS` share `Number` with `EN`/`AN` because they only ever mean "part of a number" — the check
+ * that a `Number` *block* actually contains an `EN` or an `AN` is what demotes a lone comma to a neutral,
+ * and it happens on the block rather than here so that the class of a scalar stays a pure function of the
+ * scalar.
+ */
+typedef enum RoboTextDirectionClass {
+    RoboTextDirectionClassNeutral = 0,
+    RoboTextDirectionClassLeftToRight = 1,
+    RoboTextDirectionClassRightToLeft = 2,
+    RoboTextDirectionClassNumber = 3,
+    RoboTextDirectionClassAttachLeft = 4
+} RoboTextDirectionClass;
+
+/** Number of defined classes. */
+#define RoboTextDirectionClassCount 5u
+
+/** Non-zero if @p directionClass is a defined enumerator. */
+int RoboTextDirectionClassIsKnown(RoboTextDirectionClass directionClass);
+
+/** Lower-case name (`"neutral"`, `"ltr"`, `"rtl"`, `"number"`, `"attach-left"`); never NULL. */
+const char *RoboTextDirectionClassName(RoboTextDirectionClass directionClass);
+
+/**
+ * How a paragraph's direction is arrived at.
+ *
+ * `Explicit` are CSS's `direction: ltr|rtl` and what a document's `dir` attribute means: the author stated
+ * it, so the text does not get a vote. `Auto` is UAX #9's P2/P3 — the first strong character decides — and
+ * its *provisional* status is the reason the mode is a caller's input rather than something the text layer
+ * infers: 12.8 implements P2/P3 as part of the whole algorithm, and until then `Auto` falls back to the
+ * context's own @ref RoboTextDirectionContext.fallbackDirection when the text has no strong character.
+ */
+typedef enum RoboTextDirectionMode {
+    /** First strong character, else the context's fallback. */
+    RoboTextDirectionModeAuto = 0,
+    /** Stated left-to-right. */
+    RoboTextDirectionModeExplicitLtr = 1,
+    /** Stated right-to-left. */
+    RoboTextDirectionModeExplicitRtl = 2
+} RoboTextDirectionMode;
+
+/** Number of defined modes. */
+#define RoboTextDirectionModeCount 3u
+
+/** Non-zero if @p mode is a defined enumerator. */
+int RoboTextDirectionModeIsKnown(RoboTextDirectionMode mode);
+
+/** Lower-case name (`"auto"`, `"ltr"`, `"rtl"`); never NULL. */
+const char *RoboTextDirectionModeName(RoboTextDirectionMode mode);
+
+/**
+ * The direction context a stretch of text is analysed in.
+ *
+ * Two fields, and the second is the one worth explaining. `mode` says where the paragraph direction comes
+ * from; `fallbackDirection` is what an `Auto` paragraph resolves to when nothing in the text has a strong
+ * direction — and it is `Unknown` by default, **not** `Ltr`, because UAX #9's P3 default (`level 0`) is the
+ * *algorithm's* default and this stage has not run the algorithm. A caller that is laying out UI declares
+ * what it wants: the shell and the document both pass `{ Auto, Ltr }` (CSS's initial `direction: ltr`),
+ * which is what makes `"123"` a left-to-right run on a desktop surface and leaves a bare analysis of it
+ * unresolved.
+ *
+ * The context is also the seam for an **explicit override** (Phase 12.7 §"explicit direction override"):
+ * a span that carries its own `dir` is analysed with `ExplicitLtr`/`ExplicitRtl`, so the override lives in
+ * the context and never in a mutated Unicode property.
+ */
+typedef struct RoboTextDirectionContext {
+    /** Where the paragraph direction comes from. */
+    RoboTextDirectionMode mode;
+    /** What an `Auto` paragraph with no strong character resolves to; may be `Unknown`. */
+    RoboTextDirection fallbackDirection;
+} RoboTextDirectionContext;
+
+/** Fill @p context with `{ Auto, Unknown }`: first strong wins, and nothing is claimed when there is none. */
+void RoboTextDirectionContextInit(RoboTextDirectionContext *context);
+
+/**
+ * Build the context for a *declared* paragraph direction.
+ *
+ * `Unknown` means "nothing was declared" and gives `{ Auto, Unknown }`; `Ltr`/`Rtl` give the explicit mode
+ * with the same value as the fallback, which is how `RoboTextShapeOptions.baseDirection` — the field 12.4
+ * declared — maps onto this stage without the caller learning a second vocabulary.
+ */
+RoboTextDirectionContext RoboTextDirectionContextForBase(RoboTextDirection declared);
+
+/** The context that **states** @p direction for a span. Same as `…ForBase` for a known direction. */
+RoboTextDirectionContext RoboTextDirectionContextExplicit(RoboTextDirection direction);
+
+/** Non-zero when @p context names a defined mode and a defined fallback. Safe on NULL. */
+int RoboTextDirectionContextIsValid(const RoboTextDirectionContext *context);
+
+/** Field-for-field equality. Safe on NULL (NULL == NULL). */
+int RoboTextDirectionContextEqual(const RoboTextDirectionContext *a, const RoboTextDirectionContext *b);
+
+/**
+ * A stretch of scalars sharing one classified direction.
+ *
+ * Declared here rather than beside the run set for the same reason @ref RoboTextScriptRun is: the direction
+ * resolver produces one before any run set exists and both consumers must agree about the type.
+ */
+typedef struct RoboTextDirectionRun {
+    RoboTextRange range;
+    RoboTextDirection direction;
+} RoboTextDirectionRun;
 
 /* ------------------------------------------------------------------ */
 /* Script                                                              */

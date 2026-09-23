@@ -289,6 +289,34 @@ static inline void TextFixtureClose(TextFixture *fixture)
 #define TextSampleScriptEmoji "\xF0\x9F\x98\x80 \xF0\x9F\x9A\x80 \xE2\x9D\xA4\xEF\xB8\x8F"
 
 /**
+ * The direction samples Phase 12.7 names, as UTF-8, in the order the phase lists them.
+ *
+ * Every one of them is a *boundary* case rather than a longer version of the same thing: the two mixed
+ * lines differ only in which side of the run a neutral falls on, the two number lines differ only in where
+ * the number sits, and the level line is the phase's own four-run example. A reader diffing the run table in
+ * `Build/Text-GlyphTable.txt` can therefore see, per string, exactly which rule moved a boundary.
+ */
+#define TextSampleDirectionMixedLtr "Hello " "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7" /* Hello مرحبا */
+#define TextSampleDirectionMixedRtl "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7" " Hello" /* مرحبا Hello */
+#define TextSampleDirectionHebrew "Hello " "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D" " World"   /* Hello שלום World */
+/** Latin, Hebrew, punctuation, Latin: the phase's `LTR RTL LTR` line. */
+#define TextSampleDirectionPunctuation "Hello, " "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D" ", world!"
+/** Arabic, a space, ASCII digits: an RTL paragraph with a left-to-right number inside it. */
+#define TextSampleDirectionNumbers "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7" " 123"
+#define TextSampleDirectionNumbersFirst "123 " "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7"
+/** The phase's diagnostic example: Latin, Hebrew, a number, Latin. */
+#define TextSampleDirectionLevels "ABC " "\xD7\x90\xD7\x91\xD7\x92" " 123 DEF"
+/** Two Arabic words and a Hebrew sentence, for the two RTL scripts' own boundaries. */
+#define TextSampleDirectionArabicSentence "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7" " " \
+                                        "\xD8\xA8\xD8\xA7\xD9\x84\xD8\xB9\xD8\xA7\xD9\x84\xD9\x85"
+#define TextSampleDirectionHebrewSentence "\xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D" " " "\xD7\xA2\xD7\x95\xD7\x9C\xD7\x9D"
+/** Arabic-Indic digits: `AN`, not `EN`, and not a script of their own. */
+#define TextSampleDirectionArabicDigits "\xD9\xA1\xD9\xA2\xD9\xA3"
+/** `e` + U+0301 and `م` + U+0651: a mark that must stay in its base's directional context. */
+#define TextSampleDirectionMarkLatin "e\xCC\x81"
+#define TextSampleDirectionMarkArabic "\xD9\x85\xD9\x91"
+
+/**
  * A scalar **no conforming font can have a glyph for**: `U+FDD0`, a Unicode noncharacter.
  *
  * The one sample whose absence from the face is guaranteed rather than merely likely, which is what lets a

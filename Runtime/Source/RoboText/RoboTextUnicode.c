@@ -575,8 +575,6 @@ RoboTextDirection RoboTextUnicodeBaseDirection(const Uchar32 *scalars,
                                               size_t count,
                                               RoboTextDirection declared)
 {
-    int hasStrong = 0;
-
     if (declared != RoboTextDirectionUnknown) {
         return declared;
     }
@@ -584,17 +582,32 @@ RoboTextDirection RoboTextUnicodeBaseDirection(const Uchar32 *scalars,
         return RoboTextDirectionUnknown;
     }
     for (size_t index = 0u; index < count; index++) {
-        if (RoboTextUnicodeStrongDirection((RoboTextCodePoint)scalars[index]) !=
-            RoboTextDirectionUnknown) {
-            hasStrong = 1;
-            break;
+        RoboTextDirection strong = RoboTextUnicodeStrongDirection((RoboTextCodePoint)scalars[index]);
+
+        if (strong != RoboTextDirectionUnknown) {
+            return strong;
+        }
+        switch (RoboTextUnicodeBidiClass((RoboTextCodePoint)scalars[index])) {
+            case RoboUBcLri:
+            case RoboUBcRli:
+            case RoboUBcFsi:
+                /*
+                 * An isolate initiator before any strong scalar means P2 has contents to **skip**, and
+                 * skipping them needs the algorithm's own state — so that door exists in RoboUnicode and this
+                 * one defers to it. The deferral is the only path here that allocates, and it is the rare one:
+                 * an ordinary paragraph is answered by the scan above, which is why a text layer can resolve a
+                 * paragraph direction per frame without touching the heap.
+                 */
+                return (UnicodeBidiParagraphDirection(scalars, count) == RoboBidiRtl)
+                           ? RoboTextDirectionRtl
+                           : RoboTextDirectionLtr;
+            default:
+                break;
         }
     }
-    if (!hasStrong) {
-        return RoboTextDirectionUnknown;
-    }
-    return (UnicodeBidiParagraphDirection(scalars, count) == RoboBidiRtl) ? RoboTextDirectionRtl
-                                                                         : RoboTextDirectionLtr;
+    /* Nothing strong and nothing declared: P3's default is the *algorithm's*, and this door reports the
+     * honest "not decided" instead, which the caller resolves against its own fallback. */
+    return RoboTextDirectionUnknown;
 }
 
 RoboTextDirection RoboTextUnicodeClassifyDirection(RoboTextCodePoint codePoint, RoboTextDirection base)

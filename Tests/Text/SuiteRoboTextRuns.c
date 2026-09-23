@@ -223,13 +223,35 @@ static void TestRunsDeclaredBase(void)
     }
     RoboTextRunSetDestroy(set);
 
-    /* Digits with a declared RTL base are RTL — no strong scalar is needed, because the paragraph said so. */
+    /*
+     * Digits with a declared RTL base are resolved rather than `Unknown` — no strong scalar is needed,
+     * because the paragraph said so — and what they resolve to is **left-to-right**, which is 12.7's rule
+     * and not a leftover of the "neutrals take the base" simplification 12.5 shipped: a number's level is
+     * even in either base (UAX #9 I1/I2), and even is left-to-right. So a declared RTL paragraph does *not*
+     * make every scalar in it RTL, which is the property the direction stage exists to establish.
+     */
     RoboTextShapeOptionsInit(&options);
     options.baseDirection = RoboTextDirectionRtl;
     set = Segment("123 456", &options);
     RoboCheckEqInt((int)RoboTextRunSetBaseDirection(set), (int)RoboTextDirectionRtl);
-    RoboCheckEqInt((int)RoboTextRunSetTextRunCount(set), 1);
-    RoboCheckEqInt((int)RoboTextRunSetTextRun(set, 0u)->direction, (int)RoboTextDirectionRtl);
+    /* Two numbers and the space between them: the numbers are left-to-right, and the space is right-to-left
+     * because that is what a number lends a neutral beside it (UAX #9 N1). */
+    RoboCheckEqInt((int)RoboTextRunSetTextRunCount(set), 3);
+    RoboCheckEqInt((int)RoboTextRunSetDirectionRunCount(set), 3);
+    RoboCheckEqInt((int)RoboTextRunSetDirectionRun(set, 0u)->direction, (int)RoboTextDirectionLtr);
+    RoboCheckEqInt((int)RoboTextRunSetDirectionRun(set, 0u)->range.end, 3);
+    RoboCheckEqInt((int)RoboTextRunSetTextRun(set, 0u)->direction, (int)RoboTextDirectionLtr);
+    RoboTextRunSetDestroy(set);
+
+    /*
+     * The contrast the case above is worth: the *same* text with nothing declared has no paragraph
+     * direction — no strong scalar to derive one from and no declaration to apply — so the digits are
+     * `Unknown`, which is the honest answer and the one `text.runs.neutrality` pins.
+     */
+    RoboTextShapeOptionsInit(&options);
+    set = Segment("123 456", &options);
+    RoboCheckEqInt((int)RoboTextRunSetBaseDirection(set), (int)RoboTextDirectionUnknown);
+    RoboCheckEqInt((int)RoboTextRunSetDirectionRun(set, 0u)->direction, (int)RoboTextDirectionUnknown);
     RoboTextRunSetDestroy(set);
 }
 

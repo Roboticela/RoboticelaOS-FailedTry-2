@@ -355,12 +355,18 @@ void RoboTextUnicodeScalarsFree(Uchar32 *scalars);
 RoboTextDirection RoboTextUnicodeStrongDirection(RoboTextCodePoint codePoint);
 
 /**
- * The paragraph direction @p scalars is classified against.
+ * The paragraph direction @p scalars is classified against — UAX #9's P2/P3.
  *
  * The declared base wins; otherwise the text's own first strong scalar; otherwise `Unknown`. The third case
  * is why `UnicodeBidiParagraphDirection` alone is not the answer — it reports `RoboLtr` when the text has no
  * strong scalar, and taking that at face value would call `"123 456"` a left-to-right paragraph, which
- * UAX #9's P2/P3 deliberately does not do.
+ * UAX #9's P2/P3 deliberately does not do. A caller that wants P3's level-0 default says so, by declaring
+ * `{ Auto, Ltr }` in its @ref RoboTextDirectionContext.
+ *
+ * The scan is a forward walk and **allocates nothing**. The one case it hands to `UnicodeBidiParagraphDirection`
+ * is an isolate initiator before any strong scalar, where P2's skip rule needs the algorithm's own state; that
+ * call does allocate a class array, and it is the rare path — which is what lets a text layer resolve a
+ * paragraph direction per frame without touching the heap.
  */
 RoboTextDirection RoboTextUnicodeBaseDirection(const Uchar32 *scalars,
                                               size_t count,

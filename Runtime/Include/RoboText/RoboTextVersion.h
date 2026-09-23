@@ -11,7 +11,9 @@
  *   the **generator**  how a glyph id is obtained from a scalar: one cmap lookup per scalar, with
  *                      no substitution. Present, and *named as the placeholder it is*.
  *   the **algorithms** GSUB, GPOS, kerning, ligatures, bidi reordering, complex scripts. Absent, and
- *                      each goal that adds one flips a flag here in the same change.
+ *                      each goal that adds one flips a flag here in the same change — with 12.7's
+ *                      `directionRuns`/`paragraphDirection` and 12.8's `bidiAlgorithm` the split that
+ *                      matters most: the *classification* is here and the *resolution* is not.
  *
  * `RoboTextGlyphGenerationIsPlaceholder` is the flag that matters most this phase, and it is written
  * the way the phase's boundary demands: the cmap-per-scalar generator is **isolated and labelled**,
@@ -30,10 +32,11 @@ extern "C" {
 
 /** Major version: changes only when the run/glyph API shape does. */
 #define RoboTextVersionMajor 1
-/* 12.5 added the Unicode doors, the font selector and the analysis runs; 12.6 added the script-extension
- * facts, the contextual resolver and the script-run diagnostics. The run/glyph record shapes are unchanged
- * throughout, so the major stays and the minor moves. */
-#define RoboTextVersionMinor 2
+/* 12.5 added the Unicode doors, the font selector and the analysis runs; 12.6 the script-extension facts,
+ * the contextual script resolver and its diagnostics; 12.7 the direction stage — the class projection, the
+ * paragraph context and the direction-run resolver. The run/glyph record shapes are unchanged throughout,
+ * so the major stays and the minor moves. */
+#define RoboTextVersionMinor 3
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -58,7 +61,12 @@ typedef struct RoboTextCapabilities {
     int fontContext;
     /** Script segmentation, through RoboUnicode's own tables. */
     int scriptRuns;
-    /** Direction *classification* runs (not the bidi algorithm — see `bidiAlgorithm`). */
+    /**
+     * Direction *classification* runs (not the bidi algorithm — see `bidiAlgorithm`).
+     *
+     * Since 12.7 these are the runs of `RoboTextDirection.h`: a `Bidi_Class` projection, a paragraph context
+     * and the neutral/number rules, with the level and the order still 12.8's.
+     */
     int directionRuns;
     /** Text runs: the intersection of script and direction, carrying the font context. */
     int textRuns;
@@ -102,6 +110,26 @@ typedef struct RoboTextCapabilities {
     int contextualScriptResolution;
     /** A script run can be written as a line, and a whole run set as a table in both index spaces. */
     int scriptRunDiagnostics;
+
+    /* --- Phase 12.7: direction runs --- */
+
+    /**
+     * A paragraph direction, resolved from a declared mode or from the text's first strong character.
+     *
+     * P2/P3 and nothing after them: the *levels* P2/P3 feed are `bidiAlgorithm`'s, and it is **0**.
+     */
+    int paragraphDirection;
+    /** An explicit direction context (declared mode plus fallback) that a caller supplies per span. */
+    int directionContext;
+    /**
+     * A scalar's `Bidi_Class` projected to a direction class — strong, number, attaching mark or neutral —
+     * with the `EN`/`AN` digits kept apart from the `ES`/`ET`/`CS` separators. **This is what makes "a
+     * digit is not left-to-right" a fact about the code rather than a claim in a comment.**
+     */
+    int directionClasses;
+    /** A direction run can be written as a line, and a whole run set as a table in both index spaces. */
+    int directionRunDiagnostics;
+
     /** One cmap lookup per scalar (no substitution). **1**. */
     int glyphGenerationIsPlaceholder;
     /** Variable-axis application (`wght`/`opsz` beyond face selection). **0**: a later goal. */

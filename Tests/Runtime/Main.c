@@ -112,6 +112,7 @@ void TestRegisterTextAnalysis(void);
 /* Phase 12.6 — the script stage: `Script_Extensions` beside `Script`, the two-sided neutrality rule, and
  * the script-run diagnostics. The algorithm lives in the same resolver the analysis consumes. */
 void TestRegisterTextScript(void);
+void TestRegisterTextDirection(void);
 void TestRegisterGraphics(void);
 void TestRegisterGraphicsPixelFormat(void);
 void TestRegisterGraphicsFramebuffer(void);
@@ -411,6 +412,7 @@ int main(int argc, char **argv)
     TestRegisterTextFontSelection();
     TestRegisterTextAnalysis();
     TestRegisterTextScript();
+    TestRegisterTextDirection();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

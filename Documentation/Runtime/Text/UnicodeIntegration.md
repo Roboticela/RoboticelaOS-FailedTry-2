@@ -100,9 +100,19 @@ shortcut cannot silently drift from the data it shortcuts.
 `RoboTextUnicodeIsCombiningMark` is `Mn` / `Mc` / `Me`. Its consumers are the font pass (a mark keeps its
 base's face — see [FontIntegration](FontIntegration.md)) and, later, shaping.
 
-Direction is **classified, never resolved**: `R`/`AL` are RTL, `L` is LTR, everything else takes the
-paragraph base — the caller's declared base, else the text's first strong scalar, else `Unknown` (a real
-state for `"123 456"`, not an LTR claim). The UBA is Phase 12.8.
+Direction is **classified, never resolved**. Since 12.7 this file's role in it is two doors and no rules:
+`RoboTextUnicodeBidiClass` (the property, straight from RoboUnicode) and `RoboTextUnicodeBaseDirection` (the
+paragraph direction: the declared base, else the text's first strong scalar, else `Unknown` — a real state
+for `"123 456"`, not an LTR claim). The classification itself — the class projection, the neutral and number
+rules, the runs — is `RoboTextDirection.h` / [DirectionRuns](DirectionRuns.md). The UBA is Phase 12.8.
+
+The paragraph door scans forward and **does not allocate**; the one path that does is an isolate initiator
+before any strong scalar, where P2's skip rule needs RoboUnicode's own state and the door defers to
+`UnicodeBidiParagraphDirection`. A per-frame caller therefore pays nothing for ordinary text.
+
+`RoboTextUnicodeClassifyDirection` is the 12.5 per-scalar shortcut (strong, else the base). It is kept
+because it is a correct answer to a narrower question, but the resolver does not use it: a neutral's answer
+depends on **both** sides, and a number's on the paragraph rather than on its own class.
 
 ## 6. Tests
 
@@ -118,5 +128,5 @@ state for `"123 456"`, not an LTR claim). The UBA is Phase 12.8.
 | `decode_all` | the shared decode door, empty text, refusals |
 | `scripts` | Latin, Cyrillic, Greek, Arabic, Hebrew, Devanagari, Han, Hiragana, Katakana, Hangul, Inherited |
 | `script_runs` | neutrality, leading neutral, mixed scripts, hints, capacity, empty text |
-| `direction` | strong classes, base direction, classification |
+| `direction` | strong classes, the paragraph door (declared / first strong / none), the per-scalar shortcut |
 | `fuzz` | arbitrary bytes never spin or overrun |

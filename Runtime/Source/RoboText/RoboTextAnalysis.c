@@ -3,11 +3,16 @@
  *
  * The file is one pass that ends the canonical data flow:
  *
- *     decode all  →  script runs (shared resolver)  →  paragraph direction
+ *     decode all  →  script runs (shared resolver)  ┐
+ *                                                     ├→ maximal spans where all three agree
+ *                    direction runs (12.7's resolver) ┘
  *                        ↓
- *                 one font selection per scalar (the selector's memo)
- *                        ↓
- *                 maximal spans where script, direction and font all agree
+ *                 one font selection per **script run** (the selector's memo)
+ *
+ * Since 12.7 the direction half comes from `RoboTextDirectionRunsResolve` rather than from a per-scalar
+ * classification here, so the runs this layer cuts against and the runs a caller reads through
+ * `RoboTextAnalysisDirectionRun` are one answer, and the paragraph direction is the resolver's rather than
+ * a second computation of P2/P3.
  *
  * Two details are the phase's requirements made concrete:
  *
@@ -24,6 +29,7 @@
 #include "RoboText/RoboTextAnalysis.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboText/RoboTextDirection.h"
 
 #include <string.h>
 
@@ -33,8 +39,11 @@ struct RoboTextAnalysis {
     size_t runCount;
     RoboTextScriptRun *scriptRuns;
     size_t scriptRunCount;
+    RoboTextDirectionRun *directionRuns;
+    size_t directionRunCount;
     RoboTextScalarIndex scalarCount;
     RoboTextDirection baseDirection;
+    RoboTextDirectionContext directionContext;
     RoboTextScript scriptHint;
     RoboTextLanguage language;
     RoboTextFontStyle style;
@@ -146,6 +155,7 @@ void RoboTextAnalysisDestroy(RoboTextAnalysis *analysis)
     }
     RoboFree(analysis->runs);
     RoboFree(analysis->scriptRuns);
+    RoboFree(analysis->directionRuns);
     RoboFree(analysis);
 }
 
@@ -160,6 +170,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     const RoboTextFontContext *primary;
     Uchar32 *scalars = NULL;
     RoboTextScalarIndex count = 0u;
+    RoboTextDirection *directions = NULL;
     RoboTextResolvedFont *runFonts = NULL;
     size_t runCount = 0u;
     Result status;
@@ -207,6 +218,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
         return status;
     }
     analysis->scalarCount = count;
+    analysis->directionContext = RoboTextDirectionContextForBase(options->baseDirection);
     if (count == 0u) {
         analysis->baseDirection = (options->baseDirection == RoboTextDirectionUnknown)
                                       ? RoboTextDirectionUnknown
@@ -216,8 +228,11 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     }
 
     analysis->scriptRuns = (RoboTextScriptRun *)RoboCalloc(count, sizeof(*analysis->scriptRuns));
+    analysis->directionRuns = (RoboTextDirectionRun *)RoboCalloc(count, sizeof(*analysis->directionRuns));
     analysis->runs = (RoboTextAnalysisRun *)RoboCalloc(count, sizeof(*analysis->runs));
-    if (!analysis->scriptRuns || !analysis->runs) {
+    directions = (RoboTextDirection *)RoboCalloc(count, sizeof(*directions));
+    if (!analysis->scriptRuns || !analysis->directionRuns || !analysis->runs || !directions) {
+        RoboFree(directions);
         RoboTextUnicodeScalarsFree(scalars);
         RoboTextAnalysisDestroy(analysis);
         return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboOutOfMemory,
@@ -234,8 +249,20 @@ Result RoboTextAnalysisCreate(RoboTextView view,
         RoboTextAnalysisDestroy(analysis);
         return status;
     }
-    analysis->baseDirection = RoboTextUnicodeBaseDirection(scalars, (size_t)count,
-                                                          options->baseDirection);
+    /*
+     * The direction runs, from the phase's own resolver: one call fills the per-scalar array the run walk
+     * below reads *and* the run array this analysis publishes, so a caller comparing an analysis run's
+     * direction with the direction run beside it is comparing one answer with itself.
+     */
+    status = RoboTextDirectionRunsResolve(scalars, (size_t)count, &analysis->directionContext, directions,
+                                          analysis->directionRuns, (size_t)count,
+                                          &analysis->directionRunCount, &analysis->baseDirection, diag);
+    if (status != RoboOk) {
+        RoboFree(directions);
+        RoboTextUnicodeScalarsFree(scalars);
+        RoboTextAnalysisDestroy(analysis);
+        return status;
+    }
 
     for (RoboTextScalarIndex index = 0u; index < count; index++) {
         if (RoboTextUnicodeIsCombiningMark((RoboTextCodePoint)scalars[index])) {
@@ -246,6 +273,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
     runFonts = (RoboTextResolvedFont *)RoboCalloc((analysis->scriptRunCount != 0u) ? analysis->scriptRunCount : 1u,
                                                   sizeof(*runFonts));
     if (!runFonts) {
+        RoboFree(directions);
         RoboTextUnicodeScalarsFree(scalars);
         RoboTextAnalysisDestroy(analysis);
         return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboOutOfMemory,
@@ -260,6 +288,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
                                                  &runFonts[scriptIndex], diag);
         if (status != RoboOk) {
             RoboFree(runFonts);
+            RoboFree(directions);
             RoboTextUnicodeScalarsFree(scalars);
             RoboTextAnalysisDestroy(analysis);
             return status;
@@ -277,16 +306,9 @@ Result RoboTextAnalysisCreate(RoboTextView view,
 
         while (index < scriptRun->range.end) {
             RoboTextScalarIndex end = index + 1u;
-            RoboTextDirection direction = RoboTextUnicodeClassifyDirection(
-                (RoboTextCodePoint)scalars[index], analysis->baseDirection);
+            RoboTextDirection direction = directions[index];
 
-            while (end < scriptRun->range.end) {
-                RoboTextDirection nextDirection = RoboTextUnicodeClassifyDirection(
-                    (RoboTextCodePoint)scalars[end], analysis->baseDirection);
-
-                if (nextDirection != direction) {
-                    break;
-                }
+            while (end < scriptRun->range.end && directions[end] == direction) {
                 end++;
             }
             analysis->runs[runCount].range = RoboTextRangeMake(index, end);
@@ -300,6 +322,7 @@ Result RoboTextAnalysisCreate(RoboTextView view,
 
     analysis->runCount = runCount;
     RoboFree(runFonts);
+    RoboFree(directions);
     RoboTextUnicodeScalarsFree(scalars);
     *out = analysis;
     return RoboOk;
@@ -364,6 +387,34 @@ const RoboTextScriptRun *RoboTextAnalysisScriptRun(const RoboTextAnalysis *analy
     return &analysis->scriptRuns[index];
 }
 
+size_t RoboTextAnalysisDirectionRunCount(const RoboTextAnalysis *analysis)
+{
+    return analysis ? analysis->directionRunCount : 0u;
+}
+
+const RoboTextDirectionRun *RoboTextAnalysisDirectionRun(const RoboTextAnalysis *analysis, size_t index)
+{
+    if (!analysis || index >= analysis->directionRunCount) {
+        return NULL;
+    }
+    return &analysis->directionRuns[index];
+}
+
+RoboTextDirection RoboTextAnalysisDirectionContext(const RoboTextAnalysis *analysis,
+                                                   RoboTextDirectionContext *out)
+{
+    if (out) {
+        RoboTextDirectionContextInit(out);
+    }
+    if (!analysis) {
+        return RoboTextDirectionUnknown;
+    }
+    if (out) {
+        *out = analysis->directionContext;
+    }
+    return analysis->baseDirection;
+}
+
 RoboTextScalarIndex RoboTextAnalysisScalarCount(const RoboTextAnalysis *analysis)
 {
     return analysis ? analysis->scalarCount : 0u;
@@ -407,6 +458,7 @@ Result RoboTextAnalysisGetStats(const RoboTextAnalysis *analysis, RoboTextAnalys
     memset(out, 0, sizeof(*out));
     out->runs = analysis->runCount;
     out->scriptRuns = analysis->scriptRunCount;
+    out->directionRuns = analysis->directionRunCount;
     out->combiningMarks = analysis->combiningMarks;
     out->scalars = analysis->scalarCount;
     for (size_t index = 0u; index < analysis->runCount; index++) {

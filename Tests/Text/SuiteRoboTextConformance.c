@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.2.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.3.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -35,10 +35,10 @@ static void TestConformanceVersion(void)
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, NULL), (int)RoboInvalidArgument);
     /* The version string and the components are the same fact. */
     RoboCheckEqInt((int)major, 1);
-    /* 12.5 added the Unicode/font integration and 12.6 the script-extension facts, the contextual
-     * resolver and its diagnostics — none of which changed the run or glyph record shapes, which is exactly
-     * the condition the version header names for a minor move rather than a major one. */
-    RoboCheckEqInt((int)minor, 2);
+    /* 12.5 added the Unicode/font integration, 12.6 the script-extension facts and the contextual script
+     * resolver, and 12.7 the direction stage — none of which changed the run or glyph record shapes, which
+     * is exactly the condition the version header names for a minor move rather than a major one. */
+    RoboCheckEqInt((int)minor, 3);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -91,6 +91,16 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.scriptExtensions, 1);
     RoboCheckEqInt(capabilities.contextualScriptResolution, 1);
     RoboCheckEqInt(capabilities.scriptRunDiagnostics, 1);
+
+    /*
+     * The direction stage (12.7): the paragraph direction (P2/P3 and nothing after it — `bidiAlgorithm`
+     * below is still 0), the per-span context, the class projection that keeps `EN` apart from `ES`, and
+     * the run dump. Each is exercised by a case in `text.direction.*`.
+     */
+    RoboCheckEqInt(capabilities.paragraphDirection, 1);
+    RoboCheckEqInt(capabilities.directionContext, 1);
+    RoboCheckEqInt(capabilities.directionClasses, 1);
+    RoboCheckEqInt(capabilities.directionRunDiagnostics, 1);
 
     /* The generator, named as the placeholder it is. */
     RoboCheckEqInt(capabilities.glyphGenerationIsPlaceholder, 1);

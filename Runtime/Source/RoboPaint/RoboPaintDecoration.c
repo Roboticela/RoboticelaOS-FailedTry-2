@@ -167,6 +167,7 @@ static Result DecorationDrawText(GfxRaster *raster,
     RoboTextShapeResult *result = NULL;
     RoboTextFontContext font;
     RoboTextFontStyle style;
+    RoboTextShapeOptions shapeOptions;
     RoboTextView view;
     float penX;
     float baselineY;
@@ -237,7 +238,18 @@ static Result DecorationDrawText(GfxRaster *raster,
 
     view = RoboTextViewMake(RoboTextBufferBytes(buffer),
                             (size_t)RoboTextBufferByteLength(buffer));
-    status = RoboTextShape(view, &font, NULL, &result, NULL);
+    /*
+     * The shell's surfaces are declared left-to-right (Phase 12.7 §"default behaviour"), and declared
+     * rather than assumed: a document that carries its own `dir` will pass its own context here, and a
+     * label whose text is only digits or punctuation ('100%', '—') has no strong scalar to derive a
+     * direction from, so leaving the base undeclared would classify it `Unknown` rather than
+     * left-to-right. Nothing draws differently today — the glyph order is logical either way, and
+     * reordering is 12.8's — but the *declaration* is what makes this run's direction a fact about the
+     * surface rather than an accident of its characters.
+     */
+    RoboTextShapeOptionsInit(&shapeOptions);
+    shapeOptions.baseDirection = RoboTextDirectionLtr;
+    status = RoboTextShape(view, &font, &shapeOptions, &result, NULL);
     if (status != RoboOk) {
         RoboTextBufferDestroy(buffer);
         return RoboPaintDiag(diag, RoboPaintDomainGeometry, status,

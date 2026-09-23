@@ -183,6 +183,122 @@ int RoboTextDirectionIsRightToLeft(RoboTextDirection direction)
 }
 
 /* ------------------------------------------------------------------ */
+/* Direction classes, modes and the paragraph context                  */
+/* ------------------------------------------------------------------ */
+
+int RoboTextDirectionClassIsKnown(RoboTextDirectionClass directionClass)
+{
+    return directionClass == RoboTextDirectionClassNeutral ||
+           directionClass == RoboTextDirectionClassLeftToRight ||
+           directionClass == RoboTextDirectionClassRightToLeft ||
+           directionClass == RoboTextDirectionClassNumber ||
+           directionClass == RoboTextDirectionClassAttachLeft;
+}
+
+const char *RoboTextDirectionClassName(RoboTextDirectionClass directionClass)
+{
+    switch (directionClass) {
+        case RoboTextDirectionClassLeftToRight:
+            return "ltr";
+        case RoboTextDirectionClassRightToLeft:
+            return "rtl";
+        case RoboTextDirectionClassNumber:
+            return "number";
+        case RoboTextDirectionClassAttachLeft:
+            return "attach-left";
+        case RoboTextDirectionClassNeutral:
+            return "neutral";
+        default:
+            return "neutral";
+    }
+}
+
+int RoboTextDirectionModeIsKnown(RoboTextDirectionMode mode)
+{
+    return mode == RoboTextDirectionModeAuto || mode == RoboTextDirectionModeExplicitLtr ||
+           mode == RoboTextDirectionModeExplicitRtl;
+}
+
+const char *RoboTextDirectionModeName(RoboTextDirectionMode mode)
+{
+    switch (mode) {
+        case RoboTextDirectionModeExplicitLtr:
+            return "ltr";
+        case RoboTextDirectionModeExplicitRtl:
+            return "rtl";
+        case RoboTextDirectionModeAuto:
+            return "auto";
+        default:
+            return "auto";
+    }
+}
+
+void RoboTextDirectionContextInit(RoboTextDirectionContext *context)
+{
+    if (!context) {
+        return;
+    }
+    context->mode = RoboTextDirectionModeAuto;
+    /* Unknown rather than Ltr, on purpose: this stage has not run P3, so "no strong character and nothing
+     * declared" is left unresolved rather than defaulted. A layout context that wants CSS's initial value
+     * passes `{ Auto, Ltr }` instead — see the struct's own comment. */
+    context->fallbackDirection = RoboTextDirectionUnknown;
+}
+
+RoboTextDirectionContext RoboTextDirectionContextForBase(RoboTextDirection declared)
+{
+    RoboTextDirectionContext context;
+
+    RoboTextDirectionContextInit(&context);
+    switch (declared) {
+        case RoboTextDirectionLtr:
+            context.mode = RoboTextDirectionModeExplicitLtr;
+            context.fallbackDirection = RoboTextDirectionLtr;
+            break;
+        case RoboTextDirectionRtl:
+            context.mode = RoboTextDirectionModeExplicitRtl;
+            context.fallbackDirection = RoboTextDirectionRtl;
+            break;
+        case RoboTextDirectionUnknown:
+        default:
+            context.mode = RoboTextDirectionModeAuto;
+            context.fallbackDirection = RoboTextDirectionUnknown;
+            break;
+    }
+    return context;
+}
+
+RoboTextDirectionContext RoboTextDirectionContextExplicit(RoboTextDirection direction)
+{
+    RoboTextDirectionContext context;
+
+    RoboTextDirectionContextInit(&context);
+    if (direction == RoboTextDirectionLtr || direction == RoboTextDirectionRtl) {
+        context.mode = (direction == RoboTextDirectionLtr) ? RoboTextDirectionModeExplicitLtr
+                                                          : RoboTextDirectionModeExplicitRtl;
+        context.fallbackDirection = direction;
+    }
+    return context;
+}
+
+int RoboTextDirectionContextIsValid(const RoboTextDirectionContext *context)
+{
+    if (!context) {
+        return 0;
+    }
+    return RoboTextDirectionModeIsKnown(context->mode) &&
+           RoboTextDirectionIsKnown(context->fallbackDirection);
+}
+
+int RoboTextDirectionContextEqual(const RoboTextDirectionContext *a, const RoboTextDirectionContext *b)
+{
+    if (!a || !b) {
+        return a == b;
+    }
+    return a->mode == b->mode && a->fallbackDirection == b->fallbackDirection;
+}
+
+/* ------------------------------------------------------------------ */
 /* Script                                                              */
 /* ------------------------------------------------------------------ */
 

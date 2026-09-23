@@ -9,28 +9,30 @@
  * equal values* in one or two of those arrays. A design that segmented each run type independently would
  * have three decoders and three chances to disagree about what the text is.
  *
- * Phase 12.5 moved the two classifications out of this file and into `RoboTextUnicode.c`, where they are
- * the module's one implementation:
+ * 12.5 moved the two classifications out of this file and into the module's own files, where each is the
+ * one implementation:
  *
  *   the decoder             `RoboTextUnicodeDecodeAll` — one UTF-8 policy, one place that reads `next`
  *   the script resolver     `RoboTextScriptRunsResolve` — the neutrality rule, so the run set and the
  *                           analysis layer cannot disagree about where a script run begins
- *   the direction classifier `RoboTextUnicodeBaseDirection` / `RoboTextUnicodeClassifyDirection`
+ *   the direction resolver  `RoboTextDirectionRunsResolve` (Phase 12.7) — the class projection, the
+ *                           paragraph context and the neutral/number rules, for the same reason
  *
  * What is left here is the *intersection* — the part that is genuinely about a run set rather than about
  * Unicode: a text run exists where two boundary sets agree, and the walk below is the only place that
  * knows it.
  *
- * Direction is classified, not resolved (see the header): `R`/`AL` are right-to-left, `L` is
- * left-to-right, and everything else takes the paragraph direction — the caller's declared base, or the
- * text's own first strong scalar, or `Unknown` when the text has none of either. The `Unknown` case is a
- * real state (`"123 456"` with nothing declared) rather than an error, so the classifier answers it
- * rather than inventing an LTR claim the bidirectional algorithm has not made yet.
+ * Direction is classified, not resolved (see the header), and 12.7 is what made the difference real: a run
+ * here says which **context** its scalars belong to — a declared paragraph direction, the text's own first
+ * strong scalar, a number's even level, or a neutral block's both-sides answer — and never a level or a
+ * visual order. `RoboTextDirectionUnknown` remains a real state (`"123 456"` with nothing declared) rather
+ * than an error, so the resolver answers it rather than inventing an LTR claim the algorithm has not made.
  */
 
 #include "RoboText/RoboTextRuns.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboText/RoboTextDirection.h"
 #include "RoboText/RoboTextUnicode.h"
 
 #include <string.h>
@@ -166,22 +168,24 @@ Result RoboTextRunSetCreate(RoboTextView view,
             RoboTextRunSetDestroy(set);
             return status;
         }
-        set->baseDirection = RoboTextUnicodeBaseDirection(scalars, (size_t)count, options->baseDirection);
-        for (RoboTextScalarIndex index = 0u; index < count; index++) {
-            directions[index] = RoboTextUnicodeClassifyDirection((RoboTextCodePoint)scalars[index],
-                                                                 set->baseDirection);
-        }
+        /*
+         * The direction runs come the same way, from the phase's own resolver: one call fills the
+         * per-scalar array the intersection below reads **and** the run array this set publishes, so the
+         * direction boundaries in this file and the ones the analysis layer reports cannot differ. The
+         * declared base maps onto a direction context — `Unknown` means "nothing declared", which is
+         * `{ Auto, Unknown }` rather than an LTR default the caller did not ask for.
+         */
+        RoboTextDirectionContext directionContext = RoboTextDirectionContextForBase(options->baseDirection);
 
-        for (RoboTextScalarIndex index = 0u; index < count;) {
-            RoboTextScalarIndex end = index + 1u;
-
-            while (end < count && directions[end] == directions[index]) {
-                end++;
-            }
-            set->directionRuns[set->directionRunCount].range = RoboTextRangeMake(index, end);
-            set->directionRuns[set->directionRunCount].direction = directions[index];
-            set->directionRunCount++;
-            index = end;
+        status = RoboTextDirectionRunsResolve(scalars, (size_t)count, &directionContext, directions,
+                                             set->directionRuns, (size_t)count,
+                                             &set->directionRunCount, &set->baseDirection, diag);
+        if (status != RoboOk) {
+            RoboFree(scripts);
+            RoboFree(directions);
+            RoboFree(scalars);
+            RoboTextRunSetDestroy(set);
+            return status;
         }
         /*
          * The text runs are the *intersection* of the two walks, which is why this loop tests both arrays

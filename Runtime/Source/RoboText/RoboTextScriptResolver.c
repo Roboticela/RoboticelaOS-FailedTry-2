@@ -329,76 +329,13 @@ Result RoboTextScriptRunWrite(const RoboTextScriptRun *run,
     return RoboOk;
 }
 
-/**
- * The byte offset at which scalar @p index begins, for a table whose rows name both index spaces.
- *
- * Walks the view's decoder once per call — the door is a dump, not a per-frame path — and the caller below
- * walks it once for the whole table rather than once per run.
- */
-static Result ScriptRunsByteOffsets(RoboTextView view,
-                                    size_t count,
-                                    RoboTextByteIndex **out,
-                                    RoboTextDiag *diag)
+/** One row's range and its trailing label, for the shared table writer. */
+static void ScriptTableRow(const void *runs, size_t index, RoboTextRange *outRange, const char **outLabel)
 {
-    RoboTextUnicodeDecoder decoder;
-    RoboTextByteIndex *offsets;
-    Result status;
+    const RoboTextScriptRun *run = &((const RoboTextScriptRun *)runs)[index];
 
-    *out = NULL;
-    if (count == 0u) {
-        return RoboOk;
-    }
-    offsets = (RoboTextByteIndex *)RoboCalloc(count + 1u, sizeof(*offsets));
-    if (!offsets) {
-        return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboOutOfMemory,
-                               "the byte offsets could not be allocated");
-    }
-    status = RoboTextUnicodeDecoderInit(&decoder, view, diag);
-    if (status != RoboOk) {
-        RoboFree(offsets);
-        return status;
-    }
-    offsets[0] = 0u;
-    for (size_t index = 0u; index < count; index++) {
-        if (!RoboTextUnicodeDecoderHasNext(&decoder)) {
-            /* The runs describe more scalars than the view holds; the table is refused rather than filled
-             * with offsets that belong to a different text. */
-            RoboFree(offsets);
-            return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboInvalidArgument,
-                                   "the runs cover more scalars than the text holds");
-        }
-        (void)RoboTextUnicodeDecoderNext(&decoder);
-        offsets[index + 1u] = (RoboTextByteIndex)decoder.lastEnd;
-    }
-    *out = offsets;
-    return RoboOk;
-}
-
-/** One table row, with or without the byte span. Returns the row's length or RoboTextWriterOverflow. */
-static size_t ScriptTableRow(char *line,
-                             size_t capacity,
-                             size_t length,
-                             RoboTextRange range,
-                             RoboTextScript script,
-                             int hasBytes,
-                             RoboTextByteIndex byteStart,
-                             RoboTextByteIndex byteEnd)
-{
-    length = RoboTextWriterText(line, capacity, length, "[");
-    length = RoboTextWriterUnsigned(line, capacity, length, range.start);
-    length = RoboTextWriterText(line, capacity, length, "..");
-    length = RoboTextWriterUnsigned(line, capacity, length, range.end);
-    length = RoboTextWriterText(line, capacity, length, ") scalars");
-    if (hasBytes) {
-        length = RoboTextWriterText(line, capacity, length, "  bytes [");
-        length = RoboTextWriterUnsigned(line, capacity, length, byteStart);
-        length = RoboTextWriterText(line, capacity, length, "..");
-        length = RoboTextWriterUnsigned(line, capacity, length, byteEnd);
-        length = RoboTextWriterText(line, capacity, length, ")");
-    }
-    length = RoboTextWriterText(line, capacity, length, "  ");
-    length = RoboTextWriterText(line, capacity, length, RoboTextScriptName(script));
-    return length;
+    *outRange = run->range;
+    *outLabel = RoboTextScriptName(run->script);
 }
 
 Result RoboTextScriptRunsWrite(RoboTextView view,
@@ -408,91 +345,8 @@ Result RoboTextScriptRunsWrite(RoboTextView view,
                                size_t capacity,
                                size_t *outLength)
 {
-    RoboTextByteIndex *offsets = NULL;
-    RoboTextScalarIndex scalarCount = 0u;
-    size_t required = 0u;
-    int hasBytes = (view.bytes != NULL);
-
-    if (outLength) {
-        *outLength = 0u;
-    }
-    if (!runs || !buffer || capacity == 0u) {
-        return RoboInvalidArgument;
-    }
-    buffer[0] = '\0';
-    if (hasBytes) {
-        /* With a view the table carries both index spaces, and the runs are checked against it; without
-         * one it carries scalar ranges only, and there is nothing to check them against. */
-        Result status = RoboTextViewScalarCount(view, &scalarCount, NULL);
-
-        if (status != RoboOk) {
-            return status;
-        }
-        for (size_t index = 0u; index < count; index++) {
-            if (RoboTextRangeIsInverted(runs[index].range) ||
-                !RoboTextRangeIsWithin(runs[index].range, scalarCount)) {
-                return RoboInvalidArgument;
-            }
-        }
-        status = ScriptRunsByteOffsets(view, (size_t)scalarCount, &offsets, NULL);
-        if (status != RoboOk) {
-            return status;
-        }
-    }
-
-    /* Measuring pass: build every row into one reusable line, summing lengths, so a buffer that cannot
-     * hold the table is left untouched rather than half written. */
-    {
-        char line[160];
-
-        required = RoboTextWriterText(line, sizeof(line), 0u, "Script Analysis\n");
-        if (required == RoboTextWriterOverflow) {
-            RoboFree(offsets);
-            return RoboNotSupported;
-        }
-        for (size_t index = 0u; index < count; index++) {
-            size_t row = ScriptTableRow(line, sizeof(line), 0u, runs[index].range, runs[index].script,
-                                        hasBytes,
-                                        hasBytes ? offsets[runs[index].range.start] : 0u,
-                                        hasBytes ? offsets[runs[index].range.end] : 0u);
-
-            if (row == RoboTextWriterOverflow) {
-                RoboFree(offsets);
-                return RoboNotSupported;
-            }
-            required += row + 1u; /* + newline */
-        }
-    }
-
-    if (required + 1u > capacity) {
-        if (outLength) {
-            *outLength = required;
-        }
-        RoboFree(offsets);
-        return RoboNotSupported;
-    }
-
-    {
-        char line[160];
-        size_t length = 0u;
-
-        memcpy(buffer, "Script Analysis\n", 16u);
-        length = 16u;
-        for (size_t index = 0u; index < count; index++) {
-            size_t row = ScriptTableRow(line, sizeof(line), 0u, runs[index].range, runs[index].script,
-                                        hasBytes,
-                                        hasBytes ? offsets[runs[index].range.start] : 0u,
-                                        hasBytes ? offsets[runs[index].range.end] : 0u);
-
-            memcpy(buffer + length, line, row);
-            length += row;
-            buffer[length++] = '\n';
-        }
-        buffer[length] = '\0';
-        if (outLength) {
-            *outLength = length;
-        }
-    }
-    RoboFree(offsets);
-    return RoboOk;
+    /* The table itself — the header, both index spaces, the completeness check — is shared with the
+     * direction table (`RoboTextWriterRunTable`); what is this stage's is the label. */
+    return RoboTextWriterRunTable(view, runs, count, ScriptTableRow, "Script Analysis\n", buffer,
+                                  capacity, outLength);
 }

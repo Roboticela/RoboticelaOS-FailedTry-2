@@ -184,6 +184,10 @@ $ProdSrcs = @(
     # they populate. None of them parses a font or keeps a Unicode table.
     (Join-Path $SourceDir "RoboText\RoboTextUnicode.c"),
     (Join-Path $SourceDir "RoboText\RoboTextScriptResolver.c"),
+    # Phase 12.7 -- the direction stage. `RoboTextDirection.c` is the module's one direction resolver: the
+    # `Bidi_Class` -> direction-class projection, the paragraph direction a context names, and the single
+    # pass that turns the two into direction runs.
+    (Join-Path $SourceDir "RoboText\RoboTextDirection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -473,6 +477,7 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextFontSelection.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextAnalysis.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextScript.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextDirection.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

@@ -70,6 +70,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Glyph rasterization (coverage AA) | `Runtime/Source/RoboGraphics/RoboGraphicsGlyph.c` + public `Runtime/Include/RoboGraphics/RoboGraphicsGlyph.h`. One glyph outline → grayscale coverage mask → existing source-over. Independent of shaping: no cmap, no font files, no runs belong here. Docs: `Documentation/Runtime/Typography/TextRasterQuality.md` |
 | Typography roles / face binding | `Runtime/Source/RoboTypography/` + public `Runtime/Include/RoboTypography/`. Semantic role → the pack's face + size/weight/leading/optical class. It binds and caches; parsing stays in RoboFont, rasterizing in RoboGraphics. Docs: `Documentation/Runtime/Typography/TypeBinding.md` |
 | Text architecture (RoboText) | `Runtime/Source/RoboText/` + public `Runtime/Include/RoboText/`. Text as a first-class object: index spaces, buffer, ranges, script/direction/text runs, glyphs and glyph runs, measurement. It parses no font (RoboFont) and keeps no Unicode table (Phase 4 Unicode). Docs: `Documentation/Runtime/Text/Architecture.md` |
+| Direction runs (classification) | `Runtime/Source/RoboText/RoboTextDirection.c` + public `Runtime/Include/RoboText/RoboTextDirection.h`. A scalar's `Bidi_Class` → a direction class, a paragraph context, and one pass to direction runs. Not the bidi algorithm: no levels, no reordering (Phase 12.8). Docs: `Documentation/Runtime/Text/DirectionRuns.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -304,6 +305,46 @@ invariants and the ASCII path are stated there and in `RoboTextScriptRunsResolve
   script change is not done until `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass. Measured
   cost is recorded by `text.script.performance` (bytes, runs, allocations, time).
 
+### Direction runs (Phase 12.7)
+
+**Direction is classified here and resolved in 12.8. A direction run says which logical context its scalars
+belong to — never a level, an order or a visual position.** The module's one resolver is
+`RoboTextDirectionRunsResolve` in `Runtime/Source/RoboText/RoboTextDirection.c`; its contract is
+`Documentation/Runtime/Text/DirectionRuns.md`, and the public header is
+`Runtime/Include/RoboText/RoboTextDirection.h`.
+
+- One rule, in one order: a strong scalar keeps its own direction, a mark takes the character before it
+  (W1), a digit-bearing block of number classes is a **number**, and everything else is one neutral block
+  resolved against the nearest committed unit on each side (N1). The order, the `sor`/`eor` rule and the
+  number's two facts are stated in `RoboTextDirection.h`, in the resolver's file comment and in
+  DirectionRuns.md §2 — all three must agree.
+- **A digit is not left-to-right.** `RoboTextDirectionClassOf` answers `Number` for `EN`/`AN`/`ES`/`ET`/`CS`
+  and `RoboTextDirectionClassIsKnown` has no `Ltr` shorthand for them. A number's direction comes from the
+  paragraph (even in either base — UAX #9 I1/I2) and the direction it *lends* the neutral beside it comes
+  from W7. Folding either into "digits are LTR" is a defect, and `text.direction.numbers` is where it shows.
+- The ASCII shortcut must stay **exact**: `RoboTextDirectionAsciiClassOf` spells out the weak classes the
+  block contains (`ET` `#`/`$`/`%`, `ES` `+`/`-`, `CS` `,`/`.`/`/`/`:`). `text.direction.ascii_fast_path`
+  proves it equals the table over all 128 scalars, so the resolver may take it first.
+- `RoboTextDirectionClassOf` is the **table** with no shortcut, because that is what the shortcut is proved
+  against. Do not put the fast path back inside it.
+- The paragraph direction is one door, `RoboTextDirectionResolveParagraph`, over the 12.5 P2/P3 scan
+  (`RoboTextUnicodeBaseDirection`, allocation-free except for the isolate case, which defers to RoboUnicode).
+  `Auto` with no strong scalar answers the context's `fallbackDirection`, which is `Unknown` by default — a
+  caller that wants P3's default declares `{ Auto, Ltr }`, which is what the shell does. Do not make the
+  layer assume it.
+- Consumers, in order: the run set, the analysis's own direction runs and the analysis runs cut against the
+  per-scalar array. Ask the resolver, never re-derive a boundary at a call site; `RoboTextRuns.c` and
+  `RoboTextAnalysis.c` each call it once and read its two outputs.
+- Add no levels, no reordering, no isolate handling, no W2/W4/W5 refinement and no visual order in this
+  phase's name — `RoboTextCapabilities.bidiAlgorithm` is `0` and 12.8 flips it.
+- Diagnostics: `RoboTextDirectionRunWrite` / `RoboTextDirectionRunsWrite`, complete-or-absent, both index
+  spaces, through the table writer they share with the script stage (`RoboTextWriterRunTable`).
+- Capabilities: 12.7 set `paragraphDirection`/`directionContext`/`directionClasses`/`directionRunDiagnostics`
+  in `RoboTextVersion.h`/`.c` (`1.3.0`) and in `Tests/Text/SuiteRoboTextConformance.c`, field by field.
+- Tests: `Tests/Text/SuiteRoboTextDirection.c` (`text.direction.*`) via `TestRoboText.ps1 -Target Host`, and
+  a direction change is not done until `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
+  Measured cost is recorded by `text.direction.performance` (bytes, runs, allocations, time).
+
 ---
 
 ## Test rules
@@ -324,6 +365,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Text architecture (RoboText) | `BuildRoboText.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestRoboText.ps1 -Target Host` (`text.*`), then the suites for every boundary it touched: `TestLayout.ps1 -Target Host`, `TestPaint.ps1 -Target Host`, `TestGraphics.ps1 -Target Host`, `TestFont.ps1 -Target Host`, `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved |
 | Unicode / font integration (RoboText 12.5) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.unicode.*`, `text.fontselection.*`, `text.analysis.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
 | Script runs (RoboText 12.6) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.script.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` |
+| Direction runs (RoboText 12.7) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.direction.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: the `dir[i]`/`base` rows of `Build/Text-GlyphTable.txt` |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

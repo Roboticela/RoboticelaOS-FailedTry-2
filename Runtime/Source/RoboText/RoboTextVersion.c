@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.2.0";
+    static const char version[] = "1.3.0";
 
     return version;
 }
@@ -79,6 +79,16 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->scriptExtensions = 1;
     out->contextualScriptResolution = 1;
     out->scriptRunDiagnostics = 1;
+
+    /*
+     * The direction stage (12.7). `paragraphDirection` is P2/P3 and stops there — the flag beside it,
+     * `bidiAlgorithm`, is 0 below and stays 0 until 12.8 resolves levels. `directionClasses` is the `EN`
+     * versus `ES` distinction the phase asks to be *represented*, exercised by `text.direction.classes`.
+     */
+    out->paragraphDirection = 1;
+    out->directionContext = 1;
+    out->directionClasses = 1;
+    out->directionRunDiagnostics = 1;
 
     /*
      * The generator, and it is the placeholder: one cmap lookup per scalar, in logical order, with no

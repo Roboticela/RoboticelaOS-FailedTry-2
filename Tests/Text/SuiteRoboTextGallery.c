@@ -13,6 +13,12 @@
  * shipped pack could draw it. That pairing is the honest form of the phase's visual-regression item here,
  * because a missing-glyph count is what "the face had nothing" actually looks like in this layer.
  *
+ * Phase 12.7's direction samples join them, and each block gained a `dir[i]` row and a `base` row: the
+ * direction runs and the paragraph direction they were resolved against. A string's direction is now visible
+ * on its own rather than as a field of a text run, which is what makes the *boundary* readable — `dir-levels`
+ * is Latin, Hebrew, number and Latin in three direction runs, and a reader can see which scalar the Hebrew
+ * takes with it.
+ *
  * The other half is pixels, and it deliberately does not live here. `RoboText` links no rasterizer — the
  * boundary scan forbids `RoboGraphics` and `RoboRender` — so a suite in this directory could not draw a
  * glyph if it wanted to. A rendered run is the *desktop's* surface, and since the paint pass generates
@@ -174,6 +180,19 @@ static GallerySample kGallerySamples[] = {
     { "punctuation", TextSampleScriptPunctuation, 0u, 0u },
     { "symbols", TextSampleScriptSymbols, 0u, 0u },
     { "emoji", TextSampleScriptEmoji, 0u, 0u },
+    /* Phase 12.7 — the direction samples, in the order the phase lists them. */
+    { "dir-mixed-ltr", TextSampleDirectionMixedLtr, 0u, 0u },
+    { "dir-mixed-rtl", TextSampleDirectionMixedRtl, 0u, 0u },
+    { "dir-hebrew", TextSampleDirectionHebrew, 0u, 0u },
+    { "dir-punctuation", TextSampleDirectionPunctuation, 0u, 0u },
+    { "dir-numbers", TextSampleDirectionNumbers, 0u, 0u },
+    { "dir-numbers-first", TextSampleDirectionNumbersFirst, 0u, 0u },
+    { "dir-levels", TextSampleDirectionLevels, 0u, 0u },
+    { "dir-arabic-words", TextSampleDirectionArabicSentence, 0u, 0u },
+    { "dir-hebrew-words", TextSampleDirectionHebrewSentence, 0u, 0u },
+    { "dir-arabic-digits", TextSampleDirectionArabicDigits, 0u, 0u },
+    { "dir-mark-latin", TextSampleDirectionMarkLatin, 0u, 0u },
+    { "dir-mark-arabic", TextSampleDirectionMarkArabic, 0u, 0u },
     { "noncharacter", TextSampleNoncharacter, 0u, 0u },
 };
 
@@ -226,6 +245,27 @@ static void GallerySampleRow(GalleryReport *report, const TextFixture *fixture, 
                       (unsigned)run->range.end,
                       RoboTextLanguageIsSet(&run->language) ? RoboTextLanguageTag(&run->language)
                                                             : "-");
+    }
+
+    /*
+     * The direction runs, in the phase's own dump form. Since 12.7 a text run's direction is one field of an
+     * intersection, so a reader comparing the two rows sees where the *direction* boundary sits rather than
+     * inferring it from where a script boundary happened to fall: `mixed-script` has three direction runs
+     * where its script runs are three as well, and `levels` has three where four level runs would be.
+     */
+    {
+        size_t directionIndex;
+
+        for (directionIndex = 0u; directionIndex < RoboTextRunSetDirectionRunCount(runs); directionIndex++) {
+            const RoboTextDirectionRun *directionRun = RoboTextRunSetDirectionRun(runs, directionIndex);
+
+            GalleryAppend(report, "  dir[%u]    %s [%u,%u)\n",
+                          (unsigned)directionIndex,
+                          RoboTextDirectionName(directionRun->direction),
+                          (unsigned)directionRun->range.start,
+                          (unsigned)directionRun->range.end);
+        }
+        GalleryAppend(report, "  base      %s\n", RoboTextDirectionName(RoboTextRunSetBaseDirection(runs)));
     }
 
     /* The glyphs, in the order a painter walks them, through the module's own dump line. */
