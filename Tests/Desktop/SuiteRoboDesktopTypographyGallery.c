@@ -63,6 +63,8 @@
 #define GALLERY_DESKTOP_PATH "Build/Typography-Desktop.png"
 #define GALLERY_CHROME_PATH "Build/Typography-Chrome.png"
 #define GALLERY_DOCUMENT_PATH "Build/Typography-Document.png"
+/** The Phase 12.18 shaping specimen's frame. See @ref TestShapingGallery for what it is evidence of. */
+#define GALLERY_SHAPING_PATH "Build/Typography-Shaping.png"
 
 /* ------------------------------------------------------------------ */
 /* The fixture                                                         */
@@ -543,9 +545,103 @@ static void TestDocumentGallery(void)
     TypographyFixtureClose(&fixture);
 }
 
+/**
+ * The Latin/European shaping specimen (Phase 12.18) — the phase's §33 page, rendered through the real path.
+ *
+ * `RoboText` links no rasterizer by its own boundary, so a *rendered* shaped glyph run is the shell's gallery
+ * rather than the text module's — that split is `Documentation/Runtime/Text/Architecture.md` §10 and it is
+ * why the conformance suites assert ids, clusters and advances while this case asserts pixels. The page is
+ * the phase's §33 list: the pangram, the four weights, the accented letters, `office` and the `AV` pair, the
+ * combining-mark lines, and Arabic, Hebrew, Greek and Cyrillic together.
+ *
+ * ## What it checks, given that a picture is not a verdict
+ *
+ * The *structural* claims stay in `text.shaping.*`; what a screenshot case can honestly add is that the whole
+ * chain ran and that the same page is the same frame:
+ *
+ *   - the chrome shaped cleanly (four labels, none unshaped) and the page produced content runs at all — a
+ *     specimen that silently drew nothing would otherwise write a blank PNG and pass;
+ *   - the page has ink, and its lowest inked row is below the top of the client area;
+ *   - the document's face is the resolver's body face, so the glyphs on the page came from the same selection
+ *     as the measurement that placed them;
+ *   - two renders of one desktop are one frame, by checksum, which is what makes the PNG a reference.
+ *
+ * The page deliberately includes scripts the shipped pack may not cover (`مرحبا`, `שלום`, `中文`). Those are
+ * the fallback boundary rather than a conformance claim: what they must do is lay out, not crash and not
+ * corrupt the lines around them, and a reader looking at the PNG can see whether they did.
+ */
+static void TestShapingGallery(void)
+{
+    static const char kMarkup[] =
+        "<html><body>"
+        "<h1>Typography</h1>"
+        "<p>The quick brown fox jumps over the lazy dog.</p>"
+        "<p>office ffl ffi configuration AVAVA To Ta Wa</p>"
+        "<p>\xC3\xA4 \xC3\xB6 \xC3\xBC \xC3\xA9 \xC3\xA0 \xC3\xA7 \xC3\xB1 \xC3\x9F \xC3\xB8 \xC5\x82 \xC5\x93"
+        "</p>"
+        "<p>e\xCC\x81 a\xCC\x80 o\xCC\x88 n\xCC\x83 \xC3\xA9 \xC3\xA0 \xC3\xB6 \xC3\xB1</p>"
+        "<p>\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7 \xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D"
+        " \xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82"
+        " \xCE\x91\xCE\xBB\xCF\x86\xCE\xB1</p>"
+        "<p class=\"w400\">Regular</p>"
+        "<p class=\"w500\">Medium</p>"
+        "<p class=\"w600\">Semibold</p>"
+        "<p class=\"w700\">Bold</p>"
+        "</body></html>";
+    TypographyFixture fixture = TypographyFixtureOpen(NULL);
+    Desktop *desktop;
+    DesktopWindowId window;
+    DesktopDocument *gallery;
+    FontFace *bodyFace = NULL;
+    GfxRect client;
+    GfxColorRgba8 paper;
+    DesktopFrameRecord record;
+    int32_t last;
+    uint32_t checksum;
+
+    if (!fixture.resolver) {
+        return;
+    }
+    {
+        RoboTypographyStyle body;
+
+        RoboCheckEqInt(RoboTypographyResolve(fixture.resolver, RoboTypographyRoleDocumentBody, &body,
+                                            NULL),
+                       RoboOk);
+        bodyFace = body.face;
+        RoboCheck(bodyFace != NULL);
+    }
+    desktop = GalleryDesktop(760, 620, fixture.resolver);
+    RoboCheckEqInt(DesktopSetStatus(desktop, "Shaping", NULL), RoboOk);
+    window = DesktopAddWindow(desktop, "12.18", 24, 40, 700, 540);
+    gallery = GalleryWindowContent(desktop, window, kMarkup, gallerySheet, fixture.resolver, bodyFace);
+    RoboCheckEqInt(DesktopWindowClientBounds(desktop, window, &client), RoboOk);
+    RoboCheckEqInt(DesktopRender(desktop, &record, NULL), RoboOk);
+    RoboCheckEqInt((int)record.labels, 4);
+    RoboCheckEqInt((int)record.labelsUnshaped, 0);
+    RoboCheckEqInt((int)record.windows, 1);
+    RoboCheckMsg(record.contentRuns > 0u, "the shaping specimen ran no content runs at all");
+    paper = DesktopPixel(desktop, (uint32_t)client.x, (uint32_t)client.y);
+    last = GalleryLastInkRow(desktop, client, paper);
+    RoboCheckMsg(last > 0, "the shaping specimen's page is blank");
+    /* The glyphs on the page came from the same selection as the measurement that placed them. */
+    RoboCheck(DesktopDocumentFace(gallery) == bodyFace);
+    checksum = GalleryDeterministic(desktop);
+    if (DesktopWritePng(desktop, GALLERY_SHAPING_PATH)) {
+        printf("typography gallery: %s\n", GALLERY_SHAPING_PATH);
+    }
+    /* The same desktop rendered twice is the same frame, which is what makes the PNG a reference rather
+     * than a souvenir. */
+    RoboCheckEqInt((int)GalleryDeterministic(desktop), (int)checksum);
+    DesktopDocumentDestroy(gallery);
+    DesktopClose(desktop);
+    TypographyFixtureClose(&fixture);
+}
+
 void TestRegisterDesktopTypographyGallery(void)
 {
     TestRegister("desktop.typography.gallery.desktop", TestDesktopGallery);
+    TestRegister("desktop.typography.gallery.shaping", TestShapingGallery);
     TestRegister("desktop.typography.gallery.chrome", TestChromeGallery);
     TestRegister("desktop.typography.gallery.document", TestDocumentGallery);
 }

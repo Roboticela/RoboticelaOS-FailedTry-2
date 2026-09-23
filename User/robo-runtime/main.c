@@ -49,6 +49,15 @@
  *   ROBO_QEMU_INPUT_OK / _INPUT_PARTIAL   a display-injected press reached the shell as an action
  *   ROBO_QEMU_INPUT_ACTIONS               presses the shell acted on
  *   ROBO_QEMU_DESKTOP_LIVE                checkpoint done; the shell is pumping PS/2 keyboard and mouse
+ *   ROBO_QEMU_SHAPING_OK                  the §44 specimen document laid out and painted off-screen
+ *   ROBO_QEMU_SHAPING_RUNS                text runs the specimen's display list executed
+ *   ROBO_QEMU_SHAPING_GLYPHS              glyphs those runs carry
+ *   ROBO_QEMU_SHAPING_MISSING             glyphs with no face coverage (the pack ships one family)
+ *   ROBO_QEMU_SHAPING_DRAWN               glyphs the drawing pass actually drew
+ *   ROBO_QEMU_SHAPING_PIXELS              ink pixels the specimen wrote into its surface
+ *   ROBO_QEMU_SHAPING_FAMILIES            `font-family` entries the per-run walk resolved (12.17)
+ *   ROBO_QEMU_SHAPING_UNRESOLVED          entries it could not (0 is the verdict)
+ *   ROBO_QEMU_SHAPING_FAIL <stage>        the specimen refused; the shell markers above still stand
  *   ROBO_QEMU_DISPLAY_FAIL <stage>        a stage refused; nothing after it runs
  *
  * The counters are reported as facts rather than asserted here; the pipeline's own marker list is what
@@ -540,6 +549,179 @@ static void GuestInjectInput(DesktopScene *scene)
 }
 
 /* ------------------------------------------------------------------ */
+/* The shaping conformance specimen (Phase 12.18 §44)                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The specimen's page: the phase's §33 list, one line per claim.
+ *
+ * Latin and Latin Extended, the words a ligature and a pair live in, Greek, Cyrillic, combining marks,
+ * punctuation, and one RTL line beside Latin. It is a *guest* page and not the shared checkpoint scene
+ * (`RoboDesktopScene.h`) on purpose: that scene's frame numbers are pinned by the pipeline's marker list for
+ * both launchers, and a conformance specimen is a second render rather than a reason to move them.
+ *
+ * The last line is honest about coverage rather than decorative. The shipped pack is Inter, which carries no
+ * Arabic or Hebrew, so those glyphs are the fallback boundary: what they must do here is lay out, paint and
+ * not corrupt the lines around them, and `ROBO_QEMU_SHAPING_MISSING` is the number that says how many of them
+ * had no glyph -- a fact a reader can see rather than a conformance claim.
+ */
+static const char kShapingSpecimen[] =
+    "<html><body>"
+    "<p>The quick brown fox jumps over the lazy dog.</p>"
+    "<p>office ffl ffi configuration AVAVA To Ta Wa Yo LT Ty</p>"
+    "<p>Latin Extended: \xC3\xA4 \xC3\xB6 \xC3\xBC \xC3\xA9 \xC3\xA0 \xC3\xA7 \xC3\xB1 \xC3\x9F \xC3\xB8"
+    " \xC5\x82 \xC5\x93</p>"
+    "<p>Greek: \xCE\x91\xCE\xBB\xCF\x86\xCE\xB1 \xCE\xB1\xCE\xB2\xCE\xB3</p>"
+    "<p>Cyrillic: \xD0\x9F\xD1\x80\xD0\xB8\xD0\xB2\xD0\xB5\xD1\x82</p>"
+    "<p>Marks: e\xCC\x81 a\xCC\x80 o\xCC\x88 n\xCC\x83</p>"
+    "<p>Punctuation: Hello, world. \"quoted\" (parens) [brackets] - dash</p>"
+    "<p class=\"mono\">RTL: \xD7\xA9\xD7\x9C\xD7\x95\xD7\x9D \xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7"
+    " beside Latin</p>"
+    "</body></html>";
+
+/** Geometry only, plus one `font-family` so the per-run family walk (12.17) is exercised too. */
+static const char kShapingSpecimenSheet[] =
+    "html, body, p { display: block; margin: 0; padding: 0; }"
+    ".mono { font-family: ui-monospace, monospace; }";
+
+#define GUEST_SHAPING_WIDTH 900
+#define GUEST_SHAPING_HEIGHT 420
+
+/**
+ * Render the specimen off-screen, through the real chain, and report what happened.
+ *
+ * This is the phase's §44 evidence: not a host-side shape, and not a screenshot — the guest builds a
+ * document (HTML → CSS → layout → records → display list) and executes that display list into a
+ * RoboGraphics surface with the *pack's* face, then reports the counts a reader can check against the
+ * pinned marker list. `ROBO_QEMU_SHAPING_MISSING` is deliberately a reported number rather than an asserted
+ * zero: the pack ships one family, so the RTL line above has no glyphs, and pretending otherwise would be a
+ * marker that lied.
+ *
+ * Nothing is presented: there is no window and no backend here, so the checkpoint's own frame numbers stay
+ * the numbers the display test pins.
+ */
+static void GuestShapingCheckpoint(FontFace *face, const GuestTypography *typography)
+{
+    DesktopDocumentConfig config;
+    DesktopDocument *document = NULL;
+    DesktopDocumentReport report;
+    DesktopDiag diag;
+    const PaintDisplayList *list;
+    const PaintGlyphPool *pool;
+    const PaintGlyph *glyphs;
+    PaintDecorationStats stats;
+    PaintDiag paintDiag;
+    GfxSurfaceDesc desc;
+    GfxSurface *surface = NULL;
+    uint32_t runs = 0u;
+    uint32_t glyphCount = 0u;
+    uint32_t missing = 0u;
+    uint32_t ink = 0u;
+    uint32_t y;
+    size_t index;
+
+    memset(&config, 0, sizeof(config));
+    DesktopDocumentConfigInit(&config);
+    config.html = kShapingSpecimen;
+    config.css = kShapingSpecimenSheet;
+    config.width = GUEST_SHAPING_WIDTH;
+    config.height = GUEST_SHAPING_HEIGHT;
+    config.face = face;
+    if (typography) {
+        config.typography = typography->resolver;
+        /* The per-run family walk: a named family through the registry, a generic through the pack. */
+        config.registry = typography->registry;
+    }
+
+    memset(&diag, 0, sizeof(diag));
+    if (DesktopDocumentBuild(&config, &document, &diag) != RoboOk) {
+        SerialText("ROBO_QEMU_SHAPING_FAIL ", diag.message ? diag.message : "(none)");
+        return;
+    }
+
+    list = DesktopDocumentDisplayList(document);
+    pool = PaintDisplayListGlyphPool(list);
+    glyphs = PaintGlyphPoolGlyphs(pool);
+    for (index = 0u; index < PaintDisplayListCount(list); index++) {
+        PaintDisplayCommand command;
+
+        memset(&command, 0, sizeof(command));
+        if (PaintDisplayListAt(list, index, &command) != RoboOk) {
+            continue;
+        }
+        if (command.kind != RoboPaintDisplayCmdDrawText) {
+            continue;
+        }
+        runs++;
+        glyphCount += command.text.glyphs.count;
+        if (glyphs) {
+            uint32_t g;
+
+            for (g = 0u; g < command.text.glyphs.count; g++) {
+                if (glyphs[command.text.glyphs.first + g].flags & PaintGlyphFlagMissing) {
+                    missing++;
+                }
+            }
+        }
+    }
+
+    memset(&desc, 0, sizeof(desc));
+    GfxSurfaceDescInit(&desc);
+    desc.width = GUEST_SHAPING_WIDTH;
+    desc.height = GUEST_SHAPING_HEIGHT;
+    desc.format = RoboGfxFormatRgba8;
+    desc.access = RoboGfxSurfaceAccessReadWrite;
+    if (GfxSurfaceCreate(&desc, &surface) != RoboOk || !surface) {
+        serial("ROBO_QEMU_SHAPING_FAIL surface\n");
+        DesktopDocumentDestroy(document);
+        return;
+    }
+
+    memset(&stats, 0, sizeof(stats));
+    memset(&paintDiag, 0, sizeof(paintDiag));
+    /* No face argument: the list carries its glyphs *and* the table its token names (12.16), so a replay
+     * resolves the faces the document selected rather than a face this program hands it. */
+    if (PaintDecorationPaint(list, surface, NULL, &stats, &paintDiag) != RoboOk) {
+        SerialText("ROBO_QEMU_SHAPING_FAIL ",
+                   paintDiag.message ? paintDiag.message : "(no message)");
+        GfxSurfaceRelease(surface);
+        DesktopDocumentDestroy(document);
+        return;
+    }
+
+    for (y = 0u; y < GUEST_SHAPING_HEIGHT; y++) {
+        uint32_t x;
+
+        for (x = 0u; x < GUEST_SHAPING_WIDTH; x++) {
+            GfxColorRgba8 color;
+
+            memset(&color, 0, sizeof(color));
+            if (GfxSurfaceGetPixel(surface, x, y, &color) != RoboOk) {
+                continue;
+            }
+            if (color.r != 0u || color.g != 0u || color.b != 0u || color.a != 0u) {
+                ink++;
+            }
+        }
+    }
+
+    memset(&report, 0, sizeof(report));
+    (void)GetDesktopDocumentReport(document, &report);
+
+    serial("ROBO_QEMU_SHAPING_OK\n");
+    SerialU32("ROBO_QEMU_SHAPING_RUNS=", runs);
+    SerialU32("ROBO_QEMU_SHAPING_GLYPHS=", glyphCount);
+    SerialU32("ROBO_QEMU_SHAPING_MISSING=", missing);
+    SerialU32("ROBO_QEMU_SHAPING_DRAWN=", (uint32_t)stats.glyphs);
+    SerialU32("ROBO_QEMU_SHAPING_PIXELS=", ink);
+    SerialU32("ROBO_QEMU_SHAPING_FAMILIES=", (uint32_t)report.fontFamiliesResolved);
+    SerialU32("ROBO_QEMU_SHAPING_UNRESOLVED=", (uint32_t)report.fontFamiliesUnresolved);
+
+    GfxSurfaceRelease(surface);
+    DesktopDocumentDestroy(document);
+}
+
+/* ------------------------------------------------------------------ */
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -706,6 +888,12 @@ int main(int argc, char **argv)
         } else {
             serial("ROBO_QEMU_INPUT_PARTIAL\n");
         }
+        /*
+         * The shaping specimen (Phase 12.18 §44), after the frame markers and before the terminal one: a
+         * second, off-screen render whose numbers are its own, so the display test's pinned scene numbers
+         * stay the scene's.
+         */
+        GuestShapingCheckpoint(face, &typography);
         serial("ROBO_QEMU_DESKTOP_LIVE\n");
     }
 

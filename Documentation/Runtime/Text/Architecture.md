@@ -367,25 +367,34 @@ instance**: a style records them and nothing applies an axis.
 | | |
 |---|---|
 | Build | `Scripts/Build/BuildRoboText.ps1` (module + the shipped pack's presence check) |
-| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 157 cases |
-| Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Script,Direction,Bidi,Unicode,FontSelection,Analysis,Gsub,Ligature,Gpos,Kerning,Conformance,Gallery}.c` |
+| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 245 cases |
+| Conformance | `Scripts/Test/TestRoboTextConformance.ps1 -Target Host` — `text.shaping.*` only, 55 cases (12.18) |
+| Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Script,Direction,Bidi,Unicode,FontSelection,Analysis,Gsub,Ligature,Gpos,Kerning,Conformance,Gallery,Shaping{Latin,Scripts,Features,Kerning,Marks,Fallback,Integration}}.c` |
 | Fixture | `Tests/Text/RoboTextTestSupport.h` — opens the **shipped** pack through RoboFont alone |
+| Fixture (12.18) | `Tests/Text/RoboTextConformanceFont.h` + `RoboTextConformanceSupport.h` — **builds** a face from a spec, so a substitution is asserted because the bytes say so |
 | Dev surface | `Build/Text-GlyphTable.txt`, written by `text.gallery.glyph_table` |
+| Dev surface (12.18) | `Build/Text-ShapingConformance.txt`, written by `text.shaping.integration.dump` — the corpus, its counters, and every run's glyphs, offsets and clusters |
 
 The fixture is deliberately built on RoboFont and not on the typography layer: the module's declared
 dependencies are `RoboBase`/`RoboMem`/`RoboUnicode`/`RoboFont`, and a fixture that linked the layer above
 would let a text change that broke the boundary compile and pass.
+
+The 12.18 corpus is the one place a *built* face is used, and the reason is stated in
+[ShapingConformance.md](ShapingConformance.md) §1: a production face's substitution set is its own opinion,
+so the engine's contract is proved over bytes this repository states while the shipped pack keeps its own
+cases (`text.gsub.shipped_pack`, `text.gpos.shipped_pack`, `text.kern.*`).
 
 A text change is not done until these pass:
 
 | Change | Run |
 |---|---|
 | anything in RoboText | `TestRoboText.ps1 -Target Host` |
-| a boundary RoboLayout crosses (measurement, units) | `TestLayout.ps1 -Target Host` (344 cases) |
-| a boundary RoboPaint crosses (glyphs, the pen, the raster) | `TestPaint.ps1 -Target Host` (233) |
+| a shaping expectation (ligature, pair, mark, fallback range) | `TestRoboTextConformance.ps1 -Target Host` |
+| a boundary RoboLayout crosses (measurement, units) | `TestLayout.ps1 -Target Host` (359 cases) |
+| a boundary RoboPaint crosses (glyphs, the pen, the raster) | `TestPaint.ps1 -Target Host` (241) |
 | the glyph-generation seam | `TestGraphics.ps1 -Target Host` (177) and `TestRasterizer.ps1 -Target Host` (31) |
 | the shipped face or the pack | `TestFont.ps1 -Target Host` (189) |
-| anything the shell draws | `TestDesktop.ps1 -Target Host` (54) |
+| anything the shell draws | `TestDesktop.ps1 -Target Host` (56) |
 | the guest image | `TestDesktop.ps1 -Target Qemu` |
 
 ### The visual test surface, and where the pixels live
@@ -398,7 +407,7 @@ under `Tests/Text/` can draw a glyph.
 | Half | Where | What it shows |
 |---|---|---|
 | the numbers | `Build/Text-GlyphTable.txt`, written by `Tests/Text/SuiteRoboTextGallery.c` | every named string: raw text, byte/scalar counts, run rows (`script direction [first,last)`), glyph rows (`id`, source span, cluster, device advance, `hmtx` units, offset, `mapped`, metrics status), and the measurement — for the shipped face at the UI Text role |
-| the pixels | `Build/Typography-Desktop.png`, `-Chrome.png`, `-Document.png`, written by `Tests/Desktop/SuiteRoboDesktopTypographyGallery.c` | the shell, the window chrome and a document specimen, each drawn through the resolver *and* RoboText |
+| the pixels | `Build/Typography-Desktop.png`, `-Chrome.png`, `-Document.png`, `-Shaping.png`, written by `Tests/Desktop/SuiteRoboDesktopTypographyGallery.c` | the shell, the window chrome, a document specimen and 12.18's shaping specimen, each drawn through the resolver *and* RoboText |
 
 The table is asserted as it is written, because a dump proves nothing by itself: the glyph rows' advances
 must sum to `measurement.width` (so a second arithmetic path inside the pipeline shows up as a mismatch),

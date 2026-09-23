@@ -310,6 +310,20 @@ $script:RoboDisplayMarkers = @(
     "ROBO_QEMU_DESKTOP_UNSHAPED=0x00000000",
     "ROBO_QEMU_DESKTOP_FILLS=0x0000000C",
     "ROBO_QEMU_DESKTOP_PIXELS=0x0009F670",
+    # Phase 12.18 §44: a second, off-screen render of the shaping specimen, through the same real chain
+    # (HTML → CSS → layout → records → display list → RoboGraphics) with the pack's face. Eight paragraphs,
+    # 268 glyphs, and **nine** of them without a glyph -- the Hebrew and Arabic line, which the pack (one
+    # family, Inter) does not cover. That number is pinned nonzero on purpose: it is the fallback boundary
+    # stated as a fact, and a run that silently dropped the line would read as 0 and fail here. `UNRESOLVED`
+    # is 12.17's per-run family walk, and 0 is the verdict.
+    "ROBO_QEMU_SHAPING_OK",
+    "ROBO_QEMU_SHAPING_RUNS=0x00000008",
+    "ROBO_QEMU_SHAPING_GLYPHS=0x0000010C",
+    "ROBO_QEMU_SHAPING_MISSING=0x00000009",
+    "ROBO_QEMU_SHAPING_DRAWN=0x0000010C",
+    "ROBO_QEMU_SHAPING_PIXELS=0x00002E68",
+    "ROBO_QEMU_SHAPING_FAMILIES=0x00000008",
+    "ROBO_QEMU_SHAPING_UNRESOLVED=0x00000000",
     # And it reached the screen: every pixel of the 1280x800 destination was written.
     "ROBO_QEMU_PRESENT_OK",
     "ROBO_QEMU_PRESENT_COMPLETE=0x00000001",

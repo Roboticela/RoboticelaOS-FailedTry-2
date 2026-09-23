@@ -20,6 +20,26 @@ for every string the phase names — 12.4's Latin/ASCII set, 12.6's script sampl
 | `SuiteRoboTextDirection.c` | `text.direction.*` | the direction stage (12.7): the `Bidi_Class` → direction-class projection with the `EN`/`AN`/`ES`/`ET`/`CS` split kept visible, the paragraph context and its declared modes, run boundaries written as boundary lists for pure, mixed, neutral, number and mark text, explicit overrides, the invariants over every sample and every prefix, determinism, the diagnostic table in both index spaces, one-pass/one-allocation cost, and the integration with the run set, the analysis runs and the shape requests. Contract: [`DirectionRuns.md`](../../Documentation/Runtime/Text/DirectionRuns.md) |
 | `SuiteRoboTextScript.c` | `text.script.*` | the script stage (12.6): script boundaries for every named script, mixed-script transitions, punctuation and digits handled contextually, `Script_Extensions` deciding a neutral the anchors disagree about, marks belonging to their base, symbols and emoji, `Unknown` kept apart, the ASCII block bounds proved against the tables, the diagnostic table, and one-pass/one-allocation cost. Contract: [`ScriptRuns.md`](../../Documentation/Runtime/Text/ScriptRuns.md) |
 
+### The shaping conformance corpus (12.18)
+
+Six suites over a **built** font, not the shipped pack, so that a ligature or a kern is asserted because the
+font's bytes say so and not because Inter happens to behave that way. Contract:
+[`ShapingConformance.md`](../../Documentation/Runtime/Text/ShapingConformance.md).
+
+| Suite | Prefix | What it is about |
+|---|---|---|
+| `SuiteRoboTextShapingLatin.c` | `text.shaping.latin.*` | the basic sets one character at a time, punctuation, whitespace, Latin Extended, clusters, classification, determinism, the run dump |
+| `SuiteRoboTextShapingScripts.c` | `text.shaping.scripts.*` | Greek and Cyrillic letter by letter, representative words, a Greek diacritic, three scripts in three runs, the script hint |
+| `SuiteRoboTextShapingFeatures.c` | `text.shaping.ligature.*`, `text.shaping.feature.*` | `ffi` and its cluster, `liga` off, longest match, `dlig` both ways, `rlig` surviving a policy, the specific beating the general, a range boundary, and `calt` stated as an absence |
+| `SuiteRoboTextShapingKerning.c` | `text.shaping.kerning.*` | the `AV` pair moving by the font's own value, non-pairs, `kern` off, positioning separable from substitution, measurement agreement, a range override |
+| `SuiteRoboTextShapingMarks.c` | `text.shaping.marks.*` | a mark in its base's cluster, the base's width alone, precomposed ≠ decomposed, the font's placement, a second mark, and the attachment this build does not claim |
+| `SuiteRoboTextShapingFallback.c` | `text.shaping.fallback.*` | the chain answering Greek and Cyrillic, every selected range shaping with no miss, a range no candidate covers, chain order, no chain |
+| `SuiteRoboTextShapingIntegration.c` | `text.shaping.integration.*` | measurement against the shaped advances, clusters surviving, determinism, a face with no layout tables, a malformed lookup, the pen's prefix sum, mixed LTR/RTL, the reference dump, the baseline |
+
+The fixture these share — `RoboTextConformanceFont.h` (the built face and its four specs) and
+`RoboTextConformanceSupport.h` (the case model, the tolerances, the failure text) — is documented in
+`ShapingConformance.md` §2–§3.
+
 The rendered half of that surface lives with the shell, because `RoboText` links no rasterizer
 (`Build/Typography-Desktop.png`, `-Chrome.png`, `-Document.png` from
 `Tests/Desktop/SuiteRoboDesktopTypographyGallery.c`). See `Documentation/Runtime/Text/Architecture.md`
@@ -44,11 +64,17 @@ exactly one of those (`Tests/Runtime/Framework/RoboTest.h`).
 - `root == NULL` means the repository's own `System/Fonts`.
 - Every helper asserts rather than returning a status, and every message names the step that failed.
 
+The shaping conformance suites share a **second** fixture, `RoboTextConformanceFont.h`, which builds a face
+from a spec instead of opening one. It is deliberately not a way to avoid the shipped pack: what the pack
+proves (`text.gsub.shipped_pack`, `text.gpos.shipped_pack`, `text.kern.*`) stays over the pack, and only the
+*engine's own contract* is proved over bytes this repository states.
+
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host     # 91 cases; also writes Build/Text-GlyphTable.txt
-Scripts\Build\BuildRoboText.ps1                # the module, its boundary scan and its suites
+Scripts\Test\TestRoboText.ps1 -Target Host            # 245 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 55 cases; just text.shaping.*
+Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```
 
 A text change is not done until the suites for every boundary it touched pass as well —
@@ -69,3 +95,7 @@ the shell's own (`TestDesktop.ps1 -Target Qemu`, which boots the image and reads
    the case name.
 4. Any case about rejection should also state what is *answered* rather than refused: an unmapped scalar
    is `.notdef` plus a counted miss, and `text.shape.refusals` keeps the two apart.
+5. If the regression is about what a *font* asked for — a substitution, a pair, a mark placement — it belongs
+   in the conformance corpus over the built face, where the expectation is the font's own bytes rather than a
+   production face's changing opinion. Name the layer that moved in the filter (`…ligature.…`,
+   `…kerning.…`, `…marks.…`), because that is what a reader greps for.

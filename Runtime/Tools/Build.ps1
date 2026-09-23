@@ -538,6 +538,16 @@ $SuiteSrcs = @(
     # mixed-font line, the logical and ink boxes, the tolerance, the validation and the diagnostic block.
     (Join-Path $TestsRoot "Text\SuiteRoboTextMeasurement.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextGlyphRuns.c"),
+    # Phase 12.18 -- Latin and European shaping conformance: the deterministic test fonts, the
+    # machine-readable case model, and the Latin/Greek/Cyrillic, feature, kerning, mark, fallback and
+    # integration suites that assert glyph sequences, clusters, advances and run structure.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingLatin.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingScripts.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingFeatures.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingKerning.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingMarks.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingFallback.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingIntegration.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

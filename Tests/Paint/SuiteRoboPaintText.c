@@ -63,6 +63,9 @@
 #include "RoboFont/RoboFont.h"
 #include "RoboFont/RoboFontTt.h"
 
+/* 12.18 §37/§38: the bridge's own agreement case shapes with RoboText directly and compares. */
+#include "RoboText/RoboText.h"
+
 #include "RoboGraphics/RoboGraphicsBitmap.h"
 
 #include "RoboPaint/RoboPaintColor.h"
@@ -1795,6 +1798,145 @@ static void TestTextGlyphRunRecorded(void)
 }
 
 /**
+ * §37/§38 of 12.18: what the record carries is what the shaper produced, and it is still that after the
+ * display list's own copy.
+ *
+ * The case one stage past `paint.glyphrun.recorded`. That one asserts the recorded glyphs are *the face's
+ * arithmetic* -- ids and advances this suite can compute by hand. This one closes the other direction: shape
+ * the same string with RoboText over the same face, and require the record's glyphs to be **that run's own
+ * numbers**, bit for bit, including the clusters and the source ranges, and require the same after the
+ * display list has renumbered the spans into its own pools. Two consequences are pinned rather than argued:
+ * the recorder does not re-derive a position (a second pen would show up as a differing `offsetX` or a
+ * differing prefix sum), and 12.16's copy does not strip a cluster (a display list draws the same glyphs the
+ * shaped run drew, which is what a later selection or caret needs).
+ */
+static void TestTextGlyphAgreesWithShaping(void)
+{
+    PaintFixtureDoc fixture;
+    PaintResult result;
+    PaintDisplayList *list = NULL;
+    PaintDisplayListStats stats;
+    PaintOperation operation;
+    PaintTextRun run;
+    PaintTextRun drawnRun;
+    TextFace face;
+    RoboTextFontContext font;
+    RoboTextFontStyle style;
+    RoboTextShapeOptions options;
+    RoboTextShapeResult *shaped = NULL;
+    const RoboTextGlyphRun *glyphRun;
+    const RoboTextMeasurement *measurement;
+    PaintGlyph recorded[4];
+    PaintGlyph drawn[4];
+    PaintDisplayCommand command;
+    size_t count = 0u;
+    float pen = 0.0f;
+    int found = 0;
+
+    TextFaceCreate(&face);
+    /*
+     * The face's own tables, parsed the way the fixture that owns this face would parse them: `cmap` because
+     * a mapping is asked of it, and metrics because the run's advances are. In the document path this has
+     * already happened by the time the recorder shapes -- the measurer asks the same tables first -- so a
+     * case that shapes *ahead* of the document has to ask for them.
+     */
+    RoboCheckEqInt((int)FontFaceParseCmap(face.face), (int)RoboOk);
+    RoboCheckEqInt((int)FontFaceParseMetrics(face.face), (int)RoboOk);
+    /* And the same two steps the recorder takes (`RoboPaintContext.c`'s `PaintTextFontFromStyle`): a style with
+     * the run's size, over an initialized context. Shaping on an uninitialized one is an argument error, and
+     * that is the door refusing a caller rather than a defect to work around. */
+    RoboTextFontContextInit(&font);
+    RoboTextFontStyleInit(&style);
+    style.sizePx = (float)TEXT_FACE_FONT_SIZE;
+    RoboCheckEqInt((int)RoboTextFontContextSet(&font, face.face, &style), (int)RoboOk);
+    RoboTextShapeOptionsInit(&options);
+    options.baseDirection = RoboTextDirectionLtr;
+    {
+        RoboTextDiag diag;
+        Result status;
+
+        RoboTextDiagReset(&diag);
+        status = RoboTextShape(RoboTextViewMake("AB", 2u), &font, &options, &shaped, &diag);
+        if (status != RoboOk) {
+            TestFail(__FILE__, __LINE__, "shaping refused: %s (%s:%d)",
+                     diag.message ? diag.message : "(no message)",
+                     diag.file ? diag.file : "?", diag.line);
+        }
+    }
+    RoboCheck(shaped != NULL);
+    RoboCheckEqInt((int)RoboTextShapeResultGlyphRunCount(shaped), 1);
+    glyphRun = RoboTextShapeResultGlyphRun(shaped, 0u);
+    RoboCheckEqInt((int)RoboTextGlyphRunCount(glyphRun), 2);
+    measurement = RoboTextShapeResultMeasurement(shaped);
+    RoboCheck(measurement != NULL);
+
+    PaintBeginLaidOut(&fixture, "<html><body><div class=\"box\">AB</div></body></html>",
+                      TEXT_BASE_CSS
+                      " .box { width: 300px; height: 60px; color: #ff0000; font-size: 100px }");
+    PaintOnceWithFace(&fixture, face.face, &result);
+
+    operation = TextOnlyOperation(result.list);
+    run = operation.text;
+    RoboCheckEqInt(PaintGlyphPoolRead(PaintListGlyphPool(result.list), PaintTextRunGlyphs(&run),
+                                      recorded, 4u, &count, NULL),
+                   RoboOk);
+    RoboCheckEqInt((int)count, (int)RoboTextGlyphRunCount(glyphRun));
+
+    for (size_t g = 0u; g < count; g++) {
+        const RoboTextGlyph *glyph = RoboTextGlyphRunGlyph(glyphRun, (RoboTextGlyphIndex)g);
+
+        /* The id, the cluster and the source range are integers, and equality is the right question for
+         * them. The three floats have been through the module's one scaling door twice, so they are
+         * compared exactly rather than within a tolerance: "the same arithmetic" is a stronger claim than
+         * "close", and a pen computed twice would fail this one. */
+        RoboCheckEqInt((int)recorded[g].glyphId, (int)glyph->glyphId);
+        RoboCheckEqInt((int)recorded[g].cluster, (int)glyph->cluster);
+        RoboCheckEqInt((int)recorded[g].sourceFirst,
+                       (int)(glyph->source.start - RoboTextGlyphRunSourceRange(glyphRun).start));
+        RoboCheckEqInt((int)recorded[g].sourceCount,
+                       (int)(glyph->source.end - glyph->source.start));
+        RoboCheck(recorded[g].advanceX == glyph->advanceX);
+        RoboCheck(recorded[g].advanceY == glyph->advanceY);
+        RoboCheck(recorded[g].offsetX == glyph->offsetX);
+        RoboCheck(recorded[g].offsetY == glyph->offsetY);
+        pen += recorded[g].advanceX;
+    }
+    /* The pen the drawing pass accumulates is the width layout measured, which is the shaped run's own
+     * advance sum -- one number reached three ways, and the case exists because they must be one. */
+    RoboCheck(pen == RoboTextGlyphRunAdvance(glyphRun));
+    RoboCheck(pen == measurement->width);
+
+    /* The display list's copy: the same glyphs, in its own pool, after the records that produced them have
+     * been renumbered into it. A cluster stripped here would be a cluster stripped from what the painter
+     * draws, and the run's clusters are what selection will be built on. */
+    memset(&stats, 0, sizeof(stats));
+    TextBuild(&result, &list, &stats);
+    for (size_t index = 0u; index < PaintDisplayListCount(list); index++) {
+        RoboCheckEqInt(PaintDisplayListAt(list, index, &command), RoboOk);
+        if (command.kind != RoboPaintDisplayCmdDrawText) {
+            continue;
+        }
+        found = 1;
+        drawnRun = command.text;
+        RoboCheckEqInt(PaintGlyphPoolRead(PaintDisplayListGlyphPool(list),
+                                          PaintTextRunGlyphs(&drawnRun), drawn, 4u, &count, NULL),
+                       RoboOk);
+        RoboCheckEqInt((int)count, 2);
+        RoboCheckEqInt(PaintGlyphEqual(&drawn[0], &recorded[0]), 1);
+        RoboCheckEqInt(PaintGlyphEqual(&drawn[1], &recorded[1]), 1);
+        RoboCheckEqInt((int)drawn[0].cluster, 0);
+        RoboCheckEqInt((int)drawn[1].cluster, 1);
+    }
+    RoboCheckEqInt(found, 1);
+
+    PaintDisplayListDestroy(list);
+    PaintResultDispose(&result);
+    RoboTextShapeResultDestroy(shaped);
+    PaintEnd(&fixture);
+    TextFaceDestroy(&face);
+}
+
+/**
  * The snapshot, one stage past `paint.text.mutation_isolation`.
  *
  * That case pins that a display list carries its characters independently of the records it was built from;
@@ -2205,6 +2347,7 @@ void TestRegisterPaintText(void)
     TestRegister("paint.text.pool_doors", TestTextPoolDoors);
     TestRegister("paint.text.dump", TestTextDump);
     TestRegister("paint.glyphrun.recorded", TestTextGlyphRunRecorded);
+    TestRegister("paint.glyphrun.agrees_with_shaping", TestTextGlyphAgreesWithShaping);
     TestRegister("paint.glyphrun.snapshot", TestTextGlyphSnapshotOutlivesRecords);
     TestRegister("paint.glyphrun.without_a_face", TestTextGlyphRunWithoutAFace);
     TestRegister("paint.glyphrun.pool_doors", TestTextGlyphPoolDoors);

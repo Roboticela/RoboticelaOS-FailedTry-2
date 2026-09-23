@@ -244,6 +244,41 @@ match".
   `GlyphRun`s (12.5's `RoboTextFontSelector`, driven from the family list this record preserves), `@font-face`,
   web fonts, and the QEMU visual evidence.
 
+### Latin & European shaping conformance (Phase 12.18)
+
+**A shaping change is judged by a deterministic corpus, not by a screenshot: over a font whose bytes this
+repository states, every layer from Unicode to the pen gets an assertion, and a failure names the layer that
+moved.** The corpus is `Tests/Text/RoboTextConformanceFont.h` (the built face and its specs) +
+`RoboTextConformanceSupport.h` (the case model) + the six `SuiteRoboTextShaping*.c`; its contract is
+`Documentation/Runtime/Text/ShapingConformance.md`.
+
+- **The built face, not the shipped pack.** A production face is a moving target — Inter carries `dlig` and no
+  `liga` — so a case over it would assert Inter's opinion rather than the engine's. The pack keeps its own
+  cases (`text.gsub.shipped_pack`, `text.gpos.shipped_pack`, `text.kern.*`); do not move an engine-contract
+  expectation onto the pack, and do not delete a pack case in favour of a fixture one.
+- **The fixture states the answer in bytes**: one canonical code-point list drives `cmap` and `GlyphOf`,
+  ligature substitutions under `liga`/`dlig`/`rlig`, a `kern` pair (`A V`, −80 units), `mark` adjustments and
+  GDEF mark classes, and a zero advance for a mark. A case may not hard-code a number the builder derives.
+- **Expectations are per layer and selective.** Glyph ids (never characters), counts, clusters as source
+  ranges, advances, `ligatureComponents`, run script/direction, `RoboTextGlyphRunValidate` and determinism are
+  each their own door; an unset field means the case makes no claim about it. Tolerances are two named
+  constants (`ConfPositionTolerance`, `ConfAdvanceTolerance`) and integer comparisons are exact.
+- **Two absences are asserted as absences** rather than passed over: `calt` (the fixture has no contextual
+  rule) and complex-script mark attachment (`complexScripts == 0`; 12.11 executes GPOS types 1/2/9 and skips
+  3–8). A mark's placement is proved with a type-1 adjustment for that reason. Flipping either flag is
+  12.19's change, in the same commit as the engine.
+- Fallback is proved through 12.5's selector — which answers **for a coherent range** and names the candidate —
+  not by shaping once with one context, because `RoboTextShape` takes one context by design.
+- Build/test: `TestRoboTextConformance.ps1 -Target Host` (55 cases, `text.shaping.*`) and
+  `TestRoboText.ps1 -Target Host` (the whole `text.*` surface), then every boundary the change touched. The
+  reference dump is `Build/Text-ShapingConformance.txt` and the rendered half is the shell's
+  `Build/Typography-Shaping.png` gallery — this module links no rasterizer.
+- The guest half is `User/robo-runtime/main.c`'s `GuestShapingCheckpoint`: the specimen document built and
+erendered **off-screen in the OS**, reported as `ROBO_QEMU_SHAPING_*` and pinned by
+`Scripts/pipeline/commands.test.ps1`'s marker list (`MISSING` pinned at 9 — the pack covers no Hebrew or
+Arabic, and stating that beats hiding it). It is a second render rather than an edit to the shared checkpoint
+scene, whose frame numbers both launchers pin.
+
 ### RoboText architecture (Phase 12.4)
 
 **Text is a first-class runtime object, not something the renderer discovers while painting. New text
@@ -695,6 +730,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Text measurement (RoboText 12.15) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.measure.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.measure.kern` and `text.measure.ligature` (the two things that move a width, on the shipped face), `text.measure.mark_ink` (an accent raising the ink while the width stays the base's) and `text.measure.performance` (the two baselines) |
 | Paint / layout bridge (12.16) | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` (`paint.text.*`, `paint.glyphrun.*`), then `TestRoboText/Font/Graphics/Layout/Rasterizer/Desktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Evidence: `paint.glyphrun.recorded` (the glyphs on the record), `paint.glyphrun.snapshot` (a display list drawing the same bytes after its records are freed) and `paint.glyphrun.without_a_face` (a counted `noFont`) |
 | CSS font wiring (12.17) | `BuildLayout.ps1` (+ `BuildDesktop.ps1` when the provider or the document changed) | `TestLayout.ps1 -Target Host` (`layout.fontrequest.*`, `layout.fontselect.*`), then `TestPaint.ps1 -Target Host` (the pen draws the run's own face) and `TestDesktop.ps1 -Target Host` (`desktop.document.font_families` resolves a shipped name, an unknown name and a generic over the real registry); `-Target Qemu` when the guest image is involved |
+| Latin/European shaping conformance (12.18) | `BuildRoboText.ps1` (and the image build, which compiles the guest specimen) | `TestRoboTextConformance.ps1 -Target Host` (`text.shaping.*`), then `TestRoboText.ps1 -Target Host`, `TestPaint.ps1 -Target Host` (`paint.glyphrun.agrees_with_shaping`) and `TestLayout/Graphics/Font/Desktop.ps1 -Target Host`; then `TestDesktop.ps1 -Target Qemu`, which runs the guest specimen. Evidence: `text.shaping.integration.dump` (`Build/Text-ShapingConformance.txt`), `desktop.typography.gallery.shaping` (`Build/Typography-Shaping.png`) and the `ROBO_QEMU_SHAPING_*` markers |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

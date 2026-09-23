@@ -218,6 +218,7 @@ Each named where a reader would look for it rather than implied:
 | Case | What it pins |
 |---|---|
 | `paint.glyphrun.recorded` | a record carries the glyphs the pass shaped, with ids, advances and clusters |
+| `paint.glyphrun.agrees_with_shaping` | 12.18 §37/§38: shape the same text with RoboText over the same face and require the record's glyphs -- id, cluster, source range, advance and offset -- to be **that run's own numbers**, exactly; the prefix sum to be the shaped run's advance and the shaped measurement's width; and the same facts to survive the display list's own copy |
 | `paint.glyphrun.snapshot` | the display list draws the same bytes after the records are freed |
 | `paint.glyphrun.pool_doors` | the glyph pool's append/copy/read/contains rules |
 | `paint.glyphrun.font_table_doors` | add is idempotent, resolve by token, the two sentinels are not entries |
@@ -230,3 +231,8 @@ A paint change is not done until `TestPaint.ps1 -Target Host` passes, and this p
 consumer reads, so `TestRoboText.ps1`, `TestFont.ps1`, `TestGraphics.ps1`, `TestLayout.ps1`,
 `TestRasterizer.ps1` and `TestDesktop.ps1` (all `-Target Host`) must pass with it — and
 `-Target Qemu` when the guest image is involved.
+
+That the recording pass does not re-derive a position is asserted where the two sides meet, not argued here:
+`paint.glyphrun.agrees_with_shaping` shapes a string with RoboText itself and requires the record's glyphs to
+be that run's numbers to the last bit, so a second pen, a re-scaled advance or a stripped cluster is a
+failing case rather than a silent drift. A *change* to either side of the seam must keep it passing.

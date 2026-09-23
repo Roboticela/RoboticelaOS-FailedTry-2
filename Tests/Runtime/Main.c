@@ -125,6 +125,15 @@ void TestRegisterTextGlyphRuns(void);
  * line-metrics aggregation over a mixed-font line, the logical box, the ink box the glyphs' outlines give),
  * the tolerance, the validation and the diagnostic block. */
 void TestRegisterTextMeasurement(void);
+/* Phase 12.18 — Latin and European shaping conformance: the deterministic test fonts and the suites that
+ * assert glyph sequences, clusters, advances, GPOS placement and run structure over them. */
+void TestRegisterTextShapingLatin(void);
+void TestRegisterTextShapingScripts(void);
+void TestRegisterTextShapingFeatures(void);
+void TestRegisterTextShapingKerning(void);
+void TestRegisterTextShapingMarks(void);
+void TestRegisterTextShapingFallback(void);
+void TestRegisterTextShapingIntegration(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -438,6 +447,13 @@ int main(int argc, char **argv)
     TestRegisterTextKerning();
     TestRegisterTextGlyphRuns();
     TestRegisterTextMeasurement();
+    TestRegisterTextShapingLatin();
+    TestRegisterTextShapingScripts();
+    TestRegisterTextShapingFeatures();
+    TestRegisterTextShapingKerning();
+    TestRegisterTextShapingMarks();
+    TestRegisterTextShapingFallback();
+    TestRegisterTextShapingIntegration();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();
