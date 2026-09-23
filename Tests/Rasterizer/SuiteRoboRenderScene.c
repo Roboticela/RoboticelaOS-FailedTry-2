@@ -135,8 +135,10 @@ static void TestRenderSceneCheckpoint(void)
     /* The layout pass runs *after* the resolve, so the picture's box exists when the document is laid
      * out -- the order a real document loads in. */
     PaintLayout(&scene.doc, 200, 200);
-    RenderScenePaint(&scene);
+    /* The face before the recording: since 12.16 a run's glyphs are produced where the document is recorded,
+     * so the frame that draws them is built with the face it will be drawn by. */
     RenderFaceCreate(&face);
+    RenderScenePaintWith(&scene, face.face);
 
     target = RenderPage(SCENE_WIDTH, SCENE_HEIGHT, SCENE_PAGE);
     RoboCheckEqInt(RenderRasterize(scene.display, target, face.face, &frame, NULL),
@@ -410,8 +412,10 @@ static void TestRenderSceneDump(void)
     RenderSceneOpen(&scene, SCENE_DOC, SCENE_CSS);
     RenderResolveImage(&scene.doc, "pic", &assets);
     PaintLayout(&scene.doc, 200, 200);
-    RenderScenePaint(&scene);
+    /* The face before the recording: since 12.16 a run's glyphs are produced where the document is recorded,
+     * so the frame that draws them is built with the face it will be drawn by. */
     RenderFaceCreate(&face);
+    RenderScenePaintWith(&scene, face.face);
 
     target = RenderPage(SCENE_WIDTH, SCENE_HEIGHT, SCENE_PAGE);
     RoboCheckEqInt(RenderRasterize(scene.display, target, face.face, &frame, NULL),

@@ -16,18 +16,22 @@ HTML text
   → DOM text node
   → RoboCSS computed text properties
   → RoboLayout inline/text geometry (the run, its line box, its baseline)
-  → RoboPaint TEXT record          (a span into the record list's pool)
-  → DrawText command               (a span into the display list's own pool)
-  → RoboText glyph generation  (a glyph run: id + source span + device advance)
+  → RoboPaint TEXT record          (characters AND shaped glyphs, each a span into a list-owned pool)
+  → DrawText command               (both spans into the display list's own pools)
+  → RoboText glyph generation      (at RECORD time, once per document — Phase 12.16)
+  → the pen walks the stored glyphs (`GfxRasterDrawGlyph`)
   → RoboGraphics glyph outline stroke into a raster
   → the caller's surface
 ```
 
-**Since Phase 12.4 this pass owns no font knowledge at all.** It used to resolve a code point through
-the face's cmap itself; it now asks `RoboTextGlyphRunGenerate` for a glyph run and strokes what it
-gets. The contract — the module's own, and this pass's limits — is
-`Documentation/Runtime/Text/Architecture.md`; what follows in this document is the half a *painter*
-owns: where a run originates on this surface, and that UI text is drawn coverage-antialiased.
+**Since Phase 12.16 the pass shapes nothing at all**, and the arrow that used to run
+"DrawText command → RoboText glyph generation" now runs at the **recording** end. The record carries
+the run's characters *and* the glyphs they shaped to (`PaintGlyph`), plus the face as a token, so a
+replay of the display list draws the stored ids and never looks one up. The pass's job shrank to the
+pen arithmetic — the baseline from layout, each glyph at `pen + offset`, advance by `advanceX` — and
+this document is the half a *painter* owns. The contract is
+`Documentation/Runtime/Text/PaintBridge.md`; what RoboText is is
+`Documentation/Runtime/Text/Architecture.md`.
 
 ---
 
@@ -56,21 +60,24 @@ The ownership boundary is what makes 11.2's snapshot property hold one stage fur
 display list's pool is its own. `paint.text.mutation_isolation` pins it by writing the display list
 to text, freeing the records, and writing it again byte for byte.
 
-## 2. Code points, not bytes, and not glyph ids
+## 2. Code points, not bytes — and, since 12.16, the glyphs too
 
 A span counts **code points**, and the choice is the same one `RoboLayoutText.h` already made: a
 byte offset stops being a character position the moment a document contains an accent, an Arabic
 letter or an emoji — so the unit a run is *measured* in and the unit it is *painted* in are the same
-one. `paint.text.characters_are_code_points` pins it with an accented word: four code points, five
+one. `paint.text.characters_are_codepoints` pins it with an accented word: four code points, five
 UTF-8 bytes, and the span says four.
 
-Deliberately **not glyph ids**, which is the more render-ready choice and the wrong one. A glyph id
-is a fact about a *font*: a list that stored them would be a list only that font could draw, and
-"does the painter's face agree with the traversal's face?" would be a question nothing could answer.
-Storing characters keeps the display list a statement about the **document**, independent of the
-font it will be drawn with — exactly as a background command is independent of the surface it will
-be filled into. Glyph resolution then happens where RoboGraphics' own bridge says it belongs, at the
-drawing step.
+The original rule was **not glyph ids**, and it was right for 11.6: a glyph id is a fact about a *font*,
+and a list that stored only ids would be a list only that font could draw. 12.16 keeps that half and adds
+the other one, because the same fact cuts the other way once shaping arrives: a glyph id is meaningless
+without the face that produced it, and shaping is expensive, so it happens once when the document is
+recorded. The record now carries **both** — the characters in `PaintTextSpan`, and the glyphs in
+`PaintGlyphSpan` with a `PaintFontToken` naming the face. The characters stay because they are what a
+selection, a hit test and a copy will read (12.21); the glyphs are there because a replay must not shape.
+The token is a number into a table the list owns, so "a record has no pointers in it" is still true.
+`paint.glyphrun.span_rules` pins the one-fact invariant between the two: the glyph span is empty exactly
+when the token is `None`.
 
 ## 3. The record
 
@@ -137,31 +144,34 @@ but its depth, its node identity and its position are all checked:
 
 ## 5. Glyph generation, and who prepares the face
 
-**The pass no longer resolves anything.** It asks RoboText for a glyph run — `RoboTextGlyphRunGenerate`
-over the run's scalars and the caller-supplied face — and then does the four things a text layer has no
-business knowing: sets the pen at the run rectangle's left edge and the baseline at
-`rect.y + baseline_offset` (both layout's answers, so a run is drawn where layout placed it), reads each
-glyph's **device** advance to move the pen, strokes the outline with `GfxRasterDrawGlyph` at the resolved
-pixel size in the run's colour, and selects Phase 12.1's coverage-antialiased mode.
+**Since 12.16 the shaping is at the recording end, not here.** The recorder is handed a face
+(`PaintContextSetTextFace`) and a font table, asks RoboText for a glyph run — `RoboTextGlyphRunGenerate`
+over the run's scalars and the face — and **stores** what comes back: the ids, placements, advances,
+clusters and source ranges in the list's glyph pool, and the face as a token. The drawing pass then does
+the four things a text layer may own: resolve the face from the token (`PaintTextRunFace`; `Primary` is
+the pass's own `face` argument, an assigned token resolves in the list's table, a miss is counted
+`noFont`), set the pen at the run rectangle's left edge and the baseline at `rect.y + baseline_offset`
+(both layout's answers), draw each stored id at `pen + offset` with `GfxRasterDrawGlyph` at the resolved
+pixel size in the run's colour, and advance the pen by `advanceX`/`advanceY`. **Positioning is already in
+the offset** — GPOS did the work and the rasterizer must not reinterpret it — and the mode selected is
+Phase 12.1's coverage antialiasing.
 
 Three consequences worth naming, because each used to be this pass's job:
 
 - **The advance is a device quantity and comes from the same generator the measurer runs.** The pen here
   and the width `RoboLayout` justified to are sums of the same numbers, which is what removed the
   admitted fraction-of-a-pixel disagreement between "measure with RoboFont's `hmtx` in font units" and
-  "paint with a `float` pen". `RoboTextFontUnitsToDevice` is that one scaling door.
-- **A glyph whose id is `.notdef` advances like any other.** RoboText gives an unmapped scalar glyph 0's
-own advance and counts it; the pass does not re-decide, so undrawable text measures as wide as its ink
-  and `glyphs_missing` is RoboText's count rather than a second opinion.
-- **The pass prepares *both* of a face's tables — cmap and metrics — once, before the first glyph.**
-  A `FontFace` is created without either (`FontFaceLookupGlyph` answers `RoboNotSupported` for a face
-  whose cmap has not been parsed), and the old loop inherited the metrics parse as a side effect of the
-  graphics layer's own advance door. The new one does not call that door, so the preparation has to be
-  *said*: `SuiteRoboPaintText`'s synthetic face is what caught the omission (`PROGRESS.md`, Goal 12.4).
-  One font layer builds the tables; this is the layer that says *when*.
+  "paint with a `float` pen". `RoboTextFontUnitsToDevice` is that one scaling door.- **A glyph flagged `missing` advances like any other.** RoboText gives an unmapped scalar glyph 0's own
+  advance and counts it; the pass does not re-decide, so undrawable text measures as wide as its ink and
+  `glyphs_missing` is RoboText's count rather than a second opinion.
+- **There is one face per recorder today**, and both passes get it from the same caller: the recorder
+  registers it (`PaintFontTableAdd`, idempotent) and the drawing pass resolves the token through the
+  **display list's own copied** table. `PaintFontTokenPrimary` is the degenerate case — one face, no table —
+  and it is *provably* the same object on both sides because the same caller supplies both. A real
+  multi-family recorder is a later phase's; the token vocabulary is what it lifts with.
 - **A face whose cmap will not parse is still not refused.** At worst every lookup misses, every glyph is
-  `.notdef`, and `glyphs_missing` names the fact — the same answer an unmapped character gets, so a broken
-  font degrades to the shape of a font with no glyph for the text rather than to a failed pass.
+  flagged `missing`, and `glyphs_missing` names the fact — the same answer an unmapped character gets, so a
+  broken font degrades to the shape of a font with no glyph for the text rather than to a failed pass.
 
 ## 6. Counters
 
@@ -186,19 +196,25 @@ draws                    = filled + contextual + transparent + empty + no_font
 commands                 = draws + skipped
 ```
 
-`no_font` is the reason that is about the **call** rather than the document: a text command with no
-face to draw it is counted and skipped, so a caller that passes no font paints a textless document
-identically and is *told* about a document with text instead of being handed a silently blank frame.
-`glyphs` counts the glyph draws attempted, `glyphs_missing` the code points that resolved to
-`.notdef` or whose metrics would not parse, and `rtl` **how many runs were drawn left to right from
-their origin** — because there is no bidi in this build, and a count is how it says so.
+`no_font` is the reason that is about the **call** rather than the document: a text command whose record
+carries an **empty glyph span** (the recorder was given no face), or whose token does not resolve in the
+display list's table, is counted and skipped — so a caller that records with no font paints a textless
+document identically and is *told* about a document with text instead of being handed a silently blank
+frame. `glyphs` counts the glyph draws attempted, `glyphs_missing` the glyphs **flagged `missing`** (an
+unmapped scalar, or metrics that would not parse), and `rtl` **how many runs were drawn left to right
+from their origin** — the resolved glyphs are placed, and the visual reordering a fully LTR-run consumer
+needs is 12.8's answer read through the run list.
 
 ## 7. What the numbers do not claim
 
-- **No shaping.** Glyph substitution and positioning, ligatures and kerning are absent. A run is
-  drawn in logical order at the advances the font's own `hmtx` gives, which is CSS's advance width of
-  a run *before* layout reorders it.
-- **No bidi.** An RTL run is drawn left to right from its origin and counted (`rtl`).
+- **Shaping exists, and happens once.** GSUB, GPOS, ligatures and kerning run at **record** time; the
+  stored advances and offsets are their results, so the pen here adds exactly what was measured. What is
+  still absent is a glyph *cache*, an atlas, batching across compatible runs and subpixel-phase-keyed
+  rasterization (`shapedTextRecording` names each).
+- **No reordering in the pass.** A run's glyphs are drawn in the run's own logical order at the positions
+the shaper stored. The visual order of *runs* is 12.8's answer, read through the run list; an RTL run is
+  drawn from its origin and counted (`rtl`), and a consumer that needs the resolved visual order reads
+  `GlyphRunList.visualOrder` rather than reversing a glyph array.
 - **No line breaking here.** The runs painted are the runs RoboLayout measured. A text node is
   measured **as a unit** in this build, so a run wider than its line wraps whole rather than being
   split (`RoboLayoutInline.c`); two line fragments therefore mean two runs, and
@@ -206,19 +222,18 @@ their origin** — because there is no bidi in this build, and a count is how it
 - **No whitespace collapsing, no fallback fonts, no `text-decoration`, no `text-shadow`.** A run
   marked non-paintable by layout is simply not reached.
 
-The boundary the shaping goals fill is already the right shape, and since 12.4 the first half of it is
-real rather than predicted:
+The boundary the shaping goals filled arrived as predicted, and 12.16 moved *when* it runs:
 
 ```text
-before 12.4   text run → the font's cmap, per code point, in logical order → paint
-now           text run → RoboText → a glyph run → paint            (RoboTextGlyphRunGenerate)
-12.10–12.13   text run → RoboText → a *shaped* glyph run → paint   (one function's body)
+11.6          text run → the font's cmap, per code point, in logical order → paint
+12.4–12.15    text run → RoboText → a *shaped* glyph run → paint, ON EVERY REPLAY
+12.16         text run → RoboText → a shaped glyph run → [RECORDED] → paint the stored ids
 ```
 
-`RoboTextGlyphGenerationCmapPerScalar` is the placeholder's name and it is isolated in
-`RoboTextGlyphs.c` for exactly this: substitution, positioning and kerning replace that one function
-and nothing above it changes — not this pass, not the record, not the pen. The record a shaper will
-fill in is this one, with `glyphs_missing` becoming a shaping result instead of a cmap miss.
+The placeholder `RoboTextGlyphGenerationCmapPerScalar` is gone: GSUB, GPOS and kerning are the
+`RoboTextGlyphRunGenerate` body, and the record now holds their output. The last step the pre-12.16 text
+predicted — "the record a shaper will fill in … with `glyphs_missing` becoming a shaping result" — is
+this phase's `PaintGlyph` and its `missing` flag.
 
 ## 8. Findings the phase recorded
 
@@ -266,7 +281,13 @@ line of it.
 
 The characters are read back **through the pool's own door**, and the door validates the span
 against the pool before printing: a span that no longer named characters prints **no** `text=` at
-all rather than bytes that are no longer the run's. The quoted text is escaped (`\"`, `\\`, and
+all rather than bytes that are no longer the run's.
+
+The **glyphs** are not on that line — the record's line is already long and its bound is derived
+from the text maxima — so a reader who wants the shaped ids, clusters and advances reads them
+through the list's own pool (`PaintListGlyphPool`, `PaintDisplayListGlyphPool`, then
+`PaintGlyphPoolRead`), and the face through `PaintFontTableWrite`. The line writer names the run's
+characters, the baseline and the font inputs; the pool doors name everything else. The quoted text is escaped (`\"`, `\\`, and
 `\uXXXX`/`\UXXXXXXXX` for anything outside printable ASCII) and truncated with a trailing `...` at
 `RoboPaintDumpTextMax` / `RoboPaintDisplayDumpTextMax` (16 code points each), because a
 line-max that had to hold for a run of **any** length would not be a bound — and both line maxima
@@ -274,10 +295,12 @@ are **derived** from those two rather than guessed.
 
 ## 10. What is absent, on purpose
 
-Shaping, the bidi algorithm, line breaking, whitespace collapsing, font fallback, variable-font
-instancing, `text-decoration`, `text-shadow`, text selection, text editing, transforms,
-`border-radius`, gradients, display-list replay and rasterisation architecture, compositor,
-scrolling, JavaScript and networking.
+Line breaking, whitespace collapsing, font fallback, variable-font instancing, `text-decoration`,
+`text-shadow`, text selection, text editing, transforms, `border-radius`, gradients, a glyph cache or
+atlas, batching across compatible runs, a multi-face recorder, display-list replay and rasterisation
+architecture, compositor, scrolling, JavaScript and networking. **Shaping left this list at 12.16** —
+it is `RoboTextGlyphRunGenerate`, run once at record time — and the bidi algorithm's *ordering* is read
+from the run list rather than implemented in the pass.
 Three things left this list after it was written, and all are recorded here rather than deleted
 quietly: paint invalidation (11.11, which reads a `TEXT` record's rectangle like any other drawing —
 a run's change is a `TEXT` region covering its **advance box**, and a run added or removed is a
@@ -291,7 +314,9 @@ without a line of this document changing.
 `RoboPaintDrawingImplemented` stays **1** and `raster` is **1** since 11.12: four kinds of drawing
 exist and text is one of them, and the run reaches pixels through **RoboRender's** run over the list —
 while the glyphs themselves are still stroked by RoboGraphics' raster, from a face the **caller**
-supplies, which is the part 11.12 did not change.
+supplies, which is the part 11.12 did not change. Since 12.16 that face reaches the pass through the
+record's token and the display list's own font table, so the raster's walk needs **no face argument of
+its own** — the run names its own face. `PaintBridge.md` is that contract.
 
 **Since then:** 11.7 landed as the phase this section predicted — the fourth drawing kind and the
 second non-numeric payload — and it answered the question it was left with in favour of a

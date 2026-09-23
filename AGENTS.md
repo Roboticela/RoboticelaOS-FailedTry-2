@@ -571,6 +571,47 @@ the diagnostic block). `Documentation/Runtime/Text/TextMeasurement.md` is the ph
   involved). The measured baselines are `text.measure.performance`'s two loops — advances, and ink bounds, which
   are reported separately because they cost differently.
 
+### Paint / layout bridge (Phase 12.16)
+
+**A display list is a snapshot of shaped text: the record carries the glyphs and the face they came from, and
+shaping happens where the document is recorded, never on replay.** The layer is
+`Runtime/Include/RoboPaint/RoboPaintText.h` (the `PaintGlyph` record, `PaintGlyphSpan`, `PaintGlyphPool`),
+`Runtime/Include/RoboPaint/RoboPaintFontTable.h` (the pointer-free face tokens), and the recorder in
+`RoboPaintContext.c` plus the pen in `RoboPaintDecoration.c`. `Documentation/Runtime/Text/PaintBridge.md` is the
+phase's contract; the glyph run it snapshots is `Documentation/Runtime/Text/GlyphRuns.md`.
+
+- Two payloads, one record: a text record keeps the **characters** (`PaintTextSpan`, what selection/hit test/copy
+  read, Phase 12.21) **and** the **glyphs** (`PaintGlyphSpan`) the run shaped to, plus the face as a
+  `PaintFontToken`. Dropping either half is a defect: glyphs alone make a list only one font can describe, and
+  characters alone make a replay shape again.
+- The invariant that keeps the pair honest: `glyphs` is empty **exactly when** `fontToken` is
+  `PaintFontTokenNone`. `PaintTextRunIsValid` refuses glyphs without a face and a face without glyphs; the span's
+  bounds are checked at the container that owns the pool (`PaintListAppend`, `PaintDisplayListAppend`).
+- Tokens, never face pointers, so `RoboPaintOperation.h`'s "a record is a value with no pointers in it" stays
+  true. `PaintFontTokenPrimary` is the drawing pass's own `face` argument (one document, one face — no table);
+  an assigned token resolves in the list's own `PaintFontTable`; a token that does not resolve is a **counted
+  miss** (`noFont`), never a fallback. Faces are added/resolved **by address**, and `PaintFontTableAdd` is
+  **idempotent** so recording per run does not grow the table per run.
+- The recording pass shapes **once** (`PaintContextSetTextFace` + `PaintContextSetFontTable`), storing the ids,
+  placements, advances, clusters and source ranges a `RoboTextGlyphRun` produced. A replay performs **no**
+  decoding, font selection, GSUB, GPOS, kerning or `cmap` lookup — that absence is the phase.
+- The drawing pass is the pen and nothing else: set the pen from the run rectangle, the baseline from
+  `baselineOffset` (layout's, never recomputed), draw each id at `pen + offset` through `GfxRasterDrawGlyph`, then
+  advance by `advanceX`/`advanceY`. **Positioning is already in the offset**; the rasterizer must not reinterpret
+  it. A `missing` glyph draws `.notdef` and is counted; a `control` glyph draws and advances nothing but stays in
+  the array so later indices match the shaped run.
+- Both pools (`PaintTextPool`, `PaintGlyphPool`) and the table (`PaintFontTable`) are the list's **own copies**
+  (`…PoolCopy`, `PaintFontTableCopy`) — the builder renumbers every span and token into the output, so a display
+  list draws the same ink after the record list that produced it is gone, with **no face argument at all**.
+- Capabilities: 12.16 set `glyphRuns`/`shapedTextRecording` in `RoboPaint.h` and bumped the paint version to
+  `0.13.0`, read field by field in `Tests/Paint/SuiteRoboPaintConformance.c`. Do not add a glyph cache, an atlas,
+  batching, a multi-face recorder or a subpixel-phase cache in this phase's name.
+- Tests: `Tests/Paint/SuiteRoboPaintText.c` (`paint.text.*`, `paint.glyphrun.*`) via `TestPaint.ps1 -Target Host`,
+  then `TestRoboText/Font/Graphics/Layout/Rasterizer/Desktop.ps1 -Target Host` (with `-Target Qemu` when the guest
+  image is involved). Evidence: `paint.glyphrun.recorded` (ids/advances/clusters on the record),
+  `paint.glyphrun.snapshot` (the same bytes after the records are freed), `paint.glyphrun.span_rules` (the
+  one-fact invariant) and `paint.glyphrun.without_a_face` (a counted `noFont`).
+
 ---
 
 ## Test rules
@@ -598,6 +639,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Kerning (RoboText 12.13) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.kern.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.kern.pairs` (the shipped face's own kerning moving the advance) and `text.kern.range_override` (the per-range split) |
 | Glyph runs (RoboText 12.14) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.glyphrun.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.glyphrun.clusters_ligature` (one glyph, one cluster, two scalars), `text.glyphrun.order_visual` (the Latin word painted between two Hebrew ones) and `text.glyphrun.performance` (the baseline) |
 | Text measurement (RoboText 12.15) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.measure.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.measure.kern` and `text.measure.ligature` (the two things that move a width, on the shipped face), `text.measure.mark_ink` (an accent raising the ink while the width stays the base's) and `text.measure.performance` (the two baselines) |
+| Paint / layout bridge (12.16) | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` (`paint.text.*`, `paint.glyphrun.*`), then `TestRoboText/Font/Graphics/Layout/Rasterizer/Desktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Evidence: `paint.glyphrun.recorded` (the glyphs on the record), `paint.glyphrun.snapshot` (a display list drawing the same bytes after its records are freed) and `paint.glyphrun.without_a_face` (a counted `noFont`) |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |

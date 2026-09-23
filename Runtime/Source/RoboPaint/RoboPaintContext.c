@@ -51,6 +51,7 @@
 #include "RoboPaintInternal.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboText/RoboText.h"
 #include "RoboUnicode/RoboUnicode.h"
 
 #include <string.h>
@@ -61,6 +62,15 @@ struct PaintContext {
     /* Borrowed and const as read back: the pass read the tree, it did not write it. */
     const LayoutTree *tree;
     void *userData;
+    /**
+     * The face text is **shaped** with as it is recorded (12.16), borrowed, or NULL.
+     *
+     * The one thing this pass needs that the tree cannot tell it: a run carries characters and a style, and
+     * turning those into glyphs takes a face. NULL is a legal configuration and the pre-12.16 behaviour --
+     * runs record their characters and no glyphs, and a drawing pass reports `noFont` -- so a caller that
+     * wants 11.6's list back can have it by not installing one.
+     */
+    FontFace *textFace;
 };
 
 /* ------------------------------------------------------------------ */
@@ -512,6 +522,233 @@ static Result PaintBoxDecorations(PaintContext *context,
  * sized for it.
  */
 
+/*
+ * Shaping, at the place the run is read (12.16).
+ *
+ * The pass now does one thing it did not do before: it turns a run's characters into **glyphs**, once, with
+ * the face the caller installed. The three decisions worth stating:
+ *
+ *   **the style is the measurer's own record**, copied rather than re-derived -- the same four numbers
+ *   `RoboLayoutTextFont.c` measured with, read here through `LayoutTextStyleResolve` and carried on the
+ *   operation. So the glyphs the document is drawn with are the glyphs it was measured with, and the advance
+ *   the pen accumulates at paint time is the advance the line was broken against.
+ *
+ *   **a failure of the text layer is not a failure of the document.** A face that will not cover the text,
+ *   a buffer that will not decode: RoboText answers both with a result (`.notdef` and counted misses, or
+ *   `U+FFFD`), so the only thing this can fail on is memory. A run with **no** face is not even attempted:
+ *   the characters are stored and the glyph span stays empty, which is the `noFont` state a drawing pass
+ *   names rather than a hole in the list.
+ *
+ *   **the base direction is the run's own.** `LayoutTextStyle.direction` is the direction the *measurer*
+ *   resolved for this text, so declaring it here is a copy of one fact rather than a second opinion about
+ *   the text -- and it matters for exactly the text that has none of its own, a label of digits or dashes,
+ *   which would otherwise classify `Unknown` rather than the direction of the surface it sits on.
+ *
+ * Nothing here is retained: the buffer, the shape result and the scratch glyph array are all released before
+ * this returns, and what the list keeps is `PaintGlyph` values -- eight numbers and a flag word, no pointers
+ * (`RoboPaintText.h`).
+ */
+
+/** The RoboText font inputs @p style names, for @p face. */
+static void PaintTextFontFromStyle(RoboTextFontContext *font,
+                                     FontFace *face,
+                                     const LayoutTextStyle *style)
+{
+    RoboTextFontStyle textStyle;
+
+    RoboTextFontStyleInit(&textStyle);
+    textStyle.sizePx = (float)style->fontSizePx;
+    /*
+     * The weight is clamped into the nine-step scale, and that is a deliberate narrowing rather than a silent
+     * repair: `PaintTextRunIsValid` carries a weight CSS allows outside 100..900, and a text context refuses
+     * one it cannot name. Refusing the *run* instead would trade a wrong-looking weight for no text at all,
+     * which is a worse answer for a document whose only sin is an unusual `font-weight`.
+     */
+    textStyle.weight = (FontWeight)(style->fontWeight < 100 ? 100
+                                     : style->fontWeight > 900 ? 900
+                                                               : style->fontWeight);
+    textStyle.style = style->italic ? RoboFontStyleItalic : RoboFontStyleNormal;
+    RoboTextFontContextInit(font);
+    (void)RoboTextFontContextSet(font, face, &textStyle);
+}
+
+/** Shape @p span's characters through @p context's face into @p list's glyph pool.
+ *
+ * @param outGlyphs receives the span naming the glyphs, empty when nothing was shaped.
+ * @param outToken  receives the face token, `None` exactly when @p outGlyphs is empty.
+ *
+ * @return RoboOk; RoboOutOfMemory; RoboInvalidArgument when the face's font inputs are not a setting this
+ *         build can name (a size CSS allows but RoboText refuses).
+ */
+static Result PaintShapeRun(PaintContext *context,
+                                      PaintList *list,
+                                      const uint32_t *codePoints,
+                                      PaintTextSpan span,
+                                      const LayoutTextStyle *style,
+                                      PaintGlyphSpan *outGlyphs,
+                                      PaintFontToken *outToken,
+                                      PaintDiag *diag)
+{
+    RoboTextShapeOptions options;
+    RoboTextShapeResult *result = NULL;
+    RoboTextFontContext font;
+    RoboTextBuffer *buffer = NULL;
+    RoboTextView view;
+    PaintGlyph *glyphs = NULL;
+    PaintGlyphSpan glyphSpan;
+    size_t glyphCount = 0u;
+    size_t runCount;
+    size_t runIndex;
+    size_t written = 0u;
+    Result status;
+
+    *outGlyphs = PaintGlyphSpanAt(0u);
+    *outToken = PaintFontTokenNone;
+    if (!context->textFace) {
+        /* The characters are the document's and are already stored; the glyphs are what a missing face
+         * costs, and a drawing pass counts the run `noFont` rather than drawing boxes it would have to
+         * invent a face to find. */
+        return RoboOk;
+    }
+
+    /* The scalars the pool already holds, in the text layer's own vocabulary -- no encoding step, because
+     * `PaintReadText` decoded the document's bytes through RoboUnicode once already. */
+    status = RoboTextBufferCreateFromScalars(&buffer, codePoints + (size_t)span.first,
+                                              (size_t)span.count, NULL);
+    if (status != RoboOk) {
+        return RoboPaintDiag(diag, RoboPaintDomainTraversal, status,
+                               "a run's characters are not text this build can shape");
+    }
+
+    PaintTextFontFromStyle(&font, context->textFace, style);
+    RoboTextShapeOptionsInit(&options);
+    options.baseDirection = style->direction == RoboLayoutTextDirectionRtl
+                                    ? RoboTextDirectionRtl
+                                    : RoboTextDirectionLtr;
+    view = RoboTextViewMake(RoboTextBufferBytes(buffer),
+                            (size_t)RoboTextBufferByteLength(buffer));
+    status = RoboTextShape(view, &font, &options, &result, NULL);
+    if (status != RoboOk) {
+        RoboTextBufferDestroy(buffer);
+        return RoboPaintDiag(diag, RoboPaintDomainTraversal, RoboOutOfMemory,
+                               "a run's glyphs could not be resolved");
+    }
+
+    /* One allocation for the whole run, sized by counting the runs' glyphs first -- because a span is one
+     * contiguous `[first, first + count)` and appending glyph-by-glyph would give a run several spans. */
+    runCount = RoboTextShapeResultGlyphRunCount(result);
+    for (runIndex = 0u; runIndex < runCount; runIndex++) {
+        const RoboTextGlyphRun *run = RoboTextShapeResultGlyphRun(result, runIndex);
+
+        if (run) {
+            glyphCount += RoboTextGlyphRunCount(run);
+        }
+    }
+    if (glyphCount == 0u) {
+        /* A run of text the text layer produced no glyph for at all. Not a failure and not a face either:
+         * the record keeps its characters and the empty "was not shaped" state, so a drawing pass says so
+         * rather than drawing nothing where a box was measured. */
+        RoboTextShapeResultDestroy(result);
+        RoboTextBufferDestroy(buffer);
+        return RoboOk;
+    }
+    glyphs = (PaintGlyph *)RoboCalloc(glyphCount, sizeof(*glyphs));
+    if (!glyphs) {
+        RoboTextShapeResultDestroy(result);
+        RoboTextBufferDestroy(buffer);
+        return RoboPaintDiag(diag, RoboPaintDomainTraversal, RoboOutOfMemory,
+                               "could not hold a run's glyphs");
+    }
+
+    for (runIndex = 0u; runIndex < runCount && written < glyphCount; runIndex++) {
+        const RoboTextGlyphRun *run = RoboTextShapeResultGlyphRun(result, runIndex);
+        RoboTextRange source;
+        size_t count;
+        size_t index;
+
+        if (!run) {
+            continue;
+        }
+        source = RoboTextGlyphRunSourceRange(run);
+        count = RoboTextGlyphRunCount(run);
+        for (index = 0u; index < count && written < glyphCount; index++) {
+            const RoboTextGlyph *glyph = RoboTextGlyphRunGlyph(run, index);
+            PaintGlyph *out = &glyphs[written];
+            RoboTextRange glyphSource;
+
+            if (!glyph) {
+                continue;
+            }
+            glyphSource = glyph->source;
+            PaintGlyphInit(out);
+            out->glyphId = glyph->control ? RoboGlyphIdNone : (uint16_t)glyph->glyphId;
+            out->cluster = (uint32_t)glyph->cluster;
+            /*
+             * The source, **relative to the run's own span** -- never document offsets: the record's span
+             * sits beside it, so an absolute range is the sum of the two and a relative one is the only
+             * range that stays right if the pool is ever renumbered (`RoboPaintText.h` states the rule).
+             * A glyph whose source starts before its run's is a text layer bug rather than something to
+             * saturate, and it cannot happen: a run's glyphs come from its own scalars.
+             */
+            out->sourceFirst = glyphSource.start >= source.start
+                                        ? (uint32_t)(glyphSource.start - source.start)
+                                        : 0u;
+            out->sourceCount = glyphSource.end > glyphSource.start
+                                        ? (uint32_t)(glyphSource.end - glyphSource.start)
+                                        : 0u;
+            out->advanceX = glyph->advanceX;
+            out->advanceY = glyph->advanceY;
+            out->offsetX = glyph->offsetX;
+            out->offsetY = glyph->offsetY;
+            if (glyph->control) {
+                out->flags |= (uint32_t)PaintGlyphFlagControl;
+            }
+            if (glyph->ligatureComponents >= 2u) {
+                out->flags |= (uint32_t)PaintGlyphFlagLigature;
+            }
+            if (glyph->flags & RoboTextGlyphFlagMark) {
+                out->flags |= (uint32_t)PaintGlyphFlagMark;
+            }
+            /*
+             * The miss, decided **here** because this is where the answer exists: "the face had no glyph for
+             * these scalars" is RoboText's `mapped`/`metricsStatus`, and after this call nothing in the
+             * pipeline can ask again -- there is no cmap, no metrics table and no text left, only ids. A
+             * control is not a miss: it is not a character the face failed to cover.
+             */
+            if (!glyph->control &&
+                (!glyph->mapped || glyph->metricsStatus != RoboFontGlyphMetricsOk)) {
+                out->flags |= (uint32_t)PaintGlyphFlagMissing;
+            }
+            written++;
+        }
+    }
+    RoboTextShapeResultDestroy(result);
+    RoboTextBufferDestroy(buffer);
+
+    if (written == 0u) {
+        RoboFree(glyphs);
+        return RoboOk;
+    }
+    status = PaintListAddGlyphs(list, glyphs, written, &glyphSpan, diag);
+    RoboFree(glyphs);
+    if (status != RoboOk) {
+        return status;
+    }
+    /*
+     * The face, registered **after** the glyphs landed and idempotently: a document with two hundred runs of
+     * one face has one entry, because `PaintFontTableAdd` answers with the token a face already has. The
+     * order matters -- a failure to store glyphs must not leave a face registered for a run that has none --
+     * and the table is the **list's**, which is what makes the token meaningful to the list the record lands
+     * in and to the display list the builder copies it into.
+     */
+    status = PaintFontTableAdd(PaintListFontTable(list), context->textFace, outToken, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    *outGlyphs = glyphSpan;
+    return RoboOk;
+}
+
 /** The code points of @p handle's @p range, appended to @p list's pool.
  *
  * @return RoboOk and the span; RoboNotFound when the node does not resolve or its bytes
@@ -709,6 +946,29 @@ static Result PaintEmitText(PaintContext *context,
         text.baselineOffset = offset;
     }
     text.font = font;
+    /*
+     * And the run is **shaped here** (12.16), which is the phase's whole change of order: the glyphs exist
+     * as the document is recorded rather than as each frame is drawn, so a display list replay walks numbers
+     * and no `cmap` is consulted anywhere below this file. The characters are read back out of the pool the
+     * line above just stored them in -- borrowed, not copied, for the duration of the call.
+     *
+     * A run this cannot shape is a run whose **glyphs** are missing, never one whose characters are: the
+     * failure is this build running out of memory, and it is reported rather than counted because the rest of
+     * the document was already recorded against a list that is still consistent.
+     */
+    {
+        const uint32_t *codePoints = PaintTextPoolCodePoints(PaintListTextPool(list));
+        PaintGlyphSpan glyphSpan;
+        PaintFontToken fontToken;
+
+        result = PaintShapeRun(context, list, codePoints, text.span, &font, &glyphSpan,
+                                 &fontToken, diag);
+        if (result != RoboOk) {
+            return result;
+        }
+        text.glyphs = glyphSpan;
+        text.fontToken = fontToken;
+    }
 
     (void)PaintBoxesTranslate(&local, origin.x, origin.y, &boxes, NULL);
 
@@ -1314,6 +1574,7 @@ Result PaintContextCreate(PaintContext **outContext,
     context->outcome = RoboPaintPassNone;
     context->tree = NULL;
     context->userData = NULL;
+    context->textFace = NULL;
     *outContext = context;
     return RoboOk;
 }
@@ -1349,6 +1610,34 @@ void PaintContextSetUserData(PaintContext *context, void *userData)
 void *PaintContextUserData(const PaintContext *context)
 {
     return context ? context->userData : NULL;
+}
+
+void PaintContextSetTextFace(PaintContext *context, FontFace *face)
+{
+    if (!context) {
+        return;
+    }
+    context->textFace = face;
+    /*
+     * The two tables the shape below reads, parsed **once, here** -- the rule the drawing pass already states
+     * for the face it draws with (`RoboPaintDecoration.c`): a `FontFace` is created with neither table, and a
+     * glyph lookup or a metrics read against one that has not been parsed answers `RoboNotSupported` /
+     * `Unavailable` rather than parsing it. Asking here means the first run of the document does not pay for it
+     * and the answer does not depend on which run happens to be first.
+     *
+     * Both are **idempotent** and neither is fatal: a face whose tables will not parse shapes every glyph as
+     * `.notdef`, which is the answer a face with no glyph for the text already gets, and the run counts its
+     * misses. Deleting the face is the caller's business and this door keeps no reference to the result.
+     */
+    if (face) {
+        (void)FontFaceParseCmap(face);
+        (void)FontFaceParseMetrics(face);
+    }
+}
+
+FontFace *PaintContextTextFace(const PaintContext *context)
+{
+    return context ? context->textFace : NULL;
 }
 
 Result PaintContextRun(PaintContext *context,

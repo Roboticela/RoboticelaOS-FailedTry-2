@@ -1688,13 +1688,15 @@ static void TestClipText(void)
                          " .clip { width: 60px; height: 40px; overflow: hidden }"
                          " .txt { position: relative; left: 55px; font-size: 100px;"
                          " color: #ff0000 }");
-    PaintOnce(&fixture, &result);
+    /* The face before the pass, not after it: since 12.16 the glyphs a run draws are produced **where the
+     * document is recorded**, so the face has to be there for the recording and for the drawing both. */
+    ClipFaceCreate(&face);
+    PaintOnceWithFace(&fixture, face.face, &result);
     ClipBuild(&result, &list, &stats);
     RoboCheckEqInt(ClipCommandOfKind(list, RoboPaintDisplayCmdPushClip, 0u, &push), 1);
     RoboCheckEqInt(ClipCommandOfKind(list, RoboPaintDisplayCmdDrawText, 0u, &text), 1);
     ClipCheck(&text.clip, &push.clip, "the run is bounded by the scope");
 
-    ClipFaceCreate(&face);
     surface = ClipSurface(800u, 600u, RoboGfxSurfaceAccessReadWrite);
     ClipPaint(list, surface, face.face, &paintStats);
     RoboCheckEqInt((int)paintStats.glyphs, 1);

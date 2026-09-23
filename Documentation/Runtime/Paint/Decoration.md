@@ -49,7 +49,7 @@ order**, and for each command:
 | `push-opacity` | the command's strength becomes the strength in force, on its own stack (11.9). Nothing is drawn and the raster is not touched *here* |
 | `draw-background` | resolve the colour, apply the clip in force and the strength in force, fill the **border box** |
 | `draw-border` | resolve the colour, apply the clip in force and the strength in force, fill the side's **band** (11.5) |
-| `draw-text` | resolve the colour, apply the clip in force and the strength in force, resolve each code point through the **face's cmap** and stroke its outline at the resolved pixel size (11.6) |
+| `draw-text` | resolve the colour, apply the clip in force and the strength in force, resolve the command's **face token** to a face, then stroke each **stored glyph** at `pen + offset` at the resolved pixel size, advancing the pen by the stored advance (11.6, reshaped 12.16) |
 | `pop-opacity` | the enclosing strength is in force again; a pop on an empty stack is a reported error rather than a silent no-op (11.9) |
 | `pop-clip` | the enclosing boundary is in force again; a pop on an empty stack is a reported error rather than a silent no-op (11.8) |
 | `begin-node`, `content`, `end-node` | **skipped** and counted — they draw nothing by definition |

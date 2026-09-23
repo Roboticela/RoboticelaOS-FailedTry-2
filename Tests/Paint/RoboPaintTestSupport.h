@@ -345,6 +345,34 @@ static inline void PaintOnce(PaintFixtureDoc *fixture, PaintResult *out)
     PaintContextDestroy(context);
 }
 
+/**
+ * The same pass, with @p face installed for **shaping** (Phase 12.16).
+ *
+ * The two ways to record a document, and the difference is one file's worth of contract: `PaintOnce` is
+ * the pre-12.16 shape -- runs record their characters and no glyphs, and a drawing pass reports `noFont` --
+ * while this one records the glyphs @p face produces, so a case that draws a run for real uses it. A text
+ * case that asserts *no* glyphs exists deliberately and uses `PaintOnce`: the "recorded without a face"
+ * state is a legal document and has its own counters.
+ *
+ * The face is borrowed for the pass, exactly as the drawing door borrows its own.
+ */
+static inline void PaintOnceWithFace(PaintFixtureDoc *fixture,
+                                     FontFace *face,
+                                     PaintResult *out)
+{
+    PaintContext *context = NULL;
+
+    PaintResultInit(out);
+    RoboCheckEqInt(PaintContextCreate(&context, NULL), RoboOk);
+    PaintContextSetTextFace(context, face);
+    PaintRun(fixture, context, out->list);
+    RoboCheckEqInt((int)PaintContextOutcome(context),
+                      (int)RoboPaintPassPainted);
+    PaintContextStats(context, &out->stats);
+    out->outcome = PaintContextOutcome(context);
+    PaintContextDestroy(context);
+}
+
 /* ------------------------------------------------------------------ */
 /* Operations                                                          */
 /* ------------------------------------------------------------------ */

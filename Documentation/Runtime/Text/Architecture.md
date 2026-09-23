@@ -470,6 +470,7 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 12.13 Kerning                          ✓  (Kerning)            → the policy and the report over 12.11
 12.14 Glyph runs                       ✓  (GlyphRuns)          → finalizes the run and lists them
 12.15 Text measurement                  ✓  (TextMeasurement)   → the engine over the run list
+12.16 Paint / layout bridge             ✓  (PaintBridge)        → the display list carries the shaped glyphs
 ```
 
 Every one of those consumes this layer rather than replacing it. That is the milestone: the seams
@@ -730,3 +731,33 @@ The version moved to `1.9.0`. `RoboTextGetCapabilities` reports `measurementEngi
 `inkBounds`, `measurementBounds`, `measurementValidation`, `measurementDiagnostics` and `measurementTolerance`
 `1`; `verticalText` stays `0`, and `advanceY` is `0` for every text this build produces — published so that
 12.20 changes a value rather than a record.
+
+---
+
+## 21. Phase 12.16 — the paint bridge
+
+12.16 changes nothing inside this module and everything about *when* it runs. A text record used to carry the
+characters only, and the paint pass re-shaped them through `RoboTextGlyphRunGenerate` on **every frame** it
+replayed a display list. Now the recording pass shapes them **once**, stores the glyphs and the face, and a
+replay draws the stored ids.
+
+| Area | Where | Contract |
+|---|---|---|
+| The glyph record, span and pool | `RoboPaint/RoboPaintText.h` (`PaintGlyph`, `PaintGlyphSpan`, `PaintGlyphPool`) | [PaintBridge.md](PaintBridge.md) |
+| The face tokens | `RoboPaint/RoboPaintText.h`, `RoboPaint/RoboPaintFontTable.h` | PaintBridge.md §4 |
+| The recorder that shapes | `RoboPaint/RoboPaintContext.c` (`PaintContextSetTextFace`) | PaintBridge.md §5 |
+| The pen that draws the stored glyphs | `RoboPaint/RoboPaintDecoration.c` | PaintBridge.md §6 |
+
+The three properties the phase turns on, each of which a reader should check against the code:
+
+1. **The record keeps both halves.** The characters stay because they are what a selection, a hit test and a
+   copy read (12.8's `visualIndex`, 12.14's clusters and 12.5's source ranges are the run-list half of the same
+   fact); the glyphs are stored because a replay must not shape. `glyphs` empty **exactly when** the token is
+   `None` is the one-fact invariant between them.
+2. **A glyph id is meaningless without its face**, so the face travels as a token into a table the display list
+   **copies** — the same "a list owns its snapshot" rule the text pool follows, extended to faces because a
+   glyph id drawn with the wrong face is a different letter rather than a wrong colour.
+3. **RoboText still supplies the ids and the placement and nothing more.** The paint pass reads
+   `glyphId`, `offsetX/Y`, `advanceX/Y`, `cluster` and the source range off `PaintGlyph` and never asks RoboText
+   a question at draw time — it does not decode, select, segment, substitute, position or kern, which is exactly
+   the boundary `RoboGraphicsText.h` wrote down when it said *"RoboText supplies glyph IDs + placement later."*

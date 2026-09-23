@@ -2469,7 +2469,10 @@ static GfxSurface *OpacPicture(const char *html,
     GfxSurface *surface = OpacSurface(800u, 600u, RoboGfxSurfaceAccessReadWrite);
 
     PaintBeginLaidOut(&fixture, html, css);
-    PaintOnce(&fixture, &result);
+    /* The face is installed for **shaping** too (12.16): the glyphs a run records are produced where the
+     * document is recorded, so a case that draws text for real has to hand the face to both passes. The
+     * fills in the same picture are drawn identically with or without one. */
+    PaintOnceWithFace(&fixture, face, &result);
     OpacBuild(result.list, &list, NULL);
     OpacPaint(list, surface, face, outStats);
     PaintDisplayListDestroy(list);

@@ -124,6 +124,28 @@ static inline void RenderScenePaint(RenderScene *scene)
     RoboCheck(PaintDisplayListCount(scene->display) > 0u);
 }
 
+/**
+ * The same, with @p face installed for **shaping** (Phase 12.16).
+ *
+ * A text frame is recorded with the face it will be drawn with, because the glyphs are produced at recording
+ * time rather than per frame -- so a case that rasterizes a run for real paints the scene with the face. A
+ * case that asserts the "recorded without a face" state uses the plain door above, which is the pre-12.16
+ * shape and still a legal document.
+ */
+static inline void RenderScenePaintWith(RenderScene *scene, FontFace *face)
+{
+    PaintDisplayListBuilder *builder = NULL;
+
+    PaintOnceWithFace(&scene->doc, face, &scene->records);
+    RoboCheckEqInt(PaintDisplayListCreate(&scene->display, NULL), RoboOk);
+    RoboCheckEqInt(PaintDisplayListBuilderCreate(&builder, NULL), RoboOk);
+    RoboCheckEqInt(
+        PaintDisplayListBuilderBuild(builder, scene->records.list, scene->display, NULL, NULL),
+        RoboOk);
+    PaintDisplayListBuilderDestroy(builder);
+    RoboCheck(PaintDisplayListCount(scene->display) > 0u);
+}
+
 /** The three calls a pixel case wants: a document, laid out, painted, listed. */
 static inline void RenderSceneBegin(RenderScene *scene, const char *html, const char *css)
 {

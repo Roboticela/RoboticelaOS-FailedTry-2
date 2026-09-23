@@ -43,6 +43,35 @@ struct PaintList {
      * created with the list and destroyed with it, so a list is still exactly one object
      * with one owner -- and a caller that never paints text never notices it is there. */
     PaintTextPool *text;
+    /**
+     * The **shaped** glyphs the list's `TEXT` operations name, owned here (Phase 12.16).
+     *
+     * The third array, and the same argument as the second one above: a glyph run is variable-length data,
+     * so a record can only name it, and the pool is the one thing that knows whether a span names anything.
+     * It is created with the list and destroyed with it, so the list is still exactly one object with one
+     * owner.
+     *
+     * The two pools are cleared and grown together and **never** independently: an operation's character
+     * span and its glyph span are two halves of one record, so a container that reset one and kept the
+     * other would hold records whose halves disagree about which run they describe. That is why `clear`
+     * clears both and every growth path takes both -- the invariant `PaintListAppend` then checks is the
+     * same one this pairing establishes.
+     */
+    PaintGlyphPool *glyphs;
+    /**
+     * The faces those glyphs came from, owned here (Phase 12.16).
+     *
+     * The **fourth** array, and it is here rather than at the call site for the reason the other three are:
+     * a glyph id means nothing without a face, so a record has to name one, and a token only means something
+     * against a table. Owning the table makes the list the one object that can answer "was this face one I
+     * recorded?" -- and it is what the display list's builder copies from, so a token is meaningful in the
+     * list it was minted in and in the one it was copied to, and nowhere else.
+     *
+     * It is cleared with the pools and for the same reason: the next recording's runs register the faces they
+     * shaped with, and the tokens they assign are then the same tokens for the same faces -- a property a
+     * per-frame recorder relies on and gets from `PaintFontTableClear`.
+     */
+    PaintFontTable *fonts;
 };
 
 /**
@@ -109,6 +138,21 @@ Result PaintListCreate(PaintList **outList, PaintDiag *diag)
         return RoboPaintDiag(diag, RoboPaintDomainList, RoboOutOfMemory,
                                "could not allocate the paint list's text pool");
     }
+    if (PaintGlyphPoolCreate(&list->glyphs, diag) != RoboOk) {
+        PaintTextPoolDestroy(list->text);
+        RoboFree(operations);
+        RoboFree(list);
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboOutOfMemory,
+                               "could not allocate the paint list's glyph pool");
+    }
+    if (PaintFontTableCreate(&list->fonts, diag) != RoboOk) {
+        PaintGlyphPoolDestroy(list->glyphs);
+        PaintTextPoolDestroy(list->text);
+        RoboFree(operations);
+        RoboFree(list);
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboOutOfMemory,
+                               "could not allocate the paint list's font table");
+    }
     *outList = list;
     return RoboOk;
 }
@@ -130,6 +174,8 @@ void PaintListDestroy(PaintList *list)
      */
     PaintListReleaseOperations(list, list->count);
     PaintTextPoolDestroy(list->text);
+    PaintGlyphPoolDestroy(list->glyphs);
+    PaintFontTableDestroy(list->fonts);
     RoboFree(list->operations);
     RoboFree(list);
 }
@@ -163,6 +209,8 @@ void PaintListClear(PaintList *list)
     PaintListReleaseOperations(list, list->count);
     list->count = 0u;
     PaintTextPoolClear(list->text);
+    PaintGlyphPoolClear(list->glyphs);
+    PaintFontTableClear(list->fonts);
 }
 
 Result PaintListReserve(PaintList *list,
@@ -232,6 +280,19 @@ Result PaintListAppend(PaintList *list,
         !PaintTextPoolContains(list->text, operation->text.span)) {
         return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
                                "the operation's text span is not a run in this list's pool");
+    }
+    /*
+     * The glyphs, and this is the half of the same rule 12.16 added: a run recorded **with** a face names
+     * glyphs in this list's glyph pool, so a consumer that draws from a text operation can read its glyphs
+     * and always get them. An **empty** glyph span is the "no face" state and is not asked about here --
+     * `PaintTextRunIsValid` already established that the span and the token agree, and a pool cannot
+     * contain an empty span by design (`PaintGlyphPoolContains`).
+     */
+    if (operation->kind == RoboPaintOpText &&
+        !PaintGlyphSpanIsEmpty(operation->text.glyphs) &&
+        !PaintGlyphPoolContains(list->glyphs, operation->text.glyphs)) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "the operation's glyph span is not a run in this list's glyph pool");
     }
     if (list->count == list->capacity) {
         /* Doubled, and floored at one step so that a list somehow created with no room
@@ -330,9 +391,35 @@ Result PaintListAddText(PaintList *list,
     return PaintTextPoolAppend(list->text, codePoints, count, outSpan, diag);
 }
 
+Result PaintListAddGlyphs(PaintList *list,
+                          const PaintGlyph *glyphs,
+                          size_t count,
+                          PaintGlyphSpan *outSpan,
+                          PaintDiag *diag)
+{
+    if (!list) {
+        if (outSpan) {
+            *outSpan = PaintGlyphSpanAt(0u);
+        }
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "list is NULL");
+    }
+    return PaintGlyphPoolAppend(list->glyphs, glyphs, count, outSpan, diag);
+}
+
 PaintTextPool *PaintListTextPool(const PaintList *list)
 {
     return list ? list->text : NULL;
+}
+
+PaintGlyphPool *PaintListGlyphPool(const PaintList *list)
+{
+    return list ? list->glyphs : NULL;
+}
+
+PaintFontTable *PaintListFontTable(const PaintList *list)
+{
+    return list ? list->fonts : NULL;
 }
 
 size_t PaintListCountOfKind(const PaintList *list, PaintOpKind kind)

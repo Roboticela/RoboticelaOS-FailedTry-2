@@ -96,7 +96,18 @@ static const PaintCapabilityRow paintCapabilityRows[] = {
      * layout gave its element, drawn by the graphics module's own scaled sampler. It sits here
      * rather than beside `backgroundPainting`, where a reader would look for it, because this
      * list is **positional** and a field inserted in the middle renumbers every row after it. */
-    { "image_painting", 1 }
+    { "image_painting", 1 },
+    /* 12.16's `glyphRuns`: a text record and the display command it becomes carry the **shaped glyphs** --
+     * ids, placements, advances, clusters, source ranges -- plus the token naming the face they came from, so a
+     * replay resolves no character to a glyph. `text_painting` above says glyphs reach a surface; this says what
+     * travels with a run so that they can, which is the distinction the pair exists for. */
+    { "glyph_runs", 1 },
+    /* 12.16's `shapedTextRecording`: the shaping happens **once per document**, while it is recorded, and the
+     * list a frame executes shapes nothing at all. A build could carry glyphs a replay re-derived (which is
+     * what 12.4-12.15's drawing pass did on every frame), so the two rows are separate claims and the phase's
+     * own suite pins this one where it is observable: a display list still draws its ink after the record list
+     * that produced it is destroyed, and with no face handed to the drawing pass. */
+    { "shaped_text_recording", 1 }
 };
 
 static void TestPaintConformanceCapabilities(void)
@@ -187,9 +198,13 @@ static void TestPaintConformanceDrawingPresent(void)
      * **resource** rather than a number: an image reaches the surface through the graphics layer's
      * own sampler, at the destination layout concluded. */
     RoboCheckEqInt(capabilities.imagePainting, 1);
-    /* The ninth and last claim, and the one 11.12 turned: a whole display list is executed into
-     * pixels by this build -- across this module and `RoboRender` together, which is the pair the
-     * field is a statement about. */
+    /* 12.16's pair, read by name as well as positionally: the shaped run on the record, and the shaping having
+     * happened where the document was recorded. */
+    RoboCheckEqInt(capabilities.glyphRuns, 1);
+    RoboCheckEqInt(capabilities.shapedTextRecording, 1);
+    /* And the claim 11.12 turned: a whole display list is executed into pixels by this build --
+     * across this module and `RoboRender` together, which is the pair the field is a statement
+     * about. */
     RoboCheckEqInt(capabilities.raster, 1);
     /* The drawing claims are independent of it, which is what keeps either side honest: a hit test
      * is not a drawing and a rasteriser is not a drawing kind, so the fields below move with their
@@ -197,13 +212,13 @@ static void TestPaintConformanceDrawingPresent(void)
     RoboCheckEqInt(capabilities.backgroundPainting, 1);
     RoboCheckEqInt(capabilities.borderPainting, 1);
 
-    /* The version this build reports is 0.12.0 and its API is not frozen -- two facts a
+    /* The version this build reports is 0.13.0 and its API is not frozen -- two facts a
      * consumer of a release needs, and the second is the one that says a later goal may
-     * still add to this surface (11.11 added a module, a diagnostic domain and one capability
-     * field without changing a meaning). */
+     * still add to this surface (12.16 moved text shaping onto the record and changed no
+     * meaning in the frozen v1 surface). */
     RoboCheckEqInt(PaintGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt((int)major, 0);
-    RoboCheckEqInt((int)minor, 12);
+    RoboCheckEqInt((int)minor, 13);
     RoboCheckEqInt((int)patch, 0);
     RoboCheckStrEq(PaintVersionString(), RoboPaintVersionString);
     RoboCheckEqInt(RoboPaintApiFrozen, 0);

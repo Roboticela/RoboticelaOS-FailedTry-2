@@ -70,6 +70,9 @@ void PaintTextRunInit(PaintTextRun *run)
     run->span = PaintTextSpanAt(0u);
     run->baselineOffset = 0;
     LayoutTextStyleInit(&run->font);
+    /* The cleared run is the "no face" state: no glyphs, and the token that says so. */
+    run->glyphs = PaintGlyphSpanAt(0u);
+    run->fontToken = PaintFontTokenNone;
 }
 
 int PaintTextRunIsValid(const PaintTextRun *run)
@@ -108,7 +111,17 @@ int PaintTextRunIsValid(const PaintTextRun *run)
         run->font.direction != RoboLayoutTextDirectionRtl) {
         return 0;
     }
-    return 1;
+    /*
+     * The glyphs and the face they came from travel **together** (12.16): either the run was
+     * recorded without a face -- an empty span and the `None` token, which is the state `noFont`
+     * names -- or it carries glyphs and a token this build can name. Glyphs with no face are ids a
+     * caller would have to guess a font for; a face with no glyphs is a claim about a run that has
+     * nothing to draw. Both are refused here rather than sorted out one layer down.
+     */
+    if (PaintGlyphSpanIsEmpty(run->glyphs)) {
+        return run->fontToken == PaintFontTokenNone;
+    }
+    return run->fontToken != PaintFontTokenNone;
 }
 
 int PaintTextRunEqual(const PaintTextRun *a,
@@ -141,7 +154,30 @@ int PaintTextRunEqual(const PaintTextRun *a,
     if (a->font.direction != b->font.direction) {
         return 0;
     }
+    /* The shaped half: the same glyphs in the same pool places, from the same face. Two runs
+     * that agree about their characters and their style and disagree about their glyphs are
+     * different drawings (a `dlig` enabled on one of them, say), so the comparison has to
+     * reach them. */
+    if (a->glyphs.first != b->glyphs.first || a->glyphs.count != b->glyphs.count) {
+        return 0;
+    }
+    if (a->fontToken != b->fontToken) {
+        return 0;
+    }
     return 1;
+}
+
+PaintGlyphSpan PaintTextRunGlyphs(const PaintTextRun *run)
+{
+    if (!run) {
+        return PaintGlyphSpanAt(0u);
+    }
+    return run->glyphs;
+}
+
+PaintFontToken PaintTextRunFontToken(const PaintTextRun *run)
+{
+    return run ? run->fontToken : PaintFontTokenNone;
 }
 
 PaintTextSpan PaintTextRunSpan(const PaintTextRun *run)
@@ -356,6 +392,27 @@ const uint32_t *PaintTextPoolCodePoints(const PaintTextPool *pool)
     return pool->codePoints;
 }
 
+/**
+ * The wrap-safe containment test **the two pools share** (Phase 12.16).
+ *
+ * Subtraction rather than addition. `first + count` can wrap and would then report a span
+ * *inside* a small pool; `count > total - first` cannot, because `first < total` is
+ * established first.
+ *
+ * Written once here rather than twice, because a second copy of *this* is exactly the kind
+ * of arithmetic that drifts -- and the two pools differ only in what they hold and in what
+ * an **empty** span means, which is the caller's question and not this function's. A text
+ * pool's empty span is a position (what a caret is); a glyph pool's is the "no face" state;
+ * neither is a run, and both are answered by the caller before this is reached.
+ */
+static int PoolSpanContains(uint32_t first, uint32_t count, size_t total)
+{
+    if ((size_t)first >= total) {
+        return 0;
+    }
+    return (size_t)count <= total - (size_t)first;
+}
+
 int PaintTextPoolContains(const PaintTextPool *pool,
                                   PaintTextSpan span)
 {
@@ -368,15 +425,7 @@ int PaintTextPoolContains(const PaintTextPool *pool,
          * caret is). It is not a run, and no record carries one. */
         return (size_t)span.first <= pool->count;
     }
-    if ((size_t)span.first >= pool->count) {
-        return 0;
-    }
-    /*
-     * Subtraction rather than addition. `first + count` can wrap and would then report a
-     * span *inside* a small pool; `count > total - first` cannot, because `first < total`
-     * is established above.
-     */
-    return (size_t)span.count <= pool->count - (size_t)span.first;
+    return PoolSpanContains(span.first, span.count, pool->count);
 }
 
 Result PaintTextPoolRead(const PaintTextPool *pool,
@@ -405,6 +454,299 @@ Result PaintTextPoolRead(const PaintTextPool *pool,
                                "the destination cannot hold the run");
     }
     memcpy(out, pool->codePoints + span.first, (size_t)span.count * sizeof(*out));
+    *outCount = (size_t)span.count;
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
+/* The glyph                                                           */
+/* ------------------------------------------------------------------ */
+
+void PaintGlyphInit(PaintGlyph *glyph)
+{
+    if (!glyph) {
+        return;
+    }
+    memset(glyph, 0, sizeof(*glyph));
+}
+
+/**
+ * @p value is a number a raster may receive: `v == v` and a magnitude bound rather than
+ * `isfinite`, because this file is compiled into the guest program and the freestanding
+ * target has no `math.h` -- the same three lines `RoboTextGlyphs.c`, `RoboGraphicsText.c`
+ * and `RoboFontStyle.c` each write for the same reason.
+ */
+static int GlyphValueIsFinite(float value)
+{
+    return (value == value) && (value <= 3.402823466e+38f) && (value >= -3.402823466e+38f);
+}
+
+int PaintGlyphIsValid(const PaintGlyph *glyph)
+{
+    if (!glyph) {
+        return 0;
+    }
+    /*
+     * The vectors, first, because they are what a raster consumes: a `NaN` origin reaches a
+     * coverage blend as a coordinate and a `NaN` advance reaches the pen, and neither is a
+     * thing a caller can diagnose from a picture.
+     */
+    if (!GlyphValueIsFinite(glyph->advanceX) || !GlyphValueIsFinite(glyph->advanceY) ||
+        !GlyphValueIsFinite(glyph->offsetX) || !GlyphValueIsFinite(glyph->offsetY)) {
+        return 0;
+    }
+    /*
+     * The source range, relative to the run: a glyph that came from a control covers no
+     * scalar, an ordinary glyph covers one, and a ligature covers several -- and the source
+     * must start where the run's own span starts or later. `sourceFirst + sourceCount` is
+     * deliberately **not** bounded here: the bound is the recording run's own length, which
+     * this record does not carry, and the pass that built it is the pass that knows it.
+     */
+    if (glyph->sourceCount != 0u && glyph->sourceFirst > (uint32_t)0x7FFFFFFFu) {
+        return 0;
+    }
+    return 1;
+}
+
+int PaintGlyphEqual(const PaintGlyph *a, const PaintGlyph *b)
+{
+    if (a == b) {
+        return 1;
+    }
+    if (!a || !b) {
+        return 0;
+    }
+    /* Field by field, like every record here: two glyphs built independently must compare
+     * equal and padding between members is not a fact about either of them. The `flags` word
+     * is compared as a word, which is what makes "the same glyph, differently flagged" a
+     * difference rather than a coincidence. */
+    return a->glyphId == b->glyphId && a->cluster == b->cluster &&
+           a->sourceFirst == b->sourceFirst && a->sourceCount == b->sourceCount &&
+           a->advanceX == b->advanceX && a->advanceY == b->advanceY &&
+           a->offsetX == b->offsetX && a->offsetY == b->offsetY && a->flags == b->flags;
+}
+
+int PaintGlyphIsControl(const PaintGlyph *glyph)
+{
+    return glyph && (glyph->flags & (uint32_t)PaintGlyphFlagControl) != 0u;
+}
+
+PaintGlyphSpan PaintGlyphSpanAt(uint32_t first)
+{
+    PaintGlyphSpan span;
+
+    span.first = first;
+    span.count = 0u;
+    return span;
+}
+
+int PaintGlyphSpanIsEmpty(PaintGlyphSpan span)
+{
+    return span.count == 0u;
+}
+
+/* ------------------------------------------------------------------ */
+/* The glyph pool                                                      */
+/* ------------------------------------------------------------------ */
+
+/** Glyphs a pool holds before its first growth. */
+#define RoboPaintGlyphInitialCapacity 32u
+
+struct PaintGlyphPool {
+    PaintGlyph *glyphs;
+    /** Glyphs held. */
+    size_t count;
+    /** Glyphs the array has room for. */
+    size_t capacity;
+};
+
+Result PaintGlyphPoolCreate(PaintGlyphPool **outPool,
+                            PaintDiag *diag)
+{
+    PaintGlyphPool *pool;
+
+    if (!outPool) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "out_pool is NULL");
+    }
+    *outPool = NULL;
+    pool = (PaintGlyphPool *)RoboCalloc(1u, sizeof(*pool));
+    if (!pool) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboOutOfMemory,
+                               "could not allocate the glyph pool");
+    }
+    pool->glyphs = (PaintGlyph *)RoboCalloc(RoboPaintGlyphInitialCapacity,
+                                             sizeof(*pool->glyphs));
+    if (!pool->glyphs) {
+        RoboFree(pool);
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboOutOfMemory,
+                               "could not allocate the glyph pool's first block");
+    }
+    pool->capacity = RoboPaintGlyphInitialCapacity;
+    *outPool = pool;
+    return RoboOk;
+}
+
+void PaintGlyphPoolDestroy(PaintGlyphPool *pool)
+{
+    if (!pool) {
+        return;
+    }
+    /* A glyph is a value with no pointers in it, so freeing the array is the whole of the
+     * release -- the same argument `PaintTextPoolDestroy` makes one type up. */
+    RoboFree(pool->glyphs);
+    RoboFree(pool);
+}
+
+void PaintGlyphPoolClear(PaintGlyphPool *pool)
+{
+    if (!pool) {
+        return;
+    }
+    pool->count = 0u;
+}
+
+Result PaintGlyphPoolAppend(PaintGlyphPool *pool,
+                            const PaintGlyph *glyphs,
+                            size_t count,
+                            PaintGlyphSpan *outSpan,
+                            PaintDiag *diag)
+{
+    PaintGlyph *grown;
+    size_t wanted;
+
+    if (outSpan) {
+        *outSpan = PaintGlyphSpanAt(0u);
+    }
+    if (!pool || !outSpan) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "the pool and the output span are required");
+    }
+    if (count == 0u) {
+        /* An empty glyph span is the "no face" state, and it is spelled by the sentinel
+         * rather than by an append -- so the door that would hand one out refuses, exactly
+         * as the text pool's does for its own empty span. */
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "an appended run must cover at least one glyph");
+    }
+    if (!glyphs) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "glyphs is NULL");
+    }
+    /* The span's two halves are 32-bit indices, so a pool that could not name a run is
+     * refused rather than truncated -- the text pool's own rule, for the same reason. */
+    if (pool->count > (size_t)0xFFFFFFFFu ||
+        count > (size_t)0xFFFFFFFFu - pool->count) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "the glyph pool cannot index a run this long");
+    }
+    if (pool->count + count > pool->capacity) {
+        wanted = pool->capacity;
+        if (wanted < 1u) {
+            wanted = count;
+        }
+        while (wanted < pool->count + count) {
+            wanted = wanted * 2u;
+        }
+        grown = (PaintGlyph *)Realloc(pool->glyphs, wanted * sizeof(*grown));
+        if (!grown) {
+            return RoboPaintDiag(diag, RoboPaintDomainList, RoboOutOfMemory,
+                                   "could not grow the glyph pool");
+        }
+        /* Zeroed from the old end onward, so a consumer walking `capacity` slots sees
+         * cleared glyphs past the count rather than the allocator's leftovers. */
+        memset(grown + pool->capacity, 0, (wanted - pool->capacity) * sizeof(*grown));
+        pool->glyphs = grown;
+        pool->capacity = wanted;
+    }
+    memcpy(pool->glyphs + pool->count, glyphs, count * sizeof(*glyphs));
+    outSpan->first = (uint32_t)pool->count;
+    outSpan->count = (uint32_t)count;
+    pool->count += count;
+    return RoboOk;
+}
+
+Result PaintGlyphPoolCopy(PaintGlyphPool *pool,
+                          const PaintGlyphPool *source,
+                          PaintGlyphSpan span,
+                          PaintGlyphSpan *outSpan,
+                          PaintDiag *diag)
+{
+    if (outSpan) {
+        *outSpan = PaintGlyphSpanAt(0u);
+    }
+    if (!pool || !source || !outSpan) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "the destination pool, the source pool and the output span "
+                               "are required");
+    }
+    if (!PaintGlyphPoolContains(source, span) || span.count == 0u) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "the span does not name a run in the source pool");
+    }
+    return PaintGlyphPoolAppend(pool, source->glyphs + span.first, (size_t)span.count, outSpan,
+                                diag);
+}
+
+size_t PaintGlyphPoolCount(const PaintGlyphPool *pool)
+{
+    return pool ? pool->count : 0u;
+}
+
+size_t PaintGlyphPoolCapacity(const PaintGlyphPool *pool)
+{
+    return pool ? pool->capacity : 0u;
+}
+
+const PaintGlyph *PaintGlyphPoolGlyphs(const PaintGlyphPool *pool)
+{
+    if (!pool || pool->count == 0u) {
+        return NULL;
+    }
+    return pool->glyphs;
+}
+
+int PaintGlyphPoolContains(const PaintGlyphPool *pool,
+                           PaintGlyphSpan span)
+{
+    if (!pool) {
+        return 0;
+    }
+    if (span.count == 0u) {
+        /* An empty glyph span is a **state**, not a position: it means "this run was
+         * recorded without a face". It is not a run, so it is not contained -- and it is
+         * legal on a record all the same, which is why the record's own validity rule is
+         * the one that admits it (`PaintTextRunIsValid`) and the container's check is only
+         * ever asked about a non-empty span. */
+        return 0;
+    }
+    return PoolSpanContains(span.first, span.count, pool->count);
+}
+
+Result PaintGlyphPoolRead(const PaintGlyphPool *pool,
+                          PaintGlyphSpan span,
+                          PaintGlyph *out,
+                          size_t outCapacity,
+                          size_t *outCount,
+                          PaintDiag *diag)
+{
+    if (outCount) {
+        *outCount = 0u;
+    }
+    if (!pool || !out || !outCount) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "the pool, the destination and the count are required");
+    }
+    if (!PaintGlyphPoolContains(pool, span)) {
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboInvalidArgument,
+                               "the span does not name a run in this pool");
+    }
+    if (outCapacity < (size_t)span.count) {
+        *outCount = (size_t)span.count;
+        return RoboPaintDiag(diag, RoboPaintDomainList, RoboNotSupported,
+                               "the destination cannot hold the run");
+    }
+    memcpy(out, pool->glyphs + span.first, (size_t)span.count * sizeof(*out));
     *outCount = (size_t)span.count;
     return RoboOk;
 }

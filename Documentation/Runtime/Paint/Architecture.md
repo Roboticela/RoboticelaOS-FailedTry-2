@@ -78,7 +78,8 @@ Seventeen headers under `Include/RoboPaint/`, one umbrella:
 | `RoboPaintDisplayListBuilder.h` | `PaintDisplayListBuilder` (11.3) |
 | `RoboPaintDisplayDump.h` | `PaintDisplayListWrite` (11.3) |
 | `RoboPaintColor.h` | The colour bridge: `PaintColorIsDrawable`, `PaintColorToRgba8` (11.4) |
-| `RoboPaintText.h` | The code-point payload: `PaintTextRun`, `PaintTextSpan`, `PaintTextPool` (11.6) |
+| `RoboPaintText.h` | The text payload: `PaintTextRun`, `PaintTextSpan`, `PaintTextPool` (11.6) and, since 12.16, `PaintGlyph`, `PaintGlyphSpan`, `PaintGlyphPool`, `PaintFontToken` |
+| `RoboPaintFontTable.h` | The pointer-free face tokens a glyph run names its face by (12.16) |
 | `RoboPaintClip.h` | `PaintClipStack` — the clip scopes a flat sequence is read against (11.8) |
 | `RoboPaintOpacity.h` | `PaintOpacity` and `PaintOpacityStack` — the strength a drawing is drawn at, and the same LIFO one field along (11.9) |
 | `RoboPaintDecoration.h` | `PaintDecorationPaint`, `PaintDecorationStats` — the one pass that executes backgrounds, border bands and text runs (11.4–11.6) |
@@ -491,9 +492,10 @@ live there, and they drive this module's walk through `PaintDecorationPaintBound
 door 11.12 added here. What this module still owns is the **walk**: the order, the clips, the
 strengths and the drawings. 11.11 produces the regions a region run executes, and the execution is
 the bounded door rather than a second pass.
-- **No shaping, bidi, line breaking or font fallback** behind the text that does draw
-  (`Text.md` §7), and **no image fetching, decoding or caching** behind the picture that does
-  (`Images.md` §9).
+- **No re-shaping, no line breaking and no font fallback** behind the text that does draw: shaping
+  (GSUB/GPOS/kerning) is done **once, at record time**, and a replay draws the stored glyphs (`Text.md` §7,
+  `Text/PaintBridge.md`); run visual order is 12.8's answer read from the run list. And **no image
+  fetching, decoding or caching** behind the picture that does (`Images.md` §9).
 - **No transforms, `border-radius`, gradients, blend modes, filters, masks or antialiasing.**
 - **No `background-clip`/`background-origin`** — the border box is CSS's initial value.
 - **No `z-index` or stacking context.** Document order; a later stacking pass reorders.
@@ -684,6 +686,12 @@ the box that owns the text node: one depth past that box, naming itself, and aft
     value with no pointers in it and the snapshot property survives the one payload that is not a
     number. The span counts **code points**, and the display list owns a pool of its own, so
     clearing the records cannot change a character the list draws (§18).
+20b. **A run's shaped glyphs live in a second pool, and its face in a token** (12.16): the same
+    record carries a `PaintGlyphSpan` into a glyph pool the list also owns, plus a `PaintFontToken`
+    naming the face in a `PaintFontTable` the list copies. Shaping happens where the document is
+    recorded, so a replay draws the stored ids and shapes nothing; both pools and the table are the
+    list's own copies, so the snapshot property holds for glyphs and faces exactly as for
+    characters. `Text/PaintBridge.md` is the contract.
 
 ---
 
@@ -818,13 +826,14 @@ fact rather than a fourth outcome -- it is a subset of `filled`, and it is the n
 A `draw-text` is the one drawing whose rectangle is its **advance box** rather than a region to
 fill, and two rules follow from that. It is **exempt from the zero-area rule** -- a glyph's ink can
 overhang its advance box, so a rectangle with no area is not "nothing to draw" for a run the way it
-is for a fill. And it is drawn by **resolving each code point through the caller's face**, at the
-face's own advances, starting at the rectangle's left edge and the baseline at
-`rect.y + baseline_offset`.
+is for a fill. And it is drawn from **the shaped glyphs the record stored** (12.16), at the face the
+record's token names, starting at the rectangle's left edge and the baseline at
+`rect.y + baseline_offset`: each stored id at `pen + offset`, then the pen advance.
 
-The pass **prepares the face's character map** once before the first lookup, because a
-`FontFace` is created without one and a lookup on an unprepared face misses; that is the
-same door the layout measurer calls before it resolves a glyph. A face whose map will not parse is
+Before 12.16 the pass **resolved each code point through the caller's face** at draw time and
+**prepared the face's character map** once before the first lookup. That work is now the recording
+pass's (`RoboPaintContextSetTextFace`); the drawing pass resolves only a token to a face, so a face
+whose map will not parse is
 still not a refusal: every glyph becomes `.notdef` and `glyphs_missing` names the fact per code
 point, so a broken font degrades to the shape of a font with no glyph for the text rather than to
 a failed pass. A run is drawn in **logical order** and the RTL runs are counted (`rtl`) -- there is

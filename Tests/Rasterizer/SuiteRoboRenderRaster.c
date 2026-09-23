@@ -511,6 +511,12 @@ static void TestRenderRasterNoFontIsANumber(void)
     uint64_t before;
 
     RenderFixture();
+    RenderFaceCreate(&face);
+    /*
+     * Recorded **without** a face (Phase 12.16's legal "was not shaped" state) and recorded **with** one: two
+     * frames over the same document, so the difference the case is about -- a run with no glyphs versus a run
+     * whose glyphs came from the face -- is one field of the record and nothing else.
+     */
     RenderSceneBegin(&scene, "<html><body><p class=\"line\">AA</p></body></html>",
                        RASTER_BASE_CSS
                        "html, body { background-color: #ffffff }"
@@ -525,10 +531,15 @@ static void TestRenderRasterNoFontIsANumber(void)
     RoboCheckEqInt((int)frame.pass.glyphs, 0);
     RoboCheckEqInt((int)before, (int)RenderTargetChecksum(target));
 
-    /* With the face, the run's code points resolve through its cmap and its glyphs stroke the square
-     * outline the fixture states -- so a pixel changes and the count of glyph draws equals the count of
-     * characters. */
-    RenderFaceCreate(&face);
+    /* With the face, the run's glyphs are the ones the face's cmap produced at **recording** time and they
+     * stroke the square outline the fixture states -- so a pixel changes and the count of glyph draws equals
+     * the count of characters. */
+    RenderSceneEnd(&scene);
+    RenderSceneBegin(&scene, "<html><body><p class=\"line\">AA</p></body></html>",
+                       RASTER_BASE_CSS
+                       "html, body { background-color: #ffffff }"
+                       " .line { font-size: 100px; color: #cc0000 }");
+    RenderScenePaintWith(&scene, face.face);
     RoboCheckEqInt(RenderRasterize(scene.display, target, face.face, &frame, NULL),
                       RoboOk);
     RoboCheckEqInt((int)frame.pass.noFont, 0);

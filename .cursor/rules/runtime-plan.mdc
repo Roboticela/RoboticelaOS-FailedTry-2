@@ -19,7 +19,7 @@ RoboticelaOS must feel **Apple-class**: calm, precise, typographically excellent
 
 ### Start next
 
-**Phase 12 — Beautiful Typography & RoboText**, beginning at **12.16 paint / layout bridge** (12.1 raster quality through 12.15 measurement are landed: pack, face binding, RoboText architecture, Unicode/font integration, script and direction runs, bidi, the feature model, GSUB, GPOS, ligatures, kerning, the finalized run with the list over it, and the measurement engine over that list).
+**Phase 12 — Beautiful Typography & RoboText**, beginning at **12.17 CSS font wiring** (12.1 raster quality through 12.16 paint / layout bridge are landed: pack, face binding, RoboText architecture, Unicode/font integration, script and direction runs, bidi, the feature model, GSUB, GPOS, ligatures, kerning, the finalized run with the list over it, the measurement engine over that list, and the display list that carries shaped glyph runs).
 
 | | |
 |---|---|
@@ -67,7 +67,7 @@ Historical goal IDs from the old “14 = RoboText / 12 = Input / 13 = JS” numb
 * **Phase 9 — Minimal RoboCSS:** complete through **9.16** ✅
 * **Phase 10 — Minimal RoboLayout:** goals **10.1** through **10.15** complete — **Phase 10 complete**
 * **Phase 11 — Minimal RoboPaint & Rendering:** goals **11.1–11.13** complete — **Phase 11 complete**.
-* **Phase 12 — Beautiful Typography & RoboText:** goals **12.1–12.15** complete ✅ (AA raster quality, system typeface pack, desktop/document face binding, RoboText architecture, Unicode/font integration, script runs, direction runs, bidi, feature model, GSUB, GPOS, ligatures, kerning, the finalized glyph run with its list, and measurement over that list). **Next / start here:** **12.16 paint / layout bridge**. Input, JS, and compositor wait until Latin UI text meets the beauty bar.
+* **Phase 12 — Beautiful Typography & RoboText:** goals **12.1–12.16** complete ✅ (AA raster quality, system typeface pack, desktop/document face binding, RoboText architecture, Unicode/font integration, script runs, direction runs, bidi, feature model, GSUB, GPOS, ligatures, kerning, the finalized glyph run with its list, measurement over that list, and the paint/layout bridge that puts shaped glyph runs on the display list). **Next / start here:** **12.17 CSS font-family / weight / size wiring**. Input, JS, and compositor wait until Latin UI text meets the beauty bar.
 
 ---
 
@@ -207,7 +207,7 @@ The target remains a **complete Chromium-class runtime for RoboticelaOS**, indep
 11.12 Rasterization ✅
 11.13 Framebuffer presentation + RoboDesktop native shell ✅
 
-# Phase 12 — Beautiful Typography & RoboText ← **start at 12.16**
+# Phase 12 — Beautiful Typography & RoboText ← **start at 12.17**
 
 Goal: the **best font rendering the OS can have** before more product surface area.
 
@@ -226,7 +226,7 @@ Goal: the **best font rendering the OS can have** before more product surface ar
 12.13 Kerning ✅ (`kern` is a feature with an explicit default, policy and report over the GPOS engine rather than a second one, legacy `kern`-table non-double-count rule, per-range overrides shaping as run cuts; `Documentation/Runtime/Text/Kerning.md`)
 12.14 Glyph runs ✅ (the run finalized once — clusters in logical order, a six-flag word, the face's metrics and the run's own totals — and the list over runs: the key and the field that differs, the logical order as the list with L2's visual order beside it, coalescing by concatenation and re-finalization, validation and the diagnostic block; `Documentation/Runtime/Text/GlyphRuns.md`)
 12.15 Text measurement ✅ (the engine over a finalized run list: the runs' own advances summed once, the line metrics a mixed-font line aggregates by the maximum rule, logical bounds and ink bounds kept apart, the request that makes the glyph-outline ask opt-in, the tolerance, the validation and the per-glyph diagnostic block; `Documentation/Runtime/Text/TextMeasurement.md`)
-12.16 Paint / layout bridge — display list draws **glyph runs**, not raw code-point loops
+12.16 Paint / layout bridge ✅ (the display list carries **shaped glyph runs**: a text record keeps the characters and the glyphs, a `PaintGlyph` is the id, placement, advance, cluster and source range, a `PaintFontToken` names the face by token into a list-owned table, both pools and the table are the list's own copies, the recorder shapes once and a replay shapes nothing; `Documentation/Runtime/Text/PaintBridge.md`)
 12.17 CSS font-family / weight / size wiring for shell documents (early slice of full CSS fonts)
 12.18 Latin & European shaping conformance (beauty bar for English/UI)
 12.19 Complex scripts (Arabic, Persian/Urdu, Hebrew, Indic, Thai, CJK, emoji / VS)

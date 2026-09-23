@@ -48,11 +48,26 @@
  * references, the list is the caller's, and the stats are a record by value. Destroying
  * a context frees the context and nothing else, so it is safe to destroy in any order
  * relative to the tree and the list it was used with.
+ *
+ * **Since 12.16 the pass shapes a run's text as it records it.** The context may be given a face
+ * (`PaintContextSetTextFace`), and a text operation then carries the glyphs that face produced -- ids,
+ * positions, advances, clusters and source ranges, copied out of RoboText's own result -- into the list's
+ * glyph pool (`RoboPaintText.h`). Three things follow, and all three are the phase's contract:
+ *
+ *   shaping happens **once per document**, not once per frame, so a display list replay is a walk over
+ *   numbers rather than a second shaping that could disagree with the first;
+ *   the paint path holds **no Unicode-to-glyph mapping at all** -- no `cmap`, no size, no advance scaling --
+ *   which is what makes "layout and paint consume the shaped result" the signature rather than a promise;
+ *   a run whose text the face cannot cover, or one recorded with **no** face, still records its characters,
+ *   and the glyphs are what is missing. Which of the two it was is answerable one layer down (a run with no
+ *   glyphs at all versus one whose glyphs carry the `missing` flag), and the two are counted separately.
  */
 #ifndef ROBO_PAINT_CONTEXT_H
 #define ROBO_PAINT_CONTEXT_H
 
 #include "RoboBase/RoboError.h"
+
+#include "RoboFont/RoboFontFace.h"
 
 #include "RoboLayout/RoboLayoutInvalidation.h"
 #include "RoboLayout/RoboLayoutTree.h"
@@ -292,6 +307,28 @@ void PaintContextSetUserData(PaintContext *context, void *userData);
 
 /** The installed user data, or NULL. */
 void *PaintContextUserData(const PaintContext *context);
+
+/**
+ * Name the face the pass **shapes** text with (Phase 12.16), borrowed for the pass.
+ *
+ * The one thing the recording pass needs that a *tree* cannot tell it: a run carries characters and a style,
+ * and turning those into glyphs needs a face. Passing NULL -- the state a context starts in -- records text
+ * **without** glyphs, which is a legal document (the characters are there, `textRuns` counts it, and a
+ * drawing pass reports `noFont`) and the state every document had before this phase.
+ *
+ * The face's `cmap` and metrics tables are parsed **here**, once, because the shape below is the first thing
+ * in this runtime that needs them -- and because a face parsed during a pass is a face whose first run would
+ * otherwise pay for it. A face whose tables will not parse is not refused: every glyph comes out `.notdef`
+ * and the run counts its misses, which is the answer a face with no glyph for the text already gets.
+ *
+ * The face is **borrowed**, exactly as the drawing door borrows its own: RoboPaint retains nothing, and a
+ * caller that destroys a face while a list recorded with it is alive gets the same answer it would from any
+ * other borrowed resource here -- don't.
+ */
+void PaintContextSetTextFace(PaintContext *context, FontFace *face);
+
+/** The face the pass shapes text with, or NULL (12.16). */
+FontFace *PaintContextTextFace(const PaintContext *context);
 
 /**
  * Paint @p tree into @p list.

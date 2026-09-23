@@ -74,6 +74,7 @@
 #include "RoboPaint/RoboPaintDecoration.h"
 #include "RoboPaint/RoboPaintDiagnostics.h"
 #include "RoboPaint/RoboPaintDump.h"
+#include "RoboPaint/RoboPaintFontTable.h"
 #include "RoboPaint/RoboPaintGeometry.h"
 #include "RoboPaint/RoboPaintHitTest.h"
 #include "RoboPaint/RoboPaintList.h"
@@ -308,6 +309,42 @@ typedef struct PaintCapabilities {
      * `PaintStats.imageSkipped` says how many times that happened.
      */
     int imagePainting;
+    /**
+     * **Shaped glyph runs on the record** (12.16), and **1**: a text operation and the display command it
+     * becomes carry the glyphs the recording pass produced -- the face's own glyph ids, each with its
+     * placement offset, its device advance, its **cluster** and its source range -- rather than only the code
+     * points the run was given.
+     *
+     * The ninth field, and the fifth that is about a *drawing*: `textPainting` says a run's glyphs reach a
+     * surface, and this says **what travels with the run** so that they can. Read the two together: a build can
+     * paint text through a `cmap` at draw time (which is exactly what this module did from 11.6 to 12.15 and
+     * what the field being 1 now rules out) and still have `textPainting` at 1.
+     *
+     * What it claims: a glyph is an id in a named face, and the record names the face by a **token** into a table
+     * the list owns (`RoboPaintFontTable.h`) -- so a glyph id drawn with the wrong face is refused as a counted
+     * miss rather than silently drawn as a different letter, and a display list's glyphs and faces are its
+     * **own copies** (`PaintDisplayListGlyphPool`, `PaintDisplayListFontTable`). It does **not** claim that a
+     * document names more than one face today: the recorder is given one (`PaintContextSetTextFace`), which is
+     * what the token vocabulary makes a *later* phase able to lift rather than what this build already lifts.
+     */
+    int glyphRuns;
+    /**
+     * **Text shaped where the document is recorded** (12.16), and **1**: a run's characters become glyphs during
+     * the recording pass, once per document, and a replay of the list that results performs no shaping at all --
+     * no decoding, no font selection, no GSUB, no GPOS, no kerning, and no `cmap` lookup anywhere in the paint
+     * path.
+     *
+     * Beside `glyphRuns` rather than folded into it because the two answer different questions and a build can
+     * have either without the other: a list could carry shaped glyphs that a replay re-derived from the
+     * characters (which is what 12.4-12.15's drawing pass did -- shape on every frame), and a recorder could
+     * shape without the result being carried in a form a *different* list could draw. This field is the claim
+     * that the expensive answer is computed once and **stored**, and it is the one the phase exists for.
+     *
+     * What it does not claim: a glyph cache, an atlas, batching of compatible runs, subpixel-phase-keyed
+     * rasterization, or a multi-face recorder -- `glyphRuns` above names where the face identity reaches, and
+     * what is deliberately absent is a *cache* rather than the ability to name one.
+     */
+    int shapedTextRecording;
 } PaintCapabilities;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

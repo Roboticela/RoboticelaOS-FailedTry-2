@@ -1062,12 +1062,11 @@ static void TestTextPixels(void)
     uint32_t y;
 
     TextFaceCreate(&face);
-    TextFaceCreate(&face);
     PaintBeginLaidOut(&fixture, "<html><body><div class=\"box\">AB</div></body></html>",
                          TEXT_BASE_CSS
                          " .box { width: 300px; height: 60px; background-color: #ffffff;"
                          " color: #ff0000; font-size: 100px }");
-    PaintOnce(&fixture, &result);
+    PaintOnceWithFace(&fixture, face.face, &result);
     memset(&stats, 0, sizeof(stats));
     TextBuild(&result, &list, &stats);
 
@@ -1136,7 +1135,7 @@ static void TestTextCoverageAntialiasing(void)
                          TEXT_BASE_CSS
                          " .box { width: 300px; height: 60px; background-color: #ffffff;"
                          " color: #ff0000; font-size: 33px }");
-    PaintOnce(&fixture, &result);
+    PaintOnceWithFace(&fixture, face.face, &result);
     memset(&stats, 0, sizeof(stats));
     TextBuild(&result, &list, &stats);
 
@@ -1235,7 +1234,7 @@ static void TestTextMissingGlyph(void)
                          TEXT_BASE_CSS
                          " .box { width: 300px; height: 60px; color: #ff0000;"
                          " font-size: 100px }");
-    PaintOnce(&fixture, &result);
+    PaintOnceWithFace(&fixture, face.face, &result);
     memset(&stats, 0, sizeof(stats));
     TextBuild(&result, &list, &stats);
 
@@ -1272,7 +1271,7 @@ static void TestTextRtl(void)
                          TEXT_BASE_CSS
                          " .box { width: 300px; height: 60px; color: #ff0000;"
                          " font-size: 100px; direction: rtl }");
-    PaintOnce(&fixture, &result);
+    PaintOnceWithFace(&fixture, face.face, &result);
 
     operation = PaintRequire(&result, RoboPaintOpText);
     run = PaintOperationText(&operation);
@@ -1380,7 +1379,7 @@ static void TestTextMutationIsolation(void)
                          TEXT_BASE_CSS
                          " .box { width: 300px; height: 60px; color: #ff0000;"
                          " font-size: 100px }");
-    PaintOnce(&fixture, &result);
+    PaintOnceWithFace(&fixture, face.face, &result);
     memset(&stats, 0, sizeof(stats));
     TextBuild(&result, &list, &stats);
 
@@ -1677,6 +1676,513 @@ static void TestTextDump(void)
 /* Registration                                                        */
 /* ------------------------------------------------------------------ */
 
+/*
+ * Phase 12.16: the run is **shaped where it is recorded**, and the paint path owns no Unicode-to-glyph
+ * mapping at all.
+ *
+ * The five cases below pin the phase's contract at the places it can be observed rather than argued:
+ *
+ *   `recorded`        the record's glyph span and its face token, and the numbers in them -- ids, advances,
+ *                     source ranges, clusters -- against the synthetic face's own stated arithmetic;
+ *
+ *   `snapshot`        the payoff, and the reason the phase exists: a display list's glyphs and faces are its
+ *                     **own copies**, so a replay after the record list is destroyed draws the same ink, and it
+ *                     does not even need the caller to hand a face in;
+ *
+ *   `pool_doors`      the glyph pool's own contract, including the container rule the record list enforces:
+ *                     a text operation whose glyph span names nothing in the list is refused at the door;
+ *
+ *   `font_table_doors` the token vocabulary -- idempotent add, both sentinels as *misses*, the copy that
+ *                     renumbers a run's face into another list's table, and the dump;
+ *
+ *   `without_a_face`  the other legal recording: characters and **no** glyphs, which is what a caller that
+ *                     installed no face gets and what the drawing pass counts as `noFont`.
+ */
+
+/* ------------------------------------------------------------------ */
+/* 12.16: the shaped run in the record                                 */
+/* ------------------------------------------------------------------ */
+
+/** The first text operation of @p list, asserted to exist. */
+static PaintOperation TextOnlyOperation(const PaintList *list)
+{
+    PaintOperation operation;
+    size_t index;
+
+    for (index = 0u; index < PaintListCount(list); index++) {
+        RoboCheckEqInt(PaintListAt(list, index, &operation), RoboOk);
+        if (operation.kind == RoboPaintOpText) {
+            return operation;
+        }
+    }
+    TestFail(__FILE__, __LINE__, "the list holds no text operation");
+    PaintOperationInit(&operation);
+    return operation;
+}
+
+static void TestTextGlyphRunRecorded(void)
+{
+    PaintFixtureDoc fixture;
+    PaintResult result;
+    PaintOperation operation;
+    PaintTextRun run;
+    TextFace face;
+    PaintGlyphSpan span;
+    PaintGlyph glyphs[4];
+    size_t count = 0u;
+    FontFace *resolved = NULL;
+    const PaintFontTable *table;
+    float expectedAdvance;
+
+    TextFaceCreate(&face);
+    PaintBeginLaidOut(&fixture, "<html><body><div class=\"box\">AB</div></body></html>",
+                         TEXT_BASE_CSS
+                         " .box { width: 300px; height: 60px; color: #ff0000;"
+                         " font-size: 100px }");
+    PaintOnceWithFace(&fixture, face.face, &result);
+
+    operation = TextOnlyOperation(result.list);
+    run = operation.text;
+
+    /* The two halves of the record: the characters the document has, and the glyphs the face produced. */
+    RoboCheckEqInt((int)PaintTextSpanIsEmpty(PaintTextRunSpan(&run)), 0);
+    RoboCheckEqInt((int)run.span.count, 2);
+    span = PaintTextRunGlyphs(&run);
+    RoboCheckEqInt((int)PaintGlyphSpanIsEmpty(span), 0);
+    RoboCheckEqInt((int)span.count, 2);
+
+    /* The face, by token, and the token is an entry of the **list's** table -- which is what makes the
+     * record meaningful to the container it sits in rather than to whoever shaped it. */
+    RoboCheck(PaintTextRunFontToken(&run) >= PaintFontTokenFirstAssigned);
+    table = PaintListFontTable(result.list);
+    RoboCheckEqInt((int)PaintFontTableCount(table), 1);
+    RoboCheckEqInt(PaintFontTableResolve(table, run.fontToken, &resolved, NULL), RoboOk);
+    RoboCheck(resolved == face.face);
+
+    /* And the glyphs themselves, through the pool's own read door: two of them, in logical order, mapping the
+     * two characters one-to-one. `A` is glyph 1 and `B` is glyph 2 in this face, and each advances 600 units of
+     * a 1000-unit em at 100px -- so every number here is the face's arithmetic rather than a snapshot. */
+    RoboCheckEqInt(PaintGlyphPoolRead(PaintListGlyphPool(result.list), span, glyphs, 4u, &count,
+                                        NULL),
+                      RoboOk);
+    RoboCheckEqInt((int)count, 2);
+    expectedAdvance = (float)((double)TEXT_FACE_ADVANCE_GLYPH * TEXT_FACE_FONT_SIZE /
+                              (double)TEXT_FACE_UPEM);
+    RoboCheckEqInt((int)glyphs[0].glyphId, 1);
+    RoboCheckEqInt((int)glyphs[1].glyphId, 2);
+    RoboCheck(glyphs[0].advanceX == expectedAdvance);
+    RoboCheck(glyphs[1].advanceX == expectedAdvance);
+    RoboCheck(glyphs[0].advanceY == 0.0f);
+    RoboCheck(glyphs[0].offsetX == 0.0f && glyphs[0].offsetY == 0.0f);
+    /* One glyph per character, one cluster each, and the source range is **relative to the run**: the 'A' is
+     * scalar 0 of this run and the 'B' is scalar 1, whatever the document offset of the run happens to be. */
+    RoboCheckEqInt((int)glyphs[0].sourceFirst, 0);
+    RoboCheckEqInt((int)glyphs[0].sourceCount, 1);
+    RoboCheckEqInt((int)glyphs[1].sourceFirst, 1);
+    RoboCheckEqInt((int)glyphs[1].sourceCount, 1);
+    RoboCheckEqInt((int)glyphs[0].cluster, 0);
+    RoboCheckEqInt((int)glyphs[1].cluster, 1);
+    /* Mapped characters with usable metrics: neither is a miss and neither is a control. */
+    RoboCheckEqInt((int)(glyphs[0].flags & PaintGlyphFlagMissing), 0);
+    RoboCheckEqInt((int)(glyphs[1].flags & PaintGlyphFlagMissing), 0);
+    RoboCheckEqInt(PaintGlyphIsControl(&glyphs[0]), 0);
+    RoboCheckEqInt(PaintGlyphIsValid(&glyphs[0]), 1);
+    RoboCheckEqInt(PaintGlyphEqual(&glyphs[0], &glyphs[1]), 0);
+
+    PaintResultDispose(&result);
+    PaintEnd(&fixture);
+    TextFaceDestroy(&face);
+}
+
+/**
+ * The snapshot, one stage past `paint.text.mutation_isolation`.
+ *
+ * That case pins that a display list carries its characters independently of the records it was built from;
+ * this one pins the **shaped** half of the same property, and it is stronger in the two ways 12.16 adds: the
+ * display list owns the glyphs *and* the face its tokens name, so it draws the same ink after the record list
+ * is gone -- and with no face argument at all, because the run's token resolves inside the list it came in.
+ */
+static void TestTextGlyphSnapshotOutlivesRecords(void)
+{
+    PaintFixtureDoc fixture;
+    PaintResult result;
+    PaintDisplayList *list = NULL;
+    PaintDisplayListStats stats;
+    PaintDecorationStats decoration;
+    TextFace face;
+    GfxSurface *surface;
+    uint32_t marked = 0u;
+    uint32_t x;
+    uint32_t y;
+    GfxColorRgba8 color;
+    size_t index;
+    PaintDisplayCommand command;
+    int found = 0;
+
+    TextFaceCreate(&face);
+    PaintBeginLaidOut(&fixture, "<html><body><div class=\"box\">AB</div></body></html>",
+                         TEXT_BASE_CSS
+                         " .box { width: 300px; height: 60px; background-color: #ffffff;"
+                         " color: #ff0000; font-size: 100px }");
+    PaintOnceWithFace(&fixture, face.face, &result);
+    memset(&stats, 0, sizeof(stats));
+    TextBuild(&result, &list, &stats);
+
+    for (index = 0u; index < PaintDisplayListCount(list); index++) {
+        RoboCheckEqInt(PaintDisplayListAt(list, index, &command), RoboOk);
+        if (command.kind == RoboPaintDisplayCmdDrawText) {
+            FontFace *resolved = NULL;
+
+            found = 1;
+            RoboCheckEqInt((int)command.text.glyphs.count, 2);
+            /* The command's token is an entry of the **display list's** table, which holds the same face by
+             * address -- so the token was renumbered into the copy rather than left naming the other list. */
+            RoboCheckEqInt(PaintFontTableResolve(PaintDisplayListFontTable(list),
+                                                        command.text.fontToken, &resolved, NULL),
+                              RoboOk);
+            RoboCheck(resolved == face.face);
+        }
+    }
+    RoboCheckEqInt(found, 1);
+    RoboCheckEqInt((int)PaintGlyphPoolCount(PaintDisplayListGlyphPool(list)), 2);
+    RoboCheckEqInt((int)PaintFontTableCount(PaintDisplayListFontTable(list)), 1);
+
+    /* The records go away, and the face is **not** handed to the drawing pass: the list's own table answers. */
+    PaintResultDispose(&result);
+    surface = TextSurface(300u, 100u);
+    memset(&decoration, 0, sizeof(decoration));
+    TextPaint(list, surface, NULL, &decoration);
+
+    RoboCheckEqInt((int)decoration.texts, 1);
+    RoboCheckEqInt((int)decoration.noFont, 0);
+    RoboCheckEqInt((int)decoration.glyphs, 2);
+    RoboCheckEqInt((int)decoration.glyphsMissing, 0);
+    for (y = 0u; y < GfxSurfaceHeight(surface); y++) {
+        for (x = 0u; x < GfxSurfaceWidth(surface); x++) {
+            RoboCheckEqInt(GfxSurfaceGetPixel(surface, x, y, &color), RoboOk);
+            if (color.r == TEXT_RED.r && color.g == TEXT_RED.g && color.b == TEXT_RED.b) {
+                marked++;
+            }
+        }
+    }
+    RoboCheck(marked > 0u);
+
+    GfxSurfaceRelease(surface);
+    PaintDisplayListDestroy(list);
+    PaintEnd(&fixture);
+    TextFaceDestroy(&face);
+}
+
+/*
+ * The glyph pool and the font table, through their own doors -- the pool the way `paint.text.pool_doors` asks
+ * about the text pool, and the table because a token that is not *asked about* is a token nobody has proved
+ * means anything.
+ */
+static void TestTextGlyphPoolDoors(void)
+{
+    PaintGlyphPool *pool = NULL;
+    PaintGlyph glyph;
+    PaintGlyph read[2];
+    PaintGlyphSpan span;
+    PaintGlyphSpan other;
+    size_t count = 0u;
+
+    PaintGlyphInit(&glyph);
+    glyph.glyphId = 7u;
+    glyph.sourceCount = 1u;
+    glyph.advanceX = 3.5f;
+    RoboCheckEqInt(PaintGlyphIsValid(&glyph), 1);
+
+    /* Hostile: every door on NULL, and the off-by-one span. */
+    RoboCheckEqInt(PaintGlyphPoolCreate(NULL, NULL), RoboInvalidArgument);
+    RoboCheckEqInt(PaintGlyphPoolAppend(NULL, &glyph, 1u, &span, NULL), RoboInvalidArgument);
+    RoboCheckEqInt(PaintGlyphPoolAppend(pool, NULL, 1u, &span, NULL), RoboInvalidArgument);
+    RoboCheckEqInt(PaintGlyphPoolContains(NULL, span), 0);
+    RoboCheckEqInt((int)PaintGlyphPoolCount(NULL), 0);
+    RoboCheckEqInt((int)PaintGlyphPoolCapacity(NULL), 0);
+    RoboCheck(PaintGlyphPoolGlyphs(NULL) == NULL);
+    PaintGlyphPoolClear(NULL);
+    PaintGlyphPoolDestroy(NULL);
+
+    RoboCheckEqInt(PaintGlyphPoolCreate(&pool, NULL), RoboOk);
+    RoboCheckEqInt((int)PaintGlyphPoolCount(pool), 0);
+    /* A count of zero is a **position**, not a run, and the sentinel is how a caller spells it. */
+    RoboCheckEqInt(PaintGlyphPoolAppend(pool, &glyph, 0u, &span, NULL), RoboInvalidArgument);
+    RoboCheckEqInt((int)PaintGlyphSpanIsEmpty(PaintGlyphSpanAt(4u)), 1);
+
+    RoboCheckEqInt(PaintGlyphPoolAppend(pool, &glyph, 1u, &span, NULL), RoboOk);
+    RoboCheckEqInt((int)span.first, 0);
+    RoboCheckEqInt((int)span.count, 1);
+    RoboCheckEqInt((int)PaintGlyphPoolCount(pool), 1);
+    RoboCheckEqInt(PaintGlyphPoolContains(pool, span), 1);
+    glyph.glyphId = 9u;
+    RoboCheckEqInt(PaintGlyphPoolAppend(pool, &glyph, 1u, &other, NULL), RoboOk);
+    RoboCheckEqInt((int)other.first, 1);
+    RoboCheckEqInt(PaintGlyphPoolContains(pool, other), 1);
+    /* Past the end is not contained, and neither is an empty span -- by construction, since a pool holds runs. */
+    RoboCheckEqInt(PaintGlyphPoolContains(pool, PaintGlyphSpanAt(2u)), 0);
+    RoboCheckEqInt(PaintGlyphPoolContains(pool, PaintGlyphSpanAt(1u)), 0);
+
+    RoboCheckEqInt(PaintGlyphPoolRead(pool, span, read, 2u, &count, NULL), RoboOk);
+    RoboCheckEqInt((int)count, 1);
+    RoboCheckEqInt((int)read[0].glyphId, 7);
+    /* Too small a buffer is `RoboNotSupported`, with the count it would have needed -- the same
+     * complete-or-absent rule every writer here states. */
+    RoboCheckEqInt(PaintGlyphPoolRead(pool, span, read, 0u, &count, NULL), RoboNotSupported);
+    RoboCheckEqInt((int)count, 1);
+    /* And a span the pool does not hold is an argument error rather than a short read -- the two are different
+     * questions and a door that answered the first with the second would be hiding a caller's bug. */
+    RoboCheckEqInt(PaintGlyphPoolRead(pool, PaintGlyphSpanAt(9u), read, 2u, &count, NULL),
+                      RoboInvalidArgument);
+    RoboCheckEqInt((int)count, 0);
+    PaintGlyphPoolClear(pool);
+    RoboCheckEqInt((int)PaintGlyphPoolCount(pool), 0);
+    RoboCheckEqInt((int)PaintGlyphPoolCapacity(pool) > 0, 1);
+    PaintGlyphPoolDestroy(pool);
+}
+
+static void TestTextFontTableDoors(void)
+{
+    PaintFontTable *table = NULL;
+    PaintFontTable *copy = NULL;
+    TextFace face;
+    TextFace second;
+    PaintFontToken token = PaintFontTokenNone;
+    PaintFontToken again = PaintFontTokenNone;
+    PaintFontToken copied = PaintFontTokenNone;
+    FontFace *resolved = NULL;
+    char dump[256];
+    size_t written = 0u;
+
+    TextFaceCreate(&face);
+    TextFaceCreate(&second);
+
+    RoboCheckEqInt(PaintFontTableCreate(NULL, NULL), RoboInvalidArgument);
+    RoboCheckEqInt((int)PaintFontTableCount(NULL), 0);
+    RoboCheck(PaintFontTablePrimary(NULL) == NULL);
+    PaintFontTableClear(NULL);
+    PaintFontTableDestroy(NULL);
+
+    RoboCheckEqInt(PaintFontTableCreate(&table, NULL), RoboOk);
+    RoboCheckEqInt(PaintFontTableAdd(table, NULL, &token, NULL), RoboInvalidArgument);
+    RoboCheckEqInt((int)token, (int)PaintFontTokenNone);
+    RoboCheckEqInt(PaintFontTableAdd(table, face.face, &token, NULL), RoboOk);
+    RoboCheck(token >= PaintFontTokenFirstAssigned);
+    /* **Idempotent**: the same face answers with the token it already has, so a document's runs do not grow
+     * the table with the text. */
+    RoboCheckEqInt(PaintFontTableAdd(table, face.face, &again, NULL), RoboOk);
+    RoboCheckEqInt((int)again, (int)token);
+    RoboCheckEqInt((int)PaintFontTableCount(table), 1);
+    RoboCheckEqInt(PaintFontTableTokenOf(table, face.face, &again, NULL), RoboOk);
+    RoboCheckEqInt((int)again, (int)token);
+    RoboCheckEqInt(PaintFontTableTokenOf(table, second.face, &again, NULL), RoboNotFound);
+    RoboCheckEqInt(PaintFontTableResolve(table, token, &resolved, NULL), RoboOk);
+    RoboCheck(resolved == face.face);
+    /* Both sentinels are **misses**, each for its own reason: `None` names no face, and `Primary` names one this
+     * table has never seen -- the drawing pass's own argument. */
+    RoboCheckEqInt(PaintFontTableResolve(table, PaintFontTokenNone, &resolved, NULL), RoboNotFound);
+    RoboCheckEqInt(PaintFontTableResolve(table, PaintFontTokenPrimary, &resolved, NULL),
+                      RoboNotFound);
+    RoboCheck(PaintFontTablePrimary(table) == face.face);
+
+    RoboCheckEqInt(PaintFontTableCreate(&copy, NULL), RoboOk);
+    /* The sentinels carry across; an assigned token is resolved and re-added. */
+    RoboCheckEqInt(PaintFontTableCopy(copy, table, PaintFontTokenNone, &copied, NULL), RoboOk);
+    RoboCheckEqInt((int)copied, (int)PaintFontTokenNone);
+    RoboCheckEqInt(PaintFontTableCopy(copy, table, PaintFontTokenPrimary, &copied, NULL), RoboOk);
+    RoboCheckEqInt((int)copied, (int)PaintFontTokenPrimary);
+    RoboCheckEqInt(PaintFontTableCopy(copy, table, token, &copied, NULL), RoboOk);
+    RoboCheckEqInt(PaintFontTableResolve(copy, copied, &resolved, NULL), RoboOk);
+    RoboCheck(resolved == face.face);
+    /* A token the source does not hold is a miss, and the copy is not left holding a face for it. */
+    RoboCheckEqInt(PaintFontTableCopy(copy, table, (PaintFontToken)99u, &copied, NULL),
+                      RoboNotFound);
+    RoboCheckEqInt((int)PaintFontTableCount(copy), 1);
+
+    RoboCheckEqInt(PaintFontTableWrite(table, dump, sizeof(dump), &written), RoboOk);
+    RoboCheck(written > 0u);
+    RoboCheck(strstr(dump, "faces 1") != NULL);
+    RoboCheckEqInt(PaintFontTableWrite(table, dump, 2u, &written), RoboNotSupported);
+    RoboCheckEqInt((int)dump[0], 0);
+
+    PaintFontTableClear(table);
+    RoboCheckEqInt((int)PaintFontTableCount(table), 0);
+    PaintFontTableDestroy(copy);
+    PaintFontTableDestroy(table);
+    TextFaceDestroy(&second);
+    TextFaceDestroy(&face);
+}
+
+/**
+ * The container rule, at the record list's door: a `TEXT` operation whose **glyph** span names no run in the
+ * list is refused -- the character-span rule 11.6 states, for the half 12.16 added.
+ */
+static void TestTextGlyphSpanRules(void)
+{
+    PaintList *list = NULL;
+    PaintOperation operation;
+    PaintGlyph glyphs[2];
+    PaintGlyphSpan span;
+    size_t index;
+
+    RoboCheckEqInt(PaintListCreate(&list, NULL), RoboOk);
+    RoboCheck(PaintListGlyphPool(list) != NULL);
+    RoboCheck(PaintListFontTable(list) != NULL);
+
+    for (index = 0u; index < 2u; index++) {
+        PaintGlyphInit(&glyphs[index]);
+        glyphs[index].glyphId = (uint16_t)(index + 1u);
+        glyphs[index].sourceCount = 1u;
+        glyphs[index].advanceX = 60.0f;
+    }
+    RoboCheckEqInt(PaintListAddGlyphs(list, glyphs, 2u, &span, NULL), RoboOk);
+    RoboCheckEqInt((int)span.count, 2);
+    RoboCheckEqInt(PaintListAddGlyphs(NULL, glyphs, 2u, NULL, NULL), RoboInvalidArgument);
+
+    /* A run carrying glyphs and the face they came from. */
+    PaintOperationInit(&operation);
+    operation.kind = RoboPaintOpText;
+    operation.node = (LayoutNodeId)1u;
+    PaintTextRunInit(&operation.text);
+    {
+        LayoutRect rect = MakeGfxRect(0, 0, 10, 10);
+        PaintTextSpan textSpan;
+
+        PaintBoxesInit(&operation.boxes);
+        operation.boxes.border = rect;
+        operation.boxes.padding = rect;
+        operation.boxes.content = rect;
+        operation.color = CssColorMake(0x00, 0x00, 0x00, 255);
+        RoboCheckEqInt(PaintListAddText(list, (const uint32_t[]){ 0x41u, 0x42u }, 2u, &textSpan,
+                                                NULL),
+                          RoboOk);
+        operation.text.span = textSpan;
+        operation.text.glyphs = span;
+        operation.text.fontToken = PaintFontTokenPrimary;
+        RoboCheckEqInt(PaintOperationIsValid(&operation), 1);
+    }
+    RoboCheckEqInt(PaintTextRunIsValid(&operation.text), 1);
+    RoboCheckEqInt(PaintListAppend(list, &operation, NULL), RoboOk);
+    RoboCheckEqInt((int)PaintListCount(list), 1);
+
+    /* Glyphs the list does not hold: refused at the door, and the list is untouched. */
+    operation.text.glyphs = PaintGlyphSpanAt(0u);
+    operation.text.glyphs.count = 4u;
+    RoboCheckEqInt(PaintListAppend(list, &operation, NULL), RoboInvalidArgument);
+    RoboCheckEqInt((int)PaintListCount(list), 1);
+    /* And the pairing itself: glyphs with the `None` token, or no glyphs with a face, are not a record. */
+    operation.text.fontToken = PaintFontTokenNone;
+    RoboCheckEqInt(PaintTextRunIsValid(&operation.text), 0);
+    operation.text.glyphs = PaintGlyphSpanAt(0u);
+    operation.text.fontToken = PaintFontTokenPrimary;
+    RoboCheckEqInt(PaintTextRunIsValid(&operation.text), 0);
+
+    PaintListDestroy(list);
+}
+
+/**
+ * The degenerate token, end to end: a hand-built `draw-text` carrying `PaintFontTokenPrimary`.
+ *
+ * The common case, and the one a caller with a single face uses: the record says "the face you were handed"
+ * rather than "entry N of a table", so the same display list draws through the pass's own `face` argument -- and
+ * a pass given no face counts the run `noFont` rather than guessing at one. Two frames over one list, which
+ * is what makes the sentinel's *meaning* visible: nothing about the list changed between them.
+ */
+static void TestTextGlyphPrimaryToken(void)
+{
+    PaintDisplayList *list = NULL;
+    PaintDisplayCommand command;
+    PaintTextRun run;
+    PaintTextSpan textSpan;
+    PaintGlyphSpan glyphSpan;
+    PaintGlyph glyph;
+    PaintDecorationStats decoration;
+    TextFace face;
+    GfxSurface *surface;
+
+    TextFaceCreate(&face);
+    RoboCheckEqInt(PaintDisplayListCreate(&list, NULL), RoboOk);
+    RoboCheckEqInt(PaintTextPoolAppend(PaintDisplayListTextPool(list),
+                                         (const uint32_t[]){ 'A' }, 1u, &textSpan, NULL),
+                      RoboOk);
+    PaintGlyphInit(&glyph);
+    glyph.glyphId = 1u;
+    glyph.sourceCount = 1u;
+    glyph.advanceX = (float)((double)TEXT_FACE_ADVANCE_GLYPH * TEXT_FACE_FONT_SIZE /
+                             (double)TEXT_FACE_UPEM);
+    RoboCheckEqInt(PaintGlyphPoolAppend(PaintDisplayListGlyphPool(list), &glyph, 1u,
+                                             &glyphSpan, NULL),
+                      RoboOk);
+
+    PaintTextRunInit(&run);
+    run.span = textSpan;
+    run.baselineOffset = 8;
+    run.glyphs = glyphSpan;
+    run.fontToken = PaintFontTokenPrimary;
+    run.font.fontSizePx = TEXT_FACE_FONT_SIZE;
+    RoboCheckEqInt(PaintTextRunIsValid(&run), 1);
+
+    PaintDisplayCommandInit(&command);
+    command.kind = RoboPaintDisplayCmdDrawText;
+    command.node = (LayoutNodeId)1u;
+    command.rect = MakeGfxRect(0, 0, 100, 20);
+    command.color = CssColorMake(0xff, 0x00, 0x00, 255);
+    command.text = run;
+    RoboCheckEqInt(PaintDisplayCommandIsValid(&command), 1);
+    RoboCheckEqInt(PaintDisplayListAppend(list, &command, NULL), RoboOk);
+    /* The sentinel is not an entry, so the list's own table is empty -- and it does not have to be anything
+     * else for the list to draw. */
+    RoboCheckEqInt((int)PaintFontTableCount(PaintDisplayListFontTable(list)), 0);
+
+    surface = TextSurface(200u, 60u);
+    memset(&decoration, 0, sizeof(decoration));
+    TextPaint(list, surface, face.face, &decoration);
+    RoboCheckEqInt((int)decoration.texts, 1);
+    RoboCheckEqInt((int)decoration.noFont, 0);
+    RoboCheckEqInt((int)decoration.glyphs, 1);
+
+    /* And the same list with no face: the run is counted, not drawn. */
+    memset(&decoration, 0, sizeof(decoration));
+    TextPaint(list, surface, NULL, &decoration);
+    RoboCheckEqInt((int)decoration.texts, 1);
+    RoboCheckEqInt((int)decoration.noFont, 1);
+    RoboCheckEqInt((int)decoration.glyphs, 0);
+
+    GfxSurfaceRelease(surface);
+    PaintDisplayListDestroy(list);
+    TextFaceDestroy(&face);
+}
+
+/** The other legal recording: characters, no face, no glyphs -- and what a drawing pass says about it. */
+static void TestTextGlyphRunWithoutAFace(void)
+{
+    PaintFixtureDoc fixture;
+    PaintResult result;
+    PaintOperation operation;
+
+    PaintBeginLaidOut(&fixture, "<html><body><div class=\"box\">AB</div></body></html>",
+                         TEXT_BASE_CSS
+                         " .box { width: 300px; height: 60px; color: #ff0000;"
+                         " font-size: 100px }");
+    PaintOnce(&fixture, &result);
+
+    operation = TextOnlyOperation(result.list);
+    /* The characters are the document's and are there; the glyphs are what the missing face costs, and the
+     * record spells that with the **empty span + `None`** pairing rather than with glyphs nobody could draw. */
+    RoboCheckEqInt((int)operation.text.span.count, 2);
+    RoboCheckEqInt((int)PaintGlyphSpanIsEmpty(PaintTextRunGlyphs(&operation.text)), 1);
+    RoboCheckEqInt((int)PaintTextRunFontToken(&operation.text), (int)PaintFontTokenNone);
+    RoboCheckEqInt((int)PaintGlyphPoolCount(PaintListGlyphPool(result.list)), 0);
+    RoboCheckEqInt((int)PaintFontTableCount(PaintListFontTable(result.list)), 0);
+
+    PaintResultDispose(&result);
+    PaintEnd(&fixture);
+}
+
+/* ------------------------------------------------------------------ */
+/* Registration                                                        */
+/* ------------------------------------------------------------------ */
+
 void TestRegisterPaintText(void)
 {
     TestRegister("paint.text.record_shape", TestTextRecordShape);
@@ -1698,4 +2204,11 @@ void TestRegisterPaintText(void)
     TestRegister("paint.text.hand_built_rules", TestTextHandBuiltRules);
     TestRegister("paint.text.pool_doors", TestTextPoolDoors);
     TestRegister("paint.text.dump", TestTextDump);
+    TestRegister("paint.glyphrun.recorded", TestTextGlyphRunRecorded);
+    TestRegister("paint.glyphrun.snapshot", TestTextGlyphSnapshotOutlivesRecords);
+    TestRegister("paint.glyphrun.without_a_face", TestTextGlyphRunWithoutAFace);
+    TestRegister("paint.glyphrun.pool_doors", TestTextGlyphPoolDoors);
+    TestRegister("paint.glyphrun.font_table_doors", TestTextFontTableDoors);
+    TestRegister("paint.glyphrun.span_rules", TestTextGlyphSpanRules);
+    TestRegister("paint.glyphrun.primary_token", TestTextGlyphPrimaryToken);
 }

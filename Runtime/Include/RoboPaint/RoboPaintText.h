@@ -75,6 +75,150 @@
 extern "C" {
 #endif
 
+/*
+ * ## 12.16: the glyph run, and why the list carries both
+ *
+ * The paragraph below (and the header's own introduction) explains why this list stores **characters**
+ * rather than glyph ids, and that argument was right for 11.6: a display list that held only glyph ids
+ * would be a list only one font could draw. What 12.16 adds is the **other** half, because the same
+ * argument cuts the other way once shaping arrives:
+ *
+ *     a glyph id is meaningless without the face that produced it, and shaping is expensive -- so it
+ *     happens once, when the document is recorded, rather than again on every frame the list is
+ *     replayed into a surface.
+ *
+ * So a text record now carries **both**:
+ *
+ *   the **characters** (`PaintTextSpan`), a statement about the document -- what a selection, a hit
+ *   test and a copy will later read, and what makes the record meaningful independently of the face
+ *   it will be drawn with;
+ *   the **glyphs** (`PaintGlyphSpan`) and the **token** of the face they came from
+ *   (`PaintFontToken`), the shaped result -- ids, placements and clusters, the same numbers RoboText
+ *   produced -- so a replay draws them and never shapes, never looks up a `cmap`, and cannot disagree
+ *   with what was measured.
+ *
+ * The token rather than a face pointer is what keeps every property the paragraphs above claim: a
+ * record is still a value with no pointers in it, a list is still safe to copy and to rebuild, and "no
+ * dangling pointer" is still true by construction. The face lives in a `PaintFontTable` the caller
+ * owns, and a token that does not resolve is a **countable miss** rather than a face someone guessed at
+ * (`RoboPaintFontTable.h`).
+ *
+ * A record whose glyph span is **empty** is a run recorded without a face. That is legal, and it is the
+ * state 11.6's counter `noFont` names: the characters are there, nothing was shaped, and a replay says
+ * so rather than drawing `.notdef` boxes it would have to invent a face to find.
+ */
+
+typedef enum PaintGlyphFlag {
+    /** No flags: an ordinary mapped glyph. */
+    PaintGlyphFlagNone = 0,
+    /**
+     * A bidi **formatting control** rather than a character (Phase 12.8): no id, no advance and
+     * nothing drawn. Kept in the array because dropping it would make every later glyph's index
+     * differ from the one the shaped run named, and because the source mapping is one-per-scalar
+     * only while it is there.
+     */
+    PaintGlyphFlagControl = 1u << 0,
+    /** A glyph several scalars were folded into (Phase 12.12): `sourceCount >= 2`. */
+    PaintGlyphFlagLigature = 1u << 1,
+    /** A combining mark (Phase 12.14): it may not be separated from the glyph before it. */
+    PaintGlyphFlagMark = 1u << 2,
+    /** The face had no glyph for the source scalars, or its metrics would not parse. */
+    PaintGlyphFlagMissing = 1u << 3
+} PaintGlyphFlag;
+
+/**
+ * One shaped glyph, as the paint layer carries it (Phase 12.16).
+ *
+ * The record is a **copy of the shaped facts** rather than a pointer to a `RoboTextGlyph`: a shape
+ * result is a temporary the recording pass destroys, and a display list that referenced it would be a
+ * list whose lifetime was someone else's. So the four numbers a renderer needs travel by value -- the
+ * id, the pen-relative placement, the two advances -- and so do the three facts a later selection
+ * needs: which **cluster** the glyph belongs to and the source range it came from.
+ *
+ * `sourceFirst`/`sourceCount` are **relative to the run's own span**, never document positions: a
+ * record whose source range named document offsets would have two coordinate spaces in one struct, and
+ * the run's span sits right beside them for a caller that wants an absolute range.
+ */
+typedef struct PaintGlyph {
+    /** The face's glyph id. Meaningful only together with the record's `fontToken`. */
+    uint16_t glyphId;
+    /** The cluster this glyph belongs to, as the run's own cluster index. */
+    uint32_t cluster;
+    /** First scalar of this glyph's source, relative to the run's span. */
+    uint32_t sourceFirst;
+    /** Scalars the glyph covers: 1 for an ordinary glyph, more for a ligature, 0 for a control. */
+    uint32_t sourceCount;
+    /** The advance the pen moves after this glyph, in px. Fractional, never rounded here. */
+    float advanceX;
+    /** See @ref advanceX: the vertical advance, zero for horizontal text. */
+    float advanceY;
+    /** Where the glyph sits relative to the pen, in px. Positioning is already in this number. */
+    float offsetX;
+    /** See @ref offsetX. */
+    float offsetY;
+    /** A bit word of @ref PaintGlyphFlag. */
+    uint32_t flags;
+} PaintGlyph;
+
+/** Clear @p glyph to the null glyph: id 0, no source, zero vectors. Safe on NULL. */
+void PaintGlyphInit(PaintGlyph *glyph);
+
+/** Non-zero when @p glyph is a record this build may carry: finite vectors and a well-formed source.
+ *  Safe on NULL. */
+int PaintGlyphIsValid(const PaintGlyph *glyph);
+
+/** Field-for-field equality. Safe on NULL (NULL == NULL). */
+int PaintGlyphEqual(const PaintGlyph *a, const PaintGlyph *b);
+
+/** Non-zero when @p glyph carries the `control` flag. Safe on NULL. */
+int PaintGlyphIsControl(const PaintGlyph *glyph);
+
+/**
+ * A span of **glyphs** inside a paint list's glyph pool: the same two-number shape as
+ * @ref PaintTextSpan, for the same reason.
+ */
+typedef struct PaintGlyphSpan {
+    /** Index of the first glyph in the pool. */
+    uint32_t first;
+    /** How many glyphs the span covers. */
+    uint32_t count;
+} PaintGlyphSpan;
+
+/** The empty span at @p at: a position in a pool rather than a run of it. */
+PaintGlyphSpan PaintGlyphSpanAt(uint32_t first);
+
+/** Non-zero when @p span covers nothing. */
+int PaintGlyphSpanIsEmpty(PaintGlyphSpan span);
+
+/**
+ * The token that names the face a glyph run was shaped with (Phase 12.16).
+ *
+ * A number, never a pointer, so a record carrying one is still a value: the face lives in a
+ * `PaintFontTable` the caller owns, and this is the key it registered the face under. Two sentinels and
+ * no other special values.
+ */
+typedef uint32_t PaintFontToken;
+
+/**
+ * No face: this record's glyph span is empty and nothing was shaped.
+ *
+ * The state a pass given no face records, and the one a run's `fontToken` holds exactly when its glyph
+ * span is empty -- the pair is an invariant rather than two fields a caller has to keep in step.
+ */
+#define PaintFontTokenNone ((PaintFontToken)0u)
+
+/**
+ * The **primary** face: the one the drawing pass itself was handed.
+ *
+ * The degenerate table, and the common case -- one document, one face, the recorder and the renderer
+ * given the same object by the same caller. A record carrying this token is drawn with the pass's own
+ * `face` argument, which keeps a caller with exactly one face from having to build a table to say so.
+ */
+#define PaintFontTokenPrimary ((PaintFontToken)1u)
+
+/** Tokens a table assigns are at or above this: neither sentinel is ever assigned. */
+#define PaintFontTokenFirstAssigned ((PaintFontToken)2u)
+
 /**
  * A span of **code points** inside a paint list's text pool.
  *
@@ -130,6 +274,24 @@ typedef struct PaintTextRun {
     int32_t baselineOffset;
     /** The font inputs the run was measured with. */
     LayoutTextStyle font;
+    /**
+     * Where this run's shaped glyphs are in the list's glyph pool (Phase 12.16).
+     *
+     * **Empty when the run was recorded without a face** -- the characters are here, nothing was shaped,
+     * and a replay counts the run `noFont` rather than drawing boxes it would have to invent a face to
+     * find. Non-empty means every glyph the run draws is in this span, in the run's own logical order, at
+     * the positions the shaper produced.
+     */
+    PaintGlyphSpan glyphs;
+    /**
+     * The face the glyphs came from, by token (Phase 12.16).
+     *
+     * `PaintFontTokenNone` **exactly when** @ref glyphs is empty: a pair of fields carrying one fact would
+     * be two facts that can disagree, so the invariant is stated and checked rather than assumed. A token
+     * that does not resolve in the drawing pass's own table is a counted miss and not a fallback to some
+     * other face -- a glyph id drawn with the wrong face is a different letter, not a wrong colour.
+     */
+    PaintFontToken fontToken;
 } PaintTextRun;
 
 /** Clear @p run to an empty span, no baseline and the CSS initial font inputs. Safe on
@@ -139,7 +301,7 @@ void PaintTextRunInit(PaintTextRun *run);
 /**
  * Non-zero when @p run is a record this build may carry.
  *
- * Three conditions, and each refuses a shape that would travel a stage too far:
+ * Four conditions, and each refuses a shape that would travel a stage too far:
  *
  *   a **non-empty span**. A text drawing with no characters is not a drawing, and an
  *   operation carrying one would be a command whose consumer does nothing -- so it is
@@ -151,7 +313,13 @@ void PaintTextRunInit(PaintTextRun *run);
  *   and **font inputs that are a record**: a finite, positive size in pixels, and a
  *   direction that is one of the two. The weight and the italic flag are not bounded here
  *   -- CSS allows a numeric weight outside the nine-value scale and RoboFont's own
- *   selection is a later phase's -- so they are carried as they were resolved.
+ *   selection is a later phase's -- so they are carried as they were resolved;
+ *   and the fourth (12.16): **the glyph span and the font token agree**. Either the span is empty and the
+ *   token is `PaintFontTokenNone`, or the span is non-empty and the token is one this build can name.
+ *   Glyphs without a face are ids a caller would have to guess a font for, and a face without glyphs
+ *   is a claim about a run that has nothing to draw -- both are refused here rather than sorted out
+ *   one layer down. The span's *bounds* against a pool are checked by the container that owns the pool
+ *   (`PaintListAppend`, `PaintDisplayListAppend`), because only it knows what its pool holds.
  */
 int PaintTextRunIsValid(const PaintTextRun *run);
 
@@ -162,6 +330,12 @@ int PaintTextRunEqual(const PaintTextRun *a,
 
 /** The span (an empty span for NULL). */
 PaintTextSpan PaintTextRunSpan(const PaintTextRun *run);
+
+/** The glyph span (an empty span for NULL): where this run's shaped glyphs are. */
+PaintGlyphSpan PaintTextRunGlyphs(const PaintTextRun *run);
+
+/** The face token the glyphs came from (`PaintFontTokenNone` for NULL, which is the empty-glyph state). */
+PaintFontToken PaintTextRunFontToken(const PaintTextRun *run);
 
 /** The baseline offset, in px (0 for NULL). */
 int32_t PaintTextRunBaselineOffset(const PaintTextRun *run);
@@ -275,6 +449,95 @@ Result PaintTextPoolRead(const PaintTextPool *pool,
                                        size_t outCapacity,
                                        size_t *outCount,
                                        PaintDiag *diag);
+
+/* ------------------------------------------------------------------ */
+/* The glyph pool                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The shaped glyphs a paint list carries, in one contiguous array it owns (Phase 12.16).
+ *
+ * The **same shape as the text pool** and for the same reasons -- contiguous, owned, cleared in place,
+ * grown on demand, read through a door that validates the span against the pool rather than trusting it --
+ * with the span arithmetic written **once** -- both pools live in `RoboPaintText.c`, and the wrap-safe
+ * containment test is a single static function they share, because a second copy of *that* is precisely the
+ * kind of thing that drifts. It is a second *type* and not a second implementation.
+ *
+ * One element is a `PaintGlyph` rather than a `uint32_t`, so the pool cannot be generic without giving up
+ * the element type; what must not be duplicated is the arithmetic, and it is not.
+ */
+typedef struct PaintGlyphPool PaintGlyphPool;
+
+/** Create an empty glyph pool. @return RoboOk; RoboInvalidArgument for NULL @p outPool; RoboOutOfMemory. */
+Result PaintGlyphPoolCreate(PaintGlyphPool **outPool,
+                            PaintDiag *diag);
+
+/** Destroy @p pool and its glyphs. Safe on NULL. */
+void PaintGlyphPoolDestroy(PaintGlyphPool *pool);
+
+/** Drop every glyph, keeping the capacity. Safe on NULL. */
+void PaintGlyphPoolClear(PaintGlyphPool *pool);
+
+/**
+ * Append @p count glyphs and hand back the span that names them.
+ *
+ * The one way glyphs enter a pool, so the span a record carries is always one the pool produced. A
+ * @p count of zero is **refused** -- it would return an empty span, which is the "no face" state rather
+ * than a run of glyphs, and the sentinel `PaintGlyphSpanAt` already spells that.
+ *
+ * @return RoboOk; RoboInvalidArgument for NULL arguments, a NULL @p glyphs with a non-zero count, a count
+ *         of zero, or a glyph that is not a valid record; RoboOutOfMemory.
+ */
+Result PaintGlyphPoolAppend(PaintGlyphPool *pool,
+                            const PaintGlyph *glyphs,
+                            size_t count,
+                            PaintGlyphSpan *outSpan,
+                            PaintDiag *diag);
+
+/**
+ * Copy a run from @p source into @p pool, handing back the span that names it here.
+ *
+ * The one door between two pools, and the builder's whole use of it: a display list owns its own glyphs,
+ * so every span in the output has to be renumbered into the output's pool.
+ *
+ * @return RoboOk; RoboInvalidArgument for NULL arguments or a @p span the source does not contain;
+ *         RoboOutOfMemory.
+ */
+Result PaintGlyphPoolCopy(PaintGlyphPool *pool,
+                          const PaintGlyphPool *source,
+                          PaintGlyphSpan span,
+                          PaintGlyphSpan *outSpan,
+                          PaintDiag *diag);
+
+/** Glyphs in @p pool (0 for NULL). */
+size_t PaintGlyphPoolCount(const PaintGlyphPool *pool);
+
+/** Glyphs @p pool can hold before growing (0 for NULL). */
+size_t PaintGlyphPoolCapacity(const PaintGlyphPool *pool);
+
+/** The glyphs, borrowed and contiguous, or NULL when the pool is empty. Valid until the next append.
+ *  Nothing points into it. */
+const PaintGlyph *PaintGlyphPoolGlyphs(const PaintGlyphPool *pool);
+
+/** Non-zero when @p span lies inside @p pool. */
+int PaintGlyphPoolContains(const PaintGlyphPool *pool,
+                           PaintGlyphSpan span);
+
+/**
+ * The glyphs @p span covers, by value, into @p out.
+ *
+ * @param outCapacity glyphs @p out can hold.
+ * @param outCount    non-NULL; receives the glyphs written.
+ * @return RoboOk; RoboInvalidArgument for NULL arguments or a @p span the pool does not contain;
+ *         RoboNotSupported when @p outCapacity is too small, in which case @p outCount receives the count
+ *         it would have needed.
+ */
+Result PaintGlyphPoolRead(const PaintGlyphPool *pool,
+                          PaintGlyphSpan span,
+                          PaintGlyph *out,
+                          size_t outCapacity,
+                          size_t *outCount,
+                          PaintDiag *diag);
 
 #ifdef __cplusplus
 }

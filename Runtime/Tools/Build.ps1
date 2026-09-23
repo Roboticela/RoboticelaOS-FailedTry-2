@@ -385,6 +385,10 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboPaint\RoboPaintDisplayDump.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintColor.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintText.c"),
+    # Phase 12.16 -- the paint/layout bridge. `RoboPaintFontTable.c` is the token-to-face mapping the glyph
+    # runs in a display list need: a glyph id is meaningless without the face that produced it, and a token
+    # keeps a record a pointer-free value so a list stays safe to copy and to rebuild.
+    (Join-Path $SourceDir "RoboPaint\RoboPaintFontTable.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintHitTest.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintImage.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintInvalidation.c"),

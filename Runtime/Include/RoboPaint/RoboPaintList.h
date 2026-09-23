@@ -38,6 +38,20 @@
  * container, because "does this span name characters in this pool?" is the one question a
  * record cannot answer about itself. Characters enter only through `add_text`, so a span
  * in a record in a list always names the pool that list owns.
+ *
+ * Since 12.16 a list owns **three** arrays, and the third one is the second one's argument
+ * applied to a second kind of variable-length data. A shaped text run is a sequence of
+ * glyphs, so the glyphs live in a **glyph pool** (`RoboPaintText.h`, beside the text pool it
+ * belongs with) and a text operation carries a span into it as well. The two pools are the two
+ * halves of one record and are therefore created, cleared and grown together -- a list
+ * that reset its characters and kept its glyphs would hold records whose halves disagree
+ * about which run they describe. The glyph span is checked at `append` for the same reason
+ * the character span is: "do these glyphs exist in this list?" is a question about the
+ * container, not about the record.
+ *
+ * The fourth array is the **faces** (`PaintListFontTable`), because a glyph id is a number in one font and
+ * nothing in another: a record names its face by a token, and the table that mints tokens is the list's, so
+ * a token in a record is always one the list it sits in can resolve.
  */
 #ifndef ROBO_PAINT_LIST_H
 #define ROBO_PAINT_LIST_H
@@ -45,6 +59,7 @@
 #include "RoboBase/RoboError.h"
 
 #include "RoboPaint/RoboPaintDiagnostics.h"
+#include "RoboPaint/RoboPaintFontTable.h"
 #include "RoboPaint/RoboPaintOperation.h"
 #include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
@@ -114,8 +129,9 @@ Result PaintListReserve(PaintList *list,
  * The operation is copied by value; the caller keeps ownership of its argument.
  *
  * @return RoboOk; RoboInvalidArgument for NULL arguments, an operation that is not a
- *         record, or a `TEXT` operation whose span is not a run in this list's pool
- *         (@p list is left untouched); RoboOutOfMemory.
+ *         record, a `TEXT` operation whose character span is not a run in this list's
+ *         text pool, or one whose **non-empty** glyph span is not a run in this list's
+ *         glyph pool (@p list is left untouched); RoboOutOfMemory.
  */
 Result PaintListAppend(PaintList *list,
                                     const PaintOperation *operation,
@@ -154,6 +170,44 @@ Result PaintListAddText(PaintList *list,
  * pool whose spans name nothing.
  */
 PaintTextPool *PaintListTextPool(const PaintList *list);
+
+/**
+ * Append @p count shaped glyphs to the list's glyph pool and hand back the span naming them.
+ *
+ * The **only** way glyphs enter a list, and the same pairing as `PaintListAddText`: a traversal
+ * shapes a run, calls this, and puts the span it returns into the operation it appends. The two
+ * calls together state one thing, which is what makes `append`'s glyph-span check a rule rather
+ * than a formality.
+ *
+ * @return RoboOk; RoboInvalidArgument for NULL arguments, a NULL @p glyphs with a non-zero
+ *         count, or a count of zero (an empty span is a position, not a run); RoboOutOfMemory.
+ */
+Result PaintListAddGlyphs(PaintList *list,
+                          const PaintGlyph *glyphs,
+                          size_t count,
+                          PaintGlyphSpan *outSpan,
+                          PaintDiag *diag);
+
+/**
+ * The list's glyph pool, borrowed; NULL for a NULL list.
+ *
+ * The door a consumer needs to read a text operation's glyphs (`PaintGlyphPoolRead`) and the door
+ * the display list's builder needs to copy them across. Borrowed, and it is the list's: a pool that
+ * outlived its list would be a pool whose spans name nothing.
+ */
+PaintGlyphPool *PaintListGlyphPool(const PaintList *list);
+
+/**
+ * The list's font table, borrowed; NULL for a NULL list.
+ *
+ * The faces its glyph spans were shaped with, as tokens (`RoboPaintFontTable.h`), owned here for the same
+ * reason the pools are: a run registers the face it shaped with (`PaintFontTableAdd`) through this door and
+ * the record it appends carries the token, so **the table a record's token is meaningful in is always the
+ * table of the list that record is in**. That is the property the display list's builder depends on when it
+ * copies each token across (`PaintFontTableCopy`), and the reason a caller with exactly one face never
+ * builds a table at all: it records `PaintFontTokenPrimary` and the drawing pass uses its own `face`.
+ */
+PaintFontTable *PaintListFontTable(const PaintList *list);
 
 /**
  * The operation at @p index, by value.

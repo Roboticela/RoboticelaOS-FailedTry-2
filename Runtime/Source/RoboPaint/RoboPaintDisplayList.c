@@ -36,6 +36,26 @@ struct PaintDisplayList {
      * or destroyed under it. Copying them is what makes "a display list is a snapshot" true
      * for text as it already was for geometry. */
     PaintTextPool *text;
+    /**
+     * The **shaped** glyphs this list's `DRAW_TEXT` commands name, owned here (12.16).
+     *
+     * The record list's third array at this artifact's element type, and the snapshot argument
+     * is the whole reason it is here: a command's glyph span names the pool the *builder* filled
+     * it from, and that pool belongs to the record list. Copying the glyphs is what makes "a
+     * display list is a snapshot of shaped text" true at the same strength as it already was for
+     * geometry -- a display list can outlive the paint pass that produced it.
+     */
+    PaintGlyphPool *glyphs;
+    /**
+     * The faces this list's `DRAW_TEXT` commands name, owned here (12.16).
+     *
+     * The same snapshot at one remove: a glyph says *which* glyph in *which* face, and the face
+     * is the resource a renderer needs to rasterize it. The table is a value list of borrowed
+     * faces and pointer-free tokens (`RoboPaintFontTable.h`), so copying it across gives this
+     * list its own view of the faces its commands draw with, and gives each command a token that
+     * is meaningful in **this** list's table rather than in the record list's.
+     */
+    PaintFontTable *fonts;
 };
 
 /**
@@ -91,6 +111,21 @@ Result PaintDisplayListCreate(PaintDisplayList **outList,
         return RoboPaintDiag(diag, RoboPaintDomainDisplayList, RoboOutOfMemory,
                                "could not allocate the display list's text pool");
     }
+    if (PaintGlyphPoolCreate(&list->glyphs, diag) != RoboOk) {
+        PaintTextPoolDestroy(list->text);
+        RoboFree(commands);
+        RoboFree(list);
+        return RoboPaintDiag(diag, RoboPaintDomainDisplayList, RoboOutOfMemory,
+                               "could not allocate the display list's glyph pool");
+    }
+    if (PaintFontTableCreate(&list->fonts, diag) != RoboOk) {
+        PaintGlyphPoolDestroy(list->glyphs);
+        PaintTextPoolDestroy(list->text);
+        RoboFree(commands);
+        RoboFree(list);
+        return RoboPaintDiag(diag, RoboPaintDomainDisplayList, RoboOutOfMemory,
+                               "could not allocate the display list's font table");
+    }
     *outList = list;
     return RoboOk;
 }
@@ -107,6 +142,8 @@ void PaintDisplayListDestroy(PaintDisplayList *list)
      */
     PaintDisplayListReleaseCommands(list, list->count);
     PaintTextPoolDestroy(list->text);
+    PaintGlyphPoolDestroy(list->glyphs);
+    PaintFontTableDestroy(list->fonts);
     RoboFree(list->commands);
     RoboFree(list);
 }
@@ -128,6 +165,8 @@ void PaintDisplayListClear(PaintDisplayList *list)
     PaintDisplayListReleaseCommands(list, list->count);
     list->count = 0u;
     PaintTextPoolClear(list->text);
+    PaintGlyphPoolClear(list->glyphs);
+    PaintFontTableClear(list->fonts);
 }
 
 Result PaintDisplayListReserve(PaintDisplayList *list,
@@ -180,6 +219,29 @@ Result PaintDisplayListAppend(PaintDisplayList *list,
         !PaintTextPoolContains(list->text, command->text.span)) {
         return RoboPaintDiag(diag, RoboPaintDomainDisplayList, RoboInvalidArgument,
                                "the command's text span is not a run in this list's pool");
+    }
+    /*
+     * The glyphs and the face, and they are one rule: the command's characters are the ones this
+     * list copied, its glyphs are the ones this list copied, and its face token is an index into
+     * **this** list's font table. A consumer that draws a command therefore reads all three from
+     * the list it was handed, which is the snapshot property stated as three checks rather than a
+     * promise. Both are skipped for the "no face" state, whose glyph span is empty and whose token
+     * is no token (`PaintTextRunIsValid` is where that pairing was established).
+     */
+    if (command->kind == RoboPaintDisplayCmdDrawText &&
+        !PaintGlyphSpanIsEmpty(command->text.glyphs) &&
+        !PaintGlyphPoolContains(list->glyphs, command->text.glyphs)) {
+        return RoboPaintDiag(diag, RoboPaintDomainDisplayList, RoboInvalidArgument,
+                               "the command's glyph span is not a run in this list's glyph pool");
+    }
+    if (command->kind == RoboPaintDisplayCmdDrawText &&
+        command->text.fontToken >= PaintFontTokenFirstAssigned) {
+        FontFace *face = NULL;
+
+        if (PaintFontTableResolve(list->fonts, command->text.fontToken, &face, diag) != RoboOk) {
+            return RoboPaintDiag(diag, RoboPaintDomainDisplayList, RoboInvalidArgument,
+                                   "the command's font token is not a face in this list's table");
+        }
     }
     if (list->count == list->capacity) {
         size_t wanted = list->capacity < 1u ? 1u : list->capacity * 2u;
@@ -258,6 +320,16 @@ int PaintDisplayListEqual(const PaintDisplayList *a, const PaintDisplayList *b)
 PaintTextPool *PaintDisplayListTextPool(const PaintDisplayList *list)
 {
     return list ? list->text : NULL;
+}
+
+PaintGlyphPool *PaintDisplayListGlyphPool(const PaintDisplayList *list)
+{
+    return list ? list->glyphs : NULL;
+}
+
+PaintFontTable *PaintDisplayListFontTable(const PaintDisplayList *list)
+{
+    return list ? list->fonts : NULL;
 }
 
 size_t PaintDisplayListCountOfKind(const PaintDisplayList *list,

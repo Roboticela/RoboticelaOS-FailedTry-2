@@ -75,10 +75,12 @@ artifact is render-ready rather than merely resolved. 11.8's and 11.9's is the *
 scope establishes**: both halves of a clip pair carry the same `clip` and both halves of an
 opacity pair the same `opacity` (`Opacity.md` §3), so a scope is self-identifying and a consumer
 that restores its own stack never reads a second value. 11.6's is the **run** (`draw-text`), which
-is the one field on this model that names another container: a span into **this list's own**
-code-point pool, a baseline offset and the font inputs (`paint/docs/Text.md`). The pool is the
-list's own rather than the record list's -- the builder copies each span across -- which is what
-keeps 11.2's snapshot property true of the artifact as well as of the sequence.
+names **two** containers: a span into **this list's own** code-point pool and, since 12.16, a span
+into its own **glyph pool** plus a `PaintFontToken` into its own face table, with a baseline offset
+and the font inputs (`paint/docs/Text.md`, `Text/PaintBridge.md`). Both pools and the table are the
+list's own rather than the record list's -- the builder copies each span and token across -- which is
+what keeps 11.2's snapshot property true of the artifact as well as of the sequence, and makes a
+replay shape nothing.
 
 The vocabulary splits the operation vocabulary's way: **structural** commands
 (`BEGIN_NODE`, `CONTENT`, `PUSH_CLIP`, `POP_CLIP`, `PUSH_OPACITY`, `POP_OPACITY`, `END_NODE`) are

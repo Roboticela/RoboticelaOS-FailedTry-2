@@ -183,22 +183,47 @@ void PaintDisplayListBuilderReset(PaintDisplayListBuilder *builder)
 /* Conversion                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The two lists a text run crosses between, in one record (Phase 12.16).
+ *
+ * A text record names its characters, its shaped glyphs and its face in pools that belong to the
+ * **record** list, and a display command has to name all three in the **output** list's own. So a text
+ * conversion really is one copy per kind, and this record is the three pairs gathered once at the top of
+ * the build rather than three more parameters threaded through every call below -- the same reason
+ * `PaintBoxes` is one member rather than three a record can carry half of. Nothing here is retained past
+ * the build: the sources are borrowed, and the targets are the output list's own, which is why an output
+ * list that outlived the record list still draws.
+ */
+typedef struct DisplayTransfer {
+    /** The record list's characters. */
+    const PaintTextPool *textSource;
+    /** The output list's characters. */
+    PaintTextPool *textTarget;
+    /** The record list's shaped glyphs (12.16). */
+    const PaintGlyphPool *glyphSource;
+    /** The output list's shaped glyphs. */
+    PaintGlyphPool *glyphTarget;
+    /** The faces the record list's glyphs came from. */
+    const PaintFontTable *fontSource;
+    /** The faces this output list's tokens name. */
+    PaintFontTable *fontTarget;
+} DisplayTransfer;
+
 /** Fill @p out with the display command @p operation resolves to.
  *
- * @param textTarget the output list's text pool. A `TEXT` record's characters are copied
- *                    into it here, because a display command names characters in **its
- *                    own** list's pool -- the record list's pool is the other list's, and a
- *                    span that still pointed there would be a command that stopped meaning
- *                    anything the moment that list was cleared. Passing NULL is legal and
- *                    makes a text record resolve to an error, which only a caller that
- *                    built a list with no pool could do.
+ * @param move the record list and the output list, paired by kind. A `TEXT` record's characters,
+ *             glyphs and face are copied across here, because a display command names all three in
+ *             **its own** list -- the record list's pools are the other list's, and a span or token
+ *             that still pointed there would be a command that stopped meaning anything the moment
+ *             that list was cleared or refilled. Passing NULL pools is legal and makes a text record
+ *             resolve to an error, which only a caller that built a list with no pool could do.
  *
  * @return RoboOk; RoboError for an operation this build has no rule for, a border whose
- *         band cannot be derived, or a text run whose characters cannot be copied.
+ *         band cannot be derived, or a text run whose characters, glyphs or face cannot be
+ *         copied.
  */
 static Result DisplayCommandFor(const PaintOperation *operation,
-                                         const PaintTextPool *textSource,
-                                         PaintTextPool *textTarget,
+                                         const DisplayTransfer *move,
                                          PaintDisplayCommand *out,
                                          PaintDiag *diag)
 {
@@ -251,8 +276,32 @@ static Result DisplayCommandFor(const PaintOperation *operation,
          * -- the baseline offset and the font inputs -- are values and copy straight
          * across, so "the size it was measured at is the size it will be drawn at" is a
          * copy rather than an agreement to maintain. */
-        if (PaintTextPoolCopy(textTarget, textSource, operation->text.span,
+        if (PaintTextPoolCopy(move->textTarget, move->textSource, operation->text.span,
                                       &out->text.span, diag) != RoboOk) {
+            return RoboError;
+        }
+        /*
+         * Then the shaped half, and it is a **copy** rather than a pointer for the reason
+         * `RoboPaintFontTable.h` argues at length: the record's glyph span indexes the record list's
+         * glyph pool and its token indexes that list's font table, and both of those die with the record
+         * list. A display list that kept the spans would be a list whose text stopped meaning anything
+         * when the pass that produced it ended -- which is exactly the dangling reference 11.6's pool
+         * exists to make impossible. The glyphs are values, the token is a number, and both are cheap.
+         *
+         * The token copy is skipped for the empty-glyph state, whose token is `None` and names nothing:
+         * `PaintFontTableCopy` carries both sentinels across by itself, so the two halves of the pairing
+         * travel together whatever this build records.
+         */
+        if (!PaintGlyphSpanIsEmpty(operation->text.glyphs)) {
+            if (PaintGlyphPoolCopy(move->glyphTarget, move->glyphSource,
+                                            operation->text.glyphs, &out->text.glyphs,
+                                            diag) != RoboOk) {
+                return RoboError;
+            }
+        }
+        if (PaintFontTableCopy(move->fontTarget, move->fontSource,
+                                      operation->text.fontToken, &out->text.fontToken,
+                                      diag) != RoboOk) {
             return RoboError;
         }
         return RoboOk;
@@ -479,8 +528,7 @@ Result PaintDisplayListBuilderBuild(PaintDisplayListBuilder *builder,
                                               PaintDiag *diag)
 {
     PaintDisplayListStats stats;
-    PaintTextPool *textTarget;
-    const PaintTextPool *textSource;
+    DisplayTransfer move;
     size_t count;
     size_t index;
 
@@ -488,13 +536,16 @@ Result PaintDisplayListBuilderBuild(PaintDisplayListBuilder *builder,
         return RoboPaintDiag(diag, RoboPaintDomainDisplayList, RoboInvalidArgument,
                                "the builder, the records and the output list are required");
     }
-    /* The two pools a text run crosses between: the record list's, which holds the
-     * characters the traversal read, and the output list's, which will hold the copy this
-     * artifact owns. Both are borrowed for the duration of the build and neither is
-     * retained -- an output list that kept a pointer to the record list's pool would be
-     * exactly the dangling reference the pool exists to make impossible. */
-    textTarget = PaintDisplayListTextPool(outList);
-    textSource = PaintListTextPool(records);
+    /* The three pairs a text run crosses between: the record list's characters, glyphs and faces, and
+     * the output list's own copies of each. The sources are borrowed for the duration of the build and
+     * nothing of them is retained past it -- an output list that kept a pointer to the record list's
+     * pool would be exactly the dangling reference the pool exists to make impossible. */
+    move.textTarget = PaintDisplayListTextPool(outList);
+    move.textSource = PaintListTextPool(records);
+    move.glyphTarget = PaintDisplayListGlyphPool(outList);
+    move.glyphSource = PaintListGlyphPool(records);
+    move.fontTarget = PaintDisplayListFontTable(outList);
+    move.fontSource = PaintListFontTable(records);
 
     /*
      * The list is cleared first, so a caller may reuse one display list across builds and a
@@ -553,8 +604,7 @@ Result PaintDisplayListBuilderBuild(PaintDisplayListBuilder *builder,
                 (void)PaintOpacityStackPop(builder->opacities, NULL);
                 builder->open[builder->openCount - 1u].opacityOpen = 0u;
             }
-            if (DisplayCommandFor(&operation, textSource, textTarget, &command, diag) !=
-                RoboOk) {
+            if (DisplayCommandFor(&operation, &move, &command, diag) != RoboOk) {
                 return DisplayRefuse(outList, diag,
                                       "an opacity scope resolves to no display command");
             }
@@ -633,8 +683,7 @@ Result PaintDisplayListBuilderBuild(PaintDisplayListBuilder *builder,
                 (void)PaintClipStackPop(builder->clips, NULL);
                 top->scopeOpen = 0u;
             }
-            if (DisplayCommandFor(&operation, textSource, textTarget, &command, diag) !=
-                RoboOk) {
+            if (DisplayCommandFor(&operation, &move, &command, diag) != RoboOk) {
                 return DisplayRefuse(outList, diag,
                                       "a clip scope resolves to no display command");
             }
@@ -747,8 +796,7 @@ Result PaintDisplayListBuilderBuild(PaintDisplayListBuilder *builder,
                                           "a text run precedes its parent box's content "
                                           "boundary");
                 }
-                if (DisplayCommandFor(&operation, textSource, textTarget, &command,
-                                        diag) != RoboOk) {
+                if (DisplayCommandFor(&operation, &move, &command, diag) != RoboOk) {
                     return DisplayRefuse(outList, diag,
                                           "a text run's characters could not be copied");
                 }
@@ -811,8 +859,7 @@ Result PaintDisplayListBuilderBuild(PaintDisplayListBuilder *builder,
             }
         }
 
-        if (DisplayCommandFor(&operation, textSource, textTarget, &command, diag) !=
-            RoboOk) {
+        if (DisplayCommandFor(&operation, &move, &command, diag) != RoboOk) {
             return DisplayRefuse(outList, diag,
                                   "an operation resolves to no display command");
         }

@@ -212,6 +212,36 @@ Result PaintGetCapabilities(PaintCapabilities *out)
      * is what RoboLayout concluded, and an image that is missing draws nothing and is counted.
      */
     out->imagePainting = 1;
+    /*
+     * **1 since 12.16**, and the fifth field about a *drawing*: a text record carries the **shaped glyphs**
+     * themselves -- ids, placements, advances, clusters and source ranges, plus the token naming the face they
+     * came from -- rather than the code points a replay would have to resolve again. `RoboPaintText.h` states
+     * the two halves and why the record keeps both: the characters are what a selection and a copy will read,
+     * and the glyphs are what a replay draws without a `cmap`.
+     *
+     * Read beside `textPainting`, which says the glyphs reach a surface and says nothing about where they came
+     * from -- a build can draw text by looking a character up in a face's `cmap` while drawing it, which is what
+     * this module did from 11.6 to 12.15 and what this field rules out. And read beside `shapedTextRecording`
+     * below, which is the *when* to this field's *what*.
+     */
+    out->glyphRuns = 1;
+    /*
+     * **1 since 12.16**, and the phase's central claim: a run's characters become glyphs while the document is
+     * **recorded**, once, and a replay of the list that results shapes nothing -- no decoding, no font
+     * selection, no GSUB, no GPOS, no kerning and no `cmap`, because `PaintContextSetTextFace` gave the
+     * recording pass the face and the pass stored what it produced (`PaintShapeRun`).
+     *
+     * The two consequences a caller should read here: a display list's glyphs and faces are its **own copies**,
+     * so it draws the same ink after the record list that produced it is gone and without a face argument; and
+     * a frame costs the pen arithmetic rather than a shaping pass -- the reason the phase exists, because the
+     * expensive answer is now computed once per document rather than once per frame.
+     *
+     * It does **not** claim a glyph cache, an atlas, batching across compatible runs, subpixel-phase-keyed
+     * rasterization, or a **cache**'s harder senses -- and it does not claim that a document names more than one
+     * face: the recorder is handed one, and `glyphRuns` above says what the token vocabulary already makes
+     * possible for the phase that lifts that.
+     */
+    out->shapedTextRecording = 1;
     return RoboOk;
 }
 

@@ -2,7 +2,53 @@
  * RoboPaint version pin — Phase 11.1 paint architecture, 11.2 paint records, 11.3
  * display lists, 11.4 background painting, 11.5 border painting, 11.6 text painting,
  * 11.7 image painting, 11.8 clipping, 11.9 opacity, 11.10 hit testing,
- * 11.11 paint invalidation, 11.12 rasterization (the bounded door and `raster`).
+ * 11.11 paint invalidation, 11.12 rasterization (the bounded door and `raster`),
+ * 12.16 the glyph-run bridge (shaped text on the record).
+ *
+ * **0.13.0 (12.16) is the release that moves text shaping out of the frame loop**, and it is the first
+ * one whose subject is a *payload* rather than a drawing. Every release above this module's first one
+ * answered a question about the sequence -- what will be drawn, in what order, bounded how, at what
+ * strength -- and 12.16 answers one about a text run: **what is in it when it gets there**. The answer
+ * changed twice before it was right:
+ *
+ *     11.6     the record carries the run's **characters**, and the painter looks each one up in a `cmap`
+ *     12.4     the record carries the characters, and the painter resolves them through RoboText -- which
+ *              shapes them **on every frame the list is replayed**
+ *     12.16    the record carries the characters **and the glyphs**, and the painter shapes nothing
+ *
+ * The middle step was the architecturally right one and the operationally wrong one, and the reason is
+ * worth stating because it is the entire phase: shaping is expensive (decode, select a face, segment,
+ * GSUB, GPOS, kern, generate glyphs), it is **deterministic** given the same text and face, and a display
+ * list is replayed many times. So it happens once, where the document is recorded, and what a replay walks
+ * is eight numbers and a flag word per glyph (`PaintGlyph`).
+ *
+ * A glyph id alone is not enough, and that is the second half of the release: 42 is a letter in one face
+ * and a different letter in another. So a run names its face by a **token** into a table the list owns
+ * (`RoboPaintFontTable.h`) rather than by a borrowed pointer -- which keeps 11.6's property that a record
+ * is a value with no pointers in it, a list is safe to copy and rebuild, and "no dangling pointer" is true
+ * by construction rather than by discipline -- and a token that does not resolve is a **counted miss**
+ * rather than a fallback, because a glyph id drawn with the wrong face is a different letter rather than a
+ * wrong colour.
+ *
+ * The three consequences the release claims, each asserted where it is observable:
+ *
+ *   **a replay shapes nothing.** No decoding, no font selection, no GSUB, no GPOS, no kerning, no `cmap`
+ *   lookup anywhere in the paint path -- and therefore no way for what is drawn to disagree with what was
+ *   measured, because the numbers are the ones the measurement read;
+ *   **a display list is a snapshot of shaped text**, at the same strength it already was for geometry: it
+ *   owns the glyphs *and* the faces its tokens name, so it draws the same ink after the record list that
+ *   produced it is gone -- and with **no face argument at all**, because the token resolves inside the list
+ *   it came in;
+ *   **the characters stay.** The record keeps both halves: the code points are what a selection, a hit test
+ *   and a copy will read (Phase 12.21), and the glyphs are what a replay draws. A build that kept only the
+ *   glyphs would be a list only one font could describe.
+ *
+ * What 12.16 does **not** do, each named where a reader would look for it: no glyph cache, no atlas, no
+ * batching across compatible runs, no subpixel-phase-keyed rasterization and no multi-face recorder -- the
+ * recorder is given one face (`PaintContextSetTextFace`) and the token vocabulary is what a later phase
+ * lifts that with. It adds no `SAVE_STATE`/`RESTORE_STATE`, no layout, no line breaking, no caret or
+ * selection geometry, no hit testing inside a run and no new drawing kind: the three drawing kinds and the
+ * two scope pairs are exactly what 11.12 executed, with one of them carrying a different payload.
  *
  * **0.12.0 (11.12) is the release that closes this module's own capability table**, and it does it
  * with a change to *one door* rather than with a rasteriser of its own: the decoration pass gained
@@ -388,9 +434,9 @@
 #define ROBO_PAINT_VERSION_H
 
 #define RoboPaintVersionMajor 0
-#define RoboPaintVersionMinor 12
+#define RoboPaintVersionMinor 13
 #define RoboPaintVersionPatch 0
-#define RoboPaintVersionString "0.12.0"
+#define RoboPaintVersionString "0.13.0"
 
 /** 1 once the Phase 11 surface is frozen (not yet — see the header comment). */
 #define RoboPaintApiFrozen 0

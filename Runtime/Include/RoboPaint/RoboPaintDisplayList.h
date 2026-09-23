@@ -30,6 +30,14 @@
  * capacity so a renderer that rebuilds every frame reuses one list. The next build
  * recomputes every command from scratch, because a partially updated list would be a
  * cache of conclusions nothing can validate.
+ *
+ * Since 11.6 a list also owns the variable-length data its commands **name**, and since
+ * 12.16 that is three arrays rather than two: the code points of its text runs, the
+ * **shaped glyphs** those runs draw (12.16), and the **faces** they were shaped with. All
+ * three are value storage the builder copies across, which is what keeps the paragraph
+ * above true -- a command names a span into an array *this* list owns, so a display list
+ * still has no reference to the record list, the tree or the font objects, and is still
+ * safe to hand between a frame's recorder and its rasteriser.
  */
 #ifndef ROBO_PAINT_DISPLAY_LIST_H
 #define ROBO_PAINT_DISPLAY_LIST_H
@@ -38,6 +46,7 @@
 
 #include "RoboPaint/RoboPaintDisplayCommand.h"
 #include "RoboPaint/RoboPaintDiagnostics.h"
+#include "RoboPaint/RoboPaintFontTable.h"
 #include "RoboPaint/RoboPaintText.h"
 
 #ifdef __cplusplus
@@ -133,8 +142,19 @@ Result PaintDisplayListReserve(PaintDisplayList *list,
  * refused, so every list a consumer reads is a list of commands. The command is copied by
  * value; the caller keeps ownership of its argument.
  *
- * @return RoboOk; RoboInvalidArgument for NULL arguments or an invalid command
- *         (@p list is left untouched); RoboOutOfMemory.
+ * A `DRAW_TEXT` command is held to two further rules, and they are the ones this container is the only
+ * possible place for -- the paint list's character-span rule, twice more:
+ *
+ *   its **character** span must lie inside this list's text pool, and its **glyph** span (when it has
+ *   one) inside this list's glyph pool, because "do these characters and these glyphs exist here?" is a
+ *   question only the container that owns them can answer;
+ *   its **font token**, when it is an assigned one, must resolve in this list's font table, so a consumer
+ *   that reads a command and draws it never has to ask which table the token was minted in. Both
+ *   sentinels are exempt and that is the point of them: the primary face is the drawing pass's own
+ *   argument and "no face" names nothing.
+ *
+ * @return RoboOk; RoboInvalidArgument for NULL arguments, an invalid command, or a `DRAW_TEXT` command
+ *         whose spans or token do not belong to this list (@p list is left untouched); RoboOutOfMemory.
  */
 Result PaintDisplayListAppend(PaintDisplayList *list,
                                       const PaintDisplayCommand *command,
@@ -159,6 +179,32 @@ size_t PaintDisplayListCapacity(const PaintDisplayList *list);
  * The door a consumer reads through, with `PaintTextPoolRead`.
  */
 PaintTextPool *PaintDisplayListTextPool(const PaintDisplayList *list);
+
+/**
+ * The list's glyph pool, borrowed; NULL for a NULL list.
+ *
+ * A display list owns the **shaped** glyphs its `DRAW_TEXT` commands index, for exactly the reason
+ * above and one more: shaping is what a record list paid for, and a command's glyph span names *that*
+ * list's pool -- so a display list that did not copy the glyphs would be a snapshot whose glyphs could
+ * be cleared out from under it. Beyond the copy, ownership is a second table's worth of value records
+ * and nothing else: a glyph is eight numbers and a flag word, so `destroy` frees one array.
+ *
+ * The door a consumer reads through, with `PaintGlyphPoolRead`.
+ */
+PaintGlyphPool *PaintDisplayListGlyphPool(const PaintDisplayList *list);
+
+/**
+ * The list's font table, borrowed; NULL for a NULL list.
+ *
+ * The faces its text commands draw with, as tokens (`RoboPaintFontTable.h`), **owned by this list** and
+ * separate from the record list's table on purpose: a token is an index into one table, and a command
+ * whose token was meaningful in the table it was built from would be a command a consumer could only draw
+ * by holding that other list too. The builder copies each run's face across, which is what makes a
+ * display list independently drawable -- the faces themselves stay the caller's, as they always were.
+ *
+ * The door the drawing pass resolves through, with `PaintFontTableResolve`.
+ */
+PaintFontTable *PaintDisplayListFontTable(const PaintDisplayList *list);
 
 /** The command at @p index, by value.
  *  @return RoboOk; RoboInvalidArgument for NULL arguments; RoboNotFound for an

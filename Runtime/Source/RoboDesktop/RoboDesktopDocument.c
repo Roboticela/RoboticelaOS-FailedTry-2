@@ -428,6 +428,14 @@ Result DesktopDocumentBuild(const DesktopDocumentConfig *config,
         status = PaintContextCreate(&paint, &paintDiag);
     }
     if (status == RoboOk) {
+        /*
+         * The face the pass **shapes** with (12.16): the same one the document was measured against, so the
+         * glyphs a run records are the glyphs the line was broken against, and the pass is where they are
+         * produced rather than each frame's drawing pass. A document built without a face records its
+         * characters and no glyphs, and a drawing pass says `noFont` -- the pre-12.16 shape, which is what a
+         * caller that only wants the text's placement can still ask for.
+         */
+        PaintContextSetTextFace(paint, document->face);
         status = PaintContextRun(paint, document->tree, document->records, &paintDiag);
     }
     if (paint) {

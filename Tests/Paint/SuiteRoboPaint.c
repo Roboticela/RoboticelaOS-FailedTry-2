@@ -141,14 +141,14 @@ static void TestPaintModuleLifecycle(void)
 
     PaintFixture();
 
-    RoboCheckStrEq(PaintVersionString(), "0.12.0");
+    RoboCheckStrEq(PaintVersionString(), "0.13.0");
     RoboCheckEqInt(PaintGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt((int)major, 0);
-    /* 11.12 is the release that turned the **last** field of the capability table, and it turned it
-     * with one door rather than with a rasteriser of this module's own: the decoration pass gained a
-     * bound (`PaintDecorationPaintBounded`) and the unbounded door became that door with no
-     * rectangle. No meaning in the frozen v1 surface changed. */
-    RoboCheckEqInt((int)minor, 12);
+    /* 12.16 is the release that moves text shaping out of the frame loop: a text record carries the
+     * glyphs the run shaped to (and the face they belong to as a token the list owns) rather than
+     * only the characters, so a replay looks nothing up in a cmap and shapes nothing. No meaning in
+     * the frozen v1 surface changed -- one drawing kind carries a different payload. */
+    RoboCheckEqInt((int)minor, 13);
     RoboCheckEqInt((int)patch, 0);
     /* The three-way agreement the version header promises: the constant, the door and
      * the capability field are one statement -- and since 11.4 (backgrounds), 11.5
