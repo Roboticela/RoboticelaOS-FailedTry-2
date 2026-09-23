@@ -190,6 +190,35 @@ owns it. It binds and caches; it does not parse, rasterize or shape.
   Host` (which includes the three galleries and the boundary scan) passes. `TestDesktop.ps1 -Target
   Qemu` when the guest image is involved.
 
+### CSS font wiring — the resolved font request (Phase 12.17, in progress)
+
+**CSS chooses the requested typography; RoboText chooses the actual font.** 12.17 is landing in two halves and
+only the first is in the tree.
+
+**Landed: the resolved font request** in `Runtime/Source/RoboLayout/RoboLayoutFontRequest.c` + public
+`Runtime/Include/RoboLayout/RoboLayoutFontRequest.h` (`layout.fontrequest.*`,
+`Documentation/Runtime/Layout/FontRequest.md`). It is a **value** record — an ordered, classified family list
+plus `sizePx`/`weight`/`stretch`/`italic`/`direction` — never a second font system.
+
+- `font-family` is kept **ordered and classified**: a name stays a name, a keyword (`sans-serif`, `system-ui`,
+  `ui-monospace`, …) stays a `FontGenericFamily` via RoboFont's own `FontGenericFamilyFromName`. **Never
+  hard-code `sans-serif → Inter` here** — a generic is resolved below this seam, by the font database.
+- The scalar half is **delegated** to `LayoutTextStyleResolve`, so the request and the measurer's
+  `LayoutTextStyle` cannot disagree about a size or a weight. Do not re-derive `font-size`/`font-weight`.
+- The family list is **bounded** (`RoboLayoutFontMaxFamilies`); overflow drops the tail rather than failing.
+  Keep it bounded and pointer-free: `LayoutTextStyle` is copied by value into a `PaintTextRun` (12.16), and a
+  pointer in the request would break the paint record model.
+- Initial values live in one place: the scalars in `RoboLayoutText.h`, the family as the single generic
+  `serif` in the adapter (the registry's own spelled initial). `font-stretch` is read **best-effort** — the
+  CSS property is not yet registered — and answers `normal` otherwise.
+- RoboLayout's invalidation table already classifies every font property as layout-affecting; do not add a
+  second invalidation path for a font change.
+
+**Not yet landed (the second half):** the system/generic family binding (a family → a pack face, centrally),
+per-run face selection through 12.5's `RoboTextFontSelector`, mixed-font `GlyphRun`s, requested-vs-selected
+diagnostics, the desktop/document wiring and the QEMU visual evidence. The document still measures and draws
+with one face (`DesktopDocumentFace`).
+
 ### RoboText architecture (Phase 12.4)
 
 **Text is a first-class runtime object, not something the renderer discovers while painting. New text

@@ -234,6 +234,7 @@ void TestRegisterLayoutFormattingContext(void);
 void TestRegisterLayoutBlock(void);
 void TestRegisterLayoutInline(void);
 void TestRegisterLayoutText(void);
+void TestRegisterLayoutFontRequest(void);
 void TestRegisterLayoutLineBox(void);
 void TestRegisterLayoutBaseline(void);
 void TestRegisterLayoutSizing(void);
@@ -542,6 +543,7 @@ int main(int argc, char **argv)
     TestRegisterLayoutBlock();
     TestRegisterLayoutInline();
     TestRegisterLayoutText();
+    TestRegisterLayoutFontRequest();
     TestRegisterLayoutLineBox();
     TestRegisterLayoutBaseline();
     TestRegisterLayoutSizing();
