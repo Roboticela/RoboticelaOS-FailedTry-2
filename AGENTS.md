@@ -76,6 +76,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Complex scripts | `Runtime/Source/RoboText/RoboTextComplex.c` (the strategy table, the plan, the clusters), `RoboTextArabic.c` (joining, the four forms, the Arabic stages) and `RoboTextIndic.c` (the script rules, syllables, masks, the two reorders), public `Runtime/Include/RoboText/RoboTextComplex.h`, `…Arabic.h`, `…Indic.h`; the `Joining_Type` property is RoboUnicode's (`Runtime/Source/RoboUnicode/RoboUnicodeJoining.c`). A script's behaviour is a **plan** — strategy + stages of masked features + reorder steps — so a second script is a row, not an engine. Docs: `Documentation/Runtime/Text/ComplexScripts.md` |
 | Vertical writing | `Runtime/Source/RoboText/RoboTextVertical.c` + public `Runtime/Include/RoboText/RoboTextVertical.h`; the vocabulary (`RoboTextWritingMode`, `…TextOrientation`, `…GlyphOrientation`) is in `RoboTextTypes.h`, the `vhea`/`vmtx` door in `RoboTextFont.c`, the placement in `RoboTextGlyphs.c` and the cut in `RoboTextRuns.c`. The writing mode is data on the options and on every run — never inferred from a script — and the OpenType integration is two feature tags (`vert`/`vrt2`) through 12.10's GSUB. No vertical shaping engine. Docs: `Documentation/Runtime/Text/VerticalText.md` |
 | Selection mapping | `Runtime/Source/RoboText/RoboTextSelection.c` + public `Runtime/Include/RoboText/RoboTextSelection.h`. The logical ↔ visual bridge: a `RoboTextPosition` (a source scalar offset), anchor/focus selections, the placements a caller supplies, and the three queries — hit test (point → position), caret (position + affinity → geometry) and selection rectangles. It shapes nothing, measures nothing, takes no glyph index, and projects through `RoboTextWritingAxes` so no call site swaps x and y. Docs: `Documentation/Runtime/Text/TextSelection.md` |
+| Text editing (RoboText) | `Runtime/Source/RoboText/RoboTextEditing.c` + public `Runtime/Include/RoboText/RoboTextEditing.h`. The editor an input layer calls: one `RoboTextBuffer`, one selection and one caret, and every operation — insert, replace-selection, backspace, forward delete, the command names, composition, transactions — expressed as **one replacement of a source range**. It owns the character and cluster boundaries a delete may land on, the paragraph-widened invalidation record a consumer redoes its work from, and the transformation of positions and ranges across an edit. It shapes nothing and has no caret geometry. Docs: `Documentation/Runtime/Text/TextEditing.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -532,6 +533,80 @@ know is where the caller put it — and its contract is `Documentation/Runtime/T
   rectangle built from a glyph count fails; and the rectangles are **filled into a guest surface** and counted
   (49×120 px of ink), so the geometry is proved paintable rather than merely printed.
 
+### Text editing (Phase 12.22)
+
+**Editing operates on logical source text; shaping and rendering are downstream consequences of text
+mutations.** The layer is `Runtime/Source/RoboText/RoboTextEditing.c` + public
+`Runtime/Include/RoboText/RoboTextEditing.h`, and `Documentation/Runtime/Text/TextEditing.md` is the phase's
+authority.
+
+- **One mutation.** `RoboTextEditorReplace` is the only door that changes the text; insert, replace-selection,
+  both deletes and every command name are that door with a computed range. Do not add a second mutation path
+  — a transaction's cancel is a *replace* from its snapshot rather than a reverse replay, and that is only
+  true while there is one place the text changes. An edit is **atomic**: the new text is built in a clone and
+  installed only on success, so a refusal changes nothing.
+- **The text stays logical.** The editor owns one `RoboTextBuffer`, one `RoboTextSelection` and one
+  `RoboTextCaret` — a position, an affinity and two flags — and **no geometry**: a caret's visual form is
+  12.21's query against a selection map, which needs placements this layer does not have. Never store pixel
+  coordinates as caret state, and never derive a position from a glyph width. `RoboTextEditorInsert`
+  **validates** the bytes a caller passes (an ill-formed sequence is `RoboInvalidArgument`); a `RoboTextBuffer`
+  *given* bytes keeps them, because silently rewriting a caller's text is the repair the other door refuses.
+- **Boundaries are rules, and the ones this build lacks are refused by name.** `Scalar` (never splits a UTF-8
+  sequence), `Character` (a base **and the combining marks that hang off it**, which is why one backspace over
+  `e` + two accents takes all three scalars) and `Cluster` — answered by a resolver a caller installs from a
+  run list, so a ligature, an Arabic joining sequence or a Devanagari conjunct is one editing unit. Without a
+  resolver `Cluster` is `RoboNotSupported` rather than a quiet fallback to characters. `Word` and the two line
+  boundaries are refused: never approximate them with `position ± 1`. The resolver **borrows** the list, and
+  the text it was built over must be the editor's current text — the one contract this layer cannot check.
+- **The shaped cluster is the editing unit, and the two layers answer two questions.** 12.19's complex
+  clusters group a joining *sequence* (so `لا` is two one-scalar clusters and a line may break between them);
+  the run's cluster is the ligature glyph the font states (one unit of shaped output). The editor reads the
+  run's answer, because an edit that removed one letter of a ligature would cut it in half.
+- **One editor for every writing mode and every direction.** There is no vertical editor and no RTL editor: the
+  writing mode is data on the shape options and on every run (12.20), the editor never sees it, and a column's
+  clusters are in **source (inline) order** whatever the block axis does.
+- **Invalidation is paragraph-widened, and the flags are the discriminating half.** Five ranges (text, analysis,
+  shaping, layout, paint) and seven flags; `requiresBidiReanalysis` is set only when the inserted **or removed**
+  text carries a scalar whose level a paragraph does not inherit from its base (a right-to-left scalar, and a
+  *number*, which UAX #9's I1/I2 give a level the base does not decide), and `requiresFontReselection` only
+  when text changed at all. A no-op's record is the empty one. Correctness first: a one-scalar edit can change
+  its neighbours' shaping, so a paragraph is the honest range, and a finer one later is a change of *range*.
+- **Composition is text with a kept slice.** The composing text lives in the buffer so the caret and every
+  query work during it; `textBefore` is what makes it distinguishable from committed text. Cancelling restores
+  the slice **and** the selection and caret the composition began over — not the state as of the last
+  keystroke, and not something reconstructed from glyphs.
+- **Transactions appear as one mutation.** Members apply as they are added (every intermediate state is a real
+  text), `Commit` publishes one spanning operation and the union invalidation, and `Cancel` restores from the
+  snapshot in one replace. The members stay readable, which is what a per-keystroke undo of a paste needs.
+- **Transformation is in logical source coordinates.** `RoboTextPositionTransformAfterEdit`: before the range
+  unchanged, inside it (or at its start, or at its **end**) the end of the inserted text, after it shifted by
+  `inserted − deleted`. Both rules are monotone, so a range never inverts and nothing is "repaired".
+- **Not built, and named rather than implied:** `RoboInput` and keyboard scan codes, mouse and touch events, a
+  clipboard backend, an undo **manager** (`Undo`/`Redo` are `RoboNotSupported` and `undoHistory` is `0` — the
+  *record* is in every operation), word and line boundaries, grapheme segmentation, rich text, spell checking,
+  autocorrect, DOM editing, `contenteditable`, accessibility editing, drag-and-drop, incremental reshaping
+  (the invalidation ranges are the seam it would change), composition rendering, and per-phase build scripts.
+  There is deliberately no guest half: the document path carries no editor.
+- **Complete-or-absent dumps.** `RoboTextEditorWrite`, `RoboTextEditOperationWrite`,
+  `RoboTextEditInvalidationWrite` and `RoboTextCompositionWrite` report the length a complete line needs and
+  leave the buffer empty when it does not fit. `RoboTextEditingFuzz` drives an editor from arbitrary bytes
+  with one invariant: the text stays valid UTF-8, every position stays inside it, the module itself never
+  inverts the selection, no buffer leaks and no loop runs forever.
+- Capabilities/version: 12.22 set `textEditing`/`editOperations`/`editingBoundaries`/`clusterBoundaries`/
+  `editInvalidation`/`editTransactions`/`compositionState`/`editTransformations`/`editingDiagnostics`/
+  `editingFuzzing` and took the module to **`1.13.0`**, each read field by field in
+  `Tests/Text/SuiteRoboTextConformance.c`, with `undoHistory`/`wordBoundaries`/`lineBoundaries` asserted `0`.
+- Tests: `Tests/Text/SuiteRoboTextEditing.c` (`text.editing.*`, 16 cases) over the 12.18 conformance fixture,
+  the 12.19 complex fixture and the 12.20 vertical fixture. `text.editing.utf8` (one, two, three and four-byte
+  scalars deleted one scalar at a time, and an ill-formed insertion refused), `text.editing.marks`,
+  `text.editing.ligature` (`ffi` as one cluster with a resolver and three characters without — the typed path
+  compared with the text built directly, `ConfResultsEqual`), `text.editing.arabic` and `text.editing.indic`
+  (the edit's own bytes shaped and compared, so "the edit reshapes" is a fact about the text rather than about
+  a remembered glyph), `text.editing.bidi` (the flag on for Arabic and a digit, off for Latin),
+  `text.editing.vertical` (a column through the same doors) and `text.editing.composition` are the decisive
+  ones. A 12.22 change is not done until `TestRoboText.ps1 -Target Host` and then
+  `TestLayout/Paint/Graphics/Rasterizer/Font/Desktop.ps1 -Target Host` and `TestRoboTextConformance.ps1` pass.
+
 ### RoboText architecture (Phase 12.4)
 
 **Text is a first-class runtime object, not something the renderer discovers while painting. New text
@@ -986,6 +1061,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Complex scripts (12.19) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.arabic.*`, `text.indic.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.arabic.forms` (the four contextual forms arrived as four glyph ids), `text.arabic.lam_alef_ligature` (one glyph, two scalars, both still the text), `text.indic.conjunct` (`क` `्` `ष` as one glyph covering three scalars), `text.indic.reph` (written first, drawn last, sources unmoved), `text.indic.pre_base_matra` (a vowel sign shaped before its consonant),  `text.indic.three_scripts` (three strategies in one string, three runs, each in logical order), `text.arabic.no_layout_tables` (a face with neither table still answers with its `cmap` and its direction) and `text.arabic.fallback_no_split` / `text.indic.fallback_no_split` (the chain answers the complex runs and no run boundary lands inside a cluster) |
 | Vertical writing (12.20) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.vertical.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.vertical.mark` (one face, one `mark` rule, two modes: the anchor difference minus the **inline** step — `vmtx`'s 1006 units vertically against `hmtx`'s 406 horizontally — with the mark advancing nothing on either axis), `text.vertical.writing_axes` (the inline/block pairs, and `vertical-rl` vs `vertical-lr` differing only in the block axis), `text.vertical.orientation` (the **rotated** table beating the script: halfwidth `ｶ` sideways although its script stands up), `text.vertical.orientation_context` (a space between two ideographs staying upright), `text.vertical.run_split` (Han/Latin/Han as three runs with three resolved orientations, forced `sideways` leaving the three script runs), `text.vertical.vert_feature` (`vert` substituting through 12.10's GSUB vertically and **not** horizontally), `text.vertical.advance` (`advanceX == 0`, `advanceY` the **substitute's** `vmtx` entry, the horizontal case unchanged), `text.vertical.origin` (`offsetY` the negated `vmtx` origin), `text.vertical.synthesised` (a face with no `vmtx` shaped at its em box and every glyph counted), `text.vertical.measurement` (`advanceY == Σ run advanceY` and `width == 0` for a vertical run), `text.vertical.bidi` (an Arabic run still RTL with a level inside a vertical column) and `text.vertical.determinism` |
 | Selection mapping (12.21) | `BuildRoboText.ps1` (+ `BuildUser.ps1` for the guest checkpoint) | `TestRoboText.ps1 -Target Host` (`text.selection.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`, then `TestDesktop.ps1 -Target Qemu` for the guest render. Evidence: `text.selection.ligature` (both halves of `ffi` snap to the cluster, and the range selects the whole glyph rather than part of it), `text.selection.marks` (a base and its zero-advance marks are **one** rectangle, and a mark alone is caret-wide rather than invisible), `text.selection.rtl` (an Arabic run's first cluster at its **largest** inline offset), `text.selection.bidi` (one source position, two carets, one line apart, and a wrapped selection giving one rectangle per line), `text.selection.vertical` (the same three queries on the other axis: the inline extent is `advanceY`, the block extent is the band, and the horizontal run states the swap), `text.selection.fallback` (a font boundary is not a logical boundary — two faces, one continuous selection) and `text.selection.roundtrip`. Guest evidence: the `ROBO_QEMU_SELECTION_*` markers, including the filled rectangle's own pixel count |
+| Text editing (12.22) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.editing.*`), then `TestLayout/Paint/Graphics/Rasterizer/Font/Desktop.ps1 -Target Host` and `TestRoboTextConformance.ps1 -Target Host`. Evidence: `text.editing.utf8` (a one, two, three and four-byte scalar each deleted as **one** scalar, and an ill-formed insertion refused rather than repaired), `text.editing.marks` (`e` + two accents as one character unit, plus the marks-only text), `text.editing.ligature` (`ffi` as one cluster with a resolver and three characters without, and the typed path shaping like the text it produced), `text.editing.arabic` (`لا` as two one-scalar complex clusters but **one** shaped cluster, and a joining sequence reshaped after a delete), `text.editing.indic` (the conjunct as one unit, the half form after one scalar, the conjunct reformed by two insertions), `text.editing.bidi` (the flag on when the inserted **or** removed scalar is Arabic or a digit, off for Latin), `text.editing.vertical` (the same editor doors over a column), `text.editing.composition` (cancel restoring the text **and** the selection the composition began over), `text.editing.transaction` (the spanning commit and the restoring cancel), `text.editing.transform`, `text.editing.invalidation` (the paragraph range ending at the terminator) and `text.editing.fuzz` |
 | Latin/European shaping conformance (12.18) | `BuildRoboText.ps1` (and the image build, which compiles the guest specimen) | `TestRoboTextConformance.ps1 -Target Host` (`text.shaping.*`), then `TestRoboText.ps1 -Target Host`, `TestPaint.ps1 -Target Host` (`paint.glyphrun.agrees_with_shaping`) and `TestLayout/Graphics/Font/Desktop.ps1 -Target Host`; then `TestDesktop.ps1 -Target Qemu`, which runs the guest specimen. Evidence: `text.shaping.integration.dump` (`Build/Text-ShapingConformance.txt`), `desktop.typography.gallery.shaping` (`Build/Typography-Shaping.png`) and the `ROBO_QEMU_SHAPING_*` markers |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |

@@ -60,6 +60,7 @@
 #include "RoboText/RoboTextTypes.h"
 #include "RoboText/RoboTextDirection.h"
 #include "RoboText/RoboTextBidi.h"
+#include "RoboText/RoboTextEditing.h"
 #include "RoboText/RoboTextUnicode.h"
 #include "RoboText/RoboTextVertical.h"
 #include "RoboText/RoboTextVersion.h"

@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.12.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.13.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -71,8 +71,15 @@ static void TestConformanceVersion(void)
      *
      * 12.21 added the selection layer (`RoboTextSelection.h`) and changed no existing record at all: it is a
      * *map over* shaped output — a run list plus the placements a caller supplies — so the strongest statement
-     * about it is that the module gained a file and lost nothing. */
-    RoboCheckEqInt((int)minor, 12);
+     * about it is that the module gained a file and lost nothing.
+     *
+     * 12.22 added the editing layer (`RoboTextEditing.h`) and, like 12.21, changed no existing record: an
+     * editor owns a `RoboTextBuffer`, a `RoboTextSelection` and a `RoboTextCaret` — all 12.4's and 12.21's
+     * types — and every operation it performs is `RoboTextBuffer`'s own remove-then-insert. The records it
+     * *adds* (`RoboTextEditOperation`, `RoboTextEditResult`, `RoboTextEditInvalidation`, `RoboTextComposition`)
+     * are new types in a new header, which is what keeps the expansion minor: nothing a caller already used
+     * changed shape or signature, and the run and glyph records are untouched. */
+    RoboCheckEqInt((int)minor, 13);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -279,6 +286,35 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.selectionValidation, 1);
     RoboCheckEqInt(capabilities.selectionDiagnostics, 1);
     RoboCheckEqInt(capabilities.selectionFuzzing, 1);
+
+    /*
+     * Text editing (12.22), read field by field like every other phase. `textEditing` is the editor itself;
+     * the flags beside it name the parts, each exercised by a case in `SuiteRoboTextEditing.c`. There is
+     * deliberately **no** `editingEngine` flag beyond these: the phase adds an editor over the buffer, not a
+     * second shaping or layout path, and the three absences below (`undoHistory`, `wordBoundaries`,
+     * `lineBoundaries`) are the non-goals stated as flags.
+     */
+    RoboCheckEqInt(capabilities.textEditing, 1);
+    RoboCheckEqInt(capabilities.editOperations, 1);
+    RoboCheckEqInt(capabilities.editingBoundaries, 1);
+    RoboCheckEqInt(capabilities.clusterBoundaries, 1);
+    RoboCheckEqInt(capabilities.editInvalidation, 1);
+    RoboCheckEqInt(capabilities.editTransactions, 1);
+    RoboCheckEqInt(capabilities.compositionState, 1);
+    RoboCheckEqInt(capabilities.editTransformations, 1);
+    RoboCheckEqInt(capabilities.editingDiagnostics, 1);
+    RoboCheckEqInt(capabilities.editingFuzzing, 1);
+
+    /*
+     * The three 12.22 flags that are **0**, asserted here rather than left to the absent list because each is
+     * an absence this phase *chose*: the operations carry everything an undo history needs (`RoboTextEditOperation`
+     * keeps both texts, both selections and both carets) but the manager is 12.23's, and `Undo`/`Redo` are
+     * refused by name (`text.editing.commands`); word boundaries would be UAX #29's segmentation and line
+     * boundaries would need a layout, so both are `RoboNotSupported` rather than `position ± 1`.
+     */
+    RoboCheckEqInt(capabilities.undoHistory, 0);
+    RoboCheckEqInt(capabilities.wordBoundaries, 0);
+    RoboCheckEqInt(capabilities.lineBoundaries, 0);
 
     /*
      * And every algorithm this build deliberately does **not** implement, each one a row in the phase plan

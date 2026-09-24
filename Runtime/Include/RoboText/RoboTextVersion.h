@@ -68,8 +68,13 @@ extern "C" {
  *
  * 12.21 adds the selection layer (`RoboTextSelection.h`: positions, affinity, placed runs, hit testing, caret
  * geometry and selection rectangles) and changes no existing record: a selection map is built over the run list
- * the previous phases produce, so every door that existed keeps its signature and the minor moves once more. */
-#define RoboTextVersionMinor 12
+ * the previous phases produce, so every door that existed keeps its signature and the minor moves once more.
+ *
+ * 12.22 adds the editing layer (`RoboTextEditing.h`: the editor, the operation record, invalidation,
+ * composition, transactions and boundary resolution). It is additive in the same way and for the same reason —
+ * it *owns* a `RoboTextBuffer` and mutates it through the buffer's existing doors, and the only record it
+ * introduces is its own — so the minor moves and the major stays. */
+#define RoboTextVersionMinor 13
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -469,6 +474,74 @@ typedef struct RoboTextCapabilities {
     int selectionDiagnostics;
     /** The fuzz entry (`RoboTextSelectionFuzz`), which drives every query from arbitrary bytes. */
     int selectionFuzzing;
+
+    /* --- Phase 12.22: text editing --- */
+
+    /**
+     * An **editor** (`RoboTextEditing.h`): it owns one `RoboTextBuffer`, one selection and one caret, and every
+     * high-level operation is expressed as a single replacement of a **source range** with text.
+     *
+     * What this does *not* claim: `RoboInput`, keyboard scan codes, mouse events, a clipboard backend, a
+     * rich-text model, spell checking or autocorrect. This is the layer those systems call.
+     */
+    int textEditing;
+    /**
+     * A durable edit **record**: the range replaced, the text removed and the text inserted, each kept, plus the
+     * selection and caret on both sides. What an undo manager needs, so that a later phase can add one without
+     * redefining the editor.
+     */
+    int editOperations;
+    /**
+     * Safe editing **boundaries**: a scalar step that can never split a UTF-8 sequence, extended over the
+     * combining marks that hang off a base, so a base and its accents delete together. A word and a line are
+     * refused rather than approximated.
+     */
+    int editingBoundaries;
+    /**
+     * Boundaries answered by a **shaped run list** (`RoboTextEditBoundariesFromRuns`), so an Arabic joining
+     * cluster or an Indic conjunct is one editing unit. Without a resolver, cluster boundaries are refused
+     * rather than quietly answered as characters.
+     */
+    int clusterBoundaries;
+    /**
+     * Edit **invalidation**: the ranges a consumer must redo (text, analysis, shaping, layout, paint) and the
+     * flags that say which passes are needed. Paragraph-widened and stated as such, because a one-scalar edit
+     * can change its neighbours' shaping.
+     */
+    int editInvalidation;
+    /** **Transactions**: several edits that appear as one logical mutation, published as one operation. */
+    int editTransactions;
+    /**
+     * **Composition** (IME input): a composing range in the source text with the slice it replaced kept, so a
+     * cancellation restores text rather than reconstructing glyphs.
+     */
+    int compositionState;
+    /** **Position and range transformation** across an edit, in logical source coordinates. */
+    int editTransformations;
+    /** An editor, an operation, an invalidation and a composition as diagnostic lines. */
+    int editingDiagnostics;
+    /** The fuzz entry (`RoboTextEditingFuzz`), which drives an editor from arbitrary bytes. */
+    int editingFuzzing;
+    /**
+     * An undo **history**. **0**, and deliberately so: the operations carry everything a history needs, but the
+     * manager itself is 12.23's, and `RoboTextEditCommandUndo` is refused by name until then.
+     */
+    int undoHistory;
+    /**
+     * **Word** boundaries (UAX #29 word segmentation). **0**: nothing in this build segments words, so
+     * `RoboTextEditBoundaryWord` is `RoboNotSupported` rather than `position ± 1`.
+     */
+    int wordBoundaries;
+    /**
+     * **Line** boundaries. **0**: they need a layout, and this layer has none — `RoboTextEditBoundaryLineStart`
+     * and `…LineEnd` are refused, and 12.21's selection map is where a caller that has one asks.
+     */
+    int lineBoundaries;
+    /**
+     * **Grapheme segmentation** (UAX #29). **0**: the boundary rule is "a combining mark continues the character
+     * before it", which is 12.14's cluster rule and is named as the approximation it is.
+     */
+    int graphemeSegmentation;
 } RoboTextCapabilities;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

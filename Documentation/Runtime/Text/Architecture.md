@@ -370,7 +370,7 @@ nothing applies an axis.
 | | |
 |---|---|
 | Build | `Scripts/Build/BuildRoboText.ps1` (module + the shipped pack's presence check) |
-| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 306 cases |
+| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 322 cases |
 | Conformance | `Scripts/Test/TestRoboTextConformance.ps1 -Target Host` — `text.shaping.*` only, 55 cases (12.18) |
 | Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Script,Direction,Bidi,Unicode,FontSelection,Analysis,Gsub,Ligature,Gpos,Kerning,Conformance,Gallery,Selection,Vertical,Shaping{Latin,Scripts,Features,Kerning,Marks,Fallback,Integration}}.c` |
 | Fixture | `Tests/Text/RoboTextTestSupport.h` — opens the **shipped** pack through RoboFont alone |
@@ -878,3 +878,56 @@ changed at all. `RoboTextGetCapabilities` reports `selectionMapping`, `selection
 `selectionWritingAxes`, `selectionValidation`, `selectionDiagnostics` and `selectionFuzzing` `1`, each read
 field by field in `Tests/Text/SuiteRoboTextConformance.c` — with deliberately **no `selectionPainting`** (the
 shell's row) and no `selectionShaping` (a claim the layer's whole design denies).
+
+---
+
+## 24. Phase 12.22 — text editing
+
+12.22 makes shaped text **editable**, and it is the first phase in the block whose consumer sits *above*
+RoboText: an editor changes source scalars and everything downstream is a consequence, exactly as it is for a
+document a caller typed for the first time.
+
+| Area | Where | Contract |
+|---|---|---|
+| The whole layer: the editor, the operation record, the invalidation, the boundaries, composition, transactions, transformation, the dumps, the fuzz entry | `RoboTextEditing.c`, public `RoboTextEditing.h` | [TextEditing.md](TextEditing.md) |
+| The one mutation | `RoboTextBuffer.c` — `RoboTextBufferRemove` then `RoboTextBufferInsert` | Buffer.md |
+| Positions, ranges, affinity, selections | `RoboTextSelection.h`, reused rather than re-declared | TextSelection.md |
+| The cluster boundaries an edit may land on | `RoboTextGlyphRunCluster*` through `RoboTextEditBoundariesFromRuns` | GlyphRuns.md, TextEditing.md §6 |
+| The character rule's property read | `RoboTextUnicode.c` — `RoboTextUnicodeGeneralCategory` | UnicodeIntegration.md |
+| The safety of a complex-script boundary | `RoboTextComplex.c` — `RoboTextComplexIsSafeBoundary` | ComplexScripts.md §28 |
+| The capability flags | `RoboTextVersion.h`/`.c` | TextEditing.md §16 |
+
+The six properties the phase adds:
+
+1. **Editing is one mutation.** `RoboTextEditorReplace` is the only door that changes the text; insert,
+   replace-selection, backspace, forward delete and every command are that door with a computed range. So no
+   two ways to change the text exist, and a transaction's cancel is a *replace* rather than a replay.
+2. **The text stays logical.** The editor owns a `RoboTextBuffer`, a 12.21 selection and a caret that is a
+   position, an affinity and two flags — **no geometry**, because a caret's form is a layout's answer and this
+   layer has no layout. Shaping and layout are downstream consequences of the new text, never of an edit that
+   describes glyphs.
+3. **A boundary is a rule, and the rules it lacks are refused by name.** A scalar step that can never split a
+   UTF-8 sequence, extended over the combining marks that hang off a base, and — with a resolver a caller
+   installs — the **shaped** clusters, so a ligature, an Arabic joining sequence or a Devanagari conjunct is
+   one editing unit. Word and line boundaries are `RoboNotSupported` rather than `position ± 1`.
+4. **One editor for every writing mode and every direction.** There is no vertical editor and no RTL editor:
+   the writing mode is data on the shape options and on every run (12.20), the editor never sees it, and a
+   column's clusters are in source order whatever the block axis does.
+5. **Invalidation is paragraph-widened and says which passes are needed.** Five ranges and seven flags, two of
+   them discriminating: whether the level runs can have moved (a right-to-left scalar, or a *number*), and
+   whether a newly inserted scalar may be covered by no face the previous selection used. A one-scalar edit
+   can change its neighbours' shaping, and a paragraph is the smallest range that is provably sufficient
+   without a shaping context this layer does not have — a later, finer contract is a change of *range*.
+6. **Composition is text with a kept slice.** The composing text lives in the buffer so the caret and every
+   query work during it; what makes it distinguishable from committed text is `textBefore`, the slice it
+   replaced — so committing publishes the whole composition as one operation and asks only for a repaint,
+   while cancelling restores the text **and** the selection and caret from before it began.
+
+Every edit carries the record an undo history needs — the range, both texts, both selections, both carets —
+and the history itself is deliberately not built: `Undo`/`Redo` are refused by name and `undoHistory` is `0`.
+The version moved to `1.13.0`, a minor move because nothing a caller already used changed shape: the editor's
+state is 12.4's buffer plus 12.21's selection and caret, and the records it adds are new types in a new header.
+`RoboTextGetCapabilities` reports `textEditing`, `editOperations`, `editingBoundaries`, `clusterBoundaries`,
+`editInvalidation`, `editTransactions`, `compositionState`, `editTransformations`, `editingDiagnostics` and
+`editingFuzzing` `1`, each read field by field in `Tests/Text/SuiteRoboTextConformance.c` — with
+`undoHistory`, `wordBoundaries` and `lineBoundaries` `0`, each a named absence rather than an oversight.

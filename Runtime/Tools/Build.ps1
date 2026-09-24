@@ -256,6 +256,12 @@ $ProdSrcs = @(
     # asked, plus the placements the caller supplies -- and it writes no x/y swap: the inline/block projection
     # goes through 12.20's axes, so a vertical column and a horizontal line take the same path.
     (Join-Path $SourceDir "RoboText\RoboTextSelection.c"),
+    # Phase 12.22 -- text editing. `RoboTextEditing.c` is the *contract* the input layer will call: an editor
+    # that owns one buffer and one selection, every high-level operation expressed as a single
+    # `Replace(range, text)`, a durable operation record with the deleted and inserted text in it, and an
+    # invalidation record that says which ranges a consumer must redo. It shapes nothing and it edits no
+    # glyph: a source edit is text, and the new glyphs are whatever the next shape produces.
+    (Join-Path $SourceDir "RoboText\RoboTextEditing.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -587,6 +593,11 @@ $SuiteSrcs = @(
     # both writing modes, the rectangles of a selection across lines, a bidi boundary and a fallback font, the
     # round trip position → caret → hit → position, and the fuzz entry.
     (Join-Path $TestsRoot "Text\SuiteRoboTextSelection.c"),
+    # Phase 12.22 -- text editing: one mutation expressed as a replacement of a source range, the character
+    # and cluster boundaries a delete uses, a base-and-its-marks and a ligature as editing units, Arabic
+    # joining and a Devanagari conjunct reshaping after an edit, the paragraph-widened invalidation record,
+    # composition, transactions, position/range transformation, the blocks and the fuzz entry.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextEditing.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

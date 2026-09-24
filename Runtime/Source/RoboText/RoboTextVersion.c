@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.12.0";
+    static const char version[] = "1.13.0";
 
     return version;
 }
@@ -226,6 +226,29 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->selectionValidation = 1;
     out->selectionDiagnostics = 1;
     out->selectionFuzzing = 1;
+
+    /* --- Phase 12.22: text editing --- */
+
+    /*
+     * Editing is a **contract**, not a text editor: an editor owns one buffer and answers every operation by
+     * replacing a source range, and each edit leaves a record a history can use. The four flags at the end are
+     * the honest absences — a word boundary, a line boundary, a grapheme split and an undo history each need
+     * something this phase deliberately does not have.
+     */
+    out->textEditing = 1;
+    out->editOperations = 1;
+    out->editingBoundaries = 1;
+    out->clusterBoundaries = 1;
+    out->editInvalidation = 1;
+    out->editTransactions = 1;
+    out->compositionState = 1;
+    out->editTransformations = 1;
+    out->editingDiagnostics = 1;
+    out->editingFuzzing = 1;
+    out->undoHistory = 0;
+    out->wordBoundaries = 0;
+    out->lineBoundaries = 0;
+    out->graphemeSegmentation = 0;
 
     /*
      * Variable-axis application is unowned by a numbered goal and is reported absent until RoboFont

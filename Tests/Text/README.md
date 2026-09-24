@@ -105,10 +105,23 @@ Contract: [`TextSelection.md`](../../Documentation/Runtime/Text/TextSelection.md
 |---|---|---|
 | `SuiteRoboTextSelection.c` | `text.selection.*` | the vocabulary (anchor/focus surviving normalization and clamping, affinity's involution, the caret's segment reading, the complete-or-absent dumps), the map's refusals and accessors, point → logical position with its signed inline distance and the trailing-whitespace option, the caret's band from a run's own metrics, a hit inside `ffi` snapping to the cluster with the whole glyph selected, a base and its zero-advance marks as one rectangle, an Arabic run's first cluster at its largest inline offset, one source position with two carets one line apart and one rectangle per line when wrapped, the same three queries on the vertical axis, a font boundary that is not a logical boundary, position → caret → hit → position round trips, the dump, and fuzzing |
 
+## Text editing — `Tests/Text/SuiteRoboTextEditing.c` (Phase 12.22)
+
+The layer an input system calls: one buffer, one selection and one caret, and every operation written as a
+**single replacement of a source range**. Each case is a mutation, a unit (the boundary a delete uses) or a
+consequence (the invalidation record), and the two directions meet in the middle — after an edit the editor's
+own bytes are shaped and compared with the shape of the same text built directly (`ConfResultsEqual`), so
+"the edit reshapes" is stated about the text rather than about a glyph anyone remembered. Contract:
+[`TextEditing.md`](../../Documentation/Runtime/Text/TextEditing.md).
+
+| Suite | Prefix | What it is about |
+|---|---|---|
+| `SuiteRoboTextEditing.c` | `text.editing.*` | the command and boundary vocabulary with the three refusals, one mutation reached four ways and the selection each leaves, a UTF-8 sequence never split (one, two, three and four-byte scalars) and an ill-formed insertion refused rather than repaired, a base **and its marks** as one unit, `ffi` as one cluster with a resolver and three characters without, `لا` as one shaped cluster over two scalars while the complex module still allows a break between the letters, a joining sequence and a conjunct reshaped by the edit's own text, the bidi flag on for Arabic and a number and off for Latin, the same editor doors over a vertical column, composition (start over a selection, update, cancel restoring the text *and* the selection, commit as one operation), transactions (members, the spanning commit, the restoring cancel), the four position rules and their inverse, the paragraph-widened invalidation and its block, and fuzzing |
+
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host            # 306 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboText.ps1 -Target Host            # 322 cases; also writes Build/Text-GlyphTable.txt
 Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 55 cases; just text.shaping.*
 Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```
