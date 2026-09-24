@@ -186,6 +186,77 @@ int RoboTextDirectionIsRightToLeft(RoboTextDirection direction)
 }
 
 /* ------------------------------------------------------------------ */
+/* Writing mode and orientation (Phase 12.20)                          */
+/* ------------------------------------------------------------------ */
+
+int RoboTextWritingModeIsKnown(RoboTextWritingMode mode)
+{
+    return mode == RoboTextWritingHorizontal || mode == RoboTextWritingVerticalRightToLeft ||
+           mode == RoboTextWritingVerticalLeftToRight;
+}
+
+const char *RoboTextWritingModeName(RoboTextWritingMode mode)
+{
+    switch (mode) {
+        case RoboTextWritingHorizontal:
+            return "horizontal-tb";
+        case RoboTextWritingVerticalRightToLeft:
+            return "vertical-rl";
+        case RoboTextWritingVerticalLeftToRight:
+            return "vertical-lr";
+        default:
+            /*
+             * A value from beyond the enum is *named* rather than reported as one of the three: a dump that
+             * said `horizontal-tb` for an out-of-range word would hide the bug that produced it, and this
+             * layer's rule is that it does not answer with a plausible wrong number.
+             */
+            return "unknown";
+    }
+}
+
+int RoboTextTextOrientationIsKnown(RoboTextTextOrientation orientation)
+{
+    return orientation == RoboTextTextOrientationMixed || orientation == RoboTextTextOrientationUpright ||
+           orientation == RoboTextTextOrientationSideways;
+}
+
+const char *RoboTextTextOrientationName(RoboTextTextOrientation orientation)
+{
+    switch (orientation) {
+        case RoboTextTextOrientationMixed:
+            return "mixed";
+        case RoboTextTextOrientationUpright:
+            return "upright";
+        case RoboTextTextOrientationSideways:
+            return "sideways";
+        default:
+            return "unknown";
+    }
+}
+
+int RoboTextGlyphOrientationIsKnown(RoboTextGlyphOrientation orientation)
+{
+    return orientation == RoboTextGlyphOrientationUpright || orientation == RoboTextGlyphOrientationSideways;
+}
+
+const char *RoboTextGlyphOrientationName(RoboTextGlyphOrientation orientation)
+{
+    switch (orientation) {
+        case RoboTextGlyphOrientationUpright:
+            return "upright";
+        case RoboTextGlyphOrientationSideways:
+            return "sideways";
+        default:
+            return "unknown";
+    }
+}
+
+int RoboTextGlyphOrientationIsUpright(RoboTextGlyphOrientation orientation)
+{
+    return orientation == RoboTextGlyphOrientationUpright;
+}
+
+/* ------------------------------------------------------------------ */
 /* Direction classes, modes and the paragraph context                  */
 /* ------------------------------------------------------------------ */
 
@@ -616,6 +687,11 @@ void RoboTextShapeOptionsInit(RoboTextShapeOptions *options)
      * data for the same reason the ligature policy is — "kerning is on by default" is a decision, and it
      * belongs where a caller can read and change it. */
     RoboTextKerningPolicyDefault(&options->kerning);
+    /* The writing setting a caller gets without asking (Phase 12.20): horizontal, and `mixed` orientation —
+     * which is inert while the mode is horizontal, and is stated rather than zeroed because the value is
+     * what a vertical caller's `text-orientation` declaration will replace. */
+    options->writingMode = RoboTextWritingHorizontal;
+    options->textOrientation = RoboTextTextOrientationMixed;
     options->flags = 0u;
 }
 
@@ -631,6 +707,10 @@ int RoboTextShapeOptionsIsValid(const RoboTextShapeOptions *options)
         return 0;
     }
     if (!RoboTextKerningPolicyIsValid(&options->kerning)) {
+        return 0;
+    }
+    if (!RoboTextWritingModeIsKnown(options->writingMode) ||
+        !RoboTextTextOrientationIsKnown(options->textOrientation)) {
         return 0;
     }
     if (options->featureRangeCount > RoboTextMaxFeatureRanges) {

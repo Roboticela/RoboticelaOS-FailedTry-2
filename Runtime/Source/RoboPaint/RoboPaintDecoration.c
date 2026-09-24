@@ -208,6 +208,7 @@ static Result DecorationDrawText(GfxRaster *raster,
     PaintTextRun run;
     PaintGlyphSpan span;
     float penX;
+    float penY;
     float baselineY;
     uint32_t index;
 
@@ -234,8 +235,22 @@ static Result DecorationDrawText(GfxRaster *raster,
     /* The pen starts at the run rectangle's own left edge and the baseline is the one number
      * the command carries beyond it -- a `TEXT` command's rectangle is the placement, so the
      * baseline is at `rect.y + baselineOffset` in the same space. Both are the record's own
-     * numbers: this walk measures nothing. */
+     * numbers: this walk measures nothing.
+     *
+     * The pen is a **2D** accumulation (`penX`/`penY`) rather than one x coordinate plus a
+     * fixed baseline, and that is the whole of this pass's writing-mode support (Phase 12.20).
+     * Each step adds the glyph's `advanceX` *and* its `advanceY`:
+     *
+     *   horizontal text   `advanceY` is zero, so `penY` never moves and the arithmetic is
+     *                     bit-for-bit what the single-axis pen did before;
+     *   vertical text     `advanceX` is zero, so `penX` never moves and the column descends as
+     *                     the shaper's own advances say it does.
+     *
+     * There is no branch on a writing mode, and that is the point: a run's `advanceX`/`advanceY`
+     * pair *is* the writing mode, already resolved by RoboText. So this pass still cannot learn a
+     * script, an orientation or a vertical origin -- it adds two numbers a shaped run gave it. */
     penX = (float)command->rect.x;
+    penY = 0.0f;
     baselineY = (float)PaintAddSaturated(command->rect.y, run.baselineOffset);
     GfxGlyphDrawInit(&draw);
     draw.face = face;
@@ -274,7 +289,7 @@ static Result DecorationDrawText(GfxRaster *raster,
             continue;
         }
         draw.glyphId = glyph->glyphId;
-        draw.origin = MakeGfxPointF(penX + glyph->offsetX, baselineY + glyph->offsetY);
+        draw.origin = MakeGfxPointF(penX + glyph->offsetX, baselineY + penY + glyph->offsetY);
         if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {
             return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboError,
                                    "a glyph could not be drawn");
@@ -289,7 +304,10 @@ static Result DecorationDrawText(GfxRaster *raster,
         if (glyph->flags & PaintGlyphFlagMissing) {
             (*outMissing)++;
         }
+        /* Both axes, always: see the pen's comment above. One of the two is zero for every run this
+         * build produces, so this is one code path rather than two that must agree. */
         penX += glyph->advanceX;
+        penY += glyph->advanceY;
     }
 
     return RoboOk;

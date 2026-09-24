@@ -142,6 +142,25 @@ typedef struct RoboTextRun {
      * told them again. A run with no settings carries an empty set, which means "the script's defaults".
      */
     RoboTextFeatureSet features;
+    /**
+     * The primary axis the text runs along (Phase 12.20), echoed per run from the shape options.
+     *
+     * On the run rather than only on the options for the same reason `features` is: the glyph generator
+     * consumes a *run*, and a run's advance axis, its `vmtx` lookup and its `vert`/`vrt2` settings are all
+     * facts about it. A run built before this phase carries `Horizontal`, which is the zero value and the
+     * correct answer for every run set that existed then.
+     */
+    RoboTextWritingMode writingMode;
+    /** The requested `text-orientation` (Phase 12.20); inert for a horizontal run. */
+    RoboTextTextOrientation textOrientation;
+    /**
+     * The **resolved** orientation of this run's glyphs (Phase 12.20): upright or sideways.
+     *
+     * One answer per run because the run is cut where the orientation changes, which is the phase's own
+     * rule — a vertical line of `漢字ABC漢字` is three runs and no run mixes the two. The generator copies
+     * it onto the glyph run so a painter never has to ask about a script to know how to draw a glyph.
+     */
+    RoboTextGlyphOrientation orientation;
 } RoboTextRun;
 
 typedef struct RoboTextRunSet RoboTextRunSet;
@@ -260,6 +279,18 @@ Result RoboTextRunSetVisualBidiRun(const RoboTextRunSet *set,
                                    RoboTextDiag *diag);
 
 /** The declared script hint, or `RoboTextScriptCommon` when none was given. */
+/**
+ * The writing mode every text run of @p set carries (Phase 12.20). Horizontal for a NULL set.
+ *
+ * The set-level copy of a run field, for the same reason the script hint has one: a caller that wants to
+ * know how the text was laid out asks once, and a caller checking a run against the request compares one
+ * field.
+ */
+RoboTextWritingMode RoboTextRunSetWritingMode(const RoboTextRunSet *set);
+
+/** See @ref RoboTextRunSetWritingMode: the requested `text-orientation`. Mixed for a NULL set. */
+RoboTextTextOrientation RoboTextRunSetTextOrientation(const RoboTextRunSet *set);
+
 RoboTextScript RoboTextRunSetScriptHint(const RoboTextRunSet *set);
 
 /** The language every run carries. Never NULL. */

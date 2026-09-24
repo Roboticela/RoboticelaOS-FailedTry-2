@@ -245,6 +245,11 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboText\RoboTextComplex.c"),
     (Join-Path $SourceDir "RoboText\RoboTextArabic.c"),
     (Join-Path $SourceDir "RoboText\RoboTextIndic.c"),
+    # Phase 12.20 -- vertical writing. `RoboTextVertical.c` is the *decision* half of the phase: the writing
+    # mode's two axes, the upright/sideways orientation tables, and the `vert`/`vrt2` hook that turns a
+    # vertical mode into two ordinary feature settings. There is no vertical shaping engine -- the placement
+    # lives beside the `hmtx` line in `RoboTextGlyphs.c` and the vertical substitutions are 12.10's GSUB.
+    (Join-Path $SourceDir "RoboText\RoboTextVertical.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -567,6 +572,11 @@ $SuiteSrcs = @(
     # both over one built face whose bytes state every expected glyph id and anchor.
     (Join-Path $TestsRoot "Text\SuiteRoboTextArabic.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextIndic.c"),
+    # Phase 12.20 -- vertical writing: the writing mode and its axes, the upright/sideways orientation tables
+    # and the rotated table that beats the script, the orientation cut, `vert` through the ordinary GSUB
+    # engine, the `vmtx` advances and the synthesised-advance path, the measurement's `advanceY` and bidi in
+    # a vertical column -- all over one built face that states both advances and both `vert` products.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextVertical.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

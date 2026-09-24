@@ -209,6 +209,101 @@ const char *RoboTextDirectionName(RoboTextDirection direction);
 int RoboTextDirectionIsRightToLeft(RoboTextDirection direction);
 
 /* ------------------------------------------------------------------ */
+/* Writing mode (Phase 12.20)                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The primary axis a text runs along, and — for the vertical two — which way its lines stack.
+ *
+ * The physical half of a text's setting, and the counterpart of @ref RoboTextDirection: direction is the
+ * **logical inline** direction the bidi algorithm resolves, writing mode is the **axis** the inline
+ * progression runs along. They compose. A `vertical-rl` run still carries a level and a resolved
+ * direction; nothing here reorders anything, and 12.8's visual order is still the only one.
+ *
+ * Three values, and the third is not decoration: `vertical-rl` and `vertical-lr` differ in the **block**
+ * direction, so they are different layouts of one text rather than two spellings of one. CSS's
+ * `writing-mode` maps onto them directly (`horizontal-tb`, `vertical-rl`, `vertical-lr`).
+ *
+ * It is **data**, never inferred from the script: Japanese set horizontally and Japanese set vertically
+ * are two settings of the same text, and a layer that picked one by looking at the characters could not
+ * express the other.
+ */
+typedef enum RoboTextWritingMode {
+    /** Lines stack downward; the inline progression is +x. CSS's `horizontal-tb`. */
+    RoboTextWritingHorizontal = 0,
+    /** Lines stack leftward; the inline progression is +y. CSS's `vertical-rl`, the CJK default. */
+    RoboTextWritingVerticalRightToLeft = 1,
+    /** Lines stack rightward; the inline progression is +y. CSS's `vertical-lr`. */
+    RoboTextWritingVerticalLeftToRight = 2,
+    RoboTextWritingModeCount = 3
+} RoboTextWritingMode;
+
+/** Non-zero if @p mode is a defined enumerator. */
+int RoboTextWritingModeIsKnown(RoboTextWritingMode mode);
+
+/** Hyphenated name (`"horizontal-tb"`, `"vertical-rl"`, `"vertical-lr"`); never NULL. */
+const char *RoboTextWritingModeName(RoboTextWritingMode mode);
+
+/** Non-zero when @p mode advances the pen along **y**. The one test a positioning or measuring site asks. */
+int RoboTextWritingModeIsVertical(RoboTextWritingMode mode);
+
+/** Non-zero when @p mode stacks lines along **-x** (the `vertical-rl` block direction). */
+int RoboTextWritingModeBlockIsLeftward(RoboTextWritingMode mode);
+
+/**
+ * How a caller wants a vertical run's glyphs presented, in CSS's `text-orientation` vocabulary.
+ *
+ * `Mixed` is the interesting one and the default: *the data decides* — an ideographic character stands
+ * up, a Latin one lies on its side — which is the rule `RoboTextVerticalOrientationOf` implements.
+ * `Upright` and `Sideways` force the answer and are honest about it: `Sideways` on a Japanese column
+ * rotates it and `Upright` on a Latin word stacks its letters unrotated, neither of which is an error.
+ */
+typedef enum RoboTextTextOrientation {
+    /** The character decides: upright for ideographic scripts, sideways for everything else. CSS's `mixed`. */
+    RoboTextTextOrientationMixed = 0,
+    /** Every glyph stands up, whatever it is. CSS's `upright`. */
+    RoboTextTextOrientationUpright = 1,
+    /** Every glyph lies on its side, whatever it is. CSS's `sideways`. */
+    RoboTextTextOrientationSideways = 2,
+    RoboTextTextOrientationCount = 3
+} RoboTextTextOrientation;
+
+/** Non-zero if @p orientation is a defined enumerator. */
+int RoboTextTextOrientationIsKnown(RoboTextTextOrientation orientation);
+
+/** Lower-case name (`"mixed"`, `"upright"`, `"sideways"`); never NULL. */
+const char *RoboTextTextOrientationName(RoboTextTextOrientation orientation);
+
+/**
+ * The **resolved** orientation of one glyph or one run: the answer, not the request.
+ *
+ * `Upright` is the glyph in its own vertical form — an ideograph as designed, and for a character whose
+ * font carries a `vert`/`vrt2` alternate **that alternate** (which is why a CJK full stop is a different
+ * glyph id in a vertical column rather than the same glyph rotated). `Sideways` is the glyph rotated a
+ * quarter turn clockwise from its horizontal form, which is how Latin is set inside a CJK column.
+ *
+ * A run carries **one** of these, because a run is cut where the orientation changes: a vertical line of
+ * `漢字ABC漢字` is three runs and no run has glyphs that disagree. That is what lets a painter read the
+ * answer off one field of the run instead of asking each glyph, and why the enum is not per-glyph.
+ */
+typedef enum RoboTextGlyphOrientation {
+    /** The glyph's own vertical form: ideographs, CJK punctuation, `vert` alternates. */
+    RoboTextGlyphOrientationUpright = 0,
+    /** The glyph rotated a quarter turn clockwise: Latin and most non-ideographic scripts. */
+    RoboTextGlyphOrientationSideways = 1,
+    RoboTextGlyphOrientationCount = 2
+} RoboTextGlyphOrientation;
+
+/** Non-zero if @p orientation is a defined enumerator. */
+int RoboTextGlyphOrientationIsKnown(RoboTextGlyphOrientation orientation);
+
+/** Lower-case name (`"upright"`, `"sideways"`); never NULL. */
+const char *RoboTextGlyphOrientationName(RoboTextGlyphOrientation orientation);
+
+/** Non-zero when @p orientation stands the glyph up. */
+int RoboTextGlyphOrientationIsUpright(RoboTextGlyphOrientation orientation);
+
+/* ------------------------------------------------------------------ */
 /* Direction classes, modes and the paragraph context                  */
 /* ------------------------------------------------------------------ */
 
@@ -808,6 +903,19 @@ typedef struct RoboTextShapeOptions {
     /** The kerning policy, for the `kern` tag @ref features does not state (Phase 12.13). */
     RoboTextKerningPolicy kerning;
     /**
+     * The primary axis the text runs along (Phase 12.20). `Horizontal` unless a caller says otherwise.
+     *
+     * A vertical mode makes the run set cut where the **orientation** changes, makes shaping ask the
+     * face's `vmtx` for a vertical advance, applies the run's `vert`/`vrt2` lookups through 12.10's
+     * engine, and makes the measurement's `advanceY` the number a layout pass justifies against. It
+     * changes no glyph id on its own, and it never reverses the text: the writing mode decides which
+     * axis the pen moves on, and 12.8 still decides the visual order.
+     */
+    RoboTextWritingMode writingMode;
+    /** How the glyphs of a vertical run are presented (Phase 12.20). Ignored when @ref writingMode is
+     *  horizontal, because a horizontal run's glyphs are all upright by construction. */
+    RoboTextTextOrientation textOrientation;
+    /**
      * Settings that apply to one scalar range each, merged **over** @ref features for the scalars they cover.
      *
      * A run set is cut at every range boundary before shaping, so each run carries one feature set and the
@@ -821,8 +929,8 @@ typedef struct RoboTextShapeOptions {
     uint32_t flags;
 } RoboTextShapeOptions;
 
-/** Fill @p options with the defaults: no declared direction, no script hint, no language, no features, and
- *  @ref RoboTextLigaturePolicyDefault for `ligatures`. */
+/** Fill @p options with the defaults: no declared direction, no script hint, no language, no features,
+ *  @ref RoboTextLigaturePolicyDefault for `ligatures`, and horizontal/mixed writing. */
 void RoboTextShapeOptionsInit(RoboTextShapeOptions *options);
 
 /** Non-zero when @p options is usable. Safe on NULL. */

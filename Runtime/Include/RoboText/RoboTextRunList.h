@@ -90,6 +90,17 @@ typedef struct RoboTextGlyphRunKey {
      * that could have merged; it only refuses to merge two that measured differently.
      */
     RoboTextGlyphGenerationMode mode;
+    /**
+     * The writing mode and the resolved orientation (Phase 12.20).
+     *
+     * The phase's run-splitting list names both, and neither is a property of the font or the settings: one
+     * face set horizontally beside the same face set vertically is two runs, and a German word inside a
+     * Japanese column is a sideways run beside two upright ones. They are in the key for the same reason
+     * `mode` is — two runs that measured differently may not merge — and they never split two runs that could
+     * have merged, because a run's writing setting is one value for the whole run by construction.
+     */
+    RoboTextWritingMode writingMode;
+    RoboTextGlyphOrientation orientation;
 } RoboTextGlyphRunKey;
 
 /**
@@ -111,7 +122,11 @@ typedef enum RoboTextGlyphRunKeyField {
     RoboTextGlyphRunKeyFieldBaseDirection,
     RoboTextGlyphRunKeyFieldLanguage,
     RoboTextGlyphRunKeyFieldFeatures,
-    RoboTextGlyphRunKeyFieldMode
+    RoboTextGlyphRunKeyFieldMode,
+    /** The writing mode differs (Phase 12.20): a vertical run is not a horizontal one. */
+    RoboTextGlyphRunKeyFieldWritingMode,
+    /** The resolved glyph orientation differs: upright and sideways glyphs never share a run. */
+    RoboTextGlyphRunKeyFieldOrientation
 } RoboTextGlyphRunKeyField;
 
 /** Non-zero when @p field is a defined enumerator. */

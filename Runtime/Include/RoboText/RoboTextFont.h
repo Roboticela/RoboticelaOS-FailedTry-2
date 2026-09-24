@@ -96,6 +96,57 @@ typedef struct RoboTextFontMetrics {
     float xHeightPx;
 } RoboTextFontMetrics;
 
+/**
+ * A glyph's **vertical** metrics at the context's own size (Phase 12.20).
+ *
+ * The four numbers a vertical pen needs, and the reason they are a record of their own rather than four
+ * more fields on @ref RoboTextFontMetrics: they are per *glyph*, not per face, and a vertical run asks
+ * them once per glyph the way a horizontal run asks `hmtx`.
+ */
+typedef struct RoboTextFontVerticalMetrics {
+    /** Non-zero when the face carried `vhea`/`vmtx` and the glyph had an entry. */
+    int fromFace;
+    /** The face's em square, from `head`; 0 when the metrics could not be read. */
+    uint16_t unitsPerEm;
+    /** The glyph's `vmtx` advance height, in font units — the pen's step along +y. */
+    uint16_t advanceHeightUnits;
+    /** The glyph's `vmtx` top side bearing, in font units, signed. Kept for a dump and for the origin. */
+    int16_t topSideBearing;
+    /** The advance the vertical pen moves after this glyph, in device pixels. */
+    float advanceHeightPx;
+    /**
+     * The glyph's vertical origin, in device pixels, measured **upward from the horizontal baseline**.
+     *
+     * The line a vertical column is centred on. Derived as the OpenType specification requires for a
+     * `glyf` face: `vertOriginY = yMax + topSideBearing`, with `yMax` the glyph's own outline box. A face
+     * whose glyph has no outline box leaves this at the `vmtx` top side bearing alone, and
+     * @ref originFromOutline says which of the two happened rather than passing a derived number off as a
+     * measured one.
+     */
+    float originYPx;
+    /**
+     * The glyph's horizontal placement relative to its own horizontal origin, in device pixels: the
+     * distance from the glyph's left side bearing to the middle of its horizontal advance.
+     *
+     * The OpenType specification's `vertOriginX` in the `glyf` case
+     * (`x = horiBearingX + horiAdvance / 2`), and what a glyph is translated by so that a vertical
+     * column is centred on the glyphs' horizontal advances rather than on their left edges.
+     */
+    float originXPx;
+    /** Non-zero when @ref originYPx came from the glyph's outline box (`glyf`'s `yMax + TSB`). */
+    int originFromOutline;
+    /**
+     * Non-zero when @ref advanceHeightPx was **synthesised** from the face's own line extent because the
+     * face carries no `vmtx`.
+     *
+     * A stated absence rather than a silent one: a CJK face without `vmtx` is shaped with the em box's
+     * height as its vertical advance — which is what the specification requires of a conforming font, and
+     * is a *fallback* for the fonts that are not — and a caller comparing two faces needs to know which of
+     * the two numbers it is holding.
+     */
+    int advanceSynthesised;
+} RoboTextFontVerticalMetrics;
+
 /** Clear @p context to "no face, CSS initial setting". Safe on NULL. */
 void RoboTextFontContextInit(RoboTextFontContext *context);
 
@@ -216,6 +267,29 @@ Result RoboTextFontGlyphMetrics(const RoboTextFontContext *context,
                                 FontGlyphMetrics *outMetrics,
                                 float *outAdvancePx,
                                 RoboTextDiag *diag);
+
+/**
+ * A glyph's vertical metrics at @p context's size (Phase 12.20).
+ *
+ * Reads the face's `vmtx`/`vhea` through RoboFont (which parses them once, lazily, like every other table)
+ * and derives the vertical origin the way the OpenType specification states for a `glyf` face. **No VORG
+ * parsing**: `VORG` is a CFF-face table, RoboFont does not parse it, and a `glyf`-derived origin is the
+ * correct answer for the faces this build ships and tests. A CFF face therefore gets the `vmtx` top side
+ * bearing as its origin with @ref RoboTextFontVerticalMetrics::originFromOutline clear, which is stated
+ * rather than passed off as a measurement.
+ *
+ * A face with no `vmtx` is **not** refused: the advance is synthesised from the face's line extent and
+ * `advanceSynthesised` is set. Vertical text over a face that has no vertical metrics is a supported
+ * configuration, exactly as a face with no GSUB is one, and the flag is what keeps it from looking like a
+ * measured answer.
+ *
+ * @return RoboOk and @p out; RoboInvalidArgument for a NULL argument; RoboNotSupported when the context
+ *         names no face; RoboError when the face's metrics will not parse at all.
+ */
+Result RoboTextFontGlyphVerticalMetrics(const RoboTextFontContext *context,
+                                       GlyphId glyphId,
+                                       RoboTextFontVerticalMetrics *out,
+                                       RoboTextDiag *diag);
 
 /**
  * The face's GSUB table, parsed once (Phase 12.10).

@@ -360,11 +360,49 @@ typedef struct ConfFontSpec {
     /** Glyphs GDEF classifies as marks (class 3), which is what `IgnoreMarks` reads. */
     uint16_t marks[ConfMaxMarks];
     size_t markCount;
+    /**
+     * The **vertical** metrics (Phase 12.20): `vmtx`'s advance height per glyph, and the top side bearing.
+     *
+     * A table of its own rather than a second reading of {@ref advances}, because the whole point of the
+     * vertical cases is that the two numbers are **different**: a test that asserted `advanceY` while the
+     * fixture derived it from `hmtx` could not distinguish "the vertical advance was read" from "the
+     * horizontal one was reused".
+     */
+    uint16_t verticalAdvances[ConfMaxGlyphs];
+    int16_t verticalBearings[ConfMaxGlyphs];
+    /** Non-zero: write `vhea` + `vmtx`. A face without them exercises the synthesised-advance path. */
+    int hasVertical;
     /** Omit a table, for the malformed and absence cases. */
     int omitGsub;
     int omitGpos;
     int omitGdef;
 } ConfFontSpec;
+
+/**
+ * The vertical fixture's glyph ids, so a suite names a fact rather than a literal.
+ *
+ * The ids are the fixture's own assignment (the `cmap` runs below) and the `vert` products sit above the
+ * base glyphs, exactly the way the conformance fixture's ligature products do — a suite that expected an
+ * upright form reads {@ref vertHan0} rather than writing a number the builder could move.
+ */
+typedef struct ConfVerticalGlyphIds {
+    uint16_t han0;      /**< U+4E00, a Han ideograph. */
+    uint16_t han1;      /**< U+4E01, its neighbour in the same run. */
+    uint16_t kana0;     /**< U+3042, a Hiragana letter. */
+    uint16_t kana1;     /**< U+3044. */
+    uint16_t comma;     /**< U+3001, CJK punctuation (script `Common`, upright by code point). */
+    uint16_t latinA;    /**< `A`, sideways in a vertical column. */
+    uint16_t latinB;    /**< `B`. */
+    uint16_t digit1;    /**< `1`. */
+    uint16_t halfKana;  /**< U+FF76, halfwidth Katakana: rotated, not upright. */
+    uint16_t arabicBeh; /**< U+0628, a strong right-to-left scalar, for the vertical+bidi case. */
+    /** U+3099, the combining voiced sound mark: `Inherited`, zero advance on both axes, attached by `mark`. */
+    uint16_t voicing;
+    /** The `vert` products: the upright vertical forms `vert` substitutes. */
+    uint16_t vertHan0;
+    uint16_t vertComma;
+    uint16_t glyphCount;
+} ConfVerticalGlyphIds;
 
 /** The glyph ids a built font assigned to its ligature products, so a suite never writes a literal. */
 typedef struct ConfGlyphIds {
@@ -1624,6 +1662,55 @@ static inline size_t ConfHmtx(uint8_t *b, const ConfFontSpec *spec)
     return at;
 }
 
+/**
+ * The fixture's `vhea` (Phase 12.20): version 1.0, 36 bytes, `numberOfVMetrics == glyphCount`.
+ *
+ * `numberOfVMetrics` naming every glyph is the simple case and the one a vertical case wants: every glyph has
+ * its own recorded advance, so no case is accidentally reading the format's trailing-bearing fallback. The
+ * `advanceHeightMax` is stated so a reader can tell the table apart from a `hhea` if the bytes were ever mixed
+ * up.
+ */
+static inline size_t ConfVhea(uint8_t *b, uint16_t glyphCount)
+{
+    memset(b, 0, 36u);
+    b[0] = 0x00;
+    b[1] = 0x01; /* majorVersion 1 */
+    b[2] = 0x00;
+    b[3] = 0x00; /* minorVersion 0 */
+    b[4] = 0x03;
+    b[5] = 0x20; /* ascent 800 */
+    b[6] = 0xFD;
+    b[7] = 0xA8; /* descent -600 */
+    b[10] = 0x07;
+    b[11] = 0xD0; /* advanceHeightMax 2000 */
+    b[18] = 0x00; /* caretSlopeRise */
+    b[19] = 0x00;
+    b[20] = 0x00;
+    b[21] = 0x01; /* caretSlopeRun 1 */
+    b[32] = 0x00; /* metricDataFormat 0 */
+    b[33] = 0x00;
+    b[34] = (uint8_t)(glyphCount >> 8);
+    b[35] = (uint8_t)glyphCount;
+    return 36u;
+}
+
+/** The fixture's `vmtx`: one `(advanceHeight, topSideBearing)` per glyph, in the spec's own order. */
+static inline size_t ConfVmtx(uint8_t *b, const ConfFontSpec *spec)
+{
+    size_t at = 0u;
+
+    for (uint16_t glyph = 0u; glyph < spec->glyphCount; glyph++) {
+        uint16_t advance = spec->verticalAdvances[glyph];
+        int16_t bearing = spec->verticalBearings[glyph];
+
+        b[at++] = (uint8_t)(advance >> 8);
+        b[at++] = (uint8_t)advance;
+        b[at++] = (uint8_t)((uint16_t)bearing >> 8);
+        b[at++] = (uint8_t)bearing;
+    }
+    return at;
+}
+
 static inline size_t ConfPost(uint8_t *b)
 {
     memset(b, 0, 32u);
@@ -1890,7 +1977,9 @@ static inline void ConfFaceBuildBytes(ConfFace *out, const ConfFontSpec *spec)
     static uint8_t gpos[8192];
     static uint8_t post[32];
     static uint8_t os2[96];
-    ConfTable tables[12];
+    static uint8_t vhea[36];
+    static uint8_t vmtx[ConfMaxGlyphs * 4u];
+    ConfTable tables[14];
     uint32_t count = 0u;
     size_t cmapLength;
     size_t gdefLength;
@@ -1958,6 +2047,22 @@ static inline void ConfFaceBuildBytes(ConfFace *out, const ConfFontSpec *spec)
     tables[count].data = os2;
     tables[count].length = (uint32_t)ConfOs2(os2);
     count++;
+    /*
+     * `vhea` + `vmtx` (Phase 12.20), only when the spec asks for them. A face with neither exercises the
+     * **synthesised** vertical-advance path, and that path is a case of its own: the two tables are optional
+     * in a way `hmtx` is not, so "the spec is vertical" and "the face has vertical metrics" are deliberately
+     * two different facts a suite can set independently.
+     */
+    if (spec->hasVertical) {
+        tables[count].tag = RoboFontTag('v', 'h', 'e', 'a');
+        tables[count].data = vhea;
+        tables[count].length = (uint32_t)ConfVhea(vhea, spec->glyphCount);
+        count++;
+        tables[count].tag = RoboFontTag('v', 'm', 't', 'x');
+        tables[count].data = vmtx;
+        tables[count].length = (uint32_t)ConfVmtx(vmtx, spec);
+        count++;
+    }
 
     if (!spec->omitGsub && (spec->ligatureCount > 0u || spec->substCount > 0u)) {
         ConfWriter w;
@@ -1999,7 +2104,7 @@ static inline void ConfFaceBuildBytes(ConfFace *out, const ConfFontSpec *spec)
         count++;
     }
 
-    RoboCheck(count <= 12u);
+    RoboCheck(count <= 14u);
     fflush(stderr);
     out->length = ConfSfnt(out->bytes, sizeof(out->bytes), tables, count);
     RoboCheck(out->length != 0u);
@@ -2361,6 +2466,205 @@ static inline void ConfSpecMalformedGsub(ConfFontSpec *spec)
     spec->omitGsub = 0;
     spec->omitGpos = 0;
     spec->omitGdef = 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* The vertical fixture (Phase 12.20)                                  */
+/* ------------------------------------------------------------------ */
+
+/** The vertical fixture's first base glyph, and the two `vert` products above the base run. */
+#define ConfVerticalGlyphBase 1u
+#define ConfVerticalProductBase 13u
+#define ConfVerticalGlyphCount 15u
+
+/* The scalars the fixture maps, named so the runs below and the suites' expectations are one list. */
+#define ConfVerticalCpDigit 0x0031u
+#define ConfVerticalCpLatin 0x0041u
+#define ConfVerticalCpArabic 0x0628u
+#define ConfVerticalCpVoicing 0x3099u
+#define ConfVerticalCpComma 0x3001u
+#define ConfVerticalCpHiragana 0x3042u
+#define ConfVerticalCpHan 0x4E00u
+#define ConfVerticalCpHalfKana 0xFF76u
+
+/**
+ * The mark-attachment anchors the vertical fixture states, in font units.
+ *
+ * The mark's anchor and its base's are two points the *font* declares, and the case's expected placement is
+ * the difference of the two — so a case reads as arithmetic over the fixture rather than as a number someone
+ * once observed. Both are deliberately **not** on an axis: a placement that swapped x and y would still land
+ * on two of these four numbers, which is how a transposed attachment would slip past a diagonal pair.
+ */
+#define ConfVerticalMarkAnchorX 100
+#define ConfVerticalMarkAnchorY 200
+#define ConfVerticalBaseAnchorX 300
+#define ConfVerticalBaseAnchorY 700
+
+/** The horizontal advance the vertical fixture gives @p glyph (`400 + id`), so a case derives it. */
+static inline uint16_t ConfVerticalHorizontalAdvance(uint16_t glyph)
+{
+    return (uint16_t)(400u + glyph);
+}
+
+/** The **vertical** advance the vertical fixture gives @p glyph (`1000 + id`). */
+static inline uint16_t ConfVerticalAdvance(uint16_t glyph)
+{
+    return (uint16_t)(1000u + glyph);
+}
+
+/** The vertical fixture's `vmtx` top side bearing: nonzero, so a vertical origin is a visible number. */
+#define ConfVerticalBearing 120
+
+/**
+ * The vertical fixture's `cmap`, as `(first, last, startGlyph)` runs whose glyph ids follow one another.
+ *
+ * Sparse and hand-placed rather than drawn from the canonical list, because what the vertical cases need is
+ * **five different scripts in one tiny face**: Han and Hiragana to stand up, Latin and a digit to lie down,
+ * an Arabic letter so a vertical run can also be right-to-left, halfwidth Katakana to prove the rotated
+ * table beats the script, and CJK punctuation — whose script is `Common` — to stand up by its code point.
+ * The canonical list carries none of the ideographic code points, and growing it would change every glyph id
+ * every other suite names.
+ *
+ * The combining mark (@ref ConfVerticalCpVoicing, `Inherited` script, so it rides its base's script run) is
+ * the one scalar added for the **vertical mark case**: a mark is where `hmtx` and `vmtx` are furthest apart,
+ * because the pen it has to compensate for is the vertical one.
+ */
+static inline size_t ConfVerticalCmapRuns(ConfFontSpec *spec)
+{
+    static const uint32_t kFirsts[] = {ConfVerticalCpDigit, ConfVerticalCpLatin, ConfVerticalCpArabic,
+                                       ConfVerticalCpComma, ConfVerticalCpHiragana, ConfVerticalCpVoicing,
+                                       ConfVerticalCpHan, ConfVerticalCpHalfKana};
+    static const uint32_t kLasts[] = {ConfVerticalCpDigit, ConfVerticalCpLatin + 1u, ConfVerticalCpArabic,
+                                      ConfVerticalCpComma, ConfVerticalCpHiragana + 2u,
+                                      ConfVerticalCpVoicing, ConfVerticalCpHan + 1u, ConfVerticalCpHalfKana};
+    size_t count = 0u;
+    uint16_t glyph = ConfVerticalGlyphBase;
+
+    for (size_t i = 0u; i < sizeof(kFirsts) / sizeof(kFirsts[0]) && spec->cmapCount < ConfMaxCmapGroups; i++) {
+        spec->cmap[spec->cmapCount].first = kFirsts[i];
+        spec->cmap[spec->cmapCount].last = kLasts[i];
+        spec->cmap[spec->cmapCount].glyph = glyph;
+        spec->cmapCount++;
+        count++;
+        glyph = (uint16_t)(glyph + (kLasts[i] - kFirsts[i]) + 1u);
+    }
+    return count;
+}
+
+/** The glyph @p spec's `cmap` maps @p codePoint to, or 0 when it maps it to nothing. */
+static inline uint16_t ConfSpecGlyphFor(const ConfFontSpec *spec, uint32_t codePoint)
+{
+    for (size_t i = 0u; i < spec->cmapCount; i++) {
+        if (codePoint >= spec->cmap[i].first && codePoint <= spec->cmap[i].last) {
+            return (uint16_t)(spec->cmap[i].glyph + (codePoint - spec->cmap[i].first));
+        }
+    }
+    return 0u;
+}
+
+/**
+ * The vertical conformance font: a `vhea`/`vmtx` pair, a `vert` feature that substitutes two upright forms,
+ * and a `cmap` spanning Han, Hiragana, Latin, a digit, Arabic, CJK punctuation and halfwidth Katakana.
+ *
+ * **The vertical advances are deliberately unrelated to the horizontal ones** (`1000 + id` against
+ * `400 + id`): a case that compared a glyph's `advanceY` while the fixture derived it from `hmtx` would be
+ * asserting nothing, and this difference is what makes "the `vmtx` entry was read" a fact instead of a hope.
+ *
+ * The ids are **derived from the runs** rather than written out: a literal here would be a second statement
+ * of the layout, and the two would drift the first time a run was added — which the Arabic run was.
+ *
+ * @param ids receives the glyph ids, so a suite names them rather than writing a number the builder could
+ *            move; may be NULL when the caller only wants the bytes.
+ */
+static inline void ConfSpecVertical(ConfFontSpec *spec, ConfVerticalGlyphIds *ids)
+{
+    ConfSpecInit(spec, ConfVerticalGlyphCount);
+    spec->canonicalCmap = 0;
+    spec->hasVertical = 1;
+
+    (void)ConfVerticalCmapRuns(spec);
+
+    /*
+     * The horizontal advance `ConfSpecInit` installed is `400 + id`; the vertical one is stated as
+     * `1000 + id`, and the bearing is a nonzero @ref ConfVerticalBearing so that a glyph's vertical **origin**
+     * is a number a case can see — a zero bearing would make the origin adjustment indistinguishable from its
+     * absence.
+     */
+    for (uint16_t glyph = 0u; glyph < ConfVerticalGlyphCount; glyph++) {
+        spec->advances[glyph] = ConfVerticalHorizontalAdvance(glyph);
+        spec->verticalAdvances[glyph] = ConfVerticalAdvance(glyph);
+        spec->verticalBearings[glyph] = ConfVerticalBearing;
+    }
+    /*
+     * The mark is the one **exception**, and it is the fixture's whole vertical-mark claim: it advances
+     * nothing on either axis (`hmtx` and `vmtx` both zero), which is what makes "a column with a mark in it is
+     * as long as its base alone" a fact about the bytes rather than a rounding difference. A mark that
+     * inherited `1000 + id` would make the case that reads the total vacuous.
+     */
+    {
+        uint16_t mark = ConfSpecGlyphFor(spec, ConfVerticalCpVoicing);
+
+        spec->advances[mark] = 0u;
+        spec->verticalAdvances[mark] = 0u;
+        spec->marks[spec->markCount++] = mark;
+    }
+    /*
+     * A mark-to-base attachment under `mark`: the voiced sound mark attaches to the Hiragana letter, which is
+     * the pair a vertical Japanese column really contains. Both anchors are stated here (see
+     * @ref ConfVerticalMarkAnchorX) and the class is 0 — one class, because one rule is enough to tell "the
+     * attachment ran" from "the mark sat where its advance left it".
+     */
+    {
+        ConfMarkRule *rule = &spec->markBase[spec->markBaseCount++];
+
+        memcpy(rule->tag, "mark", 5u);
+        rule->mark = ConfSpecGlyphFor(spec, ConfVerticalCpVoicing);
+        rule->anchorGlyph = ConfSpecGlyphFor(spec, ConfVerticalCpHiragana);
+        rule->markClass = 0u;
+        rule->markX = ConfVerticalMarkAnchorX;
+        rule->markY = ConfVerticalMarkAnchorY;
+        rule->anchorX = ConfVerticalBaseAnchorX;
+        rule->anchorY = ConfVerticalBaseAnchorY;
+    }
+
+    /*
+     * `vert`: the upright forms. Two rules — the ideograph and the CJK comma — so a case can tell "the
+     * feature ran" from "the code point was drawn as itself". The products sit above the base glyphs, exactly
+     * the way the conformance fixture's ligature products do, and they carry their own `vmtx` entries like
+     * any other glyph (which is why the advance a case asserts is the **substitute's**).
+     */
+    {
+        ConfSubstRule *rule = &spec->subst[spec->substCount++];
+
+        memcpy(rule->tag, "vert", 5u);
+        rule->glyph = ConfSpecGlyphFor(spec, ConfVerticalCpHan);
+        rule->substitute = ConfVerticalProductBase; /* vertHan0 */
+    }
+    {
+        ConfSubstRule *rule = &spec->subst[spec->substCount++];
+
+        memcpy(rule->tag, "vert", 5u);
+        rule->glyph = ConfSpecGlyphFor(spec, ConfVerticalCpComma);
+        rule->substitute = (uint16_t)(ConfVerticalProductBase + 1u); /* vertComma */
+    }
+
+    if (ids) {
+        memset(ids, 0, sizeof(*ids));
+        ids->digit1 = ConfSpecGlyphFor(spec, ConfVerticalCpDigit);
+        ids->latinA = ConfSpecGlyphFor(spec, ConfVerticalCpLatin);
+        ids->latinB = ConfSpecGlyphFor(spec, ConfVerticalCpLatin + 1u);
+        ids->arabicBeh = ConfSpecGlyphFor(spec, ConfVerticalCpArabic);
+        ids->voicing = ConfSpecGlyphFor(spec, ConfVerticalCpVoicing);
+        ids->comma = ConfSpecGlyphFor(spec, ConfVerticalCpComma);
+        ids->kana0 = ConfSpecGlyphFor(spec, ConfVerticalCpHiragana);
+        ids->kana1 = ConfSpecGlyphFor(spec, ConfVerticalCpHiragana + 2u);
+        ids->han0 = ConfSpecGlyphFor(spec, ConfVerticalCpHan);
+        ids->han1 = ConfSpecGlyphFor(spec, ConfVerticalCpHan + 1u);
+        ids->halfKana = ConfSpecGlyphFor(spec, ConfVerticalCpHalfKana);
+        ids->vertHan0 = ConfVerticalProductBase;
+        ids->vertComma = (uint16_t)(ConfVerticalProductBase + 1u);
+        ids->glyphCount = ConfVerticalGlyphCount;
+    }
 }
 
 #endif /* ROBO_TEXT_CONFORMANCE_FONT_H */

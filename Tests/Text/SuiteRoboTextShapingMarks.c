@@ -279,10 +279,15 @@ static void TestShapingMarkAttachmentClaimed(void)
     RoboCheckEqInt(capabilities.glyphClusters, 1);
     RoboCheckEqInt(capabilities.glyphFlags, 1);
     RoboCheckEqInt(capabilities.positioning, 1);
-    /* And the two things a mark needs that are absent for a different reason: vertical metrics, and a cache
-     * that would make the "no second positioning" rule untestable. */
+    /*
+     * The cache is still absent, for the reason 12.14 gave: a cache would make the "no second positioning"
+     * rule untestable. Vertical metrics **left** this list in 12.20 — a mark in a vertical column now gets its
+     * base's `vmtx` placement — so the flag is asserted present here, which is the same "a later phase flips
+     * its flag in the same change" rule this case was written for, read from the other side.
+     */
     RoboCheckEqInt(capabilities.shapingCache, 0);
-    RoboCheckEqInt(capabilities.verticalText, 0);
+    RoboCheckEqInt(capabilities.verticalText, 1);
+    RoboCheckEqInt(capabilities.verticalMetrics, 1);
 }
 
 void TestRegisterTextShapingMarks(void)

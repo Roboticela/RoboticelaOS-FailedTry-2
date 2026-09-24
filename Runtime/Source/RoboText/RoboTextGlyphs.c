@@ -258,6 +258,61 @@ Result RoboTextGlyphFlagsWrite(RoboTextGlyphFlags flags,
 }
 
 /* ------------------------------------------------------------------ */
+/* Vertical placement (Phase 12.20)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Write one glyph's **vertical** pen step and placement (Phase 12.20).
+ *
+ * The vertical twin of the `hmtx` line the rebuild already performs, and the whole of the placement model:
+ *
+ * ```text
+ * advanceX  = 0                     the pen does not move along x in a vertical column
+ * advanceY  = vmtx advanceHeight    the pen's step, in device pixels
+ * offsetX   = -vertOriginX          centre the glyph on the column rather than on its left edge
+ * offsetY   = -vertOriginY          put the glyph's own vertical origin at the pen
+ * ```
+ *
+ * **Two negations, and they are the whole of "vertical origin"**: `vertOriginY` is measured *upward from
+ * the horizontal baseline*, while the pen's origin sits at the glyph, so drawing the glyph at the pen means
+ * translating it down by the origin. Folding that into `offsetX`/`offsetY` here — once, in one function —
+ * is what the phase's "do not allow the renderer to independently reinterpret vertical origins" asks for: a
+ * painter applies a glyph's offset and knows nothing about `vmtx`, `vhea` or a vertical origin at all.
+ *
+ * A **control** glyph keeps its empty slot: no advance, no offset, nothing drawn. A glyph the face had no id
+ * for still advances — the same decision horizontal text makes with `.notdef`, and for the same reason: a
+ * character the face failed to cover is a visible box the pen moves past, not a zero-width nothing.
+ *
+ * GPOS adjustments are added by the caller rather than here, because the map pass has none and the rebuild
+ * has them: this function states the **face's** answer, and `ShapeRunFromBuffer` adds the font's positioning
+ * on top exactly as it does for `hx`.
+ *
+ * @param synthesised receives non-zero when the face carried no `vmtx` entry and the advance was derived
+ *                    from the horizontal metrics; may be NULL.
+ */
+static Result GlyphApplyVerticalMetrics(const RoboTextRun *run,
+                                       RoboTextGlyph *glyph,
+                                       int *synthesised,
+                                       RoboTextDiag *diag)
+{
+    RoboTextFontVerticalMetrics vertical;
+    Result status;
+
+    status = RoboTextFontGlyphVerticalMetrics(&run->font, glyph->glyphId, &vertical, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    glyph->advanceX = 0.0f;
+    glyph->advanceY = vertical.advanceHeightPx;
+    glyph->offsetX = -vertical.originXPx;
+    glyph->offsetY = -vertical.originYPx;
+    if (synthesised) {
+        *synthesised = vertical.advanceSynthesised;
+    }
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
 /* Substitution (Phase 12.10)                                          */
 /* ------------------------------------------------------------------ */
 
@@ -329,6 +384,8 @@ static Result ShapeRunFromBuffer(RoboTextGlyphRun *glyphRun,
     glyphRun->ligatures = 0u;
     glyphRun->positioned = 0u;
     glyphRun->advanceTotal = 0.0;
+    glyphRun->advanceTotalY = 0.0;
+    glyphRun->verticalSynthesised = 0u;
 
     for (size_t index = 0u; index < produced; index++) {
         const RoboTextShapingGlyph *shaping = RoboTextShapingBufferAt(buffer, index);
@@ -399,6 +456,31 @@ static Result ShapeRunFromBuffer(RoboTextGlyphRun *glyphRun,
         glyph->advanceY = shaping->advanceAdjustY;
         glyph->offsetX = shaping->offsetAdjustX;
         glyph->offsetY = shaping->offsetAdjustY;
+        /*
+         * A vertical run's pen step and placement come from the face's own **vertical** metrics (Phase
+         * 12.20), and the font's GPOS is then added on top through exactly the two lines below it adds for
+         * `hmtx`: `advanceAdjustY` is the `YAdvance` a value record stated, `offsetAdjustY` its `YPlacement`.
+         * The horizontal advance is *replaced* by zero rather than added to — one pen, one axis — and the
+         * `vmtx` origin is applied here as the placement so that the painter applies an offset and never
+         * learns what a vertical origin is.
+         */
+        if (RoboTextWritingModeIsVertical(run->writingMode)) {
+            int synthesised = 0;
+
+            status = GlyphApplyVerticalMetrics(run, glyph, &synthesised, diag);
+            if (status != RoboOk) {
+                RoboFree(rebuilt);
+                return status;
+            }
+            /* The font's own positioning is added on top of the face's vertical answer, the same way it is for
+             * `hmtx`: `YAdvance` steps the pen, `YPlacement` and `XPlacement` shift the glyph. */
+            glyph->advanceY += shaping->advanceAdjustY;
+            glyph->offsetX += shaping->offsetAdjustX;
+            glyph->offsetY += shaping->offsetAdjustY;
+            if (synthesised) {
+                glyphRun->verticalSynthesised++;
+            }
+        }
         /* The font's own part, kept beside the total rather than folded into it: see `advanceAdjustX`. */
         glyph->advanceAdjustX = shaping->advanceAdjustX;
         glyph->advanceAdjustY = shaping->advanceAdjustY;
@@ -408,6 +490,7 @@ static Result ShapeRunFromBuffer(RoboTextGlyphRun *glyphRun,
             glyphRun->missing++;
         }
         glyphRun->advanceTotal += (double)glyph->advanceX;
+        glyphRun->advanceTotalY += (double)glyph->advanceY;
     }
 
     RoboFree(glyphRun->glyphs);
@@ -674,6 +757,9 @@ static Result ShapeRun(RoboTextView view,
          * GPOS does not carry. Kerning and single adjustments do not read it.
          */
         options.font = &run->font;
+        /* The mode is the run's, so an attachment's pen distance is the advance the pen actually took: `vmtx`
+         * in a vertical run and `hmtx` in a horizontal one. */
+        options.writingMode = run->writingMode;
         options.positionMasks = masks;
         options.positionMaskCount = maskCount;
         options.maskBase = run->range.start;
@@ -782,6 +868,9 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
     glyphRun->font = run->font;
     glyphRun->language = run->language;
     glyphRun->features = run->features;
+    glyphRun->writingMode = run->writingMode;
+    glyphRun->textOrientation = run->textOrientation;
+    glyphRun->orientation = run->orientation;
     glyphRun->mode = RoboTextGlyphGenerationCmapPerScalar;
     if (length != 0u) {
         glyphRun->glyphs = (RoboTextGlyph *)RoboCalloc(length, sizeof(*glyphRun->glyphs));
@@ -885,10 +974,30 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
         /* `advanceY`, `offsetX` and `offsetY` stay zero *here*, at the map stage: the face's GPOS writes them
          * when the run is positioned, a few lines below, and a value written here would be a number the font
          * never gave. */
+        /*
+         * Except in a vertical run, where the *face's own* vertical metrics are the map stage's answer for
+         * the pen step and the placement — there is no `vmtx` in the horizontal line above, and a vertical
+         * run whose GPOS never ran would otherwise advance nowhere at all. The `vmtx` advance replaces the
+         * `hmtx` one rather than being added to it: a vertical column's pen moves along y, and an advance
+         * along x would be a painter drawing the column diagonally.
+         */
+        if (RoboTextWritingModeIsVertical(run->writingMode)) {
+            int synthesised = 0;
+
+            status = GlyphApplyVerticalMetrics(run, glyph, &synthesised, diag);
+            if (status != RoboOk) {
+                RoboTextGlyphRunDestroy(glyphRun);
+                return status;
+            }
+            if (synthesised) {
+                glyphRun->verticalSynthesised++;
+            }
+        }
         if (!mapped || metrics.status != RoboFontGlyphMetricsOk) {
             glyphRun->missing++;
         }
         glyphRun->advanceTotal += (double)glyph->advanceX;
+        glyphRun->advanceTotalY += (double)glyph->advanceY;
     }
 
     glyphRun->count = (size_t)length;
@@ -1517,6 +1626,31 @@ float RoboTextGlyphRunAdvanceY(const RoboTextGlyphRun *run)
 const RoboTextFeatureSet *RoboTextGlyphRunFeatures(const RoboTextGlyphRun *run)
 {
     return run ? &run->features : NULL;
+}
+
+RoboTextWritingMode RoboTextGlyphRunWritingMode(const RoboTextGlyphRun *run)
+{
+    return run ? run->writingMode : RoboTextWritingHorizontal;
+}
+
+RoboTextTextOrientation RoboTextGlyphRunTextOrientation(const RoboTextGlyphRun *run)
+{
+    return run ? run->textOrientation : RoboTextTextOrientationMixed;
+}
+
+RoboTextGlyphOrientation RoboTextGlyphRunOrientation(const RoboTextGlyphRun *run)
+{
+    return run ? run->orientation : RoboTextGlyphOrientationUpright;
+}
+
+int RoboTextGlyphRunIsVertical(const RoboTextGlyphRun *run)
+{
+    return run != NULL && RoboTextWritingModeIsVertical(run->writingMode);
+}
+
+size_t RoboTextGlyphRunVerticalSynthesised(const RoboTextGlyphRun *run)
+{
+    return run ? run->verticalSynthesised : 0u;
 }
 
 /* ------------------------------------------------------------------ */

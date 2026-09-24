@@ -23,13 +23,14 @@
  *
  * ## What this build does not do, and where each absence is recorded
  *
- * Substitution, positioning, kerning, ligatures, the bidi algorithm, complex scripts, vertical text and
- * variable-axis application are all **absent**, and each is a documented flag in
- * `RoboTextVersion.h` rather than a claim in prose. The one that needs saying in this file is the
- * deliberate placeholder at the centre of it: `RoboTextGlyphGenerationCmapPerScalar` is one `cmap`
- * lookup per scalar in logical order, which is *correct for the text it handles* and is **not shaping**.
- * It is isolated behind `RoboTextGlyphRunGenerate` so that Phase 12.10's substitution pass replaces one
- * function rather than the architecture.
+ * Variable-axis application is **absent**, and it is a documented flag in `RoboTextVersion.h` rather than a
+ * claim in prose. Everything the earlier phases named as future work has since landed: substitution (12.10),
+ * positioning (12.11), ligatures (12.12), kerning (12.13), the bidi algorithm (12.8), complex scripts
+ * (12.19) and vertical writing (12.20). The placeholder this file used to describe —
+ * `RoboTextGlyphGenerationCmapPerScalar`, one `cmap` lookup per scalar in logical order — is still the
+ * **first** stage of `RoboTextGlyphRunGenerate`, and the substitution and positioning passes built on top of
+ * it are what replaced the plan of "one function": the generator now runs cmap, then `vert`/`vrt2` and every
+ * other caller feature through 12.10's GSUB, then 12.11's GPOS.
  *
  * ## Boundaries
  *
@@ -59,6 +60,7 @@
 #include "RoboText/RoboTextDirection.h"
 #include "RoboText/RoboTextBidi.h"
 #include "RoboText/RoboTextUnicode.h"
+#include "RoboText/RoboTextVertical.h"
 #include "RoboText/RoboTextVersion.h"
 
 #endif /* ROBO_TEXT_H */

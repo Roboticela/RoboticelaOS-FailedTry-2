@@ -96,6 +96,10 @@ const char *RoboTextGlyphRunKeyFieldName(RoboTextGlyphRunKeyField field)
             return "features";
         case RoboTextGlyphRunKeyFieldMode:
             return "mode";
+        case RoboTextGlyphRunKeyFieldWritingMode:
+            return "writing-mode";
+        case RoboTextGlyphRunKeyFieldOrientation:
+            return "orientation";
         default:
             return "unknown";
     }
@@ -116,6 +120,8 @@ Result RoboTextGlyphRunKeyOf(const RoboTextGlyphRun *run, RoboTextGlyphRunKey *o
     out->language = run->language;
     out->features = run->features;
     out->mode = run->mode;
+    out->writingMode = run->writingMode;
+    out->orientation = run->orientation;
     return RoboOk;
 }
 
@@ -163,6 +169,12 @@ RoboTextGlyphRunKeyField RoboTextGlyphRunKeyDifference(const RoboTextGlyphRunKey
     }
     if (a->mode != b->mode) {
         return RoboTextGlyphRunKeyFieldMode;
+    }
+    if (a->writingMode != b->writingMode) {
+        return RoboTextGlyphRunKeyFieldWritingMode;
+    }
+    if (a->orientation != b->orientation) {
+        return RoboTextGlyphRunKeyFieldOrientation;
     }
     return RoboTextGlyphRunKeyFieldNone;
 }

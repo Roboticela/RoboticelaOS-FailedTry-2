@@ -403,6 +403,43 @@ float RoboTextGlyphRunLineHeight(const RoboTextGlyphRun *run);
 const RoboTextFeatureSet *RoboTextGlyphRunFeatures(const RoboTextGlyphRun *run);
 
 /**
+ * The writing mode the run was generated at (Phase 12.20). Horizontal for a NULL run.
+ *
+ * The field a painter reads to know **which vector its pen accumulates** — `advanceX` for a horizontal run,
+ * `advanceY` for a vertical one — and the field a layout pass reads to know which axis a line progresses
+ * along. Reading `advanceY` without asking this is not wrong (it is zero for a horizontal run), but reading
+ * *this* is what makes the two axes one code path rather than two.
+ */
+RoboTextWritingMode RoboTextGlyphRunWritingMode(const RoboTextGlyphRun *run);
+
+/** The requested `text-orientation` (Phase 12.20). Mixed for a NULL run. */
+RoboTextTextOrientation RoboTextGlyphRunTextOrientation(const RoboTextGlyphRun *run);
+
+/**
+ * The **resolved** orientation of every glyph in the run (Phase 12.20): upright or sideways.
+ *
+ * One answer for the whole run, because the run was cut where the orientation changed — so a painter asks
+ * this once rather than per glyph, and it never inspects a script or a code point to decide how to draw a
+ * glyph. `RoboTextGlyphOrientationRotation` is the angle it composes into its transform, and
+ * `RoboTextGlyphOrientationUpright` is the default for a NULL run (which is also what a horizontal run's
+ * glyphs are).
+ */
+RoboTextGlyphOrientation RoboTextGlyphRunOrientation(const RoboTextGlyphRun *run);
+
+/** Non-zero when @p run advances along +y. A spelling of the question, not a second field. */
+int RoboTextGlyphRunIsVertical(const RoboTextGlyphRun *run);
+
+/**
+ * Glyphs whose vertical advance was **synthesised** because the face carried no `vmtx` (Phase 12.20).
+ *
+ * Zero for a horizontal run and for a vertical run over a face with vertical metrics. A non-zero count is not
+ * a defect — a face without `vmtx` is shaped at its em box's height, which is the specification's own answer
+ * for it — but it is the one number that tells a caller whether the vertical advances it is holding were
+ * measured or derived.
+ */
+size_t RoboTextGlyphRunVerticalSynthesised(const RoboTextGlyphRun *run);
+
+/**
  * Generate the glyph run for one text run.
  *
  * The generator is the placeholder this phase names: one cmap lookup per scalar, in logical order, with
@@ -524,13 +561,13 @@ size_t RoboTextGlyphRunMissingGlyphs(const RoboTextGlyphRun *run);
 float RoboTextGlyphRunAdvance(const RoboTextGlyphRun *run);
 
 /**
- * The run's total **vertical** advance, in device pixels (Phase 12.14.19).
+ * The run's total **vertical** advance, in device pixels (Phase 12.14.19; non-zero since 12.20).
  *
- * Zero for every run this build produces, because nothing positions glyphs vertically yet: a glyph's
- * `advanceY` comes from GPOS and the tables this build applies write none. Present rather than absent because
- * a caller accumulating a line's progress in a writing mode it has not been given cannot ask which axis to
- * read, and a vertical-writing-mode goal that had to add this field would have to change every consumer of
- * the horizontal one.
+ * Zero for a horizontal run, and the pen's step for a vertical one — where each glyph's `advanceY` is the
+ * face's `vmtx` entry (or the em-box fallback, counted by @ref RoboTextGlyphRunVerticalSynthesised) plus
+ * whatever vertical GPOS added. `RoboTextGlyphRunWritingMode` is what says which of the two totals a caller
+ * accumulating a line's progress should read; asking it is why this field exists beside the horizontal one
+ * instead of replacing it.
  */
 float RoboTextGlyphRunAdvanceY(const RoboTextGlyphRun *run);
 

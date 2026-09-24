@@ -102,6 +102,14 @@ typedef struct RoboTextOtCall {
      */
     const RoboTextFontContext *gposFont;
     /**
+     * The run's **writing mode** (Phase 12.20), which decides which advance the pen distance is.
+     *
+     * `RoboTextWritingHorizontal` by default, and only the attachment readers read it: the pen's step from
+     * one glyph to the next is the run's *inline* advance, so a vertical mark is placed against `vmtx`
+     * rather than against an `hmtx` number the vertical pen never moves on.
+     */
+    RoboTextWritingMode writingMode;
+    /**
      * Non-zero when the **positioning** engine owns this call.
      *
      * A call is one engine's call at a time, and the shared helpers that charge the call's budget need to know

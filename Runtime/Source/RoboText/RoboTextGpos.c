@@ -260,6 +260,7 @@ Result RoboTextGposApply(const FontOtLayout *gpos,
         apply.positionMaskCount = options->positionMaskCount;
         apply.maskBase = options->maskBase;
         apply.gposFont = options->font;
+        apply.writingMode = options->writingMode;
         apply.devicePpem = options->devicePpem;
         apply.deviceScale = options->deviceScale;
         apply.gposTrace = options->trace;

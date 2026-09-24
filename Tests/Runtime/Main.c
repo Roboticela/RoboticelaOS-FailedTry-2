@@ -139,6 +139,10 @@ void TestRegisterTextShapingIntegration(void);
  * substitution stages, the reph and pre-base matra reordering, conjuncts), over one built face. */
 void TestRegisterTextArabic(void);
 void TestRegisterTextIndic(void);
+/* Phase 12.20 -- vertical writing: the writing mode and its axes, the orientation tables (including the
+ * rotated one that beats the script), the orientation cut, `vert` through the ordinary GSUB engine, the
+ * `vmtx` advances and the synthesised path, the measurement's `advanceY` and bidi in a vertical column. */
+void TestRegisterTextVertical(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -461,6 +465,7 @@ int main(int argc, char **argv)
     TestRegisterTextShapingIntegration();
     TestRegisterTextArabic();
     TestRegisterTextIndic();
+    TestRegisterTextVertical();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

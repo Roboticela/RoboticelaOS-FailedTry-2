@@ -65,7 +65,7 @@ extern "C" {
  * `RoboTextIndic.h`'s rules) sits on top of engines that gained abilities rather than callers — GPOS runs
  * lookup types 3–6, GSUB and GPOS both honour a strategy's positional mask, and `ShapeRun` walks a plan's
  * stages. The glyph record's shape is unchanged, so the minor moves once and the major stays. */
-#define RoboTextVersionMinor 10
+#define RoboTextVersionMinor 11
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -327,8 +327,47 @@ typedef struct RoboTextCapabilities {
     int reordering;
     /** A complex plan as a diagnostic block, and a cluster table through the same writer the run tables use. */
     int complexDiagnostics;
-    /** Vertical text. **0**: Phase 12.20. */
+    /**
+     * Vertical text: `RoboTextWritingMode` is a first-class setting on the shape options and on every run,
+     * and a vertical run positions its glyphs on the y axis through the **same** `RoboTextGlyphRun` the
+     * horizontal pipeline produces. Set by 12.20.
+     *
+     * What this does *not* claim: a second text engine. The placement is one helper beside the `hmtx` line
+     * in `RoboTextGlyphs.c`, the vertical substitutions are 12.10's GSUB, and the vertical positioning is
+     * 12.11's GPOS. A caller reading this flag is reading "the axis is data", not "there is a vertical
+     * shaper" — the flags below name the parts.
+     */
     int verticalText;
+    /**
+     * The writing mode's **axes** as an explicit inline/block pair (`RoboTextWritingAxes`), so a layout or a
+     * measurement pass converts "the pen moved 12px" to a physical vector through one door rather than
+     * writing the x/y swap itself. The two vertical modes differ in their **block** axis, which a boolean
+     * could not state.
+     */
+    int writingAxes;
+    /**
+     * Per-glyph orientation: `RoboTextGlyphOrientation` and the rotation a painter composes
+     * (`RoboTextGlyphOrientationRotation`). A run records the orientation its glyphs share, and the run set
+     * cuts on it — a change of orientation is a run boundary, so an upright ideograph never shares a run with
+     * the sideways Latin beside it.
+     */
+    int verticalOrientation;
+    /**
+     * Vertical font metrics: `RoboTextFontGlyphVerticalMetrics` over `vmtx`/`vhea`, and the vertical origin
+     * folded into the glyph's placement offset so a painter applies an offset and never learns what a
+     * vertical origin is. A face with no vertical metrics **synthesises** the advance from its horizontal
+     * metrics and the run counts it (`RoboTextGlyphRunVerticalSynthesised`), which is reported rather than
+     * passed off as the font's own answer.
+     */
+    int verticalMetrics;
+    /**
+     * The `vert`/`vrt2` hook: a vertical mode names both tags in the run's feature set, so a vertical
+     * alternate reaches 12.10's GSUB through the one door every feature uses. A caller's own setting for
+     * either tag is left alone, and a horizontal mode writes nothing.
+     */
+    int verticalFeatures;
+    /** A writing setting as a diagnostic line (`RoboTextWritingModeWrite`). */
+    int verticalDiagnostics;
 
     /* --- Phase 12.15: text measurement --- */
 

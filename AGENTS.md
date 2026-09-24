@@ -74,6 +74,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Glyph substitution (GSUB) | `Runtime/Source/RoboText/RoboTextGsub.c` (the plan, the scan, the counters) + `RoboTextGsubSubst.c` (one reader per lookup type) + public `Runtime/Include/RoboText/RoboTextGsub.h`. The GSUB table itself is Phase 5's (`FontFaceGsub`); this interprets its offsets and writes no font parser of its own. Ligature policy is 12.12's. Docs: `Documentation/Runtime/Text/GlyphSubstitution.md` |
 | Ligatures | `Runtime/Source/RoboText/RoboTextLigature.c` + public `Runtime/Include/RoboText/RoboTextLigature.h`; the policy types live beside `RoboTextFeatureSet` in `Runtime/Include/RoboText/RoboTextTypes.h`. Five tags (`liga`/`clig`/`rlig`/`dlig`/`hlig`) as caller-visible policy, the `font-variant-ligatures` vocabulary over it, and the glyph-run report. No second engine: it writes feature tags and GSUB substitutes. Docs: `Documentation/Runtime/Text/Ligatures.md` |
 | Complex scripts | `Runtime/Source/RoboText/RoboTextComplex.c` (the strategy table, the plan, the clusters), `RoboTextArabic.c` (joining, the four forms, the Arabic stages) and `RoboTextIndic.c` (the script rules, syllables, masks, the two reorders), public `Runtime/Include/RoboText/RoboTextComplex.h`, `…Arabic.h`, `…Indic.h`; the `Joining_Type` property is RoboUnicode's (`Runtime/Source/RoboUnicode/RoboUnicodeJoining.c`). A script's behaviour is a **plan** — strategy + stages of masked features + reorder steps — so a second script is a row, not an engine. Docs: `Documentation/Runtime/Text/ComplexScripts.md` |
+| Vertical writing | `Runtime/Source/RoboText/RoboTextVertical.c` + public `Runtime/Include/RoboText/RoboTextVertical.h`; the vocabulary (`RoboTextWritingMode`, `…TextOrientation`, `…GlyphOrientation`) is in `RoboTextTypes.h`, the `vhea`/`vmtx` door in `RoboTextFont.c`, the placement in `RoboTextGlyphs.c` and the cut in `RoboTextRuns.c`. The writing mode is data on the options and on every run — never inferred from a script — and the OpenType integration is two feature tags (`vert`/`vrt2`) through 12.10's GSUB. No vertical shaping engine. Docs: `Documentation/Runtime/Text/VerticalText.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -326,8 +327,15 @@ authority `Documentation/Runtime/Text/ComplexScripts.md`.
   asked at the position itself answers that position, so a cursive chain must ask `index + 1u`
   (and backtracking must step **down** first); and a half form's mask must not carry an `at != base` guard,
   because a base a virama follows is the syllable the classifier *fell back* on.
+- **A font boundary may not fall inside a cluster.** A complex cluster lives inside one script run and the
+  selector's unit is the script run, so the face that draws a conjunct draws all of it — proved rather than
+  asserted by `text.arabic.fallback_no_split` / `text.indic.fallback_no_split`, whose texts put the complex
+  scripts on the **chain** so the fallback path is the one under test: `runs == scriptRuns` holds exactly when
+  the font added no boundary, and each run's clusters must tile it. A **cluster-grained** selector — a different
+  face per cluster where the primary covers only part of a run — is still not built, and the clusters already
+  name what may be split (`RoboTextComplexIsSafeBoundary`, `unsafeToBreak`), so it is a row of its own.
 - **Not implemented, and named rather than implied:** the Southeast Asian strategy (Thai/Khmer/Myanmar) has no
-  stages; `blwf`'s interaction with `rkrf`/`vatu`; the `haln`/`cjct` "base becomes half form" refinement; the
+  stages; cluster-grained fallback; `blwf`'s interaction with `rkrf`/`vatu`; the `haln`/`cjct` "base becomes half form" refinement; the
   UCD's `Indic_Positional_Category` as the data source; the other Indic scripts' own reorder rules (their rows
   carry `hasReph` and the Devanagari rule set is applied, which is right for Devanagari and unproved for the
   rest); Arabic's joining groups (Syriac/N'Ko/Mongolian) and canonically reordered input. Each is a **change to
@@ -343,6 +351,81 @@ authority `Documentation/Runtime/Text/ComplexScripts.md`.
 - The fixture's GPOS table exists whenever the spec has **any** rule kind: a face whose only positioning is an
   attachment (Arabic's, Devanagari's) must not ship no GPOS table, which is how a mark case comes to read
   zeroes and look like an engine defect.
+
+### Vertical writing (Phase 12.20)
+
+**The writing mode is data, the orientation is a class plus a rotation, and there is no vertical shaping
+engine — a vertical run is the same `RoboTextGlyphRun` on the other axis.** The module is
+`Runtime/Source/RoboText/RoboTextVertical.c` + public `Runtime/Include/RoboText/RoboTextVertical.h`; the
+vocabulary lives in `RoboTextTypes.h` because `RoboTextShapeOptions` carries two of the three by value, the
+`vhea`/`vmtx` door is `RoboTextFont.c`'s, the placement is one helper beside the `hmtx` line in
+`RoboTextGlyphs.c`, the cut is `RoboTextRuns.c`'s and the key is `RoboTextRunList.c`'s; authority
+`Documentation/Runtime/Text/VerticalText.md`.
+
+- **Never infer the mode.** `RoboTextWritingMode` is a field on the shape options and on every run. Japanese
+  horizontal and Japanese vertical are two settings of the same text; a layer that looked at the characters
+  could not express the second. `RoboTextDirection` (the logical inline direction) and the writing mode (the
+  physical axis) are different questions and compose rather than replace each other.
+- **Axes are explicit.** `RoboTextWritingAxes` is the inline/block pair and
+  `RoboTextWritingAxesInline`/`…Block` are the only doors that turn a scalar into a physical vector. Do not
+  write `if (vertical) { swap x and y }` at a call site: `vertical-rl` and `vertical-lr` differ in their
+  **block** axis and in nothing else, which is a table row each rather than a branch. An unknown mode answers
+  the horizontal pair, never a zero vector.
+- **Orientation asks three tables in one order**, and the order is the whole reason the third exists:
+  `RoboTextVerticalCodePointIsRotated` **first** (halfwidth Katakana's script stands up and UAX #50 rotates the
+  character), then `RoboTextVerticalScriptIsUpright` (one row per script, ideographic), then
+  `RoboTextVerticalCodePointIsUpright` (the `Common` blocks). A forced `text-orientation` overrides all three.
+  Whitespace takes the character before it, which is what `RoboTextVerticalOrientationInContext` exists for —
+  the run set cuts on **that** door, so a space between two ideographs does not open a sideways run.
+- **Orientation is a run boundary.** The run set cuts where script, resolved direction, the effective features
+  or the resolved orientation changes, and writing mode and orientation are in `RoboTextGlyphRunKey` — two
+  runs that disagree on orientation are different runs and are never coalesced. A painter reads one
+  orientation per run and never inspects a code point to decide how to draw a glyph. The per-scalar orientation
+  array is allocated **only** for a vertical mode.
+- **`vert`/`vrt2` and nothing else.** `RoboTextWritingModeApplyFeatures` names both tags On for a vertical mode
+  and writes nothing for a horizontal one; they reach 12.10's GSUB through the one door every feature uses. Do
+  not add a vertical substitution pass, a vertical lookup type or a renderer-side script branch; a tag the
+  caller named is left alone.
+- **Vertical advances are the face's.** `advanceY = vmtx advanceHeight + the font's own GPOS`, applied by the
+  one `GlyphApplyVerticalMetrics` helper in both the map pass and the substitution rebuild, so the answer
+  belongs to the **resulting** glyph id (a `vert` substitute's entry, the rule 12.10 set for ligatures). Never
+  assume the font size. The **origin** is folded into the placement offset (`offsetX = -vertOriginX`,
+  `offsetY = -vertOriginY`) so a painter applies an offset and never learns what a vertical origin is. A face
+  with no `vmtx` is shaped at its em box and **counted** (`RoboTextGlyphRunVerticalSynthesised`), which is the
+  one number that says whether an advance was measured or derived.
+- **Measurement is 12.15's engine, unchanged.** `width` is Σ run `advanceX` and `advanceY` is Σ run
+  `advanceY`; a vertical measurement is not a rotated rectangle, and `width != advanceY` for a vertical run is
+  a stated fact. Do not add a second measurement path.
+- **An attachment is placed against the run's inline advance.** 12.11's readers ask the face for the pen's
+  step; `RoboTextGposOptions::writingMode` (the run's own field) decides *which* advance that is — `hmtx` +
+  `XAdvance` horizontally, `vmtx` + `YAdvance` vertically — and `RoboTextWritingAxesInline` puts it on the axis.
+  Do not read `hmtx` in a vertical run: that is a distance the vertical pen never moved on, and it lands a mark
+  a whole cell from its base. Value records are untouched by the mode — a record's x stays x and its y stays y.
+  Proved in both modes against one face and one rule by `text.vertical.mark`.
+- **The paint half is a 2D pen.** `RoboPaintDecoration.c` adds each glyph's `advanceX` **and** `advanceY` and
+  branches on nothing: a run's advance pair *is* the writing mode, already resolved. `advanceY` is zero
+  horizontally, so the arithmetic is bit-for-bit what the single-axis pen did. Do not add a writing-mode field
+  to the paint record or a renderer-side orientation test.
+- **Not built, and named rather than implied:** vertical block progression and vertical line breaking (the
+  phase's own non-goals — so the shell stays horizontal and `ComputedWritingStyle` is not added, because
+  nothing would consume it), `Vertical_Orientation` from RoboUnicode (the tables here approximate UAX #50
+  until RoboUnicode carries the property), `VORG`, and QEMU visual evidence (the pack is Inter, which carries
+  neither CJK ideographs nor `vert`, so a guest page could only render `.notdef`). Each is in
+  `VerticalText.md` §10 and in `RoboTextVertical.h`'s own comment.
+- Capabilities/version: 12.20 set `verticalText`/`writingAxes`/`verticalOrientation`/`verticalMetrics`/
+  `verticalFeatures`/`verticalDiagnostics` and took the module to **`1.11.0`**, each read field by field in
+  `Tests/Text/SuiteRoboTextConformance.c`. There is deliberately **no `verticalShaper`** flag: the phase adds
+  no engine.
+- Tests: `Tests/Text/SuiteRoboTextVertical.c` (`text.vertical.*`, 13 cases) over the **vertical fixture**
+  `ConfSpecVertical` in `Tests/Text/RoboTextConformanceFont.h` — a `vhea`/`vmtx` pair, a `vert` feature
+  substituting two upright forms, a `mark` attachment whose two stated anchors put a voiced sound mark on its
+  Hiragana letter, and a `cmap` spanning Han, Hiragana, Latin, a digit, Arabic, CJK punctuation and halfwidth
+  Katakana. The fixture gives every glyph a horizontal advance of `400 + id` and a vertical one of `1000 + id`,
+  so a build that reused `hmtx` for `advanceY` fails rather than agrees, and it derives every glyph id from its
+  run array so adding a run cannot move a suite's expectation. The one exception is the combining mark, which
+  is zero on **both** axes — which is what makes "a column with a mark in it is as long as its letter alone" a
+  fact about the bytes. A vertical change is not done until `TestRoboText.ps1 -Target Host` and then
+  `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
 
 ### RoboText architecture (Phase 12.4)
 
@@ -795,7 +878,8 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Text measurement (RoboText 12.15) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.measure.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.measure.kern` and `text.measure.ligature` (the two things that move a width, on the shipped face), `text.measure.mark_ink` (an accent raising the ink while the width stays the base's) and `text.measure.performance` (the two baselines) |
 | Paint / layout bridge (12.16) | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` (`paint.text.*`, `paint.glyphrun.*`), then `TestRoboText/Font/Graphics/Layout/Rasterizer/Desktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Evidence: `paint.glyphrun.recorded` (the glyphs on the record), `paint.glyphrun.snapshot` (a display list drawing the same bytes after its records are freed) and `paint.glyphrun.without_a_face` (a counted `noFont`) |
 | CSS font wiring (12.17) | `BuildLayout.ps1` (+ `BuildDesktop.ps1` when the provider or the document changed) | `TestLayout.ps1 -Target Host` (`layout.fontrequest.*`, `layout.fontselect.*`), then `TestPaint.ps1 -Target Host` (the pen draws the run's own face) and `TestDesktop.ps1 -Target Host` (`desktop.document.font_families` resolves a shipped name, an unknown name and a generic over the real registry); `-Target Qemu` when the guest image is involved |
-| Complex scripts (12.19) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.arabic.*`, `text.indic.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.arabic.forms` (the four contextual forms arrived as four glyph ids), `text.arabic.lam_alef_ligature` (one glyph, two scalars, both still the text), `text.indic.conjunct` (`क` `्` `ष` as one glyph covering three scalars), `text.indic.reph` (written first, drawn last, sources unmoved), `text.indic.pre_base_matra` (a vowel sign shaped before its consonant), `text.indic.three_scripts` (three strategies in one string, three runs, each in logical order) and `text.arabic.no_layout_tables` (a face with neither table still answers with its `cmap` and its direction) |
+| Complex scripts (12.19) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.arabic.*`, `text.indic.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.arabic.forms` (the four contextual forms arrived as four glyph ids), `text.arabic.lam_alef_ligature` (one glyph, two scalars, both still the text), `text.indic.conjunct` (`क` `्` `ष` as one glyph covering three scalars), `text.indic.reph` (written first, drawn last, sources unmoved), `text.indic.pre_base_matra` (a vowel sign shaped before its consonant),  `text.indic.three_scripts` (three strategies in one string, three runs, each in logical order), `text.arabic.no_layout_tables` (a face with neither table still answers with its `cmap` and its direction) and `text.arabic.fallback_no_split` / `text.indic.fallback_no_split` (the chain answers the complex runs and no run boundary lands inside a cluster) |
+| Vertical writing (12.20) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.vertical.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.vertical.mark` (one face, one `mark` rule, two modes: the anchor difference minus the **inline** step — `vmtx`'s 1006 units vertically against `hmtx`'s 406 horizontally — with the mark advancing nothing on either axis), `text.vertical.writing_axes` (the inline/block pairs, and `vertical-rl` vs `vertical-lr` differing only in the block axis), `text.vertical.orientation` (the **rotated** table beating the script: halfwidth `ｶ` sideways although its script stands up), `text.vertical.orientation_context` (a space between two ideographs staying upright), `text.vertical.run_split` (Han/Latin/Han as three runs with three resolved orientations, forced `sideways` leaving the three script runs), `text.vertical.vert_feature` (`vert` substituting through 12.10's GSUB vertically and **not** horizontally), `text.vertical.advance` (`advanceX == 0`, `advanceY` the **substitute's** `vmtx` entry, the horizontal case unchanged), `text.vertical.origin` (`offsetY` the negated `vmtx` origin), `text.vertical.synthesised` (a face with no `vmtx` shaped at its em box and every glyph counted), `text.vertical.measurement` (`advanceY == Σ run advanceY` and `width == 0` for a vertical run), `text.vertical.bidi` (an Arabic run still RTL with a level inside a vertical column) and `text.vertical.determinism` |
 | Latin/European shaping conformance (12.18) | `BuildRoboText.ps1` (and the image build, which compiles the guest specimen) | `TestRoboTextConformance.ps1 -Target Host` (`text.shaping.*`), then `TestRoboText.ps1 -Target Host`, `TestPaint.ps1 -Target Host` (`paint.glyphrun.agrees_with_shaping`) and `TestLayout/Graphics/Font/Desktop.ps1 -Target Host`; then `TestDesktop.ps1 -Target Qemu`, which runs the guest specimen. Evidence: `text.shaping.integration.dump` (`Build/Text-ShapingConformance.txt`), `desktop.typography.gallery.shaping` (`Build/Typography-Shaping.png`) and the `ROBO_QEMU_SHAPING_*` markers |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |

@@ -68,6 +68,23 @@ struct RoboTextGlyphRun {
      * that had to reach back into a run set would make the run list depend on a lifetime it does not own.
      */
     RoboTextFeatureSet features;
+    /**
+     * The writing setting the run was generated at (Phase 12.20), copied from its text run.
+     *
+     * Copied for the same reason `features` is: the writing mode and the resolved orientation are part of
+     * what makes two runs different runs, and `RoboTextGlyphRunKey` compares them — a vertical run beside a
+     * horizontal one is two runs even with one font, one script and one level.
+     */
+    RoboTextWritingMode writingMode;
+    RoboTextTextOrientation textOrientation;
+    RoboTextGlyphOrientation orientation;
+    /**
+     * Glyphs whose vertical advance was **synthesised** because the face carries no `vmtx` (Phase 12.20).
+     *
+     * A counter rather than a per-glyph field because it is a fact about the face and the run, and the flag
+     * word's six flags are deliberately closed — a seventh flag would be a field of its own wearing a bit.
+     */
+    size_t verticalSynthesised;
     RoboTextGlyphGenerationMode mode;
     /**
      * The face's metrics at the context's size (Phase 12.14.18), as the context reports them. Zeroed when the

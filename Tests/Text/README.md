@@ -77,13 +77,26 @@ bytes state every number a case asserts. Contract:
 
 | Suite | Prefix | What it is about |
 |---|---|---|
-| `SuiteRoboTextArabic.c` | `text.arabic.*` | joining (one form per scalar, a transparent mark invisible and a `ZWNJ` ending a connection), the masks, the four contextual forms arriving as four glyph ids, a caller's `init 0` winning, the `lam`+`alef` ligature with its source range and cluster, mark-to-base, mark-to-mark and cursive attachment read off the fixture's anchors, the joining clusters and their safe boundary, the plan and its dump, bidi's direction read rather than recomputed, a base-less mark answering for itself, and a face with no layout tables |
-| `SuiteRoboTextIndic.c` | `text.indic.*` | syllables and their base, the conjunct as one glyph over three scalars, the half form, the reph written first and drawn last with sources unmoved, the pre-base matra shaped before its consonant, the post-base one, the per-scalar masks, the three stages and the script plan's own facts, the safe-boundary answers, the diagnostics, an orphan virama and a matra before any consonant, and Latin + Arabic + Devanagari in one logical string |
+| `SuiteRoboTextArabic.c` | `text.arabic.*` | joining (one form per scalar, a transparent mark invisible and a `ZWNJ` ending a connection), the masks, the four contextual forms arriving as four glyph ids, a caller's `init 0` winning, the `lam`+`alef` ligature with its source range and cluster, mark-to-base, mark-to-mark and cursive attachment read off the fixture's anchors, the joining clusters and their safe boundary, the plan and its dump, bidi's direction read rather than recomputed, a base-less mark answering for itself, a face with no layout tables, and a joining sequence answered by the fallback chain without a boundary inside it |
+| `SuiteRoboTextIndic.c` | `text.indic.*` | syllables and their base, the conjunct as one glyph over three scalars, the half form, the reph written first and drawn last with sources unmoved, the pre-base matra shaped before its consonant, the post-base one, the per-scalar masks, the three stages and the script plan's own facts, the safe-boundary answers, the diagnostics, an orphan virama and a matra before any consonant, Latin + Arabic + Devanagari in one logical string, and a conjunct and a joining sequence answered by the fallback chain with the runs' clusters tiling them |
+
+### Vertical writing (12.20)
+
+One suite over the **vertical fixture** `ConfSpecVertical` in `RoboTextConformanceFont.h`: a `vhea`/`vmtx`
+pair, a `vert` feature substituting two upright forms, and a `cmap` spanning Han, Hiragana, Latin, a digit,
+Arabic, CJK punctuation and halfwidth Katakana. Every glyph's horizontal advance is `400 + id` and its
+vertical one `1000 + id`, so a build that reused `hmtx` for `advanceY` fails rather than agrees, and every
+glyph id is derived from the fixture's run array so adding a run cannot move an expectation. Contract:
+[`VerticalText.md`](../../Documentation/Runtime/Text/VerticalText.md).
+
+| Suite | Prefix | What it is about |
+|---|---|---|
+| `SuiteRoboTextVertical.c` | `text.vertical.*` | the writing mode's inline/block axes and the unknown mode's horizontal default, the three orientation tables with the **rotated** one beating the script, whitespace taking its neighbour, orientation as a run boundary with the forced modes, `vert` substituting through the ordinary GSUB engine vertically and not horizontally, `advanceX == 0` and `advanceY` the substitute's `vmtx` entry, the origin as a placement offset, a face with no `vmtx` shaped at its em box and counted, the `mark` attachment in both modes with the pen's step taken along the inline axis, the measurement's `advanceY` with `width == 0`, an Arabic run still RTL in a column, the dump, and determinism |
 
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host            # 277 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboText.ps1 -Target Host            # 291 cases; also writes Build/Text-GlyphTable.txt
 Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 55 cases; just text.shaping.*
 Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```

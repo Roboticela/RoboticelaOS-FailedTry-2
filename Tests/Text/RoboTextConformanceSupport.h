@@ -505,7 +505,11 @@ static inline int ConfResultsEqual(const RoboTextShapeResult *a, const RoboTextS
 
         if (RoboTextGlyphRunCount(ra) != RoboTextGlyphRunCount(rb) ||
             RoboTextGlyphRunClusterCount(ra) != RoboTextGlyphRunClusterCount(rb) ||
-            RoboTextGlyphRunAdvance(ra) != RoboTextGlyphRunAdvance(rb)) {
+            RoboTextGlyphRunAdvance(ra) != RoboTextGlyphRunAdvance(rb) ||
+            /* The vertical half of the same record (Phase 12.20): two runs that agree on x and disagree on y
+             * are not the same run once the writing mode makes y the pen's axis. */
+            RoboTextGlyphRunAdvanceY(ra) != RoboTextGlyphRunAdvanceY(rb) ||
+            RoboTextGlyphRunOrientation(ra) != RoboTextGlyphRunOrientation(rb)) {
             return 0;
         }
         for (size_t g = 0u; g < RoboTextGlyphRunCount(ra); g++) {
@@ -513,6 +517,7 @@ static inline int ConfResultsEqual(const RoboTextShapeResult *a, const RoboTextS
             const RoboTextGlyph *gb = RoboTextGlyphRunGlyph(rb, (RoboTextGlyphIndex)g);
 
             if (ga->glyphId != gb->glyphId || ga->advanceX != gb->advanceX ||
+                ga->advanceY != gb->advanceY ||
                 ga->offsetX != gb->offsetX || ga->offsetY != gb->offsetY ||
                 ga->cluster != gb->cluster || !RoboTextRangeEqual(&ga->source, &gb->source)) {
                 return 0;

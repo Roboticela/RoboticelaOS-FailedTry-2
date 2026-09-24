@@ -408,6 +408,127 @@ Result RoboTextFontGlyphAdvance(const RoboTextFontContext *context,
     return RoboOk;
 }
 
+Result RoboTextFontGlyphVerticalMetrics(const RoboTextFontContext *context,
+                                       GlyphId glyphId,
+                                       RoboTextFontVerticalMetrics *out,
+                                       RoboTextDiag *diag)
+{
+    const FontMetricsInfo *info;
+    const FontMetricsGlobal *global;
+    const FontVhea *vhea;
+    FontVerticalGlyphMetrics vertical;
+    FontGlyphMetrics horizontal;
+    Result status;
+
+    if (!context || !out) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboInvalidArgument,
+                               "a font context and an out record are required");
+    }
+    memset(out, 0, sizeof(*out));
+    if (!context->face) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboNotSupported,
+                               "no face is bound to the font context");
+    }
+    info = FontFaceMetricsInfo(context->face);
+    global = info ? FontMetricsInfoGlobal(info) : NULL;
+    if (!global) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboError,
+                               "the face's metrics could not be read");
+    }
+    out->unitsPerEm = global->unitsPerEm;
+    if (out->unitsPerEm == 0u) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboError,
+                               "the face declares no em square");
+    }
+
+    vhea = FontMetricsInfoVhea(info);
+    memset(&vertical, 0, sizeof(vertical));
+    status = FontMetricsInfoGlyphVertical(info, glyphId, &vertical);
+    if (status != RoboOk) {
+        return RoboTextDiagMsg(diag, RoboTextDomainFont, RoboError,
+                               "the face's vertical metrics could not be parsed");
+    }
+    if (vertical.status == RoboFontGlyphMetricsOk) {
+        out->fromFace = 1;
+        out->advanceHeightUnits = vertical.advanceHeight;
+        out->topSideBearing = vertical.topSideBearing;
+        status = RoboTextFontUnitsToDevice(context, (double)vertical.advanceHeight,
+                                          &out->advanceHeightPx, diag);
+        if (status != RoboOk) {
+            return status;
+        }
+    } else {
+        /*
+         * No `vmtx`, or a glyph past its `numberOfVMetrics`. The specification's own fallback for a face
+         * that carries no vertical metrics is the em box, and a face that carries `vhea` has stated a
+         * better one: its own ascender/descender extent. Which of the two answered is *not* recorded,
+         * because both are the same fact — the advance was synthesised rather than measured — and
+         * `advanceSynthesised` is that fact.
+         */
+        double fallbackUnits = (double)out->unitsPerEm;
+
+        if (vhea) {
+            double extent = (double)vhea->ascent + (double)vhea->descent + (double)vhea->lineGap;
+
+            if (extent > 0.0) {
+                fallbackUnits = extent;
+            }
+        }
+        out->advanceSynthesised = 1;
+        out->advanceHeightUnits = (uint16_t)(fallbackUnits > 65535.0 ? 65535.0 : fallbackUnits);
+        status = RoboTextFontUnitsToDevice(context, fallbackUnits, &out->advanceHeightPx, diag);
+        if (status != RoboOk) {
+            return status;
+        }
+    }
+
+    /*
+     * The origin, and the horizontal centring. The horizontal metrics are read for both, so this asks the
+     * face once and uses two fields of one answer rather than entering two parsers.
+     */
+    memset(&horizontal, 0, sizeof(horizontal));
+    if (FontFaceGlyphMetrics(context->face, glyphId, &horizontal) == RoboOk &&
+        horizontal.status == RoboFontGlyphMetricsOk) {
+        double halfWidth = ((double)horizontal.advanceWidth * 0.5);
+        double originX = (double)horizontal.leftSideBearing + halfWidth;
+
+        status = RoboTextFontUnitsToDevice(context, originX, &out->originXPx, diag);
+        if (status != RoboOk) {
+            return status;
+        }
+        if (horizontal.hasBbox) {
+            /*
+             * The `glyf`-case derivation the OpenType specification states: the vertical origin sits
+             * `topSideBearing` above the glyph's own ink, so `vertOriginY = yMax + TSB`. A face that
+             * carries `vmtx` uses its recorded bearing; a face that does not has no bearing at all, and the
+             * em box's own centre is then the honest answer — with `originFromOutline` clear, because the
+             * number is the em's and not the glyph's.
+             */
+            double originY = (double)horizontal.bbox.yMax + (double)out->topSideBearing;
+
+            if (!out->fromFace) {
+                originY = (double)out->unitsPerEm * 0.5;
+            }
+            status = RoboTextFontUnitsToDevice(context, originY, &out->originYPx, diag);
+            if (status != RoboOk) {
+                return status;
+            }
+            out->originFromOutline = out->fromFace;
+        } else if (out->fromFace) {
+            status = RoboTextFontUnitsToDevice(context, (double)out->topSideBearing, &out->originYPx, diag);
+            if (status != RoboOk) {
+                return status;
+            }
+        }
+    } else if (out->fromFace) {
+        status = RoboTextFontUnitsToDevice(context, (double)out->topSideBearing, &out->originYPx, diag);
+        if (status != RoboOk) {
+            return status;
+        }
+    }
+    return RoboOk;
+}
+
 Result RoboTextFontGsub(const RoboTextFontContext *context,
                         const FontOtLayout **out,
                         RoboTextDiag *diag)

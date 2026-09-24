@@ -168,4 +168,7 @@ specimen and its markers are pinned.
 - **Line breaking, caret behaviour, justification, accessibility**: later phases. A newline is an ordinary
   scalar here and is *not* silently treated as drawable — `text.shaping.latin.whitespace_newline` asserts the
   counted miss.
-- **Vertical text**: `advanceY` is a field and is zero; `verticalText` is `0`.
+- **Vertical text**: 12.20's work, not this corpus's. `advanceY` is zero for every text *here* because every case
+  is shaped with the default horizontal writing mode; the vertical cases that read it non-zero are
+  `text.vertical.*` in `SuiteRoboTextVertical.c` over the built vertical fixture. The Latin claims in this file
+  hold in either mode, which is the point of the writing mode being data.

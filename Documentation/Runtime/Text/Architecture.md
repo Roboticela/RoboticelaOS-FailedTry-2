@@ -773,3 +773,44 @@ The three properties the phase turns on, each of which a reader should check aga
    `glyphId`, `offsetX/Y`, `advanceX/Y`, `cluster` and the source range off `PaintGlyph` and never asks RoboText
    a question at draw time — it does not decode, select, segment, substitute, position or kern, which is exactly
    the boundary `RoboGraphicsText.h` wrote down when it said *"RoboText supplies glyph IDs + placement later."*
+
+## 22. Phase 12.20 — vertical writing
+
+A **writing-mode-neutral** text model: a vertical run is the same `RoboTextGlyphRun` on the other axis, not a
+second engine. The writing mode is data on `RoboTextShapeOptions` and on every run (`RoboTextWritingMode`); the
+axes are an explicit inline/block pair (`RoboTextWritingAxes`); the per-glyph answer is
+`RoboTextGlyphOrientation` with the rotation a painter composes
+(`RoboTextGlyphOrientationRotation`); and the OpenType integration is two feature tags (`vert`/`vrt2`) that reach
+12.10's GSUB through the door every other feature uses.
+
+| Area | Where | Contract |
+|---|---|---|
+| The writing mode, the axes, the orientation tables, the feature hook, the dump | `RoboTextVertical.c`, `RoboTextVertical.h` | [VerticalText.md](VerticalText.md) |
+| The vocabulary (`RoboTextWritingMode`, `RoboTextTextOrientation`, `RoboTextGlyphOrientation`) | `RoboTextTypes.h`, `RoboTextTypes.c` | VerticalText.md §2, §3 |
+| The `vhea`/`vmtx` door and the vertical origin | `RoboTextFont.c`, `RoboTextFont.h` (`RoboTextFontVerticalMetrics`) | VerticalText.md §6 |
+| The placement, beside the `hmtx` line | `RoboTextGlyphs.c` (`GlyphApplyVerticalMetrics`) | VerticalText.md §6.1 |
+| The attachment's distance, on the inline axis | `RoboTextGposSubst.c` (`GposPenDistance`, the mark and cursive readers), `RoboTextGposOptions::writingMode` | VerticalText.md §6.4 |
+| Orientation as a run boundary | `RoboTextRuns.c` | VerticalText.md §4 |
+| Writing mode and orientation in the run key | `RoboTextRunList.c`, `RoboTextGlyphs.h` (`RoboTextGlyphRunKeyField`) | VerticalText.md §4 |
+| The measurement's `advanceY` | `RoboTextMeasurement.c` | VerticalText.md §7 |
+| The pen that accumulates both advances | `RoboPaint/RoboPaintDecoration.c` | VerticalText.md §8 |
+
+The three properties a reader should check against the code:
+
+1. **The mode is never inferred.** Nothing in the module derives a writing mode from a script or from a code
+   point, and the run set cuts on the **resolved orientation** so a painter reads one answer per run rather
+   than inspecting characters. Japanese horizontal and Japanese vertical are two `RoboTextShapeOptions`.
+2. **There is no vertical engine.** The substitution is 12.10's GSUB (`vert`/`vrt2` are tags), the positioning
+   is 12.11's GPOS plus the face's own `vmtx` advance and origin, and the measurement is 12.15's engine over the
+   same list. The one new mechanism is the **axes value**, which exists so no call site writes the x/y swap —
+   the GPOS attachments included: an attachment's pen distance is the run's **inline** advance, so the same
+   reader asks `vmtx` in a vertical mode and `hmtx` in a horizontal one (VerticalText.md §6.4).
+3. **The paint half branches on nothing.** `RoboPaintDecoration.c` adds each glyph's `advanceX` and
+   `advanceY`; horizontal text has a zero second term, so the arithmetic that was there before is unchanged and
+   the pass still cannot learn a script, an orientation or a vertical origin.
+
+The version moved to `1.11.0`. `RoboTextGetCapabilities` reports `verticalText`, `writingAxes`,
+`verticalOrientation`, `verticalMetrics`, `verticalFeatures` and `verticalDiagnostics` `1`, each read field by
+field in `Tests/Text/SuiteRoboTextConformance.c` — and there is deliberately **no `verticalShaper`** flag,
+because the phase adds no engine: `verticalText` claims a writing *model*, and `advanceY` is a real number for
+a vertical run rather than the published zero 12.15 left so that this phase would change a value.

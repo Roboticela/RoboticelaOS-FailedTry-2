@@ -70,11 +70,13 @@ is a worse answer than none.
 |---|---|---|
 | 1 | single adjustment | **read**, both formats |
 | 2 | pair adjustment | **read**, both formats (format 2 is the class matrix, the shape real fonts use) |
+| 3 | cursive attachment | **read** (12.19), both anchors, and the face's own advance for the pen's step |
+| 4–6 | mark-to-base, mark-to-ligature, mark-to-mark | **read** (12.19), one reader for the three; the component a mark-to-ligature attaches to is named in §10 |
 | 9 | extension | **unwrapped** to the real type, which the trace then reports |
-| 3–8 | cursive, mark-to-base, mark-to-ligature, mark-to-mark, the two contextual forms | **recognised and skipped**, counted in `lookupsUnsupported` |
+| 7–8 | the two contextual forms | **recognised and skipped**, counted in `lookupsUnsupported` |
 
 A skipped lookup is not a wrong answer: the glyph keeps the position its advance gave it, which is exactly what
-this runtime drew before positioning existed. §11 says which goal adds the rest.
+this runtime drew before positioning existed. §10 names what is still skipped and what each absence costs.
 
 ## 5. Feature selection, script and language
 
@@ -99,7 +101,15 @@ against the base after the marks rather than against the mark.
 
 That is also why a combining mark does not acquire a pair advance it should not have: a face that states
 `IgnoreMarks` on its kerning lookups gets exactly that, and a face that wants to position marks states
-`mark`/`mkmk` — which this build recognises and skips (§11), leaving the mark where its advance put it.
+`mark`/`mkmk`, which the attachment readers run (types 4 and 6).
+
+The **distance** an attachment is placed against is the pen's step **along the run's inline axis** —
+`hmtx` + `XAdvance` horizontally, `vmtx` + `YAdvance` vertically — because "the pen moved" is one statement and
+which axis it moved on is the run's writing mode (12.20). `RoboTextGposOptions::writingMode` is what carries it,
+and the placement is `baseAnchor − (inlineStep + markAnchor)` with the step mapped through
+`RoboTextWritingAxesInline`, so a horizontal chain's arithmetic is unchanged and a vertical mark compensates the
+vertical pen. `text.vertical.mark` reads both modes against one face's one rule: the same anchors, two different
+distances.
 
 ## 7. Bounds, malformed fonts and thread safety
 
@@ -160,15 +170,21 @@ pen uses is the number the measurer reports.
 
 ## 10. Known limitations
 
-* **Mark attachments and cursive attachment are not executed** (lookup types 3–8): a combining mark keeps the
-  position its advance and the base's advance imply, and `RoboTextCapabilities::positioning` says so by
-  documenting them as skipped.
-* **Contextual positioning** (types 7 and 8) is not executed either — the two contextual *substitution* types
-  are, because 12.10 needed them.
+* **Contextual positioning** (types 7 and 8) is not executed — the two contextual *substitution* types are,
+  because 12.10 needed them. A font that states a mark's placement only through a contextual rule therefore
+  leaves the mark where its advance put it, counted in `lookupsUnsupported`.
+* **A mark-to-ligature attaches to the ligature's *last* component** (type 5): the format names a component per
+  class and this build reads one, which is right for a ligature whose mark belongs to its final letter and wrong
+  for one whose mark belongs to an earlier one.
+* **A vertical cursive chain** is written on the inline axis like every other distance and has **no fixture** —
+  the pack and the fixtures ship no cursive vertical face (Mongolian), so the arithmetic is stated rather than  proved. A horizontal chain is proved by `text.arabic.cursive`; horizontal marks by `text.arabic.mark`,
+  `text.arabic.mkmk` and `text.gpos.marks_and_direction`.
+ 
 * **Variation-index value records** are not evaluated: a `VariationIndex` needs the face's variation
   coordinates, which no goal applies yet (`RoboTextCapabilities::variableAxisApplication` is 0). A device table
-  *is* evaluated, at the ppem the caller supplies.
-* **Vertical writing modes** are not distinguished: value records are applied as they are stated, and vertical
-  text is 12.20's.
+  *is* evaluated, at the ppem the caller supplies.* **A vertical writing mode changes the *axis*, never the record**: a value record's `XPlacement`/`XAdvance`
+  stay x and its `YPlacement`/`YAdvance` stay y, exactly as the format states them, and the run's build adds
+  them on the axis they name. What the mode decides is the pen's distance for an attachment (12.20), which is
+  the one quantity the engine has to ask the face for.
 * `RoboTextGlyphRun::bidiLevel` travels on the run and the trace, but positioning does not reorder anything —
   visual order is the bidi stage's (12.8) and the run is in logical order.

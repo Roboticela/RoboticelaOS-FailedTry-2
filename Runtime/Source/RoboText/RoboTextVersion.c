@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.10.0";
+    static const char version[] = "1.11.0";
 
     return version;
 }
@@ -196,12 +196,22 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->complexDiagnostics = 1;
 
     /*
-     * The rest of the algorithms, all absent, and each one is a row in the phase plan rather than an
-     * omission: vertical text 12.20.
+     * Vertical writing (12.20). The axis is data, the orientation is a class and a rotation, the metrics are
+     * the face's `vmtx` (synthesised, and counted, when it has none), and the OpenType integration is two
+     * feature tags. There is deliberately no `verticalShaper` flag: the phase adds no engine, and a flag
+     * claiming one would be the over-claim this record exists to avoid.
+     */
+    out->verticalText = 1;
+    out->writingAxes = 1;
+    out->verticalOrientation = 1;
+    out->verticalMetrics = 1;
+    out->verticalFeatures = 1;
+    out->verticalDiagnostics = 1;
+
+    /*
      * Variable-axis application is unowned by a numbered goal and is reported absent until RoboFont
      * interpolates outlines (`FontOutlineVariationApplied` is 0).
      */
     out->variableAxisApplication = 0;
-    out->verticalText = 0;
     return RoboOk;
 }

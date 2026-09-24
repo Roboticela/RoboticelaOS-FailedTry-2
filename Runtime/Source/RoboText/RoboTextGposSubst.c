@@ -25,6 +25,7 @@
 #include "RoboFont/RoboFontBinary.h"
 #include "RoboFont/RoboFontOtCommon.h"
 #include "RoboText/RoboTextOtLayout.h"
+#include "RoboText/RoboTextVertical.h"
 #include "RoboTextOtInternal.h"
 
 #include <string.h>
@@ -694,18 +695,25 @@ static int GposReadAnchor(RoboTextOtCall *apply,
 }
 
 /**
- * The pen's distance from buffer position @p index to the next glyph, in device pixels.
+ * The pen's step after buffer position @p index **along the run's inline axis**, in device pixels.
  *
  * The face's advance plus whatever positioning has already adjusted it by, and the reason @ref
  * RoboTextGposOptions carries a font context at all: `RoboTextFontGlyphAdvance` is asked here and nowhere
  * else in this engine. **1** is returned when nothing else can be — a glyph whose advance is unknown or
  * unavailable — and the caller treats that as "the attachments of this call cannot be placed", because a
  * distance invented for a chain would put glyphs somewhere no font asked for.
+ *
+ * Which advance that is follows the run's writing mode, and only the *axis* follows it: the same number
+ * answers a horizontal chain's `x` and a vertical chain's `y`, because "the pen moved" is one statement and
+ * the axes are 12.20's table. A vertical run therefore reads `vmtx` (the advance its pen actually took), and a
+ * horizontal one `hmtx`, which is bit-for-bit what this reader returned before the writing mode existed.
  */
 static int GposPenDistance(RoboTextOtCall *apply, size_t index, float *outDistance)
 {
     const RoboTextShapingGlyph *glyph;
+    RoboTextWritingAxes axes;
     float advance = 0.0f;
+    float adjust = 0.0f;
 
     if (!apply->gposFont || !outDistance) {
         return 0;
@@ -714,20 +722,40 @@ static int GposPenDistance(RoboTextOtCall *apply, size_t index, float *outDistan
     if (!glyph) {
         return 0;
     }
-    /*
-     * A `RoboFontGlyphMetricsUnavailable` answer is not an error and is still not a distance: a face with no
-     * metrics table gives every glyph zero, and attaching a chain to zeroes would stack a word on one point.
-     * So the status is read, not just the `Result`.
-     */
-    {
+    axes = RoboTextWritingModeAxes(apply->writingMode);
+    if (RoboTextWritingAxesIsHorizontal(&axes)) {
+        /*
+         * A `RoboFontGlyphMetricsUnavailable` answer is not an error and is still not a distance: a face with
+         * no metrics table gives every glyph zero, and attaching a chain to zeroes would stack a word on one
+         * point. So the status is read, not just the `Result`.
+         */
         FontGlyphMetricsStatus status = RoboFontGlyphMetricsUnavailable;
 
         if (RoboTextFontGlyphAdvance(apply->gposFont, glyph->glyphId, &advance, &status, NULL) != RoboOk ||
             status != RoboFontGlyphMetricsOk) {
             return 0;
         }
+        adjust = glyph->advanceAdjustX;
+    } else {
+        /*
+         * A **vertical** run's pen steps along y, so the distance is `vmtx`'s advance height — the number the
+         * run build placed the glyph with — and the font's own part is its `YAdvance`. `hmtx` is not read at
+         * all here: it is an advance a vertical pen never moves on, so subtracting it from a mark's placement
+         * would put the mark one cell away from its base.
+         *
+         * The vertical door's *synthesised* answer (a face with no `vmtx`) is taken as it stands, and that is
+         * the point: the run build places such a face at its em box too, so the distance is the pen the glyphs
+         * were really laid out along rather than a second, different answer.
+         */
+        RoboTextFontVerticalMetrics vertical;
+
+        if (RoboTextFontGlyphVerticalMetrics(apply->gposFont, glyph->glyphId, &vertical, NULL) != RoboOk) {
+            return 0;
+        }
+        advance = vertical.advanceHeightPx;
+        adjust = glyph->advanceAdjustY;
     }
-    *outDistance = advance + glyph->advanceAdjustX;
+    *outDistance = advance + adjust;
     return 1;
 }
 
@@ -794,7 +822,7 @@ static int GposApplyCursive(RoboTextOtCall *apply, size_t base, size_t index, si
     float outY = 0.0f;
     float inX = 0.0f;
     float inY = 0.0f;
-    float penX = 0.0f;
+    float penInline = 0.0f;
     const RoboTextShapingGlyph *firstGlyph;
     RoboTextShapingGlyph *mutableFirst;
     int rightToLeft = RoboTextDirectionIsRightToLeft(apply->direction);
@@ -865,7 +893,7 @@ static int GposApplyCursive(RoboTextOtCall *apply, size_t base, size_t index, si
     if (!GposReadAnchor(apply, base, rightToLeft ? secondExit : secondEntry, &inX, &inY)) {
         return 0;
     }
-    if (!GposPenDistance(apply, index, &penX)) {
+    if (!GposPenDistance(apply, index, &penInline)) {
         return 0;
     }
     /*
@@ -882,8 +910,35 @@ static int GposApplyCursive(RoboTextOtCall *apply, size_t base, size_t index, si
         apply->gposStats.adjustedGlyphs++;
     }
     mutableFirst->flags |= RoboTextShapingGlyphPositioned;
-    mutableFirst->advanceAdjustX += outX - penX;
-    GposSetPlacement(apply, second, -inX, outY - inY);
+    /*
+     * Both statements are on the **inline axis**: the pen moves on it, and each anchor contributes its
+     * coordinate on it (its x horizontally, its y vertically). Written this way the two are one rule rather
+     * than a rule plus a vertical special case, and a horizontal chain's arithmetic is unchanged — inline is
+     * `+x` there, so every term is the one it always was. The other coordinate is the cross axis and is a
+     * plain difference of the anchors' own coordinates, because a placement is in the glyph's space.
+     */
+    {
+        RoboTextWritingAxes axes = RoboTextWritingModeAxes(apply->writingMode);
+        int inlineIsX = axes.inlineX != 0.0f;
+        float outInline = inlineIsX ? outX : outY;
+        float outCross = inlineIsX ? outY : outX;
+        float inInline = inlineIsX ? inX : inY;
+        float inCross = inlineIsX ? inY : inX;
+        float advanceX = 0.0f;
+        float advanceY = 0.0f;
+        float inlineX = 0.0f;
+        float inlineY = 0.0f;
+        float cross = outCross - inCross;
+
+        if (RoboTextWritingAxesInline(&axes, outInline - penInline, &advanceX, &advanceY) != RoboOk ||
+            RoboTextWritingAxesInline(&axes, -inInline, &inlineX, &inlineY) != RoboOk) {
+            return 0;
+        }
+        mutableFirst->advanceAdjustX += advanceX;
+        mutableFirst->advanceAdjustY += advanceY;
+        GposSetPlacement(apply, second, inlineX + (inlineIsX ? 0.0f : cross),
+                         inlineY + (inlineIsX ? cross : 0.0f));
+    }
     if (outNext) {
         *outNext = second + 1u;
     }
@@ -1077,9 +1132,25 @@ static int GposApplyMark(RoboTextOtCall *apply, size_t base, size_t index, size_
         }
         distance += step;
     }
-    GposPlacementOf(apply, basePosition, &basePlacementX, &basePlacementY);
-    GposSetPlacement(apply, index, (basePlacementX + baseAnchorX) - (distance + markX),
-                     (basePlacementY + baseAnchorY) - markY);
+    /*
+     * And the distance is a **vector**, not an x term: the pen moved this far *along the inline axis*, which is
+     * x in a horizontal run and y in a vertical one. `RoboTextWritingAxesInline` is the module's one door for
+     * that conversion, and it is what makes this reader writing-mode-neutral rather than horizontal-with-a-
+     * vertical-mode bug — a vertical mark asks for `vmtx`'s step and then subtracts it from `y`. Both anchors
+     * stay in the glyph's own space (x right, y up), which is the space the painter composes the run in.
+     */
+    {
+        RoboTextWritingAxes axes = RoboTextWritingModeAxes(apply->writingMode);
+        float stepX = 0.0f;
+        float stepY = 0.0f;
+
+        if (RoboTextWritingAxesInline(&axes, distance, &stepX, &stepY) != RoboOk) {
+            return 0;
+        }
+        GposPlacementOf(apply, basePosition, &basePlacementX, &basePlacementY);
+        GposSetPlacement(apply, index, (basePlacementX + baseAnchorX) - (stepX + markX),
+                         (basePlacementY + baseAnchorY) - (stepY + markY));
+    }
     switch (type) {
         case RoboTextGposLookupMarkToBase:
             apply->gposStats.markToBaseAttachments++;

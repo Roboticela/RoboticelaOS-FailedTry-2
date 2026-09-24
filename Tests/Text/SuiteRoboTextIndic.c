@@ -528,6 +528,101 @@ static void TestIndicThreeScripts(void)
     ConfFaceClose(&face);
 }
 
+/* ------------------------------------------------------------------ */
+/* §25 — font fallback does not split a complex cluster                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A complex cluster lives inside one script run, and a script run is the selector's unit, so a font boundary
+ * can never fall inside a conjunct or a joining sequence.
+ *
+ * The proof is a **count**, because the count is the fact: the analysis cuts its runs where script, direction
+ * *or font* changes, so for a text whose runs are all served `runs == scriptRuns` exactly when the font added
+ * no boundary of its own. A per-scalar selection walk — §25's forbidden shape, and the one that hands a
+ * consonant and its virama to two faces — would raise `runs` one coverage change at a time. The clusters are
+ * then resolved over each run and asserted to **tile** it, which is the same claim read directly instead of
+ * inferred from the count.
+ *
+ * The complex scripts are on the **chain**, not the primary: a primary that covered Arabic and Devanagari
+ * would prove selection while leaving the fallback path untested, and §25 is about the fallback path. The
+ * Latin run is the primary's and the other two are the chain's, which is what makes `fallbackRuns` a number
+ * the case can state.
+ */
+static void TestIndicFallbackNoSplit(void)
+{
+    ConfFontSpec primarySpec;
+    ConfFace primaryFace;
+    ConfFace face;
+    RoboTextFontCandidate candidate;
+    RoboTextFontFallback chain;
+    RoboTextFontSelector *selector = NULL;
+    RoboTextAnalysis *analysis = NULL;
+    RoboTextAnalysisStats stats;
+    RoboTextShapeOptions options;
+    /* Latin, an Arabic joining sequence and a Devanagari conjunct: two of the three are complex. */
+    const char *text = "A" IndicArabicBehBehBeh IndicKaViramaSsa;
+
+    /* The primary is the European face: it covers the Latin letter and neither complex script. */
+    memset(&primarySpec, 0, sizeof(primarySpec));
+    ConfSpecEuropean(&primarySpec);
+    ConfFaceOpen(&primaryFace, &primarySpec, IndicSizePx);
+    IndicFaceOpen(&face);
+    RoboTextShapeOptionsInit(&options);
+    options.baseDirection = RoboTextDirectionLtr;
+    memset(&candidate, 0, sizeof(candidate));
+    memset(&chain, 0, sizeof(chain));
+    candidate.family = "Complex Fixture";
+    candidate.face = face.face;
+    chain.entries = &candidate;
+    chain.count = 1u;
+    RoboCheckEqInt((int)RoboTextFontSelectorCreate(&selector, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextFontSelectorSetPrimary(selector, &primaryFace.font, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextFontSelectorSetFallback(selector, &chain, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextAnalysisCreate(ConfView(text), selector, &options, &analysis, NULL),
+                   (int)RoboOk);
+    memset(&stats, 0, sizeof(stats));
+    RoboCheckEqInt((int)RoboTextAnalysisGetStats(analysis, &stats), (int)RoboOk);
+    /* Three scripts, and not one font boundary beyond them: selection split nothing. */
+    RoboCheckEqInt((int)stats.runs, (int)stats.scriptRuns);
+    RoboCheckEqInt((int)stats.runs, 3);
+    RoboCheckEqInt((int)stats.scriptRuns, 3);
+    /* The Latin run is the primary's and the two complex runs are the chain's — the fallback really ran. */
+    RoboCheckEqInt((int)stats.primaryRuns, 1);
+    RoboCheckEqInt((int)stats.fallbackRuns, 2);
+    RoboCheckEqInt((int)stats.unresolvedRuns, 0);
+
+    for (size_t index = 0u; index < RoboTextAnalysisRunCount(analysis); index++) {
+        const RoboTextAnalysisRun *run = RoboTextAnalysisRunAt(analysis, index);
+        RoboTextComplexCluster clusters[8];
+        size_t count = 0u;
+        RoboTextScalarIndex next;
+
+        RoboCheck(run != NULL);
+        /* One face for the whole run, so every scalar of a cluster is drawn by the same font. */
+        RoboCheckMsg(run->font.face != NULL, "a served complex run named no face");
+        memset(clusters, 0, sizeof(clusters));
+        RoboCheckEqInt((int)RoboTextComplexClustersResolve(ConfView(text), run->range, clusters, 8u, &count,
+                                                           NULL),
+                       (int)RoboOk);
+        RoboCheckMsg(count != 0u, "a run resolved no clusters");
+        next = run->range.start;
+        for (size_t c = 0u; c < count; c++) {
+            if (clusters[c].source.start != next) {
+                fprintf(stdout, "    run %u: a cluster starts at %u, not at %u\n", (unsigned)index,
+                        (unsigned)clusters[c].source.start, (unsigned)next);
+            }
+            RoboCheckMsg(clusters[c].source.start == next,
+                         "a cluster straddles a font boundary: the run's clusters do not tile it");
+            next = clusters[c].source.end;
+        }
+        RoboCheckMsg(next == run->range.end, "the run's clusters do not reach the run's end");
+    }
+    RoboTextAnalysisDestroy(analysis);
+    RoboTextFontSelectorDestroy(selector);
+    ConfFaceClose(&face);
+    ConfFaceClose(&primaryFace);
+}
+
 static void TestIndicDeterminism(void)
 {
     ConfFace face;
@@ -561,5 +656,6 @@ void TestRegisterTextIndic(void)
     TestRegister("text.indic.diagnostics", TestIndicDiagnostics);
     TestRegister("text.indic.orphan_sign", TestIndicOrphanSigns);
     TestRegister("text.indic.three_scripts", TestIndicThreeScripts);
+    TestRegister("text.indic.fallback_no_split", TestIndicFallbackNoSplit);
     TestRegister("text.indic.determinism", TestIndicDeterminism);
 }

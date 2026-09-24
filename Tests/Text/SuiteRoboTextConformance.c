@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.10.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.11.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -60,8 +60,15 @@ static void TestConformanceVersion(void)
      * 12.19 added the complex-script contract (`RoboTextComplex.h`, `RoboTextArabic.h`, `RoboTextIndic.h`). It
      * is additive in its files and **not** in its behaviour — GPOS runs lookup types 3–6, both engines honour a
      * positional mask, and `ShapeRun` walks a plan's stages — but the glyph and run record shapes are
-     * unchanged, which is the condition the version header names for a minor move rather than a major one. */
-    RoboCheckEqInt((int)minor, 10);
+     * unchanged, which is the condition the version header names for a minor move rather than a major one.
+     *
+     * 12.20 added vertical writing (`RoboTextVertical.h`, and the writing-mode fields on the options and the
+     * runs). It moves the minor for the same reason as every phase before it and no stronger one: the records
+     * *grew* fields (`writingMode`, `textOrientation`, `orientation`, and the run's second advance), the
+     * placement model is the `advanceX`/`advanceY`/`offsetX`/`offsetY` record 12.11 already published, and the
+     * one new type — `RoboTextWritingAxes` — is a value a layout pass holds rather than a signature anything
+     * had to change. The major stays. */
+    RoboCheckEqInt((int)minor, 11);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -238,14 +245,26 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.complexDiagnostics, 1);
 
     /*
-     * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan
-     * rather than an oversight: vertical text 12.20, and variable-axis application unowned until RoboFont
-     * interpolates outlines. A `1` here without the implementation would be the exact failure the phase's
-     * boundary section forbids. `bidiAlgorithm` left this list in 12.8, `substitution`/`ligatures` in 12.10
-     * and 12.12, `positioning`/`kerning` in 12.11 and 12.13, and `complexScripts` in 12.19 — each is asserted
-     * present above.
+     * Vertical writing (12.20), read field by field like every other phase. `verticalText` is the writing
+     * mode being data; the flags beside it name the four parts, and each one is exercised by a case in
+     * `SuiteRoboTextVertical.c`. There is deliberately no `verticalShaper` field: the phase adds no engine,
+     * and a flag claiming one would be the over-claim this record exists to avoid.
      */
-    RoboCheckEqInt(capabilities.verticalText, 0);
+    RoboCheckEqInt(capabilities.verticalText, 1);
+    RoboCheckEqInt(capabilities.writingAxes, 1);
+    RoboCheckEqInt(capabilities.verticalOrientation, 1);
+    RoboCheckEqInt(capabilities.verticalMetrics, 1);
+    RoboCheckEqInt(capabilities.verticalFeatures, 1);
+    RoboCheckEqInt(capabilities.verticalDiagnostics, 1);
+
+    /*
+     * And every algorithm this build deliberately does **not** implement, each one a row in the phase plan
+     * rather than an oversight: variable-axis application unowned until RoboFont interpolates outlines. A `1`
+     * here without the implementation would be the exact failure the phase's boundary section forbids.
+     * `bidiAlgorithm` left this list in 12.8, `substitution`/`ligatures` in 12.10 and 12.12,
+     * `positioning`/`kerning` in 12.11 and 12.13, `complexScripts` in 12.19, and `verticalText` in 12.20 —
+     * each is asserted present above.
+     */
     RoboCheckEqInt(capabilities.variableAxisApplication, 0);
 
     /* The generation mode vocabulary agrees with the flag: one mode is known and it is the placeholder. */

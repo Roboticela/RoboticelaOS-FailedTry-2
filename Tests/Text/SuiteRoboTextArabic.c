@@ -505,6 +505,84 @@ static void TestArabicBidiMixed(void)
     ConfFaceClose(&face);
 }
 
+/* ------------------------------------------------------------------ */
+/* §25 — font fallback does not split a joining sequence                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A joining sequence is one cluster and one script run, and the selector's unit is the script run, so the face
+ * that draws `ببب` draws all three letters or none of them.
+ *
+ * As in the Indic suite the assertion is a count first — `runs == scriptRuns` is precisely "the font added no
+ * boundary of its own", and a per-scalar walk would raise it — and then the cluster resolved over the run,
+ * which must be the **whole** joining cluster rather than a letter, a letter and a letter.
+ *
+ * The chain holds the Arabic face and the primary does not cover Arabic, so the run that matters is answered
+ * by the fallback: this is the fallback path, not the primary path wearing its name.
+ */
+static void TestArabicFallbackNoSplit(void)
+{
+    ConfFontSpec primarySpec;
+    ConfFace primaryFace;
+    ConfFace face;
+    RoboTextFontCandidate candidate;
+    RoboTextFontFallback chain;
+    RoboTextFontSelector *selector = NULL;
+    RoboTextAnalysis *analysis = NULL;
+    RoboTextAnalysisStats stats;
+    RoboTextShapeOptions options;
+    const char *text = "A" ArabicBehBehBeh;
+
+    /* The primary is the European face: it covers the Latin letter and no Arabic scalar. */
+    memset(&primarySpec, 0, sizeof(primarySpec));
+    ConfSpecEuropean(&primarySpec);
+    ConfFaceOpen(&primaryFace, &primarySpec, ArabicSizePx);
+    ArabicFaceOpen(&face);
+    RoboTextShapeOptionsInit(&options);
+    options.baseDirection = RoboTextDirectionLtr;
+    memset(&candidate, 0, sizeof(candidate));
+    memset(&chain, 0, sizeof(chain));
+    candidate.family = "Complex Fixture";
+    candidate.face = face.face;
+    chain.entries = &candidate;
+    chain.count = 1u;
+    RoboCheckEqInt((int)RoboTextFontSelectorCreate(&selector, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextFontSelectorSetPrimary(selector, &primaryFace.font, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextFontSelectorSetFallback(selector, &chain, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextAnalysisCreate(ConfView(text), selector, &options, &analysis, NULL),
+                   (int)RoboOk);
+    memset(&stats, 0, sizeof(stats));
+    RoboCheckEqInt((int)RoboTextAnalysisGetStats(analysis, &stats), (int)RoboOk);
+    RoboCheckEqInt((int)stats.runs, (int)stats.scriptRuns);
+    RoboCheckEqInt((int)stats.runs, 2);
+    /* The Latin run is the primary's, the joining sequence the chain's. */
+    RoboCheckEqInt((int)stats.primaryRuns, 1);
+    RoboCheckEqInt((int)stats.fallbackRuns, 1);
+    RoboCheckEqInt((int)stats.unresolvedRuns, 0);
+
+    /* The Arabic run is the second, and its one cluster is all three letters. */
+    {
+        const RoboTextAnalysisRun *run = RoboTextAnalysisRunAt(analysis, 1u);
+        RoboTextComplexCluster clusters[8];
+        size_t count = 0u;
+
+        RoboCheck(run != NULL);
+        RoboCheckMsg(run->font.face != NULL, "a served Arabic run named no face");
+        memset(clusters, 0, sizeof(clusters));
+        RoboCheckEqInt((int)RoboTextComplexClustersResolve(ConfView(text), run->range, clusters, 8u, &count,
+                                                           NULL),
+                       (int)RoboOk);
+        RoboCheckEqInt((int)count, 1);
+        RoboCheckEqInt((int)clusters[0].source.start, (int)run->range.start);
+        RoboCheckEqInt((int)clusters[0].source.end, (int)run->range.end);
+        RoboCheckEqInt((int)clusters[0].kind, (int)RoboTextComplexClusterJoining);
+    }
+    RoboTextAnalysisDestroy(analysis);
+    RoboTextFontSelectorDestroy(selector);
+    ConfFaceClose(&face);
+    ConfFaceClose(&primaryFace);
+}
+
 static void TestArabicDeterminism(void)
 {
     ConfFace face;
@@ -596,5 +674,6 @@ void TestRegisterTextArabic(void)
     TestRegister("text.arabic.bidi_mixed", TestArabicBidiMixed);
     TestRegister("text.arabic.stray_mark", TestArabicStrayMark);
     TestRegister("text.arabic.no_layout_tables", TestArabicNoLayoutTables);
+    TestRegister("text.arabic.fallback_no_split", TestArabicFallbackNoSplit);
     TestRegister("text.arabic.determinism", TestArabicDeterminism);
 }

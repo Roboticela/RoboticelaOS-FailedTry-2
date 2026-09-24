@@ -175,6 +175,17 @@ typedef struct RoboTextGposOptions {
      */
     const RoboTextFontContext *font;
     /**
+     * The run's **writing mode**, which decides *which* advance an attachment's pen distance is.
+     *
+     * An attachment asks the face for the pen's step between two glyphs, and that step is the run's inline
+     * advance: `hmtx` in a horizontal mode, `vmtx` in a vertical one. A reader that always asked `hmtx`
+     * would place a vertical mark one cell away from its base — the horizontal advance is a number the
+     * vertical pen never uses — so the mode is carried here and the distance is taken along the inline axis
+     * (`RoboTextWritingAxesInline`). The default is `RoboTextWritingHorizontal`, which is what every caller
+     * had before 12.20 and is bit-for-bit the same arithmetic.
+     */
+    RoboTextWritingMode writingMode;
+    /**
      * The strategy's **position masks** (Phase 12.19), or NULL for a run that needs none.
      *
      * The same three fields @ref RoboTextGsubOptions carries and the same test: a lookup whose plan mask is

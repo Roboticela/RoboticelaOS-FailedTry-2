@@ -41,6 +41,7 @@
 #include "RoboText/RoboTextLigature.h"
 #include "RoboText/RoboTextDirection.h"
 #include "RoboText/RoboTextUnicode.h"
+#include "RoboText/RoboTextVertical.h"
 
 #include <string.h>
 
@@ -59,6 +60,9 @@ struct RoboTextRunSet {
     RoboTextScript scriptHint;
     RoboTextLanguage language;
     RoboTextFeatureSet features;
+    /** The writing setting every text run carries (Phase 12.20); horizontal/mixed unless declared. */
+    RoboTextWritingMode writingMode;
+    RoboTextTextOrientation textOrientation;
     /** The setting every text run carries. Copied, so the set keeps nothing borrowed but the text. */
     RoboTextFontContext font;
 };
@@ -133,6 +137,13 @@ Result RoboTextRunSetCreate(RoboTextView view,
      * the text-run loop's third cut condition is "the effective features change" and asking the range list per
      * scalar inside that loop would compute the same answer `count x ranges` times. */
     size_t *featureRanges = NULL;
+    /*
+     * One entry per scalar: the orientation its glyph is drawn at (Phase 12.20). Allocated only for a
+     * **vertical** mode, because a horizontal run's glyphs are upright by construction and cutting a
+     * horizontal text on an axis nothing reads would change every run set this build has produced. NULL is
+     * therefore "orientation is not a run boundary here", and the loop below tests it as such.
+     */
+    RoboTextGlyphOrientation *orientations = NULL;
     Result status;
 
     if (!out) {
@@ -171,6 +182,8 @@ Result RoboTextRunSetCreate(RoboTextView view,
     set->scriptHint = options->scriptHint;
     set->language = options->language;
     set->features = options->features;
+    set->writingMode = options->writingMode;
+    set->textOrientation = options->textOrientation;
     /* The ligature policy supplies the five ligature tags the caller did not state (Phase 12.12). Applied
      * here, once per run set, so the measurer and the painter read one resolved feature set — the same
      * property `RoboTypographyStyle` gives the shell, at the text layer's own seam. */
@@ -179,6 +192,17 @@ Result RoboTextRunSetCreate(RoboTextView view,
      * order between them decides nothing — what matters is that both run *before* the engine's defaults are
      * consulted, which is where the run set hands the set to each run (Phase 12.13). */
     RoboTextKerningPolicyApplyIfUnset(&options->kerning, &set->features);
+    /*
+     * The vertical feature hook (Phase 12.20), and the whole of vertical OpenType integration: `vert` and
+     * `vrt2` named the same way the two policies above name theirs, so a vertical run reaches 12.10's
+     * engine through the one door every feature uses and no engine learns that vertical text exists. A
+     * horizontal mode writes nothing.
+     */
+    if (RoboTextWritingModeApplyFeatures(options->writingMode, &set->features) != RoboOk) {
+        RoboTextRunSetDestroy(set);
+        return RoboTextDiagMsg(diag, RoboTextDomainRun, RoboInvalidArgument,
+                               "the writing mode is not one this build can shape");
+    }
 
     status = RoboTextUnicodeDecodeAll(view, &scalars, &count, diag);
     if (status != RoboOk) {
@@ -212,8 +236,13 @@ Result RoboTextRunSetCreate(RoboTextView view,
     set->directionRuns = (RoboTextDirectionRun *)RoboCalloc(count, sizeof(*set->directionRuns));
     set->textRuns = (RoboTextRun *)RoboCalloc(count, sizeof(*set->textRuns));
     featureRanges = (size_t *)RoboCalloc(count, sizeof(*featureRanges));
+    if (RoboTextWritingModeIsVertical(options->writingMode)) {
+        orientations = (RoboTextGlyphOrientation *)RoboCalloc(count, sizeof(*orientations));
+    }
     if (!directions || !resolvedDirections || !set->scriptRuns || !set->directionRuns ||
-        !set->textRuns || !featureRanges) {
+        !set->textRuns || !featureRanges ||
+        (RoboTextWritingModeIsVertical(options->writingMode) && !orientations)) {
+        RoboFree(orientations);
         RoboFree(featureRanges);
         RoboFree(resolvedDirections);
         RoboFree(directions);
@@ -233,6 +262,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
         RoboTextScript *scripts = (RoboTextScript *)RoboCalloc(count, sizeof(*scripts));
 
         if (!scripts) {
+            RoboFree(orientations);
             RoboFree(resolvedDirections);
             RoboFree(directions);
             RoboFree(scalars);
@@ -244,6 +274,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                            set->scriptRuns, (size_t)count, &set->scriptRunCount, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(orientations);
             RoboFree(featureRanges);
             RoboFree(resolvedDirections);
             RoboFree(directions);
@@ -265,6 +296,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                              &set->directionRunCount, &set->baseDirection, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(orientations);
             RoboFree(featureRanges);
             RoboFree(resolvedDirections);
             RoboFree(directions);
@@ -282,6 +314,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
                                              &set->paragraph, diag);
         if (status != RoboOk) {
             RoboFree(scripts);
+            RoboFree(orientations);
             RoboFree(featureRanges);
             RoboFree(resolvedDirections);
             RoboFree(directions);
@@ -293,6 +326,30 @@ Result RoboTextRunSetCreate(RoboTextView view,
             resolvedDirections[index] =
                 RoboTextBidiLevelDirection(RoboTextBidiParagraphResolvedLevel(set->paragraph, index));
             featureRanges[index] = FeatureRangeAt(options, index);
+        }
+        /*
+         * The per-scalar orientation, in one forward pass, for a vertical mode. **In context**, so a space
+         * between two ideographs stays upright — the reason `RoboTextVerticalOrientationInContext` exists
+         * beside the per-character door. The scalar's own **script** is the one the script resolver
+         * assigned, read from the run it landed in rather than re-derived here, which is what keeps a mark
+         * from being classified against a script its base is not (Phase 12.6).
+         */
+        if (orientations) {
+            RoboTextGlyphOrientation preceding = RoboTextGlyphOrientationUpright;
+            size_t runIndex = 0u;
+
+            for (RoboTextScalarIndex index = 0u; index < count; index++) {
+                while (runIndex + 1u < set->scriptRunCount &&
+                       index >= set->scriptRuns[runIndex].range.end) {
+                    runIndex++;
+                }
+                orientations[index] = RoboTextVerticalOrientationInContext(
+                    (RoboTextCodePoint)scalars[index],
+                    (runIndex < set->scriptRunCount) ? set->scriptRuns[runIndex].script
+                                                     : RoboTextScriptCommon,
+                    preceding, options->textOrientation);
+                preceding = orientations[index];
+            }
         }
         /*
          * The text runs are the *intersection* of the two walks, which is why this loop tests both arrays
@@ -316,7 +373,8 @@ Result RoboTextRunSetCreate(RoboTextView view,
              */
             while (end < count && scripts[end] == scripts[index] &&
                    resolvedDirections[end] == resolvedDirections[index] &&
-                   featureRanges[end] == featureRanges[index]) {
+                   featureRanges[end] == featureRanges[index] &&
+                   (!orientations || orientations[end] == orientations[index])) {
                 end++;
             }
             set->textRuns[set->textRunCount].range = RoboTextRangeMake(index, end);
@@ -328,6 +386,16 @@ Result RoboTextRunSetCreate(RoboTextView view,
             set->textRuns[set->textRunCount].font = set->font;
             set->textRuns[set->textRunCount].language = set->language;
             set->textRuns[set->textRunCount].features = set->features;
+            set->textRuns[set->textRunCount].writingMode = set->writingMode;
+            set->textRuns[set->textRunCount].textOrientation = set->textOrientation;
+            /*
+             * The run's **resolved** orientation: the answer, read off the first scalar of the run. Every
+             * scalar of the run shares it by the cut above, and a horizontal run is upright — which is what
+             * its glyphs are, not a claim that anything asked.
+             */
+            set->textRuns[set->textRunCount].orientation = (orientations != NULL)
+                                                              ? orientations[index]
+                                                              : RoboTextGlyphOrientationUpright;
             if (featureRanges[index] != RoboTextNoFeatureRange) {
                 FeatureRangeMerge(&options->featureRanges[featureRanges[index]],
                                   &set->textRuns[set->textRunCount].features);
@@ -338,6 +406,7 @@ Result RoboTextRunSetCreate(RoboTextView view,
         RoboFree(scripts);
     }
 
+    RoboFree(orientations);
     RoboFree(featureRanges);
     RoboFree(resolvedDirections);
     RoboFree(directions);
@@ -434,6 +503,16 @@ Result RoboTextRunSetVisualBidiRun(const RoboTextRunSet *set,
                                "a run set with a resolved paragraph is required");
     }
     return RoboTextBidiParagraphVisualRun(set->paragraph, visual, outLogicalRunIndex, diag);
+}
+
+RoboTextWritingMode RoboTextRunSetWritingMode(const RoboTextRunSet *set)
+{
+    return set ? set->writingMode : RoboTextWritingHorizontal;
+}
+
+RoboTextTextOrientation RoboTextRunSetTextOrientation(const RoboTextRunSet *set)
+{
+    return set ? set->textOrientation : RoboTextTextOrientationMixed;
 }
 
 RoboTextScript RoboTextRunSetScriptHint(const RoboTextRunSet *set)

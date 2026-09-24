@@ -262,12 +262,16 @@ Named rather than implied, because a plan that silently degraded would render wr
   strategy and would need their own joining tables;
 * **canonically reordered input**: no normalization is performed and no second normalization engine exists here
   (§29); the source code points are preserved exactly and the corpus states what that means;
-* **font fallback at a complex boundary** (§25 is a *policy* here, not a mechanism): the clusters name what must
-  not be split, and the fallback unit a future selector uses is a cluster rather than a scalar.
+* **cluster-grained fallback** (§25's *mechanism*): what is enforced today is that a boundary can never fall
+  inside a cluster — a complex cluster lives inside one script run, and the selector's unit is the script run,
+  so the face that draws a conjunct draws all of it. What is not built is a selector that would choose a
+  *different* face per cluster where the primary covers only part of a run; the clusters already name what may
+  and may not be split (`RoboTextComplexIsSafeBoundary`, `unsafeToBreak`), so that is a row of its own rather
+  than a change here.
 
 `RoboTextGetCapabilities` is the honest record: `complexScripts`, `complexScriptStrategies`, `complexClusters`,
-`positionalFeatures`, `gposAttachments`, `reordering` and `complexDiagnostics` are `1`, and
-`verticalText` is `0` because Phase 12.20 owns it.
+`positionalFeatures`, `gposAttachments`, `reordering` and `complexDiagnostics` are `1` — and `verticalText` is
+`1` too since 12.20, which is a *writing mode* over these same plans rather than a second strategy.
 
 ---
 
@@ -291,7 +295,7 @@ Two rules the fixture follows, because both are ways a complex fixture lies:
 What the fixture does not state, and is therefore asserted as a *mask* rather than as shaped output: no
 `blwf`/`pstf`/`pref` rule (their bits are named in `text.indic.masks`), no `locl`, no `calt`, no `nukt`/`akhn`.
 
-**Two acceptance criteria have their own cases rather than being assumed.** §13 — a malformed or unsupported
+**Three acceptance criteria have their own cases rather than being assumed.** §13 — a malformed or unsupported
 sequence answers for itself and corrupts nothing — is `text.arabic.stray_mark` (a mark with no base: no
 attachment, no advance, a valid run, its own cluster), `text.indic.orphan_sign` (a virama with no consonant
 before it, and a matra before any consonant) and `text.arabic.no_layout_tables` (a face with neither GSUB nor
@@ -299,10 +303,19 @@ GPOS shaped with the Arabic strategy: the `cmap`'s answer, the right classificat
 mixed-script documents — is `text.indic.three_scripts`: Latin, Arabic and Devanagari in one logical string, three
 runs in logical order, each shaped by its own strategy's stages and by nothing else.
 
+§6 — **a complex cluster is not split by the font** — is `text.arabic.fallback_no_split` and
+`text.indic.fallback_no_split`, and each states it twice. The count first: the analysis cuts a run where script,
+direction *or font* changes, so for a text whose runs are all served `runs == scriptRuns` holds exactly when the
+font added no boundary of its own — the per-scalar walk §25 forbids would raise `runs` one coverage change at a
+time, handing a consonant and its virama to two faces. Then the clusters, resolved over each run and asserted to
+**tile** it, which is the same claim read directly. Both cases put the complex scripts on the **chain** and a
+face that does not cover them on the primary, so the run that matters is answered by the fallback: `fallbackRuns`
+is asserted to be `2` and `1` respectively, which a case over a covering primary could not say.
+
 Run:
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host                    # text.*, 277 cases
+Scripts\Test\TestRoboText.ps1 -Target Host                    # text.*, 279 cases
 Scripts\Test\TestLayout.ps1   -Target Host
 Scripts\Test\TestPaint.ps1    -Target Host
 Scripts\Test\TestGraphics.ps1 -Target Host
