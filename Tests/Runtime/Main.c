@@ -143,6 +143,10 @@ void TestRegisterTextIndic(void);
  * rotated one that beats the script), the orientation cut, `vert` through the ordinary GSUB engine, the
  * `vmtx` advances and the synthesised path, the measurement's `advanceY` and bidi in a vertical column. */
 void TestRegisterTextVertical(void);
+/* Phase 12.21 -- selection mapping: the logical ↔ visual bridge (positions and affinity, the placement a
+ * caller supplies, cluster-snapped hit testing, carets in both writing modes, selection rectangles across
+ * lines, bidi boundaries and fallback fonts, and the round trip in both directions). */
+void TestRegisterTextSelection(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -466,6 +470,7 @@ int main(int argc, char **argv)
     TestRegisterTextArabic();
     TestRegisterTextIndic();
     TestRegisterTextVertical();
+    TestRegisterTextSelection();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

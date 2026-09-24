@@ -344,21 +344,24 @@ field: the twelve model flags are present, and every algorithm flag is **absent*
 | the Unicode bidirectional algorithm | 12.8 |
 | GSUB / substitution | 12.10 |
 | ligatures (with the policy and the provenance) | 12.12 |
-| GPOS / positioning | 12.11 |
+| GPOS / positioning (lookup types 1–6, 9 as of 12.19) | 12.11 |
 | kerning (with the policy and the report) | 12.13 |
+| complex scripts (Arabic joining, Indic syllables, positional masks) | 12.19 |
+| vertical writing (the mode, the orientation, `vmtx` advances, `vert`/`vrt2`) | 12.20 |
+| selection mapping (positions, clusters, affinity, hit tests, carets, rectangles) | 12.21 |
 
 | Absent | Goal |
 |---|---|
 | variable-axis application (`wght`/`opsz` beyond face selection) | unowned until RoboFont interpolates outlines |
-| mark and cursive attachment, contextual positioning | no goal yet; recognised and skipped |
+| GPOS lookup types 7–8 (the two contextual positioning forms) | no goal yet; recognised and skipped — Positioning.md §10 |
 | the legacy `kern` table | Phase 5 owns the parser |
-| complex scripts | 12.19 |
-| vertical text | 12.20 |
+| cluster-grained font fallback | named in ComplexScripts.md as its own row |
+| selection painting, caret rendering, editing and navigation | 12.22 onward |
 
-Also deliberately absent: grapheme clustering, normalization, case mapping, selection, caret rendering,
-editing, shaping, `@font-face`, `font-feature-settings`, `font-variation-settings`, `font-stretch`
-matching and full generic-family semantics. The four weights and the `opsz` class **bind but do not
-instance**: a style records them and nothing applies an axis.
+Also deliberately absent: grapheme clustering, normalization, case mapping, editing, `@font-face`,
+`font-feature-settings`, `font-variation-settings`, `font-stretch` matching and full generic-family
+semantics. The four weights and the `opsz` class **bind but do not instance**: a style records them and
+nothing applies an axis.
 
 ---
 
@@ -367,9 +370,9 @@ instance**: a style records them and nothing applies an axis.
 | | |
 |---|---|
 | Build | `Scripts/Build/BuildRoboText.ps1` (module + the shipped pack's presence check) |
-| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 293 cases |
+| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 306 cases |
 | Conformance | `Scripts/Test/TestRoboTextConformance.ps1 -Target Host` — `text.shaping.*` only, 55 cases (12.18) |
-| Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Script,Direction,Bidi,Unicode,FontSelection,Analysis,Gsub,Ligature,Gpos,Kerning,Conformance,Gallery,Shaping{Latin,Scripts,Features,Kerning,Marks,Fallback,Integration}}.c` |
+| Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Script,Direction,Bidi,Unicode,FontSelection,Analysis,Gsub,Ligature,Gpos,Kerning,Conformance,Gallery,Selection,Vertical,Shaping{Latin,Scripts,Features,Kerning,Marks,Fallback,Integration}}.c` |
 | Fixture | `Tests/Text/RoboTextTestSupport.h` — opens the **shipped** pack through RoboFont alone |
 | Fixture (12.18) | `Tests/Text/RoboTextConformanceFont.h` + `RoboTextConformanceSupport.h` — **builds** a face from a spec, so a substitution is asserted because the bytes say so |
 | Dev surface | `Build/Text-GlyphTable.txt`, written by `text.gallery.glyph_table` |
@@ -390,12 +393,13 @@ A text change is not done until these pass:
 |---|---|
 | anything in RoboText | `TestRoboText.ps1 -Target Host` |
 | a shaping expectation (ligature, pair, mark, fallback range) | `TestRoboTextConformance.ps1 -Target Host` |
+| a selection, caret or hit-test expectation (12.21) | `TestRoboText.ps1 -Target Host` (`text.selection.*`) |
 | a boundary RoboLayout crosses (measurement, units) | `TestLayout.ps1 -Target Host` (359 cases) |
 | a boundary RoboPaint crosses (glyphs, the pen, the raster) | `TestPaint.ps1 -Target Host` (241) |
 | the glyph-generation seam | `TestGraphics.ps1 -Target Host` (177) and `TestRasterizer.ps1 -Target Host` (31) |
 | the shipped face or the pack | `TestFont.ps1 -Target Host` (189) |
 | anything the shell draws | `TestDesktop.ps1 -Target Host` (56) |
-| the guest image | `TestDesktop.ps1 -Target Qemu` |
+| the guest image | `TestDesktop.ps1 -Target Qemu` (`robo test-qemu-display` for the three guest checkpoints: `ROBO_QEMU_TYPOGRAPHY_*`, `..._SHAPING_*`, `..._VERTICAL_*`, `..._SELECTION_*`) |
 
 ### The visual test surface, and where the pixels live
 
@@ -462,7 +466,11 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
    run by run.
 7. **No letter spacing applied.** `letterSpacingPx` is carried and not read.
 8. **`text.*` has no QEMU-only cases.** The module computes on the development machine; the guest-visible
-   half of the phase is the desktop's rendering check above.
+   half of every phase is the desktop's rendering check above, plus 12.18's and 12.20's own off-screen
+   checkpoints.
+9. **Selection is a map, not an interaction.** The logical ↔ visual bridge exists (12.21), but nothing
+   *acts* on it yet: no editing, no caret navigation, no IME, no clipboard and no selection painting, and
+   no `SelectionMap()` accessor on RoboLayout's line boxes — every case supplies its own placements.
 
 ---
 
@@ -483,6 +491,11 @@ and paints every glyph through RoboText, and the framebuffer did not move a pixe
 12.14 Glyph runs                       ✓  (GlyphRuns)          → finalizes the run and lists them
 12.15 Text measurement                  ✓  (TextMeasurement)   → the engine over the run list
 12.16 Paint / layout bridge             ✓  (PaintBridge)        → the display list carries the shaped glyphs
+12.17 CSS font request                  ✓  (FontRequest)        → the request and the face it resolves to
+12.18 Latin & European conformance      ✓  (ShapingConformance) → the corpus that asserts every layer
+12.19 Complex scripts                   ✓  (ComplexScripts)     → Arabic and Indic as a plan, not a branch
+12.20 Vertical writing                  ✓  (VerticalText)       → writing mode as data, no second engine
+12.21 Selection mapping                 ✓  (TextSelection)      → the logical ↔ visual bridge
 ```
 
 Every one of those consumes this layer rather than replacing it. That is the milestone: the seams
@@ -820,3 +833,48 @@ The version moved to `1.11.0`. `RoboTextGetCapabilities` reports `verticalText`,
 field in `Tests/Text/SuiteRoboTextConformance.c` — and there is deliberately **no `verticalShaper`** flag,
 because the phase adds no engine: `verticalText` claims a writing *model*, and `advanceY` is a real number for
 a vertical run rather than the published zero 12.15 left so that this phase would change a value.
+
+---
+
+## 23. Phase 12.21 — selection mapping
+
+12.21 makes shaped text **addressable**. It adds no shaping and no measurement: it is the bridge between a
+source position and a place on the page, built over the finalized run list of 12.14 and the clusters that run
+already carries.
+
+| Area | Where | Contract |
+|---|---|---|
+| The whole layer: positions, affinity, selections, placements, the map, the three queries, the rectangles, the dumps, the fuzz entry | `RoboTextSelection.c`, public `RoboTextSelection.h` | [TextSelection.md](TextSelection.md) |
+| The clusters the mapping is over | `RoboTextGlyphs.c` — `RoboTextGlyphRunClusterForScalar` | GlyphRuns.md |
+| The inline/block axes it projects onto | `RoboTextVertical.c` — `RoboTextWritingAxesInline`/`…Block` | VerticalText.md §2.2 |
+| The run, the list, and the metrics a placement's band comes from | `RoboTextRunList.h`, `RoboTextGlyphs.h` | GlyphRuns.md |
+| The capability flags | `RoboTextVersion.h`/`.c` | TextSelection.md §10 |
+
+The five properties the phase adds:
+
+1. **A position is a source offset; geometry is derived.** `RoboTextPosition` is one `RoboTextScalarIndex`
+   offset into the original text, a selection keeps anchor and focus, and no door in the layer takes a glyph
+   index — because a caller holding one has already lost the ligature, the mark and the reordered Indic
+   cluster. `RoboTextSelectionMapHitTest` answers a position and `…MapCaret` answers geometry, and neither can
+   be mistaken for the other.
+2. **The one input is the placement.** A run knows its glyphs but not where the caller put them, so
+   `RoboTextSelectionPlacement` carries the pen origin, the caller's line index and the line's band as two
+   signed distances along the **block** axis. The map copies placements and borrows the list, and it refuses a
+   subset, a duplicate, an out-of-order array and an unplaced run rather than repairing any of them.
+3. **No call site swaps x and y.** Every query projects onto the placement's own axes through 12.20's doors and
+   converts back at the end, so a column's caret, hit test and rectangles are correct by construction and
+   `vertical-rl` differs from `vertical-lr` in the block vector and in nothing else.
+4. **A source offset may have two visual locations, and never a fraction of one.** Affinity says which of two
+   a boundary meant; a hit inside a ligature or a conjunct snaps to the cluster and **reports that it
+   snapped**; a selection returns one rectangle per (line, run) segment in visual order rather than one box,
+   and a base with its zero-advance marks is one of those rectangles rather than one each.
+5. **A query shapes nothing.** Nothing in the layer decodes UTF-8, selects a font, resolves a script or a
+   level, runs GSUB/GPOS or measures — a hit test over a paragraph costs no shaping, and the layer allocates
+   nothing per query.
+
+The version moved to `1.12.0`, and the move is the smallest any phase has asked for: no existing record
+changed at all. `RoboTextGetCapabilities` reports `selectionMapping`, `selectionPositions`,
+`selectionClusters`, `selectionAffinity`, `selectionHitTesting`, `caretGeometry`, `selectionGeometry`,
+`selectionWritingAxes`, `selectionValidation`, `selectionDiagnostics` and `selectionFuzzing` `1`, each read
+field by field in `Tests/Text/SuiteRoboTextConformance.c` — with deliberately **no `selectionPainting`** (the
+shell's row) and no `selectionShaping` (a claim the layer's whole design denies).

@@ -64,8 +64,12 @@ extern "C" {
  * a new public contract (`RoboTextComplex.h`'s strategy/plan/clusters, `RoboTextArabic.h`'s forms,
  * `RoboTextIndic.h`'s rules) sits on top of engines that gained abilities rather than callers — GPOS runs
  * lookup types 3–6, GSUB and GPOS both honour a strategy's positional mask, and `ShapeRun` walks a plan's
- * stages. The glyph record's shape is unchanged, so the minor moves once and the major stays. */
-#define RoboTextVersionMinor 11
+ * stages. The glyph record's shape is unchanged, so the minor moves once and the major stays.
+ *
+ * 12.21 adds the selection layer (`RoboTextSelection.h`: positions, affinity, placed runs, hit testing, caret
+ * geometry and selection rectangles) and changes no existing record: a selection map is built over the run list
+ * the previous phases produce, so every door that existed keeps its signature and the minor moves once more. */
+#define RoboTextVersionMinor 12
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -409,6 +413,62 @@ typedef struct RoboTextCapabilities {
     int measurementDiagnostics;
     /** The numerical tolerance a measurement comparison uses, published as `RoboTextMeasureTolerancePx`. */
     int measurementTolerance;
+
+    /* --- Phase 12.21: selection mapping --- */
+
+    /**
+     * A **selection map** (`RoboTextSelection.h`): a run list plus the placements a caller supplies, queried
+     * for hit tests, carets and selection rectangles.
+     *
+     * What this does *not* claim: editing, caret navigation, IME, clipboard, mouse handling or selection
+     * *painting*. It claims the mapping those layers need, and it is deliberately a consumer of shaped output
+     * rather than a second shaping implementation: no query in it decodes, selects a font or runs GSUB/GPOS.
+     */
+    int selectionMapping;
+    /**
+     * A logical position as a first-class value (`RoboTextPosition`), with `RoboTextRange`'s half-open algebra
+     * and an anchor/focus selection over it. A selection is never expressed in glyph indices.
+     */
+    int selectionPositions;
+    /**
+     * Cluster-grained mapping in both directions: a scalar resolves to the cluster that covers it
+     * (`RoboTextGlyphRunClusterForScalar`) and a point resolves to a cluster boundary rather than to a place
+     * inside one. A ligature, a conjunct and a base with its marks are therefore never split by a click.
+     */
+    int selectionClusters;
+    /**
+     * Affinity: a position two visual runs share has two legitimate caret geometries, and
+     * `RoboTextAffinityUpstream`/`Downstream` says which one was meant.
+     */
+    int selectionAffinity;
+    /**
+     * Hit testing: a **point** resolves to a logical position (`RoboTextSelectionMapHitTest`), with the run,
+     * the line and the cluster it came from, and a signed inline distance. The run's own **direction** decides
+     * which way its inline axis is read, so a right-to-left run maps from the other end.
+     */
+    int selectionHitTesting;
+    /**
+     * Caret geometry from a position and an affinity, across the line's **block** axis: a horizontal line's
+     * caret is vertical and a vertical column's is horizontal, and the mode that says so is the run's own.
+     */
+    int caretGeometry;
+    /**
+     * Selection geometry: one rectangle per (line, run) segment a logical range covers, so a selection across a
+     * bidi boundary or a fallback font boundary is several places on the page rather than one box around them.
+     */
+    int selectionGeometry;
+    /**
+     * The geometry goes through 12.20's inline/block axes rather than an x/y swap, so a vertical run's caret,
+     * hit test and rectangles are correct by construction and `vertical-rl` differs from `vertical-lr` in the
+     * block vector and in nothing else.
+     */
+    int selectionWritingAxes;
+    /** The map's invariants, by a door a test calls (`RoboTextSelectionMapValidate`). */
+    int selectionValidation;
+    /** A map as a diagnostic block: a line per placement and a line per cluster (Phase 12.21.34's dump). */
+    int selectionDiagnostics;
+    /** The fuzz entry (`RoboTextSelectionFuzz`), which drives every query from arbitrary bytes. */
+    int selectionFuzzing;
 } RoboTextCapabilities;
 
 /** Zero @p capabilities (every feature reported absent). Safe on NULL. */

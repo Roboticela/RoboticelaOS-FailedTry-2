@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.11.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.12.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -67,8 +67,12 @@ static void TestConformanceVersion(void)
      * *grew* fields (`writingMode`, `textOrientation`, `orientation`, and the run's second advance), the
      * placement model is the `advanceX`/`advanceY`/`offsetX`/`offsetY` record 12.11 already published, and the
      * one new type — `RoboTextWritingAxes` — is a value a layout pass holds rather than a signature anything
-     * had to change. The major stays. */
-    RoboCheckEqInt((int)minor, 11);
+     * had to change. The major stays.
+     *
+     * 12.21 added the selection layer (`RoboTextSelection.h`) and changed no existing record at all: it is a
+     * *map over* shaped output — a run list plus the placements a caller supplies — so the strongest statement
+     * about it is that the module gained a file and lost nothing. */
+    RoboCheckEqInt((int)minor, 12);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -256,6 +260,25 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.verticalMetrics, 1);
     RoboCheckEqInt(capabilities.verticalFeatures, 1);
     RoboCheckEqInt(capabilities.verticalDiagnostics, 1);
+
+    /*
+     * Selection mapping (12.21), read field by field like every other phase. `selectionMapping` is the map
+     * itself; the flags beside it name the parts, and each is exercised by a case in
+     * `SuiteRoboTextSelection.c`. There is deliberately **no** `selectionPainting` field: the phase's own
+     * non-goals put painting, editing and navigation later, and the map is a consumer of shaped output rather
+     * than a second shaping implementation — which is why there is no `selectionShaping` flag either.
+     */
+    RoboCheckEqInt(capabilities.selectionMapping, 1);
+    RoboCheckEqInt(capabilities.selectionPositions, 1);
+    RoboCheckEqInt(capabilities.selectionClusters, 1);
+    RoboCheckEqInt(capabilities.selectionAffinity, 1);
+    RoboCheckEqInt(capabilities.selectionHitTesting, 1);
+    RoboCheckEqInt(capabilities.caretGeometry, 1);
+    RoboCheckEqInt(capabilities.selectionGeometry, 1);
+    RoboCheckEqInt(capabilities.selectionWritingAxes, 1);
+    RoboCheckEqInt(capabilities.selectionValidation, 1);
+    RoboCheckEqInt(capabilities.selectionDiagnostics, 1);
+    RoboCheckEqInt(capabilities.selectionFuzzing, 1);
 
     /*
      * And every algorithm this build deliberately does **not** implement, each one a row in the phase plan

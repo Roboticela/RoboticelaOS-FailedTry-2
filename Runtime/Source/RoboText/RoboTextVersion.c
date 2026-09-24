@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.11.0";
+    static const char version[] = "1.12.0";
 
     return version;
 }
@@ -207,6 +207,25 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->verticalMetrics = 1;
     out->verticalFeatures = 1;
     out->verticalDiagnostics = 1;
+
+    /* --- Phase 12.21: selection mapping --- */
+
+    /*
+     * Selection is a **map over shaped output**: it is built from a finalized run list plus the placements a
+     * caller supplies, and every query it answers is a walk over that list's own clusters. It shapes nothing,
+     * measures nothing and decodes nothing, which is the property each flag below names.
+     */
+    out->selectionMapping = 1;
+    out->selectionPositions = 1;
+    out->selectionClusters = 1;
+    out->selectionAffinity = 1;
+    out->selectionHitTesting = 1;
+    out->caretGeometry = 1;
+    out->selectionGeometry = 1;
+    out->selectionWritingAxes = 1;
+    out->selectionValidation = 1;
+    out->selectionDiagnostics = 1;
+    out->selectionFuzzing = 1;
 
     /*
      * Variable-axis application is unowned by a numbered goal and is reported absent until RoboFont

@@ -1059,6 +1059,288 @@ static void GuestVerticalCheckpoint(FontFace *face)
 }
 
 /* ------------------------------------------------------------------ */
+/* Selection mapping, on the guest framebuffer path                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The logical ↔ visual bridge, exercised in the OS.
+ *
+ * 12.21's own claim is that a position in the source text and a place on the page are two different things
+ * with a map between them, so the guest half asks the map the three questions a click and a caret ask — a
+ * point becomes a position, a position becomes a caret, a range becomes rectangles — over a run shaped by
+ * RoboText in-guest, and fills those rectangles into a **guest surface**. It is the phase's §46 evidence: not
+ * a host-side query, and not a screenshot.
+ *
+ * Three markers are the point of it:
+ *
+ *  * `..._CARET_HORIZONTAL` for the **same** position in the same text shaped two ways: a column's caret
+ *    spans x and a line's spans y, so the pair is the axis swap stated exactly rather than an ink count that
+ *    could be a coincidence. The mode comes from the answering run, never from the caller.
+ *  * `..._BLOCK_ONE` against `..._BLOCK_ALL`: a selection's extent **across** the column is the line's band
+ *    whatever it covers, so one glyph and three cover the same band while the inline extent grows. A build
+ *    that had built the rectangle from the glyph count would fail here rather than look plausible.
+ *  * `..._INK` is the rectangles drawn into a surface and counted, which is what makes the geometry a thing a
+ *    painter consumes rather than a number this checkpoint printed.
+ *
+ * The document path has no selection at all (there is no mouse, no focus and no editor), so this is a second
+ * off-screen render like `GuestVerticalCheckpoint` — and it reuses that checkpoint's specimen and its pen.
+ */
+
+#define GUEST_SELECTION_W 160u
+#define GUEST_SELECTION_H 200u
+/* Far enough right that a column's band — which extends **leftwards** from the pen origin in `vertical-rl` — fits
+ * inside the surface, so the ink the checkpoint reports is the whole rectangle rather than one edge of it. */
+#define GUEST_SELECTION_ORIGIN_X 80.0f
+#define GUEST_SELECTION_ORIGIN_Y 20.0f
+
+/** The ink colour a selection is filled with; whatever it is, it is not the paper. */
+#define GUEST_SELECTION_INK GfxRgb8(70, 110, 220)
+
+/** Fill one selection rectangle into the surface: the caller's own space, `+x` right and `+y` down. */
+static void GuestSelectionFill(GfxSurface *surface, const RoboTextSelectionRect *rect)
+{
+    int32_t x;
+    int32_t y;
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+
+    if (!surface || !rect) {
+        return;
+    }
+    left = (int32_t)(rect->x + 0.5f);
+    top = (int32_t)(rect->y + 0.5f);
+    right = (int32_t)(rect->x + rect->width + 0.5f);
+    bottom = (int32_t)(rect->y + rect->height + 0.5f);
+    for (y = top; y < bottom; y++) {
+        for (x = left; x < right; x++) {
+            if (x < 0 || y < 0 || x >= (int32_t)GUEST_SELECTION_W || y >= (int32_t)GUEST_SELECTION_H) {
+                continue;
+            }
+            (void)GfxSurfaceSetPixel(surface, (uint32_t)x, (uint32_t)y, GUEST_SELECTION_INK);
+        }
+    }
+}
+
+/** One shaped specimen, placed on one line, with a map over it. `NULL` list or map means the caller's done. */
+typedef struct GuestSelectionCase {
+    RoboTextShapeResult *result;
+    RoboTextSelectionMap *map;
+    float inlineAdvance; /**< The run's advance along its own inline axis. */
+    float band;          /**< The line's band, across it. */
+} GuestSelectionCase;
+
+static int GuestSelectionBuild(FontFace *face,
+                               RoboTextWritingMode mode,
+                               GuestSelectionCase *out,
+                               RoboTextDiag *diag)
+{
+    RoboTextFontContext font;
+    RoboTextFontStyle style;
+    RoboTextShapeOptions options;
+    RoboTextView view;
+    const RoboTextGlyphRun *run;
+    RoboTextSelectionPlacement placement;
+
+    memset(out, 0, sizeof(*out));
+    RoboTextFontContextInit(&font);
+    RoboTextFontStyleInit(&style);
+    style.sizePx = GUEST_VERTICAL_SIZE_PX;
+    if (RoboTextFontContextSet(&font, face, &style) != RoboOk) {
+        serial("ROBO_QEMU_SELECTION_FAIL context\n");
+        return 0;
+    }
+    RoboTextShapeOptionsInit(&options);
+    options.writingMode = mode;
+    options.textOrientation = RoboTextTextOrientationSideways;
+    view.bytes = kVerticalSpecimen;
+    view.length = GUEST_VERTICAL_BYTES;
+    if (RoboTextShape(view, &font, &options, &out->result, diag) != RoboOk || !out->result) {
+        serial("ROBO_QEMU_SELECTION_FAIL shape\n");
+        return 0;
+    }
+    run = RoboTextShapeResultGlyphRun(out->result, 0u);
+    if (!run) {
+        serial("ROBO_QEMU_SELECTION_FAIL norun\n");
+        return 0;
+    }
+    out->inlineAdvance = RoboTextGlyphRunAdvance(run) + RoboTextGlyphRunAdvanceY(run);
+    out->band = RoboTextGlyphRunAscent(run) + RoboTextGlyphRunDescent(run);
+
+    /*
+     * The one thing the map cannot read off the run is **where the caller put it**, and the band comes from the
+     * run's own metrics through the placement door rather than from the two numbers above.
+     */
+    if (RoboTextSelectionPlacementForRun(run, 0u, 0u, GUEST_SELECTION_ORIGIN_X, GUEST_SELECTION_ORIGIN_Y,
+                                         &placement, NULL) != RoboOk) {
+        serial("ROBO_QEMU_SELECTION_FAIL placement\n");
+        return 0;
+    }
+    if (RoboTextSelectionMapCreate(RoboTextShapeResultGlyphRunList(out->result), &placement, 1u, NULL,
+                                   &out->map, diag) != RoboOk || !out->map) {
+        serial("ROBO_QEMU_SELECTION_FAIL map\n");
+        return 0;
+    }
+    return 1;
+}
+
+static void GuestSelectionRelease(GuestSelectionCase *bench)
+{
+    RoboTextSelectionMapDestroy(bench->map);
+    RoboTextShapeResultDestroy(bench->result);
+    memset(bench, 0, sizeof(*bench));
+}
+
+static void GuestSelectionCheckpoint(FontFace *face)
+{
+    GuestSelectionCase column;
+    GuestSelectionCase line;
+    RoboTextSelectionHit hit;
+    RoboTextCaretGeometry caretColumn;
+    RoboTextCaretGeometry caretLine;
+    RoboTextSelectionGeometry geometryOne;
+    RoboTextSelectionGeometry geometryAll;
+    RoboTextSelectionRect one;
+    RoboTextSelectionRect all;
+    GfxSurface *surface = NULL;
+    GfxRaster *raster = NULL;
+    GuestInkBox ink;
+    RoboTextDiag diag;
+
+    if (!face) {
+        serial("ROBO_QEMU_SELECTION_FAIL face\n");
+        return;
+    }
+    /* The lazy parses the shaping path needs; see `GuestVerticalCheckpoint` for why each is asked for. */
+    if (FontFaceParseCmap(face) != RoboOk || FontFaceParseTruetype(face, RoboFontTtFlagsNone) != RoboOk ||
+        FontFaceParseMetrics(face) != RoboOk) {
+        serial("ROBO_QEMU_SELECTION_FAIL tables\n");
+        return;
+    }
+    memset(&diag, 0, sizeof(diag));
+    if (!GuestSelectionBuild(face, RoboTextWritingVerticalRightToLeft, &column, &diag) ||
+        !GuestSelectionBuild(face, RoboTextWritingHorizontal, &line, &diag)) {
+        GuestSelectionRelease(&column);
+        GuestSelectionRelease(&line);
+        return;
+    }
+
+    serial("ROBO_QEMU_SELECTION_OK\n");
+    SerialU32("ROBO_QEMU_SELECTION_SCALARS=", (uint32_t)GUEST_VERTICAL_BYTES);
+
+    /* A point inside the first glyph's cell, three quarters of the way along it: the nearer boundary is the
+     * next one, so the answer is position 1 with the **upstream** affinity — a click's own arithmetic. */
+    memset(&hit, 0, sizeof(hit));
+    if (RoboTextSelectionMapHitTest(column.map,
+                                    RoboTextSelectionPointMake(GUEST_SELECTION_ORIGIN_X,
+                                                               GUEST_SELECTION_ORIGIN_Y + column.inlineAdvance * 0.25f),
+                                    &hit, &diag) != RoboOk) {
+        serial("ROBO_QEMU_SELECTION_FAIL hit\n");
+        GuestSelectionRelease(&column);
+        GuestSelectionRelease(&line);
+        return;
+    }
+    SerialU32("ROBO_QEMU_SELECTION_HIT_POSITION=", (uint32_t)hit.position.offset);
+    SerialU32("ROBO_QEMU_SELECTION_HIT_AFFINITY=", (uint32_t)hit.affinity);
+    SerialU32("ROBO_QEMU_SELECTION_HIT_LINE=", (uint32_t)hit.lineIndex);
+
+    /*
+     * The same position, in the same text, shaped two ways. A column's caret spans x and a line's spans y, and
+     * neither of the two asks the caller which — the mode on each record is the answering run's own.
+     */
+    memset(&caretColumn, 0, sizeof(caretColumn));
+    memset(&caretLine, 0, sizeof(caretLine));
+    if (RoboTextSelectionMapCaret(column.map, RoboTextPositionMake(0u), RoboTextAffinityDownstream,
+                                  &caretColumn, &diag) != RoboOk ||
+        RoboTextSelectionMapCaret(line.map, RoboTextPositionMake(0u), RoboTextAffinityDownstream,
+                                  &caretLine, &diag) != RoboOk) {
+        serial("ROBO_QEMU_SELECTION_FAIL caret\n");
+        GuestSelectionRelease(&column);
+        GuestSelectionRelease(&line);
+        return;
+    }
+    SerialU32("ROBO_QEMU_SELECTION_CARET_VALID=", (uint32_t)(RoboTextCaretGeometryIsValid(&caretColumn) &&
+                                                               RoboTextCaretGeometryIsValid(&caretLine)));
+    SerialU32("ROBO_QEMU_SELECTION_CARET_COLUMN_HORIZONTAL=",
+              (uint32_t)(RoboTextCaretGeometryIsHorizontal(&caretColumn) ? 1u : 0u));
+    SerialU32("ROBO_QEMU_SELECTION_CARET_LINE_HORIZONTAL=",
+              (uint32_t)(RoboTextCaretGeometryIsHorizontal(&caretLine) ? 1u : 0u));
+    SerialU32("ROBO_QEMU_SELECTION_CARET_MODE=", (uint32_t)caretColumn.writingMode);
+    /*
+     * The caret's own length, which for a column is its span along **x** — the segment lies across the block
+     * axis, so the span that is zero is the one along the inline axis. The next section reports the same number
+     * as the rectangle's block extent, and that equality is the claim: a caret is exactly as long as the band
+     * a selection of the same line covers.
+     */
+    SerialU32("ROBO_QEMU_SELECTION_CARET_SPAN=",
+              (uint32_t)(RoboTextCaretGeometrySpanX(&caretColumn) * 1000.0f + 0.5f));
+    SerialU32("ROBO_QEMU_SELECTION_CARET_INLINE=",
+              (uint32_t)(RoboTextCaretGeometrySpanY(&caretColumn) * 1000.0f + 0.5f));
+
+    /*
+     * One glyph selected, then all three: the **block** extent is the same number either way, because it is
+     * the line's band and not a count, while the inline extent grows. A rectangle built from the glyph count
+     * would agree on neither.
+     */
+    memset(&geometryOne, 0, sizeof(geometryOne));
+    memset(&geometryAll, 0, sizeof(geometryAll));
+    RoboTextSelectionGeometryInit(&geometryOne);
+    RoboTextSelectionGeometryInit(&geometryAll);
+    if (RoboTextSelectionMapGeometry(column.map, RoboTextSelectionMake(RoboTextPositionMake(0u),
+                                                                       RoboTextPositionMake(1u)),
+                                     &geometryOne, &diag) != RoboOk ||
+        RoboTextSelectionMapGeometry(column.map,
+                                     RoboTextSelectionMake(RoboTextPositionMake(0u),
+                                                           RoboTextPositionMake(GUEST_VERTICAL_BYTES)),
+                                     &geometryAll, &diag) != RoboOk) {
+        serial("ROBO_QEMU_SELECTION_FAIL geometry\n");
+        GuestSelectionRelease(&column);
+        GuestSelectionRelease(&line);
+        return;
+    }
+    SerialU32("ROBO_QEMU_SELECTION_RECTS_ONE=", (uint32_t)geometryOne.count);
+    SerialU32("ROBO_QEMU_SELECTION_RECTS_ALL=", (uint32_t)geometryAll.count);
+    if (geometryOne.count != 1u || geometryAll.count != 1u) {
+        serial("ROBO_QEMU_SELECTION_FAIL rects\n");
+        GuestSelectionRelease(&column);
+        GuestSelectionRelease(&line);
+        return;
+    }
+
+    /* The inline extent is the **height** of a column's rectangle and the **width** of a line's — the swap. */
+    one = geometryOne.rects[0];
+    all = geometryAll.rects[0];
+    SerialU32("ROBO_QEMU_SELECTION_BLOCK_ONE=", (uint32_t)(RoboTextSelectionRectWidth(&one) * 1000.0f + 0.5f));
+    SerialU32("ROBO_QEMU_SELECTION_BLOCK_ALL=", (uint32_t)(RoboTextSelectionRectWidth(&all) * 1000.0f + 0.5f));
+    SerialU32("ROBO_QEMU_SELECTION_INLINE_ALL=", (uint32_t)(RoboTextSelectionRectHeight(&all) * 1000.0f + 0.5f));
+    SerialU32("ROBO_QEMU_SELECTION_EQUAL_BLOCKS=",
+              (uint32_t)(one.width == all.width && one.height != all.height));
+
+    /*
+     * And the rectangles as **pixels**: filled into a guest surface and counted, so what the guest proves is
+     * geometry a painter consumes rather than three numbers a checkpoint printed. The caret is filled too — a
+     * caret a reader cannot see is the one failure the layer must not produce.
+     */
+    if (!GuestVerticalSurface(&surface, &raster, GUEST_SELECTION_W, GUEST_SELECTION_H)) {
+        serial("ROBO_QEMU_SELECTION_FAIL surface\n");
+    } else {
+        GuestSelectionFill(surface, &all);
+        GuestSelectionFill(surface, &(RoboTextSelectionRect){caretColumn.start.x, caretColumn.start.y,
+                                                             caretColumn.thickness,
+                                                             RoboTextCaretGeometrySpanY(&caretColumn)});
+        GuestInkMeasure(surface, GUEST_SELECTION_W, GUEST_SELECTION_H, &ink);
+        SerialU32("ROBO_QEMU_SELECTION_INK=", ink.pixels);
+        SerialU32("ROBO_QEMU_SELECTION_INK_BOX=", (ink.width << 16) | (ink.height & 0xFFFFu));
+        GfxRasterDestroy(raster);
+        GfxSurfaceRelease(surface);
+    }
+
+    GuestSelectionRelease(&column);
+    GuestSelectionRelease(&line);
+}
+
+/* ------------------------------------------------------------------ */
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -1232,6 +1514,7 @@ int main(int argc, char **argv)
          */
         GuestShapingCheckpoint(face, &typography);
         GuestVerticalCheckpoint(face);
+        GuestSelectionCheckpoint(face);
         serial("ROBO_QEMU_DESKTOP_LIVE\n");
     }
 

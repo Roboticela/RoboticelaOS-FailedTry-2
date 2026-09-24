@@ -349,6 +349,36 @@ $script:RoboDisplayMarkers = @(
     "ROBO_QEMU_VERTICAL_BOX_TURNED=0x001E001A",
     "ROBO_QEMU_VERTICAL_COLUMN_INK=0x00000408",
     "ROBO_QEMU_VERTICAL_COLUMN_BOX=0x001F006A",
+    # Phase 12.21: the logical<->visual selection map, asked in the OS. A point inside the first of "ABC"'s
+    # three cells resolves to the **boundary** it is nearer -- position 1, upstream -- and never to a glyph
+    # index, which is the phase's central rule. The caret pair is the axis swap stated exactly: the column's
+    # caret is horizontal (1) and the line's is not (0) for the *same* position in the same text, because the
+    # mode on each record is the answering run's own. `CARET_SPAN` equals `BLOCK_ONE` -- a caret is as long as
+    # the band a selection of that line covers -- while `BLOCK_ONE` equals `BLOCK_ALL`: the extent *across* the
+    # column is the line's band whatever the selection covers, so one glyph and three give the same width and
+    # different heights (`INLINE_ALL` is the run's own 120 px of `advanceY`). `EQUAL_BLOCKS` is that whole
+    # statement as one flag, and a rectangle built from a glyph count would be 0 rather than 1. Finally the
+    # rectangles are filled into a guest surface and counted: 49x120 pixels of them, which is geometry a
+    # painter consumes rather than numbers a checkpoint printed.
+    "ROBO_QEMU_SELECTION_OK",
+    "ROBO_QEMU_SELECTION_SCALARS=0x00000003",
+    "ROBO_QEMU_SELECTION_HIT_POSITION=0x00000001",
+    "ROBO_QEMU_SELECTION_HIT_AFFINITY=0x00000000",
+    "ROBO_QEMU_SELECTION_HIT_LINE=0x00000000",
+    "ROBO_QEMU_SELECTION_CARET_VALID=0x00000001",
+    "ROBO_QEMU_SELECTION_CARET_COLUMN_HORIZONTAL=0x00000001",
+    "ROBO_QEMU_SELECTION_CARET_LINE_HORIZONTAL=0x00000000",
+    "ROBO_QEMU_SELECTION_CARET_MODE=0x00000001",
+    "ROBO_QEMU_SELECTION_CARET_SPAN=0x0000BD0E",
+    "ROBO_QEMU_SELECTION_CARET_INLINE=0x00000000",
+    "ROBO_QEMU_SELECTION_RECTS_ONE=0x00000001",
+    "ROBO_QEMU_SELECTION_RECTS_ALL=0x00000001",
+    "ROBO_QEMU_SELECTION_BLOCK_ONE=0x0000BD0E",
+    "ROBO_QEMU_SELECTION_BLOCK_ALL=0x0000BD0E",
+    "ROBO_QEMU_SELECTION_INLINE_ALL=0x0001D4C0",
+    "ROBO_QEMU_SELECTION_EQUAL_BLOCKS=0x00000001",
+    "ROBO_QEMU_SELECTION_INK=0x000016F8",
+    "ROBO_QEMU_SELECTION_INK_BOX=0x00310078",
     # And it reached the screen: every pixel of the 1280x800 destination was written.
     "ROBO_QEMU_PRESENT_OK",
     "ROBO_QEMU_PRESENT_COMPLETE=0x00000001",

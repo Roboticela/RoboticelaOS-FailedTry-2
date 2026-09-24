@@ -75,6 +75,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Ligatures | `Runtime/Source/RoboText/RoboTextLigature.c` + public `Runtime/Include/RoboText/RoboTextLigature.h`; the policy types live beside `RoboTextFeatureSet` in `Runtime/Include/RoboText/RoboTextTypes.h`. Five tags (`liga`/`clig`/`rlig`/`dlig`/`hlig`) as caller-visible policy, the `font-variant-ligatures` vocabulary over it, and the glyph-run report. No second engine: it writes feature tags and GSUB substitutes. Docs: `Documentation/Runtime/Text/Ligatures.md` |
 | Complex scripts | `Runtime/Source/RoboText/RoboTextComplex.c` (the strategy table, the plan, the clusters), `RoboTextArabic.c` (joining, the four forms, the Arabic stages) and `RoboTextIndic.c` (the script rules, syllables, masks, the two reorders), public `Runtime/Include/RoboText/RoboTextComplex.h`, `…Arabic.h`, `…Indic.h`; the `Joining_Type` property is RoboUnicode's (`Runtime/Source/RoboUnicode/RoboUnicodeJoining.c`). A script's behaviour is a **plan** — strategy + stages of masked features + reorder steps — so a second script is a row, not an engine. Docs: `Documentation/Runtime/Text/ComplexScripts.md` |
 | Vertical writing | `Runtime/Source/RoboText/RoboTextVertical.c` + public `Runtime/Include/RoboText/RoboTextVertical.h`; the vocabulary (`RoboTextWritingMode`, `…TextOrientation`, `…GlyphOrientation`) is in `RoboTextTypes.h`, the `vhea`/`vmtx` door in `RoboTextFont.c`, the placement in `RoboTextGlyphs.c` and the cut in `RoboTextRuns.c`. The writing mode is data on the options and on every run — never inferred from a script — and the OpenType integration is two feature tags (`vert`/`vrt2`) through 12.10's GSUB. No vertical shaping engine. Docs: `Documentation/Runtime/Text/VerticalText.md` |
+| Selection mapping | `Runtime/Source/RoboText/RoboTextSelection.c` + public `Runtime/Include/RoboText/RoboTextSelection.h`. The logical ↔ visual bridge: a `RoboTextPosition` (a source scalar offset), anchor/focus selections, the placements a caller supplies, and the three queries — hit test (point → position), caret (position + affinity → geometry) and selection rectangles. It shapes nothing, measures nothing, takes no glyph index, and projects through `RoboTextWritingAxes` so no call site swaps x and y. Docs: `Documentation/Runtime/Text/TextSelection.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -452,6 +453,84 @@ vocabulary lives in `RoboTextTypes.h` because `RoboTextShapeOptions` carries two
   mode and the `vmtx` advances, and `text.vertical.run_split` the orientation cut. A vertical change is not
   done until `TestRoboText.ps1 -Target Host` and then
   `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
+
+### Selection mapping (Phase 12.21)
+
+**Selection is expressed in source-text coordinates; glyph geometry is derived from shaped visual output. A
+selection is never a glyph index, and no query in this layer shapes anything.** The layer is
+`Runtime/Source/RoboText/RoboTextSelection.c` + public `Runtime/Include/RoboText/RoboTextSelection.h`; it is a
+**map over** 12.14's finalized run list plus the placements a caller supplies — the one thing a run cannot
+know is where the caller put it — and its contract is `Documentation/Runtime/Text/TextSelection.md`.
+
+- **A position is a source offset.** `RoboTextPosition` is one `RoboTextScalarIndex` offset into the original
+  text; `RoboTextSelection` keeps anchor *and* focus, and `RoboTextSelectionRange` normalizes on demand. No
+  door in the layer takes a glyph index, a byte offset or a screen coordinate: a caller holding a glyph index
+  has already lost the ligature, the mark and the reordered Indic cluster, which is exactly what this phase is
+  for.
+- **The placement is the one input, and it is copied.** `RoboTextSelectionPlacement` carries the run's pen
+  origin, the **caller's** line index and the line band as two signed distances along the **block** axis
+  (`RoboTextSelectionPlacementForRun` derives them from the run's own metrics). `…MapCreate` borrows the list
+  and copies placements, and it **refuses** a subset, a duplicate, an out-of-order array and an unplaced run
+  rather than repairing any of them — the same rule the run list follows for overlapping runs.
+- **No call site swaps x and y.** Every query projects through `RoboTextWritingAxesInline`/`…Block` (12.20) in
+  `RoboTextSelectionPlacementProject` and converts back at the end, so a column's caret, hit test and
+  rectangles are correct by construction and `vertical-rl` differs from `vertical-lr` in the block vector and
+  in nothing else. The run's **own** classified direction decides which way its inline axis is read, so an
+  `Rtl` run's first cluster is at its largest inline offset and a run of digits inside an Arabic paragraph is
+  not mirrored.
+- **Two visual locations, and never a fraction of one.** `RoboTextAffinityUpstream`/`Downstream` says which
+  of a shared boundary's two carets was meant; a hit inside a ligature or a conjunct snaps to the cluster and
+  **reports** it (`RoboTextSelectionHit::snapped`, `…::clusterStart`); a position inside a multi-scalar cluster
+  is snapped to its start (downstream) or its end (upstream). `RoboTextSelectionMapCaret` never fails for an
+  unplaceable position — `RoboTextCaretGeometry::valid` is 0 with the spans zero, so a caller has one thing to
+  check — while a NULL argument is `RoboInvalidArgument`.
+- **Geometry is rectangles, not a box.** `RoboTextSelectionMapGeometry` answers one rectangle per (line, run)
+  segment in **visual** order, so a range across a bidi boundary or a fallback font boundary is several places
+  on the page. Within one run the covered clusters coalesce into one segment, which is what keeps a base and
+  its zero-advance marks to one rectangle; a selection of only zero-advance clusters is widened to the caret's
+  thickness rather than emitted invisibly. The rectangle is *(inline × block)*, so its width carries the
+  inline extent in a horizontal line and its **height** does in a column. `Geometry::bounds` is a convenience
+  and never the answer to "what is selected". `RoboTextMaxSelectionRects`' cap is **reported** (`truncated`).
+- **The caret's segment, not the mode's name.** `RoboTextCaretGeometryIsHorizontal` reads the segment
+  (`SpanX > SpanY`): a horizontal line's caret is vertical, which is the opposite of the mode's own name and
+  the reason the door exists. Orientation comes from the mode — never a script — so a Latin letter inside a
+  Japanese column is sideways and the caret beside it is horizontal.
+- **A query shapes nothing.** Nothing here decodes UTF-8, selects a font, resolves a script or a level, runs
+  GSUB/GPOS or measures, and the layer allocates nothing per query. Do not add a cache, a second resolution or
+  a "measure to be sure" path: a hit test over a paragraph must cost no shaping (12.21.43).
+- **Not built, and named rather than implied:** editing, caret navigation policy, IME, clipboard, mouse and
+  gesture handling, CSS `user-select`, grapheme segmentation (clusters remain 12.14's "a mark continues the
+  cluster before it"), per-glyph caret subdivision inside a ligature, selection *painting* (the shell's row —
+  the spec's `SelectionPaintCommand` is deliberately not in this module) and a `SelectionMap()` accessor on
+  RoboLayout's line boxes. Also not added: per-phase build scripts — the convention since 12.19 is one
+  `BuildRoboText.ps1`/`TestRoboText.ps1` per module.
+- **Complete-or-absent dumps.** `RoboTextPositionWrite` / `RoboTextSelectionWrite` /
+  `RoboTextCaretGeometryWrite` / `RoboTextSelectionHitWrite` / `RoboTextSelectionMapWrite` all report the
+  length a complete line needs and leave the buffer empty when it does not fit; the map's block ends with each
+  run's clusters as `source → glyphs`, which is the one thing a reader debugging a ligature needs.
+  `RoboTextSelectionFuzz` drives every query from arbitrary bytes with one invariant: no crash, no
+  out-of-range access, no invalid position, no infinite loop.
+- Capabilities/version: 12.21 set `selectionMapping`/`selectionPositions`/`selectionClusters`/
+  `selectionAffinity`/`selectionHitTesting`/`caretGeometry`/`selectionGeometry`/`selectionWritingAxes`/
+  `selectionValidation`/`selectionDiagnostics`/`selectionFuzzing` and took the module to **`1.12.0`**, each
+  read field by field in `Tests/Text/SuiteRoboTextConformance.c`. There is deliberately **no
+  `selectionPainting`** and **no `selectionShaping`** flag.
+- Tests: `Tests/Text/SuiteRoboTextSelection.c` (`text.selection.*`, 13 cases) over the **12.18 conformance
+  fixture** — Latin `ffi` under `liga`, zero-advance combining marks, the complex fixture's Arabic, and
+  `ConfSpecVertical`'s `vmtx` column — with every expectation read off the run being queried or off the
+  fixture's builder, never a literal pixel. `text.selection.ligature` (both halves of `ffi` snap to the
+  cluster, and the range selects the whole glyph), `text.selection.marks` (a base and its mark are one
+  rectangle), `text.selection.bidi` (two carets at one boundary, one line apart) and `text.selection.vertical`
+  (the same three queries on the other axis) are the decisive ones. A selection change is not done until
+  `TestRoboText.ps1 -Target Host` and then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
+- The guest half is `User/robo-runtime/main.c`'s `GuestSelectionCheckpoint` — a **second off-screen render**,
+  because the document path carries no selection at all (no mouse, no focus, no editor) — pinned as
+  `ROBO_QEMU_SELECTION_*` in `Scripts/pipeline/commands.test.ps1` (`robo test-qemu-display`): a point resolves
+  to the **nearer boundary** rather than a glyph index; the column's caret is horizontal and the line's is not
+  for the same position in the same text; `CARET_SPAN` equals `BLOCK_ONE` (a caret is as long as the band it
+  sits in); `BLOCK_ONE` equals `BLOCK_ALL` while the inline extents differ (`EQUAL_BLOCKS=1`), which a
+  rectangle built from a glyph count fails; and the rectangles are **filled into a guest surface** and counted
+  (49×120 px of ink), so the geometry is proved paintable rather than merely printed.
 
 ### RoboText architecture (Phase 12.4)
 
@@ -906,6 +985,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | CSS font wiring (12.17) | `BuildLayout.ps1` (+ `BuildDesktop.ps1` when the provider or the document changed) | `TestLayout.ps1 -Target Host` (`layout.fontrequest.*`, `layout.fontselect.*`), then `TestPaint.ps1 -Target Host` (the pen draws the run's own face) and `TestDesktop.ps1 -Target Host` (`desktop.document.font_families` resolves a shipped name, an unknown name and a generic over the real registry); `-Target Qemu` when the guest image is involved |
 | Complex scripts (12.19) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.arabic.*`, `text.indic.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.arabic.forms` (the four contextual forms arrived as four glyph ids), `text.arabic.lam_alef_ligature` (one glyph, two scalars, both still the text), `text.indic.conjunct` (`क` `्` `ष` as one glyph covering three scalars), `text.indic.reph` (written first, drawn last, sources unmoved), `text.indic.pre_base_matra` (a vowel sign shaped before its consonant),  `text.indic.three_scripts` (three strategies in one string, three runs, each in logical order), `text.arabic.no_layout_tables` (a face with neither table still answers with its `cmap` and its direction) and `text.arabic.fallback_no_split` / `text.indic.fallback_no_split` (the chain answers the complex runs and no run boundary lands inside a cluster) |
 | Vertical writing (12.20) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.vertical.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.vertical.mark` (one face, one `mark` rule, two modes: the anchor difference minus the **inline** step — `vmtx`'s 1006 units vertically against `hmtx`'s 406 horizontally — with the mark advancing nothing on either axis), `text.vertical.writing_axes` (the inline/block pairs, and `vertical-rl` vs `vertical-lr` differing only in the block axis), `text.vertical.orientation` (the **rotated** table beating the script: halfwidth `ｶ` sideways although its script stands up), `text.vertical.orientation_context` (a space between two ideographs staying upright), `text.vertical.run_split` (Han/Latin/Han as three runs with three resolved orientations, forced `sideways` leaving the three script runs), `text.vertical.vert_feature` (`vert` substituting through 12.10's GSUB vertically and **not** horizontally), `text.vertical.advance` (`advanceX == 0`, `advanceY` the **substitute's** `vmtx` entry, the horizontal case unchanged), `text.vertical.origin` (`offsetY` the negated `vmtx` origin), `text.vertical.synthesised` (a face with no `vmtx` shaped at its em box and every glyph counted), `text.vertical.measurement` (`advanceY == Σ run advanceY` and `width == 0` for a vertical run), `text.vertical.bidi` (an Arabic run still RTL with a level inside a vertical column) and `text.vertical.determinism` |
+| Selection mapping (12.21) | `BuildRoboText.ps1` (+ `BuildUser.ps1` for the guest checkpoint) | `TestRoboText.ps1 -Target Host` (`text.selection.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`, then `TestDesktop.ps1 -Target Qemu` for the guest render. Evidence: `text.selection.ligature` (both halves of `ffi` snap to the cluster, and the range selects the whole glyph rather than part of it), `text.selection.marks` (a base and its zero-advance marks are **one** rectangle, and a mark alone is caret-wide rather than invisible), `text.selection.rtl` (an Arabic run's first cluster at its **largest** inline offset), `text.selection.bidi` (one source position, two carets, one line apart, and a wrapped selection giving one rectangle per line), `text.selection.vertical` (the same three queries on the other axis: the inline extent is `advanceY`, the block extent is the band, and the horizontal run states the swap), `text.selection.fallback` (a font boundary is not a logical boundary — two faces, one continuous selection) and `text.selection.roundtrip`. Guest evidence: the `ROBO_QEMU_SELECTION_*` markers, including the filled rectangle's own pixel count |
 | Latin/European shaping conformance (12.18) | `BuildRoboText.ps1` (and the image build, which compiles the guest specimen) | `TestRoboTextConformance.ps1 -Target Host` (`text.shaping.*`), then `TestRoboText.ps1 -Target Host`, `TestPaint.ps1 -Target Host` (`paint.glyphrun.agrees_with_shaping`) and `TestLayout/Graphics/Font/Desktop.ps1 -Target Host`; then `TestDesktop.ps1 -Target Qemu`, which runs the guest specimen. Evidence: `text.shaping.integration.dump` (`Build/Text-ShapingConformance.txt`), `desktop.typography.gallery.shaping` (`Build/Typography-Shaping.png`) and the `ROBO_QEMU_SHAPING_*` markers |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |

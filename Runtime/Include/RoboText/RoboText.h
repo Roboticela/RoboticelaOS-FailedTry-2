@@ -55,6 +55,7 @@
 #include "RoboText/RoboTextLigature.h"
 #include "RoboText/RoboTextRunList.h"
 #include "RoboText/RoboTextRuns.h"
+#include "RoboText/RoboTextSelection.h"
 #include "RoboText/RoboTextShape.h"
 #include "RoboText/RoboTextTypes.h"
 #include "RoboText/RoboTextDirection.h"

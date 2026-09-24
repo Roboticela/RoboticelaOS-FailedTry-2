@@ -250,6 +250,12 @@ $ProdSrcs = @(
     # vertical mode into two ordinary feature settings. There is no vertical shaping engine -- the placement
     # lives beside the `hmtx` line in `RoboTextGlyphs.c` and the vertical substitutions are 12.10's GSUB.
     (Join-Path $SourceDir "RoboText\RoboTextVertical.c"),
+    # Phase 12.21 -- selection mapping. `RoboTextSelection.c` is the logical ↔ visual bridge: a source position
+    # becomes a cluster boundary, a point becomes a position, and a selection becomes the rectangles a painter
+    # draws. It shapes nothing -- every number it answers with is read off a run that was shaped before it was
+    # asked, plus the placements the caller supplies -- and it writes no x/y swap: the inline/block projection
+    # goes through 12.20's axes, so a vertical column and a horizontal line take the same path.
+    (Join-Path $SourceDir "RoboText\RoboTextSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -577,6 +583,10 @@ $SuiteSrcs = @(
     # engine, the `vmtx` advances and the synthesised-advance path, the measurement's `advanceY` and bidi in
     # a vertical column -- all over one built face that states both advances and both `vert` products.
     (Join-Path $TestsRoot "Text\SuiteRoboTextVertical.c"),
+    # Phase 12.21 -- selection mapping: the pure vocabulary, the cluster snapping a click lands in, a caret in
+    # both writing modes, the rectangles of a selection across lines, a bidi boundary and a fallback font, the
+    # round trip position → caret → hit → position, and the fuzz entry.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextSelection.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

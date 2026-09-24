@@ -93,10 +93,22 @@ glyph id is derived from the fixture's run array so adding a run cannot move an 
 |---|---|---|
 | `SuiteRoboTextVertical.c` | `text.vertical.*` | the writing mode's inline/block axes and the unknown mode's horizontal default, the three orientation tables with the **rotated** one beating the script, whitespace taking its neighbour, orientation as a run boundary with the forced modes, `vert` substituting through the ordinary GSUB engine vertically and not horizontally, `advanceX == 0` and `advanceY` the substitute's `vmtx` entry, the origin as a placement offset, a face with no `vmtx` shaped at its em box and counted, the `mark` attachment in both modes with the pen's step taken along the inline axis, a vertical run answered by the fallback chain keeping the mode and the `vmtx` advances, the measurement's `advanceY` with `width == 0`, an Arabic run still RTL in a column, the dump, and determinism |
 
+## Selection (12.21)
+
+One suite over the **12.18 conformance fixture** — Latin `ffi` under `liga`, zero-advance combining marks, the
+complex fixture's Arabic and `ConfSpecVertical`'s `vmtx` column. Every expectation is read off the run being
+queried (its own advances, clusters, metrics) or off the fixture's builder, never a literal pixel; each case
+supplies its own **placements**, because where a caller put a run is the one thing a run cannot know.
+Contract: [`TextSelection.md`](../../Documentation/Runtime/Text/TextSelection.md).
+
+| Suite | Prefix | What it is about |
+|---|---|---|
+| `SuiteRoboTextSelection.c` | `text.selection.*` | the vocabulary (anchor/focus surviving normalization and clamping, affinity's involution, the caret's segment reading, the complete-or-absent dumps), the map's refusals and accessors, point → logical position with its signed inline distance and the trailing-whitespace option, the caret's band from a run's own metrics, a hit inside `ffi` snapping to the cluster with the whole glyph selected, a base and its zero-advance marks as one rectangle, an Arabic run's first cluster at its largest inline offset, one source position with two carets one line apart and one rectangle per line when wrapped, the same three queries on the vertical axis, a font boundary that is not a logical boundary, position → caret → hit → position round trips, the dump, and fuzzing |
+
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host            # 293 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboText.ps1 -Target Host            # 306 cases; also writes Build/Text-GlyphTable.txt
 Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 55 cases; just text.shaping.*
 Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```
