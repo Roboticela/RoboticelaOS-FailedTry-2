@@ -306,6 +306,18 @@ typedef struct RoboTextGsubOptions {
     /** The limits for this call; NULL uses @ref RoboTextOtDefaultLimits. */
     const RoboTextOtLimits *limits;
     /**
+     * The strategy's **position masks** (Phase 12.19), or NULL for a run that needs none.
+     *
+     * `positionMasks[i]` is the mask word of the scalar `maskBase + i`, and a lookup whose plan mask is
+     * non-zero runs at a position only when the two intersect (@ref RoboTextOtMaskAllows). A caller that
+     * shapes plain Latin passes NULL and the test costs nothing.
+     */
+    const uint32_t *positionMasks;
+    /** Entries in @ref positionMasks. */
+    size_t positionMaskCount;
+    /** The scalar index `positionMasks[0]` describes. */
+    RoboTextScalarIndex maskBase;
+    /**
      * Where to record substitution events, or NULL to record none.
      *
      * A pointer to an array the **caller** owns, so tracing costs nothing when it is off and cannot fail

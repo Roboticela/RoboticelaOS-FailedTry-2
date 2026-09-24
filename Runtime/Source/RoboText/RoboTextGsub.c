@@ -1139,6 +1139,37 @@ int RoboTextOtLookupAppliesToDirection(const RoboTextOtCall *apply)
  * format's own name describes. Nothing about the run's direction follows from it, and the buffer's length
  * cannot change under this scan because that format substitutes one glyph for one.
  */
+int RoboTextOtMaskAllows(const RoboTextOtCall *apply, uint16_t lookupIndex, size_t index)
+{
+    const RoboTextShapingGlyph *glyph;
+    uint32_t lookupMask;
+    size_t offset;
+
+    if (!apply || !apply->plan || lookupIndex >= RoboFontOtMaxLookups) {
+        return 1;
+    }
+    lookupMask = apply->plan->lookupMasks[lookupIndex];
+    if (lookupMask == 0u) {
+        /* Zero is `RoboTextComplexMaskAll`: the common case, and the reason this costs a plain run nothing —
+         * a stage that names no mask has no positional condition at all. Compared with `0u` rather than with
+         * the macro so that the substitution engine does not include the complex-script strategy header: the
+         * strategy depends on this engine, not the other way round. */
+        return 1;
+    }
+    if (!apply->positionMasks || !apply->buffer) {
+        return 0;
+    }
+    glyph = RoboTextShapingBufferAt(apply->buffer, index);
+    if (!glyph || glyph->source.start < apply->maskBase) {
+        return 0;
+    }
+    offset = (size_t)(glyph->source.start - apply->maskBase);
+    if (offset >= apply->positionMaskCount) {
+        return 0;
+    }
+    return (apply->positionMasks[offset] & lookupMask) != 0u ? 1 : 0;
+}
+
 static int GsubApplyLookupScan(RoboTextOtCall *apply)
 {
     size_t index;
@@ -1163,6 +1194,9 @@ static int GsubApplyLookupScan(RoboTextOtCall *apply)
             size_t resolved = 0u;
 
             reverse--;
+            if (!RoboTextOtMaskAllows(apply, apply->lookupIndex, reverse)) {
+                continue;
+            }
             for (uint16_t subtable = 0u; subtable < apply->lookup->subtableCount; subtable++) {
                 const FontOtLookupSubtable *entry = &apply->lookup->subtables[subtable];
 
@@ -1188,6 +1222,10 @@ static int GsubApplyLookupScan(RoboTextOtCall *apply)
         size_t next = index + 1u;
         int substituted = 0;
 
+        if (!RoboTextOtMaskAllows(apply, apply->lookupIndex, index)) {
+            index++;
+            continue;
+        }
         for (uint16_t subtable = 0u; subtable < apply->lookup->subtableCount; subtable++) {
             const FontOtLookupSubtable *entry = &apply->lookup->subtables[subtable];
             size_t resolved = index;
@@ -1230,6 +1268,11 @@ int RoboTextGsubApplyLookupAt(RoboTextOtCall *apply,
         *outNext = position;
     }
     if (!lookup || !apply->limits) {
+        return 0;
+    }
+    if (!RoboTextOtMaskAllows(apply, lookupIndex, position)) {
+        /* A nested lookup is asked at the position its context matched, so it is asked the positional question
+         * too: a contextual rule that fires here must not smuggle in a feature that belongs elsewhere. */
         return 0;
     }
     if (apply->depth + 1u > apply->limits->maxNesting) {
@@ -1302,6 +1345,9 @@ Result RoboTextGsubApply(const FontOtLayout *gsub,
     if (options) {
         apply.trace = options->trace;
         apply.traceCapacity = options->traceCapacity;
+        apply.positionMasks = options->positionMasks;
+        apply.positionMaskCount = options->positionMaskCount;
+        apply.maskBase = options->maskBase;
     }
     apply.stats.glyphsBefore = RoboTextShapingBufferCount(buffer);
     for (size_t index = 0u; index < apply.stats.glyphsBefore; index++) {

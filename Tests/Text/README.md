@@ -69,10 +69,21 @@ from a spec instead of opening one. It is deliberately not a way to avoid the sh
 proves (`text.gsub.shipped_pack`, `text.gpos.shipped_pack`, `text.kern.*`) stays over the pack, and only the
 *engine's own contract* is proved over bytes this repository states.
 
+### Complex scripts (12.19)
+
+Two suites over the **complex fixture** `RoboTextComplexFont.h`: one built face carrying both scripts, whose
+bytes state every number a case asserts. Contract:
+[`ComplexScripts.md`](../../Documentation/Runtime/Text/ComplexScripts.md).
+
+| Suite | Prefix | What it is about |
+|---|---|---|
+| `SuiteRoboTextArabic.c` | `text.arabic.*` | joining (one form per scalar, a transparent mark invisible and a `ZWNJ` ending a connection), the masks, the four contextual forms arriving as four glyph ids, a caller's `init 0` winning, the `lam`+`alef` ligature with its source range and cluster, mark-to-base, mark-to-mark and cursive attachment read off the fixture's anchors, the joining clusters and their safe boundary, the plan and its dump, bidi's direction read rather than recomputed, a base-less mark answering for itself, and a face with no layout tables |
+| `SuiteRoboTextIndic.c` | `text.indic.*` | syllables and their base, the conjunct as one glyph over three scalars, the half form, the reph written first and drawn last with sources unmoved, the pre-base matra shaped before its consonant, the post-base one, the per-scalar masks, the three stages and the script plan's own facts, the safe-boundary answers, the diagnostics, an orphan virama and a matra before any consonant, and Latin + Arabic + Devanagari in one logical string |
+
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host            # 245 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboText.ps1 -Target Host            # 277 cases; also writes Build/Text-GlyphTable.txt
 Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 55 cases; just text.shaping.*
 Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```

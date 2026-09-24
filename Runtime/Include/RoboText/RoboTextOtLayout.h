@@ -119,6 +119,20 @@ typedef struct RoboTextOtPlan {
      * the lookup sequence rather than of the paths that reached it.
      */
     uint16_t lookupOrder[RoboFontOtMaxLookups];
+    /**
+     * The **position mask** each lookup applies at, indexed by the **Lookup List** index the engine reads it
+     * with — which is `lookupOrder`'s own numbers, not their positions in it (Phase 12.19).
+     *
+     * Zero means "every position", which is what every lookup of a Latin plan is. A non-zero mask is a bit
+     * field the *caller* supplies per position — a glyph position whose own mask word ANDs with it is a
+     * position this lookup runs at — and it is the whole of how a complex script asks a feature to apply
+     * *here and not there*: Arabic's contextual forms, Devanagari's reph and half forms.
+     *
+     * The masks are filled by `RoboTextComplexStageApplyMasks` from a strategy's stage, and they live in the
+     * plan rather than in the engine because the mapping from a feature to the positions it applies at is the
+     * *strategy's* knowledge and not the table's: the engine knows a lookup and a position, and nothing else.
+     */
+    uint16_t lookupMasks[RoboFontOtMaxLookups];
     /** Lookups in @ref lookupOrder. */
     size_t lookupCount;
 } RoboTextOtPlan;

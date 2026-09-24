@@ -134,6 +134,11 @@ void TestRegisterTextShapingKerning(void);
 void TestRegisterTextShapingMarks(void);
 void TestRegisterTextShapingFallback(void);
 void TestRegisterTextShapingIntegration(void);
+/* Phase 12.19 — complex scripts: the Arabic strategy (joining, the four contextual forms by position, the
+ * lam/alef ligature, marks and cursive attachment) and the Indic strategy (syllables, the base, the masked
+ * substitution stages, the reph and pre-base matra reordering, conjuncts), over one built face. */
+void TestRegisterTextArabic(void);
+void TestRegisterTextIndic(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -454,6 +459,8 @@ int main(int argc, char **argv)
     TestRegisterTextShapingMarks();
     TestRegisterTextShapingFallback();
     TestRegisterTextShapingIntegration();
+    TestRegisterTextArabic();
+    TestRegisterTextIndic();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

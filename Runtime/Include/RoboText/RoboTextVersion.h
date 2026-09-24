@@ -58,8 +58,14 @@ extern "C" {
  * finalized run list: the rect, the request and its options, the line-metrics policy, the tolerance, the
  * validation and the diagnostic block. Additive for every door — the record grew fields and no existing
  * signature changed — with one *architectural* consequence worth the minor: the result's own measurement is now
- * this engine over the result's own list rather than a second walk in `RoboTextShape.c`. */
-#define RoboTextVersionMinor 9
+ * this engine over the result's own list rather than a second walk in `RoboTextShape.c`.
+ *
+ * 12.19 is the first change to this module that is additive in its files and **not** additive in its behaviour:
+ * a new public contract (`RoboTextComplex.h`'s strategy/plan/clusters, `RoboTextArabic.h`'s forms,
+ * `RoboTextIndic.h`'s rules) sits on top of engines that gained abilities rather than callers — GPOS runs
+ * lookup types 3–6, GSUB and GPOS both honour a strategy's positional mask, and `ShapeRun` walks a plan's
+ * stages. The glyph record's shape is unchanged, so the minor moves once and the major stays. */
+#define RoboTextVersionMinor 10
 #define RoboTextVersionPatch 0
 
 /** Version as `"1.0.0"`; never NULL. */
@@ -278,8 +284,49 @@ typedef struct RoboTextCapabilities {
      * cache is a capability this build reports honestly rather than one it pretends to have.
      */
     int shapingCache;
-    /** Complex-script shaping. **0**: Phase 12.19. */
+    /**
+     * Complex-script shaping: a script's shaping behaviour as a **plan** (a strategy, stages with positional
+     * masks, and the reorder steps between them), with Arabic's joining and Devanagari's syllables built on it.
+     *
+     * `1` since 12.19, and the honest reading of it is the pair below: the *architecture* is here — a second
+     * complex script is a row in a table, not a second engine — while the scripts this build actually shapes
+     * are named by @ref complexScriptLanguages. A caller that reads only this flag would think every script
+     * 12.19 lists is shaped; the flags beside it say which are.
+     */
     int complexScripts;
+    /**
+     * The **strategies** this build has a shaper for: `None`, `Arabic` (contextual forms, ligatures, marks,
+     * cursive attachment where the face states it) and `Indic` (syllables, a base, the reph, pre-base vowel
+     * signs, per-position feature masks).
+     *
+     * `SoutheastAsian` (Thai, Khmer, Myanmar) resolves to a strategy with **no stages**: those scripts shape
+     * through the ordinary path, and reporting them as shaped would be the over-claim 12.19's own §23 warns
+     * against. The strategy exists so the gap is a named value rather than a script that looks like Latin.
+     */
+    int complexScriptStrategies;
+    /**
+     * Complex clusters: a stretch of source that must shape — and break — as one unit, with a base inside it,
+     * the flags a reorder needs, and the forward half of the safe-boundary rule.
+     */
+    int complexClusters;
+    /**
+     * Positional feature masks: a strategy says *where* a feature applies (`init` here, `half` there), and both
+     * engines ask the question per position rather than applying a feature to a whole run.
+     */
+    int positionalFeatures;
+    /**
+     * The GPOS **attachments**: cursive attachment, mark-to-base, mark-to-ligature and mark-to-mark (lookup
+     * types 3–6), which place a glyph relative to another glyph's anchor.
+     *
+     * They need the face's advance for the pen distance, so a call that supplies no font context counts them
+     * as unsupported rather than attaching to a distance nobody knows.
+     */
+    int gposAttachments;
+    /** Reordering: the shaping buffer is moved between GSUB stages, by glyph and never by text index, so every
+     *  glyph keeps the source range it came from. */
+    int reordering;
+    /** A complex plan as a diagnostic block, and a cluster table through the same writer the run tables use. */
+    int complexDiagnostics;
     /** Vertical text. **0**: Phase 12.20. */
     int verticalText;
 

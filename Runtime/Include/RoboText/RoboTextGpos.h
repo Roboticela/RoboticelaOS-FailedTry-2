@@ -30,13 +30,25 @@
  *   1  single adjustment     one value record for a covered glyph (formats 1 and 2)
  *   2  pair adjustment       the kerning path: an explicit pair set (format 1) or a class matrix
  *                            (format 2), with a value record for each side of the pair
+ *   3  cursive attachment    an entry and an exit anchor per covered glyph, joined into a chain
+ *   4  mark-to-base          a mark's anchor to its base's, by mark class
+ *   5  mark-to-ligature      the same against a ligature's components
+ *   6  mark-to-mark          the same against the preceding mark (`mkmk`)
  *   9  extension             a wrapper whose whole content is "the real type is X, elsewhere"
  *
- * Types 3–8 (cursive attachment, mark-to-base, mark-to-ligature, mark-to-mark, and the two contextual
- * forms) are **recognised and skipped**, each counted in @ref RoboTextGposStats so a caller can see what a
- * face wanted and did not get. They are not wrong answers: a skipped lookup leaves the glyph where the
- * advance put it, which is exactly what this build drew before positioning existed. §"known limitations" of
- * `Documentation/Runtime/Text/Positioning.md` says which goal adds them.
+ * Types 7–8 (the two contextual forms) are **recognised and skipped**, each counted in
+ * @ref RoboTextGposStats so a caller can see what a face wanted and did not get. They are not wrong
+ * answers: a skipped lookup leaves the glyph where the advance put it, which is exactly what this build
+ * drew before positioning existed. §"known limitations" of `Documentation/Runtime/Text/Positioning.md`
+ * says which goal adds them.
+ *
+ * ## The attachments, and the one quantity they need from outside GPOS
+ *
+ * Positioning a glyph *relative to another glyph* is not a value record: the answer is a position, and the
+ * pen's own distance between the two glyphs is the face's advance. GPOS does not carry advances, so
+ * @ref RoboTextGposOptions::font carries the context `RoboTextFontGlyphAdvance` is asked through, and a
+ * call that supplies none skips types 3–6 (counted) rather than attaching a chain to a distance it does not
+ * know. Types 1, 2 and 9 need no advance and run either way.
  *
  * ## Bounds
  *
@@ -52,6 +64,7 @@
 #include "RoboFont/RoboFontOt.h"
 #include "RoboText/RoboTextGsub.h"
 #include "RoboText/RoboTextOtLayout.h"
+#include "RoboText/RoboTextFont.h"
 #include "RoboText/RoboTextTypes.h"
 
 #include <stddef.h>
@@ -147,6 +160,34 @@ typedef struct RoboTextGposOptions {
      * converted would put glyphs an `upem` away from where they belong; refusing is the honest answer.
      */
     float deviceScale;
+    /**
+     * The face context an **attachment** needs, or NULL.
+     *
+     * Cursive attachment and the three mark attachments all place a glyph relative to another glyph's pen,
+     * and the pen's own distance between two glyphs is the face's advance — the one quantity GPOS does not
+     * carry. `RoboTextFontGlyphAdvance` is the module's door for it, so the options carry the context rather
+     * than the engine growing a second font read.
+     *
+     * A call **without** one still runs types 1, 2 and 9 (`kern`, `dist`, a single adjustment) — those need
+     * no advance — and counts a lookup of types 3–6 in @ref RoboTextGposStats::lookupsUnsupported rather than
+     * attaching a chain to a distance it cannot know. That is the same refusal as a device correction at an
+     * unknown size, one step further: a wrong anchor is worse than a mark where its advance put it.
+     */
+    const RoboTextFontContext *font;
+    /**
+     * The strategy's **position masks** (Phase 12.19), or NULL for a run that needs none.
+     *
+     * The same three fields @ref RoboTextGsubOptions carries and the same test: a lookup whose plan mask is
+     * non-zero runs at a position only when it intersects the mask of the scalar the glyph came from. Arabic
+     * names no masked positioning features, so this is NULL for every Arabic run; a script whose positioning
+     * is position-dependent (an Indic below-base form's adjustment, a mark that attaches only on a base)
+     * passes the same array the substitution stage used.
+     */
+    const uint32_t *positionMasks;
+    /** Entries in @ref positionMasks. */
+    size_t positionMaskCount;
+    /** The scalar index `positionMasks[0]` describes. */
+    RoboTextScalarIndex maskBase;
     /** Optional trace buffer; NULL traces nothing. Overflow stops tracing, never shaping. */
     RoboTextGposEvent *trace;
     size_t traceCapacity;
@@ -208,7 +249,15 @@ typedef struct RoboTextGposStats {
     size_t pairAdjustments;
     /** Pair adjustments applied by a class matrix (lookup type 2 format 2). */
     size_t classPairAdjustments;
-    /** Lookups of a type this build recognises and does not run (3–8). */
+    /** Cursive attachments applied (lookup type 3). */
+    size_t cursiveAttachments;
+    /** Mark-to-base attachments applied (lookup type 4). */
+    size_t markToBaseAttachments;
+    /** Mark-to-ligature attachments applied (lookup type 5). */
+    size_t markToLigatureAttachments;
+    /** Mark-to-mark attachments applied (lookup type 6). */
+    size_t markToMarkAttachments;
+    /** Lookups of a type this build recognises and does not run (the contextual forms, 7–8). */
     size_t lookupsUnsupported;
     /** Value records whose device or variation correction was evaluated. */
     size_t deviceCorrections;

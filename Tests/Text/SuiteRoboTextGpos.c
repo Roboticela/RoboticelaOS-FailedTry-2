@@ -1663,13 +1663,19 @@ static void TestGposLimitsAndMalformed(void)
         FixtureClose(&fixture);
     }
 
-    /* A lookup type this build recognises and does not execute: counted, not read. */
+    /*
+     * A lookup type this build recognises and does not execute: counted, not read.
+     *
+     * The type is the **contextual form** (7). Phase 12.19 added the attachments (cursive and mark-to-base,
+     * -ligature, -mark), so this case moved from mark-to-base to the one real type still unsupported; the
+     * attachments' own refusal — a call with no font context — is a separate case below.
+     */
     {
         GposLookupSpec unsupported;
 
         memset(&unsupported, 0, sizeof(unsupported));
         options = OptionsWithScale(1.0f, 0u);
-        unsupported.type = RoboTextGposLookupMarkToBase;
+        unsupported.type = RoboTextGposLookupContext;
         unsupported.flags = 0u;
         unsupported.write = WriteUnsupportedSubtable;
         FixtureBuild(&fixture, "latn", &feature, 1u, &unsupported, 1u);
@@ -1689,7 +1695,7 @@ static void TestGposLimitsAndMalformed(void)
      * A lookup type the format does not define (10) never reaches this engine: Phase 5 refuses the whole
      * table, and that is the right place for the judgement — a table carrying a type nobody can interpret is
      * not a table whose other lookups may be trusted either. The engine's own skip path is for a **known**
-     * type it does not execute, which the mark-to-base case above covers.
+     * type it does not execute, which the contextual-form case above covers.
      */
     {
         GposLookupSpec valid;

@@ -53,6 +53,21 @@ typedef struct RoboTextOtCall {
     size_t traceCount;
     RoboTextDirection direction;
     RoboTextBidiLevel bidiLevel;
+    /*
+     * The strategy's **position masks** (Phase 12.19), or NULL when the caller supplied none.
+     *
+     * `positionMasks[i]` is the mask word of the scalar `maskBase + i`, built by the strategy that owns the
+     * script (`RoboTextArabicMasksBuild`, `RoboTextIndicMasksBuild`), and `plan->lookupMasks[lookup]` is the
+     * word of the stage feature whose lookup it is. A lookup runs at a position only when the two intersect,
+     * which is how "the font's `init` here and `medi` there" is a fact about *positions* rather than a second
+     * substitution pass.
+     *
+     * Both engines read them and neither owns them: the masks are the strategy's knowledge, the plan's array
+     * is where they are declared, and this record is how they reach the loop that asks the question.
+     */
+    const uint32_t *positionMasks;
+    size_t positionMaskCount;
+    RoboTextScalarIndex maskBase;
     /** The lookup being applied, and the feature whose plan named it (for the trace's `feature` bytes). */
     const FontOtLookup *lookup;
     uint16_t lookupIndex;
@@ -77,6 +92,15 @@ typedef struct RoboTextOtCall {
      */
     uint16_t devicePpem;
     float deviceScale;
+    /**
+     * The face context a **cursive or mark attachment** places a glyph against (Phase 12.19), or NULL.
+     *
+     * The one place this engine asks a font anything: an attachment puts the mark where the base's anchor
+     * is, and the pen's distance between the two is the face's advance — a number GPOS does not carry. NULL
+     * means the caller supplied none, and then a lookup of types 3–6 is counted unsupported rather than
+     * attached to a distance nobody knows.
+     */
+    const RoboTextFontContext *gposFont;
     /**
      * Non-zero when the **positioning** engine owns this call.
      *
@@ -121,6 +145,24 @@ int RoboTextGposTypeIsExecuted(uint16_t type);
 
 /** The current lookup's `RightToLeft` flag, honoured against the run's own direction. Shared by both engines. */
 int RoboTextOtLookupAppliesToDirection(const RoboTextOtCall *apply);
+
+/**
+ * Non-zero when lookup @p lookupIndex may run **at buffer position @p index** (Phase 12.19).
+ *
+ * The positional test the complex-script strategies need, and the whole of it is one AND: the lookup's mask
+ * word from the plan's `lookupMasks`, and the mask word of the *source scalar* the glyph at @p index came
+ * from. `RoboTextComplexMaskAll` (0) on either side means "everywhere", so a plan that names no masks —
+ * which is every Latin, Greek and Cyrillic run, and every stage whose features are unmasked — asks this and
+ * gets `1` without a mask being read at all. That is why the test can sit in the scan loop of both engines
+ * without costing a plain run anything.
+ *
+ * Two answers that look like failures and are not: a glyph whose source starts **before** the mask array
+ * (a caller shaped a range and wrote glyphs outside it) and a glyph past its end both answer `0` — the
+ * lookup does not run — rather than reading a mask that belongs to another scalar. A lookup that should have
+ * run in such a case is a caller that built the two from different ranges, and the refusal is the honest
+ * reading of a contradiction rather than a guess.
+ */
+int RoboTextOtMaskAllows(const RoboTextOtCall *apply, uint16_t lookupIndex, size_t index);
 
 /** Record a positioning event, if the caller asked for tracing. Safe on NULL trace. */
 void RoboTextGposTrace(RoboTextOtCall *apply,

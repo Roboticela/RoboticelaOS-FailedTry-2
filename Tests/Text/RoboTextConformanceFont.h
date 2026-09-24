@@ -70,9 +70,21 @@
 /** GPOS single-adjustment rules. */
 #define ConfMaxSingles 16u
 /** GDEF mark glyph ids. */
-#define ConfMaxMarks 16u
+#define ConfMaxMarks 32u
 /** Distinct feature tags in one table. */
 #define ConfMaxTags 8u
+
+/** GSUB single substitutions one fixture may state. */
+#define ConfMaxSubst 24u
+
+/** Mark-attachment rules one fixture may state, per kind. */
+#define ConfMaxMarkRules 16u
+
+/** Cursive-attachment rules one fixture may state. */
+#define ConfMaxCursive 16u
+
+/** Lookup kinds a tag's feature may name, one per GPOS lookup type the builder can emit. */
+#define ConfGposKindsMax 6u
 /** Bytes a built font occupies. */
 #define ConfMaxFontBytes 24576u
 
@@ -244,6 +256,62 @@ typedef struct ConfSingleRule {
     int16_t xAdvance;
 } ConfSingleRule;
 
+/**
+ * One **GSUB single substitution**: @p glyph becomes @p substitute under @p tag.
+ *
+ * The complex scripts' whole vocabulary, and the reason it is a rule kind of its own: Arabic's
+ * `isol`/`init`/`medi`/`fina` are all one glyph for one glyph, and Devanagari's `nukt`/`akhn` are too. A
+ * fixture that had only ligature rules could not state a contextual form at all.
+ */
+typedef struct ConfSubstRule {
+    char tag[RoboTextFeatureTagBytes];
+    uint16_t glyph;
+    uint16_t substitute;
+} ConfSubstRule;
+
+/**
+ * One **mark attachment**: @p mark's anchor joins @p anchorGlyph's, for @p markClass, under @p tag.
+ *
+ * `anchorGlyph` is the base for `mark` (GPOS type 4) and the second **mark** for `mkmk` (type 6) — the same
+ * record, because the two formats are the same layout with one field renamed. Both coordinates are font units
+ * and both anchors are read by the same reader, so a case can say "the mark sits where the base's anchor is"
+ * as one number.
+ */
+typedef struct ConfMarkRule {
+    char tag[RoboTextFeatureTagBytes];
+    uint16_t mark;
+    uint16_t anchorGlyph;
+    uint16_t markClass;
+    int16_t markX;
+    int16_t markY;
+    int16_t anchorX;
+    int16_t anchorY;
+} ConfMarkRule;
+
+/** One mark on a **ligature** (GPOS type 5): @p component of @p ligature, joined to @p mark's anchor. */
+typedef struct ConfMarkLigatureRule {
+    char tag[RoboTextFeatureTagBytes];
+    uint16_t mark;
+    uint16_t ligature;
+    uint16_t componentCount;
+    uint16_t component;
+    uint16_t markClass;
+    int16_t markX;
+    int16_t markY;
+    int16_t anchorX;
+    int16_t anchorY;
+} ConfMarkLigatureRule;
+
+/** One cursive pair (GPOS type 3): @p glyph's entry and exit anchors, in font units. */
+typedef struct ConfCursiveRule {
+    char tag[RoboTextFeatureTagBytes];
+    uint16_t glyph;
+    int16_t entryX;
+    int16_t entryY;
+    int16_t exitX;
+    int16_t exitY;
+} ConfCursiveRule;
+
 /** How the font's tables are put together. A value; the builder reads it and copies nothing. */
 typedef struct ConfFontSpec {
     /** Row 0 is `.notdef`; the caller states every glyph's advance. */
@@ -275,6 +343,20 @@ typedef struct ConfFontSpec {
     size_t pairCount;
     ConfSingleRule singles[ConfMaxSingles];
     size_t singleCount;
+    /** GSUB single substitutions (Phase 12.19): the contextual forms, half forms and so on. */
+    ConfSubstRule subst[ConfMaxSubst];
+    size_t substCount;
+    /** Mark-to-base (`mark`) and mark-to-mark (`mkmk`) attachments. */
+    ConfMarkRule markBase[ConfMaxMarkRules];
+    size_t markBaseCount;
+    ConfMarkRule markMark[ConfMaxMarkRules];
+    size_t markMarkCount;
+    /** Mark-to-ligature (`mark` against a ligature's component). */
+    ConfMarkLigatureRule markLig[ConfMaxMarkRules];
+    size_t markLigCount;
+    /** Cursive attachment (`curs`): the entry and exit anchors per glyph. */
+    ConfCursiveRule cursive[ConfMaxCursive];
+    size_t cursiveCount;
     /** Glyphs GDEF classifies as marks (class 3), which is what `IgnoreMarks` reads. */
     uint16_t marks[ConfMaxMarks];
     size_t markCount;
@@ -372,11 +454,24 @@ static inline uint16_t CwCoverage1(ConfWriter *w, size_t base, const uint16_t *g
 /* ------------------------------------------------------------------ */
 
 /** The four scripts every conformance font declares, all naming the same feature list. */
-static const uint32_t kConfScriptTags[4] = {
-    0x44464C54u /* DFLT */, 0x6379726Cu /* cyrl */, 0x6772656Bu /* grek */, 0x6C61746Eu /* latn */};
+/**
+ * The scripts every fixture declares: the four a European case needs, plus the two Phase 12.19 shapes.
+ *
+ * **Sorted by tag**, which is what an OpenType ScriptList is: a reader binary-searches it, so an unsorted list
+ * is a list a script is missing from. The two complex scripts share the same default LangSys as everyone else,
+ * which is what lets one fixture carry Arabic's `isol`/`fina`/… **and** Devanagari's `rphf`/`half`/… without
+ * a second face: a suite asks for the script it is testing and the plan resolver selects only that script's
+ * features.
+ */
+static const uint32_t kConfScriptTags[6] = {
+    0x44464C54u /* DFLT */, 0x61726162u /* arab */, 0x6379726Cu /* cyrl */,
+    0x64657661u /* deva */, 0x6772656Bu /* grek */, 0x6C61746Eu /* latn */};
+
+/** Scripts @ref kConfScriptTags declares. */
+#define ConfScriptCount 6u
 
 /**
- * Write a ScriptList whose four scripts share one default LangSys.
+ * Write a ScriptList whose six scripts share one default LangSys.
  *
  * Sharing is legal and is what a font that treats all its scripts the same does. @p featureIndices is the
  * whole feature list, so every script reaches every feature — a face that wanted a `latn`-only feature would
@@ -387,25 +482,24 @@ static inline size_t CwScriptListAllScripts(ConfWriter *w, size_t tableBase, siz
                                             const uint16_t *featureIndices)
 {
     size_t listStart = w->length;
-    size_t records[4];
-    size_t scripts[4];
-    size_t langSys;
+    size_t records[ConfScriptCount];
+    size_t scripts[ConfScriptCount];
     size_t langSysStart;
 
-    (void)Cw16At(w, 4u);
-    for (size_t i = 0u; i < 4u; i++) {
+    (void)Cw16At(w, (uint16_t)ConfScriptCount);
+    for (size_t i = 0u; i < ConfScriptCount; i++) {
         (void)Cw32At(w, kConfScriptTags[i]);
         records[i] = Cw16At(w, 0u);
     }
-    /* The four Script tables are written first, then the one LangSys they all point at. */
-    for (size_t i = 0u; i < 4u; i++) {
+    /* The Script tables are written first, then the one LangSys they all point at. */
+    for (size_t i = 0u; i < ConfScriptCount; i++) {
         scripts[i] = w->length;
         Cw16(w, records[i], (uint16_t)(scripts[i] - listStart));
         (void)Cw16At(w, 0u); /* defaultLangSysOffset: patched below */
         (void)Cw16At(w, 0u); /* langSysCount */
     }
     langSysStart = w->length;
-    for (size_t i = 0u; i < 4u; i++) {
+    for (size_t i = 0u; i < ConfScriptCount; i++) {
         Cw16(w, scripts[i], (uint16_t)(langSysStart - scripts[i]));
     }
     (void)Cw16At(w, 0u);      /* lookupOrder, reserved */
@@ -414,7 +508,6 @@ static inline size_t CwScriptListAllScripts(ConfWriter *w, size_t tableBase, siz
     for (size_t i = 0u; i < featureCount; i++) {
         (void)Cw16At(w, featureIndices[i]);
     }
-    (void)langSys;
     return (uint16_t)(listStart - tableBase);
 }
 
@@ -454,26 +547,145 @@ static inline size_t CwFeatureList(ConfWriter *w, size_t tableBase, const uint32
 /* GSUB                                                                */
 /* ------------------------------------------------------------------ */
 
-/** Distinct tags among the ligature rules, in first-appearance order. */
-static inline size_t ConfLigatureTags(const ConfFontSpec *spec, uint32_t *out, size_t capacity)
+/** Non-zero when @p tag is already in @p out, and records it when it is not. @return 1 when it was new. */
+static inline int ConfTagSeen(uint32_t *out, size_t capacity, size_t *count, uint32_t tag)
+{
+    for (size_t j = 0u; j < *count; j++) {
+        if (out[j] == tag) {
+            return 0;
+        }
+    }
+    if (*count < capacity) {
+        out[(*count)++] = tag;
+    }
+    return 1;
+}
+
+/**
+ * The same "first-appearance, once" walk for a **glyph id** list.
+ *
+ * A second door rather than one generic one because the two lists are different types — a tag is 32 bits, a
+ * glyph id is 16 — and a coverage table is written from the 16-bit one. Folding them together would mean a
+ * cast at every call site, which is the kind of quiet narrowing this fixture exists to make loud.
+ */
+static inline int ConfGlyphSeen(uint16_t *out, size_t capacity, size_t *count, uint16_t glyph)
+{
+    for (size_t j = 0u; j < *count; j++) {
+        if (out[j] == glyph) {
+            return 0;
+        }
+    }
+    if (*count < capacity) {
+        out[(*count)++] = glyph;
+    }
+    return 1;
+}
+
+/** Ascending, in place: what every coverage table and every array index in this fixture needs. */
+static inline void ConfSortGlyphs(uint16_t *glyphs, size_t count)
+{
+    for (size_t a = 0u; a < count; a++) {
+        for (size_t b = a + 1u; b < count; b++) {
+            if (glyphs[b] < glyphs[a]) {
+                uint16_t swap = glyphs[a];
+
+                glyphs[a] = glyphs[b];
+                glyphs[b] = swap;
+            }
+        }
+    }
+}
+
+/**
+ * Distinct GSUB tags, in first-appearance order: the ligature rules' and the single substitutions'.
+ *
+ * Both kinds, because a feature may carry both — Arabic's `rlig` is a ligature (lam + alef) while its four
+ * contextual forms are single substitutions, and a fixture that listed only one kind would build a table with
+ * the other feature missing and a case would fail for a reason that is not the engine's.
+ */
+static inline size_t ConfGsubTags(const ConfFontSpec *spec, uint32_t *out, size_t capacity)
 {
     size_t count = 0u;
 
     for (size_t i = 0u; i < spec->ligatureCount; i++) {
-        uint32_t tag = RoboTextOtTagOf(spec->ligatures[i].tag);
-        int seen = 0;
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->ligatures[i].tag));
+    }
+    for (size_t i = 0u; i < spec->substCount; i++) {
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->subst[i].tag));
+    }
+    return count;
+}
 
-        for (size_t j = 0u; j < count; j++) {
-            if (out[j] == tag) {
-                seen = 1;
-                break;
-            }
-        }
-        if (!seen && count < capacity) {
-            out[count++] = tag;
+/** Rules of @p tag among the single substitutions. */
+static inline size_t ConfSubstOfTag(const ConfFontSpec *spec, uint32_t tag, uint16_t *out,
+                                    size_t capacity)
+{
+    size_t count = 0u;
+
+    for (size_t i = 0u; i < spec->substCount && count < capacity; i++) {
+        if (RoboTextOtTagOf(spec->subst[i].tag) == tag) {
+            out[count++] = (uint16_t)i;
         }
     }
     return count;
+}
+
+/**
+ * Build the single-substitution subtable (GSUB type 1, format 2) for @p tag.
+ *
+ * Format 2 rather than format 1 because the fixture's substitutes are **not** a delta from the covered glyph:
+ * a font names each one, and a self-check that read `glyph + delta` would pass only while the fixture happened
+ * to lay its form glyphs out consecutively.
+ *
+ * @return its offset relative to @p lookupStart.
+ */
+static inline uint16_t CwSubstSubtable(ConfWriter *w, size_t lookupStart, const ConfFontSpec *spec,
+                                       uint32_t tag)
+{
+    uint16_t rules[ConfMaxSubst];
+    size_t count = ConfSubstOfTag(spec, tag, rules, ConfMaxSubst);
+    size_t start = w->length;
+    size_t coverageOffset;
+
+    /* A coverage table is ascending, so the rules are sorted by the glyph they cover and the substitutes
+     * written in that same order — which is what makes `substituteGlyphIDs[i]` answer for
+     * `coverage.glyphs[i]`. */
+    for (size_t a = 0u; a < count; a++) {
+        for (size_t b = a + 1u; b < count; b++) {
+            if (spec->subst[rules[b]].glyph < spec->subst[rules[a]].glyph) {
+                uint16_t swap = rules[a];
+
+                rules[a] = rules[b];
+                rules[b] = swap;
+            }
+        }
+    }
+    (void)Cw16At(w, 2u); /* substFormat 2 */
+    coverageOffset = Cw16At(w, 0u);
+    (void)Cw16At(w, (uint16_t)count);
+    for (size_t i = 0u; i < count; i++) {
+        (void)Cw16At(w, spec->subst[rules[i]].substitute);
+    }
+    {
+        uint16_t glyphs[ConfMaxSubst];
+
+        for (size_t i = 0u; i < count; i++) {
+            glyphs[i] = spec->subst[rules[i]].glyph;
+        }
+        Cw16(w, coverageOffset, CwCoverage1(w, start, glyphs, count));
+    }
+    return (uint16_t)(start - lookupStart);
+}
+
+/** Non-zero when @p tag has any ligature rule. */
+static inline int ConfTagHasLigature(const ConfFontSpec *spec, uint32_t tag)
+{
+    for (size_t i = 0u; i < spec->ligatureCount; i++) {
+        if (RoboTextOtTagOf(spec->ligatures[i].tag) == tag) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 /** Number of distinct first components among the rules carrying @p tag. */
@@ -583,27 +795,46 @@ static inline uint16_t CwLigatureSubtable(ConfWriter *w, size_t lookupStart, con
 }
 
 /** Build the GSUB table. @return its length. */
+/**
+ * Build the GSUB table. @return its length.
+ *
+ * One **lookup per kind per tag**, in a fixed order: single substitution first (a contextual form is the
+ * identity of the glyph), then ligature substitution (what the identified glyphs do together). A tag that has
+ * rules of both kinds gets both lookups and a feature record naming both, in that order — which is the order
+ * the fixture intends and the order the font states, and so the order the engine applies.
+ */
 static inline size_t ConfBuildGsub(ConfWriter *w, const ConfFontSpec *spec)
 {
     uint32_t tags[ConfMaxTags];
-    size_t tagCount = ConfLigatureTags(spec, tags, ConfMaxTags);
+    size_t tagCount = ConfGsubTags(spec, tags, ConfMaxTags);
     size_t tableStart = w->length;
-    size_t header;
     size_t scriptListOffsetField;
     size_t featureListOffsetField;
     size_t lookupListOffsetField;
     size_t lookupListStart;
     size_t lookupOffsets;
-    uint16_t lookupsPerTag[ConfMaxTags][8];
-    uint8_t lookupCounts[ConfMaxTags];
-    size_t lookupIndex = 0u;
+    uint16_t lookupIndexForTag[ConfMaxTags][2];
+    size_t lookupTotal = 0u;
 
-    header = w->length;
     (void)Cw32At(w, 0x00010000u);
     scriptListOffsetField = Cw16At(w, 0u);
     featureListOffsetField = Cw16At(w, 0u);
     lookupListOffsetField = Cw16At(w, 0u);
-    (void)header;
+
+    for (size_t i = 0u; i < tagCount; i++) {
+        uint16_t rules[ConfMaxSubst];
+        int hasSubst = ConfSubstOfTag(spec, tags[i], rules, ConfMaxSubst) != 0u;
+        int hasLigature = ConfTagHasLigature(spec, tags[i]);
+
+        lookupIndexForTag[i][0] = hasSubst ? (uint16_t)lookupTotal : 0xFFFFu;
+        if (hasSubst) {
+            lookupTotal++;
+        }
+        lookupIndexForTag[i][1] = hasLigature ? (uint16_t)lookupTotal : 0xFFFFu;
+        if (hasLigature) {
+            lookupTotal++;
+        }
+    }
 
     /* ---- ScriptList ---- */
     {
@@ -616,33 +847,53 @@ static inline size_t ConfBuildGsub(ConfWriter *w, const ConfFontSpec *spec)
              (uint16_t)CwScriptListAllScripts(w, tableStart, tagCount, indices));
     }
 
-    /* ---- LookupList: one ligature lookup per tag ---- */
+    /* ---- LookupList ---- */
     lookupListStart = w->length;
-    (void)Cw16At(w, (uint16_t)tagCount);
-    lookupOffsets = CwReserve(w, tagCount * 2u);
+    (void)Cw16At(w, (uint16_t)lookupTotal);
+    lookupOffsets = CwReserve(w, lookupTotal * 2u);
     for (size_t i = 0u; i < tagCount; i++) {
-        size_t lookupStart = w->length;
-        size_t subtableOffsetField;
+        if (lookupIndexForTag[i][0] != 0xFFFFu) {
+            size_t lookupStart = w->length;
+            size_t subtableOffsetField;
 
-        lookupCounts[i] = 1u;
-        lookupsPerTag[i][0] = (uint16_t)lookupIndex++;
-        Cw16(w, lookupOffsets + i * 2u, (uint16_t)(lookupStart - lookupListStart));
-        (void)Cw16At(w, 4u); /* type 4: ligature substitution */
-        (void)Cw16At(w, 0u); /* flag: nothing ignored */
-        (void)Cw16At(w, 1u); /* subtableCount */
-        subtableOffsetField = Cw16At(w, 0u);
-        Cw16(w, subtableOffsetField, CwLigatureSubtable(w, lookupStart, spec, tags[i]));
+            Cw16(w, lookupOffsets + (size_t)lookupIndexForTag[i][0] * 2u,
+                 (uint16_t)(lookupStart - lookupListStart));
+            (void)Cw16At(w, 1u); /* type 1: single substitution */
+            (void)Cw16At(w, 0u); /* flag: nothing ignored */
+            (void)Cw16At(w, 1u); /* subtableCount */
+            subtableOffsetField = Cw16At(w, 0u);
+            Cw16(w, subtableOffsetField, CwSubstSubtable(w, lookupStart, spec, tags[i]));
+        }
+        if (lookupIndexForTag[i][1] != 0xFFFFu) {
+            size_t lookupStart = w->length;
+            size_t subtableOffsetField;
+
+            Cw16(w, lookupOffsets + (size_t)lookupIndexForTag[i][1] * 2u,
+                 (uint16_t)(lookupStart - lookupListStart));
+            (void)Cw16At(w, 4u); /* type 4: ligature substitution */
+            (void)Cw16At(w, 0u); /* flag: nothing ignored */
+            (void)Cw16At(w, 1u); /* subtableCount */
+            subtableOffsetField = Cw16At(w, 0u);
+            Cw16(w, subtableOffsetField, CwLigatureSubtable(w, lookupStart, spec, tags[i]));
+        }
     }
 
-    /* ---- FeatureList ---- */
+    /* ---- FeatureList: each tag names its own lookups, in the order they were built ---- */
     {
         uint16_t lookupRows[ConfMaxTags * 8];
         uint8_t counts[ConfMaxTags];
 
         memset(lookupRows, 0, sizeof(lookupRows));
         for (size_t i = 0u; i < tagCount; i++) {
-            counts[i] = 1u;
-            lookupRows[i * 8u] = (uint16_t)i;
+            size_t n = 0u;
+
+            if (lookupIndexForTag[i][0] != 0xFFFFu) {
+                lookupRows[i * 8u + n++] = lookupIndexForTag[i][0];
+            }
+            if (lookupIndexForTag[i][1] != 0xFFFFu) {
+                lookupRows[i * 8u + n++] = lookupIndexForTag[i][1];
+            }
+            counts[i] = (uint8_t)n;
         }
         Cw16(w, featureListOffsetField,
              (uint16_t)CwFeatureList(w, tableStart, tags, lookupRows, counts, tagCount));
@@ -656,38 +907,47 @@ static inline size_t ConfBuildGsub(ConfWriter *w, const ConfFontSpec *spec)
 /* GPOS                                                                */
 /* ------------------------------------------------------------------ */
 
-/** Distinct tags among the pair and single rules, in first-appearance order. */
+/** The GPOS lookup type of kind @p k, in the order @ref ConfBuildGpos builds them. */
+static inline uint16_t ConfGposKindType(size_t k)
+{
+    switch (k) {
+        case 0u:
+            return 2u; /* pair adjustment */
+        case 1u:
+            return 1u; /* single adjustment */
+        case 2u:
+            return 3u; /* cursive attachment */
+        case 3u:
+            return 4u; /* mark-to-base */
+        case 4u:
+            return 6u; /* mark-to-mark */
+        default:
+            return 5u; /* mark-to-ligature */
+    }
+}
+
+/** Distinct tags among every GPOS rule array, in first-appearance order. */
 static inline size_t ConfGposTags(const ConfFontSpec *spec, uint32_t *out, size_t capacity)
 {
     size_t count = 0u;
 
     for (size_t i = 0u; i < spec->pairCount; i++) {
-        uint32_t tag = RoboTextOtTagOf(spec->pairs[i].tag);
-        int seen = 0;
-
-        for (size_t j = 0u; j < count; j++) {
-            if (out[j] == tag) {
-                seen = 1;
-                break;
-            }
-        }
-        if (!seen && count < capacity) {
-            out[count++] = tag;
-        }
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->pairs[i].tag));
     }
     for (size_t i = 0u; i < spec->singleCount; i++) {
-        uint32_t tag = RoboTextOtTagOf(spec->singles[i].tag);
-        int seen = 0;
-
-        for (size_t j = 0u; j < count; j++) {
-            if (out[j] == tag) {
-                seen = 1;
-                break;
-            }
-        }
-        if (!seen && count < capacity) {
-            out[count++] = tag;
-        }
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->singles[i].tag));
+    }
+    for (size_t i = 0u; i < spec->cursiveCount; i++) {
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->cursive[i].tag));
+    }
+    for (size_t i = 0u; i < spec->markBaseCount; i++) {
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->markBase[i].tag));
+    }
+    for (size_t i = 0u; i < spec->markMarkCount; i++) {
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->markMark[i].tag));
+    }
+    for (size_t i = 0u; i < spec->markLigCount; i++) {
+        (void)ConfTagSeen(out, capacity, &count, RoboTextOtTagOf(spec->markLig[i].tag));
     }
     return count;
 }
@@ -827,6 +1087,348 @@ static inline uint16_t CwSingleSubtable(ConfWriter *w, size_t lookupStart, const
     return (uint16_t)(start - lookupStart);
 }
 
+/**
+ * One anchor table (format 1: format, x, y).
+ *
+ * Offset from @p base, which the caller passes as the array the anchor belongs to — the format states every
+ * anchor offset against the array that holds it, and a reader that resolved it against the subtable instead
+ * would read a different anchor.
+ */
+static inline uint16_t CwAnchor(ConfWriter *w, size_t base, int16_t x, int16_t y)
+{
+    size_t start = w->length;
+
+    (void)Cw16At(w, 1u);
+    (void)Cw16At(w, (uint16_t)x);
+    (void)Cw16At(w, (uint16_t)y);
+    return (uint16_t)(start - base);
+}
+
+/**
+ * Build the cursive-attachment subtable (GPOS type 3, format 1) for @p tag.
+ *
+ * Entry and exit anchors are resolved against **this subtable**, which is what the format states — unlike the
+ * mark arrays below, whose anchors are resolved against the array.
+ */
+static inline uint16_t CwCursiveSubtable(ConfWriter *w, size_t lookupStart, const ConfFontSpec *spec,
+                                         uint32_t tag)
+{
+    uint16_t rules[ConfMaxCursive];
+    size_t count = 0u;
+    size_t start = w->length;
+    size_t coverageOffset;
+    size_t records;
+
+    for (size_t i = 0u; i < spec->cursiveCount && count < ConfMaxCursive; i++) {
+        if (RoboTextOtTagOf(spec->cursive[i].tag) == tag) {
+            rules[count++] = (uint16_t)i;
+        }
+    }
+    for (size_t a = 0u; a < count; a++) {
+        for (size_t b = a + 1u; b < count; b++) {
+            if (spec->cursive[rules[b]].glyph < spec->cursive[rules[a]].glyph) {
+                uint16_t swap = rules[a];
+
+                rules[a] = rules[b];
+                rules[b] = swap;
+            }
+        }
+    }
+
+    (void)Cw16At(w, 1u);
+    coverageOffset = Cw16At(w, 0u);
+    (void)Cw16At(w, (uint16_t)count);
+    records = CwReserve(w, count * 4u);
+    for (size_t i = 0u; i < count; i++) {
+        const ConfCursiveRule *rule = &spec->cursive[rules[i]];
+        uint16_t entry = CwAnchor(w, start, rule->entryX, rule->entryY);
+        uint16_t exit = CwAnchor(w, start, rule->exitX, rule->exitY);
+
+        Cw16(w, records + i * 4u, entry);
+        Cw16(w, records + i * 4u + 2u, exit);
+    }
+    {
+        uint16_t glyphs[ConfMaxCursive];
+
+        for (size_t i = 0u; i < count; i++) {
+            glyphs[i] = spec->cursive[rules[i]].glyph;
+        }
+        Cw16(w, coverageOffset, CwCoverage1(w, start, glyphs, count));
+    }
+    return (uint16_t)(start - lookupStart);
+}
+
+/**
+ * Build a mark-attachment subtable (GPOS type 4 or 6, format 1) for @p tag.
+ *
+ * One builder for both types because the formats are one layout with a renamed field: the two coverages, a
+ * class count, a MarkArray and a second array of anchors. The type decides which rule array is read, and
+ * nothing else — which is exactly the fact `RoboTextGposSubst.c` states from the other side.
+ */
+static inline uint16_t CwMarkSubtable(ConfWriter *w, size_t lookupStart, const ConfFontSpec *spec,
+                                      uint32_t tag, int markToMark)
+{
+    const ConfMarkRule *rules = markToMark ? spec->markMark : spec->markBase;
+    size_t ruleCount = markToMark ? spec->markMarkCount : spec->markBaseCount;
+    uint16_t mine[ConfMaxMarkRules];
+    size_t count = 0u;
+    uint16_t cases[ConfMaxMarkRules];
+    size_t caseCount = 0u;
+    uint16_t classCount = 1u;
+    size_t start = w->length;
+    size_t markCoverageOffset;
+    size_t baseCoverageOffset;
+    size_t classCountField;
+    size_t markArrayField;
+    size_t baseArrayField;
+
+    for (size_t i = 0u; i < ruleCount && count < ConfMaxMarkRules; i++) {
+        if (RoboTextOtTagOf(rules[i].tag) == tag) {
+            mine[count++] = (uint16_t)i;
+            (void)ConfGlyphSeen(cases, ConfMaxMarkRules, &caseCount, rules[i].anchorGlyph);
+            if ((uint16_t)(rules[i].markClass + 1u) > classCount) {
+                classCount = (uint16_t)(rules[i].markClass + 1u);
+            }
+        }
+    }
+    /* Ascending, because both coverages are: the array index a reader derives from a coverage lookup is the
+     * *sorted* position, so a fixture that wrote them in rule order would state a mapping it did not mean. */
+    for (size_t a = 0u; a < caseCount; a++) {
+        for (size_t b = a + 1u; b < caseCount; b++) {
+            if (cases[b] < cases[a]) {
+                uint16_t swap = cases[a];
+
+                cases[a] = cases[b];
+                cases[b] = swap;
+            }
+        }
+    }
+
+    (void)Cw16At(w, 1u);
+    markCoverageOffset = Cw16At(w, 0u);
+    baseCoverageOffset = Cw16At(w, 0u);
+    classCountField = 0u;
+    (void)Cw16At(w, classCount);
+    markArrayField = Cw16At(w, 0u);
+    baseArrayField = Cw16At(w, 0u);
+    (void)classCountField;
+
+    /* ---- MarkArray: count, then { class, anchor } per mark ---- */
+    {
+        size_t markArray = w->length;
+        size_t markRecords;
+        uint16_t marksSeen[ConfMaxMarkRules];
+        size_t markSeen = 0u;
+
+        Cw16(w, markArrayField, (uint16_t)(markArray - start));
+        for (size_t i = 0u; i < count; i++) {
+            (void)ConfGlyphSeen(marksSeen, ConfMaxMarkRules, &markSeen, rules[mine[i]].mark);
+        }
+        for (size_t a = 0u; a < markSeen; a++) {
+            for (size_t b = a + 1u; b < markSeen; b++) {
+                if (marksSeen[b] < marksSeen[a]) {
+                    uint16_t swap = marksSeen[a];
+
+                    marksSeen[a] = marksSeen[b];
+                    marksSeen[b] = swap;
+                }
+            }
+        }
+        (void)Cw16At(w, (uint16_t)markSeen);
+        markRecords = CwReserve(w, markSeen * 4u);
+        for (size_t a = 0u; a < markSeen; a++) {
+            const ConfMarkRule *rule = NULL;
+            size_t record = markRecords + a * 4u;
+
+            for (size_t i = 0u; i < count; i++) {
+                if (rules[mine[i]].mark == marksSeen[a]) {
+                    rule = &rules[mine[i]];
+                    break;
+                }
+            }
+            Cw16(w, record, rule ? rule->markClass : 0u);
+            Cw16(w, record + 2u, CwAnchor(w, markArray, rule ? rule->markX : 0, rule ? rule->markY : 0));
+        }
+    }
+
+    /* ---- BaseArray (or Mark2Array): count, then classCount anchors per covered glyph ---- */
+    {
+        size_t baseArray = w->length;
+        size_t baseRecords;
+
+        Cw16(w, baseArrayField, (uint16_t)(baseArray - start));
+        (void)Cw16At(w, (uint16_t)caseCount);
+        baseRecords = CwReserve(w, caseCount * (size_t)classCount * 2u);
+        for (size_t a = 0u; a < caseCount; a++) {
+            for (uint16_t cls = 0u; cls < classCount; cls++) {
+                const ConfMarkRule *rule = NULL;
+
+                for (size_t i = 0u; i < count; i++) {
+                    if (rules[mine[i]].anchorGlyph == cases[a] && rules[mine[i]].markClass == cls) {
+                        rule = &rules[mine[i]];
+                        break;
+                    }
+                }
+                Cw16(w, baseRecords + (a * (size_t)classCount + cls) * 2u,
+                     CwAnchor(w, baseArray, rule ? rule->anchorX : 0, rule ? rule->anchorY : 0));
+            }
+        }
+    }
+
+    {
+        uint16_t coverGlyphs[ConfMaxMarkRules];
+        size_t markGlyphs = 0u;
+
+        for (size_t i = 0u; i < count; i++) {
+            (void)ConfGlyphSeen(coverGlyphs, ConfMaxMarkRules, &markGlyphs, rules[mine[i]].mark);
+        }
+        for (size_t a = 0u; a < markGlyphs; a++) {
+            for (size_t b = a + 1u; b < markGlyphs; b++) {
+                if (coverGlyphs[b] < coverGlyphs[a]) {
+                    uint16_t swap = coverGlyphs[a];
+
+                    coverGlyphs[a] = coverGlyphs[b];
+                    coverGlyphs[b] = swap;
+                }
+            }
+        }
+        Cw16(w, markCoverageOffset, CwCoverage1(w, start, coverGlyphs, markGlyphs));
+        Cw16(w, baseCoverageOffset, CwCoverage1(w, start, cases, caseCount));
+    }
+    return (uint16_t)(start - lookupStart);
+}
+
+/**
+ * Build the mark-to-ligature subtable (GPOS type 5, format 1) for @p tag.
+ *
+ * The LigatureArray is the one structure here that is **per component**: a ligature's anchor array is a table
+ * of its own (`componentCount`, then `componentCount × classCount` anchors), and the offsets to those tables
+ * are stated against the array. Composing the anchors inside the array would be a format the engine does not
+ * read, which is the whole reason the array is a second indirection.
+ */
+static inline uint16_t CwMarkLigatureSubtable(ConfWriter *w, size_t lookupStart, const ConfFontSpec *spec,
+                                              uint32_t tag)
+{
+    uint16_t mine[ConfMaxMarkRules];
+    size_t count = 0u;
+    uint16_t ligatures[ConfMaxMarkRules];
+    size_t ligatureCount = 0u;
+    uint16_t classCount = 1u;
+    size_t start = w->length;
+    size_t markCoverageOffset;
+    size_t ligCoverageOffset;
+    size_t markArrayField;
+    size_t ligArrayField;
+
+    for (size_t i = 0u; i < spec->markLigCount && count < ConfMaxMarkRules; i++) {
+        if (RoboTextOtTagOf(spec->markLig[i].tag) == tag) {
+            mine[count++] = (uint16_t)i;
+            (void)ConfGlyphSeen(ligatures, ConfMaxMarkRules, &ligatureCount, spec->markLig[i].ligature);
+            if ((uint16_t)(spec->markLig[i].markClass + 1u) > classCount) {
+                classCount = (uint16_t)(spec->markLig[i].markClass + 1u);
+            }
+        }
+    }
+
+    (void)Cw16At(w, 1u);
+    markCoverageOffset = Cw16At(w, 0u);
+    ligCoverageOffset = Cw16At(w, 0u);
+    (void)Cw16At(w, classCount);
+    markArrayField = Cw16At(w, 0u);
+    ligArrayField = Cw16At(w, 0u);
+
+    {
+        size_t markArray = w->length;
+        size_t markRecords;
+        uint16_t marksSeen[ConfMaxMarkRules];
+        size_t markSeen = 0u;
+
+        Cw16(w, markArrayField, (uint16_t)(markArray - start));
+        for (size_t i = 0u; i < count; i++) {
+            (void)ConfGlyphSeen(marksSeen, ConfMaxMarkRules, &markSeen, spec->markLig[mine[i]].mark);
+        }
+        for (size_t a = 0u; a < markSeen; a++) {
+            for (size_t b = a + 1u; b < markSeen; b++) {
+                if (marksSeen[b] < marksSeen[a]) {
+                    uint16_t swap = marksSeen[a];
+
+                    marksSeen[a] = marksSeen[b];
+                    marksSeen[b] = swap;
+                }
+            }
+        }
+        (void)Cw16At(w, (uint16_t)markSeen);
+        markRecords = CwReserve(w, markSeen * 4u);
+        for (size_t a = 0u; a < markSeen; a++) {
+            const ConfMarkLigatureRule *rule = NULL;
+
+            for (size_t i = 0u; i < count; i++) {
+                if (spec->markLig[mine[i]].mark == marksSeen[a]) {
+                    rule = &spec->markLig[mine[i]];
+                    break;
+                }
+            }
+            Cw16(w, markRecords + a * 4u, rule ? rule->markClass : 0u);
+            Cw16(w, markRecords + a * 4u + 2u,
+                 CwAnchor(w, markArray, rule ? rule->markX : 0, rule ? rule->markY : 0));
+        }
+    }
+
+    {
+        size_t ligArray = w->length;
+        size_t attachOffsets;
+
+        Cw16(w, ligArrayField, (uint16_t)(ligArray - start));
+        (void)Cw16At(w, (uint16_t)ligatureCount);
+        attachOffsets = CwReserve(w, ligatureCount * 2u);
+        for (size_t a = 0u; a < ligatureCount; a++) {
+            const ConfMarkLigatureRule *rule = NULL;
+            size_t attach = w->length;
+            size_t anchors;
+
+            for (size_t i = 0u; i < count; i++) {
+                if (spec->markLig[mine[i]].ligature == ligatures[a]) {
+                    rule = &spec->markLig[mine[i]];
+                    break;
+                }
+            }
+            Cw16(w, attachOffsets + a * 2u, (uint16_t)(attach - ligArray));
+            (void)Cw16At(w, rule ? rule->componentCount : 1u);
+            anchors = CwReserve(w, (size_t)(rule ? rule->componentCount : 1u) * (size_t)classCount * 2u);
+            for (size_t component = 0u; component < (rule ? rule->componentCount : 1u); component++) {
+                for (uint16_t cls = 0u; cls < classCount; cls++) {
+                    int applies = rule && rule->component == component && cls == rule->markClass;
+
+                    Cw16(w, anchors + (component * (size_t)classCount + cls) * 2u,
+                         CwAnchor(w, attach, applies ? rule->anchorX : 0, applies ? rule->anchorY : 0));
+                }
+            }
+        }
+    }
+
+    {
+        uint16_t markGlyphs[ConfMaxMarkRules];
+        size_t markGlyphs1 = 0u;
+
+        for (size_t i = 0u; i < count; i++) {
+            (void)ConfGlyphSeen(markGlyphs, ConfMaxMarkRules, &markGlyphs1, spec->markLig[mine[i]].mark);
+        }
+        for (size_t a = 0u; a < markGlyphs1; a++) {
+            for (size_t b = a + 1u; b < markGlyphs1; b++) {
+                if (markGlyphs[b] < markGlyphs[a]) {
+                    uint16_t swap = markGlyphs[a];
+
+                    markGlyphs[a] = markGlyphs[b];
+                    markGlyphs[b] = swap;
+                }
+            }
+        }
+        Cw16(w, markCoverageOffset, CwCoverage1(w, start, markGlyphs, markGlyphs1));
+        Cw16(w, ligCoverageOffset, CwCoverage1(w, start, ligatures, ligatureCount));
+    }
+    return (uint16_t)(start - lookupStart);
+}
+
 /** Build the GPOS table. @return its length. */
 static inline size_t ConfBuildGpos(ConfWriter *w, const ConfFontSpec *spec)
 {
@@ -838,8 +1440,8 @@ static inline size_t ConfBuildGpos(ConfWriter *w, const ConfFontSpec *spec)
     size_t lookupListOffsetField;
     size_t lookupListStart;
     size_t lookupOffsets;
-    /* Each tag gets its pair lookup first (when it has pairs) and its single lookup second. */
-    uint16_t lookupIndexForTag[ConfMaxTags][2];
+    /* One slot per lookup kind the builder can emit, in the order they are built (see below). */
+    uint16_t lookupIndexForTag[ConfMaxTags][ConfGposKindsMax];
     size_t lookupTotal = 0u;
 
     (void)Cw32At(w, 0x00010000u);
@@ -847,27 +1449,39 @@ static inline size_t ConfBuildGpos(ConfWriter *w, const ConfFontSpec *spec)
     featureListOffsetField = Cw16At(w, 0u);
     lookupListOffsetField = Cw16At(w, 0u);
 
+    /*
+     * One lookup per kind that has rules for the tag, in a fixed order: the value records (pair, then single),
+     * then the **attachments** (cursive, mark-to-base, mark-to-mark, mark-to-ligature). The order is what the
+     * feature record states and therefore what the engine walks, and it is the sensible one: a kerning pair is
+     * about advances, an attachment is about anchors, and the anchors are placed once the advances are final.
+     */
     for (size_t i = 0u; i < tagCount; i++) {
-        int hasPairs = 0;
-        int hasSingles = 0;
+        int has[ConfGposKindsMax];
 
+        memset(has, 0, sizeof(has));
         for (size_t r = 0u; r < spec->pairCount; r++) {
-            if (RoboTextOtTagOf(spec->pairs[r].tag) == tags[i]) {
-                hasPairs = 1;
-            }
+            has[0] |= RoboTextOtTagOf(spec->pairs[r].tag) == tags[i];
         }
         for (size_t r = 0u; r < spec->singleCount; r++) {
-            if (RoboTextOtTagOf(spec->singles[r].tag) == tags[i]) {
-                hasSingles = 1;
+            has[1] |= RoboTextOtTagOf(spec->singles[r].tag) == tags[i];
+        }
+        for (size_t r = 0u; r < spec->cursiveCount; r++) {
+            has[2] |= RoboTextOtTagOf(spec->cursive[r].tag) == tags[i];
+        }
+        for (size_t r = 0u; r < spec->markBaseCount; r++) {
+            has[3] |= RoboTextOtTagOf(spec->markBase[r].tag) == tags[i];
+        }
+        for (size_t r = 0u; r < spec->markMarkCount; r++) {
+            has[4] |= RoboTextOtTagOf(spec->markMark[r].tag) == tags[i];
+        }
+        for (size_t r = 0u; r < spec->markLigCount; r++) {
+            has[5] |= RoboTextOtTagOf(spec->markLig[r].tag) == tags[i];
+        }
+        for (size_t k = 0u; k < ConfGposKindsMax; k++) {
+            lookupIndexForTag[i][k] = has[k] ? (uint16_t)lookupTotal : 0xFFFFu;
+            if (has[k]) {
+                lookupTotal++;
             }
-        }
-        lookupIndexForTag[i][0] = hasPairs ? (uint16_t)lookupTotal : 0xFFFFu;
-        if (hasPairs) {
-            lookupTotal++;
-        }
-        lookupIndexForTag[i][1] = hasSingles ? (uint16_t)lookupTotal : 0xFFFFu;
-        if (hasSingles) {
-            lookupTotal++;
         }
     }
 
@@ -886,31 +1500,44 @@ static inline size_t ConfBuildGpos(ConfWriter *w, const ConfFontSpec *spec)
     (void)Cw16At(w, (uint16_t)lookupTotal);
     lookupOffsets = CwReserve(w, lookupTotal * 2u);
     for (size_t i = 0u; i < tagCount; i++) {
-        if (lookupIndexForTag[i][0] != 0xFFFFu) {
-            size_t lookupStart = w->length;
+        for (size_t k = 0u; k < ConfGposKindsMax; k++) {
+            size_t lookupStart;
             size_t subtableOffsetField;
 
-            Cw16(w, lookupOffsets + (size_t)lookupIndexForTag[i][0] * 2u, (uint16_t)(lookupStart - lookupListStart));
-            (void)Cw16At(w, 2u); /* type 2: pair adjustment */
-            (void)Cw16At(w, 0u);
-            (void)Cw16At(w, 1u);
+            if (lookupIndexForTag[i][k] == 0xFFFFu) {
+                continue;
+            }
+            lookupStart = w->length;
+            Cw16(w, lookupOffsets + (size_t)lookupIndexForTag[i][k] * 2u,
+                 (uint16_t)(lookupStart - lookupListStart));
+            (void)Cw16At(w, (uint16_t)ConfGposKindType(k));
+            (void)Cw16At(w, 0u); /* flag: nothing ignored */
+            (void)Cw16At(w, 1u); /* subtableCount */
             subtableOffsetField = Cw16At(w, 0u);
-            Cw16(w, subtableOffsetField, CwPairSubtable(w, lookupStart, spec, tags[i]));
-        }
-        if (lookupIndexForTag[i][1] != 0xFFFFu) {
-            size_t lookupStart = w->length;
-            size_t subtableOffsetField;
-
-            Cw16(w, lookupOffsets + (size_t)lookupIndexForTag[i][1] * 2u, (uint16_t)(lookupStart - lookupListStart));
-            (void)Cw16At(w, 1u); /* type 1: single adjustment */
-            (void)Cw16At(w, 0u);
-            (void)Cw16At(w, 1u);
-            subtableOffsetField = Cw16At(w, 0u);
-            Cw16(w, subtableOffsetField, CwSingleSubtable(w, lookupStart, spec, tags[i]));
+            switch (k) {
+                case 0u:
+                    Cw16(w, subtableOffsetField, CwPairSubtable(w, lookupStart, spec, tags[i]));
+                    break;
+                case 1u:
+                    Cw16(w, subtableOffsetField, CwSingleSubtable(w, lookupStart, spec, tags[i]));
+                    break;
+                case 2u:
+                    Cw16(w, subtableOffsetField, CwCursiveSubtable(w, lookupStart, spec, tags[i]));
+                    break;
+                case 3u:
+                    Cw16(w, subtableOffsetField, CwMarkSubtable(w, lookupStart, spec, tags[i], 0));
+                    break;
+                case 4u:
+                    Cw16(w, subtableOffsetField, CwMarkSubtable(w, lookupStart, spec, tags[i], 1));
+                    break;
+                default:
+                    Cw16(w, subtableOffsetField, CwMarkLigatureSubtable(w, lookupStart, spec, tags[i]));
+                    break;
+            }
         }
     }
 
-    /* ---- FeatureList: each tag names its own lookups ---- */
+    /* ---- FeatureList: each tag names its own lookups, in the order they were built ---- */
     {
         uint16_t lookupRows[ConfMaxTags * 8];
         uint8_t counts[ConfMaxTags];
@@ -919,11 +1546,10 @@ static inline size_t ConfBuildGpos(ConfWriter *w, const ConfFontSpec *spec)
         for (size_t i = 0u; i < tagCount; i++) {
             size_t n = 0u;
 
-            if (lookupIndexForTag[i][0] != 0xFFFFu) {
-                lookupRows[i * 8u + n++] = lookupIndexForTag[i][0];
-            }
-            if (lookupIndexForTag[i][1] != 0xFFFFu) {
-                lookupRows[i * 8u + n++] = lookupIndexForTag[i][1];
+            for (size_t k = 0u; k < ConfGposKindsMax; k++) {
+                if (lookupIndexForTag[i][k] != 0xFFFFu) {
+                    lookupRows[i * 8u + n++] = lookupIndexForTag[i][k];
+                }
             }
             counts[i] = (uint8_t)n;
         }
@@ -1333,7 +1959,7 @@ static inline void ConfFaceBuildBytes(ConfFace *out, const ConfFontSpec *spec)
     tables[count].length = (uint32_t)ConfOs2(os2);
     count++;
 
-    if (!spec->omitGsub && spec->ligatureCount > 0u) {
+    if (!spec->omitGsub && (spec->ligatureCount > 0u || spec->substCount > 0u)) {
         ConfWriter w;
 
         w.data = gsub;
@@ -1345,7 +1971,15 @@ static inline void ConfFaceBuildBytes(ConfFace *out, const ConfFontSpec *spec)
         tables[count].length = (uint32_t)gsubLength;
         count++;
     }
-    if (!spec->omitGpos && (spec->pairCount > 0u || spec->singleCount > 0u)) {
+    /*
+     * Any rule kind at all is a reason for the table: 12.19 added the **attachments**, and a face whose only
+     * GPOS is cursive or mark attachment (Arabic's, Devanagari's) would otherwise ship no GPOS table and be
+     * shaped as if the face had none — which is how a mark case comes to read zeroes and look like an engine
+     * defect.
+     */
+    if (!spec->omitGpos && (spec->pairCount > 0u || spec->singleCount > 0u ||
+                            spec->cursiveCount > 0u || spec->markBaseCount > 0u ||
+                            spec->markMarkCount > 0u || spec->markLigCount > 0u)) {
         ConfWriter w;
 
         w.data = gpos;

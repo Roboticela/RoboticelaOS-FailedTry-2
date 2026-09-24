@@ -23,6 +23,7 @@
 #include "RoboText/RoboTextBuffer.h"
 #include "RoboText/RoboTextDiagnostics.h"
 #include "RoboText/RoboTextTypes.h"
+#include "RoboText/RoboTextUnicode.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -47,6 +48,32 @@ size_t RoboTextWriterSigned(char *buffer, size_t capacity, size_t length, int32_
  * Rounded to the nearest hundredth **with a carry**, so `0.999` prints `1.00` rather than `0.100`.
  */
 size_t RoboTextWriterFloat(char *buffer, size_t capacity, size_t length, float value);
+
+/* ---- The complex-script strategies' shared reads (Phase 12.19) ---- */
+
+/**
+ * Decode @p range's scalars into @p out, through the module's one decoder.
+ *
+ * Shared by the strategy modules (`RoboTextComplex.c`, `RoboTextArabic.c`, `RoboTextIndic.c`) because all
+ * three need the same three things and none of them may walk UTF-8 itself: the range's bytes come from
+ * `RoboTextViewScalarToByte` (so "the range lies in the text" is *this* call's refusal rather than a separate
+ * check that could disagree), the decode is `UnicodeUtf8Decode` in `RoboUnicodeReplace` mode, and the
+ * capacity rule is "refuse rather than truncate", because half an array of scalars is a range whose second
+ * half is silently a different text.
+ *
+ * @param out the caller's array; NULL with @p capacity 0 asks only for the count.
+ * @return RoboOk; RoboInvalidArgument for a NULL @p outCount, an inverted or out-of-text range;
+ *         RoboNotSupported when @p capacity is too small; RoboOutOfMemory.
+ */
+Result RoboTextComplexDecodeRange(RoboTextView view,
+                                  RoboTextRange range,
+                                  RoboTextCodePoint *out,
+                                  size_t capacity,
+                                  size_t *outCount,
+                                  RoboTextDiag *diag);
+
+/** Non-zero when @p cp is a mark of any of the three mark categories (`Mn`, `Me`, `Mc`). */
+int RoboTextComplexScalarIsMark(RoboTextCodePoint cp);
 
 /**
  * One run row, formatted once for every stage that prints runs.

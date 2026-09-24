@@ -623,6 +623,479 @@ static int GposApplyExtension(RoboTextOtCall *apply, size_t base, size_t index, 
 }
 
 /* ------------------------------------------------------------------ */
+/* The anchor, and the quantity an attachment needs from outside GPOS  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Read the anchor at @p offset, resolved against @p base, in device pixels.
+ *
+ * The three anchor formats differ in what they carry *besides* the two coordinates: format 2 names a contour
+ * point (which this build does not use — the outline is not here and the coordinate is the answer either
+ * way), and format 3 appends device offsets, evaluated against the caller's ppem exactly as a value
+ * record's are. A format-3 anchor at an unknown size keeps its font-unit coordinates and counts the skipped
+ * delta rather than applying half of it.
+ *
+ * The coordinates are font units and become pixels through the caller's scale, the module's one conversion.
+ * A call with no scale has no answer: it returns 0 and counts the record, the same refusal a value record
+ * gets.
+ */
+static int GposReadAnchor(RoboTextOtCall *apply,
+                          size_t base,
+                          uint16_t offset,
+                          float *outX,
+                          float *outY)
+{
+    FontSpan table;
+    uint16_t format = 0u;
+    int16_t x = 0;
+    int16_t y = 0;
+    int32_t dx = 0;
+    int32_t dy = 0;
+
+    if (offset == 0u || !outX || !outY) {
+        /* A zero offset is OpenType's "no anchor" — a glyph that does not attach — and not a failure. */
+        return 0;
+    }
+    if (apply->deviceScale == 0.0f) {
+        apply->gposStats.recordsUnevaluated++;
+        return 0;
+    }
+    table = apply->layout->table;
+    base = RoboTextOtOffset16(table, base, offset);
+    if (base == 0u) {
+        return 0;
+    }
+    if (!GposU16(table, base, &format) || !GposI16(table, base + 2u, &x) ||
+        !GposI16(table, base + 4u, &y)) {
+        return 0;
+    }
+    if (format == 3u) {
+        uint16_t xDevice = 0u;
+        uint16_t yDevice = 0u;
+
+        if (GposU16(table, base + 6u, &xDevice) && GposU16(table, base + 8u, &yDevice)) {
+            if (xDevice != 0u) {
+                if (GposDeviceAt(apply, base, xDevice, &dx)) {
+                    apply->gposStats.deviceCorrections++;
+                }
+            }
+            if (yDevice != 0u) {
+                if (GposDeviceAt(apply, base, yDevice, &dy)) {
+                    apply->gposStats.deviceCorrections++;
+                }
+            }
+        }
+    } else if (format != 1u && format != 2u) {
+        return 0;
+    }
+    *outX = (float)(x + dx) * apply->deviceScale;
+    *outY = (float)(y + dy) * apply->deviceScale;
+    return 1;
+}
+
+/**
+ * The pen's distance from buffer position @p index to the next glyph, in device pixels.
+ *
+ * The face's advance plus whatever positioning has already adjusted it by, and the reason @ref
+ * RoboTextGposOptions carries a font context at all: `RoboTextFontGlyphAdvance` is asked here and nowhere
+ * else in this engine. **1** is returned when nothing else can be — a glyph whose advance is unknown or
+ * unavailable — and the caller treats that as "the attachments of this call cannot be placed", because a
+ * distance invented for a chain would put glyphs somewhere no font asked for.
+ */
+static int GposPenDistance(RoboTextOtCall *apply, size_t index, float *outDistance)
+{
+    const RoboTextShapingGlyph *glyph;
+    float advance = 0.0f;
+
+    if (!apply->gposFont || !outDistance) {
+        return 0;
+    }
+    glyph = RoboTextShapingBufferAt(apply->buffer, index);
+    if (!glyph) {
+        return 0;
+    }
+    /*
+     * A `RoboFontGlyphMetricsUnavailable` answer is not an error and is still not a distance: a face with no
+     * metrics table gives every glyph zero, and attaching a chain to zeroes would stack a word on one point.
+     * So the status is read, not just the `Result`.
+     */
+    {
+        FontGlyphMetricsStatus status = RoboFontGlyphMetricsUnavailable;
+
+        if (RoboTextFontGlyphAdvance(apply->gposFont, glyph->glyphId, &advance, &status, NULL) != RoboOk ||
+            status != RoboFontGlyphMetricsOk) {
+            return 0;
+        }
+    }
+    *outDistance = advance + glyph->advanceAdjustX;
+    return 1;
+}
+
+/** Write an **absolute** placement onto @p index, the form every attachment states its answer in. */
+static void GposSetPlacement(RoboTextOtCall *apply, size_t index, float x, float y)
+{
+    RoboTextShapingGlyph *glyph = RoboTextShapingBufferAtMutable(apply->buffer, index);
+
+    if (!glyph) {
+        return;
+    }
+    if ((glyph->flags & RoboTextShapingGlyphPositioned) == 0u) {
+        apply->gposStats.adjustedGlyphs++;
+    }
+    glyph->offsetAdjustX = x;
+    glyph->offsetAdjustY = y;
+    glyph->flags |= RoboTextShapingGlyphPositioned;
+}
+
+/** The current placement of @p index, or zeroes. */
+static void GposPlacementOf(RoboTextOtCall *apply, size_t index, float *outX, float *outY)
+{
+    const RoboTextShapingGlyph *glyph = RoboTextShapingBufferAt(apply->buffer, index);
+
+    *outX = glyph ? glyph->offsetAdjustX : 0.0f;
+    *outY = glyph ? glyph->offsetAdjustY : 0.0f;
+}
+
+/* ------------------------------------------------------------------ */
+/* Cursive attachment (type 3)                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Cursive attachment: two anchors that must coincide — the exit of one glyph and the entry of the next.
+ *
+ * The rule is the format's own, written as two statements about the pen and the placement (which is exactly
+ * how OpenType describes a cursive chain):
+ *
+ *   the pen after the first glyph lands **on the first glyph's exit anchor**;
+ *   the second glyph's placement puts its **entry anchor** there.
+ *
+ * The first is an advance and the second is a placement, and the reason this lookup needs the face's own
+ * advance is the first statement: "the pen lands there" is a *distance*, and GPOS carries none.
+ *
+ * The direction picks which anchor is the outgoing one — left-to-right text leaves by the right-hand (exit)
+ * anchor and right-to-left text leaves by the entry one — which is the format's `RightToLeft` convention and
+ * not a heuristic on the script.
+ */
+static int GposApplyCursive(RoboTextOtCall *apply, size_t base, size_t index, size_t *outNext)
+{
+    FontSpan table = apply->layout->table;
+    uint16_t format = 0u;
+    uint16_t coverageField = 0u;
+    uint16_t count = 0u;
+    uint16_t firstEntry = 0u;
+    uint16_t firstExit = 0u;
+    uint16_t secondEntry = 0u;
+    uint16_t secondExit = 0u;
+    uint16_t coverageIndex = 0u;
+    size_t coverage = 0u;
+    size_t record;
+    size_t second;
+    float outX = 0.0f;
+    float outY = 0.0f;
+    float inX = 0.0f;
+    float inY = 0.0f;
+    float penX = 0.0f;
+    const RoboTextShapingGlyph *firstGlyph;
+    RoboTextShapingGlyph *mutableFirst;
+    int rightToLeft = RoboTextDirectionIsRightToLeft(apply->direction);
+
+    if (outNext) {
+        *outNext = index;
+    }
+    if (!apply->gposFont) {
+        /* The apply loop refuses a font-less attachment lookup **once per lookup**, before the scan; this is
+         * the belt-and-braces answer for a caller that reached the reader anyway, and it is deliberately not
+         * counted — a counter that follows the text is a counter about the text. */
+        return 0;
+    }
+    firstGlyph = RoboTextShapingBufferAt(apply->buffer, index);
+    if (!firstGlyph) {
+        return 0;
+    }
+    if (!GposU16(table, base, &format) || format != 1u) {
+        return 0;
+    }
+    if (!GposU16(table, base + 2u, &coverageField) || !GposU16(table, base + 4u, &count)) {
+        return 0;
+    }
+    if (count == 0u) {
+        return 0;
+    }
+    coverage = RoboTextOtOffset16(table, base, coverageField);
+    if (!RoboTextOtCovered(apply, coverage, firstGlyph->glyphId, &coverageIndex) ||
+        coverageIndex >= count) {
+        return 0;
+    }
+    record = base + 6u + (size_t)coverageIndex * 4u;
+    if (!GposU16(table, record, &firstEntry) || !GposU16(table, record + 2u, &firstExit)) {
+        return 0;
+    }
+    /*
+     * The **next** participating glyph, and `index + 1u` rather than `index`: the walk answers "the first
+     * participating glyph at or after here", so asking it at the first glyph answers the first glyph and a
+     * chain would attach a glyph to itself — which the fixture caught as two identical corrections on a
+     * two-letter word. It is the same off-by-one `RoboTextOtPrevParticipating`'s comment names, one direction
+     * over, and the pair reader next door states it as `index + 1u` for the same reason.
+     */
+    second = RoboTextOtNextParticipating(apply, index + 1u);
+    if (second >= RoboTextShapingBufferCount(apply->buffer)) {
+        return 0;
+    }
+    {
+        const RoboTextShapingGlyph *secondGlyph = RoboTextShapingBufferAt(apply->buffer, second);
+
+        if (!secondGlyph ||
+            !RoboTextOtCovered(apply, coverage, secondGlyph->glyphId, &coverageIndex) ||
+            coverageIndex >= count) {
+            return 0;
+        }
+    }
+    record = base + 6u + (size_t)coverageIndex * 4u;
+    if (!GposU16(table, record, &secondEntry) || !GposU16(table, record + 2u, &secondExit)) {
+        return 0;
+    }
+    /*
+     * The two anchors, and which of the pair each belongs to: left-to-right text hands over at the first
+     * glyph's exit to the second's entry, and right-to-left text at the first's entry to the second's exit.
+     * That is the format's `RightToLeft` convention rather than a heuristic on the script.
+     */
+    if (!GposReadAnchor(apply, base, rightToLeft ? firstEntry : firstExit, &outX, &outY)) {
+        return 0;
+    }
+    if (!GposReadAnchor(apply, base, rightToLeft ? secondExit : secondEntry, &inX, &inY)) {
+        return 0;
+    }
+    if (!GposPenDistance(apply, index, &penX)) {
+        return 0;
+    }
+    /*
+     * Two statements, which is the whole of a cursive chain: the pen after the first glyph lands on the
+     * first glyph's outgoing anchor, and the second glyph's placement puts its incoming anchor where that
+     * pen is. The first is why the face's own advance is needed — a distance GPOS does not carry — and the
+     * second is why the placement is set rather than added: an attachment is an *answer*, not a nudge.
+     */
+    mutableFirst = RoboTextShapingBufferAtMutable(apply->buffer, index);
+    if (!mutableFirst) {
+        return 0;
+    }
+    if ((mutableFirst->flags & RoboTextShapingGlyphPositioned) == 0u) {
+        apply->gposStats.adjustedGlyphs++;
+    }
+    mutableFirst->flags |= RoboTextShapingGlyphPositioned;
+    mutableFirst->advanceAdjustX += outX - penX;
+    GposSetPlacement(apply, second, -inX, outY - inY);
+    if (outNext) {
+        *outNext = second + 1u;
+    }
+    apply->gposStats.cursiveAttachments++;
+    return 1;
+}
+
+/* ------------------------------------------------------------------ */
+/* The mark attachments (types 4, 5 and 6)                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A mark attached to the glyph it belongs to, by mark class.
+ *
+ * One reader for the three types, because the three differ in exactly one place — what the *base* array
+ * describes — and everything else is the same question: a mark's class and anchor from the MarkArray, a base
+ * glyph found by walking back to the nearest participating glyph, the base's anchor for that class, and a
+ * placement that puts the two anchors on top of one another.
+ *
+ *   **4** the base array is indexed by the base coverage's own index, one anchor per class;
+ *   **6** the same against the preceding **mark** (`mkmk`), which is what lets two diacritics stack;
+ *   **5** the base is a ligature and its array names a component per class, and the component this build
+ *         reads is the **last** one — see the header's note on @ref RoboTextShapingGlyph::ligatureComponents
+ *         and the limitation named in `Documentation/Runtime/Text/Positioning.md`.
+ *
+ * The placement is absolute: a mark's position relative to its base *is* the font's answer, so a second
+ * attachment of the same mark states the second answer rather than summing the two.
+ */
+static int GposApplyMark(RoboTextOtCall *apply, size_t base, size_t index, size_t *outNext, uint16_t type)
+{
+    FontSpan table = apply->layout->table;
+    uint16_t format = 0u;
+    uint16_t markCoverage = 0u;
+    uint16_t baseCoverage = 0u;
+    uint16_t classCount = 0u;
+    uint16_t markArray = 0u;
+    uint16_t baseArray = 0u;
+    uint16_t markIndex = 0u;
+    uint16_t markClass = 0u;
+    uint16_t markAnchorOffset = 0u;
+    uint16_t baseIndex = 0u;
+    uint16_t anchorOffset = 0u;
+    const RoboTextShapingGlyph *markGlyph;
+    const RoboTextShapingGlyph *baseGlyph = NULL;
+    size_t basePosition = (size_t)-1;
+    size_t markArrayAbsolute;
+    size_t baseArrayAbsolute;
+    float markX = 0.0f;
+    float markY = 0.0f;
+    float baseAnchorX = 0.0f;
+    float baseAnchorY = 0.0f;
+    float basePlacementX = 0.0f;
+    float basePlacementY = 0.0f;
+    float distance = 0.0f;
+    size_t component = 0u;
+
+    if (outNext) {
+        *outNext = index;
+    }
+    if (!apply->gposFont) {
+        return 0;
+    }
+    markGlyph = RoboTextShapingBufferAt(apply->buffer, index);
+    if (!markGlyph) {
+        return 0;
+    }
+    if (!GposU16(table, base, &format) || format != 1u) {
+        return 0;
+    }
+    if (!GposU16(table, base + 2u, &markCoverage) || !GposU16(table, base + 4u, &baseCoverage) ||
+        !GposU16(table, base + 6u, &classCount) || !GposU16(table, base + 8u, &markArray) ||
+        !GposU16(table, base + 10u, &baseArray)) {
+        return 0;
+    }
+    if (classCount == 0u || markArray == 0u || baseArray == 0u) {
+        return 0;
+    }
+    if (!RoboTextOtCovered(apply, RoboTextOtOffset16(table, base, markCoverage), markGlyph->glyphId,
+                           &markIndex)) {
+        return 0;
+    }
+    markArrayAbsolute = RoboTextOtOffset16(table, base, markArray);
+    if (markArrayAbsolute == 0u) {
+        return 0;
+    }
+    /* MarkArray: a count, then { class, anchor offset } per covered mark. */
+    {
+        uint16_t markCount = 0u;
+
+        if (!GposU16(table, markArrayAbsolute, &markCount) || markIndex >= markCount) {
+            return 0;
+        }
+        if (!GposU16(table, markArrayAbsolute + 2u + (size_t)markIndex * 4u, &markClass) ||
+            !GposU16(table, markArrayAbsolute + 4u + (size_t)markIndex * 4u, &markAnchorOffset)) {
+            return 0;
+        }
+        if (markClass >= classCount) {
+            return 0;
+        }
+        if (!GposReadAnchor(apply, markArrayAbsolute, markAnchorOffset, &markX, &markY)) {
+            return 0;
+        }
+    }
+    /*
+     * The base: the nearest glyph **before** the mark that the base coverage names.
+     *
+     * One walk serves all three types, because the types differ only in what the coverage contains: a
+     * mark-to-base lookup's coverage names bases, so walking back past the intervening marks lands on the
+     * base; a mark-to-mark lookup's names marks, so the first covered glyph back is the previous mark — which
+     * is exactly what stacking two diacritics needs. The walk is the participant walk the pair readers use,
+     * so an ignored glyph is stepped over here too. Bounded, because a font may name a base far away and a
+     * mark is not a reason to scan a paragraph.
+     */
+    for (size_t steps = 1u; steps <= 32u; steps++) {
+        size_t candidate = RoboTextOtPrevParticipating(apply, index, steps);
+        const RoboTextShapingGlyph *glyph;
+
+        if (candidate >= RoboTextShapingBufferCount(apply->buffer)) {
+            break;
+        }
+        glyph = RoboTextShapingBufferAt(apply->buffer, candidate);
+        if (glyph && RoboTextOtCovered(apply, RoboTextOtOffset16(table, base, baseCoverage),
+                                       glyph->glyphId, &baseIndex)) {
+            baseGlyph = glyph;
+            basePosition = candidate;
+            break;
+        }
+    }
+    if (!baseGlyph || basePosition == (size_t)-1) {
+        return 0;
+    }
+    baseArrayAbsolute = RoboTextOtOffset16(table, base, baseArray);
+    if (baseArrayAbsolute == 0u) {
+        return 0;
+    }
+    if (type == RoboTextGposLookupMarkToLigature) {
+        /*
+         * LigatureArray: a count, then one offset per covered ligature to a LigatureAttach, whose own first
+         * word is its component count and whose records are componentCount × classCount anchor offsets.
+         *
+         * The `+ 2u` is the **count word**: every one of these three arrays (`BaseArray`, `Mark2Array`,
+         * `LigatureArray`) begins with a `uint16` count whose records then follow, and addressing the records
+         * from the array's first byte instead of from after that word is how a font's second anchor comes to
+         * be read as its first.
+         */
+        uint16_t ligatureOffset = 0u;
+        size_t attach;
+
+        if (!GposU16(table, baseArrayAbsolute + 2u + (size_t)baseIndex * 2u, &ligatureOffset)) {
+            return 0;
+        }
+        attach = RoboTextOtOffset16(table, baseArrayAbsolute, ligatureOffset);
+        if (attach == 0u) {
+            return 0;
+        }
+        {
+            uint16_t components = 0u;
+
+            if (!GposU16(table, attach, &components) || components == 0u) {
+                return 0;
+            }
+            component = (size_t)components - 1u;
+        }
+        if (!GposU16(table, attach + 2u + (component * classCount + markClass) * 2u, &anchorOffset)) {
+            return 0;
+        }
+        if (!GposReadAnchor(apply, attach, anchorOffset, &baseAnchorX, &baseAnchorY)) {
+            return 0;
+        }
+    } else {
+        /* BaseArray (type 4) or Mark2Array (type 6): one count word, then `classCount` anchor offsets per
+         * covered glyph. See the mark-to-ligature branch for why the count word is skipped rather than read. */
+        if (!GposU16(table, baseArrayAbsolute + 2u + ((size_t)baseIndex * classCount + markClass) * 2u,
+                     &anchorOffset)) {
+            return 0;
+        }
+        if (!GposReadAnchor(apply, baseArrayAbsolute, anchorOffset, &baseAnchorX, &baseAnchorY)) {
+            return 0;
+        }
+    }
+    /*
+     * The pen's distance from the base to the mark: every glyph between them advances the pen, and a mark
+     * between them advances it by zero, which is why a second mark stacks on the first without arithmetic of
+     * its own. The base's own placement is added because it is where the base was actually drawn.
+     */
+    for (size_t walk = basePosition; walk < index; walk++) {
+        float step = 0.0f;
+
+        if (!GposPenDistance(apply, walk, &step)) {
+            return 0;
+        }
+        distance += step;
+    }
+    GposPlacementOf(apply, basePosition, &basePlacementX, &basePlacementY);
+    GposSetPlacement(apply, index, (basePlacementX + baseAnchorX) - (distance + markX),
+                     (basePlacementY + baseAnchorY) - markY);
+    switch (type) {
+        case RoboTextGposLookupMarkToBase:
+            apply->gposStats.markToBaseAttachments++;
+            break;
+        case RoboTextGposLookupMarkToLigature:
+            apply->gposStats.markToLigatureAttachments++;
+            break;
+        default:
+            apply->gposStats.markToMarkAttachments++;
+            break;
+    }
+    (void)baseGlyph;
+    return 1;
+}
+
+/* ------------------------------------------------------------------ */
 /* Dispatch                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -643,6 +1116,12 @@ int RoboTextGposApplySubtable(RoboTextOtCall *apply,
             return GposApplySingle(apply, offset, index, outNext);
         case RoboTextGposLookupPair:
             return GposApplyPair(apply, offset, index, outNext);
+        case RoboTextGposLookupCursive:
+            return GposApplyCursive(apply, offset, index, outNext);
+        case RoboTextGposLookupMarkToBase:
+        case RoboTextGposLookupMarkToLigature:
+        case RoboTextGposLookupMarkToMark:
+            return GposApplyMark(apply, offset, index, outNext, lookupType);
         case RoboTextGposLookupExtension:
             return GposApplyExtension(apply, offset, index, outNext);
         default:
@@ -655,11 +1134,30 @@ int RoboTextGposApplySubtable(RoboTextOtCall *apply,
     }
 }
 
-/** Non-zero when this build executes lookup type @p type. Types 3–8 are counted, not read. */
+/**
+ * Non-zero when this build executes lookup type @p type.
+ *
+ * Types 1, 2, 3, 4, 5, 6 and 9 since Phase 12.19; 7 and 8 (the contextual forms) are recognised and not run,
+ * each counted in @ref RoboTextGposStats::lookupsUnsupported so a caller can see what a face wanted and did
+ * not get. A type this build does not run leaves the glyph where its advance put it rather than reading bytes
+ * as a format they are not.
+ *
+ * A cursive or mark attachment also needs a **font context** (@ref RoboTextGposOptions::font): without one
+ * its answer depends on a distance GPOS does not carry, so it is counted unsupported too. The list here is
+ * about the table; the call's own refusal is in the reader.
+ */
 int RoboTextGposTypeIsExecuted(uint16_t type)
 {
-    return (type == RoboTextGposLookupSingle || type == RoboTextGposLookupPair ||
-            type == RoboTextGposLookupExtension)
-               ? 1
-               : 0;
+    switch (type) {
+        case RoboTextGposLookupSingle:
+        case RoboTextGposLookupPair:
+        case RoboTextGposLookupCursive:
+        case RoboTextGposLookupMarkToBase:
+        case RoboTextGposLookupMarkToLigature:
+        case RoboTextGposLookupMarkToMark:
+        case RoboTextGposLookupExtension:
+            return 1;
+        default:
+            return 0;
+    }
 }

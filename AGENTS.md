@@ -73,6 +73,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Direction runs (classification) | `Runtime/Source/RoboText/RoboTextDirection.c` + public `Runtime/Include/RoboText/RoboTextDirection.h`. A scalar's `Bidi_Class` → a direction class, a paragraph context, and one pass to direction runs. Not the bidi algorithm: no levels, no reordering (Phase 12.8). Docs: `Documentation/Runtime/Text/DirectionRuns.md` |
 | Glyph substitution (GSUB) | `Runtime/Source/RoboText/RoboTextGsub.c` (the plan, the scan, the counters) + `RoboTextGsubSubst.c` (one reader per lookup type) + public `Runtime/Include/RoboText/RoboTextGsub.h`. The GSUB table itself is Phase 5's (`FontFaceGsub`); this interprets its offsets and writes no font parser of its own. Ligature policy is 12.12's. Docs: `Documentation/Runtime/Text/GlyphSubstitution.md` |
 | Ligatures | `Runtime/Source/RoboText/RoboTextLigature.c` + public `Runtime/Include/RoboText/RoboTextLigature.h`; the policy types live beside `RoboTextFeatureSet` in `Runtime/Include/RoboText/RoboTextTypes.h`. Five tags (`liga`/`clig`/`rlig`/`dlig`/`hlig`) as caller-visible policy, the `font-variant-ligatures` vocabulary over it, and the glyph-run report. No second engine: it writes feature tags and GSUB substitutes. Docs: `Documentation/Runtime/Text/Ligatures.md` |
+| Complex scripts | `Runtime/Source/RoboText/RoboTextComplex.c` (the strategy table, the plan, the clusters), `RoboTextArabic.c` (joining, the four forms, the Arabic stages) and `RoboTextIndic.c` (the script rules, syllables, masks, the two reorders), public `Runtime/Include/RoboText/RoboTextComplex.h`, `…Arabic.h`, `…Indic.h`; the `Joining_Type` property is RoboUnicode's (`Runtime/Source/RoboUnicode/RoboUnicodeJoining.c`). A script's behaviour is a **plan** — strategy + stages of masked features + reorder steps — so a second script is a row, not an engine. Docs: `Documentation/Runtime/Text/ComplexScripts.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -264,9 +265,11 @@ moved.** The corpus is `Tests/Text/RoboTextConformanceFont.h` (the built face an
   each their own door; an unset field means the case makes no claim about it. Tolerances are two named
   constants (`ConfPositionTolerance`, `ConfAdvanceTolerance`) and integer comparisons are exact.
 - **Two absences are asserted as absences** rather than passed over: `calt` (the fixture has no contextual
-  rule) and complex-script mark attachment (`complexScripts == 0`; 12.11 executes GPOS types 1/2/9 and skips
-  3–8). A mark's placement is proved with a type-1 adjustment for that reason. Flipping either flag is
-  12.19's change, in the same commit as the engine.
+  rule) and, in 12.18's own fixture, complex-script mark attachment — a mark's placement there is proved with
+  a type-1 adjustment for exactly that reason. 12.19 flipped the second claim in the same change as the
+  engine: GPOS now runs types 3–6, `text.shaping.marks.attachment_claimed` reads it, and the type-1 case stays
+  because a single adjustment is still a thing a font does. `calt` remains an absence and is still asserted as
+  one — the conformance fixture states no contextual rule, so a case over it would be asserting nothing.
 - Fallback is proved through 12.5's selector — which answers **for a coherent range** and names the candidate —
   not by shaping once with one context, because `RoboTextShape` takes one context by design.
 - Build/test: `TestRoboTextConformance.ps1 -Target Host` (55 cases, `text.shaping.*`) and
@@ -278,6 +281,68 @@ erendered **off-screen in the OS**, reported as `ROBO_QEMU_SHAPING_*` and pinned
 `Scripts/pipeline/commands.test.ps1`'s marker list (`MISSING` pinned at 9 — the pack covers no Hebrew or
 Arabic, and stating that beats hiding it). It is a second render rather than an edit to the shared checkpoint
 scene, whose frame numbers both launchers pin.
+
+### Complex scripts (Phase 12.19)
+
+**A script's shaping behaviour is a *plan*, not a branch: a strategy, stages of features with positional masks,
+and reorder steps between them. A second complex script is a new row, not a new engine.** The modules are
+`Runtime/Source/RoboText/RoboTextComplex.c` (the strategy table, the plan resolver, the cluster vocabulary and
+`RoboTextComplexIsSafeBoundary`), `RoboTextArabic.c` (joining, the four contextual forms, the joining clusters,
+the Arabic stages), `RoboTextIndic.c` (the script rules, syllables and their base, the position masks, the two
+reorders, the Indic stages) and `Runtime/Source/RoboUnicode/RoboUnicodeJoining.c` (the `Joining_Type`
+property). Public contracts: `Runtime/Include/RoboText/RoboTextComplex.h`, `…Arabic.h`, `…Indic.h`;
+authority `Documentation/Runtime/Text/ComplexScripts.md`.
+
+- **The plan is data and it is per run.** `RoboTextComplexPlanResolve` asks the strategy's own module for its
+  stages, then applies the caller's `RoboTextShapeOptions::features` **as an override** — a tag turned `Off`
+  is removed from its stage, so `font-feature-settings: "init" 0` means something. Do not add a
+  `if (script == …)` anywhere above the table, and do not let a caller's silence be read as consent: silence
+  keeps the strategy's default.
+- **Positional masks are the only new mechanism.** One `uint32_t` per scalar is the *position's* answer
+  (`RoboTextArabicMasksBuild`, `RoboTextIndicMasksBuild`) and one `uint16_t` per lookup is the *feature's*
+  (`RoboTextComplexStageApplyMasks`), and GSUB and GPOS both ask
+  `RoboTextOtMaskAllows` at the position a match starts. `RoboTextOtPlan::lookupMasks` is indexed by the
+  **Lookup List** index the engine reads it with — never by a position in `lookupOrder`, whose numbers those
+  are but whose order they are not. Mask 0 is "everywhere", which is every Latin, Greek and Cyrillic run.
+- **Joining is a Unicode property, not a table here.** `RoboUnicodeJoining.h` is the one `Joining_Type` door
+  (`UnicodeJoiningTypeOf`, `…JoinsRight`, `…JoinsLeft`, `UnicodeJoiningTypeJoins`), and Arabic's resolver
+  reads it. A transparent scalar takes **no form** and does not break a connection; a right-joining letter
+  (`ALEF`, `DAL`, `REH`, `WAW`) takes a final shape and never gives a connection onwards.
+- **Indic rules are this module's data, and the file says which scripts have none.**
+  `RoboTextIndicScriptRules` is a row per script; a script with no row is **refused** rather than shaped with
+  Devanagari's virama. The positional classes come from `RoboTextIndicIsConsonant`/`…IsVirama`/the rule
+  arrays — do not add a second script table and do not hard-code a `0x09…` scalar outside them.
+- **The text is never touched.** Clusters are ranges in the text, masks are indexed by source scalar, and a
+  reorder moves **glyphs** — each keeping the source range it came from. `RoboTextIndicReorderInitial` runs
+  before the first stage (while the buffer is one glyph per scalar, so a move can be stated in scalars) and
+  `…Final` after the substitution stage; nothing may move the characters or the finished run.
+- **The reorders are a stage field** (`RoboTextComplexStage::reorderBefore`/`…After`), dispatched by
+  `RoboTextComplexReorderApply` **by strategy**, not by script.
+- **The engines gained abilities; the strategies gained no engines.** GPOS runs lookup types 3–6 (cursive,
+  mark-to-base, mark-to-ligature, mark-to-mark) and needs the face's context for the pen distance, so a call
+  with none counts them unsupported rather than attaching to a distance nobody knows. Do not add a second
+  positioning engine, a second substitution pass, or a renderer-side script branch.
+- **Two off-by-ones here were real defects and their fixes carry the reason with them:** a participating walk
+  asked at the position itself answers that position, so a cursive chain must ask `index + 1u`
+  (and backtracking must step **down** first); and a half form's mask must not carry an `at != base` guard,
+  because a base a virama follows is the syllable the classifier *fell back* on.
+- **Not implemented, and named rather than implied:** the Southeast Asian strategy (Thai/Khmer/Myanmar) has no
+  stages; `blwf`'s interaction with `rkrf`/`vatu`; the `haln`/`cjct` "base becomes half form" refinement; the
+  UCD's `Indic_Positional_Category` as the data source; the other Indic scripts' own reorder rules (their rows
+  carry `hasReph` and the Devanagari rule set is applied, which is right for Devanagari and unproved for the
+  rest); Arabic's joining groups (Syriac/N'Ko/Mongolian) and canonically reordered input. Each is a **change to
+  a rule table**, not a new mechanism — say so in `RoboTextComplex.h` and `ComplexScripts.md` when it changes.
+- Capabilities/version: 12.19 set `complexScripts`/`complexScriptStrategies`/`complexClusters`/
+  `positionalFeatures`/`gposAttachments`/`reordering`/`complexDiagnostics` and took the module to `1.10.0`,
+  each read field by field in `Tests/Text/SuiteRoboTextConformance.c`.
+- Tests: `Tests/Text/SuiteRoboTextArabic.c` (`text.arabic.*`) and `SuiteRoboTextIndic.c` (`text.indic.*`) over
+  the **complex fixture** `Tests/Text/RoboTextComplexFont.h` — one built face carrying both scripts, whose
+  bytes state every contextual form's glyph id, the lam/alef ligature, the reph, the half form, the conjunct,
+  fatha's and shadda's anchors and beh's cursive entry and exit. A complex change is not done until
+  `TestRoboText.ps1 -Target Host` and then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
+- The fixture's GPOS table exists whenever the spec has **any** rule kind: a face whose only positioning is an
+  attachment (Arabic's, Devanagari's) must not ship no GPOS table, which is how a mark case comes to read
+  zeroes and look like an engine defect.
 
 ### RoboText architecture (Phase 12.4)
 
@@ -730,6 +795,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Text measurement (RoboText 12.15) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.measure.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.measure.kern` and `text.measure.ligature` (the two things that move a width, on the shipped face), `text.measure.mark_ink` (an accent raising the ink while the width stays the base's) and `text.measure.performance` (the two baselines) |
 | Paint / layout bridge (12.16) | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` (`paint.text.*`, `paint.glyphrun.*`), then `TestRoboText/Font/Graphics/Layout/Rasterizer/Desktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Evidence: `paint.glyphrun.recorded` (the glyphs on the record), `paint.glyphrun.snapshot` (a display list drawing the same bytes after its records are freed) and `paint.glyphrun.without_a_face` (a counted `noFont`) |
 | CSS font wiring (12.17) | `BuildLayout.ps1` (+ `BuildDesktop.ps1` when the provider or the document changed) | `TestLayout.ps1 -Target Host` (`layout.fontrequest.*`, `layout.fontselect.*`), then `TestPaint.ps1 -Target Host` (the pen draws the run's own face) and `TestDesktop.ps1 -Target Host` (`desktop.document.font_families` resolves a shipped name, an unknown name and a generic over the real registry); `-Target Qemu` when the guest image is involved |
+| Complex scripts (12.19) | `BuildRoboText.ps1` | `TestRoboText.ps1 -Target Host` (`text.arabic.*`, `text.indic.*`), then `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host`. Evidence: `text.arabic.forms` (the four contextual forms arrived as four glyph ids), `text.arabic.lam_alef_ligature` (one glyph, two scalars, both still the text), `text.indic.conjunct` (`क` `्` `ष` as one glyph covering three scalars), `text.indic.reph` (written first, drawn last, sources unmoved), `text.indic.pre_base_matra` (a vowel sign shaped before its consonant), `text.indic.three_scripts` (three strategies in one string, three runs, each in logical order) and `text.arabic.no_layout_tables` (a face with neither table still answers with its `cmap` and its direction) |
 | Latin/European shaping conformance (12.18) | `BuildRoboText.ps1` (and the image build, which compiles the guest specimen) | `TestRoboTextConformance.ps1 -Target Host` (`text.shaping.*`), then `TestRoboText.ps1 -Target Host`, `TestPaint.ps1 -Target Host` (`paint.glyphrun.agrees_with_shaping`) and `TestLayout/Graphics/Font/Desktop.ps1 -Target Host`; then `TestDesktop.ps1 -Target Qemu`, which runs the guest specimen. Evidence: `text.shaping.integration.dump` (`Build/Text-ShapingConformance.txt`), `desktop.typography.gallery.shaping` (`Build/Typography-Shaping.png`) and the `ROBO_QEMU_SHAPING_*` markers |
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |

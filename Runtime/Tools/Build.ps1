@@ -65,6 +65,10 @@ $ProdSrcs = @(
     # Tools/ucd/generate_mirror.py. Unicode data stays in RoboUnicode, so RoboText *asks* for a mirror
     # rather than carrying a second table (Phase 12.8).
     (Join-Path $SourceDir "RoboUnicode\RoboUnicodeBidiMirror.c"),
+    # `Joining_Type` (Phase 12.19): the Arabic shaper's one Unicode input. Hand-maintained rather than
+    # generated -- the tree carries the generated UCD data and not the sources it came from -- and RoboText
+    # *asks* for it rather than keeping a range table of its own (12.19 §9).
+    (Join-Path $SourceDir "RoboUnicode\RoboUnicodeJoining.c"),
     (Join-Path $SourceDir "RoboUnicode\RoboUnicodeEmoji.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18N.c"),
     (Join-Path $SourceDir "RoboI18N\RoboI18NLocale.c"),
@@ -232,6 +236,15 @@ $ProdSrcs = @(
     # the diagnostic block. It shapes nothing: `RoboTextShape.c` calls it, so a result's own measurement and a
     # caller's second measurement of the same result are one implementation rather than two that must agree.
     (Join-Path $SourceDir "RoboText\RoboTextMeasurement.c"),
+    # Phase 12.19 -- complex scripts. `RoboTextComplex.c` is the *plan*: the script → strategy table, the
+    # stages a strategy resolves, the per-scalar position masks and the two reorder steps as data. The two
+    # script modules own their own rules and no engine: `RoboTextArabic.c` reads RoboUnicode's `Joining_Type`,
+    # `RoboTextIndic.c` reads its own per-script tables (the UCD's positional categories are not in this
+    # tree), and both produce *masks and stage lists* rather than glyphs. GSUB substitutes and GPOS positions,
+    # exactly as 12.10–12.13 built them, with the masks as an extra positional condition.
+    (Join-Path $SourceDir "RoboText\RoboTextComplex.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextArabic.c"),
+    (Join-Path $SourceDir "RoboText\RoboTextIndic.c"),
     (Join-Path $SourceDir "RoboText\RoboTextFontSelection.c"),
     (Join-Path $SourceDir "RoboText\RoboTextAnalysis.c"),
     (Join-Path $SourceDir "RoboGraphics\RoboGraphics.c"),
@@ -548,6 +561,12 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Text\SuiteRoboTextShapingMarks.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextShapingFallback.c"),
     (Join-Path $TestsRoot "Text\SuiteRoboTextShapingIntegration.c"),
+    # Phase 12.19 -- complex scripts: the Arabic strategy (joining, the four contextual forms by position,
+    # the lam/alef ligature, mark-to-base, mark-to-mark and cursive attachment) and the Indic strategy
+    # (syllables, the base, the masked feature stages, the reph, pre-base matra reordering and conjuncts),
+    # both over one built face whose bytes state every expected glyph id and anchor.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextArabic.c"),
+    (Join-Path $TestsRoot "Text\SuiteRoboTextIndic.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

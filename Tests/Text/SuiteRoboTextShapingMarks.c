@@ -15,10 +15,12 @@
  * The placement is a GPOS **single adjustment** (lookup type 1) under `mark`, not a mark-to-base lookup
  * (type 4). Phase 12.11 executes types 1, 2 and 9 and deliberately skips 3-8, so a type-4 table here would be
  * counted unsupported and would place nothing. What these cases therefore prove is "the mark draws at the
- * offset the font states and advances nothing"; what `text.shaping.marks.attachment_not_claimed` states, in
- * the module's own vocabulary, is that mark **attachment** — the complex-script work, where a mark is placed
- * relative to a named base glyph's anchor — is not implemented. Both halves are asserted, so neither an
- * over-claim nor a silent absence survives.
+ * offset the font states and advances nothing"; and `text.shaping.marks.attachment_claimed` is the flag 12.18
+ * asserted as **0** and 12.19 flipped — a mark may now be placed against a named base glyph's anchor, which
+ * `text.gpos.mark_to_base` and `text.gpos.mark_to_mark` prove over a fixture that states those lookups. The
+ * mark's own placement here stays the fixture's **type-1** adjustment: this suite's font states no mark
+ * attachment, so it is one value record and nothing else, which is exactly the distinction the two cases are
+ * for.
  */
 
 #include "RoboTextConformanceSupport.h"
@@ -258,13 +260,21 @@ static void TestShapingMarkScript(void)
  * anchors — is Phase 12.19's work. Asserting the flag keeps the limitation a *stated* one, so a later goal
  * that adds attachment has to flip this case in the same change rather than quietly making it false.
  */
-static void TestShapingMarkAttachmentNotClaimed(void)
+static void TestShapingMarkAttachmentClaimed(void)
 {
     RoboTextCapabilities capabilities;
 
     RoboCheckEqInt((int)RoboTextGetCapabilities(&capabilities), (int)RoboOk);
-    RoboCheckEqInt(capabilities.complexScripts, 0);
-    /* What *is* claimed: the mark itself, the cluster that keeps it, and the selection that chose a face. */
+    /*
+     * The flag 12.18 asserted as **0** and 12.19 flips, in the same change as the engine: the attachments
+     * (GPOS types 3–6) now run, so a mark can be placed against a named base glyph's anchor and not only by a
+     * value record. The proof is `text.gpos.mark_to_base` / `text.gpos.mark_to_mark` / `text.gpos.cursive`
+     * over a fixture that states those lookups, not this case — this one exists so the flip is *pinned* rather
+     * than left to a reader to notice.
+     */
+    RoboCheckEqInt(capabilities.complexScripts, 1);
+    RoboCheckEqInt(capabilities.gposAttachments, 1);
+    /* What was claimed before and still is: the mark itself, its cluster, its flags, and the value records. */
     RoboCheckEqInt(capabilities.combiningMarks, 1);
     RoboCheckEqInt(capabilities.glyphClusters, 1);
     RoboCheckEqInt(capabilities.glyphFlags, 1);
@@ -272,6 +282,7 @@ static void TestShapingMarkAttachmentNotClaimed(void)
     /* And the two things a mark needs that are absent for a different reason: vertical metrics, and a cache
      * that would make the "no second positioning" rule untestable. */
     RoboCheckEqInt(capabilities.shapingCache, 0);
+    RoboCheckEqInt(capabilities.verticalText, 0);
 }
 
 void TestRegisterTextShapingMarks(void)
@@ -281,5 +292,5 @@ void TestRegisterTextShapingMarks(void)
     TestRegister("text.shaping.marks.placement", TestShapingMarkPlacement);
     TestRegister("text.shaping.marks.multiple", TestShapingMultipleMarks);
     TestRegister("text.shaping.marks.script", TestShapingMarkScript);
-    TestRegister("text.shaping.marks.attachment_not_claimed", TestShapingMarkAttachmentNotClaimed);
+    TestRegister("text.shaping.marks.attachment_claimed", TestShapingMarkAttachmentClaimed);
 }

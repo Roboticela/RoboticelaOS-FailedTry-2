@@ -43,7 +43,10 @@
 #include "RoboText/RoboTextGlyphs.h"
 
 #include "RoboMem/RoboMem.h"
+#include "RoboText/RoboTextArabic.h"
 #include "RoboText/RoboTextBidi.h"
+#include "RoboText/RoboTextComplex.h"
+#include "RoboText/RoboTextIndic.h"
 #include "RoboText/RoboTextGpos.h"
 #include "RoboText/RoboTextGsub.h"
 #include "RoboText/RoboTextUnicode.h"
@@ -430,31 +433,127 @@ static Result ShapeRunFromBuffer(RoboTextGlyphRun *glyphRun,
  * whole point of the intermediate: positioning writes adjustments onto the glyphs substitution produced,
  * and the rebuild is where an adjustment becomes an advance the pen and the measurer both see.
  */
-static Result ShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboTextDiag *diag)
+/**
+ * The strategy's position masks over @p run's range, or none when the script needs none.
+ *
+ * The one place a strategy's mask builder is called from, and the dispatch is by **strategy** rather than by
+ * script: a script whose strategy is `None` asks nothing, a script whose strategy is Arabic or Indic asks its
+ * own module, and the array is the caller's (`RoboFree` it) so the masks outlive the substitution stage they
+ * were built for — the positioning stage reads the same words, which is what keeps a feature and its masks
+ * describing one text.
+ *
+ * @param outMasks receives NULL when the script needs no masks.
+ * @return RoboOk; whatever the strategy's builder answers, which is a refusal rather than a guess when the
+ *         range is longer than the caller's array or the text cannot be decoded.
+ */
+static Result ShapeComplexMasks(RoboTextView view,
+                                const RoboTextRun *run,
+                                RoboTextComplexStrategy strategy,
+                                uint32_t **outMasks,
+                                size_t *outCount,
+                                RoboTextDiag *diag)
+{
+    size_t scalars = RoboTextRangeLength(run->range);
+    uint32_t *masks;
+    size_t count = 0u;
+    Result status;
+
+    *outMasks = NULL;
+    *outCount = 0u;
+    if (strategy != RoboTextComplexStrategyArabic && strategy != RoboTextComplexStrategyIndic) {
+        return RoboOk;
+    }
+    if (scalars == 0u) {
+        return RoboOk;
+    }
+    masks = (uint32_t *)RoboCalloc(scalars, sizeof(*masks));
+    if (!masks) {
+        return RoboTextDiagMsg(diag, RoboTextDomainGlyph, RoboOutOfMemory,
+                               "the run's position masks could not be held");
+    }
+    if (strategy == RoboTextComplexStrategyArabic) {
+        status = RoboTextArabicMasksBuild(view, run->range, masks, scalars, &count, diag);
+    } else {
+        status = RoboTextIndicMasksBuild(view, run->range, masks, scalars, &count, diag);
+    }
+    if (status != RoboOk) {
+        RoboFree(masks);
+        return status;
+    }
+    *outMasks = masks;
+    *outCount = count;
+    return RoboOk;
+}
+
+/**
+ * Shape @p glyphRun in place: the face's GSUB, then the face's GPOS (Phases 12.10, 12.11).
+ *
+ * The order is the phase's, and it is not interchangeable: substitution changes *which* glyphs there are, so
+ * positioning has to see its result — a ligature is one glyph with one advance to kern, and kerning the
+ * three characters that made it would be kerning glyphs that no longer exist. Both stages resolve their
+ * lookups against the same run (script, language, features) and read the same face tables, cached on the
+ * face and immutable.
+ *
+ * The answers that are not a stage running: a face with no table, a table with no record for this run's
+ * script, an empty plan and an empty run. Each leaves the cmap pass's result alone, and the mode stays
+ * @ref RoboTextGlyphGenerationCmapPerScalar — a fact about the font rather than about the text.
+ *
+ * The buffer is built once, both engines mutate it, and the run is rebuilt once at the end. That is the
+ * whole point of the intermediate: positioning writes adjustments onto the glyphs substitution produced,
+ * and the rebuild is where an adjustment becomes an advance the pen and the measurer both see.
+ *
+ * ## The complex strategy, and what it adds to the line above
+ *
+ * A script whose plan has stages (Phase 12.19) does **not** run one GSUB plan: it runs the plan's stages in
+ * order, with the strategy's reorder steps between them and the strategy's **position masks** handed to the
+ * engine, so a feature with a position class (`init` here, `half` there) applies where the strategy said and
+ * nowhere else. Everything else is unchanged, and that is deliberate: the same buffer, the same engines, and
+ * a Latin run takes the single-plan path it always took, byte for byte.
+ *
+ * The masks outlive the substitution stage because positioning reads the same words: an Indic below-base
+ * form is adjusted where it was substituted.
+ */
+static Result ShapeRun(RoboTextView view,
+                       const RoboTextRun *run,
+                       RoboTextGlyphRun *glyphRun,
+                       RoboTextDiag *diag)
 {
     const FontOtLayout *gsub = NULL;
     const FontOtLayout *gpos = NULL;
     const FontGdef *gdef = NULL;
     RoboTextOtPlan gsubPlan;
     RoboTextOtPlan gposPlan;
+    RoboTextComplexPlan complex;
     RoboTextShapingBuffer *buffer = NULL;
+    uint32_t *masks = NULL;
+    size_t maskCount = 0u;
     Result status;
     int substitutes = 0;
     int positions = 0;
+    int staged = 0;
 
     RoboTextOtPlanInit(&gsubPlan);
     RoboTextOtPlanInit(&gposPlan);
+    RoboTextComplexPlanInit(&complex);
+
+    status = RoboTextComplexPlanResolve(run->script, &run->features, &complex, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    staged = RoboTextComplexPlanHasStages(&complex) ? 1 : 0;
 
     status = RoboTextFontGsub(&run->font, &gsub, diag);
     if (status != RoboOk) {
         return status;
     }
-    if (gsub) {
+    if (gsub && !staged) {
         status = RoboTextGsubPlanResolve(gsub, run->script, &run->language, &run->features, &gsubPlan, diag);
         if (status != RoboOk) {
             return status;
         }
         substitutes = (gsubPlan.empty || glyphRun->count == 0u) ? 0 : 1;
+    } else if (gsub && staged && glyphRun->count != 0u) {
+        substitutes = 1;
     }
     status = RoboTextFontGpos(&run->font, &gpos, diag);
     if (status != RoboOk) {
@@ -479,8 +578,72 @@ static Result ShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboT
     if (status != RoboOk) {
         return status;
     }
+    if (staged) {
+        status = ShapeComplexMasks(view, run, complex.strategy, &masks, &maskCount, diag);
+        if (status != RoboOk) {
+            RoboTextShapingBufferDestroy(buffer);
+            return status;
+        }
+    }
 
-    if (substitutes) {
+    if (substitutes && staged) {
+        for (size_t stageIndex = 0u; stageIndex < complex.stageCount; stageIndex++) {
+            const RoboTextComplexStage *stage = RoboTextComplexPlanStage(&complex, stageIndex);
+            RoboTextFeatureSet stageFeatures;
+            RoboTextOtPlan stagePlan;
+            RoboTextGsubOptions options;
+            RoboTextGsubStats stats;
+
+            if (!stage) {
+                continue;
+            }
+            RoboTextOtPlanInit(&stagePlan);
+            status = RoboTextComplexStageFeatureSet(stage, &stageFeatures, diag);
+            if (status == RoboOk) {
+                /*
+                 * **No defaults**: this stage's feature set is the whole of what it runs. Handing GSUB's own
+                 * defaults in would let `liga` run in every stage, which is how an Indic conjunct comes to be
+                 * half-formed twice — the plan's stages are the complete answer, not a delta on one.
+                 */
+                status = RoboTextOtPlanResolve(gsub, run->script, &run->language, &stageFeatures, NULL,
+                                               &stagePlan, diag);
+            }
+            if (status == RoboOk) {
+                status = RoboTextComplexStageApplyMasks(&complex, stage, &stagePlan);
+            }
+            if (status == RoboOk && stage->reorderBefore != RoboTextComplexReorderNone) {
+                status = RoboTextComplexReorderApply(&complex, stage->reorderBefore, buffer, view, run->range,
+                                                     diag);
+            }
+            if (status != RoboOk) {
+                RoboFree(masks);
+                RoboTextShapingBufferDestroy(buffer);
+                return status;
+            }
+            memset(&options, 0, sizeof(options));
+            options.direction = run->direction;
+            options.bidiLevel = glyphRun->bidiLevel;
+            options.positionMasks = masks;
+            options.positionMaskCount = maskCount;
+            options.maskBase = run->range.start;
+            status = RoboTextGsubApply(gsub, gdef, &stagePlan, &options, buffer, &stats, diag);
+            if (status != RoboOk) {
+                RoboFree(masks);
+                RoboTextShapingBufferDestroy(buffer);
+                return status;
+            }
+            if (stage->reorderAfter != RoboTextComplexReorderNone) {
+                status = RoboTextComplexReorderApply(&complex, stage->reorderAfter, buffer, view, run->range,
+                                                     diag);
+                if (status != RoboOk) {
+                    RoboFree(masks);
+                    RoboTextShapingBufferDestroy(buffer);
+                    return status;
+                }
+            }
+        }
+        glyphRun->mode = RoboTextGlyphGenerationGsub;
+    } else if (substitutes) {
         RoboTextGsubOptions options;
         RoboTextGsubStats stats;
 
@@ -489,6 +652,7 @@ static Result ShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboT
         options.bidiLevel = glyphRun->bidiLevel;
         status = RoboTextGsubApply(gsub, gdef, &gsubPlan, &options, buffer, &stats, diag);
         if (status != RoboOk) {
+            RoboFree(masks);
             RoboTextShapingBufferDestroy(buffer);
             return status;
         }
@@ -505,6 +669,15 @@ static Result ShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboT
         options.direction = run->direction;
         options.bidiLevel = glyphRun->bidiLevel;
         /*
+         * The face context the **attachments** need (Phase 12.19): a cursive or mark attachment places a
+         * glyph against another glyph's pen, and the pen's distance is the face's advance — the one quantity
+         * GPOS does not carry. Kerning and single adjustments do not read it.
+         */
+        options.font = &run->font;
+        options.positionMasks = masks;
+        options.positionMaskCount = maskCount;
+        options.maskBase = run->range.start;
+        /*
          * The device scale, asked of the module's one scaling door: the engine multiplies by this rather than
          * scaling a font-unit number itself, so `RoboTextFontUnitsToDevice` stays the only place a font unit
          * becomes a pixel. The ppem is the context's own size rounded — the size a device table is recorded
@@ -518,6 +691,7 @@ static Result ShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboT
         options.devicePpem = (uint16_t)(run->font.style.sizePx + 0.5f);
         status = RoboTextGposApply(gpos, gdef, &gposPlan, &options, buffer, &stats, diag);
         if (status != RoboOk) {
+            RoboFree(masks);
             RoboTextShapingBufferDestroy(buffer);
             return status;
         }
@@ -525,6 +699,7 @@ static Result ShapeRun(const RoboTextRun *run, RoboTextGlyphRun *glyphRun, RoboT
         glyphRun->mode = RoboTextGlyphGenerationGpos;
     }
 
+    RoboFree(masks);
     status = ShapeRunFromBuffer(glyphRun, buffer, run, diag);
     RoboTextShapingBufferDestroy(buffer);
     return status;
@@ -717,7 +892,7 @@ Result RoboTextGlyphRunGenerate(RoboTextView view,
     }
 
     glyphRun->count = (size_t)length;
-    status = ShapeRun(run, glyphRun, diag);
+    status = ShapeRun(view, run, glyphRun, diag);
     if (status != RoboOk) {
         RoboTextGlyphRunDestroy(glyphRun);
         return status;
@@ -853,11 +1028,21 @@ Result RoboTextGlyphRunFinalize(RoboTextGlyphRun *run, RoboTextDiag *diag)
         /*
          * The cluster's source is the **union** of its glyphs' sources, so it is extended and never replaced:
          * assigning `Make(start, end)` outright would *shrink* a cluster whose later glyph ended before the one
-         * that opened it. That ordering cannot arise from the mappings this build produces, which is exactly why
-         * an assignment would be a silent wrong answer rather than a loud one.
+         * that opened it.
+         *
+         * Both ends are extended, because since Phase 12.19 a glyph's source may start **before** the glyph
+         * that opened its cluster: a complex script's reorder step moves a glyph — Devanagari's pre-base vowel
+         * sign is written after its consonant and shapes before it — and the syllable's cluster then holds a
+         * glyph whose source is later and a glyph whose source is earlier. The text's order is not the
+         * shaper's to change (§7), so the cluster covers the union of what its glyphs came from rather than
+         * the span the first of them happened to start at, and `source.start` is what makes scalar 0 of that
+         * syllable belong to a cluster at all.
          */
         if (glyph->source.end > clusters[clusterCount - 1u].source.end) {
             clusters[clusterCount - 1u].source.end = glyph->source.end;
+        }
+        if (glyph->source.start < clusters[clusterCount - 1u].source.start) {
+            clusters[clusterCount - 1u].source.start = glyph->source.start;
         }
     }
 

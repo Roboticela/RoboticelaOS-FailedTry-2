@@ -25,7 +25,7 @@ static void TestConformanceVersion(void)
     int32_t minor = -1;
     int32_t patch = -1;
 
-    RoboCheckStrEq(RoboTextVersionString(), "1.9.0");
+    RoboCheckStrEq(RoboTextVersionString(), "1.10.0");
     RoboCheckEqInt((int)RoboTextGetVersion(&major, &minor, &patch), (int)RoboOk);
     RoboCheckEqInt((int)major, RoboTextVersionMajor);
     RoboCheckEqInt((int)minor, RoboTextVersionMinor);
@@ -55,8 +55,13 @@ static void TestConformanceVersion(void)
      * 12.15 moved the measurement record into its own header and made it a door over that list. Every existing
      * door and signature survived — the record *grew* fields — so the minor moves and the major stays; and the
      * one architectural consequence (the shape result's measurement is now the engine over its own list rather
-     * than a second walk) is a change to *where a number is computed*, not to what a caller writes. */
-    RoboCheckEqInt((int)minor, 9);
+     * than a second walk) is a change to *where a number is computed*, not to what a caller writes.
+     *
+     * 12.19 added the complex-script contract (`RoboTextComplex.h`, `RoboTextArabic.h`, `RoboTextIndic.h`). It
+     * is additive in its files and **not** in its behaviour — GPOS runs lookup types 3–6, both engines honour a
+     * positional mask, and `ShapeRun` walks a plan's stages — but the glyph and run record shapes are
+     * unchanged, which is the condition the version header names for a minor move rather than a major one. */
+    RoboCheckEqInt((int)minor, 10);
     RoboCheckEqInt((int)patch, 0);
 }
 
@@ -218,14 +223,28 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(capabilities.measurementTolerance, 1);
 
     /*
-     * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan
-     * rather than an oversight: complex scripts 12.19, vertical text 12.20, and variable-axis application
-     * unowned until RoboFont interpolates outlines. A `1` here without the implementation would be the exact
-     * failure the phase's boundary section forbids. `bidiAlgorithm` left this list in 12.8,
-     * `substitution`/`ligatures` in 12.10 and 12.12, and `positioning`/`kerning` in 12.11 and 12.13 — each
-     * is asserted present above.
+     * Complex scripts (12.19), asserted **field by field** rather than as one flag, because the flag alone
+     * would not say which half is real: the architecture (a strategy, stages with masks, reorder steps as
+     * data) and the two scripts it shapes (Arabic and Devanagari, each with a library of cases in
+     * `text.arabic.*` and `text.indic.*`). `SoutheastAsian` resolves to a strategy with **no** stages, which
+     * is why no flag claims it.
      */
-    RoboCheckEqInt(capabilities.complexScripts, 0);
+    RoboCheckEqInt(capabilities.complexScripts, 1);
+    RoboCheckEqInt(capabilities.complexScriptStrategies, 1);
+    RoboCheckEqInt(capabilities.complexClusters, 1);
+    RoboCheckEqInt(capabilities.positionalFeatures, 1);
+    RoboCheckEqInt(capabilities.gposAttachments, 1);
+    RoboCheckEqInt(capabilities.reordering, 1);
+    RoboCheckEqInt(capabilities.complexDiagnostics, 1);
+
+    /*
+     * And every algorithm this phase deliberately does **not** implement, each one a row in the phase plan
+     * rather than an oversight: vertical text 12.20, and variable-axis application unowned until RoboFont
+     * interpolates outlines. A `1` here without the implementation would be the exact failure the phase's
+     * boundary section forbids. `bidiAlgorithm` left this list in 12.8, `substitution`/`ligatures` in 12.10
+     * and 12.12, `positioning`/`kerning` in 12.11 and 12.13, and `complexScripts` in 12.19 — each is asserted
+     * present above.
+     */
     RoboCheckEqInt(capabilities.verticalText, 0);
     RoboCheckEqInt(capabilities.variableAxisApplication, 0);
 

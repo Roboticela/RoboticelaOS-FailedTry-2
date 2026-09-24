@@ -13,7 +13,7 @@
 
 const char *RoboTextVersionString(void)
 {
-    static const char version[] = "1.9.0";
+    static const char version[] = "1.10.0";
 
     return version;
 }
@@ -171,13 +171,37 @@ Result RoboTextGetCapabilities(RoboTextCapabilities *out)
     out->bidiDiagnostics = 1;
 
     /*
+     * Complex scripts (12.19). One flag per record the phase adds, and the *pair* is the honest reading: the
+     * architecture is here — a strategy table, stages with masks, reorder steps as data — and the scripts this
+     * build actually shapes are the two whose suites carry a case per script: Arabic and Devanagari.
+     *
+     * Exercised case by case: the strategies and the plan by `text.complex.*`, Arabic's forms and its clusters
+     * by `text.arabic.*`, Devanagari's syllables, base, reph and masks by `text.indic.*`, the masks themselves
+     * by `text.complex.masks` and `text.indic.masks`, the attachments by `text.gpos.cursive` and
+     * `text.gpos.mark_*`, and the reorder steps by `text.indic.reorder_*`.
+     *
+     * What `complexScripts == 1` does **not** mean: that every script §2 lists is shaped. Sindhi's and
+     * Kurdish's enlargements of the Arabic alphabet are not in RoboUnicode's joining table (12.19 §9 names
+     * that as a table change), the Indic scripts other than Devanagari carry their virama and nukta but no
+     * positional categories (so nothing of theirs is reordered), and the Southeast Asian family resolves to a
+     * strategy with no stages. Each of those is stated in `Documentation/Runtime/Text/ComplexScripts.md` in the
+     * same words.
+     */
+    out->complexScripts = 1;
+    out->complexScriptStrategies = 1;
+    out->complexClusters = 1;
+    out->positionalFeatures = 1;
+    out->gposAttachments = 1;
+    out->reordering = 1;
+    out->complexDiagnostics = 1;
+
+    /*
      * The rest of the algorithms, all absent, and each one is a row in the phase plan rather than an
-     * omission: complex scripts 12.19, vertical text 12.20.
+     * omission: vertical text 12.20.
      * Variable-axis application is unowned by a numbered goal and is reported absent until RoboFont
      * interpolates outlines (`FontOutlineVariationApplied` is 0).
      */
     out->variableAxisApplication = 0;
-    out->complexScripts = 0;
     out->verticalText = 0;
     return RoboOk;
 }

@@ -201,6 +201,14 @@ static int GposApplyLookupScan(RoboTextOtCall *apply)
     }
 
     while (index < RoboTextShapingBufferCount(apply->buffer)) {
+        if (!RoboTextOtMaskAllows(apply, apply->lookupIndex, index)) {
+            /* The strategy's positional condition (Phase 12.19), asked exactly where the substitution engine
+             * asks it: a positioning lookup whose stage names a mask runs only at the positions that mask
+             * selects, and a stage that names none — every Latin, Greek and Cyrillic run — never reaches this
+             * branch's second half. */
+            index++;
+            continue;
+        }
         for (uint16_t subtable = 0u; subtable < apply->lookup->subtableCount; subtable++) {
             const FontOtLookupSubtable *entry = &apply->lookup->subtables[subtable];
             size_t resolved = index + 1u;
@@ -248,6 +256,10 @@ Result RoboTextGposApply(const FontOtLayout *gpos,
     apply.direction = options ? options->direction : RoboTextDirectionUnknown;
     apply.bidiLevel = options ? options->bidiLevel : RoboTextBidiLevelNone;
     if (options) {
+        apply.positionMasks = options->positionMasks;
+        apply.positionMaskCount = options->positionMaskCount;
+        apply.maskBase = options->maskBase;
+        apply.gposFont = options->font;
         apply.devicePpem = options->devicePpem;
         apply.deviceScale = options->deviceScale;
         apply.gposTrace = options->trace;
@@ -275,9 +287,23 @@ Result RoboTextGposApply(const FontOtLayout *gpos,
                 continue;
             }
             if (!RoboTextGposTypeIsExecuted(type)) {
-                /* A real lookup type this build does not run: cursive attachment, the mark attachments and
-                 * the contextual forms. Counted where a caller can see it, and shaped past — the glyphs keep
-                 * the positions their advances gave them, which is what this runtime drew before 12.11. */
+                /* A real lookup type this build does not run: the two contextual forms (7 and 8). Counted
+                 * where a caller can see it, and shaped past — the glyphs keep the positions their advances
+                 * gave them, which is what this runtime drew before 12.11. */
+                apply.gposStats.lookupsUnsupported++;
+                continue;
+            }
+            if ((type == RoboTextGposLookupCursive || type == RoboTextGposLookupMarkToBase ||
+                 type == RoboTextGposLookupMarkToLigature || type == RoboTextGposLookupMarkToMark) &&
+                !apply.gposFont) {
+                /*
+                 * An **attachment** places a glyph against another glyph's pen, and the pen's distance is the
+                 * face's advance — the one quantity GPOS does not carry (Phase 12.19). A caller that supplied
+                 * no font context gets the lookup counted unsupported **once per lookup**, not once per
+                 * position: how many times a paragraph would have asked is a fact about the paragraph.
+                 *
+                 * Kerning and single adjustments need no advance and run either way.
+                 */
                 apply.gposStats.lookupsUnsupported++;
                 continue;
             }
