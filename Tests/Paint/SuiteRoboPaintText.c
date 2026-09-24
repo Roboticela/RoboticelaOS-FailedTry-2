@@ -1552,6 +1552,246 @@ static void TestTextHandBuiltRules(void)
     PaintListDestroy(list);
 }
 
+/*
+ * Hand-build a text record with @p glyphCount glyphs, @p sideways of them turned, and the pen on the axis
+ * @p vertical selects.
+ *
+ * The record is assembled the way the **recorder** assembles one -- characters into the list's text pool,
+ * glyphs into its glyph pool, the face registered for its token -- because what this case is about is what the
+ * drawing pass does with a record that says "this glyph is sideways", and a record the document pipeline
+ * cannot yet produce is exactly the one a test has to build. The numbers are the fixture face's own: a 1000
+ * unit em, a 100 unit square glyph, a 600 unit advance, drawn at 100 px, so one font unit is 0.1 px and the
+ * square is ten pixels on a side.
+ */
+static void PaintSidewaysRecord(PaintList *list,
+                                FontFace *face,
+                                int glyphCount,
+                                int sideways,
+                                int vertical)
+{
+    PaintGlyph glyphs[2];
+    PaintGlyphSpan glyphSpan;
+    PaintTextSpan textSpan;
+    PaintFontToken token = PaintFontTokenNone;
+    PaintOperation operation;
+    PaintBoxes boxes;
+    PaintDiag diag;
+    uint32_t codePoints[2] = {'A', 'B'};
+    int index;
+
+    PaintDiagReset(&diag);
+    PaintBoxesInit(&boxes);
+    boxes.border = MakeGfxRect(0, 0, 300, 60);
+    boxes.padding = boxes.border;
+    boxes.content = boxes.border;
+
+    /*
+     * The structural records first, because a text run is a **child** of the box that owns it: the display
+     * builder refuses a drawing that belongs to no open box, and it is right to -- the order it enforces is
+     * the order the traversal produces. So this record says what the tree would have said: a box opened at
+     * depth 0, its content boundary, and the run one level inside it under a different node.
+     */
+    PaintOperationInit(&operation);
+    operation.kind = RoboPaintOpBeginBox;
+    operation.node = 1;
+    /* Depth 0: the outermost box nests where the stack is empty. */
+    operation.depth = 0u;
+    operation.boxes = boxes;
+    operation.origin = MakeGfxPoint(0, 0);
+    operation.clip = PaintClipNone();
+    operation.color = CssColorNone();
+    RoboCheckEqInt(PaintListAppend(list, &operation, &diag), RoboOk);
+    /* The box's own content boundary, at the box's own depth and naming it. */
+    operation.kind = RoboPaintOpContent;
+    operation.depth = 0u;
+    RoboCheckEqInt(PaintListAppend(list, &operation, &diag), RoboOk);
+
+    RoboCheckEqInt(PaintListAddText(list, codePoints, (size_t)glyphCount, &textSpan, &diag), RoboOk);
+    for (index = 0; index < glyphCount; index++) {
+        PaintGlyphInit(&glyphs[index]);
+        /* The fixture maps `A` and `B` to glyphs 1 and 2, both the same square. */
+        glyphs[index].glyphId = (uint16_t)(1 + index);
+        glyphs[index].cluster = (uint32_t)index;
+        glyphs[index].sourceFirst = (uint32_t)index;
+        glyphs[index].sourceCount = 1u;
+        glyphs[index].advanceX = vertical ? 0.0f : 60.0f;
+        glyphs[index].advanceY = vertical ? 60.0f : 0.0f;
+        if (sideways) {
+            glyphs[index].flags |= (uint32_t)PaintGlyphFlagSideways;
+        }
+        RoboCheckEqInt(PaintGlyphIsSideways(&glyphs[index]), sideways ? 1 : 0);
+    }
+    RoboCheckEqInt(PaintListAddGlyphs(list, glyphs, (size_t)glyphCount, &glyphSpan, &diag), RoboOk);
+    RoboCheckEqInt(PaintFontTableAdd(PaintListFontTable(list), face, &token, &diag), RoboOk);
+    RoboCheck(token != PaintFontTokenNone);
+
+    PaintOperationInit(&operation);
+    operation.kind = RoboPaintOpText;
+    operation.node = 2;
+    /* One deeper than the box that owns the run, and a **different** node: a run is a child, not a box. */
+    operation.depth = 1u;
+    operation.boxes = boxes;
+    operation.origin = MakeGfxPoint(0, 0);
+    operation.clip = PaintClipNone();
+    operation.color = CssColorMake(0xff, 0x00, 0x00, 255);
+    PaintTextRunInit(&operation.text);
+    operation.text.span = textSpan;
+    /* A baseline 20 px below the run's top, so the two sides of it are two different sets of rows. */
+    operation.text.baselineOffset = 20;
+    operation.text.glyphs = glyphSpan;
+    operation.text.fontToken = token;
+    operation.text.font.fontSizePx = 100.0;
+    operation.text.font.direction = RoboLayoutTextDirectionLtr;
+    RoboCheckEqInt(PaintOperationIsValid(&operation), 1);
+    RoboCheckEqInt(PaintListAppend(list, &operation, &diag), RoboOk);
+
+    /* And the box closes, because a record list that leaves one open is refused. */
+    PaintOperationInit(&operation);
+    operation.kind = RoboPaintOpEndBox;
+    operation.node = 1;
+    operation.depth = 0u;
+    operation.boxes = boxes;
+    operation.origin = MakeGfxPoint(0, 0);
+    operation.clip = PaintClipNone();
+    operation.color = CssColorNone();
+    RoboCheckEqInt(PaintListAppend(list, &operation, &diag), RoboOk);
+}
+
+/** The rows of @p surface that carry any pixel of @p color; `first`/`last` are 0 and 0 when there is none. */
+static void PaintInkRows(GfxSurface *surface,
+                         GfxColorRgba8 color,
+                         uint32_t *outFirst,
+                         uint32_t *outLast,
+                         uint32_t *outCount)
+{
+    uint32_t x;
+    uint32_t y;
+
+    *outFirst = 0u;
+    *outLast = 0u;
+    *outCount = 0u;
+    for (y = 0u; y < GfxSurfaceHeight(surface); y++) {
+        for (x = 0u; x < GfxSurfaceWidth(surface); x++) {
+            GfxColorRgba8 pixel;
+
+            RoboCheckEqInt(GfxSurfaceGetPixel(surface, x, y, &pixel), RoboOk);
+            if (pixel.r == color.r && pixel.g == color.g && pixel.b == color.b && pixel.a != 0u) {
+                if (*outCount == 0u) {
+                    *outFirst = y;
+                }
+                *outLast = y;
+                (*outCount)++;
+            }
+        }
+    }
+}
+
+/*
+ * A sideways glyph is **turned** (Phase 12.20), and this case reads that off the pixels.
+ *
+ * The fixture's glyph is a ten-pixel square sitting above and to the right of its baseline origin, so the
+ * drawing pass's own answer is arithmetic a reader can check: upright, its ink occupies the ten rows
+ * *above* the baseline and none below; a quarter turn clockwise, the same ten rows *below* it and none
+ * above, with the same hundred pixels inked either way -- a turn is an isometry, not a resampling. The
+ * column then does both at once: two glyphs advancing down the pen on `advanceY` with `advanceX` zero (a
+ * vertical run, whose pair of advances *is* the writing mode) and each drawn turned, which lands one hundred
+ * pixels below the baseline and another hundred a further sixty down, with nothing in between.
+ *
+ * `text.vertical.mark` and `graphics.glyph.rotation` prove RoboText's angle and the rasterizer's transform; this
+ * case proves the seam between them -- that a record saying `sideways` reaches the rasterizer turned, and that
+ * the pen still advances by the shaper's numbers rather than by anything it derives from the rotation.
+ */
+static void TestTextSideways(void)
+{
+    PaintFixtureDoc fixture;
+    PaintResult upright;
+    PaintResult sideways;
+    PaintResult column;
+    PaintDisplayList *uprightList = NULL;
+    PaintDisplayList *sidewaysList = NULL;
+    PaintDisplayList *columnList = NULL;
+    PaintDisplayListStats stats;
+    PaintDecorationStats decoration;
+    TextFace face;
+    GfxSurface *surface;
+    uint32_t first;
+    uint32_t last;
+    uint32_t count;
+
+    TextFaceCreate(&face);
+    PaintBegin(&fixture, "<html><body></body></html>", TEXT_BASE_CSS);
+
+    PaintResultInit(&upright);
+    PaintSidewaysRecord(upright.list, face.face, 1, 0, 0);
+    PaintResultInit(&sideways);
+    PaintSidewaysRecord(sideways.list, face.face, 1, 1, 0);
+    PaintResultInit(&column);
+    PaintSidewaysRecord(column.list, face.face, 2, 1, 1);
+
+    TextBuild(&upright, &uprightList, &stats);
+    TextBuild(&sideways, &sidewaysList, &stats);
+    TextBuild(&column, &columnList, &stats);
+
+    surface = TextSurface(300u, 100u);
+    memset(&decoration, 0, sizeof(decoration));
+    TextPaint(uprightList, surface, face.face, &decoration);
+    RoboCheckEqInt((int)decoration.glyphs, 1);
+    RoboCheckEqInt((int)decoration.glyphsMissing, 0);
+    PaintInkRows(surface, TEXT_RED, &first, &last, &count);
+    /* Above the baseline at `y = 20`: rows 10..19, the square's own ten rows of ten pixels. */
+    RoboCheckEqInt((int)first, 10);
+    RoboCheckEqInt((int)last, 19);
+    RoboCheckEqInt((int)count, 100);
+    GfxSurfaceRelease(surface);
+
+    surface = TextSurface(300u, 100u);
+    TextPaint(sidewaysList, surface, face.face, &decoration);
+    PaintInkRows(surface, TEXT_RED, &first, &last, &count);
+    RoboCheckEqInt((int)first, 20);
+    RoboCheckEqInt((int)last, 29);
+    RoboCheckEqInt((int)count, 100);
+    GfxSurfaceRelease(surface);
+
+    /* The column: two turned glyphs a pen step apart, on the y axis, with a gap between them because
+     * `advanceX` is zero and the pen never moves sideways. */
+    surface = TextSurface(300u, 200u);
+    TextPaint(columnList, surface, face.face, &decoration);
+    RoboCheckEqInt((int)decoration.glyphs, 2);
+    PaintInkRows(surface, TEXT_RED, &first, &last, &count);
+    /* Rows 20..29 and 80..89: ten rows for each turned square, the pen having stepped sixty. */
+    RoboCheckEqInt((int)first, 20);
+    RoboCheckEqInt((int)last, 89);
+    RoboCheckEqInt((int)count, 200);
+    {
+        uint32_t y;
+        uint32_t gap = 0u;
+
+        for (y = 30u; y < 80u; y++) {
+            uint32_t x;
+            GfxColorRgba8 pixel;
+
+            for (x = 0u; x < GfxSurfaceWidth(surface); x++) {
+                RoboCheckEqInt(GfxSurfaceGetPixel(surface, x, y, &pixel), RoboOk);
+                if (pixel.r == TEXT_RED.r && pixel.g == TEXT_RED.g && pixel.b == TEXT_RED.b &&
+                    pixel.a != 0u) {
+                    gap++;
+                }
+            }
+        }
+        RoboCheckEqInt((int)gap, 0);
+    }
+    GfxSurfaceRelease(surface);
+
+    PaintDisplayListDestroy(uprightList);
+    PaintDisplayListDestroy(sidewaysList);
+    PaintDisplayListDestroy(columnList);
+    PaintResultDispose(&upright);
+    PaintResultDispose(&sideways);
+    PaintResultDispose(&column);
+    PaintEnd(&fixture);
+    TextFaceDestroy(&face);
+}
+
 static void TestTextPoolDoors(void)
 {
     PaintTextPool *pool = NULL;
@@ -2337,6 +2577,7 @@ void TestRegisterPaintText(void)
     TestRegister("paint.text.color", TestTextColor);
     TestRegister("paint.text.pixels", TestTextPixels);
     TestRegister("paint.text.coverage_antialiasing", TestTextCoverageAntialiasing);
+    TestRegister("paint.text.sideways", TestTextSideways);
     TestRegister("paint.text.no_font", TestTextNoFont);
     TestRegister("paint.text.missing_glyph", TestTextMissingGlyph);
     TestRegister("paint.text.rtl", TestTextRtl);

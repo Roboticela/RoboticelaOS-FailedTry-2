@@ -482,11 +482,31 @@ Result GfxRasterDrawGlyphCoverage(GfxRaster *raster,
     uint16_t upem = 0u;
     Result res;
 
+    GfxGlyphRasterParams rotated;
+    const GfxGlyphRasterParams *effective = params;
+
     if (!raster || !draw || !draw->face) {
         return RoboInvalidArgument;
     }
     if (!GfxRasterTarget(raster)) {
         return RoboInvalidArgument;
+    }
+    /*
+     * The draw's own rotation reaches the rasterizer through the parameters, because the mask is the
+     * glyph **as it will be drawn**: a quarter turn applied after compositing would be a rotated bitmap in a
+     * pipeline that had already decided where the ink goes, and the placement (the mask's own rectangle)
+     * would be the unrotated one. A caller that passed parameters keeps every field it set — the rotation is
+     * the only thing this bridge adds — and a caller that passed none gets the documented defaults plus the
+     * angle. Zero needs no copy at all, which is the path every pre-12.20 caller takes.
+     */
+    if (draw->rotation != 0u) {
+        if (params) {
+            rotated = *params;
+        } else {
+            GfxGlyphRasterParamsInit(&rotated);
+        }
+        rotated.rotation = draw->rotation;
+        effective = &rotated;
     }
     res = FaceUpem(draw->face, &upem);
     if (res != RoboOk) {
@@ -506,7 +526,7 @@ Result GfxRasterDrawGlyphCoverage(GfxRaster *raster,
     }
     memset(&stats, 0, sizeof(stats));
     res = GfxGlyphMaskRasterizeOutline(outline, upem, draw->sizePx, draw->origin, &clip,
-                                       params, &mask, &stats);
+                                       effective, &mask, &stats);
     FontOutlineRelease(outline);
     if (res != RoboOk) {
         return res;

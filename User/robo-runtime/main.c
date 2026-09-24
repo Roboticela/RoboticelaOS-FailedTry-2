@@ -58,6 +58,16 @@
  *   ROBO_QEMU_SHAPING_FAMILIES            `font-family` entries the per-run walk resolved (12.17)
  *   ROBO_QEMU_SHAPING_UNRESOLVED          entries it could not (0 is the verdict)
  *   ROBO_QEMU_SHAPING_FAIL <stage>        the specimen refused; the shell markers above still stand
+ *   ROBO_QEMU_VERTICAL_OK                 the Phase 12.20 vertical specimen shaped and rasterised off-screen
+ *   ROBO_QEMU_VERTICAL_MODE/_RUNS/_GLYPHS the writing mode RoboText was asked for, and the run it produced
+ *   ROBO_QEMU_VERTICAL_ORIENT/_ROTATION   the orientation the run resolved, and the turn it implies
+ *   ROBO_QEMU_VERTICAL_ADVANCE_Y/_X       the pen's step along the inline axis, in thousandths of a pixel
+ *                                         (`_X` is 0: a vertical run moves on the other axis and no further)
+ *   ROBO_QEMU_VERTICAL_INK_UPRIGHT/_TURNED one glyph drawn as the face states it, and turned a quarter turn:
+ *                                         **equal** pixel counts, because the outline is turned in the lattice
+ *   ROBO_QEMU_VERTICAL_BOX_UPRIGHT/_TURNED those two draws' ink boxes: each other with width and height swapped
+ *   ROBO_QEMU_VERTICAL_COLUMN_INK/_BOX    the whole run as a column, the pen stepping by the run's advances
+ *   ROBO_QEMU_VERTICAL_FAIL <stage>       the vertical specimen refused
  *   ROBO_QEMU_DISPLAY_FAIL <stage>        a stage refused; nothing after it runs
  *
  * The counters are reported as facts rather than asserted here; the pipeline's own marker list is what
@@ -81,10 +91,13 @@
 #include "RoboFont/RoboFontSource.h"
 #include "RoboFont/RoboFontSystemPack.h"
 #include "RoboGraphics/RoboGraphics.h"
+#include "RoboGraphics/RoboGraphicsGlyph.h"
+#include "RoboGraphics/RoboGraphicsText.h"
 #include "RoboHTML/RoboHTML.h"
 #include "RoboLayout/RoboLayout.h"
 #include "RoboMem/RoboMem.h"
 #include "RoboPaint/RoboPaint.h"
+#include "RoboText/RoboText.h"
 #include "RoboTypography/RoboTypography.h"
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowBackendQemu.h"
@@ -722,6 +735,330 @@ static void GuestShapingCheckpoint(FontFace *face, const GuestTypography *typogr
 }
 
 /* ------------------------------------------------------------------ */
+/* Phase 12.20 -- the vertical specimen                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Vertical writing, shaped and rasterised inside the OS.
+ *
+ * The document above cannot express this: the shell and the document path have no writing mode at all
+ * (12.20's own non-goal), so a vertical specimen is a **second render**, shaped with RoboText directly and
+ * drawn through the same `GfxGlyphDraw` bridge the paint pass calls — the guest half of
+ * `graphics.typography.vertical_specimen`, which is where the host's pixels are.
+ *
+ * Two markers are the point of it:
+ *
+ *  * `ROBO_QEMU_VERTICAL_ADVANCE_Y` is the pen's step along +y, in thousandths of a pixel, and
+ *    `..._ADVANCE_X` is zero — a vertical run moves on the other axis and no further.
+ *  * `..._BOX_TURNED` against `..._BOX_UPRIGHT` is the rotation reaching the rasterizer: the same glyphs
+ *    drawn with RoboText's own orientation (sideways → a quarter turn) have their ink box's width and
+ *    height **exchanged**.
+ *
+ * The rotation is read from the run (`RoboTextGlyphRunOrientation`) rather than written here as a
+ * constant, so what the guest proves is the whole chain — RoboText resolved the orientation, the pen
+ * stepped by the run's own advances and the rasterizer turned the outline. The upright half of a column
+ * needs ideographs and a `vert` feature, and the shipped pack is Inter: `text.vertical.*` proves that half
+ * over the conformance fixture, on the host.
+ */
+
+#define GUEST_VERTICAL_COLUMN_W 64u
+#define GUEST_VERTICAL_COLUMN_H 200u
+#define GUEST_VERTICAL_GLYPH_W 96u
+#define GUEST_VERTICAL_GLYPH_H 96u
+#define GUEST_VERTICAL_COLUMN_X 24.0f
+#define GUEST_VERTICAL_COLUMN_Y 16.0f
+#define GUEST_VERTICAL_GLYPH_X 32.0f
+#define GUEST_VERTICAL_GLYPH_Y 64.0f
+#define GUEST_VERTICAL_SIZE_PX 40.0f
+#define GUEST_VERTICAL_PAPER GfxRgb8(255, 255, 255)
+#define GUEST_VERTICAL_INK GfxRgb8(26, 26, 32)
+
+/** The letter run: Latin, so the pack's face covers it and every glyph is sideways in a column. */
+static const char kVerticalSpecimen[] = "ABC";
+#define GUEST_VERTICAL_BYTES 3u
+
+/** The ink's pixel count and its bounding box, in the same shape the host specimen reports it. */
+typedef struct GuestInkBox {
+    uint32_t pixels;
+    uint32_t width;
+    uint32_t height;
+} GuestInkBox;
+
+static void GuestInkMeasure(GfxSurface *surface, uint32_t width, uint32_t height, GuestInkBox *box)
+{
+    GfxColorRgba8 paper = GUEST_VERTICAL_PAPER;
+    int32_t minX = 0;
+    int32_t minY = 0;
+    int32_t maxX = 0;
+    int32_t maxY = 0;
+    uint32_t y;
+
+    memset(box, 0, sizeof(*box));
+    for (y = 0u; y < height; y++) {
+        uint32_t x;
+
+        for (x = 0u; x < width; x++) {
+            GfxColorRgba8 color;
+
+            memset(&color, 0, sizeof(color));
+            if (GfxSurfaceGetPixel(surface, (int32_t)x, (int32_t)y, &color) != RoboOk) {
+                continue;
+            }
+            if (color.r == paper.r && color.g == paper.g && color.b == paper.b && color.a == paper.a) {
+                continue;
+            }
+            if (box->pixels == 0u) {
+                minX = (int32_t)x;
+                minY = (int32_t)y;
+                maxX = (int32_t)x;
+                maxY = (int32_t)y;
+            } else {
+                minX = (int32_t)x < minX ? (int32_t)x : minX;
+                minY = (int32_t)y < minY ? (int32_t)y : minY;
+                maxX = (int32_t)x > maxX ? (int32_t)x : maxX;
+                maxY = (int32_t)y > maxY ? (int32_t)y : maxY;
+            }
+            box->pixels++;
+        }
+    }
+    if (box->pixels > 0u) {
+        box->width = (uint32_t)(maxX - minX + 1);
+        box->height = (uint32_t)(maxY - minY + 1);
+    }
+}
+
+static int GuestVerticalSurface(GfxSurface **outSurface,
+                                GfxRaster **outRaster,
+                                uint32_t width,
+                                uint32_t height)
+{
+    GfxSurfaceDesc desc;
+    GfxSurface *surface = NULL;
+    GfxRaster *raster = NULL;
+
+    memset(&desc, 0, sizeof(desc));
+    GfxSurfaceDescInit(&desc);
+    desc.width = width;
+    desc.height = height;
+    desc.format = RoboGfxFormatRgba8;
+    desc.access = RoboGfxSurfaceAccessReadWrite;
+    if (GfxSurfaceCreate(&desc, &surface) != RoboOk || !surface) {
+        return 0;
+    }
+    if (GfxRasterCreate(surface, &raster) != RoboOk || !raster) {
+        GfxSurfaceRelease(surface);
+        return 0;
+    }
+    if (GfxSurfaceClearRgba8(surface, GUEST_VERTICAL_PAPER) != RoboOk) {
+        GfxRasterDestroy(raster);
+        GfxSurfaceRelease(surface);
+        return 0;
+    }
+    *outSurface = surface;
+    *outRaster = raster;
+    return 1;
+}
+
+/**
+ * The pen this module's own forward pass uses: one glyph at a time, stepping by the **run's** advances —
+ * `advanceY` for a vertical run, `advanceX` for a horizontal one, read together and never swapped here.
+ * @p rotation is `GfxGlyphRotationNone` to draw the same run as the face states it.
+ */
+static void GuestVerticalDrawRun(GfxRaster *raster,
+                                 FontFace *face,
+                                 const RoboTextGlyphRun *run,
+                                 uint8_t rotation,
+                                 float penX,
+                                 float penY,
+                                 int singleGlyph)
+{
+
+    GfxGlyphDraw draw;
+    size_t count = singleGlyph ? 1u : RoboTextGlyphRunCount(run);
+    size_t index;
+
+    GfxGlyphDrawInit(&draw);
+    draw.face = face;
+    draw.sizePx = GUEST_VERTICAL_SIZE_PX;
+    draw.color = GUEST_VERTICAL_INK;
+    draw.mode = RoboGfxGlyphModeAlpha;
+    draw.rotation = rotation;
+
+    for (index = 0u; index < count; index++) {
+        const RoboTextGlyph *glyph = RoboTextGlyphRunGlyph(run, (RoboTextGlyphIndex)index);
+
+        if (!glyph || glyph->glyphId == RoboGlyphIdNone) {
+            continue;
+        }
+        draw.glyphId = glyph->glyphId;
+        draw.origin.x = penX;
+        draw.origin.y = penY;
+        if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {
+            break;
+        }
+        penX += glyph->advanceX;
+        penY += glyph->advanceY;
+    }
+}
+
+static void GuestVerticalCheckpoint(FontFace *face)
+{
+    RoboTextFontContext font;
+    RoboTextFontStyle style;
+    RoboTextShapeOptions options;
+    RoboTextView view;
+    RoboTextShapeResult *result = NULL;
+    RoboTextDiag diag;
+    const RoboTextGlyphRun *run;
+    GfxSurface *turnedSurface = NULL;
+    GfxSurface *uprightSurface = NULL;
+    GfxSurface *columnSurface = NULL;
+    GfxRaster *turnedRaster = NULL;
+    GfxRaster *uprightRaster = NULL;
+    GfxRaster *columnRaster = NULL;
+    GuestInkBox turned;
+    GuestInkBox upright;
+    GuestInkBox column;
+    uint8_t rotation;
+    uint32_t advanceYmilli;
+    uint32_t advanceXmilli;
+    int drew;
+
+    if (!face) {
+        serial("ROBO_QEMU_VERTICAL_FAIL face\n");
+        return;
+    }
+
+    /*
+     * `GuestFaceLoad` hands back a parsed sfnt and nothing more: the cmap is parsed **lazily**, and the
+     * document path above parses it through the pack's own loading. This specimen asks RoboText directly, so
+     * it is the parse that has to be asked for -- without it every lookup answers "no glyph" and the run
+     * would be a column of `.notdef` that still looked like a passing shape.
+     */
+    if (FontFaceParseCmap(face) != RoboOk) {
+        serial("ROBO_QEMU_VERTICAL_FAIL cmap\n");
+        return;
+    }
+    /* And `head`/`hhea`/`hmtx` plus the face's metrics record, which the same lazy path owns. */
+    if (FontFaceParseTruetype(face, RoboFontTtFlagsNone) != RoboOk ||
+        FontFaceParseMetrics(face) != RoboOk) {
+        serial("ROBO_QEMU_VERTICAL_FAIL truetype\n");
+        return;
+    }
+
+    RoboTextFontContextInit(&font);
+    RoboTextFontStyleInit(&style);
+    style.sizePx = GUEST_VERTICAL_SIZE_PX;
+    if (RoboTextFontContextSet(&font, face, &style) != RoboOk) {
+        serial("ROBO_QEMU_VERTICAL_FAIL context\n");
+        return;
+    }
+
+    /* The mode is a setting, never inferred: `sideways` is asked for, not decided from the letters. */
+    RoboTextShapeOptionsInit(&options);
+    options.writingMode = RoboTextWritingVerticalRightToLeft;
+    options.textOrientation = RoboTextTextOrientationSideways;
+
+    view.bytes = kVerticalSpecimen;
+    view.length = GUEST_VERTICAL_BYTES;
+    memset(&diag, 0, sizeof(diag));
+    if (RoboTextShape(view, &font, &options, &result, &diag) != RoboOk || !result) {
+        serial("ROBO_QEMU_VERTICAL_FAIL shape ");
+        serial(diag.message ? diag.message : "(none)");
+        serial("\n");
+        return;
+    }
+
+    run = RoboTextShapeResultGlyphRun(result, 0u);
+    if (!run) {
+        serial("ROBO_QEMU_VERTICAL_FAIL norun\n");
+        RoboTextShapeResultDestroy(result);
+        return;
+    }
+
+    advanceYmilli = (uint32_t)(RoboTextGlyphRunAdvanceY(run) * 1000.0f + 0.5f);
+    advanceXmilli = (uint32_t)(RoboTextGlyphRunAdvance(run) * 1000.0f + 0.5f);
+    rotation = (RoboTextGlyphRunOrientation(run) == RoboTextGlyphOrientationSideways)
+                       ? (uint8_t)RoboGfxGlyphRotationClockwise90
+                       : (uint8_t)RoboGfxGlyphRotationNone;
+
+    serial("ROBO_QEMU_VERTICAL_OK\n");
+    SerialU32("ROBO_QEMU_VERTICAL_MODE=", (uint32_t)RoboTextGlyphRunWritingMode(run));
+    SerialU32("ROBO_QEMU_VERTICAL_RUNS=", (uint32_t)RoboTextShapeResultGlyphRunCount(result));
+    SerialU32("ROBO_QEMU_VERTICAL_GLYPHS=", (uint32_t)RoboTextGlyphRunCount(run));
+    SerialU32("ROBO_QEMU_VERTICAL_ORIENT=", (uint32_t)RoboTextGlyphRunOrientation(run));
+    SerialU32("ROBO_QEMU_VERTICAL_ROTATION=", (uint32_t)rotation);
+    SerialU32("ROBO_QEMU_VERTICAL_ADVANCE_Y=", advanceYmilli);
+    SerialU32("ROBO_QEMU_VERTICAL_ADVANCE_X=", advanceXmilli);
+
+    /*
+     * One glyph, twice, on its own: the rotation is *applied to the outline* in the rasterizer's one device
+     * transform, which a quarter turn makes an exact swap and a negation on. So the two draws must ink the
+     * **same number of pixels** -- equal counts, not two boxes that happen to measure alike -- and their boxes
+     * must be each other with width and height exchanged. One glyph per surface, because a column would make
+     * the box a sum of three and hide exactly this.
+     */
+    drew = GuestVerticalSurface(&turnedSurface, &turnedRaster, GUEST_VERTICAL_GLYPH_W,
+                                GUEST_VERTICAL_GLYPH_H) &&
+           GuestVerticalSurface(&uprightSurface, &uprightRaster, GUEST_VERTICAL_GLYPH_W,
+                                GUEST_VERTICAL_GLYPH_H);
+    if (drew) {
+        GuestVerticalDrawRun(turnedRaster, face, run, rotation, GUEST_VERTICAL_GLYPH_X,
+                             GUEST_VERTICAL_GLYPH_Y, 1);
+        GuestVerticalDrawRun(uprightRaster, face, run, (uint8_t)RoboGfxGlyphRotationNone,
+                             GUEST_VERTICAL_GLYPH_X, GUEST_VERTICAL_GLYPH_Y, 1);
+        GuestInkMeasure(turnedSurface, GUEST_VERTICAL_GLYPH_W, GUEST_VERTICAL_GLYPH_H, &turned);
+        GuestInkMeasure(uprightSurface, GUEST_VERTICAL_GLYPH_W, GUEST_VERTICAL_GLYPH_H, &upright);
+        SerialU32("ROBO_QEMU_VERTICAL_INK_TURNED=", turned.pixels);
+        SerialU32("ROBO_QEMU_VERTICAL_INK_UPRIGHT=", upright.pixels);
+        SerialU32("ROBO_QEMU_VERTICAL_BOX_TURNED=",
+                  (turned.width << 16) | (turned.height & 0xFFFFu));
+        SerialU32("ROBO_QEMU_VERTICAL_BOX_UPRIGHT=",
+                  (upright.width << 16) | (upright.height & 0xFFFFu));
+    } else {
+        serial("ROBO_QEMU_VERTICAL_FAIL surface\n");
+    }
+
+    /*
+     * And the whole run as a column: three glyphs, the pen stepping by **the run's own** `advanceY`, each
+     * turned the way RoboText answered (`sideways`). The box must come out taller than it is wide, which is
+     * the guest's own statement that the pen went down rather than across -- the count alone would not say it,
+     * because the same three glyphs side by side ink a comparable number of pixels.
+     */
+    if (GuestVerticalSurface(&columnSurface, &columnRaster, GUEST_VERTICAL_COLUMN_W,
+                             GUEST_VERTICAL_COLUMN_H)) {
+        GuestVerticalDrawRun(columnRaster, face, run, rotation, GUEST_VERTICAL_COLUMN_X,
+                             GUEST_VERTICAL_COLUMN_Y, 0);
+        GuestInkMeasure(columnSurface, GUEST_VERTICAL_COLUMN_W, GUEST_VERTICAL_COLUMN_H, &column);
+        SerialU32("ROBO_QEMU_VERTICAL_COLUMN_INK=", column.pixels);
+        SerialU32("ROBO_QEMU_VERTICAL_COLUMN_BOX=",
+                  (column.width << 16) | (column.height & 0xFFFFu));
+    } else {
+        serial("ROBO_QEMU_VERTICAL_FAIL column\n");
+    }
+
+    if (uprightRaster) {
+        GfxRasterDestroy(uprightRaster);
+    }
+    if (turnedRaster) {
+        GfxRasterDestroy(turnedRaster);
+    }
+    if (columnRaster) {
+        GfxRasterDestroy(columnRaster);
+    }
+    if (uprightSurface) {
+        GfxSurfaceRelease(uprightSurface);
+    }
+    if (turnedSurface) {
+        GfxSurfaceRelease(turnedSurface);
+    }
+    if (columnSurface) {
+        GfxSurfaceRelease(columnSurface);
+    }
+    RoboTextShapeResultDestroy(result);
+}
+
+/* ------------------------------------------------------------------ */
 /* Main                                                                */
 /* ------------------------------------------------------------------ */
 
@@ -894,6 +1231,7 @@ int main(int argc, char **argv)
          * stay the scene's.
          */
         GuestShapingCheckpoint(face, &typography);
+        GuestVerticalCheckpoint(face);
         serial("ROBO_QEMU_DESKTOP_LIVE\n");
     }
 

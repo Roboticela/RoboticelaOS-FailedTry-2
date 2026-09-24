@@ -143,11 +143,24 @@ dropped those characters would report 0 and fail. Getting this evidence required
 checkpoint scene: the specimen is a *second*, off-screen render, so the scene's own frame numbers — pinned
 for both launchers — are untouched.
 
+A second off-screen render sits beside it: 12.20's `GuestVerticalCheckpoint` shapes `"ABC"` with RoboText
+directly (the document path carries no writing mode), steps the pen by the run's own `advanceY` and turns the
+glyph through the rasterizer, reporting `ROBO_QEMU_VERTICAL_*`. Its ink counts for one glyph upright and turned
+are **equal**, which is the vertical phase's own strongest claim and no horizontal case can make it.
+
+A **second** guest specimen joined it in 12.20 and follows the same rule: `GuestVerticalCheckpoint` shapes
+`"ABC"` with RoboText directly (`vertical-rl` + `sideways`) and rasterises the run through the same
+`GfxGlyphDraw` bridge, reporting `ROBO_QEMU_VERTICAL_*`. Its verdicts are the pen's (`advanceY` 120.000 px over
+three em boxes, `advanceX` 0) and the turn's (one glyph upright and turned ink **314 pixels each**, in boxes of
+26×30 and 30×26). The document path above has no writing mode to render a vertical page with — the phase's own
+non-goal — so this half of 12.20 is shaped rather than laid out, and it says so in
+[VerticalText.md](VerticalText.md) §10.
+
 ## 6. Running it
 
 ```powershell
 Scripts\Test\TestRoboTextConformance.ps1 -Target Host   # 55 cases; text.shaping.* only
-Scripts\Test\TestRoboText.ps1 -Target Host              # 245 cases; everything under text.*
+Scripts\Test\TestRoboText.ps1 -Target Host              # 293 cases; everything under text.*
 Scripts\Test\TestDesktop.ps1 -Target Qemu               # the shell and the §44 specimen in the OS
 ```
 

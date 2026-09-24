@@ -531,6 +531,11 @@ int PaintGlyphIsControl(const PaintGlyph *glyph)
     return glyph && (glyph->flags & (uint32_t)PaintGlyphFlagControl) != 0u;
 }
 
+int PaintGlyphIsSideways(const PaintGlyph *glyph)
+{
+    return glyph && (glyph->flags & (uint32_t)PaintGlyphFlagSideways) != 0u;
+}
+
 PaintGlyphSpan PaintGlyphSpanAt(uint32_t first)
 {
     PaintGlyphSpan span;

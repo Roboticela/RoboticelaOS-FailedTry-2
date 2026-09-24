@@ -128,6 +128,12 @@ stays in `RoboGraphicsText.c`. Nothing below that seam may learn about cmap, fon
   the sRGB tables in `RoboGraphicsGlyph.c`. Do not widen them into the header to "share" them.
 - Keep three numbers separate: **coverage**, **glyph colour alpha** and **raster opacity**. They meet
   only at `GfxRasterDrawGlyphMask`; folding one into another is a defect, not a simplification.
+- A quarter turn is `GfxGlyphRasterParams::rotation` (0–3, clockwise) and it turns the **outline**, in the
+  one device transform every verb walks — never a mask, never a compositor, never a rotated bitmap. A swap
+  and a negation preserve the 1/256 px lattice, so `graphics.glyph.rotation` asserts equal bytes rather
+  than a matching area, and a value outside 0–3 draws **unrotated** because `& 3` would turn a typo into a
+  turn. `RoboGraphicsText.c` is the only caller that composes it, from the glyph's sideways mark (12.20);
+  nothing here learns what a writing mode is.
 - Backgrounds, call sites and gamma: `Documentation/Runtime/Typography/TextRasterQuality.md` is the
   phase's contract; update it (and this section) when the model changes.
 - Tests: `Tests/Graphics/SuiteRoboGraphicsGlyph.c` (`graphics.glyph.*`) for coverage/bounds/gamma/
@@ -402,21 +408,38 @@ vocabulary lives in `RoboTextTypes.h` because `RoboTextShapeOptions` carries two
   Do not read `hmtx` in a vertical run: that is a distance the vertical pen never moved on, and it lands a mark
   a whole cell from its base. Value records are untouched by the mode — a record's x stays x and its y stays y.
   Proved in both modes against one face and one rule by `text.vertical.mark`.
-- **The paint half is a 2D pen.** `RoboPaintDecoration.c` adds each glyph's `advanceX` **and** `advanceY` and
-  branches on nothing: a run's advance pair *is* the writing mode, already resolved. `advanceY` is zero
-  horizontally, so the arithmetic is bit-for-bit what the single-axis pen did. Do not add a writing-mode field
-  to the paint record or a renderer-side orientation test.
+- **The paint half is a 2D pen and one carried mark.** `RoboPaintDecoration.c` adds each glyph's `advanceX`
+  **and** `advanceY` and branches on nothing: a run's advance pair *is* the writing mode, already resolved.
+  `advanceY` is zero horizontally, so the arithmetic is bit-for-bit what the single-axis pen did. The sideways
+  half rides as `PaintGlyph`'s one flag (`PaintGlyphIsSideways`, set per glyph by the recorder from the run
+  RoboText produced, because one paint record can span several runs) and the pen hands it to
+  `GfxGlyphDraw` as the rotation. **Do not add a writing-mode field to the paint record and do not let the
+  painter test a code point**: the decision was made in RoboText and is carried, not re-derived.
+- **The turn is rasterized, not composited.** `GfxGlyphRasterParams` gained `rotation` (12.20), applied in
+  `GlyphDevice` — so curves are turned rather than resampled, the mask rectangle follows the ink and the
+  caller's `GfxRasterDrawGlyphMask` is unchanged. `graphics.glyph.rotation` proves the turn is exact
+  (equal coverage bytes at transposed positions) and `graphics.typography.vertical_specimen` proves it on the
+  shipped face at six UI sizes (`L` at 64 px: `29×47` upright, `47×29` turned), written to
+  `Build/Typography-Vertical.png`. A mask cache must key on the rotation — a sideways glyph is a different
+  mask from the same glyph upright.
 - **Not built, and named rather than implied:** vertical block progression and vertical line breaking (the
   phase's own non-goals — so the shell stays horizontal and `ComputedWritingStyle` is not added, because
   nothing would consume it), `Vertical_Orientation` from RoboUnicode (the tables here approximate UAX #50
-  until RoboUnicode carries the property), `VORG`, and QEMU visual evidence (the pack is Inter, which carries
-  neither CJK ideographs nor `vert`, so a guest page could only render `.notdef`). Each is in
-  `VerticalText.md` §10 and in `RoboTextVertical.h`'s own comment.
+  until RoboUnicode carries the property), `VORG`, a **guest page** in a vertical writing mode (the document
+  path carries no writing mode at all) and a guest page with **upright** glyphs in a column (the pack is
+  Inter, which carries neither CJK ideographs nor `vert`) — the sideways visual evidence is the rendered
+  `Build/Typography-Vertical.png` through the real pen. Each is in
+  `VerticalText.md` §10 and in `RoboTextVertical.h`'s own comment. The guest proves what the pack *can*
+  express: `User/robo-runtime/main.c`'s vertical checkpoint shapes the specimen with RoboText in-guest, steps
+  the pen by the run's own advances and turns the outline in a guest surface, pinned as `ROBO_QEMU_VERTICAL_*`
+  in `Scripts/pipeline/commands.test.ps1` (`robo test-qemu-display`). Its two ink counts for one glyph upright
+  and turned are **equal** because the outline is turned in the rasterizer's own lattice — a build that
+  composited a rotated bitmap fails there.
 - Capabilities/version: 12.20 set `verticalText`/`writingAxes`/`verticalOrientation`/`verticalMetrics`/
   `verticalFeatures`/`verticalDiagnostics` and took the module to **`1.11.0`**, each read field by field in
   `Tests/Text/SuiteRoboTextConformance.c`. There is deliberately **no `verticalShaper`** flag: the phase adds
   no engine.
-- Tests: `Tests/Text/SuiteRoboTextVertical.c` (`text.vertical.*`, 13 cases) over the **vertical fixture**
+- Tests: `Tests/Text/SuiteRoboTextVertical.c` (`text.vertical.*`, 14 cases) over the **vertical fixture**
   `ConfSpecVertical` in `Tests/Text/RoboTextConformanceFont.h` — a `vhea`/`vmtx` pair, a `vert` feature
   substituting two upright forms, a `mark` attachment whose two stated anchors put a voiced sound mark on its
   Hiragana letter, and a `cmap` spanning Han, Hiragana, Latin, a digit, Arabic, CJK punctuation and halfwidth
@@ -424,7 +447,10 @@ vocabulary lives in `RoboTextTypes.h` because `RoboTextShapeOptions` carries two
   so a build that reused `hmtx` for `advanceY` fails rather than agrees, and it derives every glyph id from its
   run array so adding a run cannot move a suite's expectation. The one exception is the combining mark, which
   is zero on **both** axes — which is what makes "a column with a mark in it is as long as its letter alone" a
-  fact about the bytes. A vertical change is not done until `TestRoboText.ps1 -Target Host` and then
+  fact about the bytes. `text.vertical.mark` reads one rule in **both** modes (1006 units of vertical step
+  against 406 horizontal), `text.vertical.fallback` proves a vertical run answered by the chain keeps the
+  mode and the `vmtx` advances, and `text.vertical.run_split` the orientation cut. A vertical change is not
+  done until `TestRoboText.ps1 -Target Host` and then
   `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass.
 
 ### RoboText architecture (Phase 12.4)

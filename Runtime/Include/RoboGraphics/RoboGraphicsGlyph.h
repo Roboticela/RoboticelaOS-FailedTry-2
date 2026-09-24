@@ -145,17 +145,43 @@ typedef enum GfxCoverageGamma {
 #define RoboGfxCoverageGammaDefault RoboGfxCoverageGammaLinear
 
 /**
+ * How many quarter turns a glyph is rasterized at (Phase 12.20).
+ *
+ * The mask is the glyph **as it will be drawn**, not a bitmap a later stage rotates, so the rotation
+ * belongs here rather than in the compositor: `RoboGfxGlyphRotationNone` (0) is the glyph as the face
+ * states it, and 1 turns it a quarter turn **clockwise** — which is the one angle CSS's
+ * `text-orientation: sideways` uses and therefore the one a Latin letter lying in a vertical column
+ * takes. 2 and 3 are half and three-quarter turns.
+ *
+ * A quarter turn is **exact** in this rasterizer: the transform is a swap and a negation of the device
+ * offsets (`(x, y) -> (-y, x)`), applied to every point the outline emits — control points included, so
+ * a curve is rotated rather than approximated — before the flattening and the 1/256 px quantization.
+ * The mask rectangle follows the rotated ink, so the caller composites it with the same
+ * `GfxRasterDrawGlyphMask` it always used.
+ */
+typedef enum GfxGlyphRotation {
+    RoboGfxGlyphRotationNone = 0,
+    RoboGfxGlyphRotationClockwise90 = 1,
+    RoboGfxGlyphRotationClockwise180 = 2,
+    RoboGfxGlyphRotationClockwise270 = 3
+} GfxGlyphRotation;
+
+/**
  * Rasterization parameters. A value record: no pointers, no ownership, so it can
  * live in a `GfxGlyphDraw`-adjacent struct or on the stack.
  *
  * @p supersample is samples per pixel axis and must be one of 1, 2, 4, 8 or 16
  * (a power of two so the sample lattice divides a pixel exactly). Zero means
  * "the default", `RoboGfxGlyphSamplesPerPixel`.
+ *
+ * @p rotation is a @ref GfxGlyphRotation, in the quarter turns above; anything outside 0..3 is treated
+ * as `RoboGfxGlyphRotationNone` rather than refused, because the value is an orientation a caller may
+ * have derived from its own table and one bad enumerator must not cost a glyph its pixels.
  */
 typedef struct GfxGlyphRasterParams {
     GfxCoverageGamma gamma;
     uint8_t supersample;
-    uint8_t reserved0;
+    uint8_t rotation;
     uint8_t reserved1;
 } GfxGlyphRasterParams;
 

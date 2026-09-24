@@ -667,12 +667,21 @@ static Result PaintShapeRun(PaintContext *context,
         RoboTextRange source;
         size_t count;
         size_t index;
+        int sideways;
 
         if (!run) {
             continue;
         }
         source = RoboTextGlyphRunSourceRange(run);
         count = RoboTextGlyphRunCount(run);
+        /*
+         * Whether this run's glyphs lie on their side, **asked of the text layer** rather than decided here
+         * (Phase 12.20): `RoboTextGlyphRunOrientation` is the resolved answer for the run -- `sideways` for the
+         * scripts that lie down in a vertical column, `upright` for the ideographs and for every horizontal
+         * run -- and it travels to each glyph of the run as the flag the pen reads. One answer per run, one
+         * copy per glyph, and no code point is inspected anywhere in this file.
+         */
+        sideways = RoboTextGlyphOrientationIsUpright(RoboTextGlyphRunOrientation(run)) ? 0 : 1;
         for (index = 0u; index < count && written < glyphCount; index++) {
             const RoboTextGlyph *glyph = RoboTextGlyphRunGlyph(run, index);
             PaintGlyph *out = &glyphs[written];
@@ -710,6 +719,9 @@ static Result PaintShapeRun(PaintContext *context,
             }
             if (glyph->flags & RoboTextGlyphFlagMark) {
                 out->flags |= (uint32_t)PaintGlyphFlagMark;
+            }
+            if (sideways) {
+                out->flags |= (uint32_t)PaintGlyphFlagSideways;
             }
             /*
              * The miss, decided **here** because this is where the answer exists: "the face had no glyph for

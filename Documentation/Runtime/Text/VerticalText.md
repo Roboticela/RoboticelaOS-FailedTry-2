@@ -298,10 +298,10 @@ rotated horizontal rectangle, and `width != advanceY` for a vertical run is a fa
 
 ---
 
-## 8. The paint half, and where it stops
+## 8. The paint half
 
-`RoboPaintDecoration.c`'s text pass already receives each glyph's `advanceX`/`advanceY`/`offsetX`/`offsetY` on
-the display list (12.16's `PaintGlyph`, copied by the recorder). Its pen is a **2D** accumulation:
+`RoboPaintDecoration.c`'s text pass receives each glyph's `advanceX`/`advanceY`/`offsetX`/`offsetY` on the
+display list (12.16's `PaintGlyph`, copied by the recorder). Its pen is a **2D** accumulation:
 
 ```c
 draw.origin = MakeGfxPointF(penX + glyph->offsetX, baselineY + penY + glyph->offsetY);
@@ -312,17 +312,47 @@ penY += glyph->advanceY;
 There is **no branch on a writing mode**, and that is the point: a run's `advanceX`/`advanceY` pair *is* the
 writing mode, already resolved by RoboText. For horizontal text `advanceY` is zero, so `penY` never moves and
 the arithmetic is bit-for-bit what the single-axis pen did before; for vertical text `advanceX` is zero, so
-`penX` never moves and the column descends as the shaper's advances say it does. The pass still cannot learn a
-script, an orientation or a vertical origin — it adds two numbers a shaped run gave it.
+`penX` never moves and the column descends as the shaper's advances say it does. The pass cannot learn a script,
+a writing mode or a vertical origin from those numbers.
 
-**What is not built, and it is named rather than implied.** The phase's §33 asks for a shell demo through the
-real rendering path. What that needs is vertical **block progression** — a line box that descends and a
-second column beside the first — and that is vertical line breaking and vertical justification, which the
-phase's own non-goals list. So the DesktopShell stays horizontal, exactly as §33's first sentence permits, and
-`RoboPaint`'s pen is ready for a vertical run the moment a layout pass hands it one. The
-`ComputedWritingStyle` §34 asks for is also **not** added: nothing in the tree consumes it yet, and a struct
-with no reader is a claim rather than preparation. `writing-mode`/`text-orientation` parsing is a stylesheet
-phase's work.
+### 8.1 Sideways is a mark on the glyph, not a mode of the pass
+
+A column of Latin is *turned*, and that is the one thing the advances cannot say — they are the shaper's answer
+about the **pen**, and the turn is its answer about the **ink**. So the answer travels as a bit:
+
+```text
+PaintGlyphFlagSideways      the recorder sets it from RoboTextGlyphRunOrientation(run)
+draw.rotation = Clockwise90 the pen composes it for the rasterizer, and nothing else changes
+```
+
+- It is a **glyph** flag rather than a run field, and that is a correction the first cut of this file's own
+  reasoning needed: one paint record can hold several shaped runs (a line of `一 A B 丁` is three, with two
+  orientations), so a record-level answer would be wrong for one of them. The characters live in the record's
+  span and the presentation lives on the glyph — the same shape 12.16 already gave the cluster and the source.
+- The recorder writes it from `RoboTextGlyphRunOrientation`, so the decision stays in the text layer; the pen
+  reads the bit and passes an angle. No code point is inspected anywhere in the drawing pass.
+- `PaintGlyphFlagSideways` is part of the record the display-list builder **copies**, so a replay draws a
+turned glyph from the list alone — the list still needs no shape result, no face and no text layer.
+
+The angle reaches the rasterizer as `GfxGlyphRotation` on `GfxGlyphRasterParams` (0–3 quarter turns clockwise,
+`GfxGlyphDrawInit` defaulting to none), and a quarter turn is **exact** rather than a resampled bitmap: the
+transform is applied where a font-unit point becomes a device point, so an outline's control points are turned
+*before* flattening and the mask that comes out is the turned glyph, with the rectangle to match. Zero quarter
+turns is bit-for-bit the pre-12.20 path, which is what keeps every horizontal glyph in this build
+byte-identical.
+
+The turn is proved in three places, each where it can be: `graphics.glyph.rotation` on the rasterizer's own
+lattice, `graphics.typography.vertical_specimen` on the shipped face with a PNG a person can look at, and —
+the whole chain inside the OS — `User/robo-runtime/main.c`'s vertical checkpoint, whose two ink counts for one
+glyph upright and turned are **equal** (314 pixels) in boxes of 26×30 and 30×26.
+
+### 8.2 What is deliberately not built here
+
+`ComputedWritingStyle` (§34) is not added: nothing in the tree would consume it, and a struct with no reader is a
+claim rather than preparation. `writing-mode` / `text-orientation` parsing is a stylesheet phase's work. Vertical
+**block progression** — a line box that descends, a second column beside the first, vertical line breaking and
+vertical justification — is on the phase's own non-goals list, so the DesktopShell records horizontal runs and
+the pen is ready for a vertical one the moment a layout pass hands it one.
 
 ---
 
@@ -347,13 +377,14 @@ Each of these is a **named absence**, not an oversight:
 | `ComputedWritingStyle` (§34) | Nothing consumes it yet; a struct with no reader is a claim, not preparation. |
 | Vertical block progression, vertical line breaking, vertical justification | The phase's own non-goals. The pen is ready; the line box is not. |
 | Ruby layout | A later goal. |
-| Glyph **rasterization** at an angle | The rotation is a number (`RoboTextGlyphOrientationRotation`) the painter composes into its own transform. This module links no rasterizer by its own boundary, so the rotated bitmap is the shell's gallery's business, and the number is the contract. |
+| Glyph rasterization at an angle in **this** module | The angle is a number here (`RoboTextGlyphOrientationRotation`) and a transform one layer down (`GfxGlyphRotation`, §8.1). RoboText links no rasterizer by its own boundary on purpose: the turn is proved in `graphics.glyph.rotation` and `graphics.typography.vertical_specimen`, which is where the pixels are. |
 | `Vertical_Orientation` from RoboUnicode | §3.2: the tables here approximate UAX #50 until RoboUnicode carries the property. |
 | `VORG` | §6.2: the specification's derivation covers the faces this build ships. |
 | Cluster-grained or per-column font fallback | 12.19's named gap; a vertical run inherits whatever face selection gave it. |
 | A **vertical cursive chain** | §6.4 states the distance on the inline axis and no cursive vertical face exists to prove it (Mongolian is not in the pack or the fixtures). A horizontal chain is `text.arabic.cursive`. |
 | `vrt2` as a separate reader | The fixture carries `vert` alone; both tags are named and the font's FeatureList decides, which §5 states. A face that distinguishes them would be a fixture. |
-| QEMU visual evidence | The system pack ships one family (Inter), which carries neither CJK ideographs nor `vert`. A guest page could only render `.notdef`, so a "visual regression" would compare two empty columns. Named here rather than staged. |
+| A **guest document** in a vertical writing mode | The shell and the document path carry no writing mode at all (the row above), so there is no CSS a guest page could state it with. What the guest *can* show, it shows: `User/robo-runtime/main.c`'s `GuestVerticalCheckpoint` is a second off-screen render that shapes `"ABC"` with RoboText directly — `vertical-rl` + `sideways`, eight markers, pinned in `Scripts/pipeline/commands.test.ps1` — and rasterises the run through the same `GfxGlyphDraw` bridge the paint pass calls. Its two verdicts are the pen's (`advanceY` 120.000 px of three em boxes, `advanceX` **0**) and the turn's (the same glyph upright and turned ink **314 pixels each** — exactly equal, because the outline is turned in the 1/256 px lattice — in boxes of 26×30 and 30×26). |
+| A guest page with **upright** glyphs in a column | The system pack ships one family (Inter), which carries neither CJK ideographs nor `vert`; a guest page could only render `.notdef`, so a "visual regression" would compare two empty columns. The upright half is proved over the conformance fixture's own face on the host (`text.vertical.*`, `ConfSpecVertical`), and the sideways half — the one the pack *can* express — is the guest render above and `graphics.typography.vertical_specimen`'s six UI sizes → `Build/Typography-Vertical.png`. |
 
 The **capabilities** record what is true: `verticalText`, `writingAxes`, `verticalOrientation`,
 `verticalMetrics`, `verticalFeatures` and `verticalDiagnostics` are `1`, and the module is at **`1.11.0`**.
@@ -364,7 +395,7 @@ the over-claim that record exists to avoid.
 
 ## 11. Tests
 
-`Tests/Text/SuiteRoboTextVertical.c` — 13 cases, `text.vertical.*`, over the built vertical fixture
+`Tests/Text/SuiteRoboTextVertical.c` — 14 cases, `text.vertical.*`, over the built vertical fixture
 (`ConfSpecVertical` in `Tests/Text/RoboTextConformanceFont.h`), via `TestRoboText.ps1 -Target Host`:
 
 | Case | What it pins |
@@ -378,6 +409,7 @@ the over-claim that record exists to avoid.
 | `text.vertical.origin` | `offsetY` the negated origin, `offsetX` the centring, and a horizontal glyph carrying neither. |
 | `text.vertical.synthesised` | A face with no `vmtx`: every glyph counted, the em-box advance, and the substitutions still running. |
 | `text.vertical.mark` | The `mark` attachment in **both** modes: the anchor difference minus the *inline* step, the mark advancing nothing on either axis, the base unmoved, and the two distances one face states. |
+| `text.vertical.fallback` | A face chosen by the **chain** answers a Han run whole (`runs == scriptRuns`, `fallbackRuns == 1`, the run naming that face) and is shaped with *its* `vmtx` advance and *its* `vert` product, because the writing mode is a field of the shape rather than of the face. |
 | `text.vertical.measurement` | `width == Σ run advanceX`, `advanceY == Σ run advanceY`, `width == 0` for a vertical run, and validation. |
 | `text.vertical.bidi` | An Arabic run in a vertical column still classified RTL with a level; a mixed Latin/Arabic/Latin paragraph stays three runs in logical order. |
 | `text.vertical.diagnostics` | The dump, its complete-or-absent rule, and every name. |
@@ -398,6 +430,18 @@ long as its letter alone — and a mark that inherited `1000 + id` would have ma
 table exists because of that one rule, which is also why the plain `vert_feature` case now reads the
 generation mode `Gpos`: the furthest stage that ran is positioning, over substitution's product.
 
+The two halves of the **seam** are proved outside this module, in the suites that own the pixels:
+
+| Case | What it pins |
+|---|---|
+| `graphics.glyph.rotation` | The rasterizer's quarter turn, exactly: the mask rectangle for 0/90/180/270°, a covered area that does not change under a turn, the coverage at `(x, y)` equal to the unrotated coverage at the position the turn maps it from, and an enumerator outside 0..3 defaulting to **no** turn rather than wrapping. |
+| `graphics.typography.vertical_specimen` | The shipped face sideways at six UI sizes through the bridge: `L` at 64 px measures `29×47` upright and `47×29` turned, six columns ink the page down its length, the same call twice is byte-identical, and `Build/Typography-Vertical.png` is written for a person. |
+| `paint.text.sideways` | The pen: a record built by hand with `PaintGlyphFlagSideways` inks **below** the baseline where the same record upright inks above it (the same hundred pixels either way), and a two-glyph `advanceY` column with each glyph turned inks two bands a pen step apart with nothing between them. |
+| `ROBO_QEMU_VERTICAL_*` | The same chain **inside the OS**: the guest shapes the specimen with RoboText, reads the mode/orientation off the run, steps the pen by the run's own advances and turns the outline in a guest surface. Pinned in `Scripts/pipeline/commands.test.ps1` with the rest of the display checkpoint, and run by `robo test-qemu-display`. |
+
 A vertical change is not done until `TestRoboText.ps1 -Target Host` and then
 `TestLayout/Paint/Graphics/Font/Desktop.ps1 -Target Host` pass — the last four because the run and glyph
-records grew fields the layout and paint bridges read.
+records grew fields the layout and paint bridges read, and the two before them because the turn lands on a
+surface there. `TestDesktop.ps1 -Target Qemu` comes with them: the guest's own vertical specimen is pinned,
+and a build that lost the rotation, the writing mode or the guest's parse of the face's metrics fails there
+rather than on the host.

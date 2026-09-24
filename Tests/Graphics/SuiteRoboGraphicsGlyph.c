@@ -612,6 +612,129 @@ static void TestCoverageFullAndZero(void)
 }
 
 /** Half a pixel of ink is half the coverage, and the arithmetic is the pipeline's own. */
+/*
+ * The quarter turn (Phase 12.20).
+ *
+ * A rotated glyph must be the **glyph turned**, not a bitmap moved: the mask's rectangle follows the rotated
+ * ink, and the coverage the caller composites is the coverage of the turned outline. So the case proves both
+ * halves with arithmetic a reader can check by hand —
+ *
+ *   the **rectangle** moves through the four rotations about the baseline origin (the ring's ink is ten
+ *   pixels square, so its box is `(5,10)`, `(5,20)`, `(-5,20)`, `(-5,10)` for 0, 90, 180 and 270 degrees),
+ *
+ *   and the **coverage** is the transpose of the unrotated mask's: a clockwise turn sends the ink at
+ *   `(x, y)` to `(25 - y, 15 + x)` for this origin, and the ring's fractional counter makes that mapping fail
+ *   if it is off by one pixel anywhere.
+ *
+ * Zero is checked first and separately, because it is the case every caller before this phase takes: the
+ * transform must be *unchanged*, not merely "also working".
+ */
+static void TestRotation(void)
+{
+    FontSource *source = NULL;
+    FontFace *face = NULL;
+    FontOutline *outline;
+    GfxGlyphMask *straight = NULL;
+    GfxGlyphMask *turned = NULL;
+    GfxGlyphMask *again = NULL;
+    GfxGlyphRasterParams params;
+    GfxGlyphRasterStats stats;
+    uint32_t straightCovered;
+    uint32_t x;
+    uint32_t y;
+
+    RoboCheckEqInt(MakeGlyphFace(&source, &face), RoboOk);
+    outline = OutlineOf(face, GlyphIdRing);
+    RoboCheck(outline != NULL);
+
+    GfxGlyphRasterParamsInit(&params);
+    RoboCheckEqInt((int)params.rotation, (int)RoboGfxGlyphRotationNone);
+    RoboCheckEqInt(GfxGlyphMaskRasterizeOutline(outline, (uint16_t)GlyphUpem, 100.0f,
+                                                MakeGfxPointF(5.0f, 20.0f), NULL, &params, &straight,
+                                                &stats),
+                   RoboOk);
+    /* Unrotated: ten pixels of ring above the baseline at `y = 20`. */
+    RoboCheckEqInt((int)GfxGlyphMaskX(straight), 5);
+    RoboCheckEqInt((int)GfxGlyphMaskY(straight), 10);
+    RoboCheckEqInt((int)GfxGlyphMaskWidth(straight), 10);
+    RoboCheckEqInt((int)GfxGlyphMaskHeight(straight), 10);
+    /*
+     * The ring's counter is fractional, so "covered" is not the square's area: the hole's four central pixels
+     * carry no coverage at all and the sixteen the counter's edges cross carry partial coverage. The number is
+     * kept to be **compared** with the rotated run's rather than asserted against a literal -- a turn is an
+     * isometry, so the two must be equal, and that is the claim worth making.
+     */
+    straightCovered = stats.covered;
+    RoboCheck(straightCovered > 0u && straightCovered < 100u);
+
+    /* One turn clockwise: the same ink, now hanging below the baseline and still ten pixels wide. */
+    params.rotation = (uint8_t)RoboGfxGlyphRotationClockwise90;
+    RoboCheckEqInt(GfxGlyphMaskRasterizeOutline(outline, (uint16_t)GlyphUpem, 100.0f,
+                                                MakeGfxPointF(5.0f, 20.0f), NULL, &params, &turned,
+                                                &stats),
+                   RoboOk);
+    RoboCheckEqInt((int)GfxGlyphMaskX(turned), 5);
+    RoboCheckEqInt((int)GfxGlyphMaskY(turned), 20);
+    RoboCheckEqInt((int)GfxGlyphMaskWidth(turned), 10);
+    RoboCheckEqInt((int)GfxGlyphMaskHeight(turned), 10);
+    /* Same ink, so the same covered area — a turn is an isometry and the mask is not a resampling. */
+    RoboCheckEqInt((int)stats.covered, (int)straightCovered);
+    RoboCheckEqInt((int)stats.samples, 64);
+
+    for (y = 10u; y < 20u; y++) {
+        for (x = 5u; x < 15u; x++) {
+            RoboCheckEqInt((int)GfxGlyphMaskCoverageAt(turned, 25u - y, 15u + x),
+                           (int)GfxGlyphMaskCoverageAt(straight, x, y));
+        }
+    }
+    /* And the fingerprinted end of the claim: half a turn and three quarters put the box where the
+     * arithmetic says, which is what tells a reader the transform is applied once and not twice. */
+    params.rotation = (uint8_t)RoboGfxGlyphRotationClockwise180;
+    RoboCheckEqInt(GfxGlyphMaskRasterizeOutline(outline, (uint16_t)GlyphUpem, 100.0f,
+                                                MakeGfxPointF(5.0f, 20.0f), NULL, &params, &again,
+                                                &stats),
+                   RoboOk);
+    RoboCheckEqInt((int)GfxGlyphMaskX(again), -5);
+    RoboCheckEqInt((int)GfxGlyphMaskY(again), 20);
+    GfxGlyphMaskRelease(again);
+
+    params.rotation = (uint8_t)RoboGfxGlyphRotationClockwise270;
+    RoboCheckEqInt(GfxGlyphMaskRasterizeOutline(outline, (uint16_t)GlyphUpem, 100.0f,
+                                                MakeGfxPointF(5.0f, 20.0f), NULL, &params, &again,
+                                                &stats),
+                   RoboOk);
+    RoboCheckEqInt((int)GfxGlyphMaskX(again), -5);
+    RoboCheckEqInt((int)GfxGlyphMaskY(again), 10);
+    GfxGlyphMaskRelease(again);
+
+    /* An enumerator from a caller whose table disagrees is defaulted to **none** rather than refused, and
+     * rather than wrapped: `7 & 3` would be a quarter turn, so a typo would silently rotate a glyph. The box
+     * check below is what tells the two behaviours apart. */
+    params.rotation = 7u;
+    RoboCheckEqInt(GfxGlyphMaskRasterizeOutline(outline, (uint16_t)GlyphUpem, 100.0f,
+                                                MakeGfxPointF(5.0f, 20.0f), NULL, &params, &again,
+                                                &stats),
+                   RoboOk);
+    RoboCheckEqInt((int)GfxGlyphMaskX(again), (int)GfxGlyphMaskX(straight));
+    RoboCheckEqInt((int)GfxGlyphMaskY(again), (int)GfxGlyphMaskY(straight));
+    GfxGlyphMaskRelease(again);
+
+    /* Twice is the same bytes: the same rule every other case in this suite states about determinism. */
+    params.rotation = (uint8_t)RoboGfxGlyphRotationClockwise90;
+    RoboCheckEqInt(GfxGlyphMaskRasterizeOutline(outline, (uint16_t)GlyphUpem, 100.0f,
+                                                MakeGfxPointF(5.0f, 20.0f), NULL, &params, &again,
+                                                &stats),
+                   RoboOk);
+    RoboCheckEqInt(MaskEquals(turned, again), 1);
+
+    GfxGlyphMaskRelease(again);
+    GfxGlyphMaskRelease(turned);
+    GfxGlyphMaskRelease(straight);
+    FontOutlineRelease(outline);
+    FontFaceRelease(face);
+    FontSourceRelease(source);
+}
+
 static void TestCoveragePartial(void)
 {
     FontSource *source = NULL;
@@ -1557,6 +1680,7 @@ void TestRegisterGraphicsGlyph(void)
 {
     TestRegister("graphics.glyph.coverage_full_and_zero", TestCoverageFullAndZero);
     TestRegister("graphics.glyph.coverage_partial", TestCoveragePartial);
+    TestRegister("graphics.glyph.rotation", TestRotation);
     TestRegister("graphics.glyph.coverage_curve", TestCoverageCurve);
     TestRegister("graphics.glyph.coverage_winding", TestCoverageWinding);
     TestRegister("graphics.glyph.coverage_empty_small_large", TestCoverageEmptyAndSmallAndLarge);

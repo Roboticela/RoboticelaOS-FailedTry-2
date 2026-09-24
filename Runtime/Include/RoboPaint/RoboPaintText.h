@@ -123,7 +123,23 @@ typedef enum PaintGlyphFlag {
     /** A combining mark (Phase 12.14): it may not be separated from the glyph before it. */
     PaintGlyphFlagMark = 1u << 2,
     /** The face had no glyph for the source scalars, or its metrics would not parse. */
-    PaintGlyphFlagMissing = 1u << 3
+    PaintGlyphFlagMissing = 1u << 3,
+    /**
+     * The glyph is drawn **sideways** -- rotated a quarter turn -- rather than standing on its own baseline
+     * (Phase 12.20).
+     *
+     * The flag is **RoboText's** answer, carried rather than derived: `RoboTextGlyphRunOrientation` resolves it
+     * per run from the three orientation tables, so an ideograph stands up and a Latin letter in the same
+     * column lies on its side. The renderer never looks at a code point to decide, and the pen composes the
+     * angle RoboText states (`RoboTextGlyphOrientationRotation`) into the rasterizer's own transform.
+     *
+     * It is a **glyph** flag rather than a run field because one record can hold several shaped runs: a
+     * vertical line of `一 A B 丁` is three runs with two orientations, and a record-level answer could not
+     * describe it. The parallel with the character half is exact -- the characters live in the record's span
+     * and the presentation lives on the glyph -- and the flag survives into a display list's own glyph pool
+     * because it is part of the record the builder copies.
+     */
+    PaintGlyphFlagSideways = 1u << 4
 } PaintGlyphFlag;
 
 /**
@@ -172,6 +188,13 @@ int PaintGlyphEqual(const PaintGlyph *a, const PaintGlyph *b);
 
 /** Non-zero when @p glyph carries the `control` flag. Safe on NULL. */
 int PaintGlyphIsControl(const PaintGlyph *glyph);
+
+/**
+ * Non-zero when @p glyph is drawn sideways -- a quarter turn from the way its face states it (Phase 12.20).
+ *
+ * Safe on NULL, which answers 0: a glyph a caller does not have is not a glyph it should rotate.
+ */
+int PaintGlyphIsSideways(const PaintGlyph *glyph);
 
 /**
  * A span of **glyphs** inside a paint list's glyph pool: the same two-number shape as

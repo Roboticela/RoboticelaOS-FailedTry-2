@@ -67,6 +67,14 @@ typedef enum GfxGlyphRenderMode {
  * Glyph draw request (absolute baseline origin in device space).
  * @p sizePx is CSS-like pixel size (must be finite and > 0).
  * Opacity comes from the raster context.
+ *
+ * @p rotation is a `GfxGlyphRotation`: how many quarter turns the glyph is drawn at, clockwise, about
+ * @p origin. Zero — the field every caller gets from `GfxGlyphDrawInit` — is the glyph as the face
+ * states it, and that is what a horizontal line wants. A caller drawing a **sideways** glyph (a Latin
+ * letter lying in a vertical column, Phase 12.20) sets it from the number **RoboText** resolved, which is
+ * the point of the field: the renderer is told the angle rather than deciding it from a script or a code
+ * point. It is applied by the coverage path's rasterizer, to the outline before flattening, so the mask
+ * is the rotated glyph and the composite is the one this bridge always did.
  */
 typedef struct GfxGlyphDraw {
     FontFace *face;
@@ -75,6 +83,7 @@ typedef struct GfxGlyphDraw {
     GfxPointF origin; /* baseline origin (device, +Y down) */
     GfxColorRgba8 color;
     GfxGlyphRenderMode mode; /* 0 → OUTLINE_STROKE */
+    uint8_t rotation;        /* GfxGlyphRotation; 0 → none */
 } GfxGlyphDraw;
 
 /**

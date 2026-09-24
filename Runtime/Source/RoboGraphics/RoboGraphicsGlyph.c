@@ -673,7 +673,7 @@ void GfxGlyphRasterParamsInit(GfxGlyphRasterParams *params)
     }
     params->gamma = RoboGfxCoverageGammaDefault;
     params->supersample = (uint8_t)RoboGfxGlyphSamplesPerPixel;
-    params->reserved0 = 0u;
+    params->rotation = (uint8_t)RoboGfxGlyphRotationNone;
     params->reserved1 = 0u;
 }
 
@@ -713,27 +713,78 @@ static Result GlyphOutlineStatusToResult(const FontOutline *outline)
     }
 }
 
+/**
+ * The device transform: a scale, a baseline origin, and the quarter turns the glyph is drawn at.
+ *
+ * The rotation is applied **here**, in the one place a font-unit point becomes a device point, rather
+ * than to a finished mask: every verb in the walk below asks these two functions (or `GlyphDevicePoint`,
+ * which asks them), so a rotated glyph's control points are rotated before flattening — the curve is
+ * turned, not the pixels it was flattened into.
+ *
+ * The transform, for a font-unit point `(fx, fy)` at @p scale `s` with the face's Y up and the device's
+ * Y down, is
+ *
+ * ```text
+ * (dx, dy) = (fx * s, -fy * s)                  // the unrotated device offset from the origin
+ * (dx, dy) -> (-dy, dx)                         // applied `rotation` times: a quarter turn clockwise
+ * device   = origin + (dx, dy)
+ * ```
+ *
+ * so one turn puts the glyph's advance direction along **+y** (down the column) and its ascender towards
+ * **+x**, which is what a sideways letter in a vertical run is. Two and three turns are the same
+ * arithmetic applied twice and three times, and a quarter turn is exact in the 1/256 px lattice because
+ * the lattice is preserved by a swap and a negation.
+ */
 typedef struct GlyphDevice {
     float scale;
     GfxPointF origin;
+    uint8_t rotation;
 } GlyphDevice;
 
-static float GlyphDeviceX(const GlyphDevice *device, FontUnit fontX)
+/** The unrotated device offset of @p fontX from the origin: `fx * scale`, rotated `rotation` times. */
+static void GlyphDeviceOffset(const GlyphDevice *device, FontUnit fontX, FontUnit fontY,
+                              float *outX, float *outY)
 {
-    return device->origin.x + (float)fontX * device->scale;
+    float dx = (float)fontX * device->scale;
+    float dy = -(float)fontY * device->scale;
+    uint8_t turns = (uint8_t)(device->rotation & 3u);
+
+    for (uint8_t turn = 0u; turn < turns; turn++) {
+        float previousX = dx;
+
+        dx = -dy;
+        dy = previousX;
+    }
+    *outX = dx;
+    *outY = dy;
 }
 
-static float GlyphDeviceY(const GlyphDevice *device, FontUnit fontY)
+/**
+ * The same point as @ref GlyphDevicePoint, **unquantized**. The curve walk needs float control points
+ * (the flattening subdivides them before anything is snapped), and it needs both coordinates at once: a
+ * rotated transform mixes x and y, so asking for "the device x of `fontX`" is no longer a question that
+ * has an answer.
+ */
+static void GlyphDevicePointF(const GlyphDevice *device, FontUnit fontX, FontUnit fontY,
+                              float *outX, float *outY)
 {
-    return device->origin.y - (float)fontY * device->scale;
+    float x = 0.0f;
+    float y = 0.0f;
+
+    GlyphDeviceOffset(device, fontX, fontY, &x, &y);
+    *outX = device->origin.x + x;
+    *outY = device->origin.y + y;
 }
 
 static GlyphVertex GlyphDevicePoint(const GlyphDevice *device, FontUnit fontX, FontUnit fontY)
 {
     GlyphVertex vertex;
+    float x = 0.0f;
+    float y = 0.0f;
 
-    vertex.x = GlyphQuantize(GlyphDeviceX(device, fontX));
-    vertex.y = GlyphQuantize(GlyphDeviceY(device, fontY));
+    GlyphDeviceOffset(device, fontX, fontY, &x, &y);
+    vertex.x = GlyphQuantize(device->origin.x + x);
+    vertex.y = GlyphQuantize(device->origin.y + y);
     return vertex;
 }
 
@@ -776,8 +827,7 @@ static Result GlyphBuildEdges(const FontOutline *outline,
                 if (res != RoboOk) {
                     return res;
                 }
-                curX = GlyphDeviceX(device, seg->p.x);
-                curY = GlyphDeviceY(device, seg->p.y);
+                GlyphDevicePointF(device, seg->p.x, seg->p.y, &curX, &curY);
                 haveCur = 1;
                 break;
             case RoboFontPathLine:
@@ -785,8 +835,7 @@ static Result GlyphBuildEdges(const FontOutline *outline,
                 if (res != RoboOk) {
                     return res;
                 }
-                curX = GlyphDeviceX(device, seg->p.x);
-                curY = GlyphDeviceY(device, seg->p.y);
+                GlyphDevicePointF(device, seg->p.x, seg->p.y, &curX, &curY);
                 haveCur = 1;
                 break;
             case RoboFontPathQuad:
@@ -794,11 +843,13 @@ static Result GlyphBuildEdges(const FontOutline *outline,
                     return RoboInvalidArgument;
                 }
                 {
-                    float cx = GlyphDeviceX(device, seg->c1.x);
-                    float cy = GlyphDeviceY(device, seg->c1.y);
-                    float px = GlyphDeviceX(device, seg->p.x);
-                    float py = GlyphDeviceY(device, seg->p.y);
+                    float cx = 0.0f;
+                    float cy = 0.0f;
+                    float px = 0.0f;
+                    float py = 0.0f;
 
+                    GlyphDevicePointF(device, seg->c1.x, seg->c1.y, &cx, &cy);
+                    GlyphDevicePointF(device, seg->p.x, seg->p.y, &px, &py);
                     res = GlyphFlattenQuad(builder, curX, curY, cx, cy, px, py, 0u);
                     if (res != RoboOk) {
                         return res;
@@ -812,13 +863,16 @@ static Result GlyphBuildEdges(const FontOutline *outline,
                     return RoboInvalidArgument;
                 }
                 {
-                    float c1x = GlyphDeviceX(device, seg->c1.x);
-                    float c1y = GlyphDeviceY(device, seg->c1.y);
-                    float c2x = GlyphDeviceX(device, seg->c2.x);
-                    float c2y = GlyphDeviceY(device, seg->c2.y);
-                    float px = GlyphDeviceX(device, seg->p.x);
-                    float py = GlyphDeviceY(device, seg->p.y);
+                    float c1x = 0.0f;
+                    float c1y = 0.0f;
+                    float c2x = 0.0f;
+                    float c2y = 0.0f;
+                    float px = 0.0f;
+                    float py = 0.0f;
 
+                    GlyphDevicePointF(device, seg->c1.x, seg->c1.y, &c1x, &c1y);
+                    GlyphDevicePointF(device, seg->c2.x, seg->c2.y, &c2x, &c2y);
+                    GlyphDevicePointF(device, seg->p.x, seg->p.y, &px, &py);
                     res = GlyphFlattenCubic(builder, curX, curY, c1x, c1y, c2x, c2y, px, py, 0u);
                     if (res != RoboOk) {
                         return res;
@@ -925,6 +979,15 @@ Result GfxGlyphMaskRasterizeOutline(const FontOutline *outline,
     }
     device.scale = sizePx / (float)unitsPerEm;
     device.origin = origin;
+    /*
+     * The rotation, defaulted rather than refused: a value outside 0..3 is a caller whose table disagrees
+     * with this one, and the glyph it belongs to still has ink to draw, so it is drawn unrotated — which is
+     * what every caller before 12.20 asked for and what the header states. Wrapping the value instead (a
+     * `& 3`) would silently turn a typo into a quarter turn, which is the failure this default avoids.
+     */
+    device.rotation = (params && params->rotation <= (uint8_t)RoboGfxGlyphRotationClockwise270)
+                          ? params->rotation
+                          : (uint8_t)RoboGfxGlyphRotationNone;
     if (!GlyphFloatOk(device.scale) || device.scale <= 0.0f) {
         return RoboInvalidArgument;
     }

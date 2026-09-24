@@ -235,7 +235,9 @@ guarantee.
 
 When Phase 12.4's glyph runs make the same glyph render thousands of times per frame, the cache
 belongs there, keyed by the run's own font-and-size handle, and `GfxGlyphMaskRetain`/`…Release` are
-already the ownership primitives it needs.
+already the ownership primitives it needs. **Phase 12.20 adds one more field to that key**: a glyph
+drawn sideways is a different mask from the same glyph drawn upright, and `GfxGlyphRasterParams`
+carries the rotation precisely so a cache built on these parameters cannot conflate the two.
 
 ## Performance
 
@@ -253,7 +255,7 @@ The phase is reached through **three call sites and no more**:
 
 | Caller | Change |
 |---|---|
-| `RoboPaintDecoration.c` (document text) | `draw.mode = RoboGfxGlyphModeAlpha` — one line, plus its argument |
+| `RoboPaintDecoration.c` (document text) | `draw.mode = RoboGfxGlyphModeAlpha` — one line, plus its argument; and (12.20) `draw.rotation` from the glyph's sideways mark |
 | `RoboDesktopChrome.c` (shell labels) | the same, and the origin is no longer snapped |
 | `RoboGraphicsText.c` | `ALPHA` now routes to the coverage path instead of `RoboNotSupported` |
 
@@ -309,6 +311,35 @@ host is a test *target*, not a second renderer, and there is no host-only text p
 the guest one. The guest image boots the desktop through the same `DesktopChromeLabel` →
 `GfxRasterDrawGlyph` → coverage path the host suite exercises, which is why
 `Scripts/Test/TestDesktop.ps1 -Target Qemu` is the visual acceptance for this phase.
+
+## Rotation — a quarter turn, applied to the outline (Phase 12.20)
+
+A vertical column holds upright ideographs and **sideways** Latin, so the rasterizer needs one more
+input: how far the glyph is turned. It is `GfxGlyphRasterParams::rotation`, a
+`GfxGlyphRotation` of 0–3 quarter turns clockwise, and `RoboGfxGlyphRotationNone` is the default
+that leaves every pre-12.20 caller bit-for-bit unchanged.
+
+**The turn is applied to the outline, not to the mask.** A point becomes a device point in one place
+— the `GlyphDevice` transform that every verb of the outline walk goes through — and a quarter turn
+there is a swap and a negation of the device offsets (`(x, y) → (-y, x)`, applied `rotation`
+times). Three consequences follow, and each is why it is done there rather than in a compositor:
+
+* **curves are turned, not resampled** — the flattening recursion sees rotated control points, so a
+  rotated `o` is as round as an upright one;
+* **the mask rectangle follows the ink**, so the caller composites the turned glyph with the same
+  `GfxRasterDrawGlyphMask` it already calls — there is no rotated-bitmap stage and no second
+  compositing path;
+* **it is exact** — the 1/256 px lattice is preserved by a swap and a negation, so a quarter turn
+  moves no ink between pixels. `graphics.glyph.rotation` reads the coverage at `(x, y)` against the
+  unrotated coverage at the position the turn maps it from, over a shape with a fractional counter,
+  which is the strongest statement available: equal bytes, not an area that happens to match.
+
+`graphics.typography.vertical_specimen` is the same claim on the shipped face at six UI sizes: `L` at
+64 px measures `29×47` upright and `47×29` turned, and the picture is written to
+`Build/Typography-Vertical.png`.
+
+An enumerator outside 0–3 (a caller's table disagreeing with this one) is drawn **unrotated** rather
+than wrapped: `& 3` would silently turn a typo into a quarter turn.
 
 ## Where the next phases plug in
 

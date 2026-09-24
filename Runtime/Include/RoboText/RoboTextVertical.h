@@ -134,9 +134,11 @@ Result RoboTextWritingAxesBlock(const RoboTextWritingAxes *axes,
  * takes, and clockwise because that is what "rotate Latin 90° in a Japanese column" means when the
  * inline axis is `+y` and the block axis is `-x`.
  *
- * This is the number a painter composes into the glyph's transform, and it is deliberately the *whole*
- * of what the painter needs to know: a painter that also chose the angle would be deciding orientation,
- * which is this layer's job.
+ * This is deliberately the *whole* of what a painter needs to know about orientation: a painter that also
+ * chose the angle would be deciding it, which is this layer's job. Since 12.20's closeout the angle is a
+ * value the painter composes (`PaintGlyphFlagSideways` on the record, `GfxGlyphRotation` at the rasterizer,
+ * where the outline is turned) rather than a comment: `text.vertical.*`, `paint.text.sideways`,
+ * `graphics.glyph.rotation` and `graphics.typography.vertical_specimen` are the chain.
  */
 float RoboTextGlyphOrientationRotation(RoboTextGlyphOrientation orientation);
 

@@ -662,6 +662,107 @@ static void TestVerticalMark(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* §26 — a face chosen by fallback inherits the writing mode           */
+/* ------------------------------------------------------------------ */
+
+/*
+ * **Fallback preserves the vertical semantics** (12.20 §26), and the claim has two halves, both read here.
+ *
+ * The first is **selection**: the font selector's unit is the script run, so a Han run is answered whole by
+ * whichever face covers it — the primary here is the same fixture *restricted to Latin*, so every scalar of
+ * the text is a miss and the chain answers with one face. `runs == scriptRuns` is the assertion that no font
+ * boundary was added inside the run, which is 12.19's rule read once more over a text whose runs are all
+ * complex-adjacent.
+ *
+ * The second is **how the face is used**: the writing mode is a field of the *shape*, not of the face, so a run
+ * the chain answered is shaped exactly as one the primary would have been — vertical, with the fallback's own
+ * `vmtx` advance and the fallback's own `vert` substitution. Nothing in the selection path knows a writing mode
+ * exists, which is why nothing in it can drop one.
+ */
+static void TestVerticalFallback(void)
+{
+    ConfFontSpec primarySpec;
+    ConfVerticalGlyphIds primaryIds;
+    ConfFace primaryFace;
+    ConfFace face;
+    ConfVerticalGlyphIds ids;
+    RoboTextFontCandidate candidate;
+    RoboTextFontFallback chain;
+    RoboTextFontSelector *selector = NULL;
+    RoboTextAnalysis *analysis = NULL;
+    RoboTextAnalysisStats stats;
+    RoboTextShapeOptions options;
+    RoboTextShapeResult *result;
+    const RoboTextGlyphRun *run;
+    uint16_t expected[2] = {0u, 0u};
+
+    /* The primary: the vertical fixture with its `cmap` cut down to the Latin letters it maps. Same fields,
+     * same `vmtx`, fewer scalars — so a Han scalar can only be answered below it in the chain. */
+    memset(&primarySpec, 0, sizeof(primarySpec));
+    ConfSpecVertical(&primarySpec, &primaryIds);
+    primarySpec.cmapCount = 0;
+    primarySpec.cmap[0].first = ConfVerticalCpLatin;
+    primarySpec.cmap[0].last = ConfVerticalCpLatin + 1u;
+    primarySpec.cmap[0].glyph = primaryIds.latinA;
+    primarySpec.cmapCount = 1u;
+    ConfFaceOpen(&primaryFace, &primarySpec, VerticalSizePx);
+
+    VerticalFaceOpen(&face, &ids);
+    RoboTextShapeOptionsInit(&options);
+    options.baseDirection = RoboTextDirectionLtr;
+    options.writingMode = RoboTextWritingVerticalRightToLeft;
+    options.textOrientation = RoboTextTextOrientationMixed;
+
+    memset(&candidate, 0, sizeof(candidate));
+    memset(&chain, 0, sizeof(chain));
+    candidate.family = "Vertical Fixture";
+    candidate.face = face.face;
+    chain.entries = &candidate;
+    chain.count = 1u;
+
+    RoboCheckEqInt((int)RoboTextFontSelectorCreate(&selector, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextFontSelectorSetPrimary(selector, &primaryFace.font, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextFontSelectorSetFallback(selector, &chain, NULL), (int)RoboOk);
+    RoboCheckEqInt((int)RoboTextAnalysisCreate(ConfView(VerticalHanPair), selector, &options, &analysis, NULL),
+                   (int)RoboOk);
+    memset(&stats, 0, sizeof(stats));
+    RoboCheckEqInt((int)RoboTextAnalysisGetStats(analysis, &stats), (int)RoboOk);
+    RoboCheckEqInt((int)stats.scriptRuns, 1);
+    RoboCheckEqInt((int)stats.runs, (int)stats.scriptRuns);
+    RoboCheckEqInt((int)stats.primaryRuns, 0);
+    RoboCheckEqInt((int)stats.fallbackRuns, 1);
+    RoboCheckEqInt((int)stats.unresolvedRuns, 0);
+    {
+        const RoboTextAnalysisRun *run = RoboTextAnalysisRunAt(analysis, 0u);
+
+        RoboCheck(run != NULL);
+        RoboCheckMsg(run->font.face == face.face, "the Han run was not answered by the chain");
+    }
+    RoboTextAnalysisDestroy(analysis);
+    RoboTextFontSelectorDestroy(selector);
+
+    /* And the face the chain handed over is shaped vertically, with **its** metrics and **its** `vert` rule. */
+    result = VerticalShape(&face, VerticalHanPair, RoboTextWritingVerticalRightToLeft,
+                           RoboTextTextOrientationMixed);
+    run = RoboTextShapeResultGlyphRun(result, 0u);
+    expected[0] = ids.vertHan0;
+    expected[1] = ids.han1;
+    ConfExpectGlyphs(result, expected, 2u, "vertical.fallback", VerticalHanPair);
+    RoboCheck(RoboTextGlyphRunIsVertical(run));
+    RoboCheckEqInt((int)RoboTextGlyphRunOrientation(run), (int)RoboTextGlyphOrientationUpright);
+    RoboCheckEqInt((int)RoboTextGlyphRunVerticalSynthesised(run), 0);
+    RoboCheck(VerticalFirstGlyph(result)->advanceX == 0.0f);
+    ConfExpectFloatClose(VerticalFirstGlyph(result)->advanceY,
+                         VerticalPx(&face, (double)ConfVerticalAdvance(ids.vertHan0)),
+                         "vertical.fallback", "advanceY");
+    ConfExpectValid(result, "vertical.fallback");
+    RoboTextShapeResultDestroy(result);
+
+    ConfFaceClose(&face);
+    ConfFaceClose(&primaryFace);
+}
+
+/* ------------------------------------------------------------------ */
 /* §9/§21 — measurement reads the final vertical advances              */
 /* ------------------------------------------------------------------ */
 
@@ -848,6 +949,7 @@ void TestRegisterTextVertical(void)
     TestRegister("text.vertical.origin", TestVerticalOrigin);
     TestRegister("text.vertical.synthesised", TestVerticalSynthesised);
     TestRegister("text.vertical.mark", TestVerticalMark);
+    TestRegister("text.vertical.fallback", TestVerticalFallback);
     TestRegister("text.vertical.measurement", TestVerticalMeasurement);
     TestRegister("text.vertical.bidi", TestVerticalBidi);
     TestRegister("text.vertical.diagnostics", TestVerticalDiagnostics);

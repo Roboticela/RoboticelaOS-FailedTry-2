@@ -515,6 +515,274 @@ static void TestTypographySpecimen(void)
 }
 
 /**
+ * Draw @p text sideways or upright from @p pen, stepping the pen along the inline axis.
+ *
+ * The bridge's own walk with one field set: `draw.rotation` is what a sideways glyph in a vertical column gets,
+ * and the **pen step is the glyph's horizontal advance in both cases** — which is the fixture's deliberate
+ * simplification, because what it exists to photograph is the raster's turn. A vertical *advance* is RoboText's
+ * (`vmtx`, or the em box when the face carries none) and is proved there, in `text.vertical.*`; this fixture has
+ * no font metrics layer under it and must not invent a second answer to how far a column steps.
+ */
+static void SpecimenVerticalText(GfxRaster *raster,
+                                 FontFace *face,
+                                 float penX,
+                                 float penY,
+                                 const char *text,
+                                 float sizePx,
+                                 GfxColorRgba8 color,
+                                 uint8_t rotation,
+                                 int vertical)
+{
+    GfxGlyphDraw draw;
+    float pen = vertical ? penY : penX;
+    size_t index = 0u;
+
+    GfxGlyphDrawInit(&draw);
+    draw.face = face;
+    draw.sizePx = sizePx;
+    draw.color = color;
+    draw.mode = RoboGfxGlyphModeAlpha;
+    draw.rotation = rotation;
+
+    while (text[index] != '\0') {
+        uint32_t codePoint = (uint8_t)text[index];
+        FontCmapLookupResult lookup;
+        GfxGlyphMetricsDevice metrics;
+        GlyphId glyph;
+
+        index++;
+        memset(&lookup, 0, sizeof(lookup));
+        glyph = ((FontFaceLookupGlyph(face, codePoint, &lookup) == RoboOk) &&
+                 lookup.status == RoboFontCmapMapped)
+                    ? lookup.glyphId
+                    : RoboGlyphIdNone;
+        draw.glyphId = glyph;
+        draw.origin = vertical ? MakeGfxPointF(penX, pen) : MakeGfxPointF(pen, penY);
+        if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {
+            break;
+        }
+        memset(&metrics, 0, sizeof(metrics));
+        pen += (GetGfxGlyphMetricsDevice(face, glyph, sizePx, &metrics) == RoboOk)
+                        ? metrics.advanceWidth
+                        : sizePx * 0.5f;
+    }
+}
+
+/** The ink's bounding box inside a row band, inclusive of its edges. Empty when nothing is inked. */
+static void SpecimenInkBox(GfxSurface *surface,
+                           GfxColorRgba8 paper,
+                           int32_t from,
+                           int32_t to,
+                           int32_t *outLeft,
+                           int32_t *outTop,
+                           int32_t *outRight,
+                           int32_t *outBottom)
+{
+    int32_t x;
+    int32_t y;
+    int found = 0;
+
+    *outLeft = 0;
+    *outTop = 0;
+    *outRight = -1;
+    *outBottom = -1;
+    for (y = from; y < to; y++) {
+        for (x = 0; x < (int32_t)GfxSurfaceWidth(surface); x++) {
+            GfxColorRgba8 color;
+
+            memset(&color, 0, sizeof(color));
+            if (GfxSurfaceGetPixel(surface, (uint32_t)x, (uint32_t)y, &color) != RoboOk) {
+                continue;
+            }
+            if (color.r == paper.r && color.g == paper.g && color.b == paper.b) {
+                continue;
+            }
+            if (!found) {
+                *outLeft = x;
+                *outRight = x;
+                *outTop = y;
+                *outBottom = y;
+                found = 1;
+            } else {
+                if (x < *outLeft) {
+                    *outLeft = x;
+                }
+                if (x > *outRight) {
+                    *outRight = x;
+                }
+                if (y < *outTop) {
+                    *outTop = y;
+                }
+                if (y > *outBottom) {
+                    *outBottom = y;
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The **vertical specimen** (Phase 12.20): a sideways column, drawn through the same bridge the paint pass
+ * calls, with the turn as a number the caller passes rather than a bitmap stage.
+ *
+ * Two claims, and the first is the one that would catch a rotated-bitmap shortcut: a glyph drawn at a quarter
+ * turn has the ink box of the upright glyph with its **width and height exchanged** (`L` is a tall letter and a
+ * sideways `L` is a wide one), within a pixel, because the outline was turned rather than the pixels resampled.
+ * The second is the column: the same walk with the pen stepping down the page inks several distinct rows of
+ * glyphs and produces a bounding box taller than it is wide, which is a vertical column rather than a line of
+ * text that happens to be rotated.
+ *
+ * The picture is written beside the build for a person; the numbers are what the suite fails on. No CJK is in
+ * it, and that is a fact about the shipped pack rather than a gap in this fixture: Inter carries no ideographs,
+ * so the **upright** half of a vertical column is proved against the conformance fixture's own face in
+ * `text.vertical.*`, and the sideways half — the one a Latin-bearing face can show — is here.
+ */
+static void TestTypographyVerticalSpecimen(void)
+{
+    unsigned char *fontBytes;
+    size_t fontSize = 0u;
+    FontSource *source = NULL;
+    FontFace *face = NULL;
+    GfxSurface *upright = NULL;
+    GfxSurface *turned = NULL;
+    GfxSurface *again = NULL;
+    GfxSurface *column = NULL;
+    GfxRaster *uprightRaster = NULL;
+    GfxRaster *turnedRaster = NULL;
+    GfxRaster *againRaster = NULL;
+    GfxRaster *columnRaster = NULL;
+    int32_t left;
+    int32_t top;
+    int32_t right;
+    int32_t bottom;
+    int32_t turnedLeft;
+    int32_t turnedTop;
+    int32_t turnedRight;
+    int32_t turnedBottom;
+    size_t index;
+
+    fontBytes = SpecimenReadFile(RoboFontAssetPath, &fontSize);
+    RoboCheckMsg(fontBytes != NULL, "the system face is unreadable");
+    if (!fontBytes) {
+        return;
+    }
+    RoboCheckEqInt(FontSourceCreateMemoryCopy(fontBytes, fontSize, &source), RoboOk);
+    free(fontBytes);
+    RoboCheckEqInt(FontFaceCreate(source, 0, &face), RoboOk);
+    RoboCheckEqInt(FontFaceParseCmap(face), RoboOk);
+
+    RoboCheckEqInt(SpecimenSurface(&upright), RoboOk);
+    RoboCheckEqInt(SpecimenSurface(&turned), RoboOk);
+    RoboCheckEqInt(SpecimenSurface(&again), RoboOk);
+    RoboCheckEqInt(SpecimenSurface(&column), RoboOk);
+    RoboCheckEqInt(GfxRasterCreate(upright, &uprightRaster), RoboOk);
+    RoboCheckEqInt(GfxRasterCreate(turned, &turnedRaster), RoboOk);
+    RoboCheckEqInt(GfxRasterCreate(again, &againRaster), RoboOk);
+    RoboCheckEqInt(GfxRasterCreate(column, &columnRaster), RoboOk);
+    RoboCheckEqInt(GfxSurfaceClearRgba8(upright, SpecimenPaper), RoboOk);
+    RoboCheckEqInt(GfxSurfaceClearRgba8(turned, SpecimenPaper), RoboOk);
+    RoboCheckEqInt(GfxSurfaceClearRgba8(again, SpecimenPaper), RoboOk);
+    RoboCheckEqInt(GfxSurfaceClearRgba8(column, SpecimenPaper), RoboOk);
+
+    /* One letter at the largest UI size, twice: as the face states it, and turned. */
+    SpecimenVerticalText(uprightRaster, face, 40.0f, 120.0f, "L", 64.0f, SpecimenInk,
+                         (uint8_t)RoboGfxGlyphRotationNone, 0);
+    SpecimenVerticalText(turnedRaster, face, 40.0f, 120.0f, "L", 64.0f, SpecimenInk,
+                         (uint8_t)RoboGfxGlyphRotationClockwise90, 0);
+    SpecimenInkBox(upright, SpecimenPaper, 0, (int32_t)SpecimenHeight, &left, &top, &right, &bottom);
+    SpecimenInkBox(turned, SpecimenPaper, 0, (int32_t)SpecimenHeight, &turnedLeft, &turnedTop,
+                   &turnedRight, &turnedBottom);
+    {
+        int32_t uprightWidth = right - left + 1;
+        int32_t uprightHeight = bottom - top + 1;
+        int32_t turnedWidth = turnedRight - turnedLeft + 1;
+        int32_t turnedHeight = turnedBottom - turnedTop + 1;
+        int32_t deltaWidth = turnedWidth - uprightHeight;
+        int32_t deltaHeight = turnedHeight - uprightWidth;
+
+        printf("vertical specimen: upright %dx%d, turned %dx%d (L at 64px)\n",
+               (int)uprightWidth, (int)uprightHeight, (int)turnedWidth, (int)turnedHeight);
+        RoboCheck(uprightHeight > uprightWidth);
+        if (deltaWidth < 0) {
+            deltaWidth = -deltaWidth;
+        }
+        if (deltaHeight < 0) {
+            deltaHeight = -deltaHeight;
+        }
+        /* Exchanged, within a pixel: the coverage edge lands on the same pixel either way. */
+        RoboCheck(deltaWidth <= 1);
+        RoboCheck(deltaHeight <= 1);
+        /* And it did not merely move: a turn that dropped the outline would ink nothing. */
+        RoboCheck(SpecimenInked(turned, SpecimenPaper, 0, (int32_t)SpecimenHeight) > 100u);
+    }
+
+    /* Determinism, on the turned surface, so the turn is part of what is compared. */
+    SpecimenVerticalText(againRaster, face, 40.0f, 120.0f, "L", 64.0f, SpecimenInk,
+                         (uint8_t)RoboGfxGlyphRotationClockwise90, 0);
+    RoboCheck(SurfacesEqual(turned, again));
+
+    /*
+     * The column, once per UI size: three letters each turned, the pen stepping down. Each size gets its own
+     * **rows** (and its own x, for a readable picture), which is what the band count below reads -- a column at
+     * a different x but the same y would ink the same rows and the count would say nothing.
+     */
+    for (index = 0u; index < SpecimenSizeCount; index++) {
+        SpecimenVerticalText(columnRaster, face, 40.0f + (float)index * 40.0f,
+                             40.0f + (float)index * 120.0f, "ABC", SpecimenSizes[index], SpecimenInk,
+                             (uint8_t)RoboGfxGlyphRotationClockwise90, 1);
+    }
+    SpecimenInkBox(column, SpecimenPaper, 0, (int32_t)SpecimenHeight, &left, &top, &right, &bottom);
+    {
+        int32_t columnWidth = right - left + 1;
+        int32_t columnHeight = bottom - top + 1;
+        uint32_t bands = 0u;
+        int32_t y;
+        int inBand = 0;
+
+        printf("vertical specimen: column %dx%d across %u columns\n", (int)columnWidth,
+               (int)columnHeight, (unsigned)SpecimenSizeCount);
+        RoboCheck(columnHeight > columnWidth);
+        /*
+         * A band is a run of inked rows. Each size's column is at its own y, so the six of them cannot share
+         * rows -- and within one column the three turned letters may or may not touch, which is why the count is
+         * bounded rather than pinned: **at least one band per size** (every size drew) and **at most three**
+         * (three letters per column), which together say the columns are six separate objects down the page.
+         */
+        for (y = 0; y < (int32_t)SpecimenHeight; y++) {
+            uint32_t inked = SpecimenInked(column, SpecimenPaper, y, y + 1);
+
+            if (inked > 0u) {
+                if (!inBand) {
+                    bands++;
+                    inBand = 1;
+                }
+            } else {
+                inBand = 0;
+            }
+        }
+        printf("vertical specimen: %u ink bands for %u columns\n", (unsigned)bands,
+               (unsigned)SpecimenSizeCount);
+        RoboCheck(bands >= (uint32_t)SpecimenSizeCount);
+        RoboCheck(bands <= (uint32_t)SpecimenSizeCount * 3u);
+    }
+
+    if (SpecimenWritePng(column, "Build/Typography-Vertical.png")) {
+        printf("typography checkpoint: Build/Typography-Vertical.png\n");
+    }
+
+    GfxRasterDestroy(uprightRaster);
+    GfxRasterDestroy(turnedRaster);
+    GfxRasterDestroy(againRaster);
+    GfxRasterDestroy(columnRaster);
+    GfxSurfaceRelease(upright);
+    GfxSurfaceRelease(turned);
+    GfxSurfaceRelease(again);
+    GfxSurfaceRelease(column);
+    FontFaceRelease(face);
+    FontSourceRelease(source);
+}
+
+/**
  * The same path at a size where hinting would matter most, and where it does not exist.
  *
  * RoboFont exposes no TrueType bytecode interpreter, so this build has no hinting; the phase's
@@ -573,4 +841,5 @@ void TestRegisterGraphicsTypography(void)
 {
     TestRegister("graphics.typography.specimen", TestTypographySpecimen);
     TestRegister("graphics.typography.small_size_coverage", TestTypographySmallSizeCoverage);
+    TestRegister("graphics.typography.vertical_specimen", TestTypographyVerticalSpecimen);
 }

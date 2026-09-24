@@ -290,6 +290,26 @@ static Result DecorationDrawText(GfxRaster *raster,
         }
         draw.glyphId = glyph->glyphId;
         draw.origin = MakeGfxPointF(penX + glyph->offsetX, baselineY + penY + glyph->offsetY);
+        /*
+         * **A sideways glyph is drawn turned** (Phase 12.20), by exactly one quarter turn clockwise -- the
+         * angle `RoboTextGlyphOrientationRotation(RoboTextGlyphOrientationSideways)` states, and the one CSS's
+         * `text-orientation: sideways` means. That the two are the same quarter turn is not left to a comment:
+         * `paint.text.sideways` draws a sideways record and reads where the ink landed, and
+         * `text.vertical.mark` reads the same orientation off the run, so a change on either side of the seam
+         * fails a case rather than silently halving an angle.
+         *
+         * The pen still advances by the same pair of numbers either way. A sideways glyph's advance is down
+         * the column exactly as an upright one's is: the advance is the shaper's answer about the **pen**, and
+         * the rotation is its answer about the **ink** -- which is why one is a number pair and the other is a
+         * flag, and why neither is derived from the other here.
+         *
+         * Nothing else in this pass changes. The id, the placement, the clip and the colour are the walk they
+         * were, so a renderer still cannot learn a script, a writing mode or a code point from this loop -- it
+         * is handed a rotation the way it is handed a mask.
+         */
+        draw.rotation = PaintGlyphIsSideways(glyph)
+                            ? (uint8_t)RoboGfxGlyphRotationClockwise90
+                            : (uint8_t)RoboGfxGlyphRotationNone;
         if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {
             return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboError,
                                    "a glyph could not be drawn");

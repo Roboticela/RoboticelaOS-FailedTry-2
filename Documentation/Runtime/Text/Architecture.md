@@ -367,7 +367,7 @@ instance**: a style records them and nothing applies an axis.
 | | |
 |---|---|
 | Build | `Scripts/Build/BuildRoboText.ps1` (module + the shipped pack's presence check) |
-| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 245 cases |
+| Test | `Scripts/Test/TestRoboText.ps1 -Target Host` — `text.*`, 293 cases |
 | Conformance | `Scripts/Test/TestRoboTextConformance.ps1 -Target Host` — `text.shaping.*` only, 55 cases (12.18) |
 | Suites | `Tests/Text/SuiteRoboText{Buffer,Runs,Glyphs,Shape,Script,Direction,Bidi,Unicode,FontSelection,Analysis,Gsub,Ligature,Gpos,Kerning,Conformance,Gallery,Shaping{Latin,Scripts,Features,Kerning,Marks,Fallback,Integration}}.c` |
 | Fixture | `Tests/Text/RoboTextTestSupport.h` — opens the **shipped** pack through RoboFont alone |
@@ -793,7 +793,9 @@ axes are an explicit inline/block pair (`RoboTextWritingAxes`); the per-glyph an
 | Orientation as a run boundary | `RoboTextRuns.c` | VerticalText.md §4 |
 | Writing mode and orientation in the run key | `RoboTextRunList.c`, `RoboTextGlyphs.h` (`RoboTextGlyphRunKeyField`) | VerticalText.md §4 |
 | The measurement's `advanceY` | `RoboTextMeasurement.c` | VerticalText.md §7 |
-| The pen that accumulates both advances | `RoboPaint/RoboPaintDecoration.c` | VerticalText.md §8 |
+| The pen that accumulates both advances, and the sideways mark it carries | `RoboPaint/RoboPaintDecoration.c`, `RoboPaintContext.c` (the recorder), `RoboPaint/RoboPaintText.h` (`PaintGlyphFlagSideways`) | VerticalText.md §8 |
+| The quarter turn the rasterizer applies to the outline | `RoboGraphics/RoboGraphicsGlyph.c` (`GfxGlyphRasterParams::rotation`), `RoboGraphicsText.c` (`GfxGlyphDraw`) | TextRasterQuality.md, "Rotation" |
+| The guest's own vertical specimen (the chain inside the OS) | `User/robo-runtime/main.c` (`GuestVerticalCheckpoint`), pinned in `Scripts/pipeline/commands.test.ps1` | VerticalText.md §8.1, §11 |
 
 The three properties a reader should check against the code:
 
@@ -807,7 +809,11 @@ The three properties a reader should check against the code:
    reader asks `vmtx` in a vertical mode and `hmtx` in a horizontal one (VerticalText.md §6.4).
 3. **The paint half branches on nothing.** `RoboPaintDecoration.c` adds each glyph's `advanceX` and
    `advanceY`; horizontal text has a zero second term, so the arithmetic that was there before is unchanged and
-   the pass still cannot learn a script, an orientation or a vertical origin.
+   the pass still cannot learn a script, a writing mode or a vertical origin. The sideways half is **carried,
+   not re-derived**: one `PaintGlyphFlagSideways` bit set per glyph by the recorder from the run RoboText
+   produced (a paint record can span several runs, so the record is the wrong grain), handed by the pen to
+   `GfxGlyphDraw` as a quarter turn, and applied by the rasterizer **to the outline** in the one device
+   transform — so a painter never tests a code point and no layer below RoboText decides an orientation.
 
 The version moved to `1.11.0`. `RoboTextGetCapabilities` reports `verticalText`, `writingAxes`,
 `verticalOrientation`, `verticalMetrics`, `verticalFeatures` and `verticalDiagnostics` `1`, each read field by

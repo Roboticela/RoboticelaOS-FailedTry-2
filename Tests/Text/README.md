@@ -91,12 +91,12 @@ glyph id is derived from the fixture's run array so adding a run cannot move an 
 
 | Suite | Prefix | What it is about |
 |---|---|---|
-| `SuiteRoboTextVertical.c` | `text.vertical.*` | the writing mode's inline/block axes and the unknown mode's horizontal default, the three orientation tables with the **rotated** one beating the script, whitespace taking its neighbour, orientation as a run boundary with the forced modes, `vert` substituting through the ordinary GSUB engine vertically and not horizontally, `advanceX == 0` and `advanceY` the substitute's `vmtx` entry, the origin as a placement offset, a face with no `vmtx` shaped at its em box and counted, the `mark` attachment in both modes with the pen's step taken along the inline axis, the measurement's `advanceY` with `width == 0`, an Arabic run still RTL in a column, the dump, and determinism |
+| `SuiteRoboTextVertical.c` | `text.vertical.*` | the writing mode's inline/block axes and the unknown mode's horizontal default, the three orientation tables with the **rotated** one beating the script, whitespace taking its neighbour, orientation as a run boundary with the forced modes, `vert` substituting through the ordinary GSUB engine vertically and not horizontally, `advanceX == 0` and `advanceY` the substitute's `vmtx` entry, the origin as a placement offset, a face with no `vmtx` shaped at its em box and counted, the `mark` attachment in both modes with the pen's step taken along the inline axis, a vertical run answered by the fallback chain keeping the mode and the `vmtx` advances, the measurement's `advanceY` with `width == 0`, an Arabic run still RTL in a column, the dump, and determinism |
 
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host            # 291 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboText.ps1 -Target Host            # 293 cases; also writes Build/Text-GlyphTable.txt
 Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 55 cases; just text.shaping.*
 Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```

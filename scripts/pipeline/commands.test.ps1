@@ -324,6 +324,31 @@ $script:RoboDisplayMarkers = @(
     "ROBO_QEMU_SHAPING_PIXELS=0x00002E68",
     "ROBO_QEMU_SHAPING_FAMILIES=0x00000008",
     "ROBO_QEMU_SHAPING_UNRESOLVED=0x00000000",
+    # Phase 12.20: vertical writing, shaped and rasterised inside the OS by a second off-screen render (the
+    # document path has no writing mode at all -- the phase's own non-goal). "ABC" asked for `vertical-rl` +
+    # `sideways`: one run, three glyphs, and the pen's step on the **other** axis -- 120.000 px of `advanceY`
+    # (three em boxes: Inter carries no `vmtx`, so each is synthesised, and 40 px is the stated fallback) and
+    # `advanceX` zero. Then the rotation, which is the half a host PNG cannot speak for:
+    # `ROBO_QEMU_VERTICAL_INK_UPRIGHT` and `..._INK_TURNED` are **the same number to the pixel** (314), because
+    # the rasterizer turns the *outline* in its own 1/256 px lattice rather than resampling a mask, and the two
+    # ink boxes are each other with width and height exchanged (26x30 against 30x26). `..._COLUMN_BOX` is the
+    # pen's own verdict on the whole run: 31 wide by 106 tall, three turned letters stacked downward. A build
+    # that drew a sideways glyph upright fails on the box; one that composited a rotated bitmap fails on the
+    # ink count.
+    "ROBO_QEMU_VERTICAL_OK",
+    "ROBO_QEMU_VERTICAL_MODE=0x00000001",
+    "ROBO_QEMU_VERTICAL_RUNS=0x00000001",
+    "ROBO_QEMU_VERTICAL_GLYPHS=0x00000003",
+    "ROBO_QEMU_VERTICAL_ORIENT=0x00000001",
+    "ROBO_QEMU_VERTICAL_ROTATION=0x00000001",
+    "ROBO_QEMU_VERTICAL_ADVANCE_Y=0x0001D4C0",
+    "ROBO_QEMU_VERTICAL_ADVANCE_X=0x00000000",
+    "ROBO_QEMU_VERTICAL_INK_UPRIGHT=0x0000013A",
+    "ROBO_QEMU_VERTICAL_INK_TURNED=0x0000013A",
+    "ROBO_QEMU_VERTICAL_BOX_UPRIGHT=0x001A001E",
+    "ROBO_QEMU_VERTICAL_BOX_TURNED=0x001E001A",
+    "ROBO_QEMU_VERTICAL_COLUMN_INK=0x00000408",
+    "ROBO_QEMU_VERTICAL_COLUMN_BOX=0x001F006A",
     # And it reached the screen: every pixel of the 1280x800 destination was written.
     "ROBO_QEMU_PRESENT_OK",
     "ROBO_QEMU_PRESENT_COMPLETE=0x00000001",
@@ -495,8 +520,8 @@ function Invoke-RoboQemuDisplayTest {
         $echo = Start-RoboNetEcho
         try {
             $res = Invoke-RoboQemuSerialRun -Markers $script:RoboDisplayMarkers `
-                -FailPatterns @("ROBO_QEMU_DISPLAY_FAIL") -TimeoutSeconds $script:RoboTimeout.Runtime `
-                -Label "qemu-display"
+                -FailPatterns @("ROBO_QEMU_DISPLAY_FAIL", "ROBO_QEMU_SHAPING_FAIL", "ROBO_QEMU_VERTICAL_FAIL") `
+                -TimeoutSeconds $script:RoboTimeout.Runtime -Label "qemu-display"
             Assert-RoboQemuResult -Result $res -Label "QEMU display smoke" -Markers $script:RoboDisplayMarkers
         } finally { Stop-RoboNetEcho $echo }
     } | Out-Null
