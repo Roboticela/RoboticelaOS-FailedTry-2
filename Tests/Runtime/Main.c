@@ -327,6 +327,32 @@ void TestRegisterInputPayloads(void);
 void TestRegisterInputKeyboardState(void);
 void TestRegisterInputLayout(void);
 void TestRegisterInputText(void);
+void TestRegisterInputCommand(void);
+/* Phase 13.14--13.19 — the pointer state machine: the live pointer table, derived click counting, capture,
+ * hover, and the wheel conversion a scroller needs. */
+void TestRegisterInputPointerState(void);
+/* Phase 13.25--13.28 — focus: one focus per window scope, the both-ends transition and the navigation
+ * chain. */
+void TestRegisterInputFocus(void);
+/* Phase 13.29--13.36 — hit testing, the event path, propagation, the three-phase walk and the
+ * default-action table. */
+void TestRegisterInputDispatch(void);
+/* Phase 13.20/13.21 — touch contacts keyed by the hardware's id, and the pointer normalization. */
+void TestRegisterInputTouch(void);
+/* Phase 13.23/13.24 — the gesture sample, the arena that picks one winner, and the shipped recognizer. */
+void TestRegisterInputGesture(void);
+/* Phase 13.40/13.41 — the clipboard: formats, the by-value entry, and copy/paste over logical text. */
+void TestRegisterInputClipboard(void);
+/* Phase 13.43 — the cursor: the shape vocabulary, the default table, the overrides and the hit-test decision. */
+void TestRegisterInputCursor(void);
+/* Phase 13.42 — drag and drop: the negotiation, the arrival, the drop and the cancel. */
+void TestRegisterInputDragDrop(void);
+/* Phase 13.37--13.39 — the input-method context: caret geometry, surrounding text and the candidate rect. */
+void TestRegisterInputIme(void);
+/* Phase 13.44/13.78 — the session: hotplug's by-device sweep and the transient reset. */
+void TestRegisterInputSession(void);
+/* Phase 13.49--13.51 — recording, replay and the injection privilege table. */
+void TestRegisterInputReplay(void);
 
 int main(int argc, char **argv)
 {
@@ -653,6 +679,18 @@ int main(int argc, char **argv)
     TestRegisterInputKeyboardState();
     TestRegisterInputLayout();
     TestRegisterInputText();
+    TestRegisterInputCommand();
+    TestRegisterInputPointerState();
+    TestRegisterInputFocus();
+    TestRegisterInputDispatch();
+    TestRegisterInputTouch();
+    TestRegisterInputGesture();
+    TestRegisterInputClipboard();
+    TestRegisterInputCursor();
+    TestRegisterInputDragDrop();
+    TestRegisterInputIme();
+    TestRegisterInputSession();
+    TestRegisterInputReplay();
     /* Registered last: desktop.scene.lifetime intentionally shuts the layers
      * down and brings them back, so nothing may follow it. */
     TestRegisterDesktopScene();

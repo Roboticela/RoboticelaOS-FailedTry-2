@@ -69,7 +69,7 @@ Result InputTextPipelineSetLayout(InputTextPipeline *pipeline,
                                  InputDiag *diag)
 {
     if (!pipeline) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainText, RoboInvalidArgument,
                              "no pipeline to point at a layout");
     }
     /* NULL is a legitimate layout: it means every key produces nothing, which is what a session in a
@@ -214,7 +214,7 @@ Result InputTextPipelineTranslate(InputTextPipeline *pipeline,
     uint32_t produced = 0u;
 
     if (!pipeline || !keyEvent || !outEvents || !outCount) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainText, RoboInvalidArgument,
                              "a pipeline, a key event, somewhere for the events and somewhere for the "
                              "count are all needed");
     }
@@ -222,11 +222,11 @@ Result InputTextPipelineTranslate(InputTextPipeline *pipeline,
     if (outCapacity < RoboInputTextMaxEvents) {
         /* Refused rather than truncated: one chord may produce two events, and a caller with room for one
          * would silently lose half of what the user typed. */
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainText, RoboInvalidArgument,
                              "the output array must hold RoboInputTextMaxEvents events");
     }
     if (!InputEventTypeIsKey(keyEvent->type)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainText, RoboInvalidArgument,
                              "only a key event produces text");
     }
     /* An up produces nothing, and is accepted rather than refused so a caller can hand **every** key event

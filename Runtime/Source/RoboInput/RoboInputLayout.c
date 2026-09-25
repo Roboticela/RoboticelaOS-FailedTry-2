@@ -238,31 +238,31 @@ Result InputLayoutMappingSet(InputLayoutMapping *mapping,
     InputLayoutMapping filled;
 
     if (!mapping) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "nowhere to put the mapping");
     }
     if (physical == RoboPhysicalKeyUnknown) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a mapping needs a key position");
     }
     if (!InputLayoutLevelIsKnown(level)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a mapping needs a level this build defines");
     }
     if ((flags & ~(uint32_t)RoboInputLayoutMappingFlagAll) != 0u) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "mapping flags carry a bit this build does not define");
     }
     if (deadKey != (uint32_t)RoboInputDeadKeyNone && !InputDeadKeyIsKnown(deadKey)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a mapping names a dead key this build does not define");
     }
     if (!RiTextFits(text, RoboInputTextMax)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "the mapping's text is longer than one keystroke may carry");
     }
     if (!LogicalKeyIsKnown(logical)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a mapping needs an interpreted identity this build defines");
     }
 
@@ -277,7 +277,7 @@ Result InputLayoutMappingSet(InputLayoutMapping *mapping,
      * the next key cannot compose with it -- and a dead key with no spacing form would be a key that
      * swallows itself. */
     if (deadKey != (uint32_t)RoboInputDeadKeyNone && filled.text[0] == '\0') {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a dead key's mapping must carry its spacing form as its text");
     }
 
@@ -386,11 +386,11 @@ void InputLayoutSort(InputLayout *layout)
 Result InputLayoutSetName(InputLayout *layout, const char *name, InputDiag *diag)
 {
     if (!layout) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "no layout to name");
     }
     if (!RiTextFits(name, RoboInputLayoutNameMax)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "the layout name is longer than the record can hold");
     }
     RiTextCopy(layout->name, RoboInputLayoutNameMax, name);
@@ -404,11 +404,11 @@ Result InputLayoutSetMapping(InputLayout *layout,
     uint32_t index;
 
     if (!layout || !mapping) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a layout and a mapping are both needed");
     }
     if (!InputLayoutMappingIsValid(mapping)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "the mapping is not one a layout may hold");
     }
     for (index = 0u; index < layout->count; index++) {
@@ -422,7 +422,7 @@ Result InputLayoutSetMapping(InputLayout *layout,
         }
     }
     if (layout->count >= RoboInputLayoutMaxMappings) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboNotSupported,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboNotSupported,
                              "the layout's mapping table is full");
     }
     layout->mappings[layout->count] = *mapping;
@@ -440,11 +440,11 @@ Result InputLayoutLookup(const InputLayout *layout,
     uint32_t index;
 
     if (!layout || !out) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a layout and somewhere to put the mapping are both needed");
     }
     if (!InputLayoutLevelIsKnown(level)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "no such level");
     }
     /* A linear scan over a sorted table, because the table is bounded at 128 and a binary search would be
@@ -457,7 +457,7 @@ Result InputLayoutLookup(const InputLayout *layout,
             return RoboOk;
         }
     }
-    return RoboInputDiag(diag, RoboInputDomainEvent, RoboNotFound,
+    return RoboInputDiag(diag, RoboInputDomainLayout, RoboNotFound,
                          "the layout has no mapping for that key at that level");
 }
 
@@ -472,11 +472,11 @@ Result InputLayoutMappingAt(const InputLayout *layout,
                             InputDiag *diag)
 {
     if (!layout || !out) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "a layout and somewhere to put the mapping are both needed");
     }
     if (index >= layout->count) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboNotFound,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboNotFound,
                              "no mapping at that index");
     }
     *out = layout->mappings[index];
@@ -609,7 +609,7 @@ static void TextScalarToUtf8(Uchar32 scalar, char *out, size_t capacity, InputDi
     out[0] = '\0';
     if (scalar == (Uchar32)0u ||
         UnicodeUtf8Encode(scalar, out, capacity - 1u, &written) != RoboUnicodeOk) {
-        RoboInputDiag(diag, RoboInputDomainEvent, RoboError,
+        RoboInputDiag(diag, RoboInputDomainLayout, RoboError,
                       "a dead key's spacing form could not be encoded");
         return;
     }
@@ -655,7 +655,7 @@ static Result LayoutAddKey(InputLayout *layout,
     if (logical == RoboLogicalKeyUnknown) {
         /* A key the order lists but the rows have no identity for: refused rather than mapped to nothing, so
          * a typo is a build-time refusal rather than a key that silently does nothing. */
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboParseError,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboParseError,
                              "the built-in layout lists a key whose base character is unmapped");
     }
 
@@ -705,16 +705,16 @@ Result InputLayoutCreateBuiltin(InputLayout *layout, InputLayoutId id, InputDiag
     int international;
 
     if (!layout) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "nowhere to put the layout");
     }
     if (id != RoboInputLayoutUsAscii && id != RoboInputLayoutUsInternational) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboInvalidArgument,
                              "no such built-in layout");
     }
     international = id == RoboInputLayoutUsInternational;
     if (sizeof(layoutUsBaseChars) != sizeof(layoutUsShiftChars)) {
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboError,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboError,
                              "the built-in layout's two rows disagree about their length");
     }
 
@@ -728,7 +728,7 @@ Result InputLayoutCreateBuiltin(InputLayout *layout, InputLayoutId id, InputDiag
     if (keyCount != sizeof(layoutUsBaseChars) || keyCount != sizeof(layoutUsShiftChars)) {
         /* A row shorter than the key order would leave the tail unmapped and a row longer would read past
          * it, so a typo in either is a refusal rather than a key that quietly does nothing. */
-        return RoboInputDiag(diag, RoboInputDomainEvent, RoboError,
+        return RoboInputDiag(diag, RoboInputDomainLayout, RoboError,
                              "the built-in layout's key order and character rows disagree");
     }
 

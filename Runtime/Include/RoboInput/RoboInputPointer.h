@@ -96,6 +96,9 @@ typedef struct InputWheelData {
 /** Clear @p wheel. Safe on NULL. */
 void InputWheelDataInit(InputWheelData *wheel);
 
+/** Number of scroll units this build defines. Asserted positionally by `input.conformance.*`. */
+#define RoboInputScrollUnitCount 2u
+
 /** Non-zero when @p unit is a unit this build defines. */
 int InputScrollUnitIsKnown(MouseScrollUnit unit);
 

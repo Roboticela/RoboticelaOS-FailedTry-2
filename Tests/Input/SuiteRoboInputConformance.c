@@ -111,7 +111,24 @@ static void TestConformanceVocabulary(void)
     RoboCheckEqInt(RoboInputDomainBridge, 5);
     RoboCheckEqInt(RoboInputDomainDump, 6);
     RoboCheckEqInt(RoboInputDomainDevice, 7);
-    RoboCheckEqInt(RoboInputDomainCount, 8);
+    RoboCheckEqInt(RoboInputDomainLayout, 8);
+    RoboCheckEqInt(RoboInputDomainText, 9);
+    RoboCheckEqInt(RoboInputDomainCommand, 10);
+    RoboCheckEqInt(RoboInputDomainShortcut, 11);
+    RoboCheckEqInt(RoboInputDomainPointer, 12);
+    RoboCheckEqInt(RoboInputDomainFocus, 13);
+    RoboCheckEqInt(RoboInputDomainDispatch, 14);
+    RoboCheckEqInt(RoboInputDomainTouch, 15);
+    RoboCheckEqInt(RoboInputDomainGesture, 16);
+    RoboCheckEqInt(RoboInputDomainClipboard, 17);
+    RoboCheckEqInt(RoboInputDomainCursor, 18);
+    RoboCheckEqInt(RoboInputDomainDragDrop, 19);
+    RoboCheckEqInt(RoboInputDomainIme, 20);
+    RoboCheckEqInt(RoboInputDomainSession, 21);
+    RoboCheckEqInt(RoboInputDomainReplay, 22);
+    RoboCheckEqInt(RoboInputDomainAccessibility, 23);
+    RoboCheckEqInt(RoboInputDomainGamepad, 24);
+    RoboCheckEqInt(RoboInputDomainCount, 25);
 
     /* Every value of every vocabulary has a name, and no two types share one. The cleared value of the
      * *source*, *space*, *kind* and *domain* vocabularies is legitimately named "unknown", which is why the
@@ -171,7 +188,24 @@ static void TestConformanceVocabulary(void)
     RoboCheck(!InputSpaceIsKnown(RoboInputSpaceUnknown));
     RoboCheck(!InputSpaceIsKnown((InputSpace)5));
     RoboCheck(!InputTargetKindIsKnown((InputTargetKind)4));
-    RoboCheck(!InputDomainIsKnown((InputDiagnosticDomain)8));
+    RoboCheck(!InputDomainIsKnown((InputDiagnosticDomain)25));
+    RoboCheckStrEq(InputDomainName(RoboInputDomainFocus), "focus");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainDispatch), "dispatch");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainTouch), "touch");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainGesture), "gesture");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainClipboard), "clipboard");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainCursor), "cursor");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainDragDrop), "drag-drop");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainIme), "ime");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainSession), "session");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainReplay), "replay");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainAccessibility), "accessibility");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainGamepad), "gamepad");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainLayout), "layout");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainText), "text");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainCommand), "command");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainShortcut), "shortcut");
+    RoboCheckStrEq(InputDomainName(RoboInputDomainPointer), "pointer");
 
     /* Only three planes can be converted through: the application plane is named and never converted. */
     RoboCheck(InputSpaceIsConvertible(RoboInputSpaceScreen));
@@ -205,22 +239,68 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(caps.keyboardLayout, 1);
     RoboCheckEqInt(caps.deadKeys, 1);
     RoboCheckEqInt(caps.textInput, 1);
+    /* 13.12/13.13: a command reaches an editor through the bridge, and the layer still owns no caret. */
+    RoboCheckEqInt(caps.textEditing, 1);
+    /* 13.14--13.19: the pointer state machine -- state, capture, hover, derived click counts and wheel
+     * normalization. It routes nothing, which is why `dispatch` is still 0 below. */
+    RoboCheckEqInt(caps.pointerState, 1);
+    RoboCheckEqInt(caps.pointerCapture, 1);
+    RoboCheckEqInt(caps.pointerHover, 1);
+    RoboCheckEqInt(caps.clickCounting, 1);
+    RoboCheckEqInt(caps.wheelNormalization, 1);
+    /* 13.20/13.21 and 13.22: contacts keyed by the hardware's id, and the pressure/tilt a pen may report
+     * (each gated by the device's own capability word rather than assumed present). */
+    RoboCheckEqInt(caps.touchInput, 1);
+    RoboCheckEqInt(caps.penInput, 1);
+    /* 13.23/13.24: the gesture sample, the arena and the shipped recognizer. */
+    RoboCheckEqInt(caps.gestures, 1);
+    /* 13.25--13.28: one focused target per scope, the transition record and the navigation chain. */
+    RoboCheckEqInt(caps.focus, 1);
+    /* 13.29--13.36: the dispatcher, the propagation context a listener writes to, and the command layer's
+     * scoped shortcuts. */
+    RoboCheckEqInt(caps.dispatch, 1);
+    RoboCheckEqInt(caps.propagation, 1);
+    RoboCheckEqInt(caps.shortcuts, 1);
+    RoboCheckEqInt(caps.commandRouting, 1);
+    /* 13.40/13.41: the clipboard, whose copy of an *empty* selection leaves what is there alone. */
+    RoboCheckEqInt(caps.clipboard, 1);
+    /* 13.42 and 13.43: the drag session and the cursor's single owner. */
+    RoboCheckEqInt(caps.dragDrop, 1);
+    RoboCheckEqInt(caps.cursorManagement, 1);
+    /* 13.53: the gamepad vocabulary. Its navigation mapping (13.54) is a *different* flag and still 0. */
+    RoboCheckEqInt(caps.gamepad, 1);
+    /* 13.37--13.39: the input-method *interface* -- the caret, the surrounding text a purpose permits, the
+     * composition doors and the candidate rectangle. */
+    RoboCheckEqInt(caps.inputMethods, 1);
 
     /* What deliberately does not, each one named so that a reader cannot mistake the model for a system. */
     RoboCheckEqInt(caps.deviceReading, 0);
     RoboCheckEqInt(caps.platformAdapters, 0);
-    RoboCheckEqInt(caps.dispatch, 0);
-    RoboCheckEqInt(caps.focus, 0);
-    /* A dead key is **not** a composition: the layout's one waiting accent is this module's, while a
-     * composition is an input *method*'s preedit and its candidate window (13.37). Setting this one here
-     * would be the flag claiming a feature nobody built. */
-    RoboCheckEqInt(caps.textEditing, 0);
+    /*
+     * A dead key is **not** a composition, and neither is an input-method *interface*: what stays 0 is the
+     * pipeline from an input method's preedit into RoboText's composition, which is a caller's wiring rather
+     * than this module's code.
+     */
     RoboCheckEqInt(caps.textComposition, 0);
-    RoboCheckEqInt(caps.clipboard, 0);
-    RoboCheckEqInt(caps.propagation, 0);
-    RoboCheckEqInt(caps.gestures, 0);
+    /* D-pad to focus, A to activate: the gamepad vocabulary is here, the *mapping* is not. */
+    RoboCheckEqInt(caps.gamepadNavigation, 0);
     RoboCheckEqInt(caps.eventLoop, 0);
     RoboCheckEqInt(caps.multiprocessInput, 0);
+    /* 13.44/13.78: the session -- a device's sweep and the transient reset, which is what makes "nothing
+     * stale remains" checkable rather than rhetorical. */
+    RoboCheckEqInt(caps.deviceHotplug, 1);
+    RoboCheckEqInt(caps.inputReset, 1);
+    /* 13.49--13.51: recording, replay through the same pipeline, synthetic input, and the privilege
+     * comparison behind the boundary. */
+    RoboCheckEqInt(caps.inputReplay, 1);
+    RoboCheckEqInt(caps.syntheticInput, 1);
+    RoboCheckEqInt(caps.injectionBoundaries, 1);
+    RoboCheckEqInt(RoboInputInjectionBoundariesImplemented, caps.injectionBoundaries);
+    /* Named and not built, each its own row in the phase brief: coalescing and latency metrics, and the
+     * accessibility command hooks (13.52). */
+    RoboCheckEqInt(caps.eventCoalescing, 0);
+    RoboCheckEqInt(caps.inputLatency, 0);
+    RoboCheckEqInt(caps.accessibilityHooks, 0);
 
     RoboCheckEqInt(caps.eventTypeCount, RoboInputEventTypeCount);
     RoboCheckEqInt(caps.sourceCount, RoboInputSourceCount);
@@ -231,6 +311,18 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(caps.layoutLevelCount, RoboInputLayoutLevelCount);
     RoboCheckEqInt(caps.deadKeyCount, RoboInputDeadKeyCount);
     RoboCheckEqInt(caps.textEventsPerChord, RoboInputTextMaxEvents);
+    RoboCheckEqInt(caps.maxPointers, RoboInputMaxPointers);
+    RoboCheckEqInt(caps.maxCaptures, RoboInputMaxCaptures);
+    RoboCheckEqInt(caps.scrollUnitCount, RoboInputScrollUnitCount);
+    RoboCheckEqInt(caps.cursorTypeCount, RoboInputCursorTypeCount);
+    RoboCheckEqInt(caps.maxCursorOverrides, RoboInputMaxCursorOverrides);
+    RoboCheckEqInt(caps.dragOperationCount, RoboInputDragOperationCount);
+    RoboCheckEqInt(caps.dragPhaseCount, RoboInputDragPhaseCount);
+    RoboCheckEqInt(caps.dragPreviewBytes, RoboInputDragTextMax);
+    RoboCheckEqInt(caps.imePurposeCount, RoboInputImeTextPurposeCount);
+    RoboCheckEqInt(caps.imeMaxClauses, RoboInputImeMaxClauses);
+    RoboCheckEqInt(caps.clipboardFormatsMax, RoboInputClipboardFormatsMax);
+    RoboCheckEqInt(caps.clipboardFormatCount, RoboInputClipboardFormatCount);
     RoboCheckStrEq(caps.version, RoboInputVersionString);
     RoboCheckStrEq(caps.version, InputVersionString());
 
@@ -287,7 +379,7 @@ static void TestModelDump(void)
     RoboCheck(strcmp(first, second) == 0);
 
     /* The summary line, whole, and first. */
-    RoboCheck(strstr(first, "input 0.3.0 model=1 adapters=0 types=33 sources=9 spaces=5\n") == first);
+    RoboCheck(strstr(first, "input 0.6.0 model=1 adapters=0 types=33 sources=9 spaces=5\n") == first);
 
     /* One line per vocabulary entry, and no line of one vocabulary masquerading as another. */
     for (index = 0u; index + 1u < firstLength; index++) {

@@ -50,21 +50,35 @@
 #include "RoboBase/RoboError.h"
 
 #include "RoboInput/RoboInputBridge.h"
+#include "RoboInput/RoboInputClipboard.h"
+#include "RoboInput/RoboInputCommand.h"
 #include "RoboInput/RoboInputComposition.h"
 #include "RoboInput/RoboInputCoordinates.h"
+#include "RoboInput/RoboInputCursor.h"
 #include "RoboInput/RoboInputDebug.h"
 #include "RoboInput/RoboInputDevice.h"
 #include "RoboInput/RoboInputDiagnostics.h"
+#include "RoboInput/RoboInputDispatch.h"
+#include "RoboInput/RoboInputDragDrop.h"
 #include "RoboInput/RoboInputEvent.h"
+#include "RoboInput/RoboInputFocus.h"
+#include "RoboInput/RoboInputGesture.h"
 #include "RoboInput/RoboInputGamepad.h"
+#include "RoboInput/RoboInputIme.h"
 #include "RoboInput/RoboInputKeyboard.h"
 #include "RoboInput/RoboInputKeyboardState.h"
 #include "RoboInput/RoboInputLayout.h"
 #include "RoboInput/RoboInputPen.h"
 #include "RoboInput/RoboInputPointer.h"
+#include "RoboInput/RoboInputPointerState.h"
 #include "RoboInput/RoboInputQueue.h"
+#include "RoboInput/RoboInputReplay.h"
+#include "RoboInput/RoboInputSession.h"
+#include "RoboInput/RoboInputShortcut.h"
 #include "RoboInput/RoboInputTarget.h"
 #include "RoboInput/RoboInputText.h"
+#include "RoboInput/RoboInputTextBridge.h"
+#include "RoboInput/RoboInputTouch.h"
 #include "RoboInput/RoboInputTypes.h"
 #include "RoboInput/RoboInputVersion.h"
 
@@ -120,19 +134,45 @@ typedef struct InputCapabilities {
     int deviceReading;
     /** A platform adapter that owns a source: enumeration, handles, lifecycle. **0** in 12.1. */
     int platformAdapters;
-    /** Routing an event to a target, and telling anyone about it. **0** in 12.1. */
+    /**
+     * **Dispatch** (13.29--13.34): the hit test, the path an event travels, the capture/target/bubble walk,
+     * and the propagation context a listener writes to.
+     *
+     * Every dependency on the layer above is one function pointer -- the window, the tree, the listener
+     * list -- so a caller with none of them still gets a stated answer rather than a refusal. What it does
+     * **not** claim is that anything owns a tree: this module resolves no node by itself.
+     */
     int dispatch;
-    /** Focus: which window, application or node receives keyboard input. **0** in 12.1. */
+    /**
+     * **Focus** (13.25--13.28): one focused target per window scope, so bringing a window back restores
+     * what it had, plus the transition record that names both ends in the order a listener must see them
+     * (lose, then gain) and the navigation chain a caller declares and this layer walks.
+     *
+     * Focus is deliberately *not* hover, capture or window activation: four questions, four owners.
+     */
     int focus;
     /** Text editing: a caret, a selection, an edit operation. **0** in 12.1. */
     int textEditing;
     /** Composition: dead keys, IME, a preedit string. **0** in 12.1. */
     int textComposition;
-    /** The clipboard. **0** in 12.1. */
+    /**
+     * The **clipboard** (13.40/13.41): one fixed by-value text buffer, a monotonic serial, and the rule
+     * that a copy of an **empty** selection leaves what is already there alone.
+     *
+     * The text is read through a function pointer (`InputClipboardTextSource`) because RoboText is not this
+     * module's to include: a copy carries *characters*, and never a glyph id or a shaped buffer.
+     */
     int clipboard;
-    /** Propagation: capture, bubble, a listener list. **0** in 12.1. */
+    /** **Propagation** (13.32): `stopPropagation`, `stopImmediatePropagation` and `preventDefault`, kept
+     *  in the dispatch context so a hardware event is never mutated by a listener. */
     int propagation;
-    /** Gestures: tap, drag, pinch, long-press recognition. **0** in 12.1. */
+    /**
+     * **Gestures** (13.23/13.24): the sample a recognizer consumes, the arena that picks one winner per
+     * sequence in the caller's priority order, and the heuristic recognizer this build ships for tap,
+     * double-tap, long-press, drag, pan, pinch and rotate.
+     *
+     * They consume normalized pointer/touch streams and never bypass pointer routing.
+     */
     int gestures;
     /** An event loop, timers, microtasks. **0** in 12.1. */
     int eventLoop;
@@ -180,6 +220,156 @@ typedef struct InputCapabilities {
      * `textEditing` is still 0, and 13.12/13.13 are the command layer that will carry it there.
      */
     int textInput;
+
+    /**
+     * **Pointer state** (13.14/13.15): the live table of pointers a device has reported -- where each one
+     * is, which buttons are down, which plane the position is in -- so a control can ask "is the pointer
+     * still down over me?" without having watched every event since.
+     *
+     * It is a *state machine*, not a reader: `deviceReading` is still 0, and a caller tells this layer what
+     * a pointer did rather than the layer asking hardware.
+     */
+    int pointerState;
+    /**
+     * **Pointer capture** (13.17): which target owns each pointer, so a drag that leaves its bounds still
+     * delivers, with the rule that only the current holder may release and a destroyed target or a
+     * deactivated window releases by identity.
+     */
+    int pointerCapture;
+    /**
+     * **Hover** (13.18): which target each pointer is over, and the leave/enter pair a change produces with
+     * one invariant -- a target is never entered twice, and the redundancy is **counted** rather than
+     * hidden.
+     */
+    int pointerHover;
+    /**
+     * **Click counting** (13.16) derived here rather than taken from the platform: the same pointer, the
+     * same button, within a configured time and distance. A platform that reports its own count keeps it,
+     * and a zero time window is how a caller says "every press is a single click".
+     */
+    int clickCounting;
+    /**
+     * **Wheel normalization** (13.19): line and pixel deltas converted to pixels through the line height
+     * the caller supplies, with no opinion of this build's own about how tall a line is.
+     */
+    int wheelNormalization;
+
+    /**
+     * **Touch** (13.20/13.21): contacts keyed by the hardware's own id rather than an array index, a
+     * cancellation that keeps the contact until it is acknowledged, and the one conversion into the pointer
+     * model so a consumer that understands a mouse understands a tap.
+     */
+    int touchInput;
+    /**
+     * **Pen** (13.22): pressure, tilt, rotation, the barrel button and the eraser as *capability-gated*
+     * fields, so a device that reports none of them is still a pen.
+     *
+     * It is the payload half only: `deviceReading` is still 0, and nothing surveys a stylus.
+     */
+    int penInput;
+    /**
+     * **Gamepad** (13.53): the button/axis vocabulary with normalized axes, as a payload and a state.
+     *
+     * `gamepadNavigation` (13.54) stays 0: D-pad-to-focus and A-to-activate are a *mapping* this build has
+     * not made, and naming the difference is the point of the two flags.
+     */
+    int gamepad;
+    /**
+     * **Gamepad navigation** (13.54): the semantic map from a controller to focus moves and activation.
+     * **0** until that mapping exists.
+     */
+    int gamepadNavigation;
+    /**
+     * The **cursor** (13.43): a shape per target resolved from the hit test by one owner, with the caller's
+     * declarations beating the default table and the "same shape" case counted rather than re-applied.
+     *
+     * It does not draw one: this module owns no pixels, and the shape is a value the shell turns into an
+     * image.
+     */
+    int cursorManagement;
+    /**
+     * **Drag and drop** (13.42): a session that owns its source and payload, the negotiation between what
+     * the source offers and what the target accepts, the arrival/leave pair, the drop, and `Escape`'s
+     * cancellation.
+     *
+     * It carries no bytes: the payload is an identity plus a preview, and the data behind it belongs to
+     * whoever produced it -- the same seam the clipboard draws.
+     */
+    int dragDrop;
+    /**
+     * **Input methods** (13.37--13.39): the context an input method talks to -- the caret's rectangle, the
+     * surrounding text a purpose permits, the composition doors, and the candidate rectangle anchored to
+     * the caret.
+     *
+     * What it does **not** claim is an implemented input method or a candidate window: this layer owns the
+     * interface, the client on the other side is the editor, and a candidate rectangle is a value a caller
+     * draws.
+     */
+    int inputMethods;
+    /**
+     * The **command layer**'s shortcuts (13.35/13.36): scoped bindings walked innermost-first, where a
+     * focused control wins an argument with a global one and "not mine" continues the walk while a real
+     * failure stops it.
+     */
+    int shortcuts;
+    /**
+     * **Command routing** (13.36): a shortcut resolving to an `InputCommand` and that command reaching a
+     * target chain, ending at the RoboText bridge for the editing commands.
+     */
+    int commandRouting;
+
+    /**
+     * **Hotplug** (13.44): connect and disconnect as transitions that release everything the device held --
+     * keys, pointers, captures, touches, the repeat, the pending accent -- so no stale state survives it.
+     * **0** until that sweep is built.
+     */
+    int deviceHotplug;
+    /** **Event coalescing** (13.47): merging high-frequency moves while never merging a press, a release,
+     *  a key or a text event. **0** until it is built. */
+    int eventCoalescing;
+    /** **Latency metrics** (13.48): the five stamps from hardware to present. **0** until they exist. */
+    int inputLatency;
+    /** **Replay** (13.49): recording a stream and feeding it back through the same pipeline. **0** until it
+     *  exists. */
+    int inputReplay;
+    /** **Synthetic input** (13.50): trusted injection that still travels the normal routing path. **0** until
+     *  it exists. */
+    int syntheticInput;
+    /** **Injection boundaries** (13.51): who may inject input, by privilege. **0** until they are stated in
+     *  code rather than in a document. */
+    int injectionBoundaries;
+    /** **Accessibility hooks** (13.52): semantic commands an accessibility system invokes without
+     *  pretending to be hardware. **0** until they exist. */
+    int accessibilityHooks;
+    /** **Input reset** (13.78): cancelling every transient state at once -- captures, gestures, the pending
+     *  accent, the drag. **0** until the sweep exists. */
+    int inputReset;
+
+    /** Pointers one state table tracks (`RoboInputMaxPointers`). */
+    uint32_t maxPointers;
+    /** Captures one table holds (`RoboInputMaxCaptures`). */
+    uint32_t maxCaptures;
+    /** Scroll units this build defines (`RoboInputScrollUnitCount`). */
+    uint32_t scrollUnitCount;
+
+    /** Cursor shapes this build names (`RoboInputCursorTypeCount`). */
+    uint32_t cursorTypeCount;
+    /** Per-target cursor declarations one manager holds (`RoboInputMaxCursorOverrides`). */
+    uint32_t maxCursorOverrides;
+    /** Drag operations this build defines (`RoboInputDragOperationCount`). */
+    uint32_t dragOperationCount;
+    /** Drag phases this build defines (`RoboInputDragPhaseCount`). */
+    uint32_t dragPhaseCount;
+    /** Bytes of drag preview a payload carries (`RoboInputDragTextMax`). */
+    uint32_t dragPreviewBytes;
+    /** Text purposes this build defines (`RoboInputImeTextPurposeCount`). */
+    uint32_t imePurposeCount;
+    /** Clauses one composition may declare (`RoboInputImeMaxClauses`). */
+    uint32_t imeMaxClauses;
+    /** Highlights one clipboard entry names (`RoboInputClipboardFormatsMax`). */
+    uint32_t clipboardFormatsMax;
+    /** Formats this build names, `NONE` included (`RoboInputClipboardFormatCount`). */
+    uint32_t clipboardFormatCount;
 
     /** The layout ids this build ships (`RoboInputLayoutIdCount`). */
     uint32_t layoutCount;

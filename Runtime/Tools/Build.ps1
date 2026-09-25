@@ -495,7 +495,67 @@ $ProdSrcs = @(
     # RoboInput 13.11 -- the *text pipeline*: the one door that turns a key event into zero, one or two
     # `TEXT_INPUT` events through the layout and the pending accent, so `KeyDown` never means "insert this
     # character" and an editor is only ever handed text.
-    (Join-Path $SourceDir "RoboInput\RoboInputText.c")
+    (Join-Path $SourceDir "RoboInput\RoboInputText.c"),
+    # RoboInput 13.12/13.13/13.35/13.36 -- the *command layer*: a platform-neutral vocabulary of intentions
+    # (`RoboInputCommand.c`), a bounded chain of two-field targets asked innermost-first where "not mine"
+    # continues the walk while a real failure stops it, the one place a `PhysicalKey` becomes an intention
+    # (`RoboInputShortcut.c`, scoped so a focused control wins an argument with a global binding), and the
+    # bridge that turns a command into RoboText's editor doors (the only file in this module that includes
+    # RoboText, so the editor never has an opinion about keys).
+    (Join-Path $SourceDir "RoboInput\RoboInputCommand.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputShortcut.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputTextBridge.c"),
+    # RoboInput 13.14--13.19 -- the *pointer state machine*: the live pointer table, the click counter that
+    # derives a count when the platform does not report one, pointer capture with the "only the holder may
+    # release" rule, and hover whose one invariant is that a target is never entered twice. None of it
+    # routes or hit-tests: whoever owns the tree resolves the target and tells this layer.
+    (Join-Path $SourceDir "RoboInput\RoboInputPointerState.c"),
+    # RoboInput 13.25--13.28 -- *focus*: one focus per window scope so a shell restores what was focused
+    # when it brings a window back, a transition record naming both ends in the order 13.27 requires (lose
+    # then gain) plus the events it produces, and a caller-built navigation chain this layer walks and never
+    # invents. A destroyed target is released by identity; a geometric arrow is refused, not guessed.
+    (Join-Path $SourceDir "RoboInput\RoboInputFocus.c"),
+    # RoboInput 13.29--13.36 -- *dispatch*: hit testing, the path an event travels, the propagation context
+    # a listener may write, the three-phase walk, and the default-action table that *identifies* what a
+    # caller should do without doing it. Every dependency on the layer above is one function pointer, and
+    # each absent one degrades to a stated case (the window, the target alone, nobody listening).
+    (Join-Path $SourceDir "RoboInput\RoboInputDispatch.c"),
+    # RoboInput 13.20/13.21 -- *touch*: contacts keyed by the hardware's own id (never an array index),
+    # cancellation as a phase that keeps the contact until it is acknowledged, and the one conversion into
+    # the pointer model so a consumer that understands a mouse understands a tap.
+    (Join-Path $SourceDir "RoboInput\RoboInputTouch.c"),
+    # RoboInput 13.23/13.24 -- *gestures*: the sample a recognizer consumes (one builder from a pointer
+    # payload, one from the contact table that computes the centroid, spread and angle once), the arena that
+    # picks one winner per sequence in the caller's priority order, and the heuristic recognizer this build
+    # ships for the seven types the brief names.
+    (Join-Path $SourceDir "RoboInput\RoboInputGesture.c"),
+    # RoboInput 13.40/13.41 -- the *clipboard*: one fixed by-value text buffer (a clipboard that allocated
+    # would need an owner, a lock and a lifetime), the character-of-a-range read arriving as a function
+    # pointer because RoboText is not this module's to include, and the rule that an empty selection leaves
+    # what is already there alone.
+    (Join-Path $SourceDir "RoboInput\RoboInputClipboard.c"),
+    # RoboInput 13.43 -- the *cursor*: one cursor for the frame, resolved from whatever the pointer is over,
+    # with the precedence between a captured target's request and the hovered one's written once, and the
+    # rule that a request from a target nobody is over is *counted* and ignored rather than obeyed.
+    (Join-Path $SourceDir "RoboInput\RoboInputCursor.c"),
+    # RoboInput 13.42 -- *drag and drop*: a session that owns its source, the escape key's cancellation as
+    # the session's own transition, and the drop accepted only by the target the pointer is over while the
+    # operation is one the source permitted.
+    (Join-Path $SourceDir "RoboInput\RoboInputDragDrop.c"),
+    # RoboInput 13.37--13.39 -- the *input method context*: the caret, the surrounding text a purpose may
+    # permit, and the candidate rectangle anchored to the caret. Every client door is a function pointer
+    # onto RoboText's editing/selection API, and the two rules this layer keeps for itself are the password
+    # field that is never asked and the candidate that is refused rather than placed at the origin.
+    (Join-Path $SourceDir "RoboInput\RoboInputIme.c"),
+    # RoboInput 13.44/13.78 -- the *session*: the one object that owns every table a device can put state in,
+    # which is what makes "no stale state may remain" a claim somebody can check. Three sweeps -- a device
+    # went away, a window deactivated, a target was destroyed -- and one record of what each released.
+    (Join-Path $SourceDir "RoboInput\RoboInputSession.c"),
+    # RoboInput 13.49--13.51 -- *recording, replay and the privilege boundary*: a bounded by-value stream
+    # whose rank only rises, a replay gated on the actor matching it, and the table that says how much
+    # privilege each event type needs. The boundary is a number comparison because a note in a document is
+    # not a boundary.
+    (Join-Path $SourceDir "RoboInput\RoboInputReplay.c")
 )
 # The desktop's checkpoint scene and its host launcher (Phase 11.13). Not part of $ProdSrcs, and
 # deliberately: the shipping runtime has no scene and no launcher -- a scene is the fixture somebody looks
@@ -812,6 +872,18 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Input\SuiteRoboInputKeyboardState.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputLayout.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputText.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputCommand.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputPointerState.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputFocus.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputDispatch.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputTouch.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputGesture.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputClipboard.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputCursor.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputDragDrop.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputIme.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputSession.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputReplay.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),

@@ -22,7 +22,24 @@ static const char *const inputDomainNames[RoboInputDomainCount] = {
     "target",
     "bridge",
     "dump",
-    "device"
+    "device",
+    "layout",
+    "text",
+    "command",
+    "shortcut",
+    "pointer",
+    "focus",
+    "dispatch",
+    "touch",
+    "gesture",
+    "clipboard",
+    "cursor",
+    "drag-drop",
+    "ime",
+    "session",
+    "replay",
+    "accessibility",
+    "gamepad"
 };
 
 int InputDomainIsKnown(InputDiagnosticDomain domain)

@@ -230,7 +230,7 @@ static void TestTextKinds(void)
                                                   &count, NULL, &diag),
                        RoboInvalidArgument);
         RoboCheckEqInt((int)count, 0);
-        RoboCheckEqInt(diag.domain, RoboInputDomainEvent);
+        RoboCheckEqInt(diag.domain, RoboInputDomainText);
     }
 
     /* The arguments, each of which is a refusal rather than a crash. A short output array is one of them:

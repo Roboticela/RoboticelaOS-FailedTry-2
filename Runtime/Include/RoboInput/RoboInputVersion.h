@@ -45,9 +45,9 @@
 #define ROBO_INPUT_VERSION_H
 
 #define RoboInputVersionMajor 0
-#define RoboInputVersionMinor 3
+#define RoboInputVersionMinor 6
 #define RoboInputVersionPatch 0
-#define RoboInputVersionString "0.3.0"
+#define RoboInputVersionString "0.6.0"
 
 /** 1 once the Phase 12 model is frozen (not yet). */
 #define RoboInputApiFrozen 0
@@ -105,9 +105,25 @@
  *   changed state, a text event says text should be inserted, and no consumer may read a scan code to decide
  *   what a character is.
  *
- * What it still does **not** claim, and each stays 0: `textEditing` (the text reaches an editor -- 13.12),
- * `textComposition` (an input *method*'s preedit and candidates -- 13.37, which is a different thing from a
- * dead key and is why the layout half did not set it), `deviceReading` and `platformAdapters`.
+ * What it still does **not** claim, and each stays 0: `textComposition` (an input *method*'s preedit and
+ * candidates -- 13.37, which is a different thing from a dead key and is why the layout half did not set it),
+ * `deviceReading` and `platformAdapters`.
+ *
+ * ## What 13.12/13.13/13.35/13.36 added, and what 13.14--13.19 added
+ *
+ * The **command layer**: a platform-neutral vocabulary of intentions (`RoboInputCommand.h`) that a
+ * keyboard, a menu, an accessibility tool, a gamepad or a script all speak, a bounded chain of scoped
+ * targets asked innermost-first (`RoboInputShortcut.h`) where "not mine" continues the walk while a real
+ * failure stops it, and the one file in this module that includes RoboText (`RoboInputTextBridge.c`) -- the
+ * bridge that turns a command into an editor operation. That is what lets `textEditing` become 1 while
+ * `textComposition` stays 0, and the two are different questions: an editor is reachable, an input method
+ * is not implemented.
+ *
+ * The **pointer state machine** (13.14--13.19): the live pointer table, a click count *derived* from
+ * pointer, button, time and distance when the platform does not report one, capture whose holder is the
+ * only one that may release it, and hover that emits leave-then-enter and never enters a target twice. It
+ * routes nothing and hit-tests nothing -- `dispatch` is still 0 -- because whoever owns the tree resolves
+ * the target and *tells* this state.
  */
 #define RoboInputModelImplemented 1
 
@@ -120,6 +136,20 @@
  * delivers rather than reading a device. A build that added a real adapter would flip this flag, and the
  * capability record beside it already names what would have to be true.
  */
+/**
+ * 1 since Phase 13.51: **who may inject input is a comparison, not a paragraph.**
+ *
+ * Five ranks -- page content, application, accessibility, automation, system -- every event type names the
+ * rank it needs (`InputInjectionPrivilegeRequiredFor`), an injector is refused below it, and a **recording
+ * may not be replayed by an actor below the rank it came from**. That last rule is what makes a recording a
+ * capability rather than a file of keystrokes anybody can press play on.
+ *
+ * What it does not claim: this build cannot *check* the rank a caller states, because the only input sources
+ * it has are callers (`platformAdapters` is 0). The rules are here; the identity behind them arrives with a
+ * platform adapter.
+ */
+#define RoboInputInjectionBoundariesImplemented 1
+
 #define RoboInputPlatformAdaptersImplemented 0
 
 #endif /* ROBO_INPUT_VERSION_H */
