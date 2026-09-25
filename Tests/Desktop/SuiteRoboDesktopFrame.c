@@ -68,9 +68,12 @@ static void TestFrameSequence(void)
     RoboCheckEqInt((int)stats.fillDrawings, 6);
     RoboCheckEqInt((int)stats.labelsUnshaped, 2);
 
-    /* The shorthand is the same frame, and it must not drift from the sequence it abbreviates. */
+    /* A second paint of an unchanged shell does no work (retained layers), but
+     * the pixels and checksum must match the first frame. */
     RoboCheckEqInt(DesktopRender(desktop, &shorthand, NULL), RoboOk);
-    RoboCheckEqInt(DesktopFrameRecordEqual(&record, &shorthand), 1);
+    RoboCheckEqInt((int)shorthand.fills, 0);
+    RoboCheckEqInt((int)shorthand.labels, 0);
+    RoboCheckEqInt((int)shorthand.checksum, (int)record.checksum);
     RoboCheckEqInt(GetDesktopStats(desktop, &stats), RoboOk);
     RoboCheckEqInt((int)stats.frames, 2);
     RoboCheckEqInt((int)stats.framesWithoutWindows, 2);

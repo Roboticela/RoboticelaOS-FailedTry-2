@@ -255,6 +255,7 @@ Result DesktopWindowAdd(Desktop *desktop,
     window->content = desc->content;
     window->contentFace = desc->contentFace;
     window->contentDirty = 1;
+    window->frameDirty = 1;
     window->target = NULL;
     if (desc->title &&
         DesktopStringCopy(window->title, sizeof(window->title), desc->title) != RoboOk) {
@@ -264,6 +265,12 @@ Result DesktopWindowAdd(Desktop *desktop,
 
     desktop->windowCount++;
     desktop->stats.windowsAdded++;
+    DesktopComposeInvalidateWindowOrder(desktop);
+    /* Mark prior focused chrome dirty so its inactive title bar redraws. */
+    if (desktop->focusedIndex != RoboDesktopNoIndex &&
+        desktop->focusedIndex < desktop->windowCount - 1u) {
+        desktop->windows[desktop->focusedIndex].frameDirty = 1;
+    }
     /* A new window is focused: it is what the caller just made, and on a desktop with no window manager
      * "the newest window is the one being used" is the only defensible default. */
     desktop->focusedIndex = desktop->windowCount - 1u;
@@ -313,6 +320,8 @@ Result DesktopWindowSetBounds(Desktop *desktop,
         return RoboOk;
     }
     window->bounds = clamped;
+    window->contentDirty = 1;
+    window->frameDirty = 1;
     /* The content target is deliberately **not** recreated here: `robo_desktop_window_content_target`
      * rebuilds it when a frame finds it stale, so resizing eight windows allocates nothing until they are
      * painted (see `RoboDesktopInternal.h`). */
@@ -399,6 +408,7 @@ Result DesktopWindowSetVisible(Desktop *desktop,
                                  "no such window");
     }
     window->visible = visible ? 1 : 0;
+    window->frameDirty = 1;
     return RoboOk;
 }
 
@@ -423,11 +433,19 @@ Result DesktopWindowRaise(Desktop *desktop, DesktopWindowId id)
         return RoboNotFound;
     }
     if (index + 1u != desktop->windowCount) {
+        size_t oldFocused = desktop->focusedIndex;
+
         moved = desktop->windows[index];
         for (cursor = index; cursor + 1u < desktop->windowCount; cursor++) {
             desktop->windows[cursor] = desktop->windows[cursor + 1u];
         }
         desktop->windows[desktop->windowCount - 1u] = moved;
+        DesktopComposeInvalidateWindowOrder(desktop);
+        if (oldFocused != RoboDesktopNoIndex && oldFocused < desktop->windowCount) {
+            /* After the shift, the previous front (or prior focus) needs an inactive chrome redraw. */
+            desktop->windows[oldFocused < index ? oldFocused : oldFocused - 1u].frameDirty = 1;
+        }
+        desktop->windows[desktop->windowCount - 1u].frameDirty = 1;
     }
     /* Focus follows the raise; see the header of `RoboDesktop.h`'s raise door. */
     desktop->focusedIndex = desktop->windowCount - 1u;
@@ -437,6 +455,7 @@ Result DesktopWindowRaise(Desktop *desktop, DesktopWindowId id)
 Result DesktopWindowFocus(Desktop *desktop, DesktopWindowId id)
 {
     size_t index;
+    size_t oldFocused;
 
     if (!desktop) {
         return RoboInvalidArgument;
@@ -445,6 +464,12 @@ Result DesktopWindowFocus(Desktop *desktop, DesktopWindowId id)
     if (index == RoboDesktopNoIndex) {
         return RoboNotFound;
     }
+    oldFocused = desktop->focusedIndex;
+    if (oldFocused != index && oldFocused != RoboDesktopNoIndex &&
+        oldFocused < desktop->windowCount) {
+        desktop->windows[oldFocused].frameDirty = 1;
+    }
+    desktop->windows[index].frameDirty = 1;
     desktop->focusedIndex = index;
     return RoboOk;
 }
@@ -515,6 +540,7 @@ Result DesktopWindowDestroy(Desktop *desktop, DesktopWindowId id)
         desktop->windows[cursor] = desktop->windows[cursor + 1u];
     }
     desktop->windowCount--;
+    DesktopComposeInvalidateWindowOrder(desktop);
     /* The vacated slot is cleared so a later `add` cannot inherit a target that has been released. */
     {
         DesktopWindow *last = &desktop->windows[desktop->windowCount];

@@ -240,11 +240,10 @@ Goal: the **best font rendering the OS can have** before more product surface ar
 
 Usable beautiful UI (after type is trustworthy).
 
-**Status: complete as a *module*, not yet as a *system*.** `Runtime/Source/RoboInput/` +
-`Runtime/Include/RoboInput/` is the one normalization layer — 33 headers, one source file per door, 27 suites,
-**156 cases** green (`TestInput.ps1 -Target Host`), version `0.6.0` — and **no other module consumes it yet**
-(the only includes of `RoboInput/` outside it are its own suites), which is the one thing the closing
-paragraph of this section is about. Where a goal is
+**Status: complete as a *module* and API-frozen at `0.7.0`; not yet a *system*, because nothing consumes it.**
+`Runtime/Source/RoboInput/` + `Runtime/Include/RoboInput/` is the one normalization layer — 37 headers, one
+source file per door, 28 suites, **182 cases** green (`TestInput.ps1 -Target Host`) — and the only includes of
+`RoboInput/` outside it are its own suites, which is what the closing paragraph of this section is about. Where a goal is
 landed the line says which door or case makes it true; where it is not, the line names what is missing rather
 than leaving it implied. `InputCapabilities` is the same statement in code, read field by field by
 `input.conformance.capabilities`.
@@ -295,14 +294,14 @@ than leaving it implied. `InputCapabilities` is the same statement in code, read
 13.44 Device hotplug ✅ (`InputSessionDisconnect`: every table a device can put state in is swept — keys, pointers, clicks, hovers, touches, the captures those pointers held, the repeat, and the pending accent if it belonged to it)
 13.45 Input event queue ✅ (an owned FIFO ordered by `(timestamp, insertion)`, with statistics; a caller's stack is never referenced)
 13.46 Thread model ✅ **as a rule, not a thread** (a device thread pushes, the UI thread pops and dispatches; the queue is the only synchronization boundary, and this module owns no lock and no global state — which is also why there is no `InputInit`)
-13.47 Event coalescing — **left** (`eventCoalescing` 0: no pointer/touch move merging, and nothing that proves a `KEY_DOWN` or a `TEXT_INPUT` is never coalesced)
-13.48 Input latency metrics — **left** (`inputLatency` 0: no hardware/queue/dispatch/handler/present stamps and no input-to-frame number)
+13.47 Event coalescing ✅ (`eventCoalescing` 1: `InputEventTypeMayCoalesce` is the only rule and it answers 1 for exactly `POINTER_MOVE`/`TOUCH_MOVE`/`PEN_MOVE` — **every** other one of the thirty-three is a barrier, which `input.coalescing.rule` proves by iterating the vocabulary against the three-name table; the key is (device, pointer, type) so two fingers are two slots; `Push` answers `EMIT`/`HOLD`/`FLUSH_FIRST` rather than dispatching, so a press never overtakes the moves it happened after; the merged record is the newest event whole with the window's movement summed into `deltaX`/`deltaY`; a full table is a `FLUSH_FIRST` rather than a drop and a flush against a full queue is `RoboBusy` with the remainder **still held**; `input.coalescing.baseline` asserts the cost model as exact counts — 960 moves in 60 frames cost 60 pushes and 900 merges, so emissions follow frames rather than events. `Docs: EventPolicies.md §1`)
+13.48 Input latency metrics ✅ (`inputLatency` 1: five stamps (hardware, queue, dispatch, handler, present) and the four differences — input-to-dispatch, dispatch-to-handler, input-to-frame, input-to-present; a stamp earlier than a stage already marked is **refused and counted** rather than saturated, because a plausible *good* number is the one failure mode this layer cannot have, and the same rule refuses a `Begin` whose queue stamp precedes its hardware stamp; sixteen records, a never-used slot first and the oldest **finished** record after that, with `RoboBusy` only when every record is still live; completed records stay addressable until their slot is taken. `Docs: EventPolicies.md §2`)
 13.49 Input replay ✅ (`inputReplay`: a recording replays **through the same pipeline**, `input.replay.*`, 6 cases, including `input.replay.ranks`)
 13.50 Input synthesis ✅ (`syntheticInput`: an injector whose events pass through normal routing rather than a test-only path)
 13.51 Input security boundary ✅ (`injectionBoundaries`: five ranks — page content, application, accessibility, automation, system — `InputInjectionPrivilegeRequiredFor` per event type, refusals counted and named, and a recording may not be replayed by an actor below the rank it came from. What it *cannot* do is check the rank a caller states, because the only sources this build has are callers)
-13.52 Accessibility input hooks — **left** (`accessibilityHooks` 0: no semantic Activate/Focus/SetValue/TextInsert entry beside the synthetic one)
+13.52 Accessibility input hooks ✅ (`accessibilityHooks` 1: the eleven-command semantic vocabulary maps onto this module's own `InputCommand` and routes through the **same** `InputCommandRouter` a shortcut uses — no keystroke is ever synthesized, because a synthetic scan code would have to guess a layout, a key and a modifier state; `InputA11yCommandAllowed` bounds it to the text, focus and view families plus cancellation and **out** of the four window commands and the three system ones, checked **before** the router so a barred command cannot reach a target by another name — which `InputA11yInvokeCommand` makes checkable, since no request maps onto a window command; `SET_VALUE` is `RoboNotSupported` (no command exists) and `TOGGLE` is an activation. `Docs: EventPolicies.md §3`)
 13.53 Gamepad foundation ✅ (`gamepad`: `InputGamepadButton`/`InputGamepadAxis` with normalized axes, one shared record for button down/up and axis change)
-13.54 Gamepad navigation — **left** (`gamepadNavigation` 0: D-pad-to-focus and A-to-activate is a *mapping* this build has not made, and naming the difference is the point of the two flags)
+13.54 Gamepad navigation ✅ (`gamepadNavigation` 1: D-pad, d-pad axes and the left stick become focus moves by the **dominant axis** with ties going vertical, the d-pad beats the stick and a pressed A or B beats both so an activation is one action rather than an activation interleaved with repeats; a held direction repeats on the 13.8 cadence shape from the caller's clock while `Activate`/`Back` are **edges and never repeat**; `InputGamepadNavigationActionCommand` turns an action into an `InputCommand` so a controller reaches the same chain as a shortcut and an accessibility request; `Reset` is the gamepad shape of "a disconnect must not leave keys stuck". It maps an action and applies none — `deviceReading` stays 0. `Docs: EventPolicies.md §4`)
 13.55 Input event diagnostics ✅ (`RoboInputDebug.h`, `input.debug.*`, 6 cases: per-structure writers that are complete or absent, plus `InputWriteModel`, the vocabulary dump a developer reads first)
 
 **The phase's acceptance block**, named by subject because the brief's numbering past 13.55 is not in the tree:
@@ -312,17 +311,34 @@ than leaving it implied. `InputCapabilities` is the same statement in code, read
 | Conformance suite | ✅ `input.conformance.*` asserts the vocabulary positionally and **every** capability field one by one, which is what keeps the 0s true |
 | Memory / lifetime audit | ✅ `input.ownership.*` (4 cases) over `InputLiveBlocks`, so a leaked block is a count rather than a log line |
 | Determinism / replay | ✅ a recording reproduces its order even when two events share a millisecond, and the table dumps byte-for-byte |
-| Performance baseline | — no `input.*.performance` case: no dispatch or queue cost is recorded, which every other landed module in this tree states |
+| Performance baseline | ✅ **as a cost model**, which is the honest artifact for this layer: `input.coalescing.baseline` drives 960 moves in 60 frames and asserts **60** queue pushes, **900** merges, **0** refusals and the first queued event carrying all sixteen samples of its frame, so a build that emitted every event (the feature's own failure mode) fails rather than merely getting slower. What it deliberately is *not*: a stopwatch (it would measure the machine) and a dispatch-throughput number (no consumer exists to dispatch to) |
 | Visual regression | — no input fixture: the one shell PNG (`Build/Desktop.png`) is RoboDesktop's |
-| API freeze | — `RoboInputApiFrozen` is **0** |
-| Documentation | — **partly, and the stale part is misleading:** `Overview.md`/`KeyboardLayouts.md`/`TextInput.md` exist, but Overview's §6 zero-table and its §7 case study still say `dispatch`, `focus`, `textEditing`, `clipboard` and `gestures` are 0 and call focus and routing "later"; the AGENTS.md Input section repeats that same zero list and stops at version `0.3.0` while the header says `0.6.0`. The rules for 13.12–13.54 have no section yet |
+| API freeze | ✅ `RoboInputApiFrozen` is **1** and `Documentation/Runtime/Input/ApiStability.md` says door by door what that means — the tiers (stable / advanced / internal), ownership, lifetime, threading, invalidation and errors, and explicitly that the freeze is **additive**: a new door, a value appended after the last, and a new capability field are how both phases landed, while changing an existing value or signature is a deliberate break |
+| Documentation | ✅ `Overview.md` §6 is a new section on the four policy layers and §7's zero table is now the **five** flags that are really 0 (`deviceReading`, `platformAdapters`, `textComposition`, `eventLoop`, `multiprocessInput`) with the consumer seam named as an absence no flag records; §8's case study follows a keystroke through focus, routing and the command layer rather than calling them "later". New: `ApiStability.md` and `EventPolicies.md`. `AGENTS.md`'s Input section is corrected (`0.7.0`, the five zeros) and has a new subsection for 13.47/13.48/13.52/13.54 |
 | Integration (13.66–13.76) | — **no other module consumes `RoboInput/`** (a tree-wide grep finds its own sources and `Tests/Input` and nothing else): the shell, windows, documents, RoboHTML/RoboJS all ignore it. See the paragraph below |
 | Full integration test (the interactive shell app) | — not built |
 | QEMU input | — **partly, and not through this module:** `ROBO_QEMU_INPUT_OK`/`_INPUT_PARTIAL` is a **display-injected press reaching the *shell*** (`DesktopObservePointer` → RoboWindow), and the guest "then pumps PS/2 keyboard and mouse" at the backend, so the marker proves the shell's path rather than RoboInput's |
-| Final input showcase (`Tests/RoboInput/Visual/…`) | — not built; the suites live in `Tests/Input/` (27 files) |
-| Module build + tests | ✅ `TestInput.ps1 -Target Host`, **156 cases / 27 suites, all green**, and `-Verify` runs `Assert-RoboInputBoundaries` (Chromium, a consumer-layer include beyond the named identity/hit-test allowances, or a document-layer include fails the build) |
+| Final input showcase (`Tests/RoboInput/Visual/…`) | — not built, and **deliberately**: this module owns no pixels, so the brief's showcase is a *consumer's* artifact (13.89's own text says "or equivalent native showcase") and belongs to the shell that has a framebuffer. What stands in its place is the module's diagnostic surface — `InputWriteModel` (the vocabulary), `input.debug.*` (per-record lines) and the per-layer dumps — asserted byte-for-byte by `input.model.dump` and the dump cases. Named rather than implied: a pixel fixture for a module with no pixels would be a fixture of somebody else's renderer |
+| Module build + tests | ✅ `TestInput.ps1 -Target Host`, **182 cases / 28 suites, all green**, and `-Verify` runs `Assert-RoboInputBoundaries` (Chromium, a consumer-layer include beyond the named identity/hit-test allowances, or a document-layer include fails the build) |
 
-**Remaining in this phase, named rather than implied.** RoboInput is complete as a **module** — every goal from 13.1 to 13.55 is either landed or listed above as a named absence, and the capability table is the honest half — and it is not yet a **system**, because nothing consumes it. The flags that say so are `deviceReading`/`platformAdapters` (no adapter decodes a hardware protocol, so 13.6's driver bridge and 13.88's "real input reaches RoboInput" are both open; today's only path is `WindowEvent → InputEvent`), `eventCoalescing`, `inputLatency`, `accessibilityHooks`, `gamepadNavigation`, and `textComposition` waiting on 13.37's wiring into RoboText — six 0s, each named where it belongs rather than implied. The largest piece is the **integration**: 13.66–13.76 (shell, document, window management, RoboHTML/RoboJS boundaries) are where `DesktopObservePointer(x, y, pressed)` becomes an `InputQueue` pop and a dispatch, and that is the same seam Phase 14's closing paragraph names — with it come focus, capture, the wheel, shortcuts and the clipboard the shell's own state model already assumes. Then 13.87's interactive test app, 13.89's showcase, an input performance baseline and visual fixture, the API freeze, and the documentation rewrite above — including the two files whose capability paragraphs are actively wrong today
+**Remaining in this phase, named rather than implied.** RoboInput is complete as a **module**: every goal from
+13.1 to 13.55 is landed, and the four that were open when this block was first written are closed at version
+`0.7.0` — coalescing (13.47), latency (13.48), the accessibility lane (13.52) and gamepad navigation (13.54).
+Exactly **five** capability flags remain 0, and each names something that is not this module's row:
+
+| Flag | What it is waiting on |
+|---|---|
+| `deviceReading`, `platformAdapters` | a platform adapter that decodes a hardware protocol (13.6). Today's only path into the model is `WindowEvent → InputEvent`, so every device event in this tree is produced by a caller or a test — and 13.88's "real input reaches RoboInput" is gated on it |
+| `textComposition` | 13.37's *interface* is built end to end (context, caret geometry, clauses, candidate rect); what is missing is the wiring from it into RoboText's own composition, which is the editor's half |
+| `eventLoop`, `multiprocessInput` | named absences: the queue is the boundary a caller's thread crosses, and there is no cross-process input |
+
+**And one absence no flag records: nothing consumes this module.** 13.66–13.76 (shell, document, window
+management, RoboHTML/RoboJS boundaries) are where `RoboDesktopObservePointer(x, y, pressed)` becomes an
+`InputQueue` pop and a dispatch — the same seam Phase 14's closing paragraph names — and with it come focus,
+capture, the wheel, shortcuts and the clipboard the shell's state model already assumes. That is a *consumer's*
+phase and not a change to this contract; `ApiStability.md` names it in the same words. What is **not** pending
+here: 13.87's interactive test app and 13.89's showcase are artifacts of the shell that owns a framebuffer (this
+module owns none), and the module's own performance, freeze and documentation rows above are done.
 
 # Phase 14 — Beautiful Desktop Shell
 

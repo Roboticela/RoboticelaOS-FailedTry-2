@@ -107,16 +107,16 @@ Result DesktopGetCapabilities(DesktopCapabilities *out)
      * The absences, and each is a structure rather than a flag somebody forgot to set -- the same
      * discipline `RoboRender.h` keeps one module down. `documents` is 0 because the *shell* does not read
      * HTML: an application document is a separate module (`RoboDesktopDocument.h`), and a capability row
-     * here would claim the shell needs one. `compositor`, `tiles` and `damageTracking` are the three
-     * structures a frame would have to become; `frameScheduling` and `vsync` are the clock and the signal
-     * this build's determinism depends on not having; `gpu` is a device and a resource manager;
-     * `windowManager`, `inputDelivery` and `desktopEnvironment` are the three products this phase
-     * explicitly does not build.
+     * here would claim the shell needs one. `compositor` and `damageTracking` are on through
+     * `RoboDesktopCompose.c` (retained wallpaper / panel / window surfaces). `tiles`, `frameScheduling`
+     * and `vsync` stay off; `gpu` is a device and a resource manager; `windowManager`, `inputDelivery`
+     * and `desktopEnvironment` are the three products this phase explicitly does not build.
      */
     out->documents = 0;
-    out->compositor = 0;
+    /* Retained wallpaper / panel / window layers through RoboCompositor. */
+    out->compositor = 1;
     out->tiles = 0;
-    out->damageTracking = 0;
+    out->damageTracking = 1;
     out->frameScheduling = 0;
     out->vsync = 0;
     out->gpu = 0;
@@ -324,6 +324,11 @@ Result DesktopCreate(const DesktopConfig *config,
     desktop->cursorOverlayValid = 0;
     desktop->cursorDrawnAt = MakeGfxPoint(0, 0);
     desktop->cursorUnderRect = GfxRectEmpty();
+    desktop->compositor = NULL;
+    desktop->wallpaperDirty = 1;
+    desktop->panelDirty = 1;
+    desktop->windowOrderDirty = 1;
+    desktop->presentDamage = GfxRectEmpty();
     *out = desktop;
     /*
      * One line per shell, and the facts a reader needs to interpret every later line: how big the screen
@@ -362,6 +367,7 @@ void DesktopDestroy(Desktop *desktop)
         DesktopWindowReleaseTarget(&desktop->windows[index]);
     }
     desktop->windowCount = 0u;
+    DesktopComposeDestroy(desktop);
     if (desktop->target) {
         RenderTargetDestroy(desktop->target);
         desktop->target = NULL;
@@ -424,6 +430,7 @@ Result DesktopSetStatus(const Desktop *desktop,
         return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument,
                                  "the status label does not fit");
     }
+    DesktopComposeInvalidatePanel(mutableDesktop);
     return RoboOk;
 }
 
@@ -522,12 +529,12 @@ static Result DesktopContentTarget(DesktopWindow *window,
  * be drawn (`RoboNotSupported`, `WINDOW` domain) while still having painted the window around them --
  * so a caller learns that a document is broken instead of quietly seeing an empty body.
  */
-static Result DesktopPaintWindowContent(Desktop *desktop,
-                                                 DesktopWindow *window,
-                                                 GfxRect client,
-                                                 GfxRaster *raster,
-                                                 DesktopFrameRecord *record,
-                                                 RenderDiag *renderDiag)
+Result DesktopPaintWindowContent(Desktop *desktop,
+                                         DesktopWindow *window,
+                                         GfxRect client,
+                                         GfxRaster *raster,
+                                         DesktopFrameRecord *record,
+                                         RenderDiag *renderDiag)
 {
     GfxSurface *screenSurface;
     Result status;
@@ -571,9 +578,9 @@ static Result DesktopPaintWindowContent(Desktop *desktop,
 /* Software cursor overlay                                             */
 /* ------------------------------------------------------------------ */
 
-static Result DesktopCursorCapture(Desktop *desktop,
-                                           GfxSurface *surface,
-                                           GfxRect clipped)
+Result DesktopCursorCapture(Desktop *desktop,
+                                    GfxSurface *surface,
+                                    GfxRect clipped)
 {
     const uint8_t *pixels;
     size_t stride;
@@ -814,12 +821,8 @@ int DesktopFrameIsOpen(const Desktop *desktop)
 Result DesktopPaint(Desktop *desktop, DesktopDiag *diag)
 {
     DesktopFrameRecord record;
-    GfxRaster *raster = NULL;
-    RenderDiag renderDiag;
-    const char *contentFailure = NULL;
-    size_t index;
+    Result status;
 
-    RenderDiagReset(&renderDiag);
     if (!desktop) {
         return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument,
                                  "a desktop is required");
@@ -836,14 +839,6 @@ Result DesktopPaint(Desktop *desktop, DesktopDiag *diag)
         return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboNotFound,
                                  "the desktop has no screen target");
     }
-    if (GfxRasterCreate(RenderTargetSurface(desktop->target), &raster) != RoboOk ||
-        !raster) {
-        return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboError,
-                                 "the screen target could not be opened for painting");
-    }
-    /* The clip is the screen for the whole frame: the raster's own bounds do this anyway, and stating it
-     * is what makes "clipped" in the record a statement about a *drawing* rather than about a surface. */
-    (void)GfxRasterResetClip(raster);
 
     DesktopFrameRecordInit(&record);
     record.width = (uint32_t)desktop->geometry.screen.width;
@@ -851,74 +846,10 @@ Result DesktopPaint(Desktop *desktop, DesktopDiag *diag)
     record.windowsTotal = desktop->windowCount;
     record.bytes = (size_t)record.width * (size_t)record.height * 4u;
 
-    (void)DesktopChromePaintShell(desktop, raster, &record, diag);
-
-    /* Back to front: the last window painted is the front one, which is the whole of this build's z-order
-     * (see `RoboDesktopWindow.c`). */
-    for (index = 0u; index < desktop->windowCount; index++) {
-        DesktopWindow *window = &desktop->windows[index];
-        GfxRect client;
-        int focused;
-
-        if (!window->visible || window->state != RoboDesktopWindowOpen) {
-            continue;
-        }
-        focused = (desktop->focusedIndex == index) ? 1 : 0;
-        client = DesktopChromeClientBounds(desktop, window);
-        (void)DesktopChromePaintWindowFrame(desktop, window, focused, raster, &record, diag);
-        if (DesktopPaintWindowContent(desktop, window, client, raster, &record, &renderDiag) !=
-            RoboOk) {
-            /* The first failure is the one reported, and the painting continues: the window around a body
-             * that could not be drawn is still a window, and the panel and every other window are still
-             * worth painting. A frame that stopped here would leave a half-drawn screen whose record
-             * described less than the shell actually painted. */
-            if (!contentFailure) {
-                contentFailure = renderDiag.message;
-            }
-            /* Warned per frame rather than once, because a broken document is a state the caller is in
-             * for as long as it holds that content, and a single line would make the *second* failing
-             * frame look like a frame that painted fine. */
-            LogWarn("robo_desktop: window contents could not be drawn (id=%llu): %s",
-                          (unsigned long long)window->id,
-                          renderDiag.message ? renderDiag.message : "the run was refused");
-        }
-        DesktopChromePaintCloseButton(desktop, window, raster, &record);
-        DesktopChromePaintWindowTitle(desktop, window, raster, &record);
-        record.windows++;
-    }
-
-    /*
-     * Save the pixels under the cursor *before* drawing it so a later cursor-only
-     * frame can restore them without re-painting the shell.
-     */
-    desktop->cursorOverlayValid = 0;
-    if (desktop->showCursor && desktop->cursorVisible) {
-        GfxSurface *screen = GfxRasterTarget(raster);
-        GfxRect under;
-
-        under = DesktopChromeCursorBounds(desktop->pointer.point, desktop->geometry.screen);
-        if (screen && under.width > 0 && under.height > 0 &&
-            DesktopCursorCapture(desktop, screen, under) == RoboOk) {
-            desktop->cursorDrawnAt = desktop->pointer.point;
-            DesktopChromeDrawCursorAt(screen, desktop->pointer.point);
-        } else {
-            DesktopChromePaintCursor(desktop, raster, &record);
-        }
-    }
-
-    GfxRasterDestroy(raster);
-    /* The record a frame produces is kept until `end_frame`, which is where the counters are folded into
-     * the shell's own: a caller that never ends its frame gets no statistics, which is the honest reading
-     * of "the frame never finished". */
+    status = DesktopComposePaint(desktop, &record, diag);
     desktop->frameRecord = record;
     desktop->painted = 1;
-    desktop->shellRasterValid = 1;
-
-    if (contentFailure) {
-        return RoboDesktopDiag(diag, RoboDesktopDomainWindow, RoboNotSupported,
-                                 contentFailure);
-    }
-    return RoboOk;
+    return status;
 }
 
 Result DesktopEndFrame(Desktop *desktop,
@@ -1069,6 +1000,8 @@ Result DesktopResize(Desktop *desktop,
     desktop->painted = 0;
     desktop->shellRasterValid = 0;
     desktop->cursorOverlayValid = 0;
+    DesktopComposeDestroy(desktop);
+    DesktopComposeInvalidateAll(desktop);
 
     /*
      * Every window is re-clamped into the new work area and its content target released -- the *client*
@@ -1080,6 +1013,8 @@ Result DesktopResize(Desktop *desktop,
         GfxRect clamped;
 
         DesktopWindowReleaseTarget(window);
+        window->contentDirty = 1;
+        window->frameDirty = 1;
         if (DesktopGeometryContain(window->bounds, &geometry.workArea, &clamped) == RoboOk) {
             window->bounds = clamped;
         }
@@ -1180,6 +1115,18 @@ Result DesktopPresent(Desktop *desktop,
         return RoboDesktopDiag(diag, RoboDesktopDomainSurface, RoboNotSupported,
                                  "the desktop has no native window to present into");
     }
+
+    /*
+     * After a composed paint the screen target already holds the frame. Prefer a
+     * region present of the accumulated damage over a full BeginFrame copy.
+     */
+    if (desktop->presentDamage.width > 0 && desktop->presentDamage.height > 0) {
+        GfxRect damage = desktop->presentDamage;
+
+        desktop->presentDamage = GfxRectEmpty();
+        return DesktopPresentDamage(desktop, damage, outRecord, outPresented, diag);
+    }
+
     if (WindowBeginFrame(desktop->window, &surface) != RoboOk || !surface) {
         return RoboDesktopDiag(diag, RoboDesktopDomainSurface, RoboNotSupported,
                                  "the window could not give a render surface");

@@ -52,6 +52,11 @@ typedef struct desktopWindow {
      * RoboRender again — that is what keeps the pointer realtime on a software cursor.
      */
     int contentDirty;
+    /**
+     * Non-zero when the window's chrome (frame, title, close) must be redrawn into
+     * its compositor surface even if the document content is unchanged.
+     */
+    int frameDirty;
 } DesktopWindow;
 
 /** The shell. */
@@ -110,6 +115,15 @@ struct Desktop {
     GfxRect cursorUnderRect;
     /** Pixels that lived under the cursor before it was drawn (BGRA/RGBA8 rows). */
     uint8_t cursorUnder[RoboDesktopCursorWidth * RoboDesktopCursorHeight * 4u];
+    /** Retained-layer compositor (Phase 15 wiring). NULL until the first composed frame. */
+    struct Compositor *compositor;
+    /** Wallpaper / panel surfaces must be re-rasterised. */
+    int wallpaperDirty;
+    int panelDirty;
+    /** Window layers must be rebuilt to match z-order (raise/close). */
+    int windowOrderDirty;
+    /** Bounding damage for the next WindowPresentRegion after a composed paint. */
+    GfxRect presentDamage;
 };
 
 /**
@@ -246,11 +260,65 @@ void DesktopChromeFill(GfxRaster *raster,
                               GfxColorRgba8 color,
                               DesktopFrameRecord *record);
 
-/** Paint the desktop surface, the panel, its labels and the window-list chrome. */
+/**
+ * Fill the desktop surface and the falloff rows under the panel.
+ * Coordinates are screen-absolute (wallpaper layer is screen-sized).
+ */
+Result DesktopChromePaintWallpaper(Desktop *desktop,
+                                           GfxRaster *raster,
+                                           DesktopFrameRecord *record,
+                                           DesktopDiag *diag);
+
+/**
+ * Paint the panel fill, separator, identity mark and labels into a
+ * panel-sized surface whose origin is the panel's top-left.
+ */
+Result DesktopChromePaintPanel(Desktop *desktop,
+                                       GfxRaster *raster,
+                                       DesktopFrameRecord *record,
+                                       DesktopDiag *diag);
+
+/** Paint wallpaper then panel (the non-composed shell path). */
 Result DesktopChromePaintShell(Desktop *desktop,
                                              GfxRaster *raster,
                                              DesktopFrameRecord *record,
                                              DesktopDiag *diag);
+
+/**
+ * Retained-layer paint: dirty wallpaper / panel / windows only, then
+ * composite into the screen target. Sets @ref Desktop::presentDamage.
+ */
+Result DesktopComposePaint(Desktop *desktop,
+                                   DesktopFrameRecord *record,
+                                   DesktopDiag *diag);
+
+/** Tear down the shell compositor (safe on NULL / no compositor). */
+void DesktopComposeDestroy(Desktop *desktop);
+
+/** Mark every retained surface stale (resize, first frame, theme). */
+void DesktopComposeInvalidateAll(Desktop *desktop);
+
+/** Status / panel label text changed. */
+void DesktopComposeInvalidatePanel(Desktop *desktop);
+
+/** Window z-order changed (raise / close / add). */
+void DesktopComposeInvalidateWindowOrder(Desktop *desktop);
+
+/**
+ * Rasterise a window's contents into @p client of @p raster.
+ * Shared by the direct paint path and the compositor window layer.
+ */
+Result DesktopPaintWindowContent(Desktop *desktop,
+                                         DesktopWindow *window,
+                                         GfxRect client,
+                                         GfxRaster *raster,
+                                         DesktopFrameRecord *record,
+                                         RenderDiag *renderDiag);
+
+/** Capture @p clipped of @p surface into the shell's cursor underlay. */
+Result DesktopCursorCapture(Desktop *desktop,
+                                    GfxSurface *surface,
+                                    GfxRect clipped);
 
 /** Paint one window's decorations for a frame, up to (not including) its contents. */
 Result DesktopChromePaintWindowFrame(Desktop *desktop,

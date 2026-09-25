@@ -144,9 +144,11 @@ static void TestChromeRoles(void)
     /* And the ink is on the panel, not merely counted. */
     RoboCheck(TypographyInk(desktop, panel, DesktopPixel(desktop, 2, (uint32_t)panel.y + 2u)) > 0);
 
-    /* A role binding must not cost determinism: two frames of one state are byte-identical. */
+    /* Retained compose: a second paint of an unchanged shell does no work, but
+     * the pixels stay byte-identical. */
     RoboCheckEqInt(DesktopRender(desktop, &second, NULL), RoboOk);
-    RoboCheck(DesktopFrameRecordEqual(&first, &second));
+    RoboCheckEqInt((int)second.labels, 0);
+    RoboCheck(DesktopFrameChecksum(desktop) == first.checksum);
     RoboCheck(DesktopFrameChecksum(desktop) == second.checksum);
 
     DesktopClose(desktop);

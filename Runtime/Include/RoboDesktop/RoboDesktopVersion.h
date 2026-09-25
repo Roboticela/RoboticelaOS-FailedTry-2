@@ -31,15 +31,16 @@
  *
  * It is not a window manager: there is no snapping, no tiling, no virtual desktops, no animation, no
  * maximize or minimize, no drag, no decoration theme engine and no z-order beyond a list that `raise`
- * moves an entry to the end of. It is not a compositor: each window's contents are rasterised into the
- * window's own target and composited once, in z-order, into the screen target, with the source-over
- * blend the graphics module already owns -- there is no layer tree, no damage union, and no partial
- * repaint (a frame is a frame). It is not a desktop *environment*: no launcher, no task manager, no
- * settings, no notifications, no file manager and no terminal. It is not input: the pointer door below
- * exists because RoboWindow already delivers a pointer and a desktop that could not say *which window*
- * a point is in would be a picture rather than a shell, and it does exactly two things with it
- * (focus/raise a window, close a window whose close button is pressed). Keyboard routing, hit-test
- * delivery to applications, drag, and hover animation are all absent by decision, not by omission.
+ * moves an entry to the end of. It *does* use RoboCompositor for retained wallpaper, panel and window
+ * surfaces with composition damage and region present — so a frame that only raises a window no longer
+ * clears the desktop or reshapes panel labels — but it is not a full desktop compositor product (no
+ * tile scheduler driven from here, no VSync wait, no GPU path). It is not a desktop *environment*: no
+ * launcher, no task manager, no settings, no notifications, no file manager and no terminal. It is not
+ * input: the pointer door below exists because RoboWindow already delivers a pointer and a desktop that
+ * could not say *which window* a point is in would be a picture rather than a shell, and it does exactly
+ * two things with it (focus/raise a window, close a window whose close button is pressed). Keyboard
+ * routing, hit-test delivery to applications, drag, and hover animation are all absent by decision, not
+ * by omission.
  */
 #ifndef ROBO_DESKTOP_VERSION_H
 #define ROBO_DESKTOP_VERSION_H
@@ -64,9 +65,10 @@
  * list and composited under the chrome, a deterministic frame lifecycle with a record and a checksum,
  * a resize path, and a presentation door that puts the finished frame into a RoboWindow's render
  * surface or any writable surface a caller names. What it does **not** claim is everything a desktop
- * *environment* or a *compositor* has: no launcher, no task switching, no notifications, no settings, no
- * damage tracking, no tiles, no VSync, no GPU, no keyboard routing and no window manager. Every one of
- * those is a 0 in `DesktopCapabilities` beside this flag.
+ * *environment* has: no launcher, no task switching, no notifications, no settings, no tiles of its
+ * own, no VSync, no GPU, no keyboard routing and no window manager. Retained-layer composition and
+ * damage tracking are **1** (`DesktopCapabilities.compositor` / `damageTracking`). Every other
+ * absence stays a 0 beside this flag.
  */
 #define RoboDesktopShellImplemented 1
 

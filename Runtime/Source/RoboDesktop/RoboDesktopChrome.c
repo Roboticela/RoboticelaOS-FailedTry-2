@@ -336,53 +336,19 @@ GfxRect DesktopChromeCloseBounds(const Desktop *desktop,
 /* The shell                                                           */
 /* ------------------------------------------------------------------ */
 
-Result DesktopChromePaintShell(Desktop *desktop,
-                                             GfxRaster *raster,
-                                             DesktopFrameRecord *record,
-                                             DesktopDiag *diag)
+Result DesktopChromePaintWallpaper(Desktop *desktop,
+                                           GfxRaster *raster,
+                                           DesktopFrameRecord *record,
+                                           DesktopDiag *diag)
 {
     const DesktopGeometry *geometry = &desktop->geometry;
     const DesktopTheme *theme = &desktop->theme;
-    /*
-     * The four surfaces' roles (Phase 12.3), resolved once per frame rather than once per label: the
-     * resolver caches, so this is four lookups and the frame's own cost is unchanged -- and resolving
-     * here rather than inside the label walk is what lets the *measurement* and the *drawing* of one
-     * label provably read one style.
-     */
-    DesktopTextStyle identityStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleDesktopTitle);
-    DesktopTextStyle metaStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeLabel);
-    DesktopTextStyle statusStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeStatus);
-    GfxRect label;
-    /* The pre-12.3 placement, kept verbatim for a caller that supplies a single face. */
-    int32_t legacyPanelBaseline =
-        geometry->panel.y + geometry->panel.height - desktop->panel.baselineFromBottom;
-    int32_t baseline;
-    size_t identityLength;
-    size_t applicationsLength;
-    size_t statusLength;
-    int32_t identityWidth;
 
     (void)diag;
 
-    /* 1. The desktop surface: the frame's explicit baseline, over the whole screen. */
     DesktopChromeFill(raster, geometry->screen, theme->desktopSurface, record);
 
-    /* 2. The panel, and its last row as the hairline. */
-    DesktopChromeFill(raster, geometry->panel, theme->panelSurface, record);
-    {
-        int32_t separator = desktop->panel.separatorHeight;
-
-        if (separator > 0) {
-            DesktopChromeFill(
-                raster,
-                MakeGfxRect(geometry->panel.x,
-                              geometry->panel.y + geometry->panel.height - separator,
-                              geometry->panel.width, separator),
-                theme->panelSeparator, record);
-        }
-    }
-
-    /* 3. The falloff rows below the panel: a stepped soft edge rather than a blur (see the theme). */
+    /* Falloff rows below the panel: a stepped soft edge rather than a blur. */
     if (geometry->workArea.y < geometry->screen.y + geometry->screen.height) {
         DesktopChromeFill(raster,
                                  MakeGfxRect(geometry->screen.x, geometry->workArea.y,
@@ -395,36 +361,73 @@ Result DesktopChromePaintShell(Desktop *desktop,
                                      theme->shadowFar, record);
         }
     }
+    return RoboOk;
+}
+
+Result DesktopChromePaintPanel(Desktop *desktop,
+                                       GfxRaster *raster,
+                                       DesktopFrameRecord *record,
+                                       DesktopDiag *diag)
+{
+    const DesktopGeometry *geometry = &desktop->geometry;
+    const DesktopTheme *theme = &desktop->theme;
+    DesktopTextStyle identityStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleDesktopTitle);
+    DesktopTextStyle metaStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeLabel);
+    DesktopTextStyle statusStyle = DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeStatus);
+    GfxRect panel = geometry->panel;
+    GfxRect label;
+    int32_t ox = panel.x;
+    int32_t legacyPanelBaseline = panel.height - desktop->panel.baselineFromBottom;
+    int32_t baseline;
+    size_t identityLength;
+    size_t applicationsLength;
+    size_t statusLength;
+    int32_t identityWidth;
+
+    (void)diag;
+    if (panel.width <= 0 || panel.height <= 0) {
+        return RoboOk;
+    }
+
+    /* Panel-local fill: the compositor surface's origin is the panel's top-left. */
+    DesktopChromeFill(raster, MakeGfxRect(0, 0, panel.width, panel.height),
+                             theme->panelSurface, record);
+    {
+        int32_t separator = desktop->panel.separatorHeight;
+
+        if (separator > 0) {
+            DesktopChromeFill(raster,
+                                     MakeGfxRect(0, panel.height - separator, panel.width,
+                                                   separator),
+                                     theme->panelSeparator, record);
+        }
+    }
 
     identityLength = DesktopStringLength(desktop->identity);
     applicationsLength = DesktopStringLength(desktop->applications);
     statusLength = DesktopStringLength(desktop->status);
     identityWidth = DesktopChromeLabelWidth(&identityStyle, desktop->identity, identityLength);
 
-    /* 4. The identity mark: the shell's one accent, always drawn -- which is what keeps a face-less
-     * desktop looking like a desktop rather than like a blank panel. */
     {
         int32_t markHeight = desktop->panel.identityMarkHeight;
         int32_t markWidth = desktop->panel.identityMarkWidth;
-        int32_t markY = geometry->panel.y + (geometry->panel.height - markHeight) / 2;
+        int32_t markY = (panel.height - markHeight) / 2;
 
         DesktopChromeFill(raster,
-                                 MakeGfxRect(geometry->identity.x, markY, markWidth,
+                                 MakeGfxRect(geometry->identity.x - ox, markY, markWidth,
                                                markHeight),
                                  theme->identityAccent, record);
     }
 
-    /* 5. The three labels, each narrowed into its own area by its measured width. */
-    baseline = DesktopTextBaseline(&identityStyle, geometry->panel.y, geometry->panel.height,
-                                   legacyPanelBaseline);
+    baseline = DesktopTextBaseline(&identityStyle, 0, panel.height, legacyPanelBaseline);
     if (identityLength > 0u &&
         DesktopGeometryPanelArea(geometry, RoboDesktopPanelIdentity, identityWidth,
                                          &label) == RoboOk) {
         DesktopChromeLabel(
             &identityStyle, raster,
-            label.x + desktop->panel.identityMarkWidth + RoboDesktopIdentityGap, baseline,
-            desktop->identity, identityLength, theme->identityText,
-            &record->labels, &record->labelsUnshaped);
+            (label.x - ox) + desktop->panel.identityMarkWidth + RoboDesktopIdentityGap,
+            baseline, desktop->identity, identityLength, theme->identityText, &record->labels,
+            &record->labelsUnshaped);
     }
     if (applicationsLength > 0u) {
         int32_t width = DesktopChromeLabelWidth(&metaStyle, desktop->applications,
@@ -432,11 +435,11 @@ Result DesktopChromePaintShell(Desktop *desktop,
 
         if (DesktopGeometryPanelArea(geometry, RoboDesktopPanelApplications, width,
                                              &label) == RoboOk) {
-            baseline = DesktopTextBaseline(&metaStyle, geometry->panel.y,
-                                           geometry->panel.height, legacyPanelBaseline);
-            DesktopChromeLabel(&metaStyle, raster, label.x, baseline, desktop->applications,
-                                      applicationsLength, theme->panelMetaText,
-                                      &record->labels, &record->labelsUnshaped);
+            baseline = DesktopTextBaseline(&metaStyle, 0, panel.height, legacyPanelBaseline);
+            DesktopChromeLabel(&metaStyle, raster, label.x - ox, baseline,
+                                      desktop->applications, applicationsLength,
+                                      theme->panelMetaText, &record->labels,
+                                      &record->labelsUnshaped);
         }
     }
     if (statusLength > 0u) {
@@ -444,11 +447,110 @@ Result DesktopChromePaintShell(Desktop *desktop,
 
         if (DesktopGeometryPanelArea(geometry, RoboDesktopPanelStatus, width, &label) ==
             RoboOk) {
-            baseline = DesktopTextBaseline(&statusStyle, geometry->panel.y,
-                                           geometry->panel.height, legacyPanelBaseline);
-            DesktopChromeLabel(&statusStyle, raster, label.x, baseline, desktop->status,
-                                      statusLength, theme->panelMetaText,
-                                      &record->labels, &record->labelsUnshaped);
+            baseline = DesktopTextBaseline(&statusStyle, 0, panel.height, legacyPanelBaseline);
+            DesktopChromeLabel(&statusStyle, raster, label.x - ox, baseline, desktop->status,
+                                      statusLength, theme->panelMetaText, &record->labels,
+                                      &record->labelsUnshaped);
+        }
+    }
+    return RoboOk;
+}
+
+Result DesktopChromePaintShell(Desktop *desktop,
+                                             GfxRaster *raster,
+                                             DesktopFrameRecord *record,
+                                             DesktopDiag *diag)
+{
+    Result status;
+
+    status = DesktopChromePaintWallpaper(desktop, raster, record, diag);
+    if (status != RoboOk) {
+        return status;
+    }
+    /*
+     * Direct paint draws the panel in screen space. Re-use the panel helper by
+     * temporarily painting into the same raster with absolute coordinates: the
+     * composed path uses a panel-local surface; this path offsets fills itself.
+     */
+    {
+        const DesktopGeometry *geometry = &desktop->geometry;
+        const DesktopTheme *theme = &desktop->theme;
+        DesktopTextStyle identityStyle =
+            DesktopChromeTextStyle(desktop, RoboTypographyRoleDesktopTitle);
+        DesktopTextStyle metaStyle =
+            DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeLabel);
+        DesktopTextStyle statusStyle =
+            DesktopChromeTextStyle(desktop, RoboTypographyRoleChromeStatus);
+        GfxRect label;
+        int32_t legacyPanelBaseline =
+            geometry->panel.y + geometry->panel.height - desktop->panel.baselineFromBottom;
+        int32_t baseline;
+        size_t identityLength = DesktopStringLength(desktop->identity);
+        size_t applicationsLength = DesktopStringLength(desktop->applications);
+        size_t statusLength = DesktopStringLength(desktop->status);
+        int32_t identityWidth =
+            DesktopChromeLabelWidth(&identityStyle, desktop->identity, identityLength);
+
+        DesktopChromeFill(raster, geometry->panel, theme->panelSurface, record);
+        {
+            int32_t separator = desktop->panel.separatorHeight;
+
+            if (separator > 0) {
+                DesktopChromeFill(
+                    raster,
+                    MakeGfxRect(geometry->panel.x,
+                                  geometry->panel.y + geometry->panel.height - separator,
+                                  geometry->panel.width, separator),
+                    theme->panelSeparator, record);
+            }
+        }
+        {
+            int32_t markHeight = desktop->panel.identityMarkHeight;
+            int32_t markWidth = desktop->panel.identityMarkWidth;
+            int32_t markY = geometry->panel.y + (geometry->panel.height - markHeight) / 2;
+
+            DesktopChromeFill(raster,
+                                     MakeGfxRect(geometry->identity.x, markY, markWidth,
+                                                   markHeight),
+                                     theme->identityAccent, record);
+        }
+        baseline = DesktopTextBaseline(&identityStyle, geometry->panel.y, geometry->panel.height,
+                                       legacyPanelBaseline);
+        if (identityLength > 0u &&
+            DesktopGeometryPanelArea(geometry, RoboDesktopPanelIdentity, identityWidth,
+                                             &label) == RoboOk) {
+            DesktopChromeLabel(
+                &identityStyle, raster,
+                label.x + desktop->panel.identityMarkWidth + RoboDesktopIdentityGap, baseline,
+                desktop->identity, identityLength, theme->identityText, &record->labels,
+                &record->labelsUnshaped);
+        }
+        if (applicationsLength > 0u) {
+            int32_t width = DesktopChromeLabelWidth(&metaStyle, desktop->applications,
+                                                           applicationsLength);
+
+            if (DesktopGeometryPanelArea(geometry, RoboDesktopPanelApplications, width,
+                                                 &label) == RoboOk) {
+                baseline = DesktopTextBaseline(&metaStyle, geometry->panel.y,
+                                               geometry->panel.height, legacyPanelBaseline);
+                DesktopChromeLabel(&metaStyle, raster, label.x, baseline,
+                                          desktop->applications, applicationsLength,
+                                          theme->panelMetaText, &record->labels,
+                                          &record->labelsUnshaped);
+            }
+        }
+        if (statusLength > 0u) {
+            int32_t width =
+                DesktopChromeLabelWidth(&statusStyle, desktop->status, statusLength);
+
+            if (DesktopGeometryPanelArea(geometry, RoboDesktopPanelStatus, width, &label) ==
+                RoboOk) {
+                baseline = DesktopTextBaseline(&statusStyle, geometry->panel.y,
+                                               geometry->panel.height, legacyPanelBaseline);
+                DesktopChromeLabel(&statusStyle, raster, label.x, baseline, desktop->status,
+                                          statusLength, theme->panelMetaText, &record->labels,
+                                          &record->labelsUnshaped);
+            }
         }
     }
     return RoboOk;

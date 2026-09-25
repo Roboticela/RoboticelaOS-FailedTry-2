@@ -6828,3 +6828,53 @@ need. Do not start until requested.
   `CompositorPumpFrame` where RoboDesktop presents today — is the next phase's work and needs no change
   here. The artifact of record is `Build/Compositor-Conformance.png`: a scene with a clip, a scroll, a
   translucent child and a scaled surface, rendered twice and compared **byte for byte** before it is written.
+
+## Phase 13 — RoboInput, closed late: coalescing, latency, the accessibility lane, gamepad navigation, freeze
+
+Recorded here out of order, because the work landed after Phase 15: Phase 13 had been written off as
+"complete as a module" with four goals still open and a documentation section that described five landed
+capabilities as zeros. All four are now landed, at version `0.7.0`, and the module is API-frozen.
+
+- **Coalescing (13.47).** A mouse can report a thousand moves a second and a frame draws sixty times. One
+  function answers what may be merged — `InputEventTypeMayCoalesce` says yes for `POINTER_MOVE`, `TOUCH_MOVE`
+  and `PEN_MOVE` and **no for every other one of the thirty-three types**, because merging a press, a key or a
+  text event either drops one or invents one, and a type appended later must default to a barrier. The table is
+  keyed on *(device, pointer, type)*, so two fingers are two slots and never one. `Push` does not dispatch; it
+  answers `EMIT`, `HOLD` or `FLUSH_FIRST`, and the third is the entire ordering rule — a press may not
+  overtake the moves it happened after. Nothing is dropped: a full table asks the caller to drain, and a flush
+  against a full queue answers `RoboBusy` with the remainder **still held**, so a slow frame costs a delayed
+  move rather than a lost pointer.
+
+- **Latency (13.48).** Five stamps — hardware, queue, dispatch, handler, present — and four differences. The
+  rule that matters is a refusal: a stamp earlier than a stage already marked is refused and counted rather
+  than saturated, because saturating it would report a *good* latency for a call site measuring from the wrong
+  clock, and a plausible wrong number is worse than being told. Sixteen records, no allocator: a never-used
+  slot first, the oldest finished record after that, `RoboBusy` only when every record is still live.
+
+- **The accessibility lane (13.52).** A screen reader asks for a *meaning*, not a scan code — a synthetic
+  keystroke would have to guess a layout, a key and a modifier state, and would then be indistinguishable from
+  a keyboard in every log and every policy decision. `InputA11yInvokeCommand` routes the mapped command through
+  the same `InputCommandRouter` a shortcut uses, and `InputA11yCommandAllowed` is the boundary: the text, focus
+  and view families plus cancellation, and **not** the window family, the debug overlay, the reset or quit —
+  a client that could close the surface it was describing could dismiss the thing it was reading. Checked
+  *before* the router, so a barred command cannot reach a target by another name. `SET_VALUE` is refused by
+  name (no command exists for it) and `TOGGLE` is an activation.
+
+- **Gamepad navigation (13.54).** D-pad, d-pad axes and the left stick become focus moves by the **dominant
+  axis** with ties going vertical, the d-pad beats the stick and a pressed A or B beats both — which is what
+  makes an activation one action instead of an activation interleaved with repeats. A held direction repeats on
+  the 13.8 cadence shape from the caller's clock; `Activate` and `Back` are **edges and never repeat**. One
+  defect was found and fixed by the suite while writing it: a zero deadzone made an all-zero axis pair read as
+  a direction, because the comparison was inclusive where the contract says "at or inside it is a rest".
+
+- **The freeze, and the documentation that had gone wrong.** `RoboInputApiFrozen` is 1 with
+  `Documentation/Runtime/Input/ApiStability.md` saying door by door what that means (and that it is
+  *additive*: a door, a value appended after the last, and a capability field are how both phases landed).
+  `Overview.md`'s zero table now names the **five** flags that are really 0, its case study no longer calls
+  focus and routing "later", and `EventPolicies.md` is the four layers in detail. `AGENTS.md`'s Input section
+  was corrected from `0.3.0` and an eleven-flag zero list.
+
+- **Evidence.** `TestInput.ps1 -Target Host` — **182 cases, 28 suites, all green** (156 before), including a
+  `input.coalescing.baseline` case that asserts the *cost model* rather than a stopwatch: 960 moves arriving in
+  60 frames cost 60 queue pushes and 900 merges, so a build that emitted every event fails instead of merely
+  getting slower.

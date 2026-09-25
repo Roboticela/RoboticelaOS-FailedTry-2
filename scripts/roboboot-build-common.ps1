@@ -723,6 +723,7 @@ function Invoke-RoboBuildUserland {
             # cmap-per-code-point loops they used to carry are gone. A guest built without it links no
             # text at all, which is exactly what this list existing to be exhaustive prevents.
             "RoboText",
+            "RoboCompositor",
             "RoboDesktop"
           );
         },

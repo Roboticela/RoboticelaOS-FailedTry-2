@@ -110,11 +110,11 @@ typedef struct DesktopCapabilities {
     int shellText;
     /** An application document (HTML → CSS → layout → paint → display list). **0**: see below. */
     int documents;
-    /** A layer tree with its own ordering and damage union. **0**: the shell draws into one target. */
+    /** A layer tree with retained wallpaper / panel / window surfaces (Phase 15 wiring). */
     int compositor;
-    /** Independently repaintable pieces of the screen. **0**: a frame is a frame. */
+    /** Independently repaintable pieces of the screen. **0**: tile grids stay in RoboCompositor. */
     int tiles;
-    /** A history of what was on the screen, so "unchanged" needs no comparison. **0**. */
+    /** Composition damage and region present so unchanged layers are not redrawn. */
     int damageTracking;
     /** A clock, a deadline and a queue. **0**: and this module's determinism depends on the absence. */
     int frameScheduling;

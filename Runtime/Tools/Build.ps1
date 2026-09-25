@@ -465,6 +465,7 @@ $ProdSrcs = @(
     # *no* markup: that is the boundary the scan below enforces, and `RoboDesktopDocument.c` is the
     # one file exempted from it, because a document bridge is not a shell.
     (Join-Path $SourceDir "RoboDesktop\RoboDesktop.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopCompose.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopTypes.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopTheme.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopGeometry.c"),
@@ -1237,9 +1238,11 @@ function Assert-RoboDesktopBoundaries {
     # Two rules, and the asymmetry between them is the module's whole design.
     #
     # The **upward** rule is the one every module in this tree keeps: the shell may not reach for
-    # Chromium, for a compositor, for JavaScript, for the API/shell layers, for the demo layer, or
-    # for anything above itself. A desktop that could reach a compositor would stop being the thing
-    # that decides what is on the screen.
+    # Chromium, for JavaScript, for the API/shell layers, for the demo layer, or for anything above
+    # itself. RoboCompositor is the deliberate exception in `RoboDesktopCompose.c`: Phase 15's
+    # software compositor is how the shell keeps retained wallpaper / panel / window surfaces and
+    # presents damage instead of clearing the whole screen every frame. The exemption is by name
+    # rather than by directory so a *second* desktop file reaching for a compositor is still a leak.
     #
     # The **document** rule is the interesting one, and it is deliberately narrower than the render
     # module's: RoboDesktop must not read HTML, CSS or a layout tree, because the shell's job is to
@@ -1270,7 +1273,7 @@ function Assert-RoboDesktopBoundaries {
     # The suites and the module's own documents are held to the upward half only, for the render
     # scan's reason: a desktop fixture *is* a render fixture plus a shell, so it builds a document on
     # purpose -- scanning it for a document-layer include would be scanning for the thing it exists to
-    # do, while an upward include in a suite (a suite reaching for a compositor to check its own
+    # do, while an upward include in a suite (a suite reaching for JavaScript to check its own
     # frame) is still a leak.
     $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboCompositor|RoboJS|RoboShell|RoboAPI|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
     $document = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboHTML|RoboCSS|RoboLayout|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
@@ -1281,7 +1284,7 @@ function Assert-RoboDesktopBoundaries {
     $rules = @(
         @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider') },
         @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider') },
-        @{ Roots = $allRoots; Pattern = $upward; Skip = $null }
+        @{ Roots = $allRoots; Pattern = $upward; Skip = @('RoboDesktopCompose') }
     )
     foreach ($rule in $rules) {
         foreach ($root in $rule.Roots) {
@@ -2007,7 +2010,7 @@ if ($Module -and $Module -ne "Runtime") {
         Layout = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout")
         Paint = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint")
         Rasterizer = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender")
-        Desktop = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender", "RoboDesktop", "RoboInput")
+        Desktop = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender", "RoboCompositor", "RoboDesktop", "RoboInput")
     }
     $want = $prefixMap[$Module]
     if ($want) {

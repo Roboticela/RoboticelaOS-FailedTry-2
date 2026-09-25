@@ -10,10 +10,11 @@
  * Two of them are worth pointing at because they are the ones a later phase breaks by accident:
  *
  *   **the capability table** is read **by name**, eighteen fields, and asserts the *absences* as hard as the
- *   presences — a compositor, tiles, damage tracking, a frame scheduler, VSync, a GPU, a window manager,
- *   input delivery and a desktop environment are all 0, as is `documents` (the shell builds no document;
- *   the bridge beside it does). The day one of them becomes 1 the suite has to be edited, which is the
- *   point: a capability that turns on without its own case is a capability nobody checked;
+ *   presences — tiles, a frame scheduler, VSync, a GPU, a window manager, input delivery and a desktop
+ *   environment are all 0, as is `documents` (the shell builds no document; the bridge beside it does).
+ *   `compositor` and `damageTracking` are **1** (retained layers through RoboCompositor). The day one of
+ *   them flips the suite has to be edited, which is the point: a capability that turns on without its own
+ *   case is a capability nobody checked;
  *
  *   **the dump** is asserted as **seven exact lines** on a fresh desktop. That is deliberately brittle: the
  *   dump is the door a developer reads when nothing else works, and a field that moves between two lines
@@ -68,13 +69,13 @@ static void TestDesktopCapabilities(void)
     RoboCheckEqInt(capabilities.resize, 1);
     RoboCheckEqInt(capabilities.pointerTargeting, 1);
     RoboCheckEqInt(capabilities.shellText, 1);
-    /* What it deliberately is not: the shell builds no document (the bridge beside it does), and none of
-     * the ten structures a compositor, a scheduler, a GPU, a window manager, an input system or a desktop
-     * environment would need exist here. */
+    /* What it deliberately is not: the shell builds no document (the bridge beside it does). Retained
+     * composition and damage tracking are on; tiles / vsync / GPU / window manager / input delivery /
+     * desktop environment stay off. */
     RoboCheckEqInt(capabilities.documents, 0);
-    RoboCheckEqInt(capabilities.compositor, 0);
+    RoboCheckEqInt(capabilities.compositor, 1);
     RoboCheckEqInt(capabilities.tiles, 0);
-    RoboCheckEqInt(capabilities.damageTracking, 0);
+    RoboCheckEqInt(capabilities.damageTracking, 1);
     RoboCheckEqInt(capabilities.frameScheduling, 0);
     RoboCheckEqInt(capabilities.vsync, 0);
     RoboCheckEqInt(capabilities.gpu, 0);
