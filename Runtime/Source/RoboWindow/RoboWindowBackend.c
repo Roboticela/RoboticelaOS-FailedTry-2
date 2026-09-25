@@ -29,7 +29,8 @@ static const WindowBackendCaps gNullCaps = {
     0u, /* presentMaxHeight */
     0, /* WaitEvents */
     0, /* wakeup */
-    0  /* mouseCapture */
+    0, /* mouseCapture */
+    0  /* gpuPresent */
 };
 
 void WindowBackendCapsClear(WindowBackendCaps *caps)

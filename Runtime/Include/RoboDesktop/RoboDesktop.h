@@ -120,7 +120,8 @@ typedef struct DesktopCapabilities {
     int frameScheduling;
     /** Waiting for a display's vertical blank. **0**: presentation is synchronous and unpaced. */
     int vsync;
-    /** A GPU presentation path. **0**: everything here is CPU and software. */
+    /** A GPU-accelerated *present* path when the window backend has one (host D3D11).
+     *  Compose stays CPU/software (RoboCompositor); this flag does not mean GPU textures. */
     int gpu;
     /** A window manager: snapping, tiling, virtual desktops, animation, maximize and minimize. **0**. */
     int windowManager;

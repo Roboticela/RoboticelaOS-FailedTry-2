@@ -338,12 +338,16 @@ void DesktopSceneInvalidate(DesktopScene *scene)
         scene->needsPaint = 1;
         scene->needsCursorPaint = 0;
         if (scene->desktop) {
+            /*
+             * Recompose chrome and window *frames*, but leave contentDirty alone:
+             * contentRuns counts display-list raster work, and an unchanged document
+             * must stay cached so two forced paints of one scene can still match.
+             */
             DesktopComposeInvalidateAll(scene->desktop);
             {
                 size_t index;
 
                 for (index = 0u; index < scene->desktop->windowCount; index++) {
-                    scene->desktop->windows[index].contentDirty = 1;
                     scene->desktop->windows[index].frameDirty = 1;
                 }
             }

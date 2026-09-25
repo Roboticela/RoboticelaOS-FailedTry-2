@@ -297,6 +297,7 @@ static const WindowBackendVtbl gRichVtbl = {
     NULL,
     NULL,
     NULL,
+    NULL,
     NULL};
 
 static void RichCapsFull(void)

@@ -57,6 +57,13 @@ typedef struct WindowBackendCaps {
 
     /** Goal 7.11: backend implements native mouse capture/release. */
     int mouseCapture;
+
+    /**
+     * Host present acceleration: non-zero when the backend can flip through a
+     * hardware GPU (D3D11/DXGI on Win32). Compose may still be CPU; this flag
+     * only names the *present* path. Zero → CPU/GDI (or guest FB) present.
+     */
+    int gpuPresent;
 } WindowBackendCaps;
 
 void WindowBackendCapsClear(WindowBackendCaps *caps);

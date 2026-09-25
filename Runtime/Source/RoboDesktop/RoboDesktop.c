@@ -109,7 +109,8 @@ Result DesktopGetCapabilities(DesktopCapabilities *out)
      * HTML: an application document is a separate module (`RoboDesktopDocument.h`), and a capability row
      * here would claim the shell needs one. `compositor` and `damageTracking` are on through
      * `RoboDesktopCompose.c` (retained wallpaper / panel / window surfaces). `tiles`, `frameScheduling`
-     * and `vsync` stay off; `gpu` is a device and a resource manager; `windowManager`, `inputDelivery`
+     * and `vsync` stay off; `gpu` is 1 when the window backend can GPU-present (host D3D11) while
+     * composition stays CPU; `windowManager`, `inputDelivery`
      * and `desktopEnvironment` are the three products this phase explicitly does not build.
      */
     out->documents = 0;
@@ -119,7 +120,17 @@ Result DesktopGetCapabilities(DesktopCapabilities *out)
     out->damageTracking = 1;
     out->frameScheduling = 0;
     out->vsync = 0;
-    out->gpu = 0;
+    /*
+     * Hybrid: RoboCompositor stays CPU (damage + retained layers). `gpu` is 1 only when the
+     * live window backend can flip through hardware (Win32 D3D11/DXGI). Guest/QEMU stays 0.
+     */
+    {
+        WindowBackendCaps wcaps;
+        out->gpu = 0;
+        if (WindowBackendCapabilities(&wcaps) == RoboOk && wcaps.gpuPresent) {
+            out->gpu = 1;
+        }
+    }
     out->windowManager = 0;
     out->inputDelivery = 0;
     out->desktopEnvironment = 0;

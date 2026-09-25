@@ -21,12 +21,20 @@ Win32 window backend (platform/win32)
         ↓
 RoboGraphics surface (BGRA8 / RGBA8 / RGB8)
         ↓
-staging CreateDIBSection (top-down 32bpp BGRX)
-        ↓
-InvalidateRect → WM_PAINT → BitBlt / StretchBlt
-        ↓
-real HWND client area
+   ┌──── hardware D3D11/DXGI flip (when available) ────┐
+   │                                                    ↓
+   │                              IDXGISwapChain::Present (vsync=1)
+   │
+   └──── else CPU staging CreateDIBSection ─────────────┐
+                        ↓                               ↓
+              InvalidateRect → WM_PAINT → BitBlt / StretchBlt
+                        ↓
+                 real HWND client area
 ```
+
+Compose (RoboDesktop → RoboCompositor) stays on the CPU with damage/retained layers; GPU
+accelerates only the final present when `WindowBackendCaps.gpuPresent` is 1. Force CPU present with
+`ROBO_WINDOW_FORCE_CPU_PRESENT=1`.
 
 Display discovery:
 
@@ -48,6 +56,7 @@ manager from the placeholder backend to the host monitor backend when available.
 Isolated under:
 
 * `Source/RoboWindow/platform/win32/RoboWindowBackendWin32.c`
+* `Source/RoboWindow/platform/win32/RoboWindowPresentWin32Gpu.c` (D3D11/DXGI present)
 * `Source/RoboWindow/platform/win32/RoboWindowKeyboardWin32.c`
 * `Source/RoboWindow/platform/win32/RoboWindowMouseWin32.c`
 * `Source/RoboDisplay/platform/win32/RoboDisplayBackendWin32.c`
@@ -56,7 +65,8 @@ Window / present:
 
 * `RegisterClassExW` / `CreateWindowExW` / `DestroyWindow`
 * `ShowWindow` / `UpdateWindow` / `InvalidateRect`
-* `CreateDIBSection` / `BitBlt` / `StretchBlt` (CPU presentation)
+* `CreateDIBSection` / `BitBlt` / `StretchBlt` (CPU presentation fallback)
+* `D3D11CreateDevice` / `IDXGISwapChain::Present` (GPU presentation when hardware is available)
 * `PeekMessageW` / `DispatchMessageW` / `MsgWaitForMultipleObjects`
 * `MonitorFromWindow` → host display id mapping
 
@@ -129,7 +139,8 @@ $env:ROBO_WINDOW_SKIP_HOST="1"
 ## Limitations
 
 * Windows host only for real presentation today
-* No GPU / DXGI / Vulkan swap chain in 7.13 (CPU GDI path)
+* GPU present is **D3D11/DXGI flip of a CPU-composed surface** — not a GPU layer tree
+  (`CompositorCapabilities.gpuResources` stays 0). Guest/QEMU remains CPU FB present
 * Path fill/stroke still `RoboNotSupported` in RoboGraphics raster — smoke
   patterns use clear / rect / line
 * Refresh Hz not exposed

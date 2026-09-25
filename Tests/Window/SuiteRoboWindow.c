@@ -165,7 +165,7 @@ static Result MockProcessEvents(void *userdata)
 }
 
 static const WindowBackendCaps gMockCaps = {
-    1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 0u, 0u, 0u, 0, 0, 0};
+    1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 0, 1, 0u, 0u, 0u, 0, 0, 0, 0};
 
 static Result MockSetSizeConstraints(void *userdata,
                                                WindowId id,
@@ -202,6 +202,7 @@ static const WindowBackendVtbl gMockVtbl = {
     NULL,
     MockPresent,
     MockProcessEvents,
+    NULL,
     NULL,
     NULL,
     NULL,

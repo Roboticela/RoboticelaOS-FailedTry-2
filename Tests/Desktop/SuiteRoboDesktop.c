@@ -10,9 +10,10 @@
  * Two of them are worth pointing at because they are the ones a later phase breaks by accident:
  *
  *   **the capability table** is read **by name**, eighteen fields, and asserts the *absences* as hard as the
- *   presences — tiles, a frame scheduler, VSync, a GPU, a window manager, input delivery and a desktop
+ *   presences — tiles, a frame scheduler, VSync, a window manager, input delivery and a desktop
  *   environment are all 0, as is `documents` (the shell builds no document; the bridge beside it does).
- *   `compositor` and `damageTracking` are **1** (retained layers through RoboCompositor). The day one of
+ *   `compositor` and `damageTracking` are **1** (retained layers through RoboCompositor). `gpu` follows
+ *   the window backend's hardware-present probe (host D3D11 when available). The day one of
  *   them flips the suite has to be edited, which is the point: a capability that turns on without its own
  *   case is a capability nobody checked;
  *
@@ -22,6 +23,7 @@
  */
 
 #include "RoboDesktopTestSupport.h"
+#include "RoboWindow/RoboWindowCapabilities.h"
 
 #include <string.h>
 
@@ -70,15 +72,24 @@ static void TestDesktopCapabilities(void)
     RoboCheckEqInt(capabilities.pointerTargeting, 1);
     RoboCheckEqInt(capabilities.shellText, 1);
     /* What it deliberately is not: the shell builds no document (the bridge beside it does). Retained
-     * composition and damage tracking are on; tiles / vsync / GPU / window manager / input delivery /
-     * desktop environment stay off. */
+     * composition and damage tracking are on; tiles / vsync / window manager / input delivery /
+     * desktop environment stay off. `gpu` follows the window backend's hardware present probe
+     * (host D3D11 when available; otherwise 0). Compose itself stays CPU. */
     RoboCheckEqInt(capabilities.documents, 0);
     RoboCheckEqInt(capabilities.compositor, 1);
     RoboCheckEqInt(capabilities.tiles, 0);
     RoboCheckEqInt(capabilities.damageTracking, 1);
     RoboCheckEqInt(capabilities.frameScheduling, 0);
     RoboCheckEqInt(capabilities.vsync, 0);
-    RoboCheckEqInt(capabilities.gpu, 0);
+    {
+        WindowBackendCaps wcaps;
+        int expectGpu = 0;
+
+        if (WindowBackendCapabilities(&wcaps) == RoboOk && wcaps.gpuPresent) {
+            expectGpu = 1;
+        }
+        RoboCheckEqInt(capabilities.gpu, expectGpu);
+    }
     RoboCheckEqInt(capabilities.windowManager, 0);
     RoboCheckEqInt(capabilities.inputDelivery, 0);
     RoboCheckEqInt(capabilities.desktopEnvironment, 0);

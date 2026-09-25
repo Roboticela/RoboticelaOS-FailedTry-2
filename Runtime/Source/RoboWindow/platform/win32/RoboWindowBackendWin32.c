@@ -4,10 +4,12 @@
  * Isolated under platform/win32 so OS headers never enter the public API.
  * Guest freestanding ELF does not compile this file.
  *
- * Presentation (Goal 7.13): RoboGraphics surface → staging CreateDIBSection
- * (top-down BGRA/BGRX) → InvalidateRect → WM_PAINT BitBlt into HWND.
- * Inspired by Chromium SoftwareOutputDeviceWinDirect GDI BitBlt path as
- * technical reference only — no Chromium dependency.
+ * Presentation (Goal 7.13): RoboGraphics surface → prefer D3D11/DXGI flip when a
+ * hardware GPU is available (see RoboWindowPresentWin32Gpu.c); otherwise staging
+ * CreateDIBSection (top-down BGRA/BGRX) → InvalidateRect → WM_PAINT BitBlt.
+ * CPU composition (RoboCompositor) always feeds the surface; GPU accelerates the
+ * HWND present only. Chromium software-output vs GPU-output split used as a
+ * design reference only — no Chromium dependency.
  */
 
 #if defined(RoboWindowHasWin32) && RoboWindowHasWin32
@@ -31,6 +33,7 @@
 #include "RoboWindowKeyboardWin32.h"
 #include "RoboWindowMouseWin32.h"
 #include "RoboDisplayWin32.h"
+#include "RoboWindowPresentWin32Gpu.h"
 
 #include "RoboBase/RoboLog.h"
 #include "RoboUnicode/RoboUnicode.h"
@@ -62,6 +65,8 @@ typedef struct Win32Slot {
     uint8_t *presentBits;
     int32_t presentW;
     int32_t presentH;
+    /* D3D11 swap-chain state when hardware present is available; NULL = GDI. */
+    Win32GpuWindow *gpu;
 } Win32Slot;
 
 static int gLive;
@@ -157,6 +162,7 @@ static void Win32PresentRelease(Win32Slot *slot)
     if (!slot) {
         return;
     }
+    Win32GpuWindowDestroy(&slot->gpu);
     if (slot->presentDc) {
         if (slot->presentOld) {
             (void)SelectObject(slot->presentDc, slot->presentOld);
@@ -577,6 +583,7 @@ static void Win32Shutdown(void *userdata)
         }
     }
     gLive = 0;
+    Win32GpuPresentShutdownGlobal();
     LogInfo("robo_window.win32: backend shutdown");
 }
 
@@ -1067,6 +1074,23 @@ static Result Win32PresentSurface(void *userdata,
         return r;
     }
 
+    /*
+     * Hybrid present: CPU-composed pixels are already in the DIB. Prefer a
+     * hardware DXGI flip when the GPU probe succeeded; on any refusal keep the
+     * GDI BitBlt path so the frame still lands.
+     */
+    if (Win32GpuPresentAvailable()) {
+        Result gpu = Win32GpuPresentSurface(slot->hwnd, &slot->gpu, surface);
+        if (gpu == RoboOk) {
+            LogDebug("robo_window.win32: gpu present id=%llu surface=%ux%u",
+                           (unsigned long long)slot->windowId, (unsigned)sw,
+                           (unsigned)sh);
+            return RoboOk;
+        }
+        LogDebug("robo_window.win32: gpu present refused (%d) — GDI fallback",
+                       (int)gpu);
+    }
+
     InvalidateRect(slot->hwnd, NULL, FALSE);
     /* Synchronous paint so tests can sample pixels immediately. */
     if (!UpdateWindow(slot->hwnd)) {
@@ -1215,6 +1239,7 @@ static void CapsInit(void)
     gCaps.WaitEvents = 1;
     gCaps.wakeup = 1;
     gCaps.mouseCapture = 1;
+    gCaps.gpuPresent = Win32GpuPresentAvailable();
 }
 
 int WindowBackendHostAvailable(void)

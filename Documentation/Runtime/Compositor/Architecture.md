@@ -252,12 +252,18 @@ written. `ROBO_COMPOSITOR_PNG` relocates it, the way `ROBO_DESKTOP_PNG` does.
 
 ```text
 RoboBase → RoboMem → RoboContainers
-    ↘ RoboGraphics → RoboCompositor      ← Phase 15
-    ↘ RoboGraphics → RoboDisplay → RoboWindow
+    ↘ RoboGraphics → RoboCompositor → RoboDesktop   ← Phase 15 + 15.19
+    ↘ RoboGraphics → RoboDisplay → RoboWindow → RoboDesktop
     ↘ RoboFont → RoboText → RoboLayout / RoboPaint → RoboRender → RoboDesktop
 ```
 
-RoboCompositor is a **leaf consumer** of RoboGraphics: nothing in the tree depends on it yet, and
-that is on purpose. Phase 15 built the composition model and proved it against its own suites; wiring
-a shell's frame loop to it (a layer per window, one surface per window, `CompositorPumpFrame` where
-the shell currently presents) is the next phase's work and needs no change here.
+RoboCompositor is a **leaf consumer of RoboGraphics** and a **producer for RoboDesktop**: the shell
+wires it in `RoboDesktopCompose.c` — a wallpaper layer, a panel layer, one layer and one surface per
+window, damage regions, and `CompositorPresent` into the screen target the caller owns. Composition
+itself is **CPU** (`gpuResources`/`gpuSync` remain 0 — no GPU textures in the layer tree yet). The
+**present** half is hybrid on the host: when Win32 reports `gpuPresent`, the composed CPU surface is
+flipped through D3D11/DXGI; otherwise GDI BitBlt (and on QEMU, the linear FB copy). Display flip APIs
+stay outside this module (`presentToDisplay` remains 0). The shell calls `CompositorPresent`
+directly rather than `CompositorPumpFrame`; the pump and post queue are available for a later frame
+loop that wants them. The artifact of record for the module itself is still
+`Build/Compositor-Conformance.png`.

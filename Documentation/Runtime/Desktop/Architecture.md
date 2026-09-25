@@ -161,9 +161,12 @@ a reader is most likely to misread:
   constant says the *runtime* can build one for an application window through
   `RoboDesktopDocument.h`. A build that removed the bridge would keep a working shell and would set the
   constant to 0; a build that let the shell read markup would have to change the boundary scan.
-- **`presentation` is 1 while `compositor` and `vsync` are 0.** "A frame can reach a destination" and
-  "more than one surface has an order" are different claims, and so are "the pixels arrived" and "they
-  arrived in step with a display".
+- **`presentation` is 1 and `compositor` / `damageTracking` are 1 while `vsync` is 0.** A frame
+  reaches a destination through RoboCompositor (`RoboDesktopCompose.c`: layer-per-window, damage
+  present into the screen target); display flip is RoboWindow / Render. On the host, that flip uses
+  D3D11/DXGI when `gpuPresent` is available (`DesktopCapabilities.gpu` follows it), otherwise GDI.
+  Compose stays CPU. "The pixels arrived" and "they arrived in step with a compositor vsync clock"
+  remain different claims — module `vsync` stays 0 even when DXGI presents with sync interval 1.
 
 ---
 
@@ -187,10 +190,10 @@ a reader is most likely to misread:
    screen for the whole frame, so the count in the record is the number of shell drawings the *screen's
    own bounds* cut — a window partly off the screen is a legitimate state, and the count is how a caller
    learns that a placement shows less than it asked for.
-5. **A window's contents are rasterised into the window's own target, then composited.** Not straight
-   into the screen: a document's `push-clip` must not be able to reach the panel, a document that fails
-   to draw must still leave a *window* on screen, and the target is what a future compositor would take
-   as a layer.
+5. **A window's contents are rasterised into the window's own target, then drawn into a compositor
+   layer surface.** Not straight into the screen: a document's `push-clip` must not reach the panel,
+   a document that fails to draw must still leave a *window* on screen, and the layer surface is what
+   `CompositorPresent` composites.
 
 ---
 
@@ -254,8 +257,12 @@ because a broken document is a state the caller is in, not an event that happene
 
 ## 7. What this architecture deliberately is not
 
-Not a compositor (one target, no layer tree, no damage union), not a window manager (no drag, no snap,
-no maximize), not a frame scheduler (no clock, no queue, no VSync), not a desktop environment (no
-launcher, no notifications, no settings), not an input system (the pointer does two things, and nothing
-is delivered to a window's contents), and not a GPU path. Each of those is a **0** in the capability
-table beside a phrase naming what it would need, and `desktop/README.md` lists them in one place.
+Not a window manager (no drag, no snap, no maximize), not a frame scheduler with vsync (no clock, no
+queue, no VSync — compose is caller-driven), not a desktop environment (no launcher, no notifications,
+no settings), not an input system (the pointer does two things, and nothing is delivered to a window's
+contents — RoboInput consumption is still open), and not a GPU *layer tree*. It **does** use
+RoboCompositor for retained layers and damage (`compositor` / `damageTracking` = 1). On the host, the
+final HWND flip uses D3D11/DXGI when available (`gpu` follows `gpuPresent`) while composition stays
+CPU — both paths together. Guest/QEMU stays CPU present. Each remaining absence is a **0** in the
+capability table beside a phrase naming what it would need, and `desktop/README.md` lists them in one
+place.

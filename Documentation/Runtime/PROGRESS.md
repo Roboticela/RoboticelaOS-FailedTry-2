@@ -6823,11 +6823,13 @@ need. Do not start until requested.
   "so let me rasterize the display list here" reads like a simplification — and giving in would make the
   module untestable without a renderer while making 15.6's seam a formality.
 
-- **No production consumer yet, and that is the phase's own stop line.** The module is a leaf consumer of
-  RoboGraphics. Wiring a shell frame loop to it — a layer per window, one surface per window,
-  `CompositorPumpFrame` where RoboDesktop presents today — is the next phase's work and needs no change
-  here. The artifact of record is `Build/Compositor-Conformance.png`: a scene with a clip, a scroll, a
-  translucent child and a scaled surface, rendered twice and compared **byte for byte** before it is written.
+- **Production consumer: RoboDesktop (15.19).** The module is still a leaf of RoboGraphics (it may
+  include nothing above it). The shell consumes it through `RoboDesktopCompose.c`: a layer per
+  wallpaper / panel / window, one surface per window, damage tracking, and `CompositorPresent` into
+  the screen target. Display present stays outside this module. `CompositorPumpFrame` is unused by
+  the shell today — Desktop drives present directly. The artifact of record for the module itself is
+  `Build/Compositor-Conformance.png`: a scene with a clip, a scroll, a translucent child and a scaled
+  surface, rendered twice and compared **byte for byte** before it is written.
 
 ## Phase 13 — RoboInput, closed late: coalescing, latency, the accessibility lane, gamepad navigation, freeze
 

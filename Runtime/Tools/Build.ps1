@@ -2130,6 +2130,7 @@ if (-not $Test -and -not $BuildTests) {
 
 Write-Host "HOST   building $HostTest"
 $Win32BackendSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowBackendWin32.c"
+$Win32GpuPresentSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowPresentWin32Gpu.c"
 $Win32KeyboardSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowKeyboardWin32.c"
 $Win32MouseSrc = Join-Path $SourceDir "RoboWindow\platform\win32\RoboWindowMouseWin32.c"
 $Win32DisplaySrc = Join-Path $SourceDir "RoboDisplay\platform\win32\RoboDisplayBackendWin32.c"
@@ -2142,7 +2143,7 @@ if (-not $Module -or $Module -eq "Runtime" -or $Module -eq "Desktop") {
     $hostExtras = $DesktopSceneSrcs + $hostExtras
 }
 if (-not $Module -or $Module -eq "Runtime" -or $Module -eq "Desktop" -or $Module -eq "Window" -or $Module -eq "Display") {
-    $hostExtras += @($Win32BackendSrc, $Win32KeyboardSrc, $Win32MouseSrc, $Win32DisplaySrc)
+    $hostExtras += @($Win32BackendSrc, $Win32GpuPresentSrc, $Win32KeyboardSrc, $Win32MouseSrc, $Win32DisplaySrc)
 }
 if ($Module -and $Module -ne "Runtime") {
     $declared = @()
@@ -2216,7 +2217,7 @@ if (-not $linkStale) {
 
 if ($linkStale) {
     $hostRsp = Join-Path $OutDir "RoboTest.host.rsp"
-    $hostArgs = @($hostFlags) + @("-o", $HostTest) + $hostObjs + @("-luser32", "-lgdi32")
+    $hostArgs = @($hostFlags) + @("-o", $HostTest) + $hostObjs + @("-luser32", "-lgdi32", "-ld3d11", "-ldxgi", "-ldxguid")
     $hostArgChars = 0
     foreach ($hostArg in $hostArgs) { $hostArgChars += $hostArg.Length + 1 }
     Write-Host "LD     $($hostArgs.Count) arguments ($hostArgChars chars) -> $hostRsp"
