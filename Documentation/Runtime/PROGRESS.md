@@ -6880,3 +6880,31 @@ capabilities as zeros. All four are now landed, at version `0.7.0`, and the modu
   `input.coalescing.baseline` case that asserts the *cost model* rather than a stopwatch: 960 moves arriving in
   60 frames cost 60 queue pushes and 900 merges, so a build that emitted every event fails instead of merely
   getting slower.
+
+## Desktop shell — Apple chrome, Input Lab, click responsiveness
+
+**Status: landed.** The compiled desk (`Desktop/`) and the scene's pointer path were the stall the user
+felt: every mouse press rewrote the status HUD (full panel reshape with AA glyphs) and forced a paint on
+both down and up. Clicks now paint only when the shell actually dirtied chrome (raise/close); key-downs
+update the menu-bar status with `LogicalKeyName` + modifiers; Escape still ends the session.
+
+| Piece | Where |
+|---|---|
+| Conditional paint / no status-on-click / live key status | `RoboDesktopScene.c` |
+| Apple menu bar, dock tiles, traffic lights, calm wallpaper | `Desktop/src/theme/{tokens,stylesheet}.ts`, guest shell |
+| Input Lab (fields, buttons, toggles, checks, slider) + Overview | guest + interactive lab |
+| Regenerated guest page | `Runtime/Source/RoboDesktop/Generated/DesktopPage.h` |
+
+Evidence: `TestDesktop.ps1 -Target Host` — **57 / 57**.
+
+## Desktop Vite lab — TypeScript, Tailwind, interactive routes
+
+**Status: landed.** The previous preview was a static SSR dump with no handlers — useless in a browser.
+`Desktop/` is now a real lab:
+
+- TypeScript + Tailwind + React Router
+- `/` index links to `/desktop`, `/window`, `/controls`, `/dock`, `/menubar`, `/input-lab`, `/combined`
+- Interactive: drag windows, focus/close/minimize/zoom, real inputs, dock launch, menus, live key/mouse telemetry
+- Guest export unchanged in role: `GuestDesktopShell` + RoboCSS sheet → `DesktopPage.h` (no Tailwind in the OS)
+
+Docs: `Documentation/Desktop/Ui.md`. Run `cd Desktop && npm run dev`.

@@ -1,42 +1,20 @@
 /*
- * The desktop's state — Phase 14.3's "centralized desktop state", as a pure reducer module.
- *
- * There is **one** state object and every manager is a function from a state to a state. Nothing here
- * imports React, touches the DOM, or reads a global: the shell's components render what this yields,
- * and `Desktop/tests/desktopState.test.mjs` drives the same functions in Node. That split is what
- * makes the interesting half of the shell testable without a renderer — "closing a window closes its
- * notifications" is a fact about two numbers, not about a screenshot.
- *
- * ## Why the managers are one object with a `state` field
- *
- * A reducer that returned a bare state would let a caller hold a stale window and mutate it, which is
- * the failure mode 14.3 exists to prevent ("do not allow unrelated components to maintain conflicting
- * copies"). Every mutation is therefore a **new** state and a **new** array of windows; a component
- * cannot grow a second copy by accident because there is nothing here to copy — and `Object.freeze` in
- * development is not needed to get that, only the discipline of never returning the argument.
- *
- * ## What the native runtime owns, and what this owns
- *
- * This models the *shell's* view: which windows exist on which workspace, which one has focus, what
- * the dock shows, what the notification centre holds. It does not own an application process, its
- * pixels, or its lifetime — `DesktopBridge` (14.40) is the door to that, and a window here carries an
- * opaque `applicationId` that the bridge is free to interpret. A window whose backing application has
- * gone away is therefore `closed` here *and* reported by the bridge, rather than this module pretending
- * to have killed a process.
+ * The desktop's state — Phase 14.3's centralized desktop state, as a pure reducer module.
+ * Typed for the Vite lab; the guest never runs this module.
  */
 
-/** Window lifecycle, as the four states the phase names plus the two that are transitions. */
-export const WindowState = Object.freeze({
+export const WindowState = {
   Normal: "normal",
   Minimized: "minimized",
   Maximized: "maximized",
   Fullscreen: "fullscreen",
   Closing: "closing",
   Closed: "closed",
-});
+} as const;
 
-/** Where a snapped window is anchored. Values are what a drag-to-edge gesture resolves to. */
-export const SnapEdge = Object.freeze({
+export type WindowStateValue = (typeof WindowState)[keyof typeof WindowState];
+
+export const SnapEdge = {
   Left: "left",
   Right: "right",
   Top: "top",
@@ -44,19 +22,21 @@ export const SnapEdge = Object.freeze({
   TopRight: "topRight",
   BottomLeft: "bottomLeft",
   BottomRight: "bottomRight",
-});
+} as const;
 
-/** Notification severity, which selects the token the surface tints with. */
-export const NotificationKind = Object.freeze({
+export type SnapEdgeValue = (typeof SnapEdge)[keyof typeof SnapEdge];
+
+export const NotificationKind = {
   Info: "info",
   Success: "success",
   Warning: "warning",
   Error: "error",
   Progress: "progress",
-});
+} as const;
 
-/** The shell's own surfaces, for `menu.open` — one overlay is open at a time, and this says which. */
-export const ShellSurface = Object.freeze({
+export type NotificationKindValue = (typeof NotificationKind)[keyof typeof NotificationKind];
+
+export const ShellSurface = {
   None: "none",
   ApplicationMenu: "applicationMenu",
   SystemMenu: "systemMenu",
@@ -65,83 +45,170 @@ export const ShellSurface = Object.freeze({
   Launcher: "launcher",
   ApplicationSwitcher: "applicationSwitcher",
   Dialog: "dialog",
-});
+} as const;
 
-/** A minimum layout the display may not be smaller than, so a maximized window is never negative. */
-function clamp(value, low, high) {
+export type ShellSurfaceValue = (typeof ShellSurface)[keyof typeof ShellSurface];
+
+export type WindowContentKind = "inputlab" | "overview" | "inspector" | "specimen" | string | null;
+
+export interface WindowRestore {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface DesktopWindow {
+  id: string;
+  applicationId: string;
+  title: string;
+  icon: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  minWidth: number;
+  minHeight: number;
+  maxWidth: number;
+  maxHeight: number;
+  state: WindowStateValue;
+  resizable: boolean;
+  movable: boolean;
+  closable: boolean;
+  modal: boolean;
+  workspace: number;
+  z: number;
+  content: WindowContentKind;
+  restore: WindowRestore | null;
+}
+
+export interface DockItem {
+  id: string;
+  name: string;
+  running: boolean;
+  focused: boolean;
+  iconClass?: string;
+  tint?: string;
+}
+
+export interface DesktopIcon {
+  id: string;
+  name: string;
+}
+
+export interface MenuRow {
+  id?: string;
+  label?: string;
+  separator?: boolean;
+  disabled?: boolean;
+}
+
+export interface NotificationRecord {
+  id: string;
+  kind: NotificationKindValue;
+  read: boolean;
+  title: string;
+  body: string;
+  applicationId?: string;
+  windowId?: string;
+}
+
+export interface DialogRecord {
+  id: string;
+  windowId?: string;
+  title: string;
+  body: string;
+}
+
+export interface DisplayInfo {
+  width: number;
+  height: number;
+  scale: number;
+}
+
+export interface WorkspaceRecord {
+  index: number;
+  windows: string[];
+}
+
+export interface PointerState {
+  x: number;
+  y: number;
+  captured: string | null;
+  hover: string | null;
+}
+
+export interface DesktopState {
+  display: DisplayInfo;
+  appearance: "light" | "dark";
+  workspaces: WorkspaceRecord[];
+  activeWorkspace: number;
+  windows: DesktopWindow[];
+  nextWindowId: number;
+  nextZ: number;
+  focusedWindow: string | null;
+  focusReason: string;
+  pointer: PointerState;
+  dock: DockItem[];
+  surface: ShellSurfaceValue;
+  surfaceAnchor: { x: number; y: number } | null;
+  menuHighlight: number;
+  launcherQuery: string;
+  notifications: NotificationRecord[];
+  nextNotificationId: number;
+  dialogs: DialogRecord[];
+}
+
+export type WindowOpenSpec = Partial<DesktopWindow> & {
+  applicationId: string;
+  title: string;
+  focusReason?: string;
+};
+
+function clamp(value: number, low: number, high: number): number {
   return value < low ? low : value > high ? high : value;
 }
 
-/**
- * One window record. `z` is the shell's own ordering number: raising a window gives it the next
- * number, and the layer sorts by it rather than by array index, which is what keeps z-order
- * *deterministic* when a window is removed from the middle (14.18).
- */
-export function createWindow({
-  id,
-  applicationId,
-  title,
-  icon = null,
-  x = 0,
-  y = 0,
-  width = 520,
-  height = 360,
-  minWidth = 240,
-  minHeight = 160,
-  maxWidth = 0,
-  maxHeight = 0,
-  state = WindowState.Normal,
-  resizable = true,
-  movable = true,
-  closable = true,
-  modal = false,
-  workspace = 1,
-  z = 0,
-  content = null,
-}) {
+export function createWindow(spec: WindowOpenSpec & { id: string; z: number; workspace: number }): DesktopWindow {
   return Object.freeze({
-    id,
-    applicationId,
-    title,
-    icon,
-    x,
-    y,
-    width,
-    height,
-    minWidth,
-    minHeight,
-    maxWidth,
-    maxHeight,
-    state,
-    resizable,
-    movable,
-    closable,
-    modal,
-    workspace,
-    z,
-    content,
-    /* The geometry to come back to from a maximize, a snap or a minimize. Restoring is a *return*
-     * rather than a re-computation: a build that recomputed a restore would place a maximized window
-     * wherever the restored size happens to fit, which is a different window than the user had. */
+    id: spec.id,
+    applicationId: spec.applicationId,
+    title: spec.title,
+    icon: spec.icon ?? null,
+    x: spec.x ?? 0,
+    y: spec.y ?? 0,
+    width: spec.width ?? 520,
+    height: spec.height ?? 360,
+    minWidth: spec.minWidth ?? 240,
+    minHeight: spec.minHeight ?? 160,
+    maxWidth: spec.maxWidth ?? 0,
+    maxHeight: spec.maxHeight ?? 0,
+    state: spec.state ?? WindowState.Normal,
+    resizable: spec.resizable ?? true,
+    movable: spec.movable ?? true,
+    closable: spec.closable ?? true,
+    modal: spec.modal ?? false,
+    workspace: spec.workspace,
+    z: spec.z,
+    content: spec.content ?? null,
     restore: null,
   });
 }
 
-/**
- * The initial shell state.
- *
- * `display` is the logical viewport in CSS pixels, which is what every snap and maximize resolves
- * against; the shell takes it from the bridge (14.40) at runtime and from a token default at build
- * time, and both go through this one function.
- */
 export function createDesktopState({
   display = { width: 1024, height: 768, scale: 1 },
   windows = [],
   workspaces = 3,
   appearance = "light",
   dock = [],
-} = {}) {
-  const state = {
+}: {
+  display?: DisplayInfo;
+  windows?: WindowOpenSpec[];
+  workspaces?: number;
+  appearance?: "light" | "dark";
+  dock?: DockItem[];
+} = {}): DesktopState {
+  const state: DesktopState = {
     display,
     appearance,
     workspaces: Array.from({ length: workspaces }, (_, index) => ({ index: index + 1, windows: [] })),
@@ -165,36 +232,37 @@ export function createDesktopState({
   return windows.reduce((current, spec) => windowManager.open(current, spec), state);
 }
 
-/** Every window, sorted by z (lowest first), which is the order the window layer paints them in. */
-export function windowsInPaintOrder(state) {
+export function windowsInPaintOrder(state: DesktopState): DesktopWindow[] {
   return [...state.windows]
     .filter((window) => window.state !== WindowState.Closed)
     .sort((a, b) => (a.z === b.z ? a.id.localeCompare(b.id) : a.z - b.z));
 }
 
-/** The windows on a workspace, in paint order. A minimized window is present and not painted. */
-export function windowsOnWorkspace(state, workspace = state.activeWorkspace) {
+export function windowsOnWorkspace(state: DesktopState, workspace = state.activeWorkspace): DesktopWindow[] {
   return windowsInPaintOrder(state).filter(
     (window) => window.workspace === workspace && window.state !== WindowState.Minimized
   );
 }
 
-/** The window that owns the keyboard, or `null`. Modal windows take it from the window they belong to. */
-export function focusedWindow(state) {
+export function focusedWindow(state: DesktopState): DesktopWindow | null {
   if (!state.focusedWindow) {
     return null;
   }
   return state.windows.find((window) => window.id === state.focusedWindow) ?? null;
 }
 
-function replaceWindow(state, id, update) {
+function replaceWindow(
+  state: DesktopState,
+  id: string,
+  update: (window: DesktopWindow) => DesktopWindow
+): DesktopState {
   return {
     ...state,
     windows: state.windows.map((window) => (window.id === id ? Object.freeze(update(window)) : window)),
   };
 }
 
-function withWorkspaceMembership(state, window) {
+function withWorkspaceMembership(state: DesktopState, window: DesktopWindow): DesktopState {
   return {
     ...state,
     workspaces: state.workspaces.map((workspace) =>
@@ -205,24 +273,22 @@ function withWorkspaceMembership(state, window) {
   };
 }
 
-/**
- * The window manager (14.5).
- *
- * Every door here is `(state, …) => state`. The interesting ones are the three that have a *rule*
- * rather than an assignment:
- *
- *   `focus` raises by taking the next z, so focus and stacking cannot disagree — a focused window
- *   below an unfocused one is the classic symptom of two counters;
- *
- *   `minimize` moves focus to the next window **on the same workspace**, because a minimized window
- *   that kept the keyboard would type into nothing;
- *
- *   `close` drops the window's notifications and its focus in one step, and never leaves
- *   `focusedWindow` pointing at an id with no window behind it (13.44's rule, applied here).
- */
+export function desktopWorkArea(display: DisplayInfo): {
+  top: number;
+  width: number;
+  height: number;
+} {
+  const menuBar = 28;
+  const dock = 92;
+  return {
+    top: menuBar,
+    width: display.width,
+    height: Math.max(0, display.height - menuBar - dock),
+  };
+}
+
 export const windowManager = {
-  /** Open a window, focus it, and put it at the top of the stack. */
-  open(state, spec) {
+  open(state: DesktopState, spec: WindowOpenSpec): DesktopState {
     const id = spec.id ?? `window-${state.nextWindowId}`;
     const workspace = spec.workspace ?? state.activeWorkspace;
     const window = createWindow({
@@ -231,7 +297,7 @@ export const windowManager = {
       workspace,
       z: state.nextZ,
     });
-    const opened = {
+    const opened: DesktopState = {
       ...state,
       windows: [...state.windows, window],
       nextWindowId: state.nextWindowId + 1,
@@ -243,8 +309,7 @@ export const windowManager = {
     return withWorkspaceMembership(opened, window);
   },
 
-  /** Close a window: it leaves the stack, the workspace, the focus and the notification centre. */
-  close(state, id) {
+  close(state: DesktopState, id: string): DesktopState {
     const window = state.windows.find((candidate) => candidate.id === id);
     if (!window || window.state === WindowState.Closed) {
       return state;
@@ -269,8 +334,7 @@ export const windowManager = {
     };
   },
 
-  /** Focus and raise. A focus request for a window that is gone is a refusal, not a no-op state. */
-  focus(state, id, reason = "pointer") {
+  focus(state: DesktopState, id: string, reason = "pointer"): DesktopState {
     const window = state.windows.find((candidate) => candidate.id === id);
     if (!window || window.state === WindowState.Closed) {
       return state;
@@ -286,8 +350,7 @@ export const windowManager = {
     return replaceWindow(raised, id, (current) => ({ ...current, z: raised.nextZ - 1 }));
   },
 
-  /** Switch to a workspace, and hand focus to its topmost window (or none). */
-  activateWorkspace(state, index) {
+  activateWorkspace(state: DesktopState, index: number): DesktopState {
     if (!state.workspaces.some((workspace) => workspace.index === index)) {
       return state;
     }
@@ -299,21 +362,18 @@ export const windowManager = {
     return {
       ...state,
       activeWorkspace: index,
-      focusedWindow: top.length ? top[top.length - 1].id : null,
+      focusedWindow: top.length ? top[top.length - 1]!.id : null,
       surface: ShellSurface.None,
     };
   },
 
-  move(state, id, x, y) {
+  move(state: DesktopState, id: string, x: number, y: number): DesktopState {
     const window = state.windows.find((candidate) => candidate.id === id);
     if (!window || !window.movable) {
       return state;
     }
 
     const bounds = desktopWorkArea(state.display);
-    /* A window may hang off an edge but its title bar always stays reachable: a window dragged
-     * entirely past the top is one the user cannot get back without a menu, and that is a bug the
-     * clamp prevents rather than a feature the phase asks for. */
     const nextX = clamp(x, -window.width + 64, bounds.width - 64);
     const nextY = clamp(y, bounds.top, bounds.height - 24);
 
@@ -321,13 +381,15 @@ export const windowManager = {
       ...current,
       x: nextX,
       y: nextY,
-      /* A moved window is no longer snapped: the drag is the unsnap. */
       restore: null,
     }));
   },
 
-  /** Resize, clamped per axis by the window's own declared minimums and maximums. */
-  resize(state, id, { x, y, width, height }) {
+  resize(
+    state: DesktopState,
+    id: string,
+    { x, y, width, height }: { x?: number; y?: number; width?: number; height?: number }
+  ): DesktopState {
     const window = state.windows.find((candidate) => candidate.id === id);
     if (!window || !window.resizable) {
       return state;
@@ -346,7 +408,7 @@ export const windowManager = {
     }));
   },
 
-  minimize(state, id) {
+  minimize(state: DesktopState, id: string): DesktopState {
     const window = state.windows.find((candidate) => candidate.id === id);
     if (!window) {
       return state;
@@ -363,13 +425,15 @@ export const windowManager = {
     }
 
     const next = windowsInPaintOrder(minimized)
-      .filter((candidate) => candidate.workspace === window.workspace && candidate.state !== WindowState.Minimized)
+      .filter(
+        (candidate) => candidate.workspace === window.workspace && candidate.state !== WindowState.Minimized
+      )
       .pop();
 
     return { ...minimized, focusedWindow: next?.id ?? null };
   },
 
-  restore(state, id) {
+  restore(state: DesktopState, id: string): DesktopState {
     return replaceWindow(state, id, (current) => ({
       ...current,
       state: WindowState.Normal,
@@ -378,7 +442,7 @@ export const windowManager = {
     }));
   },
 
-  maximize(state, id) {
+  maximize(state: DesktopState, id: string): DesktopState {
     const window = state.windows.find((candidate) => candidate.id === id);
     if (!window) {
       return state;
@@ -400,8 +464,7 @@ export const windowManager = {
     }));
   },
 
-  /** Snap to an edge or a corner (14.17). A snap keeps the restore rectangle like a maximize does. */
-  snap(state, id, edge) {
+  snap(state: DesktopState, id: string, edge: SnapEdgeValue): DesktopState {
     const window = state.windows.find((candidate) => candidate.id === id);
     if (!window) {
       return state;
@@ -411,7 +474,7 @@ export const windowManager = {
     const halfWidth = Math.round(bounds.width / 2);
     const halfHeight = Math.round(bounds.height / 2);
 
-    const rectangles = {
+    const rectangles: Record<SnapEdgeValue, { x: number; y: number; width: number; height: number }> = {
       [SnapEdge.Left]: { x: 0, y: bounds.top, width: halfWidth, height: bounds.height },
       [SnapEdge.Right]: { x: bounds.width - halfWidth, y: bounds.top, width: halfWidth, height: bounds.height },
       [SnapEdge.Top]: { x: 0, y: bounds.top, width: bounds.width, height: bounds.height },
@@ -444,8 +507,7 @@ export const windowManager = {
     }));
   },
 
-  /** Cycle focus among a workspace's windows, which is the launcher's and the switcher's door. */
-  cycleFocus(state, direction = 1) {
+  cycleFocus(state: DesktopState, direction = 1): DesktopState {
     const order = windowsInPaintOrder(state).filter(
       (window) => window.workspace === state.activeWorkspace && window.state !== WindowState.Minimized
     );
@@ -454,53 +516,30 @@ export const windowManager = {
     }
 
     const index = order.findIndex((window) => window.id === state.focusedWindow);
-    const next = order[((index < 0 ? 0 : index) + direction + order.length) % order.length];
+    const next = order[((index < 0 ? 0 : index) + direction + order.length) % order.length]!;
 
     return windowManager.focus(state, next.id, "navigation");
   },
 };
 
-/**
- * The area a snap or a maximize may fill: the viewport less the menu bar and the dock, which the
- * chrome tokens state. A window that covered the menu bar would hide the only door out of a bad
- * layout, so this is a rule rather than a preference.
- */
-export function desktopWorkArea(display) {
-  const menuBar = 30;
-  const dock = 80;
-  return {
-    top: menuBar,
-    width: display.width,
-    height: Math.max(0, display.height - menuBar - dock),
-  };
-}
-
-/**
- * The dock (14.11) and its launcher surface.
- *
- * An item is either running, focused or neither, and those are three facts rather than one: the
- * running dot is what the state says about *applications*, and the focused ring is what it says about
- * *windows*. Deriving one from the other is how a dock ends up lying about a minimized window.
- */
 export const launcherManager = {
-  setDock(state, dock) {
+  setDock(state: DesktopState, dock: DockItem[]): DesktopState {
     return { ...state, dock };
   },
 
-  open(state) {
+  open(state: DesktopState): DesktopState {
     return { ...state, surface: ShellSurface.Launcher, launcherQuery: "", menuHighlight: 0 };
   },
 
-  close(state) {
+  close(state: DesktopState): DesktopState {
     return state.surface === ShellSurface.Launcher ? { ...state, surface: ShellSurface.None } : state;
   },
 
-  setQuery(state, query) {
+  setQuery(state: DesktopState, query: string): DesktopState {
     return { ...state, launcherQuery: query, menuHighlight: 0 };
   },
 
-  /** The dock's items filtered by the query, ranked so a prefix match beats a substring one. */
-  results(state) {
+  results(state: DesktopState): DockItem[] {
     const query = state.launcherQuery.trim().toLowerCase();
     if (!query) {
       return state.dock;
@@ -516,22 +555,25 @@ export const launcherManager = {
   },
 };
 
-/** Menus, context menus and the system menu (14.9, 14.10, 14.51) — one highlight, one open surface. */
 export const menuManager = {
-  open(state, surface, anchor = null, highlight = 0) {
+  open(
+    state: DesktopState,
+    surface: ShellSurfaceValue,
+    anchor: { x: number; y: number } | null = null,
+    highlight = 0
+  ): DesktopState {
     return { ...state, surface, surfaceAnchor: anchor, menuHighlight: highlight };
   },
 
-  close(state) {
+  close(state: DesktopState): DesktopState {
     return { ...state, surface: ShellSurface.None, surfaceAnchor: null, menuHighlight: -1 };
   },
 
-  highlight(state, index) {
+  highlight(state: DesktopState, index: number): DesktopState {
     return state.surface === ShellSurface.None ? state : { ...state, menuHighlight: index };
   },
 
-  /** Move the highlight through a list of @p count items, wrapping, skipping nothing. */
-  move(state, count, direction = 1) {
+  move(state: DesktopState, count: number, direction = 1): DesktopState {
     if (state.surface === ShellSurface.None || count <= 0) {
       return state;
     }
@@ -541,10 +583,13 @@ export const menuManager = {
   },
 };
 
-/** Notifications (14.32, 14.33): a bounded centre, newest first, grouped by source application. */
 export const notificationManager = {
-  push(state, notification, limit = 24) {
-    const record = Object.freeze({
+  push(
+    state: DesktopState,
+    notification: Omit<NotificationRecord, "id" | "kind" | "read"> & Partial<Pick<NotificationRecord, "kind" | "read">>,
+    limit = 24
+  ): DesktopState {
+    const record: NotificationRecord = Object.freeze({
       id: `notification-${state.nextNotificationId}`,
       kind: NotificationKind.Info,
       read: false,
@@ -558,71 +603,63 @@ export const notificationManager = {
     };
   },
 
-  dismiss(state, id) {
+  dismiss(state: DesktopState, id: string): DesktopState {
     return { ...state, notifications: state.notifications.filter((item) => item.id !== id) };
   },
 
-  dismissAll(state) {
+  dismissAll(state: DesktopState): DesktopState {
     return { ...state, notifications: [] };
   },
 
-  markRead(state, id) {
+  markRead(state: DesktopState, id: string): DesktopState {
     return {
       ...state,
       notifications: state.notifications.map((item) => (item.id === id ? { ...item, read: true } : item)),
     };
   },
 
-  unread(state) {
+  unread(state: DesktopState): number {
     return state.notifications.filter((item) => !item.read).length;
   },
 
-  /** Group by source, which is what the centre's sections are: one section per application. */
-  grouped(state) {
-    const groups = new Map();
+  grouped(state: DesktopState): { applicationId: string; items: NotificationRecord[] }[] {
+    const groups = new Map<string, NotificationRecord[]>();
     for (const item of state.notifications) {
       const key = item.applicationId ?? "system";
       if (!groups.has(key)) {
         groups.set(key, []);
       }
-      groups.get(key).push(item);
+      groups.get(key)!.push(item);
     }
     return [...groups.entries()].map(([applicationId, items]) => ({ applicationId, items }));
   },
 };
 
-/** Modal surfaces (14.31): a dialog belongs to a window, and closing that window closes the dialog. */
 export const dialogManager = {
-  open(state, dialog) {
+  open(state: DesktopState, dialog: DialogRecord): DesktopState {
     return { ...state, dialogs: [...state.dialogs, Object.freeze(dialog)], surface: ShellSurface.Dialog };
   },
 
-  close(state, id) {
+  close(state: DesktopState, id: string): DesktopState {
     const dialogs = state.dialogs.filter((dialog) => dialog.id !== id);
     return { ...state, dialogs, surface: dialogs.length ? ShellSurface.Dialog : ShellSurface.None };
   },
 };
 
-/** Pointer bookkeeping (14.11, 14.37): hover, capture and the selection rectangle, all in one place. */
 export const pointerManager = {
-  move(state, x, y, hover = null) {
+  move(state: DesktopState, x: number, y: number, hover: string | null = null): DesktopState {
     return { ...state, pointer: { ...state.pointer, x, y, hover } };
   },
 
-  capture(state, target) {
+  capture(state: DesktopState, target: string): DesktopState {
     return { ...state, pointer: { ...state.pointer, captured: target } };
   },
 
-  release(state) {
+  release(state: DesktopState): DesktopState {
     return { ...state, pointer: { ...state.pointer, captured: null } };
   },
 };
 
-/**
- * The shell's aggregate: one object, so a caller names what it wants to do rather than which
- * reducer to reach for. Composing the managers here is what lets the components take a single
- * `shell` argument and never import one of the five directly.
- */
 export const desktop = {
   create: createDesktopState,
   paintOrder: windowsInPaintOrder,

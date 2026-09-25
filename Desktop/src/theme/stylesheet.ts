@@ -31,7 +31,9 @@
  *   what is on top is which component comes last.
  */
 
-import { tokensFor } from "./tokens.js";
+// Guest RoboCSS sheet generator — kept permissive so the export path stays stable.
+// @ts-nocheck
+import { tokensFor } from "./tokens";
 
 /** One rule: a selector and a declaration map. Values are numbers (px) or strings. */
 function px(value) {
@@ -112,7 +114,13 @@ function blockRule(selector, declarations) {
  * runtime rewrites the slot's rule; the surface class beside it never changes, which is why a
  * window's *position* and a window's *appearance* are two classes on two nested elements.
  */
-export function renderDesktopStyleSheet({ appearance = "light", windows = [] } = {}) {
+export function renderDesktopStyleSheet({
+  appearance = "light",
+  windows = [],
+}: {
+  appearance?: string;
+  windows?: { slot: string; x: number; y: number; width: number; height: number }[];
+} = {}) {
   const t = tokensFor(appearance);
   const rules = [];
 
@@ -161,9 +169,9 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
       "font-weight": t.type.uiText.weight,
     })
   );
-  /* The wallpaper is two surfaces rather than a gradient, which this build cannot paint: the desk's
-   * own colour and a tinted band below the menu bar. It is the atmosphere the phase asks for,
-   * expressed in what the engine has, and the base is the documented page background. */
+  /* The wallpaper is two surfaces rather than a gradient, which this build cannot paint: a calm
+   * desk grey and a soft brand sheen below the menu bar — the Apple desk atmosphere in what the
+   * engine has. */
   rules.push(
     blockRule("wallpaper", {
       position: "fixed",
@@ -171,7 +179,7 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
       right: 0,
       bottom: 0,
       left: 0,
-      background: t.bgSecondary,
+      background: "#B8C4D4",
     })
   );
   rules.push(
@@ -180,8 +188,8 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
       top: t.metrics.menuBarHeight,
       right: 0,
       left: 0,
-      height: 240,
-      background: t.brandPrimarySubtle,
+      height: 320,
+      background: "rgba(255,255,255,0.28)",
     })
   );
 
@@ -245,13 +253,13 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
   rules.push(
     blockRule("window", {
       background: t.bgPrimary,
-      border: `1px solid ${t.borderDefault}`,
+      border: `1px solid #C6C6C8`,
     })
   );
   rules.push(
     blockRule("windowInactive", {
-      background: t.bgSecondary,
-      border: `1px solid ${t.borderDefault}`,
+      background: "#FAFAFA",
+      border: `1px solid #D2D2D7`,
     })
   );
 
@@ -272,57 +280,65 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
     blockRule("titleBar", {
       position: "relative",
       height: t.metrics.titleBarHeight,
-      background: t.bgTertiary,
-      "border-bottom": `1px solid ${t.borderDefault}`,
+      background: "#E8E8ED",
+      "border-bottom": `1px solid #D2D2D7`,
     })
   );
   rules.push(
     blockRule("titleBarInactive", {
       position: "relative",
       height: t.metrics.titleBarHeight,
-      background: t.bgSecondary,
-      "border-bottom": `1px solid ${t.borderDefault}`,
+      background: "#F0F0F5",
+      "border-bottom": `1px solid #E5E5EA`,
     })
   );
   /* The window title is a block with the left padding the traffic lights need: they are absolutely
    * positioned inside the title bar, so this is what keeps the two from overlapping. */
   rules.push(
     blockRule("titleText", {
-      "padding-left": 64,
-      "padding-top": 7,
-      "font-size": t.type.uiTitle.size,
-      "line-height": t.type.uiTitle.lineHeight,
-      "font-weight": t.type.uiTitle.weight,
+      "padding-left": 72,
+      "padding-top": 6,
+      "font-size": 13,
+      "line-height": 16,
+      "font-weight": 600,
       color: t.textPrimary,
     })
   );
   rules.push(
     blockRule("titleTextInactive", {
-      "padding-left": 64,
-      "padding-top": 7,
-      "font-size": t.type.uiTitle.size,
-      "line-height": t.type.uiTitle.lineHeight,
-      "font-weight": t.type.uiTitle.weight,
+      "padding-left": 72,
+      "padding-top": 6,
+      "font-size": 13,
+      "line-height": 16,
+      "font-weight": 600,
       color: t.textSecondary,
     })
   );
   const light = {
     position: "absolute",
-    top: (t.metrics.titleBarHeight - t.metrics.trafficLight) / 2 - 1,
+    top: (t.metrics.titleBarHeight - t.metrics.trafficLight) / 2,
     width: t.metrics.trafficLight,
     height: t.metrics.trafficLight,
   };
-  rules.push(blockRule("trafficClose", { ...light, left: 12, background: t.danger, border: `1px solid ${t.borderDefault}` }));
-  rules.push(blockRule("trafficMinimize", { ...light, left: 12 + t.metrics.trafficLight + t.metrics.trafficLightGap, background: t.warning, border: `1px solid ${t.borderDefault}` }));
+  /* Traffic lights — Apple red / amber / green, quiet borders. */
+  rules.push(blockRule("trafficClose", { ...light, left: 12, background: "#FF5F57", border: `1px solid #E0443E` }));
+  rules.push(
+    blockRule("trafficMinimize", {
+      ...light,
+      left: 12 + t.metrics.trafficLight + t.metrics.trafficLightGap,
+      background: "#FEBC2E",
+      border: `1px solid #DEA123`,
+    })
+  );
   rules.push(
     blockRule("trafficZoom", {
       ...light,
       left: 12 + 2 * (t.metrics.trafficLight + t.metrics.trafficLightGap),
-      background: t.success,
-      border: `1px solid ${t.borderDefault}`,
+      background: "#28C840",
+      border: `1px solid #1AAB29`,
     })
   );
-  rules.push(blockRule("windowContent", { padding: t.space.lg }));
+  rules.push(blockRule("windowContent", { padding: t.space.xl }));
   rules.push(blockRule("windowStatus", { padding: t.space.sm, background: t.bgSecondary, "border-top": `1px solid ${t.borderDefault}` }));
 
   /* ---- The menu bar, and the dock ------------------------------------------------------- */
@@ -334,16 +350,37 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
       right: 0,
       left: 0,
       height: t.metrics.menuBarHeight,
-      background: t.bgSecondary,
-      "border-bottom": `1px solid ${t.borderDefault}`,
-      padding: `6px ${t.space.lg}`,
+      background: "rgba(246,246,248,0.92)",
+      "border-bottom": `1px solid rgba(0,0,0,0.08)`,
+      padding: `5px ${t.space.lg}`,
+    })
+  );
+  rules.push(
+    blockRule("menuBarBrand", {
+      display: "inline-block",
+      "font-size": 13,
+      "line-height": 18,
+      "font-weight": 700,
+      color: t.textPrimary,
+      "margin-right": t.space.md,
     })
   );
   rules.push(
     blockRule("menuBarTitle", {
-      "font-size": t.type.uiSmall.size,
-      "line-height": t.type.uiSmall.lineHeight,
+      display: "inline-block",
+      "font-size": 13,
+      "line-height": 18,
       "font-weight": 600,
+      color: t.textPrimary,
+      "margin-right": t.space.lg,
+    })
+  );
+  rules.push(
+    blockRule("menuBarMenus", {
+      display: "inline-block",
+      "font-size": 13,
+      "line-height": 18,
+      "font-weight": 400,
       color: t.textPrimary,
     })
   );
@@ -353,9 +390,9 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
   rules.push(
     blockRule("menuBarWorkspaces", {
       position: "absolute",
-      top: 6,
-      right: 176,
-      width: 96,
+      top: 5,
+      right: 200,
+      width: 72,
       height: 18,
       "font-size": t.type.uiCaption.size,
       "line-height": t.type.uiCaption.lineHeight,
@@ -366,36 +403,33 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
   rules.push(
     blockRule("menuBarStatus", {
       position: "absolute",
-      top: 6,
+      top: 5,
       right: t.space.lg,
-      width: 160,
+      width: 176,
       height: 18,
-      "font-size": t.type.uiSmall.size,
-      "line-height": t.type.uiSmall.lineHeight,
-      "font-weight": t.type.uiSmall.weight,
-      color: t.textSecondary,
+      "font-size": 12,
+      "line-height": 18,
+      "font-weight": 500,
+      color: t.textPrimary,
     })
   );
   /*
-   * The dock is `bgPrimary` rather than the desk's own `bgSecondary`, and that is a design decision
-   * with a measurement behind it: a bar drawn in the desk's colour, one hairline from the same colour,
-   * reads as *part of the wallpaper* in a rendered frame — the first version of this sheet did exactly
-   * that and the dock was invisible in a screenshot. It is the one surface here that is lifted above
-   * the desk, and the lifted surface is the palette's primary background.
+   * The dock is lifted above the desk — Apple's floating pill — with a primary fill and a hairline
+   * so it does not dissolve into the wallpaper.
    */
   rules.push(
     blockRule("dock", {
       position: "fixed",
-      bottom: t.space.md,
+      bottom: t.space.lg,
       left: 0,
       right: 0,
       "margin-left": "auto",
       "margin-right": "auto",
-      width: 432,
+      width: 392,
       height: t.metrics.dockHeight,
-      background: t.bgPrimary,
-      border: `1px solid ${t.borderDefault}`,
-      padding: t.space.sm,
+      background: "rgba(255,255,255,0.72)",
+      border: `1px solid rgba(0,0,0,0.12)`,
+      padding: `10px ${t.space.sm}`,
     })
   );
   /* The dock's items, on one line for the same reason the desktop's icons are: the bar is an
@@ -409,34 +443,31 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
       "text-align": "center",
     })
   );
-  rules.push(
-    blockRule("dockIcon", {
-      display: "inline-block",
-      width: 26,
-      height: 26,
-      "margin-top": 6,
-      background: t.textSecondary,
-    })
-  );
-  rules.push(
-    blockRule("dockIconRunning", {
-      display: "inline-block",
-      width: 26,
-      height: 26,
-      "margin-top": 6,
-      background: t.brandPrimary,
-    })
-  );
+  const dockIconBase = {
+    display: "inline-block",
+    width: 36,
+    height: 36,
+    "margin-top": 2,
+    border: `1px solid rgba(0,0,0,0.08)`,
+  };
+  rules.push(blockRule("dockIcon", { ...dockIconBase, background: "#8E8E93" }));
+  rules.push(blockRule("dockIconRunning", { ...dockIconBase, background: t.brandPrimary }));
+  rules.push(blockRule("dockIconFinder", { ...dockIconBase, background: "#5AC8FA" }));
+  rules.push(blockRule("dockIconLab", { ...dockIconBase, background: "#0E7AFF" }));
+  rules.push(blockRule("dockIconOverview", { ...dockIconBase, background: "#AF52DE" }));
+  rules.push(blockRule("dockIconFiles", { ...dockIconBase, background: "#FF9F0A" }));
+  rules.push(blockRule("dockIconSettings", { ...dockIconBase, background: "#8E8E93" }));
+  rules.push(blockRule("dockIconTerminal", { ...dockIconBase, background: "#1D1D1F" }));
   /* The running indicator: a dot narrower than its item, centred by the item's own `text-align`.
    * Absent entirely for an app that is not running, which is a fact the markup carries rather than a
    * hidden element. */
   rules.push(
     blockRule("dockIndicator", {
       display: "inline-block",
-      width: 6,
+      width: 4,
       height: t.metrics.dockIndicator,
-      "margin-top": 3,
-      background: t.brandPrimary,
+      "margin-top": 4,
+      background: t.textPrimary,
     })
   );
 
@@ -597,6 +628,28 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
     })
   );
   rules.push(
+    blockRule("fieldDisabled", {
+      background: t.bgTertiary,
+      border: `1px solid ${t.borderDefault}`,
+      padding: `6px ${t.space.sm}`,
+      "margin-top": t.space.sm,
+      "font-size": t.type.uiText.size,
+      "line-height": t.type.uiText.lineHeight,
+      color: "#C7C7CC",
+    })
+  );
+  rules.push(
+    blockRule("fieldError", {
+      background: t.bgPrimary,
+      border: `1px solid ${t.danger}`,
+      padding: `6px ${t.space.sm}`,
+      "margin-top": t.space.sm,
+      "font-size": t.type.uiText.size,
+      "line-height": t.type.uiText.lineHeight,
+      color: t.textPrimary,
+    })
+  );
+  rules.push(
     blockRule("button", {
       display: "inline-block",
       width: 132,
@@ -623,7 +676,37 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
       "font-size": t.type.uiSmall.size,
       "line-height": t.type.uiSmall.lineHeight,
       "font-weight": 600,
-      color: t.bgPrimary,
+      color: "#FFFFFF",
+    })
+  );
+  rules.push(
+    blockRule("buttonActive", {
+      display: "inline-block",
+      width: 132,
+      padding: `6px ${t.space.md}`,
+      "margin-top": t.space.md,
+      "margin-right": t.space.sm,
+      background: t.brandPrimaryActive,
+      border: `1px solid ${t.brandPrimaryActive}`,
+      "font-size": t.type.uiSmall.size,
+      "line-height": t.type.uiSmall.lineHeight,
+      "font-weight": 600,
+      color: "#FFFFFF",
+    })
+  );
+  rules.push(
+    blockRule("buttonDisabled", {
+      display: "inline-block",
+      width: 132,
+      padding: `6px ${t.space.md}`,
+      "margin-top": t.space.md,
+      "margin-right": t.space.sm,
+      background: t.bgTertiary,
+      border: `1px solid ${t.borderDefault}`,
+      "font-size": t.type.uiSmall.size,
+      "line-height": t.type.uiSmall.lineHeight,
+      "font-weight": 600,
+      color: "#C7C7CC",
     })
   );
   rules.push(
@@ -663,13 +746,57 @@ export function renderDesktopStyleSheet({ appearance = "light", windows = [] } =
       display: "inline-block",
       width: 36,
       height: 20,
-      background: t.accentTeal,
-      border: `1px solid ${t.accentTeal}`,
+      background: "#30D158",
+      border: `1px solid #28C840`,
+      "margin-top": t.space.md,
+      "margin-right": t.space.sm,
+    })
+  );
+  rules.push(
+    blockRule("checkbox", {
+      display: "inline-block",
+      width: 16,
+      height: 16,
+      background: t.bgPrimary,
+      border: `1px solid ${t.borderDefault}`,
+      "margin-top": t.space.md,
+      "margin-right": t.space.sm,
+    })
+  );
+  rules.push(
+    blockRule("checkboxOn", {
+      display: "inline-block",
+      width: 16,
+      height: 16,
+      background: t.brandPrimary,
+      border: `1px solid ${t.brandPrimaryActive}`,
       "margin-top": t.space.md,
       "margin-right": t.space.sm,
     })
   );
   rules.push(blockRule("row", { "margin-top": t.space.sm }));
+  rules.push(
+    blockRule("sectionLabel", {
+      "font-size": 11,
+      "line-height": 16,
+      "font-weight": 600,
+      color: t.textSecondary,
+      "margin-top": t.space.lg,
+    })
+  );
+  rules.push(
+    blockRule("labBadge", {
+      display: "inline-block",
+      background: t.bgSecondary,
+      border: `1px solid ${t.borderDefault}`,
+      padding: `4px ${t.space.sm}`,
+      "margin-top": t.space.sm,
+      "margin-right": t.space.sm,
+      "font-size": 11,
+      "line-height": 16,
+      color: t.textPrimary,
+    })
+  );
 
   /* ---- The specimen: typography as the hero the phase asks for -------------------------- */
 

@@ -75,12 +75,16 @@ mkdirSync(generatedDir, { recursive: true });
 
 buildSync({
   absWorkingDir: root,
-  entryPoints: [join(root, "scripts", "ssr-entry.jsx")],
+  entryPoints: [join(root, "scripts", "ssr-entry.tsx")],
   bundle: true,
   platform: "node",
   format: "cjs",
   outfile: bundlePath,
   jsx: "automatic",
+  loader: { ".ts": "ts", ".tsx": "tsx" },
+  alias: {
+    "@": join(root, "src"),
+  },
 });
 
 const require = createRequire(pathToFileURL(bundlePath).href);

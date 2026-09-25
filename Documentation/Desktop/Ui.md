@@ -1,15 +1,35 @@
 # Desktop UI
 
-The OS desktop **window document** is authored in `Desktop/` as a Vite + React tree. It is not executed as React in the guest.
+The OS desktop **window document** is authored in `Desktop/` as a Vite + React + TypeScript app with Tailwind.
 
-On compile, `Scripts/Build/BuildDesktopUi.ps1` does three things:
+## Two surfaces
 
-1. `vite build` produces a static preview under `Build/Desktop/Ui/`.
-2. `renderToStaticMarkup` of `DesktopShell` writes plain HTML and CSS.
-3. Those strings are emitted as `Runtime/Source/RoboDesktop/Generated/DesktopPage.h`, which `RoboDesktopScene.c` includes.
+| Surface | What it is |
+|---|---|
+| **Vite lab** (`npm run dev`) | Interactive browser preview. Routes under `/` — click, type, drag, open menus. Tailwind + TypeScript. |
+| **Guest export** (`npm run build` → `DesktopPage.h`) | Static HTML + RoboCSS-compatible sheet. No React runtime in the guest until Phase 16. |
 
-CSS must stay inside the properties RoboCSS registers today: `display: block`, colours, font-size, line-height, margin, padding, background. Flex, grid and absolute positioning are not laid out in this build.
+The guest still cannot run handlers or Tailwind. The lab is how you test UX without booting QEMU every time; rebuild the image when you want the same chrome in the OS.
 
-Guest JavaScript is Phase 13. The compiled `desktop.js` is kept as an artifact; the OS paints the prerendered HTML/CSS.
+## Routes
 
-Playable input (mouse, software cursor, Escape to leave) is owned by RoboWindow + RoboDesktop, not by the React tree. The menu bar status label shows live pointer coordinates while you test devices.
+| Path | Purpose |
+|---|---|
+| `/` | Index — links to every lab surface |
+| `/desktop` | Full interactive desk |
+| `/window` | Single window chrome |
+| `/controls` | Fields, buttons, toggles, slider |
+| `/dock` | Dock tiles and launch |
+| `/menubar` | System bar + application menu |
+| `/input-lab` | Keyboard / mouse telemetry |
+| `/combined` | Full desk without the lab chrome frame |
+
+## Build
+
+`Scripts/Build/BuildDesktopUi.ps1` runs `npm run build`, which:
+
+1. Typechecks with `tsc`
+2. Builds the Vite SPA into `Build/Desktop/Ui/`
+3. SSR-renders `GuestDesktopShell` and writes `Runtime/Source/RoboDesktop/Generated/DesktopPage.h`
+
+Guest CSS must stay inside properties RoboCSS registers (`theme/stylesheet.ts`). The interactive lab uses Tailwind freely.

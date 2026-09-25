@@ -1,3 +1,4 @@
+// @ts-nocheck
 /*
  * The desktop's design tokens — Phase 14.1's "one place a visual value comes from".
  *
@@ -140,13 +141,13 @@ export const layerOrder = ["wallpaper", "desktopIcons", "windows", "chrome", "ov
 
 /** The chrome's own measurements: a menu bar's height, a dock's, a title bar's. */
 export const metrics = {
-  menuBarHeight: 30,
-  dockHeight: 64,
-  dockItem: 44,
+  menuBarHeight: 28,
+  dockHeight: 68,
+  dockItem: 48,
   dockIndicator: 4,
-  titleBarHeight: 30,
-  trafficLight: 11,
-  trafficLightGap: 7,
+  titleBarHeight: 28,
+  trafficLight: 12,
+  trafficLightGap: 8,
   windowMinWidth: 240,
   windowMinHeight: 160,
   shadowStep: 1,

@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue",
+      Arial, sans-serif;
+  }
+}
+
+@layer components {
+  .lab-shell {
+    @apply min-h-screen bg-surface-secondary text-ink;
+  }
+
+  .lab-card {
+    @apply rounded-2xl bg-white p-8 shadow-window border border-hairline;
+  }
+
+  .lab-link {
+    @apply block rounded-xl border border-hairline bg-white px-5 py-4 transition duration-300 ease-apple
+      hover:scale-[1.02] hover:border-brand hover:shadow-md;
+  }
+}

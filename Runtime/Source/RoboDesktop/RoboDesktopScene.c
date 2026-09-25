@@ -9,7 +9,8 @@
  *
  *   pump    the window queue, bounded by the wait the caller named, and take what it holds;
  *   hand    the pointer to the shell — `DesktopObservePointer` is the whole of this build's input
- *           integration (RoboDesktop.h §16), and a scene must not invent more of one;
+ *           integration (RoboDesktop.h §16), and a scene must not invent more of one. A press paints
+ *           only when the shell dirtied chrome; the status HUD is keyboard-driven, never click-driven;
  *   follow  the destination: `DesktopSyncSize` matches the screen to the window's *physical* client
  *           size, which is how a user's resize reaches the shell;
  *   paint   and present, once, when there is something new to show.
@@ -359,7 +360,31 @@ void DesktopSceneInvalidate(DesktopScene *scene)
 /* Stepping                                                            */
 /* ------------------------------------------------------------------ */
 
-/** Hand one pointer state to the shell, counting it only when the shell acted on it. */
+/** Non-zero when the shell has something the next frame must redraw. */
+static int SceneDesktopNeedsPaint(const Desktop *desktop)
+{
+    size_t index;
+
+    if (!desktop) {
+        return 0;
+    }
+    if (desktop->wallpaperDirty || desktop->panelDirty || desktop->windowOrderDirty) {
+        return 1;
+    }
+    for (index = 0u; index < desktop->windowCount; index++) {
+        if (desktop->windows[index].contentDirty || desktop->windows[index].frameDirty) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/**
+ * Hand one pointer state to the shell, counting it only when the shell acted on it.
+ *
+ * A press never rewrites the status HUD: reshaping the panel label on every click was what made
+ * the frame freeze under the cursor. Live input feedback is keyboard-driven (see KeyDown below).
+ */
 static void SceneObservePointer(DesktopScene *scene,
                                   int32_t x,
                                   int32_t y,
@@ -378,63 +403,50 @@ static void SceneObservePointer(DesktopScene *scene,
     if (after.pointerActions > before.pointerActions) {
         step->pointerActions += after.pointerActions - before.pointerActions;
     }
+}
 
-    /*
-     * Status HUD is updated only on a press, never on every move: rewriting the
-     * panel label forces a full chrome paint with 8×8 AA glyphs and is what made
-     * the cursor trail by seconds. Motion updates the software cursor alone.
-     */
-    if (pressed) {
-        char status[RoboDesktopStatusMax];
-        unsigned i = 0;
-        unsigned n;
-        int32_t ax = x < 0 ? -x : x;
-        int32_t ay = y < 0 ? -y : y;
-        char digits[16];
-        unsigned dig;
+/** Write a short key-down line into the panel status (panel-dirty only — no full scene rebuild). */
+static void SceneReportKey(DesktopScene *scene, const WindowEvent *event, DesktopDiag *diag)
+{
+    char status[RoboDesktopStatusMax];
+    const char *name;
+    unsigned i = 0u;
+    unsigned n;
+    KeyModifierFlags mods;
 
-        status[i++] = 'x';
-        status[i++] = ' ';
-        dig = 0;
-        n = (unsigned)ax;
-        if (x < 0 && i + 1u < sizeof(status))
-            status[i++] = '-';
-        if (n == 0)
-            digits[dig++] = '0';
-        while (n && dig < 8u) {
-            digits[dig++] = (char)('0' + (n % 10u));
-            n /= 10u;
-        }
-        while (dig > 0 && i + 1u < sizeof(status))
-            status[i++] = digits[--dig];
-        if (i + 4u < sizeof(status)) {
-            status[i++] = ' ';
-            status[i++] = 'y';
-            status[i++] = ' ';
-        }
-        dig = 0;
-        n = (unsigned)ay;
-        if (y < 0 && i + 1u < sizeof(status))
-            status[i++] = '-';
-        if (n == 0)
-            digits[dig++] = '0';
-        while (n && dig < 8u) {
-            digits[dig++] = (char)('0' + (n % 10u));
-            n /= 10u;
-        }
-        while (dig > 0 && i + 1u < sizeof(status))
-            status[i++] = digits[--dig];
-        if (i + 6u < sizeof(status)) {
-            status[i++] = ' ';
-            status[i++] = 'c';
-            status[i++] = 'l';
-            status[i++] = 'i';
-            status[i++] = 'c';
-            status[i++] = 'k';
-        }
-        status[i] = 0;
-        (void)DesktopSetStatus(scene->desktop, status, diag);
+    if (!scene || !event) {
+        return;
     }
+    name = LogicalKeyName(event->key.logicalKey);
+    if (!name) {
+        name = "?";
+    }
+    status[i++] = 'k';
+    status[i++] = 'e';
+    status[i++] = 'y';
+    status[i++] = ' ';
+    for (n = 0u; name[n] != 0 && i + 1u < sizeof(status); n++) {
+        status[i++] = name[n];
+    }
+    mods = event->key.modifiers;
+    if ((mods & RoboKeyModShift) != 0u && i + 3u < sizeof(status)) {
+        status[i++] = ' ';
+        status[i++] = 'S';
+    }
+    if ((mods & RoboKeyModCtrl) != 0u && i + 3u < sizeof(status)) {
+        status[i++] = ' ';
+        status[i++] = 'C';
+    }
+    if ((mods & RoboKeyModAlt) != 0u && i + 3u < sizeof(status)) {
+        status[i++] = ' ';
+        status[i++] = 'A';
+    }
+    if ((mods & RoboKeyModMeta) != 0u && i + 3u < sizeof(status)) {
+        status[i++] = ' ';
+        status[i++] = 'M';
+    }
+    status[i] = 0;
+    (void)DesktopSetStatus(scene->desktop, status, diag);
 }
 
 /**
@@ -469,6 +481,12 @@ static void SceneDrainEvents(DesktopScene *scene,
                 scene->finished = 1;
                 step->closeRequested = 1;
                 LogDebug("robo_desktop: escape finished the scene");
+            } else {
+                SceneReportKey(scene, &event, diag);
+                if (SceneDesktopNeedsPaint(scene->desktop)) {
+                    scene->needsPaint = 1;
+                    scene->needsCursorPaint = 0;
+                }
             }
             break;
         case RoboWindowEventMouseMove:
@@ -480,15 +498,23 @@ static void SceneDrainEvents(DesktopScene *scene,
         case RoboWindowEventMouseButtonDown:
             if (event.mouse.button == RoboMouseButtonLeft) {
                 SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 1, step, diag);
-                scene->needsPaint = 1;
-                scene->needsCursorPaint = 0;
+                /*
+                 * Paint only when the shell actually dirtied something (raise/close chrome).
+                 * A no-op click on an already-focused window must not stall the frame.
+                 */
+                if (SceneDesktopNeedsPaint(scene->desktop)) {
+                    scene->needsPaint = 1;
+                    scene->needsCursorPaint = 0;
+                }
             }
             break;
         case RoboWindowEventMouseButtonUp:
             if (event.mouse.button == RoboMouseButtonLeft) {
                 SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
-                scene->needsPaint = 1;
-                scene->needsCursorPaint = 0;
+                /* Release never changes chrome; cursor-only if the pointer moved. */
+                if (scene->showCursor && !scene->needsPaint) {
+                    scene->needsCursorPaint = 1;
+                }
             }
             break;
         case RoboWindowEventMouseWheel:
