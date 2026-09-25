@@ -451,19 +451,22 @@ Result DesktopHitTest(const Desktop *desktop,
                                     DesktopHit *out);
 
 /**
+ * Record where the pointer is for shell readback and the software cursor, without a press action.
+ *
+ * `DesktopInput` calls this on every positioned event so the software cursor can move while the
+ * raise/close decisions stay in the shell's pointer-down listener. `DesktopObservePointer` still
+ * does both halves for a caller that has no input system.
+ *
+ * @return RoboOk; RoboInvalidArgument for a NULL @p desktop.
+ */
+Result DesktopTrackPointer(Desktop *desktop, GfxPoint point, DesktopDiag *diag);
+
+/**
  * Hand the shell a pointer state: where it is, and whether a button is down *now*.
  *
- * The whole of this build's input integration, and it is deliberately this small (the phase's §16: the
- * desktop must be alive to the pointer where the window path already delivers one, and must not become
- * an input system). Two actions, both of them decisions about *windows* rather than about documents:
- *
- *   a **press** on a window's title bar or client area raises and focuses that window;
- *   a **press** on a window's close button requests that window's close.
- *
- * A move only records where the pointer is (and what is under it — `DesktopHitTest` answers that
- * on demand, and the record's `hovered` field is what the last move found). Nothing is delivered to a
- * window's contents: hit-test delivery to applications is a later phase's, and a shell that invented a
- * delivery protocol now would be inventing the ABI those phases need to agree on.
+ * For callers **without** `DesktopInput`: records the point (via @ref DesktopTrackPointer) and, on a
+ * press, raises or closes a window. Prefer `DesktopInput` when the RoboInput path is available — that
+ * path owns raise/close through listeners and calls @ref DesktopTrackPointer for cursor tracking.
  *
  * @return RoboOk — including a press that hit nothing, which is a legitimate press; RoboInvalidArgument
  *         for a NULL @p desktop or @p diag.

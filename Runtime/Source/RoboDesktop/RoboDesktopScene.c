@@ -10,6 +10,8 @@
  *   pump    the window queue, bounded by the wait the caller named, through `GetDesktopInputStep`
  *           (Phase 13.76): the queue goes through the RoboInput bridge, into RoboInput's own queue, out
  *           through the dispatcher the shell supplies the three providers for, and lands as an action;
+ *           a document `POINTER_UP` is posted into RoboJS as a `"click"`, then `DesktopScriptPump`
+ *           drains the page's loop;
  *   follow  the destination: `DesktopSyncSize` matches the screen to the window's *physical* client
  *           size, which is how a user's resize reaches the shell;
  *   paint   and present, once, when there is something new to show.
@@ -31,6 +33,7 @@
 
 #include "RoboBase/RoboLog.h"
 #include "RoboDesktop/RoboDesktopInput.h"
+#include "RoboDesktop/RoboDesktopScript.h"
 #include "RoboDesktopInternal.h"
 #include "RoboMem/RoboMem.h"
 
@@ -45,10 +48,13 @@
 
 #define SCENE_MARKUP kDesktopPageMarkup
 #define SCENE_STYLE kDesktopPageStyle
+#define SCENE_SCRIPT kDesktopPageScript
 
 struct DesktopScene {
     Desktop *desktop;
     DesktopDocument *document;
+    /** The page's RoboJS runtime (Phase 16), owned here; destroyed before the document. */
+    DesktopScript *script;
     DesktopWindowId window;
     /**
      * The shell's input system (Phase 13.66--13.77), owned here.
@@ -192,8 +198,22 @@ static Result SceneBuildDocument(DesktopScene *scene, DesktopDiag *diag)
     if (result != RoboOk) {
         return result;
     }
+    /* Script first: RoboJS must detach before the HTML document it borrowed is destroyed. */
+    DesktopScriptDestroy(scene->script);
+    scene->script = NULL;
     DesktopDocumentDestroy(scene->document);
     scene->document = document;
+
+    {
+        DesktopScript *script = NULL;
+        HtmlDocumentId html = DesktopDocumentHtml(document);
+
+        result = DesktopScriptCreate(html, SCENE_SCRIPT, (size_t)-1, &script, diag);
+        if (result != RoboOk) {
+            return result;
+        }
+        scene->script = script;
+    }
     /*
      * The window's contents are rasterised with **the face the document was measured with** rather than
      * with the scene's own (Phase 12.3, §13): `DesktopDocumentFace` returns the face the layout pass
@@ -278,6 +298,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     }
     scene->desktop = NULL;
     scene->document = NULL;
+    scene->script = NULL;
     scene->window = RoboDesktopWindowIdNone;
     scene->input = NULL;
     scene->face = config->face;
@@ -377,10 +398,12 @@ void DesktopSceneClose(DesktopScene *scene)
         return;
     }
     /* Reverse of the borrowing order: the input system names the shell's windows (so it goes first), the
-     * document's list is borrowed by the window (so the window goes before the document), and the shell owned
-     * neither. */
+     * script detaches from the document before the document is freed, the document's list is borrowed by
+     * the window (so the window goes before the document), and the shell owned neither. */
     DesktopInputDestroy(scene->input);
     scene->input = NULL;
+    DesktopScriptDestroy(scene->script);
+    scene->script = NULL;
     DesktopDocumentDestroy(scene->document);
     scene->document = NULL;
     DesktopDestroy(scene->desktop);
@@ -539,6 +562,18 @@ static void SceneStepInput(DesktopScene *scene,
     step->events += inputStep.windowEvents;
     step->pointerActions += inputStep.actions;
 
+    if (inputStep.documentClick && scene->script && scene->document) {
+        (void)DesktopScriptPostClick(scene->script,
+                                     DesktopDocumentTree(scene->document),
+                                     inputStep.documentClickNode,
+                                     inputStep.documentClickX,
+                                     inputStep.documentClickY,
+                                     diag);
+    }
+    if (scene->script) {
+        (void)DesktopScriptPump(scene->script, 16u, diag);
+    }
+
     if (inputStep.closeRequested) {
         /* The shell's own window is closing: the checkpoint is over, whatever the app window is doing. */
         scene->finished = 1;
@@ -554,7 +589,8 @@ static void SceneStepInput(DesktopScene *scene,
     if (SceneDesktopNeedsPaint(scene->desktop) && !scene->needsPaint) {
         scene->needsPaint = 1;
         scene->needsCursorPaint = 0;
-    } else if (inputStep.cursorChanges > 0u && scene->showCursor && !scene->needsPaint) {
+    } else if (scene->showCursor && !scene->needsPaint &&
+               (inputStep.cursorChanges > 0u || inputStep.pointerMoves > 0u)) {
         scene->needsCursorPaint = 1;
     }
 }
@@ -571,6 +607,8 @@ static void SceneRetireClosedWindow(DesktopScene *scene, DesktopSceneStep *step)
         state != RoboDesktopWindowClosing) {
         return;
     }
+    DesktopScriptDestroy(scene->script);
+    scene->script = NULL;
     DesktopDocumentDestroy(scene->document);
     scene->document = NULL;
     (void)DesktopWindowDestroy(scene->desktop, scene->window);

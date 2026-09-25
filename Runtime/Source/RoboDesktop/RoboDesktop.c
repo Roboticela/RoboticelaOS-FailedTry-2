@@ -1226,6 +1226,34 @@ Result DesktopHitTest(const Desktop *desktop,
     return RoboOk;
 }
 
+Result DesktopTrackPointer(Desktop *desktop, GfxPoint point, DesktopDiag *diag)
+{
+    DesktopHit hit;
+    Result status;
+
+    if (!desktop) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument,
+                                 "a desktop is required");
+    }
+    status = DesktopHitTest(desktop, point, &hit);
+    if (status != RoboOk) {
+        /* Still park the point so a software cursor can leave the work area without vanishing forever. */
+        desktop->pointer.point = point;
+        desktop->pointer.inside = 0;
+        desktop->pointer.area = RoboDesktopAreaNone;
+        desktop->pointer.window = RoboDesktopWindowIdNone;
+    } else {
+        desktop->pointer.point = point;
+        desktop->pointer.inside = hit.inside;
+        desktop->pointer.area = hit.area;
+        desktop->pointer.window = hit.window;
+    }
+    if (desktop->showCursor) {
+        desktop->cursorVisible = 1;
+    }
+    return RoboOk;
+}
+
 Result DesktopObservePointer(Desktop *desktop,
                                            GfxPoint point,
                                            int pressed,
@@ -1238,30 +1266,27 @@ Result DesktopObservePointer(Desktop *desktop,
         return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument,
                                  "a desktop is required");
     }
-    status = DesktopHitTest(desktop, point, &hit);
+    status = DesktopTrackPointer(desktop, point, diag);
     if (status != RoboOk) {
-        return RoboDesktopDiag(diag, RoboDesktopDomainShell, status,
-                                 "the pointer's position could not be resolved");
+        return status;
     }
-
-    desktop->pointer.point = point;
-    desktop->pointer.inside = hit.inside;
-    desktop->pointer.area = hit.area;
-    desktop->pointer.window = hit.window;
     desktop->pointer.pressed = pressed ? 1 : 0;
-    if (desktop->showCursor) {
-        desktop->cursorVisible = 1;
-    }
 
     if (!pressed) {
         desktop->stats.pointerMoves++;
         return RoboOk;
     }
 
+    status = DesktopHitTest(desktop, point, &hit);
+    if (status != RoboOk) {
+        return RoboOk;
+    }
+
     /*
-     * A press, and the whole of this build's input: two actions, both about *windows*. A press that hit
-     * nothing is a legitimate press and is a success -- a shell that reported an error for a click on the
-     * desktop surface would be reporting an error for the most ordinary thing a user does.
+     * A press, and the whole of this build's direct-pointer input: two actions, both about *windows*.
+     * A press that hit nothing is a legitimate press and is a success -- a shell that reported an error
+     * for a click on the desktop surface would be reporting an error for the most ordinary thing a
+     * user does.
      */
     switch (hit.area) {
     case RoboDesktopAreaWindowClose:

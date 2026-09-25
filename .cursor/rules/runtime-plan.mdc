@@ -10,7 +10,7 @@ Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS mo
 ## Cross-stack integration (completed phases)
 
 - **X.1** Wire and integrate Phases 0-15 with each other ✅ (Base->Mem->Containers->Unicode/I18N->Font->Text->Graphics->Display->Window->HTML->CSS->Layout->Paint->Render->Desktop->Compositor; Input consumer seam still open — see X.2)
-- **X.2** Close remaining consumer seams among completed phases (Input->Desktop/Window/Document; DesktopBridge/`data-command`) — Compositor->Desktop present closed in 15.19
+- **X.2** Close remaining consumer seams among completed phases (DesktopBridge/`data-command`; Input→Window/Document focus delivery refinements) — Input→Desktop and Compositor→Desktop present closed; RoboJS→Desktop page script closed in 16.16 (`RoboDesktopScript`)
 
 ---
 

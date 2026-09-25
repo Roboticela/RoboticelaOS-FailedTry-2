@@ -73,7 +73,6 @@
 
 #include "RoboInput/RoboInput.h"
 
-#include "RoboLayout/RoboLayoutTree.h"
 #include "RoboText/RoboTextEditing.h"
 
 #include <stddef.h>
@@ -82,6 +81,14 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/**
+ * Opaque layout tree (Phase 10) — borrowed by @ref DesktopInputContent when a window has real
+ * document contents. The full `RoboLayout/RoboLayoutTree.h` stays out of this public header so the
+ * shell's boundary scan keeps holding: a document-layer include belongs in the bridge
+ * (`RoboDesktopDocument`) or in this module's `.c`, never on every DesktopInput consumer.
+ */
+typedef struct LayoutTree LayoutTree;
 
 /** Events the queue holds before it starts refusing (`InputQueueConfig.capacity`). */
 #define RoboDesktopInputDefaultQueueCapacity 64u
@@ -230,6 +237,11 @@ typedef struct DesktopInputStep {
     uint32_t hoverChanges;
     /** Cursor shape changes (13.43/13.75). */
     uint32_t cursorChanges;
+    /**
+     * Positioned pointer events that moved the shell's tracked pointer (software cursor). Distinct from
+     * @ref cursorChanges, which is the *shape* the hit test asked for.
+     */
+    uint32_t pointerMoves;
     /** Chords resolved by the shortcut table (13.35). */
     uint32_t shortcuts;
     /** Commands a target claimed (13.36/13.73). */
@@ -250,6 +262,17 @@ typedef struct DesktopInputStep {
     int scaleChanged;
     /** The last command id a target claimed, or `RoboInputCommandNone`. Read after the fact. */
     InputCommandId lastCommand;
+    /**
+     * Non-zero when this step dispatched a `POINTER_UP` onto a `DOCUMENT` target with a layout node
+     * (Phase 16: the scene posts a RoboJS `"click"` from these fields). Cleared by
+     * @ref DesktopInputStepInit.
+     */
+    int documentClick;
+    /** The layout node under that release, or `RoboLayoutNodeIdNone`. */
+    LayoutNodeId documentClickNode;
+    /** Document-space coordinates of that release (the plane `PaintHitTest` used). */
+    double documentClickX;
+    double documentClickY;
 } DesktopInputStep;
 
 /** Clear @p step to a step that did nothing. Safe on NULL. */

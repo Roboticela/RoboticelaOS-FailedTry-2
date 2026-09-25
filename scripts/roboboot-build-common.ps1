@@ -838,6 +838,11 @@ function Invoke-RoboBuildUserland {
             # text at all, which is exactly what this list existing to be exhaustive prevents.
             "RoboText",
             "RoboCompositor",
+            # The input model (Phase 13): the shell's DesktopInput and the scene's key listener are
+            # consumers of it. Without this module, robo-runtime links every Desktop call and fails
+            # on InputDiagReset / InputFocusRequest / InputDispatch / …
+            "RoboInput",
+            "RoboJS",
             "RoboDesktop"
           );
         },
@@ -946,7 +951,17 @@ function Invoke-RoboBuildUserland {
         $stale = $script:RoboRebuild -or $batch.Compiled -or (Test-LinkStale $elf $linkobjs)
         if ($stale) {
             Write-Step "LD" ("user\" + $p.Name + ".elf")
-            & $ld "-m" "elf_x86_64" "-static" "-no-pie" "-T" $ldscript "-o" $elf @linkobjs
+            # Object lists for the guest runtime exceed Windows' CreateProcess argument limit once
+            # RoboInput (and the rest of the shell) is in the image — ld.lld fails to *start* with
+            # "The filename or extension is too long". Pass the objects through an @response file,
+            # the same door Runtime/Tools/Build.ps1 already uses for the host guest ELF.
+            $ldResponse = Join-Path $ubuild ($p.Name + ".ld.rsp")
+            $rspLines = @($linkobjs | ForEach-Object {
+                $path = [string]$_
+                if ($path -match '[\s"]') { '"' + ($path -replace '"', '\"') + '"' } else { $path }
+            })
+            Set-Content -LiteralPath $ldResponse -Value $rspLines -Encoding ascii
+            & $ld "-m" "elf_x86_64" "-static" "-no-pie" "-T" $ldscript "-o" $elf ("@" + $ldResponse)
             if ($LASTEXITCODE -ne 0) { throw ("user " + $p.Name + " link failed") }
         }
         if ($p.Libc) { Test-RoboNoHostLibc $elf }

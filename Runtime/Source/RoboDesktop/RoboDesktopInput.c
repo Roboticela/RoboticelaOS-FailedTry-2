@@ -1263,6 +1263,41 @@ static Result DrainOne(DesktopInput *input,
         }
         event.window = AsWindowId(window);
 
+        /*
+         * Software cursor + pointer readback (Phase 13.66): DesktopInput owns the pointer path, so it
+         * must update the shell's tracked point. Without this, `cursorVisible` stays 0 and the
+         * overlay never draws — `DesktopObservePointer` is only for callers without an input system.
+         */
+        {
+            GfxPoint screen = event.payload.pointer.position;
+
+            if (InputSpaceIsKnown(event.space) && event.space != RoboInputSpaceScreen) {
+                if (InputConvertPoint(screen, event.space, RoboInputSpaceScreen, NULL, &screen,
+                                      &idiag) != RoboOk) {
+                    screen = event.payload.pointer.position;
+                }
+            }
+            {
+                GfxPoint before = input->desktop->pointer.point;
+                int wasVisible = input->desktop->cursorVisible;
+
+                if (DesktopTrackPointer(input->desktop, screen, diag) == RoboOk) {
+                    input->desktop->pointer.pressed =
+                        (event.type == RoboInputEventPointerDown) ? 1
+                        : (event.type == RoboInputEventPointerUp ||
+                           event.type == RoboInputEventPointerCancel)
+                              ? 0
+                              : input->desktop->pointer.pressed;
+                    if (event.type == RoboInputEventPointerMove ||
+                        before.x != screen.x || before.y != screen.y ||
+                        (input->desktop->showCursor && !wasVisible)) {
+                        step->pointerMoves++;
+                        input->desktop->stats.pointerMoves++;
+                    }
+                }
+            }
+        }
+
         /* 13.18: hover, through the model's own transition record — leave then enter, at most one of each. */
         {
             InputTarget leave;
@@ -1353,6 +1388,24 @@ static Result DrainOne(DesktopInput *input,
     input->stats.listenerCalls += context.calls;
     if (context.defaultPrevented) {
         step->prevented++;
+    }
+
+    /*
+     * A document click for the page script (Phase 16): a `POINTER_UP` on a DOCUMENT target with a
+     * layout node is the moment a browser would fire `click`. The scene reads these fields and posts
+     * a `JsEventRecord` — this file never includes RoboJS.
+     */
+    if (event.type == RoboInputEventPointerUp && target.kind == RoboInputTargetDocument &&
+        target.layoutNode != RoboLayoutNodeIdNone) {
+        step->documentClick = 1;
+        step->documentClickNode = target.layoutNode;
+        if (positioned) {
+            step->documentClickX = (double)docPoint.x;
+            step->documentClickY = (double)docPoint.y;
+        } else {
+            step->documentClickX = (double)event.payload.pointer.position.x;
+            step->documentClickY = (double)event.payload.pointer.position.y;
+        }
     }
 
     action = InputDefaultActionFor(&event, NULL, input->config.lineHeightPx);
@@ -2199,6 +2252,7 @@ void DesktopInputStepInit(DesktopInputStep *step)
     }
     MemSet(step, 0, sizeof(DesktopInputStep));
     step->lastCommand = RoboInputCommandNone;
+    step->documentClickNode = RoboLayoutNodeIdNone;
 }
 
 int DesktopInputStepIsEmpty(const DesktopInputStep *step)
@@ -2208,6 +2262,7 @@ int DesktopInputStepIsEmpty(const DesktopInputStep *step)
     }
     return (step->windowEvents == 0u && step->dispatched == 0u && step->actions == 0u &&
             step->focusChanges == 0u && step->hoverChanges == 0u && step->cursorChanges == 0u &&
+            step->pointerMoves == 0u &&
             step->shortcuts == 0u && step->commands == 0u && step->textInputs == 0u &&
             step->closeRequested == 0 && step->resized == 0 && step->scaleChanged == 0)
                ? 1
@@ -2228,14 +2283,16 @@ Result DesktopInputStepWrite(const DesktopInputStep *step,
     }
     written = snprintf(buffer, capacity,
                        "step window=%u translated=%u skipped=%u dispatched=%u coalesced=%u "
-                       "dropped=%u calls=%u actions=%u focus=%u hover=%u cursor=%u shortcuts=%u "
+                       "dropped=%u calls=%u actions=%u focus=%u hover=%u cursor=%u moves=%u "
+                       "shortcuts=%u "
                        "commands=%u unclaimed=%u text=%u close=%d resized=%d scale=%d\n",
                        (unsigned)step->windowEvents, (unsigned)step->translated,
                        (unsigned)step->skipped, (unsigned)step->dispatched,
                        (unsigned)step->coalesced, (unsigned)step->dropped,
                        (unsigned)step->listenerCalls, (unsigned)step->actions,
                        (unsigned)step->focusChanges, (unsigned)step->hoverChanges,
-                       (unsigned)step->cursorChanges, (unsigned)step->shortcuts,
+                       (unsigned)step->cursorChanges, (unsigned)step->pointerMoves,
+                       (unsigned)step->shortcuts,
                        (unsigned)step->commands, (unsigned)step->unclaimed,
                        (unsigned)step->textInputs, step->closeRequested, step->resized,
                        step->scaleChanged);

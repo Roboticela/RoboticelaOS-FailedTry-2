@@ -502,6 +502,7 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDump.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDocument.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopFontProvider.c"),
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopScript.c"),
     # RoboDesktop 13.66--13.77 -- the *input integration*: the one place in the tree where the shell and
     # the input model meet. It owns a session, a queue, a dispatcher, the shell's listener store, a
     # shortcut table, a command router and a cursor manager; it supplies the three providers
@@ -1304,6 +1305,11 @@ function Assert-RoboDesktopBoundaries {
     # force -- a font database inside RoboLayout -- is exactly what 12.17's contract forbids. The
     # exemption is by name rather than by directory for the usual reason: a *second* desktop file
     # reaching for RoboLayout is still a leak.
+    #
+    # `RoboDesktopScript.c/.h` is the Phase 16 bridge: the one file that may include RoboJS and that
+    # attaches a runtime to the document id `DesktopDocumentHtml` hands it. Scene consumes it; the
+    # shell does not. The upward scan exempts it the same way `RoboDesktopCompose` is exempt for the
+    # compositor — by name, so a second desktop file reaching for RoboJS is still a leak.
     $moduleRoots = @(
         (Join-Path $RuntimeRoot "Include\RoboDesktop"),
         (Join-Path $RuntimeRoot "Source\RoboDesktop")
@@ -1322,9 +1328,9 @@ function Assert-RoboDesktopBoundaries {
     $exempt = '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|has no business|does not read|reaching for|a document layer|names absent|document-layer include|not a document|no markup|reads \*no\* markup'
 
     $rules = @(
-        @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider') },
-        @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider') },
-        @{ Roots = $allRoots; Pattern = $upward; Skip = @('RoboDesktopCompose') }
+        @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider', 'RoboDesktopScript') },
+        @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider', 'RoboDesktopScript') },
+        @{ Roots = $allRoots; Pattern = $upward; Skip = @('RoboDesktopCompose', 'RoboDesktopScript') }
     )
     foreach ($rule in $rules) {
         foreach ($root in $rule.Roots) {
@@ -2146,7 +2152,7 @@ if ($Module -and $Module -ne "Runtime") {
         Layout = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout")
         Paint = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint")
         Rasterizer = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender")
-        Desktop = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender", "RoboCompositor", "RoboDesktop", "RoboInput")
+        Desktop = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender", "RoboCompositor", "RoboDesktop", "RoboInput", "RoboJS")
         # RoboJS is an independent JavaScript runtime: it speaks in its own value model and its own
         # heap, and it reads a DOM only through `RoboJSDom.c`'s vtable -- `RoboJSDomHtml.c` is the one
         # file that includes a RoboHTML header. So the list is the base layers plus RoboHTML, and

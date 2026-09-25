@@ -162,7 +162,7 @@ export function GuestDesktopShell({ model = buildDesktopModel() }: { model?: Des
   const focusedApplication = state.windows.find((window) => window.id === state.focusedWindow)?.applicationId ?? null;
 
   return (
-    <div className="desktop" role="application" aria-label="RoboticelaOS Desktop">
+    <div className="desktop" id="desktopRoot" role="application" aria-label="RoboticelaOS Desktop">
       <div className="wallpaper" role="presentation" />
       <div className="wallpaperSheen" role="presentation" />
       <div className="desktopIcons" role="list" aria-label="Desktop icons">

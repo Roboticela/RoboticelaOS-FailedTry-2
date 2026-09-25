@@ -88,6 +88,7 @@
 #include "RoboFont/RoboFontFace.h"
 #include "RoboFont/RoboFontRegistry.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
+#include "RoboHTML/RoboHTMLTypes.h"
 #include "RoboLayout/RoboLayoutTree.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
 #include "RoboTypography/RoboTypographyResolver.h"
@@ -232,6 +233,15 @@ GfxSize DesktopDocumentViewport(const DesktopDocument *document);
  * NULL for a NULL document or a document that never laid out.
  */
 const LayoutTree *DesktopDocumentTree(const DesktopDocument *document);
+
+/**
+ * The RoboHTML document id this bridge owns (Phase 16 shell integration).
+ *
+ * The door `DesktopScriptCreate` needs and no other: RoboJS attaches through `JsDomHtmlAttach`, and the
+ * shell must hand the id without reading the document's private layout. `RoboHtmlDocumentIdNone` for a
+ * NULL or destroyed document.
+ */
+HtmlDocumentId DesktopDocumentHtml(const DesktopDocument *document);
 
 /** What the build saw. RoboInvalidArgument for NULL arguments. */
 Result GetDesktopDocumentReport(const DesktopDocument *document,

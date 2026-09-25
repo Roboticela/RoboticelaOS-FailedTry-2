@@ -532,6 +532,11 @@ const LayoutTree *DesktopDocumentTree(const DesktopDocument *document)
     return document ? document->tree : NULL;
 }
 
+HtmlDocumentId DesktopDocumentHtml(const DesktopDocument *document)
+{
+    return document ? document->html : RoboHtmlDocumentIdNone;
+}
+
 Result GetDesktopDocumentReport(const DesktopDocument *document,
                                            DesktopDocumentReport *out)
 {

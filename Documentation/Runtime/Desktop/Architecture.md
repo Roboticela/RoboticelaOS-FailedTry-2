@@ -24,7 +24,8 @@ RoboDesktop: shell fill → panel → windows in z-order → the screen target
 | `RoboDesktopGeometry.c` | The metrics defaults and the arithmetic: `compute`, `panel_area`, `place`, `contain` |
 | `RoboDesktopWindow.c` | The window list: add/remove, bounds and clamping, title and contents, z-order, focus, the close request |
 | `RoboDesktopChrome.c` | The shell's own painting: the surface, the panel, its labels, a window's decorations, the close button, a title bar's text |
-| `RoboDesktopDocument.c` | The markup bridge: HTML + CSS → layout → paint → a display list (the **one** file allowed to name a document layer) |
+| `RoboDesktopDocument.c` | The markup bridge: HTML + CSS → layout → paint → a display list (the **one** file allowed to name a document layer for building) |
+| `RoboDesktopScript.c` | The RoboJS bridge: attach a runtime to the document, evaluate the page script, pump the loop, post clicks (the **one** file allowed to include RoboJS) |
 | `RoboDesktopDump.c` | The seven-line developer dump, written through the public doors only |
 | `RoboDesktopDiagnostics.c` | The diagnostic record and the domain vocabulary |
 | `RoboDesktopTypes.c` | Area and state names, their predicates, the count constants |
