@@ -133,7 +133,7 @@ static uint64_t OpPresent(RoboProcess *p, uint64_t ubuf)
     int32_t destX, destY;
     uint32_t *fb;
     uint64_t src;
-    uint32_t tmp[1024];
+    uint32_t tmp[8192];
 
     if (!IsOut(p))
         return SysErr(RoboEperm);
@@ -176,8 +176,8 @@ static uint64_t OpPresent(RoboProcess *p, uint64_t ubuf)
         uint32_t done = 0;
         while (done < copyW) {
             uint32_t n = copyW - done;
-            if (n > 1024u)
-                n = 1024u;
+            if (n > 8192u)
+                n = 8192u;
             src = req.pixels + ((uint64_t)(srcY + y) * (uint64_t)req.stride +
                                 srcX + done) * 4ull;
             if (CopyFromUser(p->addressSpace, tmp, src, (size_t)n * 4u) != 0)

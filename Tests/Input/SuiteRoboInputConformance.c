@@ -282,8 +282,9 @@ static void TestConformanceCapabilities(void)
      * than this module's code.
      */
     RoboCheckEqInt(caps.textComposition, 0);
-    /* D-pad to focus, A to activate: the gamepad vocabulary is here, the *mapping* is not. */
-    RoboCheckEqInt(caps.gamepadNavigation, 0);
+    /* 13.54: D-pad to focus and A to activate -- the mapping, with its deadzone, its dominant axis and its
+     * repeat cadence. It maps an action and applies nothing, which is why `focus` is still a separate row. */
+    RoboCheckEqInt(caps.gamepadNavigation, 1);
     RoboCheckEqInt(caps.eventLoop, 0);
     RoboCheckEqInt(caps.multiprocessInput, 0);
     /* 13.44/13.78: the session -- a device's sweep and the transient reset, which is what makes "nothing
@@ -296,17 +297,26 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(caps.syntheticInput, 1);
     RoboCheckEqInt(caps.injectionBoundaries, 1);
     RoboCheckEqInt(RoboInputInjectionBoundariesImplemented, caps.injectionBoundaries);
-    /* Named and not built, each its own row in the phase brief: coalescing and latency metrics, and the
-     * accessibility command hooks (13.52). */
-    RoboCheckEqInt(caps.eventCoalescing, 0);
-    RoboCheckEqInt(caps.inputLatency, 0);
-    RoboCheckEqInt(caps.accessibilityHooks, 0);
+    /* 13.47: coalescing -- three mergeable types, everything else a barrier, and a lossless flush. */
+    RoboCheckEqInt(caps.eventCoalescing, 1);
+    /* 13.48: the five stamps and the four differences between them. */
+    RoboCheckEqInt(caps.inputLatency, 1);
+    /* 13.52: the semantic vocabulary and the policy that bounds it. Not an accessibility *tree*. */
+    RoboCheckEqInt(caps.accessibilityHooks, 1);
 
     RoboCheckEqInt(caps.eventTypeCount, RoboInputEventTypeCount);
     RoboCheckEqInt(caps.sourceCount, RoboInputSourceCount);
     RoboCheckEqInt(caps.spaceCount, RoboInputSpaceCount);
     RoboCheckEqInt(caps.deviceTypeCount, RoboInputDeviceTypeCount);
     RoboCheckEqInt(caps.deviceCapabilityCount, RoboInputDeviceCapabilityCount);
+
+    /* The four phases' bounds, each read from its own constant: a table size that drifts from the bound a
+     * caller sizes a buffer with is the kind of defect a number in a record is for. */
+    RoboCheckEqInt(caps.coalesceSlots, RoboInputCoalesceSlots);
+    RoboCheckEqInt(caps.latencyRecords, RoboInputLatencyRecords);
+    RoboCheckEqInt(caps.a11yCommandCount, RoboInputA11yCommandCount);
+    RoboCheckEqInt(caps.gamepadNavActionCount, RoboInputGamepadNavActionCount);
+    RoboCheckEqInt(caps.gamepadNavDeadzone, (uint32_t)RoboInputGamepadNavDeadzoneDefault);
     RoboCheckEqInt(caps.layoutCount, RoboInputLayoutIdCount);
     RoboCheckEqInt(caps.layoutLevelCount, RoboInputLayoutLevelCount);
     RoboCheckEqInt(caps.deadKeyCount, RoboInputDeadKeyCount);
@@ -329,7 +339,10 @@ static void TestConformanceCapabilities(void)
     /* The flag constants and the door agree: `model_is_implemented` is the same fact as `eventModel`. */
     RoboCheckEqInt(InputModelIsImplemented(), caps.eventModel);
     RoboCheckEqInt(InputPlatformAdaptersAreImplemented(), caps.platformAdapters);
-    RoboCheckEqInt(RoboInputApiFrozen, 0);
+    /* 13.90's freeze: the header set and the invariants its doors state, stated in
+     * `Documentation/Runtime/Input/ApiStability.md`. It freezes *additively* -- a new door, a new enum value
+     * appended after the last, and a new capability field are all allowed, which is how this phase landed. */
+    RoboCheckEqInt(RoboInputApiFrozen, 1);
 
     /* Version components: numeric and string forms of one version. */
     {
@@ -379,7 +392,7 @@ static void TestModelDump(void)
     RoboCheck(strcmp(first, second) == 0);
 
     /* The summary line, whole, and first. */
-    RoboCheck(strstr(first, "input 0.6.0 model=1 adapters=0 types=33 sources=9 spaces=5\n") == first);
+    RoboCheck(strstr(first, "input 0.7.0 model=1 adapters=0 types=33 sources=9 spaces=5\n") == first);
 
     /* One line per vocabulary entry, and no line of one vocabulary masquerading as another. */
     for (index = 0u; index + 1u < firstLength; index++) {

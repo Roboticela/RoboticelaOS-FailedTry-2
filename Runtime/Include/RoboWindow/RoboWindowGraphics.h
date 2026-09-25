@@ -70,12 +70,30 @@ Result WindowBeginFrame(WindowId id,
 Result WindowEndFrame(WindowId id);
 
 /**
+ * End a frame and mark only @p region dirty for the next present.
+ * Empty / invalid rect → RoboInvalidArgument. Without matching begin →
+ * RoboInvalidArgument. A prior full dirty stays full.
+ */
+Result WindowEndFrameRegion(WindowId id, GfxRect region);
+
+/**
  * Present the owned render surface when dirty.
  * Not dirty → RoboOk (no backend call). No surface → ensure then present.
- * Clears dirty on success. Uses the same backend present path as
- * WindowPresent.
+ * Clears dirty on success. When the dirty mark is a region and the backend
+ * implements PresentSurfaceRegion, only that rectangle reaches the
+ * framebuffer; otherwise the whole surface is presented.
  */
 Result WindowPresentFrame(WindowId id);
+
+/**
+ * Present @p region of @p surface through the backend's damage path.
+ * Used for software-cursor updates that never touch the window's owned
+ * render surface. Empty region → RoboOk. Backends without region present
+ * fall back to a full PresentSurface of @p surface.
+ */
+Result WindowPresentRegion(WindowId id,
+                                          GfxSurface *surface,
+                                          GfxRect region);
 
 /** Mark the entire surface dirty (needs present). */
 Result WindowInvalidate(WindowId id);
@@ -83,7 +101,7 @@ Result WindowInvalidate(WindowId id);
 /**
  * Mark a logical client rectangle dirty.
  * Empty / invalid rect → RoboInvalidArgument.
- * Tracking is full-surface fallback if any region is dirty (simple model).
+ * Unions with any existing dirty region; does not force a full-surface mark.
  */
 Result WindowInvalidateRect(WindowId id,
                                           GfxRect rect);

@@ -16,9 +16,11 @@ device adapter        (not built yet: `platformAdapters` is 0)
 RoboInput             ← the normalized event model
    ↓  device state (13.2):        the table, the keyboard's held keys, auto-repeat
    ↓  keyboard (13.9–13.11):      layout → pending accent → TEXT_INPUT
-   ↓  pointer / touch / pen / gamepad (13.14–13.24, 13.53)
+   ↓  pointer / touch / pen / gamepad (13.14–13.24, 13.53–13.54)
    ↓  focus (13.25–13.28)
-   ↓  hit test → routing (13.29–13.36)
+   ↓  hit test → routing (13.29–13.36) → commands and shortcuts (13.12–13.13, 13.35–13.36)
+   ↓  the semantic lanes above the router (13.52 accessibility)
+   ↓  coalescing and latency around the queue (13.47–13.48)
    ↓
 target: DesktopShell / RoboDOM / a text editor
    ↓
@@ -118,23 +120,71 @@ and no global state, which is also why there is no `InputInit` to call.
 
 ---
 
-## 6. What this build does *not* do
+## 6. The four lanes above the queue: coalescing, latency, accessibility and gamepad navigation
+
+The phases after 13.51 are all *policy* layers rather than new hardware paths, and each one is a file of its
+own because each answers a question the model does not:
+
+**Coalescing (13.47)** — `RoboInputCoalescing.h`. A mouse can report a thousand moves a second and a frame
+draws sixty times, so the moves that happened *between two frames* are merged. The rule is one function,
+`InputEventTypeMayCoalesce`, and it answers `1` for exactly three types (`POINTER_MOVE`, `TOUCH_MOVE`,
+`PEN_MOVE`); every other one of the thirty-three is a **barrier**, which is the safe default for a type a later
+phase appends. The table is keyed on *(device, pointer, type)*, so two fingers are two slots and never one, and
+the merged record is the **newest** event whole with the window's movement in `deltaX`/`deltaY`. Three answers —
+`EMIT`, `HOLD`, `FLUSH_FIRST` — and nothing is ever dropped: a full table asks the caller to drain, and a flush
+against a full queue answers `RoboBusy` with the remainder **still held**.
+
+**Latency (13.48)** — `RoboInputLatency.h`. Five stamps taken where they happen (hardware, queue, dispatch,
+handler, present) and four differences: input-to-dispatch, dispatch-to-handler, input-to-frame and
+input-to-present. A stamp that arrives **before** a stage already marked is refused and counted rather than
+saturated — a plausible *good* number is the one failure mode this layer cannot have — and a `Begin` whose
+queue stamp precedes its hardware stamp is refused for the same reason. The records are a small fixed table
+(one frame's worth): a never-used slot first, the oldest finished record after that, and `RoboBusy` when every
+record is still live.
+
+**The accessibility lane (13.52)** — `RoboInputAccessibility.h`. A screen reader, a switch device or a voice
+layer asks for a *meaning* — activate, focus, move focus, insert text, delete, select, scroll, dismiss,
+toggle — and the lane maps it onto this module's own command vocabulary and routes it through the same
+`InputCommandRouter` a keyboard shortcut uses. It **never** synthesizes a keystroke: a synthetic scan code
+would have to guess a layout, a key and a modifier state, and would then be indistinguishable from a keyboard
+in every log and every policy decision. `InputA11yCommandAllowed` is the other half: the text, focus and view
+families plus cancellation, and **not** the window family, the debug overlay, the reset or quit — a client that
+could close the surface it was describing would be able to dismiss the thing it was reading. Two of the brief's
+requests are named rather than approximated: `SET_VALUE` has no command behind it (`RoboNotSupported`), and
+`TOGGLE` is an activation because the control owns its second state.
+
+**Gamepad navigation (13.54)** — `RoboInputGamepadNavigation.h`. 13.53 landed a controller as *hardware*; this
+is the semantic map the brief names separately, and the two capability flags exist because they are two
+claims. D-pad and left stick become focus moves by a **dominant-axis** rule (a stick at 45 degrees is one
+direction, ties go vertical), the d-pad beats the stick, and a pressed A or B beats both so an activation is
+one action rather than an activation interleaved with repeats. A held direction repeats on the same cadence
+*shape* as 13.8, driven by the caller's clock so a test simulates time; an `Activate` or a `Back` is an edge and
+never repeats. `InputGamepadNavigationActionCommand` turns an action into an `InputCommand`, so a controller
+reaches the same target chain as a shortcut and an accessibility request. `InputGamepadNavigationReset` is the
+gamepad shape of "a disconnect must not leave keys stuck".
+
+---
+
+## 7. What this build does *not* do
 
 Each of these is a **0** in `InputCapabilities`, asserted field by field by `input.conformance.capabilities`,
 so a reader cannot mistake a model for a system and a change that flips one must add the case that reads it:
 
 | Flag | 0 means |
 |---|---|
-| `deviceReading`, `platformAdapters` | nothing opens a keyboard, a mouse, a digitizer or a controller; the bridge that exists is a *translation* of a RoboWindow event |
-| `dispatch`, `propagation` | no event is routed, no listener is called, nothing bubbles and nothing is captured |
-| `focus` | no focus is tracked, no scope, no Tab navigation |
-| `textEditing` | text reaches **no** editor yet: the pipeline produces `TEXT_INPUT` events and 13.12/13.13's command layer is what will carry them into RoboText's editor |
-| `textComposition` | no input **method**: no preedit, no candidates, no candidate window. A dead key is layout data and is deliberately *not* this |
-| `clipboard`, `gestures`, `eventLoop`, `multiprocessInput` | named absences, not oversights |
+| `deviceReading`, `platformAdapters` | nothing opens a keyboard, a mouse, a digitizer or a controller; the bridge that exists is a *translation* of a RoboWindow event, and every device event in this tree is produced by a caller or a test |
+| `textComposition` | no input **method**: no preedit, no candidates, no candidate window. A dead key is layout data and is deliberately *not* this; the *interface* (13.38/13.39, `inputMethods`) is built and its client is the editor |
+| `eventLoop`, `multiprocessInput` | named absences, not oversights: there is no input thread (the queue is the boundary the caller's thread crosses) and no cross-process input |
+
+And two absences that are not flags, because they are *other modules'* rows: **no consumer**. Nothing outside
+RoboInput includes it — the shell still receives a `RoboWindow` event through `RoboDesktopObservePointer` — so
+focus, capture, the wheel, shortcuts and the clipboard this module models are unreachable from the desktop
+until that seam is wired. Naming it here is the point: `dispatch` being 1 says the module routes, not that the
+shell is routed.
 
 ---
 
-## 7. Case study: one keystroke, end to end
+## 8. Case study: one keystroke, end to end
 
 Pressing `'` and then `e` on a US-International keyboard:
 
@@ -147,8 +197,12 @@ Pressing `'` and then `e` on a US-International keyboard:
 4. `e` arrives. The pipeline composes — `InputDeadKeyCompose(acute, 'e')` is `U+00E9` — and produces **one**
    `TEXT_INPUT` event carrying `é`, with the key event's device, timestamp, modifiers and window, and **no
    plane**.
-5. **Focus and routing** (later) decide the event's target and hand it to the focused editor. A key event was
-   delivered at step 2 as well, for whatever else wanted it — a shortcut, a control, a game.
+5. **Focus and routing** (13.25–13.36) decide the event's target: the focused chain innermost-first, with the
+   capture and bubble phases around it and a default action after it. The text event reaches the focused
+   editor's command target; a key event was delivered at step 2 as well, for whatever else wanted it — a
+   shortcut, a control, a game. If the press were a move rather than a keystroke, **coalescing** (13.47) would
+   have merged it with its neighbours before any of this, and **latency** (13.48) would have stamped each
+   stage it passed.
 6. **RoboText's editor** (12.22) performs the one mutation: a replacement of a source range. Shaping,
    measurement, layout and painting are its downstream consequences, and RoboInput never sees a glyph.
 
@@ -157,7 +211,7 @@ for it. That is the whole design.
 
 ---
 
-## 8. Diagnostics
+## 9. Diagnostics
 
 Every structure in the module has a `Write` door that is **complete or absent**: a dump reports the length a
 complete line needs and leaves `?` in the buffer when it does not fit, so a caller that ignored the refusal

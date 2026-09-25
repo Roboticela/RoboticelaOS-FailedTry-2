@@ -12,6 +12,9 @@
 #define ROBO_WINDOW_BACKEND_H
 
 #include "RoboBase/RoboError.h"
+/* `PresentSurfaceRegion` takes a `GfxRect` **by value**, so the geometry type has to be complete here
+ * rather than forward-declared. */
+#include "RoboGraphics/RoboGraphicsGeometry.h"
 #include "RoboWindow/RoboWindowCapabilities.h"
 #include "RoboWindow/RoboWindowConfig.h"
 #include "RoboWindow/RoboWindowNative.h"
@@ -135,6 +138,17 @@ typedef struct WindowBackendVtbl {
                                    WindowId id,
                                    WindowNativeHandle *native);
     Result (*ReleaseMouseCapture)(void *userdata);
+
+    /**
+     * Optional (NULL allowed): present only @p region of @p surface to the
+     * native framebuffer. Used for software-cursor damage. When NULL,
+     * WindowPresentRegion falls back to a full PresentSurface.
+     */
+    Result (*PresentSurfaceRegion)(void *userdata,
+                                           WindowId id,
+                                           WindowNativeHandle *native,
+                                           GfxSurface *surface,
+                                           GfxRect region);
 } WindowBackendVtbl;
 
 /**

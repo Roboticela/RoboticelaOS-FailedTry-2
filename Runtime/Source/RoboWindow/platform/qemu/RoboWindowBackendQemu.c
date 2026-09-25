@@ -11,6 +11,7 @@
 #include "RoboDisplay/RoboDisplay.h"
 #include "RoboDisplay/RoboDisplayBackendQemu.h"
 #include "RoboDisplay/RoboQemuFramebuffer.h"
+#include "RoboGraphics/RoboGraphicsGeometry.h"
 #include "RoboGraphics/RoboGraphicsPixelFormat.h"
 #include "RoboWindow/RoboWindow.h"
 #include "RoboWindow/RoboWindowKeyboard.h"
@@ -150,6 +151,69 @@ static Result GuestPresent(const GfxSurface *surface)
     r = Display((int)RoboDispPresent, 0, &req, sizeof(req), 0);
     if (SysIsErr(r)) {
         LogWarn("robo_window.qemu: PRESENT failed");
+        return RoboIoError;
+    }
+    return RoboOk;
+}
+
+static Result GuestPresentRegion(const GfxSurface *surface, GfxRect region)
+{
+    RoboDisplayPresent req;
+    const uint8_t *px;
+    const uint8_t *base;
+    Long r;
+    const QemuFbInfo *fb = QemuFbCurrent();
+    uint32_t sw;
+    uint32_t sh;
+    uint32_t stridePx;
+    uint8_t bpp = 4u;
+    GfxRect clipped;
+
+    if (!fb || fb->headless || !fb->ready) {
+        return RoboOk;
+    }
+    if (!surface) {
+        return RoboInvalidArgument;
+    }
+    if (region.width <= 0 || region.height <= 0) {
+        return RoboOk;
+    }
+    sw = GfxSurfaceWidth(surface);
+    sh = GfxSurfaceHeight(surface);
+    clipped = GfxRectEmpty();
+    if (GfxRectClip(region, MakeGfxRect(0, 0, (int32_t)sw, (int32_t)sh),
+                           &clipped) != RoboOk ||
+        clipped.width <= 0 || clipped.height <= 0) {
+        return RoboOk;
+    }
+    base = GfxSurfacePixelsConst(surface);
+    if (!base) {
+        return RoboInvalidArgument;
+    }
+    (void)GfxPixelFormatBytesPerPixel(GfxSurfaceFormat(surface), &bpp);
+    if (bpp == 0u) {
+        bpp = 4u;
+    }
+    stridePx = (uint32_t)(GfxSurfaceStride(surface) / (size_t)bpp);
+    if (stridePx < sw) {
+        stridePx = sw;
+    }
+    px = base + (size_t)clipped.y * GfxSurfaceStride(surface) +
+         (size_t)clipped.x * (size_t)bpp;
+
+    memset(&req, 0, sizeof(req));
+    req.pixels = (uint64_t)(uintptr_t)px;
+    req.width = (uint32_t)clipped.width;
+    req.height = (uint32_t)clipped.height;
+    req.stride = stridePx;
+    if (QemuFbPixfmtFromGfx(GfxSurfaceFormat(surface), &req.pixfmt) != RoboOk) {
+        req.pixfmt = fb->pixfmt;
+    }
+    req.destX = clipped.x;
+    req.destY = clipped.y;
+    r = Display((int)RoboDispPresent, 0, &req, sizeof(req), 0);
+    if (SysIsErr(r)) {
+        LogWarn("robo_window.qemu: PRESENT region failed");
         return RoboIoError;
     }
     return RoboOk;
@@ -358,6 +422,32 @@ static Result QemuPresent(void *ud, WindowId id,
         return RoboNotFound;
     }
     return QemuFbPresentSurface(fb, surface, 0, 0);
+}
+
+static Result QemuPresentRegion(void *ud, WindowId id,
+                                        WindowNativeHandle *n,
+                                        GfxSurface *surface,
+                                        GfxRect region)
+{
+    const QemuFbInfo *fb;
+    (void)ud;
+    (void)n;
+    if (!gWin.live || gWin.windowId != id) {
+        return RoboNotFound;
+    }
+    if (!surface) {
+        return RoboInvalidArgument;
+    }
+#if defined(RoboWindowHasQemu) && RoboWindowHasQemu
+    if (gGuestMode) {
+        return GuestPresentRegion(surface, region);
+    }
+#endif
+    fb = QemuFbCurrent();
+    if (!fb) {
+        return RoboNotFound;
+    }
+    return QemuFbPresentSurfaceRegion(fb, surface, region);
 }
 
 /* --- Input translation (Robosys HID → RoboKeyboard / RoboMouse) --- */
@@ -711,7 +801,8 @@ static const WindowBackendVtbl gQemuVtbl = {
     QemuWaitEvents,
     NULL,
     NULL,
-    NULL
+    NULL,
+    QemuPresentRegion
 };
 
 const WindowBackendVtbl *WindowBackendQemuVtbl(void)

@@ -49,8 +49,10 @@
 
 #include "RoboBase/RoboError.h"
 
+#include "RoboInput/RoboInputAccessibility.h"
 #include "RoboInput/RoboInputBridge.h"
 #include "RoboInput/RoboInputClipboard.h"
+#include "RoboInput/RoboInputCoalescing.h"
 #include "RoboInput/RoboInputCommand.h"
 #include "RoboInput/RoboInputComposition.h"
 #include "RoboInput/RoboInputCoordinates.h"
@@ -64,9 +66,11 @@
 #include "RoboInput/RoboInputFocus.h"
 #include "RoboInput/RoboInputGesture.h"
 #include "RoboInput/RoboInputGamepad.h"
+#include "RoboInput/RoboInputGamepadNavigation.h"
 #include "RoboInput/RoboInputIme.h"
 #include "RoboInput/RoboInputKeyboard.h"
 #include "RoboInput/RoboInputKeyboardState.h"
+#include "RoboInput/RoboInputLatency.h"
 #include "RoboInput/RoboInputLayout.h"
 #include "RoboInput/RoboInputPen.h"
 #include "RoboInput/RoboInputPointer.h"
@@ -275,8 +279,11 @@ typedef struct InputCapabilities {
      */
     int gamepad;
     /**
-     * **Gamepad navigation** (13.54): the semantic map from a controller to focus moves and activation.
-     * **0** until that mapping exists.
+     * **Gamepad navigation** (13.54): the semantic map from a controller to focus moves and activation -- a
+     * deadzone, the dominant axis, the d-pad beating the stick, a held direction repeating on a cadence and
+     * an edge never repeating, each action mappable to a command.
+     *
+     * It maps an action; it does not apply one, and nothing polls a controller (`deviceReading` is still 0).
      */
     int gamepadNavigation;
     /**
@@ -324,10 +331,16 @@ typedef struct InputCapabilities {
      * **0** until that sweep is built.
      */
     int deviceHotplug;
-    /** **Event coalescing** (13.47): merging high-frequency moves while never merging a press, a release,
-     *  a key or a text event. **0** until it is built. */
+    /**
+     * **Event coalescing** (13.47): merging high-frequency moves while never merging a press, a release, a
+     * key or a text event -- one rule, a table keyed on (device, pointer, type), and a flush whose one
+     * failure is `RoboBusy` with the remainder still held rather than a dropped pointer.
+     */
     int eventCoalescing;
-    /** **Latency metrics** (13.48): the five stamps from hardware to present. **0** until they exist. */
+    /**
+     * **Latency metrics** (13.48): five stamps (hardware, queue, dispatch, handler, present) and the four
+     * differences they yield, with an out-of-order stamp refused and counted rather than saturated.
+     */
     int inputLatency;
     /** **Replay** (13.49): recording a stream and feeding it back through the same pipeline. **0** until it
      *  exists. */
@@ -338,8 +351,13 @@ typedef struct InputCapabilities {
     /** **Injection boundaries** (13.51): who may inject input, by privilege. **0** until they are stated in
      *  code rather than in a document. */
     int injectionBoundaries;
-    /** **Accessibility hooks** (13.52): semantic commands an accessibility system invokes without
-     *  pretending to be hardware. **0** until they exist. */
+    /**
+     * **Accessibility hooks** (13.52): the semantic vocabulary an accessibility client speaks, mapped onto
+     * this module's own commands and routed through the same chain a shortcut uses, bounded by a policy that
+     * keeps a client out of the window and system commands.
+     *
+     * It invokes a meaning; it never synthesizes a keystroke, and it is not an accessibility tree (Phase 31).
+     */
     int accessibilityHooks;
     /** **Input reset** (13.78): cancelling every transient state at once -- captures, gestures, the pending
      *  accent, the drag. **0** until the sweep exists. */
@@ -384,6 +402,18 @@ typedef struct InputCapabilities {
     uint32_t deviceTypeCount;
     /** Device capability bits this build defines (`RoboInputDeviceCapabilityCount`). */
     uint32_t deviceCapabilityCount;
+
+    /** Pending moves one coalescer holds (`RoboInputCoalesceSlots`); 13.47. */
+    uint32_t coalesceSlots;
+    /** Records one latency trace holds (`RoboInputLatencyRecords`); 13.48. */
+    uint32_t latencyRecords;
+    /** Accessibility commands this build defines, `NONE` included (`RoboInputA11yCommandCount`); 13.52. */
+    uint32_t a11yCommandCount;
+    /** Gamepad navigation actions this build defines, `NONE` included (`RoboInputGamepadNavActionCount`);
+     *  13.54. */
+    uint32_t gamepadNavActionCount;
+    /** The default stick deadzone in the axis scale (`RoboInputGamepadNavDeadzoneDefault`); 13.54. */
+    uint32_t gamepadNavDeadzone;
 
     /** Event types in the vocabulary (`RoboInputEventTypeCount`). */
     uint32_t eventTypeCount;

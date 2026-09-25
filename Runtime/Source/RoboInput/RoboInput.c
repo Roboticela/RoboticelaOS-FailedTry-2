@@ -139,9 +139,12 @@ Result InputGetCapabilities(InputCapabilities *out)
     out->touchInput = 1;
     /* Phase 13.22: the *pen* payload, whose pressure and tilt are capability-gated rather than assumed. */
     out->penInput = 1;
-    /* Phase 13.53: the gamepad vocabulary and state. Its *navigation* mapping is 13.54 and is still 0. */
+    /* Phase 13.53: the gamepad vocabulary and state. */
     out->gamepad = 1;
-    out->gamepadNavigation = 0;
+    /* Phase 13.54: *gamepad navigation* -- D-pad and stick to a focus move, A to activate, B to back, with a
+     * deadzone, a dominant-axis rule and a repeat cadence. What it claims is the **mapping**; it applies
+     * nothing (no focus manager, no dispatcher) and nothing reads a controller. */
+    out->gamepadNavigation = 1;
     /* Phase 13.43: the cursor, whose shape is decided by the hit test rather than by whichever control
      * happened to see the pointer last. */
     out->cursorManagement = 1;
@@ -162,10 +165,19 @@ Result InputGetCapabilities(InputCapabilities *out)
     out->inputReplay = 1;
     out->syntheticInput = 1;
     out->injectionBoundaries = RoboInputInjectionBoundariesImplemented ? 1 : 0;
-    /* Named and not yet built, each in its own right rather than implied by a neighbour's flag. */
-    out->eventCoalescing = 0;
-    out->inputLatency = 0;
-    out->accessibilityHooks = 0;
+    /* Phase 13.47: *coalescing* -- three move types may be merged and every other one of the thirty-three is
+     * a barrier, the flush is lossless (`RoboBusy` keeps the remainder), and nothing is dropped by a full
+     * table either.
+     *
+     * Phase 13.48: *latency* -- the five stamps and the four differences, with an out-of-order stamp refused
+     * and counted rather than saturated into a plausible small number.
+     *
+     * Phase 13.52: *accessibility hooks* -- a semantic vocabulary, a policy that bounds it to the text, focus
+     * and view families plus cancellation, and one door that routes through the same `InputCommandRouter` a
+     * shortcut uses. What stays 0 is an accessibility *tree* and a client: Phase 31's. */
+    out->eventCoalescing = 1;
+    out->inputLatency = 1;
+    out->accessibilityHooks = 1;
 
     out->maxPointers = RoboInputMaxPointers;
     out->maxCaptures = RoboInputMaxCaptures;
@@ -180,6 +192,12 @@ Result InputGetCapabilities(InputCapabilities *out)
     out->imeMaxClauses = RoboInputImeMaxClauses;
     out->clipboardFormatsMax = RoboInputClipboardFormatsMax;
     out->clipboardFormatCount = RoboInputClipboardFormatCount;
+
+    out->coalesceSlots = RoboInputCoalesceSlots;
+    out->latencyRecords = RoboInputLatencyRecords;
+    out->a11yCommandCount = RoboInputA11yCommandCount;
+    out->gamepadNavActionCount = RoboInputGamepadNavActionCount;
+    out->gamepadNavDeadzone = (uint32_t)RoboInputGamepadNavDeadzoneDefault;
 
     out->layoutCount = RoboInputLayoutIdCount;
     out->layoutLevelCount = RoboInputLayoutLevelCount;

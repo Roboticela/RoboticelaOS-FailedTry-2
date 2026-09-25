@@ -54,7 +54,9 @@
 
 #include "RoboDesktopInternal.h"
 
+#include "RoboGraphics/RoboGraphicsBitmap.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
+#include "RoboGraphics/RoboGraphicsRaster.h"
 #include "RoboMem/RoboMem.h"
 #include "RoboPaint/RoboPaintRun.h"
 #include "RoboTypography/RoboTypography.h"
@@ -545,6 +547,29 @@ void DesktopChromePaintCursor(Desktop *desktop,
                                      GfxRaster *raster,
                                      DesktopFrameRecord *record)
 {
+    if (!desktop || !raster || !desktop->showCursor || !desktop->cursorVisible) {
+        (void)record;
+        return;
+    }
+    DesktopChromeDrawCursorAt(GfxRasterTarget(raster), desktop->pointer.point);
+    (void)record;
+}
+
+GfxRect DesktopChromeCursorBounds(GfxPoint origin, GfxRect screen)
+{
+    GfxRect raw;
+    GfxRect clipped;
+
+    raw = MakeGfxRect(origin.x, origin.y, RoboDesktopCursorWidth, RoboDesktopCursorHeight);
+    clipped = GfxRectEmpty();
+    if (GfxRectClip(raw, screen, &clipped) != RoboOk) {
+        return GfxRectEmpty();
+    }
+    return clipped;
+}
+
+void DesktopChromeDrawCursorAt(GfxSurface *surface, GfxPoint origin)
+{
     static const uint8_t bits[16][11] = {
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
         {1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -565,33 +590,35 @@ void DesktopChromePaintCursor(Desktop *desktop,
     };
     GfxColorRgba8 outline;
     GfxColorRgba8 fill;
-    int32_t originX;
-    int32_t originY;
     int row;
     int col;
+    uint32_t sw;
+    uint32_t sh;
 
-    if (!desktop || !raster || !desktop->showCursor || !desktop->cursorVisible) {
-        (void)record;
+    if (!surface) {
         return;
     }
-
+    sw = GfxSurfaceWidth(surface);
+    sh = GfxSurfaceHeight(surface);
     outline = GfxRgb8(29u, 29u, 31u);
     fill = GfxRgb8(255u, 255u, 255u);
-    originX = desktop->pointer.point.x;
-    originY = desktop->pointer.point.y;
 
-    for (row = 0; row < 16; row++) {
-        for (col = 0; col < 11; col++) {
+    for (row = 0; row < RoboDesktopCursorHeight; row++) {
+        for (col = 0; col < RoboDesktopCursorWidth; col++) {
             uint8_t cell = bits[row][col];
-            GfxRect pixel;
+            int32_t x;
+            int32_t y;
 
             if (cell == 0u) {
                 continue;
             }
-            pixel = MakeGfxRect(originX + col, originY + row, 1, 1);
-            /* The cursor is input chrome, not part of the shell's counted fill record. */
-            (void)GfxRasterFillRect(raster, pixel, cell == 1u ? outline : fill);
+            x = origin.x + col;
+            y = origin.y + row;
+            if (x < 0 || y < 0 || (uint32_t)x >= sw || (uint32_t)y >= sh) {
+                continue;
+            }
+            (void)GfxSurfaceSetPixel(surface, (uint32_t)x, (uint32_t)y,
+                                            cell == 1u ? outline : fill);
         }
     }
-    (void)record;
 }

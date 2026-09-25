@@ -45,12 +45,20 @@
 #define ROBO_INPUT_VERSION_H
 
 #define RoboInputVersionMajor 0
-#define RoboInputVersionMinor 6
+#define RoboInputVersionMinor 7
 #define RoboInputVersionPatch 0
-#define RoboInputVersionString "0.6.0"
+#define RoboInputVersionString "0.7.0"
 
-/** 1 once the Phase 12 model is frozen (not yet). */
-#define RoboInputApiFrozen 0
+/**
+ * **1 since Phase 13 closed**: the header set under `Runtime/Include/RoboInput/` and the invariants its doors
+ * state are the contract. `Documentation/Runtime/Input/ApiStability.md` is what that means door by door.
+ *
+ * What it freezes is **additive, not inert**: a new door, a new enum value appended after the existing ones,
+ * and a new capability field are all allowed -- all three are how phases 12 and 13 landed -- while changing an
+ * existing value, an existing signature or an existing invariant is a break that has to be a deliberate one.
+ * The module is still 0.x for that reason: additions keep the minor version moving.
+ */
+#define RoboInputApiFrozen 1
 
 /**
  * 1 since this module's first release: **an event model, a queue, and the coordinate spaces they live in.**

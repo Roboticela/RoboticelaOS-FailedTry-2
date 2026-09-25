@@ -65,6 +65,14 @@ Result QemuFbPresentSurface(const QemuFbInfo *info,
                                            int32_t destY);
 
 /**
+ * Blit only @p srcRect of @p surface into the FB at the same origin.
+ * Empty rect → RoboOk. Used for software-cursor damage presents.
+ */
+Result QemuFbPresentSurfaceRegion(const QemuFbInfo *info,
+                                                 const GfxSurface *surface,
+                                                 GfxRect srcRect);
+
+/**
  * Read one packed 32-bit pixel from FB (host sim / tests).
  * Out of range → RoboInvalidArgument.
  */

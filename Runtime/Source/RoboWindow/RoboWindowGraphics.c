@@ -332,10 +332,50 @@ Result WindowEndFrame(WindowId id)
     return RoboOk;
 }
 
+Result WindowEndFrameRegion(WindowId id, GfxRect region)
+{
+    WindowSlot *slot;
+    Result r;
+    GfxRect unioned;
+
+    r = WindowRequireReady();
+    if (r != RoboOk) {
+        return r;
+    }
+    r = WindowRequireMutableSlot(id, &slot);
+    if (r != RoboOk) {
+        return r;
+    }
+    if (!slot->renderFrameOpen) {
+        return RoboInvalidArgument;
+    }
+    if (region.width <= 0 || region.height <= 0) {
+        return RoboInvalidArgument;
+    }
+    slot->renderFrameOpen = 0;
+    slot->renderDirty = 1;
+    if (slot->renderDirtyFull) {
+        /* A prior full dirty stays full. */
+        return RoboOk;
+    }
+    if (slot->renderDirtyRect.width > 0 && slot->renderDirtyRect.height > 0) {
+        if (GfxRectBounding(slot->renderDirtyRect, region, &unioned) == RoboOk) {
+            slot->renderDirtyRect = unioned;
+        } else {
+            slot->renderDirtyFull = 1;
+            slot->renderDirtyRect = region;
+        }
+    } else {
+        slot->renderDirtyRect = region;
+    }
+    return RoboOk;
+}
+
 Result WindowPresentFrame(WindowId id)
 {
     WindowSlot *slot;
     Result r;
+    const WindowBackendVtbl *vtbl;
 
     r = WindowRequireReady();
     if (r != RoboOk) {
@@ -360,7 +400,15 @@ Result WindowPresentFrame(WindowId id)
     if (!slot->renderSurface) {
         return RoboIoError;
     }
-    r = WindowPresent(id, slot->renderSurface);
+
+    vtbl = GetWindowBackendVtbl();
+    if (!slot->renderDirtyFull && slot->renderDirtyRect.width > 0 &&
+        slot->renderDirtyRect.height > 0 && vtbl && vtbl->PresentSurfaceRegion) {
+        r = vtbl->PresentSurfaceRegion(WindowBackendUserdata(), id, &slot->native,
+                                               slot->renderSurface, slot->renderDirtyRect);
+    } else {
+        r = WindowPresent(id, slot->renderSurface);
+    }
     if (r != RoboOk) {
         return r;
     }
@@ -368,6 +416,48 @@ Result WindowPresentFrame(WindowId id)
     slot->renderDirtyFull = 0;
     slot->renderDirtyRect = MakeGfxRect(0, 0, 0, 0);
     return RoboOk;
+}
+
+Result WindowPresentRegion(WindowId id,
+                                          GfxSurface *surface,
+                                          GfxRect region)
+{
+    WindowSlot *slot;
+    const WindowBackendVtbl *vtbl;
+    WindowBackendCaps caps;
+    Result r;
+
+    r = WindowRequireReady();
+    if (r != RoboOk) {
+        return r;
+    }
+    r = WindowRequireMutableSlot(id, &slot);
+    if (r != RoboOk) {
+        return r;
+    }
+    if (!surface) {
+        return RoboInvalidArgument;
+    }
+    if (region.width <= 0 || region.height <= 0) {
+        return RoboOk;
+    }
+    if (WindowBackendCapabilities(&caps) != RoboOk || !caps.present) {
+        return RoboNotSupported;
+    }
+    r = WindowPresentValidateSurface(surface, &caps);
+    if (r != RoboOk) {
+        return r;
+    }
+    vtbl = GetWindowBackendVtbl();
+    if (!vtbl) {
+        return RoboNotSupported;
+    }
+    if (vtbl->PresentSurfaceRegion) {
+        return vtbl->PresentSurfaceRegion(WindowBackendUserdata(), id, &slot->native,
+                                                  surface, region);
+    }
+    /* No damage path: present the whole surface. */
+    return WindowPresent(id, surface);
 }
 
 Result WindowInvalidate(WindowId id)
@@ -398,6 +488,7 @@ Result WindowInvalidateRect(WindowId id,
 {
     WindowSlot *slot;
     Result r;
+    GfxRect unioned;
 
     r = WindowRequireReady();
     if (r != RoboOk) {
@@ -411,10 +502,18 @@ Result WindowInvalidateRect(WindowId id,
         return RoboInvalidArgument;
     }
     slot->renderDirty = 1;
-    /* Simple model: any region dirties the full surface for present. */
-    slot->renderDirtyFull = 1;
-    slot->renderDirtyRect = rect;
-    (void)slot->renderDirtyRect;
+    if (slot->renderDirtyFull) {
+        return RoboOk;
+    }
+    if (slot->renderDirtyRect.width > 0 && slot->renderDirtyRect.height > 0) {
+        if (GfxRectBounding(slot->renderDirtyRect, rect, &unioned) == RoboOk) {
+            slot->renderDirtyRect = unioned;
+        } else {
+            slot->renderDirtyFull = 1;
+        }
+    } else {
+        slot->renderDirtyRect = rect;
+    }
     return RoboOk;
 }
 

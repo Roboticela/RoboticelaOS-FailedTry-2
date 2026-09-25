@@ -229,7 +229,8 @@ static const WindowBackendVtbl gNullVtbl = {
     NULL, /* WaitEvents */
     NULL, /* wakeup */
     NULL, /* CaptureMouse */
-    NULL  /* ReleaseMouseCapture */
+    NULL, /* ReleaseMouseCapture */
+    NULL  /* PresentSurfaceRegion */
 };
 
 const WindowBackendVtbl *WindowBackendNullVtbl(void)

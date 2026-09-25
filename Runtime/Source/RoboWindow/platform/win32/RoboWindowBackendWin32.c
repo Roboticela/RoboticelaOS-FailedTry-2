@@ -1190,7 +1190,8 @@ static const WindowBackendVtbl gWin32Vtbl = {
     Win32WaitEvents,
     Win32Wakeup,
     Win32CaptureMouse,
-    Win32ReleaseMouseCapture
+    Win32ReleaseMouseCapture,
+    NULL /* PresentSurfaceRegion — full present is fine on the host */
 };
 
 static void CapsInit(void)

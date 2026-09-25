@@ -23,6 +23,7 @@
 #include "RoboDesktop/RoboDesktopScene.h"
 
 #include "RoboBase/RoboLog.h"
+#include "RoboDesktopInternal.h"
 #include "RoboMem/RoboMem.h"
 
 #include "RoboWindow/RoboWindow.h"
@@ -45,8 +46,13 @@ struct DesktopScene {
     FontFace *face;
     /** Borrowed: the caller's typography resolver (Phase 12.3), or NULL for the single-face binding. */
     TypographyResolver *typography;
-    /** Non-zero when the next step must paint a frame. */
+    /** Non-zero when the next step must paint a full shell frame. */
     int needsPaint;
+    /**
+     * Non-zero when only the software cursor moved: a region restore/draw +
+     * dirty present, not a chrome, AA text, or window re-raster.
+     */
+    int needsCursorPaint;
     /** Non-zero once the checkpoint is finished: the shell's window is gone or its native window closed. */
     int finished;
     /** Non-zero when mouse motion must repaint so the software cursor can move. */
@@ -239,6 +245,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     scene->face = config->face;
     scene->typography = config->typography;
     scene->needsPaint = 1;
+    scene->needsCursorPaint = 0;
     scene->finished = 0;
     scene->showCursor = config->showCursor ? 1 : 0;
 
@@ -329,6 +336,7 @@ void DesktopSceneInvalidate(DesktopScene *scene)
 {
     if (scene) {
         scene->needsPaint = 1;
+        scene->needsCursorPaint = 0;
     }
 }
 
@@ -346,13 +354,6 @@ static void SceneObservePointer(DesktopScene *scene,
 {
     DesktopStats before;
     DesktopStats after;
-    char status[RoboDesktopStatusMax];
-    unsigned i = 0;
-    unsigned n;
-    int32_t ax = x < 0 ? -x : x;
-    int32_t ay = y < 0 ? -y : y;
-    char digits[16];
-    unsigned dig;
 
     before.pointerActions = 0u;
     after.pointerActions = 0u;
@@ -363,48 +364,62 @@ static void SceneObservePointer(DesktopScene *scene,
         step->pointerActions += after.pointerActions - before.pointerActions;
     }
 
-    /* Live HUD in the menu bar so pointer and click state are visible while testing devices. */
-    status[i++] = 'x';
-    status[i++] = ' ';
-    dig = 0;
-    n = (unsigned)ax;
-    if (x < 0 && i + 1u < sizeof(status))
-        status[i++] = '-';
-    if (n == 0)
-        digits[dig++] = '0';
-    while (n && dig < 8u) {
-        digits[dig++] = (char)('0' + (n % 10u));
-        n /= 10u;
-    }
-    while (dig > 0 && i + 1u < sizeof(status))
-        status[i++] = digits[--dig];
-    if (i + 4u < sizeof(status)) {
+    /*
+     * Status HUD is updated only on a press, never on every move: rewriting the
+     * panel label forces a full chrome paint with 8×8 AA glyphs and is what made
+     * the cursor trail by seconds. Motion updates the software cursor alone.
+     */
+    if (pressed) {
+        char status[RoboDesktopStatusMax];
+        unsigned i = 0;
+        unsigned n;
+        int32_t ax = x < 0 ? -x : x;
+        int32_t ay = y < 0 ? -y : y;
+        char digits[16];
+        unsigned dig;
+
+        status[i++] = 'x';
         status[i++] = ' ';
-        status[i++] = 'y';
-        status[i++] = ' ';
+        dig = 0;
+        n = (unsigned)ax;
+        if (x < 0 && i + 1u < sizeof(status))
+            status[i++] = '-';
+        if (n == 0)
+            digits[dig++] = '0';
+        while (n && dig < 8u) {
+            digits[dig++] = (char)('0' + (n % 10u));
+            n /= 10u;
+        }
+        while (dig > 0 && i + 1u < sizeof(status))
+            status[i++] = digits[--dig];
+        if (i + 4u < sizeof(status)) {
+            status[i++] = ' ';
+            status[i++] = 'y';
+            status[i++] = ' ';
+        }
+        dig = 0;
+        n = (unsigned)ay;
+        if (y < 0 && i + 1u < sizeof(status))
+            status[i++] = '-';
+        if (n == 0)
+            digits[dig++] = '0';
+        while (n && dig < 8u) {
+            digits[dig++] = (char)('0' + (n % 10u));
+            n /= 10u;
+        }
+        while (dig > 0 && i + 1u < sizeof(status))
+            status[i++] = digits[--dig];
+        if (i + 6u < sizeof(status)) {
+            status[i++] = ' ';
+            status[i++] = 'c';
+            status[i++] = 'l';
+            status[i++] = 'i';
+            status[i++] = 'c';
+            status[i++] = 'k';
+        }
+        status[i] = 0;
+        (void)DesktopSetStatus(scene->desktop, status, diag);
     }
-    dig = 0;
-    n = (unsigned)ay;
-    if (y < 0 && i + 1u < sizeof(status))
-        status[i++] = '-';
-    if (n == 0)
-        digits[dig++] = '0';
-    while (n && dig < 8u) {
-        digits[dig++] = (char)('0' + (n % 10u));
-        n /= 10u;
-    }
-    while (dig > 0 && i + 1u < sizeof(status))
-        status[i++] = digits[--dig];
-    if (pressed && i + 6u < sizeof(status)) {
-        status[i++] = ' ';
-        status[i++] = 'c';
-        status[i++] = 'l';
-        status[i++] = 'i';
-        status[i++] = 'c';
-        status[i++] = 'k';
-    }
-    status[i] = 0;
-    (void)DesktopSetStatus(scene->desktop, status, diag);
 }
 
 /**
@@ -432,6 +447,7 @@ static void SceneDrainEvents(DesktopScene *scene,
         case RoboWindowEventResized:
         case RoboWindowEventScaleChanged:
             scene->needsPaint = 1;
+            scene->needsCursorPaint = 0;
             break;
         case RoboWindowEventKeyDown:
             if (event.key.logicalKey == RoboLogicalKeyEscape) {
@@ -442,24 +458,22 @@ static void SceneDrainEvents(DesktopScene *scene,
             break;
         case RoboWindowEventMouseMove:
             SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
-            if (scene->showCursor) {
-                scene->needsPaint = 1;
+            if (scene->showCursor && !scene->needsPaint) {
+                scene->needsCursorPaint = 1;
             }
             break;
         case RoboWindowEventMouseButtonDown:
             if (event.mouse.button == RoboMouseButtonLeft) {
                 SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 1, step, diag);
-                if (scene->showCursor) {
-                    scene->needsPaint = 1;
-                }
+                scene->needsPaint = 1;
+                scene->needsCursorPaint = 0;
             }
             break;
         case RoboWindowEventMouseButtonUp:
             if (event.mouse.button == RoboMouseButtonLeft) {
                 SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
-                if (scene->showCursor) {
-                    scene->needsPaint = 1;
-                }
+                scene->needsPaint = 1;
+                scene->needsCursorPaint = 0;
             }
             break;
         case RoboWindowEventMouseWheel:
@@ -516,7 +530,7 @@ Result GetDesktopSceneStep(DesktopScene *scene,
         (void)WindowEventLoopRunOnce(0u);
         SceneDrainEvents(scene, &step, diag);
         SceneRetireClosedWindow(scene, &step);
-        if (!scene->needsPaint && waitMs != 0u) {
+        if (!scene->needsPaint && !scene->needsCursorPaint && waitMs != 0u) {
             (void)WindowEventLoopRunOnce(waitMs);
             SceneDrainEvents(scene, &step, diag);
             SceneRetireClosedWindow(scene, &step);
@@ -528,6 +542,7 @@ Result GetDesktopSceneStep(DesktopScene *scene,
         if (result == RoboOk && resized) {
             step.resized = 1;
             scene->needsPaint = 1;
+            scene->needsCursorPaint = 0;
             /* A document is laid out for a viewport: a resized client area gets a rebuilt picture, not a
              * stretched one. */
             if (scene->window != RoboDesktopWindowIdNone &&
@@ -546,6 +561,7 @@ Result GetDesktopSceneStep(DesktopScene *scene,
             return result;
         }
         scene->needsPaint = 0;
+        scene->needsCursorPaint = 0;
         step.painted = 1;
 
         if (DesktopAttachedWindow(scene->desktop) != RoboWindowIdNone) {
@@ -557,6 +573,55 @@ Result GetDesktopSceneStep(DesktopScene *scene,
                 return result;
             }
             step.presented = 1;
+        }
+    } else if (scene->needsCursorPaint) {
+        GfxRect damage = GfxRectEmpty();
+
+        result = DesktopRepaintCursor(scene->desktop, &damage, diag);
+        if (result == RoboNotSupported) {
+            /* No prior shell frame yet — fall through to a full paint. */
+            scene->needsPaint = 1;
+            scene->needsCursorPaint = 0;
+            result = DesktopRender(scene->desktop, &step.frame, diag);
+            if (result != RoboOk) {
+                if (outStep) {
+                    *outStep = step;
+                }
+                return result;
+            }
+            scene->needsPaint = 0;
+            step.painted = 1;
+            if (DesktopAttachedWindow(scene->desktop) != RoboWindowIdNone) {
+                result = DesktopPresent(scene->desktop, &step.present, &step.windowPresented,
+                                              diag);
+                if (result != RoboOk) {
+                    if (outStep) {
+                        *outStep = step;
+                    }
+                    return result;
+                }
+                step.presented = 1;
+            }
+        } else if (result != RoboOk) {
+            if (outStep) {
+                *outStep = step;
+            }
+            return result;
+        } else {
+            scene->needsCursorPaint = 0;
+            step.painted = 1;
+            if (DesktopAttachedWindow(scene->desktop) != RoboWindowIdNone &&
+                damage.width > 0 && damage.height > 0) {
+                result = DesktopPresentDamage(scene->desktop, damage, &step.present,
+                                                     &step.windowPresented, diag);
+                if (result != RoboOk) {
+                    if (outStep) {
+                        *outStep = step;
+                    }
+                    return result;
+                }
+                step.presented = 1;
+            }
         }
     }
 

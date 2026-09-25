@@ -1,6 +1,7 @@
 #include "RoboDisplay/RoboQemuFramebuffer.h"
 
 #include "RoboBase/RoboLog.h"
+#include "RoboGraphics/RoboGraphicsGeometry.h"
 #include "RoboGraphics/RoboGraphicsPixelFormat.h"
 
 #include <stddef.h>
@@ -227,6 +228,97 @@ Result QemuFbPresentSurface(const QemuFbInfo *info,
     LogDebug("robo_qemu_fb: present %ux%u → (%d,%d) copy=%ux%u",
                    (unsigned)sw, (unsigned)sh, (int)destX, (int)destY,
                    (unsigned)copyW, (unsigned)copyH);
+    return RoboOk;
+}
+
+Result QemuFbPresentSurfaceRegion(const QemuFbInfo *info,
+                                                 const GfxSurface *surface,
+                                                 GfxRect srcRect)
+{
+    Result r;
+    const uint8_t *src;
+    uint8_t *dstBase;
+    uint32_t sw;
+    uint32_t sh;
+    size_t srcStride;
+    GfxPixelFormat sfmt;
+    uint8_t sbpp;
+    GfxRect clipped;
+    uint32_t copyW;
+    uint32_t copyH;
+    uint32_t y;
+    uint32_t dstStridePx;
+    int32_t destX;
+    int32_t destY;
+
+    r = QemuFbInfoValidate(info);
+    if (r != RoboOk) {
+        return r;
+    }
+    if (!info->pixels || info->headless) {
+        return RoboNotSupported;
+    }
+    if (!surface) {
+        return RoboInvalidArgument;
+    }
+    if (srcRect.width <= 0 || srcRect.height <= 0) {
+        return RoboOk;
+    }
+
+    sw = GfxSurfaceWidth(surface);
+    sh = GfxSurfaceHeight(surface);
+    sfmt = GfxSurfaceFormat(surface);
+    srcStride = GfxSurfaceStride(surface);
+    src = GfxSurfacePixelsConst(surface);
+    if (!src || sw == 0u || sh == 0u) {
+        return RoboInvalidArgument;
+    }
+    if (sfmt != RoboGfxFormatBgra8 && sfmt != RoboGfxFormatRgba8 &&
+        sfmt != RoboGfxFormatRgb8) {
+        return RoboNotSupported;
+    }
+    if (GfxPixelFormatBytesPerPixel(sfmt, &sbpp) != RoboOk || sbpp == 0u) {
+        return RoboNotSupported;
+    }
+    clipped = GfxRectEmpty();
+    if (GfxRectClip(srcRect, MakeGfxRect(0, 0, (int32_t)sw, (int32_t)sh),
+                           &clipped) != RoboOk ||
+        clipped.width <= 0 || clipped.height <= 0) {
+        return RoboOk;
+    }
+
+    destX = clipped.x;
+    destY = clipped.y;
+    copyW = (uint32_t)clipped.width;
+    copyH = (uint32_t)clipped.height;
+    if ((uint32_t)destX >= info->width || (uint32_t)destY >= info->height) {
+        return RoboOk;
+    }
+    if ((uint32_t)destX + copyW > info->width) {
+        copyW = info->width - (uint32_t)destX;
+    }
+    if ((uint32_t)destY + copyH > info->height) {
+        copyH = info->height - (uint32_t)destY;
+    }
+
+    dstBase = (uint8_t *)info->pixels;
+    dstStridePx = info->pitchBytes / 4u;
+    if (dstStridePx == 0u) {
+        return RoboInvalidArgument;
+    }
+
+    for (y = 0u; y < copyH; y++) {
+        const uint8_t *row = src + (size_t)(clipped.y + (int32_t)y) * srcStride +
+                             (size_t)clipped.x * sbpp;
+        uint32_t *dst =
+            (uint32_t *)(dstBase +
+                         (size_t)((uint32_t)destY + y) * info->pitchBytes) +
+            (uint32_t)destX;
+        uint32_t x;
+        for (x = 0u; x < copyW; x++) {
+            dst[x] = ConvertPixel(sfmt, row + (size_t)x * sbpp, info->pixfmt);
+        }
+    }
     return RoboOk;
 }
 

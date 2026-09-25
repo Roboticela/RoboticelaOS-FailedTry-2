@@ -21,6 +21,10 @@
 extern "C" {
 #endif
 
+/** Software cursor cell size (matches `DesktopChromePaintCursor`). */
+#define RoboDesktopCursorWidth 11
+#define RoboDesktopCursorHeight 16
+
 /**
  * One shell window.
  *
@@ -92,7 +96,43 @@ struct Desktop {
     int showCursor;
     /** Non-zero after the first pointer observation, so a cursor is never drawn at (0,0) on the first frame. */
     int cursorVisible;
+    /**
+     * Non-zero when @ref target holds a complete shell paint (chrome + windows).
+     * Cursor-only frames require this so they can restore pixels under the
+     * pointer without re-running the shell painter.
+     */
+    int shellRasterValid;
+    /** Non-zero when @ref cursorUnder matches the pixels currently under the drawn cursor. */
+    int cursorOverlayValid;
+    /** Screen-space origin the overlay was saved/drawn at. */
+    GfxPoint cursorDrawnAt;
+    /** Clipped rectangle of @ref cursorUnder inside the screen. */
+    GfxRect cursorUnderRect;
+    /** Pixels that lived under the cursor before it was drawn (BGRA/RGBA8 rows). */
+    uint8_t cursorUnder[RoboDesktopCursorWidth * RoboDesktopCursorHeight * 4u];
 };
+
+/**
+ * Move the software cursor on an already-painted shell without re-rasterising
+ * chrome or window contents. @p outDamage receives the union of the old and
+ * new cursor rectangles (clipped to the screen) for a region present.
+ *
+ * @return RoboOk; RoboNotSupported when a full shell paint is required first
+ *         (no prior frame, cursor disabled, or no screen target).
+ */
+Result DesktopRepaintCursor(Desktop *desktop,
+                                    GfxRect *outDamage,
+                                    DesktopDiag *diag);
+
+/**
+ * Present only @p damage of the shell's screen target to the attached window.
+ * Backends without region present fall back to a full present of the target.
+ */
+Result DesktopPresentDamage(Desktop *desktop,
+                                    GfxRect damage,
+                                    RenderPresentRecord *outRecord,
+                                    int *outPresented,
+                                    DesktopDiag *diag);
 
 /** "No window": an index that can never be one. */
 #define RoboDesktopNoIndex ((size_t)-1)
@@ -248,6 +288,18 @@ GfxRect DesktopChromeTitleBounds(const Desktop *desktop,
 void DesktopChromePaintCursor(Desktop *desktop,
                                      GfxRaster *raster,
                                      DesktopFrameRecord *record);
+
+/**
+ * The cursor's ink rectangle at @p origin, clipped to @p screen.
+ * Empty when the cursor sits entirely outside the screen.
+ */
+GfxRect DesktopChromeCursorBounds(GfxPoint origin, GfxRect screen);
+
+/**
+ * Draw the software cursor bitmap at @p origin into @p surface (no raster clip).
+ * Pixels outside the surface are skipped.
+ */
+void DesktopChromeDrawCursorAt(GfxSurface *surface, GfxPoint origin);
 
 /** Case-insensitive-free ASCII/UTF-8 compare, so this module needs no `strcmp`. */
 int DesktopStringEqual(const char *a, const char *b);

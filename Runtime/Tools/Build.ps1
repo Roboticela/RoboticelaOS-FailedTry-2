@@ -573,7 +573,22 @@ $ProdSrcs = @(
     # whose rank only rises, a replay gated on the actor matching it, and the table that says how much
     # privilege each event type needs. The boundary is a number comparison because a note in a document is
     # not a boundary.
-    (Join-Path $SourceDir "RoboInput\RoboInputReplay.c")
+    (Join-Path $SourceDir "RoboInput\RoboInputReplay.c"),
+    # RoboInput 13.54 -- *gamepad navigation*: D-pad and stick to a focus move, A to activate, B to back, with
+    # the deadzone, the dominant-axis rule and the repeat cadence as the only state it owns. It maps an
+    # action; it never applies one.
+    (Join-Path $SourceDir "RoboInput\RoboInputGamepadNavigation.c"),
+    # RoboInput 13.47 -- *event coalescing*: the rule (three move types, everything else a barrier), the
+    # fixed-key table that merges them, and the lossless flush whose one failure mode is `RoboBusy` with the
+    # remainder still held.
+    (Join-Path $SourceDir "RoboInput\RoboInputCoalescing.c"),
+    # RoboInput 13.48 -- *latency*: five stamps and four differences, with an out-of-order stamp refused and
+    # counted rather than saturated into a plausible small number.
+    (Join-Path $SourceDir "RoboInput\RoboInputLatency.c"),
+    # RoboInput 13.52 -- *accessibility hooks*: the semantic vocabulary an accessibility client speaks, the
+    # policy that keeps it out of the window and system commands, and one invoke door that routes through the
+    # same `InputCommandRouter` a shortcut does.
+    (Join-Path $SourceDir "RoboInput\RoboInputAccessibility.c")
 )
 # The desktop's checkpoint scene and its host launcher (Phase 11.13). Not part of $ProdSrcs, and
 # deliberately: the shipping runtime has no scene and no launcher -- a scene is the fixture somebody looks
@@ -911,6 +926,10 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Input\SuiteRoboInputIme.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputSession.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputReplay.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputCoalescing.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputLatency.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputAccessibility.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputGamepadNavigation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),

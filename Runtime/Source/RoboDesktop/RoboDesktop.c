@@ -36,7 +36,9 @@
 
 #include "RoboBase/RoboLog.h"
 #include "RoboFont/RoboFontFace.h"
+#include "RoboGraphics/RoboGraphicsBitmap.h"
 #include "RoboGraphics/RoboGraphicsComposite.h"
+#include "RoboGraphics/RoboGraphicsPixelFormat.h"
 #include "RoboMem/RoboMem.h"
 #include "RoboRender/RoboRenderPresenter.h"
 #include "RoboWindow/RoboWindow.h"
@@ -318,6 +320,10 @@ Result DesktopCreate(const DesktopConfig *config,
     desktop->nextId = 0u;
     desktop->showCursor = config->showCursor ? 1 : 0;
     desktop->cursorVisible = 0;
+    desktop->shellRasterValid = 0;
+    desktop->cursorOverlayValid = 0;
+    desktop->cursorDrawnAt = MakeGfxPoint(0, 0);
+    desktop->cursorUnderRect = GfxRectEmpty();
     *out = desktop;
     /*
      * One line per shell, and the facts a reader needs to interpret every later line: how big the screen
@@ -562,6 +568,226 @@ static Result DesktopPaintWindowContent(Desktop *desktop,
 }
 
 /* ------------------------------------------------------------------ */
+/* Software cursor overlay                                             */
+/* ------------------------------------------------------------------ */
+
+static Result DesktopCursorCapture(Desktop *desktop,
+                                           GfxSurface *surface,
+                                           GfxRect clipped)
+{
+    const uint8_t *pixels;
+    size_t stride;
+    uint8_t bpp = 4u;
+    int32_t row;
+
+    if (!desktop || !surface || clipped.width <= 0 || clipped.height <= 0) {
+        return RoboInvalidArgument;
+    }
+    if (clipped.width > RoboDesktopCursorWidth ||
+        clipped.height > RoboDesktopCursorHeight) {
+        return RoboInvalidArgument;
+    }
+    pixels = GfxSurfacePixelsConst(surface);
+    if (!pixels) {
+        return RoboError;
+    }
+    stride = GfxSurfaceStride(surface);
+    (void)GfxPixelFormatBytesPerPixel(GfxSurfaceFormat(surface), &bpp);
+    if (bpp == 0u) {
+        bpp = 4u;
+    }
+    for (row = 0; row < clipped.height; row++) {
+        const uint8_t *src =
+            pixels + (size_t)(clipped.y + row) * stride + (size_t)clipped.x * bpp;
+        uint8_t *dst =
+            desktop->cursorUnder + (size_t)row * (size_t)RoboDesktopCursorWidth * 4u;
+        int32_t col;
+
+        for (col = 0; col < clipped.width; col++) {
+            dst[(size_t)col * 4u + 0u] = src[(size_t)col * bpp + 0u];
+            dst[(size_t)col * 4u + 1u] = src[(size_t)col * bpp + 1u];
+            dst[(size_t)col * 4u + 2u] = src[(size_t)col * bpp + 2u];
+            dst[(size_t)col * 4u + 3u] =
+                (bpp >= 4u) ? src[(size_t)col * bpp + 3u] : (uint8_t)255u;
+        }
+    }
+    desktop->cursorUnderRect = clipped;
+    desktop->cursorOverlayValid = 1;
+    return RoboOk;
+}
+
+static Result DesktopCursorRestore(Desktop *desktop, GfxSurface *surface)
+{
+    uint8_t *pixels;
+    size_t stride;
+    uint8_t bpp = 4u;
+    GfxRect clipped;
+    int32_t row;
+
+    if (!desktop || !surface || !desktop->cursorOverlayValid) {
+        return RoboOk;
+    }
+    clipped = desktop->cursorUnderRect;
+    if (clipped.width <= 0 || clipped.height <= 0) {
+        desktop->cursorOverlayValid = 0;
+        return RoboOk;
+    }
+    pixels = GfxSurfacePixels(surface);
+    if (!pixels) {
+        return RoboError;
+    }
+    stride = GfxSurfaceStride(surface);
+    (void)GfxPixelFormatBytesPerPixel(GfxSurfaceFormat(surface), &bpp);
+    if (bpp == 0u) {
+        bpp = 4u;
+    }
+    for (row = 0; row < clipped.height; row++) {
+        uint8_t *dst =
+            pixels + (size_t)(clipped.y + row) * stride + (size_t)clipped.x * bpp;
+        const uint8_t *src =
+            desktop->cursorUnder + (size_t)row * (size_t)RoboDesktopCursorWidth * 4u;
+        int32_t col;
+
+        for (col = 0; col < clipped.width; col++) {
+            dst[(size_t)col * bpp + 0u] = src[(size_t)col * 4u + 0u];
+            dst[(size_t)col * bpp + 1u] = src[(size_t)col * 4u + 1u];
+            dst[(size_t)col * bpp + 2u] = src[(size_t)col * 4u + 2u];
+            if (bpp >= 4u) {
+                dst[(size_t)col * bpp + 3u] = src[(size_t)col * 4u + 3u];
+            }
+        }
+    }
+    desktop->cursorOverlayValid = 0;
+    return RoboOk;
+}
+
+Result DesktopRepaintCursor(Desktop *desktop,
+                                    GfxRect *outDamage,
+                                    DesktopDiag *diag)
+{
+    GfxSurface *surface;
+    GfxRect oldRect;
+    GfxRect newRect;
+    GfxRect damage;
+
+    if (outDamage) {
+        *outDamage = GfxRectEmpty();
+    }
+    if (!desktop) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument,
+                                 "a desktop is required");
+    }
+    if (!desktop->showCursor || !desktop->cursorVisible || !desktop->shellRasterValid ||
+        !desktop->target) {
+        return RoboNotSupported;
+    }
+    surface = RenderTargetSurface(desktop->target);
+    if (!surface) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboError,
+                                 "the screen target has no pixels");
+    }
+
+    oldRect = desktop->cursorOverlayValid
+                  ? desktop->cursorUnderRect
+                  : DesktopChromeCursorBounds(desktop->cursorDrawnAt, desktop->geometry.screen);
+    (void)DesktopCursorRestore(desktop, surface);
+
+    newRect = DesktopChromeCursorBounds(desktop->pointer.point, desktop->geometry.screen);
+    if (newRect.width > 0 && newRect.height > 0) {
+        if (DesktopCursorCapture(desktop, surface, newRect) != RoboOk) {
+            return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboError,
+                                     "the cursor underlay could not be captured");
+        }
+        desktop->cursorDrawnAt = desktop->pointer.point;
+        DesktopChromeDrawCursorAt(surface, desktop->pointer.point);
+    }
+
+    damage = GfxRectEmpty();
+    if (oldRect.width > 0 && oldRect.height > 0 && newRect.width > 0 && newRect.height > 0) {
+        (void)GfxRectBounding(oldRect, newRect, &damage);
+    } else if (oldRect.width > 0 && oldRect.height > 0) {
+        damage = oldRect;
+    } else {
+        damage = newRect;
+    }
+    if (outDamage) {
+        *outDamage = damage;
+    }
+    return RoboOk;
+}
+
+Result DesktopPresentDamage(Desktop *desktop,
+                                    GfxRect damage,
+                                    RenderPresentRecord *outRecord,
+                                    int *outPresented,
+                                    DesktopDiag *diag)
+{
+    GfxSurface *surface;
+    Result status;
+
+    if (outPresented) {
+        *outPresented = 0;
+    }
+    if (outRecord) {
+        RenderPresentRecordInit(outRecord);
+    }
+    if (!desktop) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainSurface, RoboInvalidArgument,
+                                 "a desktop is required");
+    }
+    if (desktop->window == RoboWindowIdNone) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainSurface, RoboNotSupported,
+                                 "the desktop has no native window to present into");
+    }
+    if (!desktop->target) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainSurface, RoboNotFound,
+                                 "the desktop has no screen target");
+    }
+    if (damage.width <= 0 || damage.height <= 0) {
+        return RoboOk;
+    }
+
+    surface = RenderTargetSurface(desktop->target);
+    if (!surface) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainSurface, RoboError,
+                                 "the screen target has no pixels");
+    }
+
+    status = WindowPresentRegion(desktop->window, surface, damage);
+    if (status != RoboOk) {
+        /* Region present unavailable or refused: fall back to a full present of the target. */
+        status = WindowPresent(desktop->window, surface);
+        if (status != RoboOk) {
+            return RoboDesktopDiag(diag, RoboDesktopDomainSurface, status,
+                                     "the damaged region could not be presented");
+        }
+    }
+    desktop->stats.presentations++;
+    if (outPresented) {
+        *outPresented = 1;
+    }
+    if (outRecord) {
+        outRecord->frameWidth = GfxSurfaceWidth(surface);
+        outRecord->frameHeight = GfxSurfaceHeight(surface);
+        outRecord->destWidth = outRecord->frameWidth;
+        outRecord->destHeight = outRecord->frameHeight;
+        outRecord->destFormat = GfxSurfaceFormat(surface);
+        outRecord->presented.x = damage.x;
+        outRecord->presented.y = damage.y;
+        outRecord->presented.width = damage.width;
+        outRecord->presented.height = damage.height;
+        outRecord->presentedPixels =
+            (size_t)damage.width * (size_t)damage.height;
+        outRecord->clippedPixels = 0u;
+        outRecord->offsetX = 0;
+        outRecord->offsetY = 0;
+        outRecord->complete = 0;
+        outRecord->frameChecksum = RenderTargetChecksum(desktop->target);
+    }
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
 /* Frames                                                              */
 /* ------------------------------------------------------------------ */
 
@@ -661,7 +887,24 @@ Result DesktopPaint(Desktop *desktop, DesktopDiag *diag)
         record.windows++;
     }
 
-    DesktopChromePaintCursor(desktop, raster, &record);
+    /*
+     * Save the pixels under the cursor *before* drawing it so a later cursor-only
+     * frame can restore them without re-painting the shell.
+     */
+    desktop->cursorOverlayValid = 0;
+    if (desktop->showCursor && desktop->cursorVisible) {
+        GfxSurface *screen = GfxRasterTarget(raster);
+        GfxRect under;
+
+        under = DesktopChromeCursorBounds(desktop->pointer.point, desktop->geometry.screen);
+        if (screen && under.width > 0 && under.height > 0 &&
+            DesktopCursorCapture(desktop, screen, under) == RoboOk) {
+            desktop->cursorDrawnAt = desktop->pointer.point;
+            DesktopChromeDrawCursorAt(screen, desktop->pointer.point);
+        } else {
+            DesktopChromePaintCursor(desktop, raster, &record);
+        }
+    }
 
     GfxRasterDestroy(raster);
     /* The record a frame produces is kept until `end_frame`, which is where the counters are folded into
@@ -669,6 +912,7 @@ Result DesktopPaint(Desktop *desktop, DesktopDiag *diag)
      * of "the frame never finished". */
     desktop->frameRecord = record;
     desktop->painted = 1;
+    desktop->shellRasterValid = 1;
 
     if (contentFailure) {
         return RoboDesktopDiag(diag, RoboDesktopDomainWindow, RoboNotSupported,
@@ -823,6 +1067,8 @@ Result DesktopResize(Desktop *desktop,
     /* A frame in flight is abandoned: its record described a screen that no longer exists. */
     desktop->frameOpen = 0;
     desktop->painted = 0;
+    desktop->shellRasterValid = 0;
+    desktop->cursorOverlayValid = 0;
 
     /*
      * Every window is re-clamped into the new work area and its content target released -- the *client*

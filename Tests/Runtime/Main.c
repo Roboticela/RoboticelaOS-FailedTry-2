@@ -359,6 +359,14 @@ void TestRegisterInputIme(void);
 void TestRegisterInputSession(void);
 /* Phase 13.49--13.51 — recording, replay and the injection privilege table. */
 void TestRegisterInputReplay(void);
+/* Phase 13.47 — merging high-frequency moves without ever merging a press, a key or a text event. */
+void TestRegisterInputCoalescing(void);
+/* Phase 13.48 — the five stamps from hardware to present, and the three numbers they produce. */
+void TestRegisterInputLatency(void);
+/* Phase 13.52 — the semantic commands an accessibility client invokes, and the policy that bounds them. */
+void TestRegisterInputAccessibility(void);
+/* Phase 13.54 — a controller's D-pad, stick and face buttons as focus moves and activation. */
+void TestRegisterInputGamepadNavigation(void);
 
 int main(int argc, char **argv)
 {
@@ -701,6 +709,10 @@ int main(int argc, char **argv)
     TestRegisterInputIme();
     TestRegisterInputSession();
     TestRegisterInputReplay();
+    TestRegisterInputCoalescing();
+    TestRegisterInputLatency();
+    TestRegisterInputAccessibility();
+    TestRegisterInputGamepadNavigation();
     /* Registered last: desktop.scene.lifetime intentionally shuts the layers
      * down and brings them back, so nothing may follow it. */
     TestRegisterDesktopScene();

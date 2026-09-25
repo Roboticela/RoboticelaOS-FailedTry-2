@@ -1117,8 +1117,10 @@ phase's contract; the glyph run it snapshots is `Documentation/Runtime/Text/Glyp
 
 **RoboInput is the one input normalization layer, and nothing above it may read a device or invent an event.**
 The module is `Runtime/Source/RoboInput/` + public `Runtime/Include/RoboInput/`, and
-`Documentation/Runtime/Input/Overview.md` is the map. A hardware driver normalizes; RoboInput models; a
-dispatcher will route (13.31); nothing may do another's job.
+`Documentation/Runtime/Input/Overview.md` is the map. A hardware driver normalizes; RoboInput models and
+routes (13.31); nothing may do another's job. The module is at **0.7.0** and is complete as a *model*: what is
+missing is a **consumer** — nothing outside the module includes it yet, which `§7` of the map states rather
+than leaves to be inferred.
 
 - **One event is a value, and its payload is a union.** `InputEvent` is trivially copyable, names nothing it
 does not own, and carries `type`/`source`/`device`/`timestampMs`/`modifiers`/`space`/`window`/`display`/
@@ -1143,13 +1145,50 @@ commands.
 - **Timestamps are monotonic milliseconds** from an epoch the runtime chooses, never a wall clock; 0 means
 "the platform does not say". Ordering comes from the queue's `(timestamp, insertion)` rule.
 - **State of this phase, as capabilities.** `InputCapabilities` is read field by field by
-`input.conformance.capabilities`, and the zeros are the important half: `deviceReading`, `platformAdapters`,
-`dispatch`, `focus`, `textEditing`, `textComposition`, `clipboard`, `propagation`, `gestures`, `eventLoop`
-and `multiprocessInput` are **0** and each names a goal that has not landed. Set one to 1 only in the change
-that builds it, and add the case that reads it.
+`input.conformance.capabilities`, and the zeros are the important half. Exactly five are **0** —
+`deviceReading`, `platformAdapters`, `textComposition`, `eventLoop`, `multiprocessInput` — and each names a
+goal that has not landed. Set one to 1 only in the change that builds it, and add the case that reads it.
 - Tests: `TestInput.ps1 -Target Host`; `Assert-RoboInputBoundaries` (in `Runtime/Tools/Build.ps1`, run by
 `-Verify`) fails on a Chromium include, a consumer-layer include, or a document-layer include beyond the two
 identity headers — each allowance a named file or directory, so a *new* call site fails. Do not widen it.
+
+### Coalescing, latency, accessibility hooks and gamepad navigation (Phase 13.47/13.48/13.52/13.54)
+
+**Four policy layers, four files, and each answers a question the event model does not.** They sit *around* the
+queue and *above* the router rather than inside either, so none of them changes what an event is.
+
+- **Coalescing merges three types and nothing else.** `RoboInputCoalescing.h`: `InputEventTypeMayCoalesce` is
+  the only door that answers the question, and it answers `1` for `POINTER_MOVE`/`TOUCH_MOVE`/`PEN_MOVE` only —
+  **every other type is a barrier**, including one a later phase appends, because merging a press or a key
+  either drops one or invents one. `InputCoalescerPush` does not dispatch: it answers `EMIT`, `HOLD` or
+  `FLUSH_FIRST`, and `FLUSH_FIRST` is the whole ordering rule (a press may not overtake the moves it happened
+  after). The key is *(device, pointer, type)*, so two fingers are two slots; the merged record is the
+  **newest** event whole with the window's movement in `deltaX`/`deltaY`. Nothing is dropped — a full table is
+  a `FLUSH_FIRST` — and a flush against a full queue answers `RoboBusy` with the remainder **still held**.
+  Do not add a second merge rule and do not let a barrier take a slot.
+- **A stamp that goes backwards is refused, not saturated.** `RoboInputLatency.h`: five stamps (hardware,
+  queue, dispatch, handler, present) and four differences. Saturating an out-of-order stamp to zero would
+  report a *good* latency for a call site measuring from the wrong clock, which is the one failure mode this
+  layer must not have; a `Begin` whose queue stamp precedes its hardware stamp is refused for the same reason.
+  `Begin` takes a never-used slot, then the oldest **finished** record, and answers `RoboBusy` only when every
+  record is still live. This is not Phase 41: no sampling policy, no histogram, no storage beyond the process.
+- **Accessibility invokes a meaning, never a keystroke.** `RoboInputAccessibility.h`: the vocabulary is the
+  request, `InputA11yCommandMap` turns it into this module's own `InputCommand`, and `InputA11yInvokeCommand`
+  routes it through the same `InputCommandRouter` a shortcut uses — with `InputA11yCommandAllowed` as the
+  boundary: the text, focus and view families plus cancellation, and **not** the window family, the debug
+  overlay, the reset or quit, because a client that could close the surface it was describing could dismiss
+  the thing it was reading. A refusal is `RoboNotSupported` **before** the router, so a barred command cannot
+  reach a target by another name. `SET_VALUE` is `RoboNotSupported` (no command exists) and `TOGGLE` is an
+  activation; do not add a synthetic key event to make either work. An accessibility *tree* is Phase 31.
+- **Gamepad navigation is a mapping, not a driver.** `RoboInputGamepadNavigation.h`: the deadzone is a number
+  (at or inside it is a rest, so the comparison is strict), the direction is the **dominant axis** with ties
+  going vertical, the d-pad beats the stick, and a pressed A or B beats both so an activation is one action.
+  A **held direction repeats** on the 13.8 cadence shape from the caller's clock; an `Activate` or a `Back` is
+  an **edge and never repeats**. `InputGamepadNavigationActionCommand` is how a controller reaches the command
+  layer; nothing here applies an action, and nothing polls a controller (`deviceReading` stays 0).
+- Tests: `Tests/Input/SuiteRoboInputCoalescing.c` (`input.coalescing.*`), `SuiteRoboInputLatency.c`
+  (`input.latency.*`), `SuiteRoboInputAccessibility.c` (`input.accessibility.*`) and
+  `SuiteRoboInputGamepadNavigation.c` (`input.gamepadnav.*`) through `TestInput.ps1 -Target Host`.
 
 ### Keyboard layout, dead keys and the text pipeline (Phase 13.9/13.10/13.11)
 
