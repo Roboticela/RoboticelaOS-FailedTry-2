@@ -6775,7 +6775,7 @@ need. Do not start until requested.
 ## Goals 15.1–15.18 — RoboCompositor (a software compositor)
 
 - **Landed.** `Runtime/Source/RoboCompositor/` + `Runtime/Include/RoboCompositor/`, nine public headers over
-  one umbrella, 49 cases in three suites, `Scripts/Build/BuildCompositor.ps1` and
+  one umbrella, 50 cases in three suites, `Scripts/Build/BuildCompositor.ps1` and
   `Scripts/Test/TestCompositor.ps1 -Target Host`. This supersedes the compositor named as deferred in
   `Next` above. Version `1.0.0`; `Assert-RoboCompositorBoundaries` in `Runtime/Tools/Build.ps1` is the rule
   that keeps it what it is.
@@ -6786,6 +6786,13 @@ need. Do not start until requested.
   raster scheduler with a per-frame job budget, a surface pool under a byte budget, frames with reasons, an
   interval-clock vsync, scroll offsets, eased animation tracks, a frame pump with a post queue, present
   fences, counters, and dumps that are complete or absent.
+
+- **15.17's baseline is a model, not a stopwatch.** `compositor.performance.baseline` prints a frame's
+  cost and asserts what the cost *is*: under region presents (`config.damagePresent`, what a frame loop
+  that cares about cost would set) the pixels a frame writes are the damage and the layers over it,
+  exactly — so doubling the damaged area doubles the work, and the hundred-and-twentieth frame costs what
+  the first did. A build that started re-presenting whole frames fails there rather than merely getting
+  slower.
 
 - **The four decisions worth carrying forward.** *Paint order is child order* — `CompositorLayerPaintOrder`
   is the only place an order is decided, so a reparent is a move in an array and nothing else needs to know

@@ -1310,8 +1310,11 @@ turn 15.6's seam into a formality. Authority: `Documentation/Runtime/Compositor/
   `SuiteRoboCompositorVisual.c` (the tree, geometry, paint order, hit testing through clips, the composite
   pass, damage, the present and 15.18's determinism) and `SuiteRoboCompositorScheduling.c` (the pool and its
   budget, the resource policy, tiles, the scheduler, animations, smooth scrolling, the frame pump, vsync and
-  fences) — 49 cases through `TestCompositor.ps1 -Target Host`, then `TestRuntime.ps1 -Target Host`. A
-  compositor change is not done until both pass.
+  fences) — 50 cases through `TestCompositor.ps1 -Target Host`, then `TestRuntime.ps1 -Target Host`. A
+  compositor change is not done until both pass. The measured baseline is
+  `compositor.performance.baseline`: it prints a frame's cost and asserts the cost **model** rather than a
+  number — under region presents the pixels a frame writes are the damage and the layers over it, so
+  doubling the damaged area doubles the work.
 
 ---
 
@@ -1327,7 +1330,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Paint | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` |
 | Rasterizer | `BuildRasterizer.ps1` | `TestRasterizer.ps1 -Target Host` |
 | Graphics | `BuildGraphics.ps1` | `TestGraphics.ps1 -Target Host` |
-| Compositor | `BuildCompositor.ps1` (`-Verify` runs the module's own boundary scan) | `TestCompositor.ps1 -Target Host` (`compositor.*`, 49 cases), then `TestRuntime.ps1 -Target Host` (the whole-suite gate). Evidence: `compositor.visual.conformance` (a clipped, scrolled, translucent and scaled scene rendered twice and compared byte for byte), `compositor.present.damage` (a region present writing only its damage, counted) and `compositor.frame.writers` (the post queue's coalescing), plus `Build/Compositor-Conformance.png` |
+| Compositor | `BuildCompositor.ps1` (`-Verify` runs the module's own boundary scan) | `TestCompositor.ps1 -Target Host` (`compositor.*`, 50 cases), then `TestRuntime.ps1 -Target Host` (the whole-suite gate). Evidence: `compositor.visual.conformance` (a clipped, scrolled, translucent and scaled scene rendered twice and compared byte for byte), `compositor.present.damage` (a region present writing only its damage, counted) and `compositor.frame.writers` (the post queue's coalescing), plus `Build/Compositor-Conformance.png` |
 | Glyph rasterization / typography | `BuildGraphics.ps1` (and `BuildFont.ps1` if RoboFont changed) | `TestGraphics.ps1 -Target Host`, then `TestPaint.ps1 -Target Host` and `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Coverage.png` against `Build/Typography-Stroke.png` |
 | System typeface pack | `BuildFont.ps1` (module + pack validation; the image build installs `System/Fonts/`) | `TestFont.ps1 -Target Host` (`font.systempack.*`); `-Target Qemu` when the installed image is involved |
 | Typography roles / face binding | `BuildTypography.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestTypography.ps1 -Target Host` (`typography.*`), then `TestDesktop.ps1 -Target Host` (`desktop.typography.*` and the three galleries); `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Desktop.png`, `Build/Typography-Chrome.png`, `Build/Typography-Document.png` |

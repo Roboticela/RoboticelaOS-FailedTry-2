@@ -11,9 +11,16 @@
  *
  * Every time-sensitive case drives `CompositorAdvanceTime`/`CompositorPumpFrame` with integers, which
  * is why nothing here sleeps and nothing here is flaky.
+ *
+ * The last case is 15.17's baseline: it records how long a frame costs and *asserts* the module's own
+ * cost model — under region presents the pixels a frame writes are the damage and the layers over it,
+ * exactly — so a build that started re-presenting whole frames would fail rather than merely slow down.
  */
 
 #include "RoboCompositorTestSupport.h"
+
+#include <stdio.h>
+#include <time.h>
 
 #define FixtureGreen GfxRgba8(0u, 255u, 0u, 255u)
 #define FixtureBlack GfxRgba8(0u, 0u, 0u, 255u)
@@ -775,6 +782,113 @@ static void TestFrameWriters(void)
     CompositorDestroy(compositor);
 }
 
+/* ------------------------------------------------------------------ */
+/* 15.17 — what a frame costs, recorded rather than asserted            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The baseline is the point of the case, not a threshold — a frame here is 120 "damage a 16×8 region
+ * and pump" iterations over a two-layer scene, timed once with a small damage and once with twice
+ * the damage.
+ *
+ * The claim it *asserts* is the module's own model rather than a wall-clock number: under region
+ * presents — `config.damagePresent`, the setting a frame loop that cares about cost would use — the
+ * pixels a frame composites are the damage and the layers over it, exactly. Doubling the damaged
+ * area doubles the work, and the hundred-and-twentieth frame costs what the first did. A build that
+ * re-presented the whole composition per pump, or that re-composited a clean tree, fails here instead
+ * of merely being slow.
+ */
+static void TestPerformanceBaseline(void)
+{
+    const int32_t width = CompositorFixtureWidth;
+    const int32_t height = CompositorFixtureHeight;
+    CompositorConfig config;
+    Compositor *compositor = NULL;
+    GfxSurface *target = CompositorMakeSurface(width, height);
+    GfxSurface *base = NULL;
+    GfxSurface *over = NULL;
+    CompositorStats before;
+    CompositorStats after;
+    uint64_t smallPixels;
+    uint64_t smallBytes;
+    uint64_t largePixels;
+    clock_t started;
+    clock_t finished;
+    double smallMillis;
+    double largeMillis;
+    unsigned frames = 120u;
+    unsigned index;
+
+    CompositorFillSurface(target, FixtureBlack);
+    CompositorConfigInit(&config);
+    config.size = MakeGfxSize(width, height);
+    config.format = RoboGfxFormatRgba8;
+    config.damagePresent = 1;
+    RoboCheck(CompositorCreate(&config, &compositor, NULL) == RoboOk);
+    RoboCheck(compositor != NULL);
+    RoboCheck(CompositorSurfaceAcquire(compositor, 1u, MakeGfxSize(width, height),
+                                       RoboGfxFormatRgba8, &base, NULL) == RoboOk);
+    CompositorFillSurface(base, FixtureBlack);
+    RoboCheck(CompositorSurfaceAcquire(compositor, 2u, MakeGfxSize(width, height),
+                                       RoboGfxFormatRgba8, &over, NULL) == RoboOk);
+    CompositorFillSurface(over, FixtureGreen);
+    RoboCheck(CompositorLayerCreate(compositor, 1u, RoboCompositorLayerNone, NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetRect(compositor, 1u, MakeGfxRect(0, 0, width, height),
+                                     NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetSurface(compositor, 1u, 1u, NULL) == RoboOk);
+    /* A translucent child over the opaque base: two layers over every damaged pixel, so "pixels
+     * written" is a number the scene states rather than the module's internals. */
+    RoboCheck(CompositorLayerCreate(compositor, 2u, 1u, NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetRect(compositor, 2u, MakeGfxRect(0, 0, width, height),
+                                     NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetSurface(compositor, 2u, 2u, NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetOpacity(compositor, 2u, 128u, NULL) == RoboOk);
+    /* Building the tree marked everything stale; the measurement starts from a settled screen. */
+    CompositorDamageClear(compositor);
+
+    RoboCheck(CompositorGetStats(compositor, &before) == RoboOk);
+    started = clock();
+    for (index = 0u; index < frames; index++) {
+        RoboCheck(CompositorDamageAdd(compositor, RoboCompositorSurfaceNone,
+                                      MakeGfxRect(0, 0, 16, 8), NULL) == RoboOk);
+        RoboCheck(CompositorPumpFrame(compositor, target, -1, 0u, NULL, NULL) == RoboOk);
+    }
+    finished = clock();
+    smallMillis = ((double)(finished - started) * 1000.0) / (double)CLOCKS_PER_SEC;
+    RoboCheck(CompositorGetStats(compositor, &after) == RoboOk);
+    smallPixels = after.pixelsComposited - before.pixelsComposited;
+    smallBytes = after.bytesPresented - before.bytesPresented;
+    RoboCheckEqInt((int)(after.frames - before.frames), (int)frames);
+    /* 16×8 damaged pixels, two layers over them, every frame. */
+    RoboCheckEqInt((int)smallPixels, (int)(frames * 16u * 8u * 2u));
+    /* Four bytes per written pixel — the frame's bytes are the pixels it wrote, not the destination's size. */
+    RoboCheckEqInt((int)smallBytes, (int)(smallPixels * 4u));
+
+    /* The same loop with twice the damaged area: twice the pixels, and the same per-frame shape. */
+    RoboCheck(CompositorGetStats(compositor, &before) == RoboOk);
+    started = clock();
+    for (index = 0u; index < frames; index++) {
+        RoboCheck(CompositorDamageAdd(compositor, RoboCompositorSurfaceNone,
+                                      MakeGfxRect(0, 0, 32, 8), NULL) == RoboOk);
+        RoboCheck(CompositorPumpFrame(compositor, target, -1, 0u, NULL, NULL) == RoboOk);
+    }
+    finished = clock();
+    largeMillis = ((double)(finished - started) * 1000.0) / (double)CLOCKS_PER_SEC;
+    RoboCheck(CompositorGetStats(compositor, &after) == RoboOk);
+    largePixels = after.pixelsComposited - before.pixelsComposited;
+    RoboCheckEqInt((int)(after.frames - before.frames), (int)frames);
+    RoboCheckEqInt((int)largePixels, (int)(smallPixels * 2u));
+
+    printf("           compositor.performance.baseline: layers=%u surfaces=%u frames=%d "
+           "damage=128px composite=%d px/frame small=%.3fms large=%.3fms\n",
+           after.layers, after.surfaces, (int)frames, (int)(16u * 8u * 2u), smallMillis, largeMillis);
+
+    RoboCheck(CompositorSurfaceRelease(compositor, 2u, NULL) == RoboOk);
+    RoboCheck(CompositorSurfaceRelease(compositor, 1u, NULL) == RoboOk);
+    GfxSurfaceRelease(target);
+    CompositorDestroy(compositor);
+}
+
 void TestRegisterCompositorScheduling(void)
 {
     TestRegister("compositor.surface.pool", TestSurfacePool);
@@ -797,4 +911,5 @@ void TestRegisterCompositorScheduling(void)
     TestRegister("compositor.frame.vsync", TestFrameVsync);
     TestRegister("compositor.frame.fences", TestFrameFences);
     TestRegister("compositor.frame.writers", TestFrameWriters);
+    TestRegister("compositor.performance.baseline", TestPerformanceBaseline);
 }

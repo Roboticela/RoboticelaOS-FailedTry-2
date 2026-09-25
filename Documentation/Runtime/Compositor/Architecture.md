@@ -194,7 +194,19 @@ path on it rather than discovering the absence at runtime:
 | Perspective, non-uniform scale, filters, backdrop effects | A layer has a translate, a uniform scale and an axis-aligned clip. |
 | A real-time GPU frame budget | The performance counters are 15.17's baseline, not Phase 41's system. |
 
-## 9. Diagnostics
+## 9. What a frame costs
+
+15.17's counters are read where a frame is composed, not estimated: `CompositorFrame` carries the
+frame's own `damagePixels`, `compositedPixels`, `presentedBytes`, `layersPainted`, `jobsRun` and
+`tilesRasterized`, and `CompositorStats` accumulates them (with `compositedPixelsPeak` for the worst
+frame). The point of `pixelsComposited` is that it is a **model**: under region presents the pixels a
+frame writes are the damage and the layers over it, exactly, so a 2×2 change over one layer writes 4
+pixels and a 16×8 change over two writes 256 — and that is what `compositor.performance.baseline`
+asserts, twice, with the second pass at double the damage. It also prints the wall-clock cost of both
+passes, which is the number a reviewer reads and nobody asserts: a timing threshold on a shared
+development machine is a flake, while "the work is the damage" is a fact a build can be wrong about.
+
+## 10. Diagnostics
 
 Two rules, and they are the reason a compositor bug is findable at all:
 
@@ -220,15 +232,15 @@ exists, a reference count that is possible, no table holding more than it has sl
 An invariant only the fuzzer knows about is an invariant nobody else can test, so the check is a
 public door and the suite calls it too.
 
-## 10. Tests
+## 11. Tests
 
 | Suite | Cases | What it proves |
 |---|---|---|
 | `Tests/Compositor/SuiteRoboCompositor.c` | 9 | The vocabulary and its positional order, the capability table's two blocks, configuration and construction, the clock's monotonicity, counters, per-domain refusals, the dump's completeness, and the fuzz invariant. |
 | `Tests/Compositor/SuiteRoboCompositorVisual.c` | 20 | The tree (child order, reparenting, cycles, the layer limit), geometry (accumulated origin and scale, an offset that moves a subtree), paint order, hit testing through clips, the composite pass (destination size, opacity against the one blend, clip intersection, nearest-neighbour scaling, paint order, scroll), damage (clipping, merging, the full fallback, layer invalidation), the present (full and region, exact pixel counts, refusals that keep their damage) and 15.18's two-generation byte-for-byte determinism plus the `Build/Compositor-Conformance.png` artifact. |
-| `Tests/Compositor/SuiteRoboCompositorScheduling.c` | 20 | The pool (tested, replaced, destroyed with detach), the budget and the trim, the resource policy's GPU refusals, tile geometry at the edges, dirty/clean, the scheduler with and without a budget (read off the surface's own pixels), a refusing callback that keeps its job, the easings, tracks (interpolate, replace, cancel, zero duration), reduced motion that snaps, smooth scrolling, and frames (post coalescing, the pump's idle and posted cases, vsync coalescing and lateness, fences). |
+| `Tests/Compositor/SuiteRoboCompositorScheduling.c` | 21 | The pool (tested, replaced, destroyed with detach), the budget and the trim, the resource policy's GPU refusals, tile geometry at the edges, dirty/clean, the scheduler with and without a budget (read off the surface's own pixels), a refusing callback that keeps its job, the easings, tracks (interpolate, replace, cancel, zero duration), reduced motion that snaps, smooth scrolling, frames (post coalescing, the pump's idle and posted cases, vsync coalescing and lateness, fences) and 15.17's baseline, which prints a frame's cost and asserts that the work is the damage. |
 
-Run: `Scripts/Test/TestCompositor.ps1 -Target Host` (49 cases, `compositor.*`), and
+Run: `Scripts/Test/TestCompositor.ps1 -Target Host` (50 cases, `compositor.*`), and
 `Scripts/Build/BuildCompositor.ps1 -Verify` for the module's own boundary scan (it may include
 RoboGraphics and nothing above it). The whole-runtime gate is `Scripts/Test/TestRuntime.ps1`.
 
@@ -236,7 +248,7 @@ The artifact of record is `Build/Compositor-Conformance.png` — a scene with a 
 translucent child and a scaled surface, rendered twice and compared byte for byte before it is
 written. `ROBO_COMPOSITOR_PNG` relocates it, the way `ROBO_DESKTOP_PNG` does.
 
-## 11. Where this sits in the tree
+## 12. Where this sits in the tree
 
 ```text
 RoboBase → RoboMem → RoboContainers
