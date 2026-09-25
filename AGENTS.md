@@ -82,6 +82,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Selection mapping | `Runtime/Source/RoboText/RoboTextSelection.c` + public `Runtime/Include/RoboText/RoboTextSelection.h`. The logical ↔ visual bridge: a `RoboTextPosition` (a source scalar offset), anchor/focus selections, the placements a caller supplies, and the three queries — hit test (point → position), caret (position + affinity → geometry) and selection rectangles. It shapes nothing, measures nothing, takes no glyph index, and projects through `RoboTextWritingAxes` so no call site swaps x and y. Docs: `Documentation/Runtime/Text/TextSelection.md` |
 | Shaping conformance corpus (12.23) | `Tests/Text/SuiteRoboTextShapingCorpus.c` (`text.shaping.corpus.*`) over the 12.18/12.19/12.20 fixtures. The whole pipeline for one sample per category — decode → script → plan → runs → measurement — plus bidi, fallback, vertical, selection, editing, the malformed matrix, a hundred repetitions per sample, the diffable `Build/Text-ConformanceCorpus.txt` and the timing record. It asserts the joins between layers and adds no engine work; docs: `Documentation/Runtime/Text/ShapingConformance.md` §8 |
 | Text editing (RoboText) | `Runtime/Source/RoboText/RoboTextEditing.c` + public `Runtime/Include/RoboText/RoboTextEditing.h`. The editor an input layer calls: one `RoboTextBuffer`, one selection and one caret, and every operation — insert, replace-selection, backspace, forward delete, the command names, composition, transactions — expressed as **one replacement of a source range**. It owns the character and cluster boundaries a delete may land on, the paragraph-widened invalidation record a consumer redoes its work from, and the transformation of positions and ranges across an edit. It shapes nothing and has no caret geometry. Docs: `Documentation/Runtime/Text/TextEditing.md` |
+| JavaScript runtime (RoboJS) | `Runtime/Source/RoboJS/` + public `Runtime/Include/RoboJS/` — the **one** JavaScript runtime, independently implemented: a lexer, a recursive-descent parser, an AST and its printer, the six value types, objects/prototypes/attributes, functions and closures, exceptions, a completion-based interpreter under step and depth budgets, a DOM bound through a `JsDomHost` vtable, listeners and events, timers on the caller's clock, one event loop and one microtask queue. `RoboJS.h` is its front door and names no `RoboHTML` type; `RoboJSDomHtml.c` is the **only** file in the module that includes one. Docs: `Documentation/RoboJS/Overview.md`, `Limitations.md`, `APIStability.md` |
 | Unicode / I18N | `Runtime/Source/RoboUnicode/`, `Runtime/Source/RoboI18N/` |
 | Kernel | `Kernel/` |
 | Boot | `Bootloader/` |
@@ -108,10 +109,12 @@ RoboBase → RoboMem → RoboContainers → RoboUnicode / RoboI18N
 RoboHTML  ┐
 RoboCSS   ┴→ RoboLayout → RoboPaint → RoboRender → RoboDesktop
 RoboUnicode / RoboFont → RoboText → RoboLayout / RoboPaint
+RoboHTML → RoboJS → (the shell or document layer that runs a page's script)
 ```
 
 - **Circular dependencies are prohibited.**
 - RoboText is the only place text becomes an object: it may include `RoboBase`/`RoboMem`/`RoboUnicode`/`RoboFont` and nothing above them. RoboLayout and RoboPaint consume its results; neither walks UTF-8 or resolves a glyph id itself.
+- **RoboJS is the only place a script is evaluated.** It sits above `RoboHTML` and below the layers that would run a page's script: it may include `RoboBase`/`RoboMem`, the C standard library and — in exactly one file, `RoboJSDomHtml.c` — `RoboHTML`, and nothing above that. `Assert-RoboJSBoundaries` in `Runtime/Tools/Build.ps1` (run by `-Verify`) is the rule as a scan: one runtime, one DOM seam, no second engine (no V8, QuickJS, Duktape, MuJS, JerryScript, Skia or Chromium). A shell that evaluates a script calls `JsRuntimeEvaluate` and reads the loop — a second front end, or a module computing `typeof` for itself, is a defect.
 - RoboDesktop must not parse HTML/CSS/layout except through the named document-bridge files.
 - RoboRender must not include document-layer headers in module sources.
 - RoboInput may not include RoboPaint, RoboRender, or RoboDesktop.
@@ -1354,6 +1357,91 @@ turn 15.6's seam into a formality. Authority: `Documentation/Runtime/Compositor/
   `compositor.performance.baseline`: it prints a frame's cost and asserts the cost **model** rather than a
   number — under region presents the pixels a frame writes are the damage and the layers over it, so
   doubling the damaged area doubles the work.
+
+### Minimal RoboJS (Phase 16)
+
+**There is one JavaScript runtime in RoboticelaOS, it is independently implemented — no V8, no Node, no QuickJS,
+no Duktape — and every layer that wants a script evaluated talks to it or not at all.** The module is
+`Runtime/Source/RoboJS/` + public `Runtime/Include/RoboJS/`, it sits above `RoboHTML` and below the shell, and it
+is the *only* consumer that reads a document through a vtable of its own. Authority:
+`Documentation/RoboJS/Overview.md` (the map), `Limitations.md` (every gap with the layer it belongs to) and
+`APIStability.md` (the contract, `1.0.0`, `apiFrozen`).
+
+- **The pipeline is one pass each way and no layer skips one.** lexer → parser → AST (+ a diffable printer) →
+  interpreter → values/objects/environments → the host seams. There is **no bytecode, no IR, no JIT and no
+  constant folding**; `js.runtime.dump` and the AST printer are the reason a change can be *diffed* rather than
+  eyeballed, and `JsAstIsWellFormed` is a closure property (every node kind has an evaluator arm) so "parsed but
+  not runnable" is impossible rather than unlikely.
+- **One DOM seam.** `RoboJSDom.h` is a `JsDomHost` vtable and names no HTML type; `RoboJSDomHtml.c`/`.h` are the
+  `RoboHTML` adapter, and `RoboJSDomHtml.h` is deliberately **not** in `RoboJS.h`. A host test implements the same
+  vtable over a fixture — that is what makes the binding's behaviour testable without a parser, and it is why a
+  second document implementation means a second adapter rather than a flag inside this one.
+- **`RoboHTML`'s construction gate is asserted, not worked around.** A parsed document accepts no new nodes
+  (Phase 8 pins that refusal), so a page's script reads everything, writes every attribute, rearranges the nodes
+  the document already has, and **creates nodes only where construction is open** — a never-parsed document or one
+  `HtmlDocumentReset` reopened. A `textContent` write that would create a node is refused **before anything is
+  destroyed**; the adapter classifies the shape first (`js.integration.creation_refused` / `…creation_open`).
+- **A limit is a limit, and the number lives in one place.** `RoboJsDefault*` in `RoboJSTypes.h` bounds steps
+  (500 000), call depth (64), parse depth (64), properties per object (8 192), string length (1 MiB), timers
+  (1 024), the task queue (4 096), timers per cycle (256), tasks per cycle (4 096), microtasks per cycle (4 096)
+  and the heap chunk (64 KiB) — published through `JsGetCapabilities` and read in `js.limit.budgets` rather than
+  repeated at a call site. Exhaustion is a located `RoboJsErrorLimit` and **the runtime stays usable afterwards**,
+  because "the OS did not freeze" is the point of the limit.
+- **The heap is a chunked bump allocator released as a whole.** No collector, no per-object free, no reference
+  counting, no weak references — `JsHeapReset` is the door, a cycle can never leak, and memory grows until a
+  reset. The cost is stated in `Memory.md` rather than hidden, and `JsRuntimeReset` is what a shell does between
+  pages: timers cancelled, both queues cleared, listeners and wrappers dropped, builtins kept.
+- **One boundary order, and the loop is not reentrant.** `JsLoopRunOne` drains the microtask queue to empty,
+  collects due timers only when the task queue is empty, and runs **at most one** job — so a queued task beats a
+  timer that became due while it waited, a job's own microtasks run at the next boundary, and
+  `queueMicrotask(f); setTimeout(g, 0)` prints `f` then `g` as a fact about the loop rather than a race. A listener
+  that calls a loop door gets `RoboInvalidArgument` and must **post** (`JsLoopPostTask`, `JsMicrotaskQueue`);
+  `js.loop.reentrancy` asserts that from five places. **Producers post, the owner runs** — nothing here calls a
+  JavaScript function from another thread's stack (`Threading.md`).
+- **A timer is a due record on the caller's clock.** `JsTimerSet` records and returns an id; it calls nothing. With
+  `deterministic = 1` the clock is a counter only `JsRuntimeAdvanceClock` moves, with no clock at all it is the
+  runtime's own counter (deliberately **not** wall time), and a delay of 0 is due now but still runs at a loop
+  boundary — which is why the statements after `setTimeout(f, 0)` run first.
+- **The sandbox is the absence of host capability.** The global table is the whole list (`Limitations.md` §2):
+  `Object`, `String`, `Number`, `Boolean`, `Math`, the five error kinds, `parseInt`, `console`, `RoboJS`,
+  `globalThis`, the scheduling doors, the three literals, and `document`/`window` once a host installs them.
+  `hostProcessAccess`, `hostFileSystem`, `hostNetwork`, `hostEnvironmentVariables` and `multiThreaded` are 0 in the
+  capability table by name, and `js.security.boundary` reads the globals to prove no host door is reachable.
+- **An absence is stated, not implied.** `JsCapabilities`' second block is the list a consumer would otherwise
+  assume, and `js.runtime.capabilities` reads **every** field of all three blocks — so a flag that stops being true
+  fails a test. Adding a capability means adding it to that case in the same change.
+- **Refusals are named.** A `textContent` reshape, `queueMicrotask(nonFunction)`, a full job queue, a re-entrant
+  loop door, an exhausted budget and a RoboHTML construction refusal each answer with a name and a reason; a
+  failed mutation is never hidden as a stored property, and a host failure reason is never overwritten by a
+  generic one.
+- **Not built, and named rather than implied:** `class`, `async`/`await`, generators, modules, destructuring,
+  rest/spread, template literals, optional chaining, `??`, `Symbol`, `BigInt`, typed arrays, regex literals,
+  `Proxy`/`Reflect`, `Promise`, weak collections, a garbage collector, a JIT, a bytecode VM, multi-threading,
+  `Date`, `JSON`, `Array` as a global constructor, most `String`/`Array`/`Math` methods, `innerHTML`,
+  `MutationObserver`, capture-phase events, `requestAnimationFrame`, and any host capability access. Each is a row
+  in `Limitations.md` and a `0` in the capability table.
+- **Stated divergences from the specification**, each asserted by a case rather than left to drift: no temporal
+  dead zone (a hoisted `let`/`const` reads `undefined`), no redeclaration error, a top-level `const` **is** a
+  non-writable property of the global object, ASI is partial, and the shortest round-tripping number form is
+  approximated. `Limitations.md` §11 is the table.
+- **The shell has no text engine and no script engine of its own.** A consumer calls `JsRuntimeEvaluate` and the
+  loop doors. Today `Assert-RoboDesktopBoundaries` names `RoboJS` among the things a RoboDesktop file may not
+  reach for, so running a page's script is one bridge file **plus** that pattern in the same commit, and the
+  RoboInput → desktop pointer path that would make a click a node-targeted event is Phase 13's open work
+  (`Documentation/RoboJS/Integration.md` §4 is the gate table, `Events.md` §5 the one-line shape).
+- **No `math.h`.** `Runtime/Source/RoboJS/RoboJSMath.h` is a header-only shim and the suites compute `NaN`/
+  `Infinity` by division from variables — the guest libc has no math header, and it is part of why the module is
+  guest-buildable. **There is no guest half yet**: no `ROBO_QEMU_JS_*` marker, no `test-qemu` command and no
+  `RoboJS` entry in the guest program's `RuntimeModules`; `Documentation/RoboJS/QemuTesting.md` states the absence
+  and the four things that would change together rather than implying a suite.
+- Version/capabilities: 16.16 froze the public surface at **`1.0.0`** with `apiFrozen = 1`, in two tiers named by
+  `RoboJS.h` (the seam a consumer uses, the engines behind it). `Documentation/RoboJS/APIStability.md` is the
+  contract: ownership, lifetime, threading, error handling and what a version bump means.
+- Tests: three suites and **45 cases** — `Tests/RoboJS/SuiteRoboJS.c` (the language, 23),
+  `SuiteRoboJSHost.c` (the seams over a 32-node **fixture** DOM, 11) and `SuiteRoboJSIntegration.c` (the real
+  `RoboHTML` adapter, 11) — through `Scripts/Test/TestRoboJS.ps1 -Target Host`. A DOM-adapter change is not done
+  until `TestHtml.ps1` and `TestDesktop.ps1 -Target Host` pass too; a change to the module boundary, its link
+  list or its suites needs `-Verify`, which is what runs `Assert-RoboJSBoundaries`.
 
 ---
 

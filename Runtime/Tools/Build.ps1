@@ -23,13 +23,15 @@ param(
     [switch]$Sanitize,
     [string]$Filter = "",
     [switch]$VerboseTests,
-    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Text", "Graphics", "Display", "Window", "Compositor", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
+    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Text", "Graphics", "Display", "Window", "Compositor", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "RoboJS", "Runtime")]
     [string]$Module = "",
     [switch]$SkipGuest,
     [switch]$Rebuild
 )
 
 $ErrorActionPreference = "Stop"
+
+. (Join-Path $PSScriptRoot "..\..\scripts\Utilities\RoboBuildProgress.ps1")
 
 $RuntimeRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $RepoRoot = (Resolve-Path (Join-Path $RuntimeRoot "..")).Path
@@ -328,6 +330,30 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboCompositor\RoboCompositorFrame.c"),
     (Join-Path $SourceDir "RoboCompositor\RoboCompositorCompose.c"),
     (Join-Path $SourceDir "RoboCompositor\RoboCompositorDump.c"),
+    # Phase 16 -- RoboJS. An independently implemented JavaScript runtime: the lexer and parser, the AST,
+    # the value/object/environment models, the interpreter, and the host seams. One file per question the
+    # phase asks. `RoboJSDom.c` binds a DOM through a vtable and names no HTML header; `RoboJSDomHtml.c` is
+    # the one file that includes RoboHTML, which is the same discipline `RoboPaintDispatch.c` follows for
+    # RoboInput -- the dependency is named, small and replaceable.
+    (Join-Path $SourceDir "RoboJS\RoboJSVersion.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSTypes.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSHeap.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSValue.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSObject.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSEnvironment.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSFunction.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSException.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSLexer.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSAst.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSParser.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSInterpreter.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSBuiltins.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSRuntime.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSTimer.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSEventLoop.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSDom.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSEvent.c"),
+    (Join-Path $SourceDir "RoboJS\RoboJSDomHtml.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTML.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLTypes.c"),
     (Join-Path $SourceDir "RoboHTML\RoboHTMLDiagnostics.c"),
@@ -476,6 +502,13 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDump.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopDocument.c"),
     (Join-Path $SourceDir "RoboDesktop\RoboDesktopFontProvider.c"),
+    # RoboDesktop 13.66--13.77 -- the *input integration*: the one place in the tree where the shell and
+    # the input model meet. It owns a session, a queue, a dispatcher, the shell's listener store, a
+    # shortcut table, a command router and a cursor manager; it supplies the three providers
+    # (`RoboInputDispatch.h`) from the shell's own window list; and it is the only file in this module that
+    # includes RoboInput, which is what keeps every other file in it a *painter* or a *window*. See
+    # `Documentation/Runtime/Desktop/InputIntegration.md`.
+    (Join-Path $SourceDir "RoboDesktop\RoboDesktopInput.c"),
     # RoboInput (12.1) -- the input *model*: an event type vocabulary and its payloads, a device and
     # source identity, four explicitly named coordinate planes with the conversions between them, a routing
     # target carried as inert identity, an owned FIFO queue and a deterministic dump. It reads no device
@@ -928,6 +961,13 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Input\SuiteRoboInputSession.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputReplay.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputCoalescing.c"),
+    # Phase 16 -- RoboJS. The core language suite (runtime, lexer, parser, AST, values, objects,
+    # functions, closures, exceptions, interpreter, limits, security), the host suite (the DOM binding
+    # over a fixture host, events, timers, the loop, microtasks) and the integration suite (the
+    # RoboHTML adapter and the phase's required demos).
+    (Join-Path $TestsRoot "RoboJS\SuiteRoboJS.c"),
+    (Join-Path $TestsRoot "RoboJS\SuiteRoboJSHost.c"),
+    (Join-Path $TestsRoot "RoboJS\SuiteRoboJSIntegration.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputLatency.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputAccessibility.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputGamepadNavigation.c"),
@@ -1600,6 +1640,68 @@ function Assert-RoboTextIntegrationRules {
     Write-Host "RoboText integration rule scan: OK (four rules)"
 }
 
+function Assert-RoboJSBoundaries {
+    # Phase 16's rules, as a scan rather than as prose, because the phase's claim is an *ownership*
+    # claim and every one of the three is a rule a well-meaning change would break.
+    #
+    #   one runtime     RoboJS includes RoboBase, RoboMem and the C standard library and nothing else.
+    #                   Nothing above it -- the shell, a window, a display, a renderer, a painter,
+    #                   layout, CSS, the text layer, typography, input, the compositor, the font layer
+    #                   or the rasterizer -- may appear in a RoboJS source. A runtime that could reach
+    #                   a paint list or a layout style record would stop being the thing that decides
+    #                   what a script means, and one that reached *up* for a host capability would be
+    #                   building the binding this module exists to own.
+    #   one DOM seam    `RoboHTML/` may appear in exactly one production file, `RoboJSDomHtml.c`, plus
+    #                   the integration suite that exercises the adapter by name. `RoboJSDom.h` names
+    #                   no HTML type at all, which is what makes the adapter replaceable rather than
+    #                   load-bearing.
+    #   no engine       the tree-wide rule with this module's own nouns added: no Chromium, no Skia,
+    #                   no V8 and no other embedded interpreter (QuickJS, Duktape, MuJS, JerryScript)
+    #                   as a build or link dependency, in the module, its suites or its documents.
+    #
+    # Prose that names a boundary it keeps is not a leak, exactly as in the text and typography scans.
+    $moduleRoots = @(
+        (Join-Path $RuntimeRoot "Include\RoboJS"),
+        (Join-Path $RuntimeRoot "Source\RoboJS")
+    )
+    $allRoots = $moduleRoots + @((Join-Path $TestsRoot "RoboJS"), (Join-Path $RepoRoot "Documentation\RoboJS"))
+
+    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|quickjs|duktape|mujs|jerryscript|RoboCompositor|RoboShell|RoboAPI|RoboDemo|third_party[/\\](chromium|skia|quickjs))|\bnamespace\s+(blink|skia|v8)\b)'
+    $consumer = '(?i)#\s*include\s*[<"]((RoboDesktop|RoboWindow|RoboDisplay|RoboRender|RoboPaint|RoboLayout|RoboCSS|RoboText|RoboTypography|RoboInput|RoboGraphics|RoboFont)/)'
+    $dom = '(?i)#\s*include\s*[<"]RoboHTML/'
+    # The adapter and the suite that proves it, by name rather than by directory, for the usual reason:
+    # a *second* module file reaching for RoboHTML is still a leak.
+    $domSkip = @('RoboJSDomHtml', 'SuiteRoboJSIntegration')
+    $exempt = '(?i)must never depend|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|no compositor|does not read|reaching for|the only file|the one file'
+
+    $rules = @(
+        @{ Roots = $moduleRoots; Pattern = $consumer; Skip = @() },
+        @{ Roots = $allRoots; Pattern = $upward; Skip = @() },
+        @{ Roots = $allRoots; Pattern = $dom; Skip = $domSkip }
+    )
+    foreach ($rule in $rules) {
+        foreach ($root in $rule.Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $files = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md
+            if ($rule.Skip.Count -gt 0) {
+                $files = $files | Where-Object {
+                    $name = $_.BaseName
+                    foreach ($skip in $rule.Skip) { if ($name -eq $skip) { return $false } }
+                    return $true
+                }
+            }
+            $hits = $files |
+                Select-String -Pattern $rule.Pattern -SimpleMatch:$false |
+                Where-Object { $_.Line -notmatch $exempt }
+            if ($hits) {
+                $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+                throw "RoboJS boundary leak (a second engine, a consumer layer above, or a second RoboHTML include):`n$sample"
+            }
+        }
+    }
+    Write-Host "RoboJS boundary source scan: OK (three rules)"
+}
+
 function Assert-RoboDisplayChromiumIndependence {
     $roots = @(
         (Join-Path $RuntimeRoot "Include\RoboDisplay"),
@@ -1667,12 +1769,7 @@ function Get-RoboHeaderStamp {
 }
 
 function Test-RoboCompileNeeded([string]$Src, [string]$Obj, [datetime]$HeaderStamp) {
-    if ($Rebuild) { return $true }
-    if (-not (Test-Path -LiteralPath $Obj)) { return $true }
-    $objTime = (Get-Item -LiteralPath $Obj).LastWriteTimeUtc
-    if ((Get-Item -LiteralPath $Src).LastWriteTimeUtc -gt $objTime) { return $true }
-    if ($HeaderStamp -gt $objTime) { return $true }
-    return $false
+    return (Test-RoboObjectStale -Src $Src -Obj $Obj -HeaderStamp $HeaderStamp -Force:$Rebuild)
 }
 
 function Invoke-RoboCompileObject {
@@ -1687,13 +1784,47 @@ function Invoke-RoboCompileObject {
         New-Item -ItemType Directory -Force -Path $objParent | Out-Null
     }
     if (-not (Test-RoboCompileNeeded $Src $Obj $script:RoboHeaderStamp)) {
-        Write-Host "SKIP   $Src"
+        Write-RoboBuildProgress -Skipped -Src $Src
         return $false
     }
-    Write-Host "CC     $Src"
-    & $Clang @Flags -c $Src -o $Obj
+    $dep = Get-RoboDepPath $Obj
+    if (-not $script:RoboBuildProgress) {
+        Write-Host "CC     $Src"
+    }
+    & $Clang @Flags -MMD -MP -MF $dep -c $Src -o $Obj
     if ($LASTEXITCODE -ne 0) { throw "Compile failed: $Src" }
+    Write-RoboBuildProgress -Compiled -Src $Src
     return $true
+}
+
+function Invoke-RoboCompileSources {
+    param(
+        [string]$Label,
+        [string[]]$Sources,
+        [string]$ObjDir,
+        [string]$Clang,
+        [string[]]$Flags
+    )
+    New-Item -ItemType Directory -Force -Path $ObjDir | Out-Null
+    $objs = @()
+    $stale = 0
+    foreach ($src in $Sources) {
+        $obj = Get-RoboObjectPath $src $ObjDir
+        if (Test-RoboCompileNeeded $src $obj $script:RoboHeaderStamp) { $stale++ }
+        $objs += $obj
+    }
+    Initialize-RoboBuildProgress -Total $Sources.Count -ToCompile $stale -Cached ($Sources.Count - $stale) -Label $Label
+    $anyCompiled = $false
+    $i = 0
+    foreach ($src in $Sources) {
+        $obj = $objs[$i]
+        $i++
+        if (Invoke-RoboCompileObject -Clang $Clang -Flags $Flags -Src $src -Obj $obj) {
+            $anyCompiled = $true
+        }
+    }
+    Complete-RoboBuildProgress
+    return @{ Objects = $objs; Compiled = $anyCompiled }
 }
 
 if ($Module -and -not $Filter) {
@@ -1727,6 +1858,7 @@ if ($Module -and $Module -ne "Runtime") {
         Paint       = @("\Paint\", "/Paint/")
         Rasterizer  = @("\Rasterizer\", "/Rasterizer/")
         Desktop     = @("\Desktop\", "/Desktop/")
+        RoboJS      = @("\RoboJS\", "/RoboJS/")
     }
     $needles = $suiteNeedles[$Module]
     if ($needles) {
@@ -2005,12 +2137,26 @@ if ($Module -and $Module -ne "Runtime") {
         # only the two *identity* headers it carries from the document layers and none of the three
         # modules those identities' siblings already needed, so `-Module Input` never linked.
         Input = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboInput")
-        Html = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboHTML")
+        # `RoboHTMLImage.c` decodes through RoboGraphics (`GfxImageDecode`, `GfxImageSurface`, ...), so the
+        # module sits on RoboFont/RoboGraphics and not merely on the base layers. `SuiteRoboHTMLImage.c`
+        # calls the same doors, so the *test* build needs them too -- which is why they are in this list
+        # rather than implied by the whole-tree link.
+        Html = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboHTML")
         Css = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboCSS")
         Layout = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout")
         Paint = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint")
         Rasterizer = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender")
         Desktop = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender", "RoboCompositor", "RoboDesktop", "RoboInput")
+        # RoboJS is an independent JavaScript runtime: it speaks in its own value model and its own
+        # heap, and it reads a DOM only through `RoboJSDom.c`'s vtable -- `RoboJSDomHtml.c` is the one
+        # file that includes a RoboHTML header. So the list is the base layers plus RoboHTML, and
+        # nothing above either.
+        #
+        # RoboHTML drags RoboFont/RoboGraphics (its image path) and RoboI18N, and a *link* needs those
+        # objects present rather than merely declared, so they are named here for the same reason the
+        # `Html` row names them. The dependency direction is unchanged: RoboJS still reaches nothing
+        # above RoboHTML, and `RoboJSDomHtml.c` remains the only file that knows RoboHTML exists.
+        RoboJS = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboHTML", "RoboJS")
     }
     $want = $prefixMap[$Module]
     if ($want) {
@@ -2026,12 +2172,9 @@ if ($Module -and $Module -ne "Runtime") {
 }
 
 $libObjs = @()
-New-Item -ItemType Directory -Force -Path $guestObjDir | Out-Null
-foreach ($src in $guestSrcs) {
-    $obj = Get-RoboObjectPath $src $guestObjDir
-    [void](Invoke-RoboCompileObject -Clang $clang -Flags $guestFlags -Src $src -Obj $obj)
-    $libObjs += $obj
-}
+$guestCompile = Invoke-RoboCompileSources -Label "guest" -Sources $guestSrcs -ObjDir $guestObjDir `
+    -Clang $clang -Flags $guestFlags
+$libObjs = @($guestCompile.Objects)
 
 $ar = Get-LlvmAr
 $libA = Join-Path $LibDir "librobobase.a"
@@ -2113,6 +2256,7 @@ if ($Verify) {
     Assert-RoboTypographyBoundaries
     Assert-RoboTextBoundaries
     Assert-RoboTextIntegrationRules
+    Assert-RoboJSBoundaries
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 
@@ -2195,17 +2339,11 @@ if ($Module -and $Module -ne "Runtime") {
 $hostSrcs = @($hostProd) + $hostExtras + $SuiteSrcs
 
 $hostObjDir = Join-Path $OutDir "obj\host"
-New-Item -ItemType Directory -Force -Path $hostObjDir | Out-Null
 if (-not $script:RoboHeaderStamp) { $script:RoboHeaderStamp = Get-RoboHeaderStamp }
-$hostObjs = @()
-$hostCompiled = $false
-foreach ($src in $hostSrcs) {
-    $obj = Get-RoboObjectPath $src $hostObjDir
-    if (Invoke-RoboCompileObject -Clang $clang -Flags $hostFlags -Src $src -Obj $obj) {
-        $hostCompiled = $true
-    }
-    $hostObjs += $obj
-}
+$hostCompile = Invoke-RoboCompileSources -Label "host" -Sources $hostSrcs -ObjDir $hostObjDir `
+    -Clang $clang -Flags $hostFlags
+$hostObjs = @($hostCompile.Objects)
+$hostCompiled = [bool]$hostCompile.Compiled
 
 $linkStale = $Rebuild -or $hostCompiled -or -not (Test-Path $HostTest)
 if (-not $linkStale) {

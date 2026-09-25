@@ -5,7 +5,7 @@ alwaysApply: true
 # RoboticelaOS runtime plan
 
 Phase + goal number + short name. Each phase ends with a **wire/integrate** goal against all completed phases.
-Completed stack today: **Phases 0-12** and **Phase 15** (module + Desktop compose present). Phase 13/14 consumer seams (Input, DesktopBridge) remain open.
+Completed stack today: **Phases 0-12**, **Phase 15** and **Phase 16** (RoboJS module + host suites; no guest half). Phase 13/14 consumer seams (Input, DesktopBridge) remain open.
 
 ## Cross-stack integration (completed phases)
 
@@ -402,24 +402,25 @@ Completed stack today: **Phases 0-12** and **Phase 15** (module + Desktop compos
 15.17 Compositor performance ✅
 15.18 Visual conformance ✅
 15.19 Wire and integrate Phase 15 with all completed phases (Desktop layer-per-window / present) ✅
+
 # Phase 16 - Minimal RoboJS
 
-16.1 JavaScript runtime architecture
-16.2 JavaScript lexer/parser
-16.3 AST
-16.4 JavaScript values/types
-16.5 Objects
-16.6 Functions
-16.7 Closures
-16.8 Exceptions
-16.9 Interpreter
-16.10 DOM bindings
-16.11 Event bindings
-16.12 Timers
-16.13 Event loop
-16.14 Microtasks
-16.15 JavaScript tests
-16.16 Wire and integrate Phase 16 with all completed phases
+16.1 JavaScript runtime architecture ✅
+16.2 JavaScript lexer/parser ✅
+16.3 AST ✅
+16.4 JavaScript values/types ✅
+16.5 Objects ✅
+16.6 Functions ✅
+16.7 Closures ✅
+16.8 Exceptions ✅
+16.9 Interpreter ✅
+16.10 DOM bindings ✅
+16.11 Event bindings ✅
+16.12 Timers ✅
+16.13 Event loop ✅
+16.14 Microtasks ✅
+16.15 JavaScript tests ✅
+16.16 Wire and integrate Phase 16 with all completed phases ✅
 
 # Phase 17 - Complete RoboHTML & DOM
 

@@ -160,9 +160,9 @@ function Invoke-RoboRunRuntimeQemu {
 
 function Invoke-RoboRunQemu {
     <#
-      The complete story: build everything from source, then boot the result.
+      Build (incremental unless --rebuild), then boot. Object-level resume and
+      Build/.build-all.json stage resume keep a second run from redoing finished work.
     #>
-    $script:RoboFlag.Rebuild = $true
     Invoke-RoboBuildAll -EspFlags "splash_ms 0"
     Write-RoboBlank
     return (Invoke-RoboQemuVisible -Headless:$script:RoboFlag.Headless)

@@ -35,6 +35,8 @@ $script:EspFlagFile = Join-Path $script:Build "esp.flags"
 $script:RoboRebuild = $false
 $script:RoboBakedThisRun = $false
 
+. (Join-Path $PSScriptRoot "Utilities\RoboBuildProgress.ps1")
+
 function Get-RoboSources([string]$Kind) {
     $core = [string[]]@(
         "Source\rb_util.c",
@@ -229,14 +231,117 @@ function Invoke-Cc {
         [string]$Object,
         [string[]]$Deps
     )
-    if (-not $script:RoboRebuild -and -not (Test-Stale $Source $Object $Deps)) {
+    $force = [bool]$script:RoboRebuild
+    $stale = $force
+    if (-not $stale) {
+        # Prefer clang -MMD deps when present; otherwise use the caller's header list.
+        $depFile = [System.IO.Path]::ChangeExtension($Object, ".d")
+        if ((Test-Path -LiteralPath $depFile) -and (Get-RoboMakefileDeps $depFile).Count -gt 0) {
+            $stale = Test-RoboObjectStale -Src $Source -Obj $Object -Force:$false
+        } else {
+            $stale = Test-Stale $Source $Object $Deps
+        }
+    }
+    if (-not $stale) {
+        Write-RoboBuildProgress -Skipped -Src $Source
         return $false
     }
     New-Item -ItemType Directory -Force -Path (Split-Path $Object) | Out-Null
-    Write-Step "CC" (Resolve-BootRel $Source)
-    & $Clang @CFlags -c $Source -o $Object
+    $depOut = [System.IO.Path]::ChangeExtension($Object, ".d")
+    if (-not $script:RoboBuildProgress) {
+        Write-Step "CC" (Resolve-BootRel $Source)
+    }
+    & $Clang @CFlags -MMD -MP -MF $depOut -c $Source -o $Object
     if ($LASTEXITCODE -ne 0) { throw "compile failed: $(Resolve-BootRel $Source)" }
+    Write-RoboBuildProgress -Compiled -Src $Source
     return $true
+}
+
+function Resolve-CcBatchObject {
+    param(
+        [string]$Source,
+        [int]$Index,
+        [scriptblock]$ObjectFor,
+        [string[]]$Objects
+    )
+    if ($Objects -and $Objects.Count -gt 0) {
+        if ($Index -ge $Objects.Count) {
+            throw ("Invoke-CcBatch Objects shorter than Sources at index " + $Index)
+        }
+        return $Objects[$Index]
+    }
+    if (-not $ObjectFor) {
+        throw "Invoke-CcBatch requires -ObjectFor or -Objects"
+    }
+    return (& $ObjectFor $Source)
+}
+
+function Invoke-CcBatch {
+    param(
+        [string]$Label,
+        [string]$Clang,
+        [string[]]$CFlags,
+        [string[]]$Sources,
+        [scriptblock]$ObjectFor,
+        [string[]]$Objects,
+        [string[]]$Deps
+    )
+    if (-not $Sources -or $Sources.Count -eq 0) {
+        return @{ Objects = @(); Compiled = $false }
+    }
+    $stale = 0
+    $i = 0
+    foreach ($src in $Sources) {
+        $obj = Resolve-CcBatchObject -Source $src -Index $i -ObjectFor $ObjectFor -Objects $Objects
+        $i++
+        $force = [bool]$script:RoboRebuild
+        $need = $force
+        if (-not $need) {
+            $depFile = [System.IO.Path]::ChangeExtension($obj, ".d")
+            if ((Test-Path -LiteralPath $depFile) -and (Get-RoboMakefileDeps $depFile).Count -gt 0) {
+                $need = Test-RoboObjectStale -Src $src -Obj $obj -Force:$false
+            } else {
+                $need = Test-Stale $src $obj $Deps
+            }
+        }
+        if ($need) { $stale++ }
+    }
+    Initialize-RoboBuildProgress -Total $Sources.Count -ToCompile $stale -Cached ($Sources.Count - $stale) -Label $Label
+    $compiled = $false
+    $objs = @()
+    $i = 0
+    foreach ($src in $Sources) {
+        $obj = Resolve-CcBatchObject -Source $src -Index $i -ObjectFor $ObjectFor -Objects $Objects
+        $i++
+        if (Invoke-Cc -Clang $Clang -CFlags $CFlags -Source $src -Object $obj -Deps $Deps) {
+            $compiled = $true
+        }
+        $objs += $obj
+    }
+    Complete-RoboBuildProgress
+    return @{ Objects = $objs; Compiled = $compiled }
+}
+
+function Invoke-CcDirBatch {
+    <#
+      Chromium/ninja-style batch: one PLAN line for a directory of objects named
+      from each source's basename. Prefer this over a bare Invoke-Cc loop.
+    #>
+    param(
+        [string]$Label,
+        [string]$Clang,
+        [string[]]$CFlags,
+        [string[]]$Sources,
+        [string]$ObjDir,
+        [string]$Ext = ".obj",
+        [string[]]$Deps
+    )
+    New-Item -ItemType Directory -Force -Path $ObjDir | Out-Null
+    $objects = @($Sources | ForEach-Object {
+        Join-Path $ObjDir (([IO.Path]::GetFileNameWithoutExtension($_)) + $Ext)
+    })
+    return Invoke-CcBatch -Label $Label -Clang $Clang -CFlags $CFlags `
+        -Sources $Sources -Objects $objects -Deps $Deps
 }
 
 function Write-RoboConfig {
@@ -342,14 +447,15 @@ function Invoke-RoboBuildHost {
         "-I", (Join-Path $script:Boot "Include")
     )
     $deps = Get-HeaderDeps @((Join-Path $script:Boot "Include"))
-    $objs = @()
-    $compiled = $false
-    foreach ($rel in (Get-RoboSources "host")) {
-        $src = Resolve-RoboBootSource $rel
-        $obj = Join-Path $script:ObjHost (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $sources = @(Get-RoboSources "host" | ForEach-Object { Resolve-RoboBootSource $_ })
+    $batch = Invoke-CcBatch -Label "boot-host" -Clang $clang -CFlags $cflags -Sources $sources `
+        -Deps $deps -ObjectFor {
+            param($src)
+            $rel = Resolve-BootRel $src
+            Join-Path $script:ObjHost (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj")
+        }
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:HostOut $objs)) {
         Write-Step "LD" "build\roboboot.exe"
         & $clang -g -o $script:HostOut @objs -luser32 -lgdi32
@@ -368,14 +474,16 @@ function Invoke-RoboBuildTest {
         "-I", (Join-Path $script:Boot "Include")
     )
     $deps = Get-HeaderDeps @((Join-Path $script:Boot "Include"))
-    $objs = @()
-    $compiled = $false
+    $sources = @()
+    $objects = @()
     foreach ($rel in (Get-RoboSources "test")) {
-        $src = Resolve-RoboBootSource $rel
-        $obj = Join-Path $script:ObjTest (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
+        $sources += (Resolve-RoboBootSource $rel)
+        $objects += (Join-Path $script:ObjTest (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj"))
     }
+    $batch = Invoke-CcBatch -Label "boot-test" -Clang $clang -CFlags $cflags `
+        -Sources $sources -Objects $objects -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:TestOut $objs)) {
         Write-Step "LD" "build\roboboot-test.exe"
         & $clang -o $script:TestOut @objs
@@ -405,14 +513,16 @@ function Invoke-RoboBuildEfi {
         (Join-Path $script:Boot "Source\efi"),
         (Join-Path $script:Boot "Source\efi\libc")
     )
-    $objs = @()
-    $compiled = $false
+    $sources = @()
+    $objects = @()
     foreach ($rel in (Get-RoboSources "efi")) {
-        $src = Resolve-RoboBootSource $rel
-        $obj = Join-Path $script:ObjEfi (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
+        $sources += (Resolve-RoboBootSource $rel)
+        $objects += (Join-Path $script:ObjEfi (([IO.Path]::GetFileNameWithoutExtension($rel)) + ".obj"))
     }
+    $batch = Invoke-CcBatch -Label "boot-efi" -Clang $clang -CFlags $cflags `
+        -Sources $sources -Objects $objects -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:EfiOut $objs)) {
         Write-Step "LD" "build\BOOTX64.EFI"
         & $lld /subsystem:EFI_APPLICATION /entry:EfiMain /out:$script:EfiOut @objs
@@ -467,32 +577,36 @@ function Invoke-RoboBuildLibc {
         "src\env\env.c",
         "src\internal\start.c"
     )
-    $objs = @()
+    $sources = @()
+    $objects = @()
     $i = 0
     foreach ($rel in $srcs) {
-        $src = Join-Path $libc $rel
-        $obj = Join-Path $lobj ("libc_" + $i + ".o")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { }
-        $objs += $obj
+        $sources += (Join-Path $libc $rel)
+        $objects += (Join-Path $lobj ("libc_" + $i + ".o"))
         $i++
     }
+    $batch = Invoke-CcBatch -Label "libc" -Clang $clang -CFlags $cflags `
+        -Sources $sources -Objects $objects -Deps $deps
+    $objs = @($batch.Objects)
     $liba = Join-Path $lbuild "libc.a"
-    if ($script:RoboRebuild -or (Test-LinkStale $liba $objs)) {
+    if ($script:RoboRebuild -or $batch.Compiled -or (Test-LinkStale $liba $objs)) {
         Write-Step "AR" "libc\build\libc.a"
         if (Test-Path $liba) { Remove-Item $liba -Force }
         & $ar "rcs" $liba @objs
         if ($LASTEXITCODE -ne 0) { throw "libc.a archive failed" }
     }
-    $crt = @{}
-    foreach ($pair in @(
+    $crtPairs = @(
         @{ Name = "crt0"; Rel = "arch\x86_64\crt0.S" },
         @{ Name = "crti"; Rel = "crt\crti.S" },
         @{ Name = "crtn"; Rel = "crt\crtn.S" }
-    )) {
-        $src = Join-Path $libc $pair.Rel
-        $obj = Join-Path $lobj ($pair.Name + ".o")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { }
-        $crt[$pair.Name] = $obj
+    )
+    $crtSources = @($crtPairs | ForEach-Object { Join-Path $libc $_.Rel })
+    $crtObjects = @($crtPairs | ForEach-Object { Join-Path $lobj ($_.Name + ".o") })
+    $null = Invoke-CcBatch -Label "libc-crt" -Clang $clang -CFlags $cflags `
+        -Sources $crtSources -Objects $crtObjects -Deps $deps
+    $crt = @{}
+    for ($ci = 0; $ci -lt $crtPairs.Count; $ci++) {
+        $crt[$crtPairs[$ci].Name] = $crtObjects[$ci]
     }
     return @{ Lib = $liba; Crt = $crt; Inc = $inc; Sdk = $sdk; Deps = $deps }
 }
@@ -763,25 +877,22 @@ function Invoke-RoboBuildUserland {
             }
             throw ("missing sources for guest " + $p.Name + ": " + ($missing -join ', '))
         }
-        $objs = @()
+        $compileSources = [System.Collections.Generic.List[string]]::new()
+        $compileObjects = [System.Collections.Generic.List[string]]::new()
         $i = 0
         $progFlags = $cflags
         if ($p.ContainsKey("ExtraCFlags") -and $p.ExtraCFlags) {
             $progFlags = $cflags + $p.ExtraCFlags
         }
         foreach ($rel in $p.Srcs) {
-            $src = Join-Path $srcRoot $rel
-            $obj = Join-Path $ubuild ($p.Name + "_" + $i + ".o")
-            if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
-            $objs += $obj
+            $compileSources.Add((Join-Path $srcRoot $rel)) | Out-Null
+            $compileObjects.Add((Join-Path $ubuild ($p.Name + "_" + $i + ".o"))) | Out-Null
             $i++
         }
         if ($p.ContainsKey("ExtraUserSrcs") -and $p.ExtraUserSrcs) {
             foreach ($rel in $p.ExtraUserSrcs) {
-                $src = Join-Path $user $rel
-                $obj = Join-Path $ubuild ($p.Name + "_ux_" + $i + ".o")
-                if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj -Deps (@($ldscript) + $sdkdeps)) { }
-                $objs += $obj
+                $compileSources.Add((Join-Path $user $rel)) | Out-Null
+                $compileObjects.Add((Join-Path $ubuild ($p.Name + "_ux_" + $i + ".o"))) | Out-Null
                 $i++
             }
         }
@@ -810,6 +921,10 @@ function Invoke-RoboBuildUserland {
                 }
             }
         }
+        $progDeps = @($ldscript) + $sdkdeps
+        if ($runtimeSrcs.Count -gt 0) {
+            $progDeps = $progDeps + $runtimeDeps
+        }
         foreach ($rel in $runtimeSrcs) {
             $src = Join-Path $runtime $rel
             if (-not (Test-Path -LiteralPath $src)) {
@@ -817,17 +932,18 @@ function Invoke-RoboBuildUserland {
             }
             # Path-derived object names — index-based names collide when the source set grows.
             $stem = (($rel -replace '[\\/]', '_') -replace '\.c$', '')
-            $obj = Join-Path $ubuild ($p.Name + "_rt_" + $stem + ".o")
-            if (Invoke-Cc -Clang $clang -CFlags $progFlags -Source $src -Object $obj `
-                    -Deps (@($ldscript) + $sdkdeps + $runtimeDeps)) { }
-            $objs += $obj
+            $compileSources.Add($src) | Out-Null
+            $compileObjects.Add((Join-Path $ubuild ($p.Name + "_rt_" + $stem + ".o"))) | Out-Null
         }
+        $batch = Invoke-CcBatch -Label ("user/" + $p.Name) -Clang $clang -CFlags $progFlags `
+            -Sources @($compileSources) -Objects @($compileObjects) -Deps $progDeps
+        $objs = @($batch.Objects)
         $elf = Join-Path $ubuild ($p.Name + ".elf")
         $linkobjs = $objs
         if ($p.Libc) {
             $linkobjs = @($libc.Crt["crti"], $libc.Crt["crt0"]) + $objs + @($libc.Lib, $libc.Crt["crtn"])
         }
-        $stale = $script:RoboRebuild -or (Test-LinkStale $elf $linkobjs)
+        $stale = $script:RoboRebuild -or $batch.Compiled -or (Test-LinkStale $elf $linkobjs)
         if ($stale) {
             Write-Step "LD" ("user\" + $p.Name + ".elf")
             & $ld "-m" "elf_x86_64" "-static" "-no-pie" "-T" $ldscript "-o" $elf @linkobjs
@@ -1110,13 +1226,10 @@ function Invoke-RoboBuildKernel {
         (Join-Path $script:Repo "sdk\include\robosys"),
         (Join-Path $script:Boot "Include\roboticela")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".o")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".o" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     $ldscript = Join-Path $kroot "linker\kernel.ld"
     $needLink = $script:RoboRebuild -or $compiled -or (Test-LinkStale $kout $objs)
     if (-not $needLink -and (Test-Path $ldscript) -and (Test-Path $kout)) {
@@ -1158,13 +1271,10 @@ function Invoke-RoboBuildPmmTest {
         (Join-Path $kroot "include"),
         (Join-Path $script:Boot "Include\roboticela")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/pmm-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:PmmTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_pmm.exe"
         & $clang -o $script:PmmTestOut @objs
@@ -1201,13 +1311,10 @@ function Invoke-RoboBuildVmmTest {
         (Join-Path $kroot "mm\vmm"),
         (Join-Path $kroot "include")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/vmm-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:VmmTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_vmm.exe"
         & $clang -o $script:VmmTestOut @objs
@@ -1240,13 +1347,10 @@ function Invoke-RoboBuildTimeTest {
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "time")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/time-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:TimeTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_time.exe"
         & $clang -o $script:TimeTestOut @objs
@@ -1282,13 +1386,10 @@ function Invoke-RoboBuildSchedQueueTest {
         (Join-Path $kroot "arch\x86_64"),
         (Join-Path $kroot "mm")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/sched-queue-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:SchedQueueTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_sched_queue.exe"
         & $clang -o $script:SchedQueueTestOut @objs
@@ -1319,13 +1420,10 @@ function Invoke-RoboBuildThreadStateTest {
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "thread")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/thread-state-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ThreadStateTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_thread_state.exe"
         & $clang -o $script:ThreadStateTestOut @objs
@@ -1356,13 +1454,10 @@ function Invoke-RoboBuildProcessStateTest {
     $deps = Get-HeaderDeps @(
         (Join-Path $kroot "process")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/process-state-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ProcessStateTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_process_state.exe"
         & $clang -o $script:ProcessStateTestOut @objs
@@ -1409,13 +1504,10 @@ function Invoke-RoboBuildProcessHostTest {
         (Join-Path $kroot "fs\backends"),
         (Join-Path $script:Repo "sdk\include\robosys")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/process-host-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ProcessHostTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_process_host.exe"
         & $clang -o $script:ProcessHostTestOut @objs
@@ -1448,13 +1540,10 @@ function Invoke-RoboBuildContextLayoutTest {
         (Join-Path $kroot "arch\x86_64"),
         (Join-Path $kroot "arch\x86_64\context")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/context-layout-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ContextLayoutTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_context_layout.exe"
         & $clang -o $script:ContextLayoutTestOut @objs
@@ -1496,13 +1585,10 @@ function Invoke-RoboBuildElfTest {
         (Join-Path $kroot "mm\vmm"),
         (Join-Path $kroot "include")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/elf-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:ElfTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_elf.exe"
         & $clang -o $script:ElfTestOut @objs
@@ -1551,13 +1637,10 @@ function Invoke-RoboBuildRfsTest {
         (Join-Path $kroot "syscall"),
         (Join-Path $script:Repo "sdk\include\robosys")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/rfs-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:RfsTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_rfs.exe"
         & $clang -o $script:RfsTestOut @objs
@@ -1601,13 +1684,10 @@ function Invoke-RoboBuildDriverSigTest {
         (Join-Path $kroot "syscall"),
         (Join-Path $script:Repo "sdk\include\robosys")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/driver-sig-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:DriverSigTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_driver_sig.exe"
         & $clang -o $script:DriverSigTestOut @objs
@@ -1640,13 +1720,10 @@ function Invoke-RoboBuildCompositorTest {
     $deps = Get-HeaderDeps @(
         (Join-Path $script:Repo "sdk\include\robocompositor")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/compositor-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:CompositorTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_compositor.exe"
         & $clang -o $script:CompositorTestOut @objs
@@ -1688,13 +1765,10 @@ function Invoke-RoboBuildNetTest {
         (Join-Path $kroot "net\ipv4"),
         (Join-Path $kroot "net\tcp")
     )
-    $objs = @()
-    $compiled = $false
-    foreach ($src in $srcs) {
-        $obj = Join-Path $kobj (([IO.Path]::GetFileNameWithoutExtension($src)) + ".obj")
-        if (Invoke-Cc -Clang $clang -CFlags $cflags -Source $src -Object $obj -Deps $deps) { $compiled = $true }
-        $objs += $obj
-    }
+    $batch = Invoke-CcDirBatch -Label "kernel/net-test" -Clang $clang -CFlags $cflags `
+        -Sources $srcs -ObjDir $kobj -Ext ".obj" -Deps $deps
+    $objs = @($batch.Objects)
+    $compiled = [bool]$batch.Compiled
     if ($script:RoboRebuild -or $compiled -or (Test-LinkStale $script:NetTestOut $objs)) {
         Write-Step "LD" "kernel\build\test_net.exe"
         & $clang -o $script:NetTestOut @objs

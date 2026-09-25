@@ -310,6 +310,9 @@ void TestRegisterDesktopWindow(void);
 void TestRegisterDesktopFrame(void);
 void TestRegisterDesktopDocument(void);
 void TestRegisterDesktopPresent(void);
+void TestRegisterRoboJS(void);
+void TestRegisterRoboJSHost(void);
+void TestRegisterRoboJSIntegration(void);
 void TestRegisterDesktopTypography(void);
 void TestRegisterDesktopTypographyGallery(void);
 void TestRegisterDesktopScene(void);
@@ -713,6 +716,12 @@ int main(int argc, char **argv)
     TestRegisterInputLatency();
     TestRegisterInputAccessibility();
     TestRegisterInputGamepadNavigation();
+    /* Phase 16 -- RoboJS. The core language suite, the host suite (the DOM binding over a fixture
+     * host, events, timers, the loop, microtasks) and the integration suite (the RoboHTML adapter
+     * and the phase's required demos). */
+    TestRegisterRoboJS();
+    TestRegisterRoboJSHost();
+    TestRegisterRoboJSIntegration();
     /* Registered last: desktop.scene.lifetime intentionally shuts the layers
      * down and brings them back, so nothing may follow it. */
     TestRegisterDesktopScene();

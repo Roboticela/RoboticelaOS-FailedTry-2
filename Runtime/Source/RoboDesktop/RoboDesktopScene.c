@@ -7,13 +7,19 @@
  * The iteration is the part worth reading. Every frame of a driven desktop runs the same four steps, and
  * they are in this order because each depends on the one before it:
  *
- *   pump    the window queue, bounded by the wait the caller named, and take what it holds;
- *   hand    the pointer to the shell — `DesktopObservePointer` is the whole of this build's input
- *           integration (RoboDesktop.h §16), and a scene must not invent more of one. A press paints
- *           only when the shell dirtied chrome; the status HUD is keyboard-driven, never click-driven;
+ *   pump    the window queue, bounded by the wait the caller named, through `GetDesktopInputStep`
+ *           (Phase 13.76): the queue goes through the RoboInput bridge, into RoboInput's own queue, out
+ *           through the dispatcher the shell supplies the three providers for, and lands as an action;
  *   follow  the destination: `DesktopSyncSize` matches the screen to the window's *physical* client
  *           size, which is how a user's resize reaches the shell;
  *   paint   and present, once, when there is something new to show.
+ *
+ * Since Phase 13.66 the pointer is no longer handed to the shell by *this* file: the shell owns two
+ * listeners (raise or close on a press, end a drag on its release) and this scene owns one more, and all
+ * three are reached through RoboInput's dispatcher. That is what makes "the shell consumes RoboInput" true
+ * rather than aspirational, and it is why `DesktopObservePointer` — the direct door that came before it —
+ * survives only for a caller that has no input system to build (and for the suite that asserts its own two
+ * decisions in isolation).
  *
  * A scene keeps no clock and no frame counter: `needsPaint` is set by the things that change a picture
  * (a resize, an event, the caller's own `invalidate`) and cleared by the frame that answers them. So a
@@ -24,6 +30,7 @@
 #include "RoboDesktop/RoboDesktopScene.h"
 
 #include "RoboBase/RoboLog.h"
+#include "RoboDesktop/RoboDesktopInput.h"
 #include "RoboDesktopInternal.h"
 #include "RoboMem/RoboMem.h"
 
@@ -43,6 +50,14 @@ struct DesktopScene {
     Desktop *desktop;
     DesktopDocument *document;
     DesktopWindowId window;
+    /**
+     * The shell's input system (Phase 13.66--13.77), owned here.
+     *
+     * Owned rather than borrowed because a scene *is* the thing that drives the shell: a launcher that
+     * created the system itself would be publishing the same join the module already publishes, and two
+     * launchers of one scene are the reason this file exists at all.
+     */
+    DesktopInput *input;
     /** Borrowed: the caller's face, kept only so a rebuilt document is built with the same one. */
     FontFace *face;
     /** Borrowed: the caller's typography resolver (Phase 12.3), or NULL for the single-face binding. */
@@ -186,9 +201,28 @@ static Result SceneBuildDocument(DesktopScene *scene, DesktopDiag *diag)
      * cannot produce a run whose width was computed from one face and drawn with another. It is the same
      * object the caller passed when there is no resolver.
      */
-    return DesktopWindowSetContent(scene->desktop, scene->window,
-                                          DesktopDocumentDisplayList(document),
-                                          DesktopDocumentFace(document), diag);
+    result = DesktopWindowSetContent(scene->desktop, scene->window,
+                                            DesktopDocumentDisplayList(document),
+                                            DesktopDocumentFace(document), diag);
+    if (result != RoboOk) {
+        return result;
+    }
+
+    /*
+     * Tell the input system what this window's contents are (Phase 13.68/13.70): the document's own layout
+     * tree, so a press in the client area resolves to the **node** under it through `PaintHitTest` rather
+     * than to the window. Re-registered on every rebuild, because a rebuild is a new tree and the old one
+     * is about to be freed.
+     */
+    if (scene->input) {
+        DesktopInputContent content;
+
+        DesktopInputContentInit(&content);
+        content.window = scene->window;
+        content.tree = DesktopDocumentTree(document);
+        (void)DesktopInputSetContent(scene->input, &content, diag);
+    }
+    return RoboOk;
 }
 
 /**
@@ -214,6 +248,8 @@ static void SceneWindowBounds(const Desktop *desktop, int32_t *outWidth, int32_t
     *outWidth = width;
     *outHeight = height;
 }
+
+static Result SceneOnKeyDown(void *userdata, const InputEvent *event, InputEventContext *context);
 
 Result DesktopSceneOpen(const DesktopSceneConfig *config,
                                       DesktopScene **out,
@@ -243,6 +279,7 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
     scene->desktop = NULL;
     scene->document = NULL;
     scene->window = RoboDesktopWindowIdNone;
+    scene->input = NULL;
     scene->face = config->face;
     scene->typography = config->typography;
     scene->needsPaint = 1;
@@ -288,6 +325,41 @@ Result DesktopSceneOpen(const DesktopSceneConfig *config,
         return result;
     }
 
+    /*
+     * The input system (Phase 13.66--13.77), built **after** the window exists because its route geometry
+     * and the shell's window identity both come from that window, and before the first document because the
+     * document's tree is what a client-area press is resolved against.
+     */
+    {
+        DesktopInputConfig inputConfig;
+        InputListener listener;
+        InputTarget listenerTarget;
+        InputDiag idiag;
+
+        DesktopInputConfigInit(&inputConfig);
+        inputConfig.window = DesktopAttachedWindow(scene->desktop);
+        result = DesktopInputCreate(scene->desktop, &inputConfig, &scene->input, diag);
+        if (result != RoboOk) {
+            DesktopSceneClose(scene);
+            return result;
+        }
+
+        /* The scene's own listener, on the window it will be handed events for. */
+        InputDiagReset(&idiag);
+        InputTargetInit(&listenerTarget);
+        if (InputTargetSetWindow(&listenerTarget, (WindowId)scene->window, RoboInputSpaceScreen,
+                                 &idiag) == RoboOk) {
+            MemSet(&listener, 0, sizeof(listener));
+            listener.target = listenerTarget;
+            listener.phase = RoboInputPhaseTarget;
+            listener.passive = 0;
+            listener.removed = 0;
+            listener.callback = SceneOnKeyDown;
+            listener.userdata = scene;
+            (void)DesktopInputAddListener(scene->input, &listener, diag);
+        }
+    }
+
     result = SceneBuildDocument(scene, diag);
     if (result != RoboOk) {
         DesktopSceneClose(scene);
@@ -304,8 +376,11 @@ void DesktopSceneClose(DesktopScene *scene)
     if (!scene) {
         return;
     }
-    /* Reverse of the borrowing order: the document's list is borrowed by the window, so the window goes
-     * first, then the document, then the shell that owned neither. */
+    /* Reverse of the borrowing order: the input system names the shell's windows (so it goes first), the
+     * document's list is borrowed by the window (so the window goes before the document), and the shell owned
+     * neither. */
+    DesktopInputDestroy(scene->input);
+    scene->input = NULL;
     DesktopDocumentDestroy(scene->document);
     scene->document = NULL;
     DesktopDestroy(scene->desktop);
@@ -380,149 +455,107 @@ static int SceneDesktopNeedsPaint(const Desktop *desktop)
 }
 
 /**
- * Hand one pointer state to the shell, counting it only when the shell acted on it.
+ * The scene's own input listener (Phase 13.66).
  *
- * A press never rewrites the status HUD: reshaping the panel label on every click was what made
- * the frame freeze under the cursor. Live input feedback is keyboard-driven (see KeyDown below).
+ * Two things, and both are the *fixture's* rather than the shell's: `Escape` finishes the checkpoint, and
+ * any other key writes its name into the panel status so a run under a keyboard shows what was pressed.
+ *
+ * It is a listener rather than a branch on a `WindowEvent` because that is what the model makes a
+ * consumer: the shell raises and closes, this scene reports and leaves, and neither of them reads the
+ * window queue. A press never rewrites the HUD — reshaping the panel label on every click was what made
+ * the frame freeze under the cursor — so a pointer event is ignored here by construction.
  */
-static void SceneObservePointer(DesktopScene *scene,
-                                  int32_t x,
-                                  int32_t y,
-                                  int pressed,
-                                  DesktopSceneStep *step,
-                                  DesktopDiag *diag)
+static Result SceneOnKeyDown(void *userdata, const InputEvent *event, InputEventContext *context)
 {
-    DesktopStats before;
-    DesktopStats after;
-
-    before.pointerActions = 0u;
-    after.pointerActions = 0u;
-    (void)GetDesktopStats(scene->desktop, &before);
-    (void)DesktopObservePointer(scene->desktop, MakeGfxPoint(x, y), pressed, diag);
-    (void)GetDesktopStats(scene->desktop, &after);
-    if (after.pointerActions > before.pointerActions) {
-        step->pointerActions += after.pointerActions - before.pointerActions;
-    }
-}
-
-/** Write a short key-down line into the panel status (panel-dirty only — no full scene rebuild). */
-static void SceneReportKey(DesktopScene *scene, const WindowEvent *event, DesktopDiag *diag)
-{
+    DesktopScene *scene = (DesktopScene *)userdata;
     char status[RoboDesktopStatusMax];
     const char *name;
-    unsigned i = 0u;
+    unsigned index = 0u;
     unsigned n;
-    KeyModifierFlags mods;
+    InputModifiers mods;
 
-    if (!scene || !event) {
-        return;
+    (void)context;
+    if (!scene || !event || event->type != RoboInputEventKeyDown) {
+        return RoboOk;
     }
-    name = LogicalKeyName(event->key.logicalKey);
+    if (event->payload.keyboard.logical == RoboLogicalKeyEscape) {
+        scene->finished = 1;
+        LogDebug("robo_desktop: escape finished the scene");
+        return RoboOk;
+    }
+    name = LogicalKeyName(event->payload.keyboard.logical);
     if (!name) {
         name = "?";
     }
-    status[i++] = 'k';
-    status[i++] = 'e';
-    status[i++] = 'y';
-    status[i++] = ' ';
-    for (n = 0u; name[n] != 0 && i + 1u < sizeof(status); n++) {
-        status[i++] = name[n];
+    status[index++] = 'k';
+    status[index++] = 'e';
+    status[index++] = 'y';
+    status[index++] = ' ';
+    for (n = 0u; name[n] != 0 && index + 1u < sizeof(status); n++) {
+        status[index++] = name[n];
     }
-    mods = event->key.modifiers;
-    if ((mods & RoboKeyModShift) != 0u && i + 3u < sizeof(status)) {
-        status[i++] = ' ';
-        status[i++] = 'S';
+    mods = event->modifiers;
+    if ((mods & RoboKeyModShift) != 0u && index + 3u < sizeof(status)) {
+        status[index++] = ' ';
+        status[index++] = 'S';
     }
-    if ((mods & RoboKeyModCtrl) != 0u && i + 3u < sizeof(status)) {
-        status[i++] = ' ';
-        status[i++] = 'C';
+    if ((mods & RoboKeyModCtrl) != 0u && index + 3u < sizeof(status)) {
+        status[index++] = ' ';
+        status[index++] = 'C';
     }
-    if ((mods & RoboKeyModAlt) != 0u && i + 3u < sizeof(status)) {
-        status[i++] = ' ';
-        status[i++] = 'A';
+    if ((mods & RoboKeyModAlt) != 0u && index + 3u < sizeof(status)) {
+        status[index++] = ' ';
+        status[index++] = 'A';
     }
-    if ((mods & RoboKeyModMeta) != 0u && i + 3u < sizeof(status)) {
-        status[i++] = ' ';
-        status[i++] = 'M';
+    if ((mods & RoboKeyModMeta) != 0u && index + 3u < sizeof(status)) {
+        status[index++] = ' ';
+        status[index++] = 'M';
     }
-    status[i] = 0;
-    (void)DesktopSetStatus(scene->desktop, status, diag);
+    status[index] = 0;
+    (void)DesktopSetStatus(scene->desktop, status, (DesktopDiag *)NULL);
+    return RoboOk;
 }
 
 /**
- * Take everything the window queue holds and act on it.
+ * One iteration of the input half of the frame (Phase 13.76).
  *
- * Pointer motion and buttons go to the shell. Escape finishes the scene without inventing application
- * key routing (`inputDelivery` stays 0): it is the launcher's way to leave, the same as closing the
- * native window.
+ * The window queue goes through RoboInput's bridge into its own queue, comes out through the dispatcher the
+ * shell supplied three providers for, and lands as a *decision* — a raise, a close, a focus change, a
+ * command, a key report. This file only translates the record into the two things a frame cares about: "is
+ * the checkpoint over" and "must something be repainted".
  */
-static void SceneDrainEvents(DesktopScene *scene,
-                               DesktopSceneStep *step,
-                               DesktopDiag *diag)
+static void SceneStepInput(DesktopScene *scene,
+                             uint32_t waitMs,
+                             DesktopSceneStep *step,
+                             DesktopDiag *diag)
 {
-    WindowEvent event;
+    DesktopInputStep inputStep;
 
-    while (WindowEventPoll(&event) == RoboOk) {
-        step->events++;
-        switch (event.type) {
-        case RoboWindowEventCloseRequested:
-        case RoboWindowEventClosed:
-            /* The shell's own window is closing: the checkpoint is over, whatever the app window is doing. */
-            scene->finished = 1;
-            step->closeRequested = 1;
-            break;
-        case RoboWindowEventResized:
-        case RoboWindowEventScaleChanged:
-            scene->needsPaint = 1;
-            scene->needsCursorPaint = 0;
-            break;
-        case RoboWindowEventKeyDown:
-            if (event.key.logicalKey == RoboLogicalKeyEscape) {
-                scene->finished = 1;
-                step->closeRequested = 1;
-                LogDebug("robo_desktop: escape finished the scene");
-            } else {
-                SceneReportKey(scene, &event, diag);
-                if (SceneDesktopNeedsPaint(scene->desktop)) {
-                    scene->needsPaint = 1;
-                    scene->needsCursorPaint = 0;
-                }
-            }
-            break;
-        case RoboWindowEventMouseMove:
-            SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
-            if (scene->showCursor && !scene->needsPaint) {
-                scene->needsCursorPaint = 1;
-            }
-            break;
-        case RoboWindowEventMouseButtonDown:
-            if (event.mouse.button == RoboMouseButtonLeft) {
-                SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 1, step, diag);
-                /*
-                 * Paint only when the shell actually dirtied something (raise/close chrome).
-                 * A no-op click on an already-focused window must not stall the frame.
-                 */
-                if (SceneDesktopNeedsPaint(scene->desktop)) {
-                    scene->needsPaint = 1;
-                    scene->needsCursorPaint = 0;
-                }
-            }
-            break;
-        case RoboWindowEventMouseButtonUp:
-            if (event.mouse.button == RoboMouseButtonLeft) {
-                SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
-                /* Release never changes chrome; cursor-only if the pointer moved. */
-                if (scene->showCursor && !scene->needsPaint) {
-                    scene->needsCursorPaint = 1;
-                }
-            }
-            break;
-        case RoboWindowEventMouseWheel:
-            SceneObservePointer(scene, event.mouse.clientX, event.mouse.clientY, 0, step, diag);
-            break;
-        default:
-            break;
-        }
+    if (!scene->input) {
+        return;
+    }
+    DesktopInputStepInit(&inputStep);
+    (void)GetDesktopInputStep(scene->input, waitMs, &inputStep, diag);
+    step->events += inputStep.windowEvents;
+    step->pointerActions += inputStep.actions;
+
+    if (inputStep.closeRequested) {
+        /* The shell's own window is closing: the checkpoint is over, whatever the app window is doing. */
+        scene->finished = 1;
+        step->closeRequested = 1;
+    }
+    if (inputStep.resized || inputStep.scaleChanged) {
+        scene->needsPaint = 1;
+        scene->needsCursorPaint = 0;
+    }
+    if (scene->finished) {
+        step->closeRequested = 1;
+    }
+    if (SceneDesktopNeedsPaint(scene->desktop) && !scene->needsPaint) {
+        scene->needsPaint = 1;
+        scene->needsCursorPaint = 0;
+    } else if (inputStep.cursorChanges > 0u && scene->showCursor && !scene->needsPaint) {
+        scene->needsCursorPaint = 1;
     }
 }
 
@@ -567,15 +600,13 @@ Result GetDesktopSceneStep(DesktopScene *scene,
      * an uninitialised module's loop would be the one place that assumed differently.
      */
     if (WindowIsInitialized()) {
-        /* Poll first so pending IRQs are not delayed by the idle sleep. */
-        (void)WindowEventLoopRunOnce(0u);
-        SceneDrainEvents(scene, &step, diag);
+        /*
+         * The wait is the *scene's* to own: it is skipped when something must be painted, because a frame
+         * that is owed must not be delayed by a sleep nobody needs. `GetDesktopInputStep` polls once with a
+         * zero wait regardless, so a pending IRQ is never held behind the idle sleep.
+         */
+        SceneStepInput(scene, (scene->needsPaint || scene->needsCursorPaint) ? 0u : waitMs, &step, diag);
         SceneRetireClosedWindow(scene, &step);
-        if (!scene->needsPaint && !scene->needsCursorPaint && waitMs != 0u) {
-            (void)WindowEventLoopRunOnce(waitMs);
-            SceneDrainEvents(scene, &step, diag);
-            SceneRetireClosedWindow(scene, &step);
-        }
     }
 
     if (DesktopAttachedWindow(scene->desktop) != RoboWindowIdNone) {

@@ -88,6 +88,7 @@
 #include "RoboFont/RoboFontFace.h"
 #include "RoboFont/RoboFontRegistry.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
+#include "RoboLayout/RoboLayoutTree.h"
 #include "RoboPaint/RoboPaintDisplayList.h"
 #include "RoboTypography/RoboTypographyResolver.h"
 
@@ -219,6 +220,18 @@ FontFace *DesktopDocumentFace(const DesktopDocument *document);
 
 /** The viewport the pass ran with — this build's page box. `0x0` for NULL. */
 GfxSize DesktopDocumentViewport(const DesktopDocument *document);
+
+/**
+ * The document's **layout tree**, borrowed (Phase 13.70).
+ *
+ * The door the shell's input integration needs and no other: `PaintHitTest` asks a tree "what is under this
+ * point?", and until this existed the shell had no way to answer a *node* question about its own window's
+ * contents — a press in a client area could only resolve to the window. Borrowed for exactly as long as the
+ * document is, like the display list it is the other half of.
+ *
+ * NULL for a NULL document or a document that never laid out.
+ */
+const LayoutTree *DesktopDocumentTree(const DesktopDocument *document);
 
 /** What the build saw. RoboInvalidArgument for NULL arguments. */
 Result GetDesktopDocumentReport(const DesktopDocument *document,

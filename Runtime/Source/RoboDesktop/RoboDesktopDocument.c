@@ -527,6 +527,11 @@ GfxSize DesktopDocumentViewport(const DesktopDocument *document)
     return document ? document->viewport : MakeGfxSize(0, 0);
 }
 
+const LayoutTree *DesktopDocumentTree(const DesktopDocument *document)
+{
+    return document ? document->tree : NULL;
+}
+
 Result GetDesktopDocumentReport(const DesktopDocument *document,
                                            DesktopDocumentReport *out)
 {

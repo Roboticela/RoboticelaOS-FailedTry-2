@@ -27,9 +27,20 @@ Module builds pass `-Module <Name> -SkipGuest` so they compile objects and archi
 
 ## Incremental compilation
 
-`Runtime/Tools/Build.ps1` compiles each `.c` to `Build/Runtime/obj/{guest,host}/` and skips the file when the object is newer than the source and the header tree stamp. Relink happens only when an object is newer than the binary.
+Every compile path is resume-capable: a second run compiles only what is stale.
 
-`-Rebuild` forces a full recompile of that invocation.
+| Layer | Stale rule | Progress lines |
+|---|---|---|
+| Runtime (`Runtime/Tools/Build.ps1`) | Object missing, older than its `.c`, or older than any header listed in the clang `-MMD` `.d` next to the `.o` | `PLAN` / `CC [n/N]` / `DONE` |
+| Boot / kernel / libc / userland (`roboboot-build-common.ps1`) | Same rule via `Invoke-CcBatch` / `Invoke-CcDirBatch` | `PLAN` / `CC [n/N]` / `DONE` |
+| Full stack (`BuildEverything.ps1`) | Completed parts recorded in `Build/.build-everything.json` | `PLAN` / `RESUME` / `DONE` |
+| Pipeline (`scripts/robo build-all`, `RunQemu.ps1`) | Stages always re-enter; objects resume by `.d`. Progress journal in `Build/.build-all.json` | `PLAN` / `==== [n/N]` / `CC [n/N]` / `DONE` |
+
+`PLAN` reports three counts for the unit about to run: **total**, **up-to-date**, and **to compile** (ninja-style `[finished/total]` on each `CC`). `DONE` reports how many were actually compiled vs reused.
+
+`run-qemu` is incremental by default. Pass `--rebuild` (or `RunQemu.ps1 -Rebuild`) to force every object. A successful pipeline run clears `Build/.build-all.json`; a failure keeps the journal so the next run can say how far the last attempt got.
+
+Shared helpers live in `Scripts/Utilities/RoboBuildProgress.ps1`.
 
 ## Full build order
 
@@ -43,7 +54,7 @@ bootloader assets
  → artifacts copy
 ```
 
-`BuildEverything.ps1` calls `BuildBootloader`, `BuildKernel`, `BuildRuntime`, then `scripts/pipeline/robo.ps1 build-image`.
+`BuildEverything.ps1` calls `BuildBootloader`, `BuildKernel`, `BuildRuntime`, then `scripts/pipeline/robo.ps1 build-image`, resuming from `Build/.build-everything.json` when present.
 
 ## Host vs QEMU
 

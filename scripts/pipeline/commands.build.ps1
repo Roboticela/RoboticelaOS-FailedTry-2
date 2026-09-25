@@ -238,6 +238,11 @@ function Invoke-RoboBuildAll {
     <#
       The authoritative complete build. Every stage is a recorded step, so a
       failure names the stage that failed and the command exits non-zero.
+
+      Stages always run; object-level resume (`Invoke-CcBatch` / `.d` files) skips
+      up-to-date compiles. Build/.build-all.json records progress so a failure
+      names how far the last run got — pass --rebuild to force every object.
+      run-qemu is incremental by default (it no longer forces a full rebuild).
     #>
     param([string]$EspFlags = "")
 
@@ -247,19 +252,56 @@ function Invoke-RoboBuildAll {
 
     Invoke-RoboBuildCheck
 
-    # Order is the real dependency order, not the declaration order of the
-    # commands. The runtime's own build treats libc.a, crt0/crti/crtn and the
-    # linker script as required *inputs*, so the bare-metal userland step (which
-    # produces them) has to run before the runtime build, not after it.
-    Invoke-RoboBuildAssets
-    Invoke-RoboBuildUserlandCommand
-    Invoke-RoboBuildRuntimeCommand
-    Invoke-RoboBuildBootloader
-    Invoke-RoboBuildBootloaderTests
-    Invoke-RoboBuildKernelCommand
-    Invoke-RoboBuildImageCommand -Flags $EspFlags
-    Invoke-RoboBuildArtifactsCommand
+    $repo = $script:RoboPaths.Root
+    $configuration = [string]$script:RoboConfig.RuntimeConfig
+    if ($script:RoboFlag.Rebuild) {
+        Clear-RoboBuildAllState $repo
+        Write-Host "RESUME cleared (--rebuild): every object will recompile"
+    }
 
+    $stages = @(
+        @{ Id = "assets";           Name = "bake bootloader assets";     Action = { Invoke-RoboBuildAssets } },
+        @{ Id = "userland";         Name = "libc + userland + guest";    Action = { Invoke-RoboBuildUserlandCommand } },
+        @{ Id = "runtime";          Name = "runtime guest ELF";          Action = { Invoke-RoboBuildRuntimeCommand } },
+        @{ Id = "bootloader";       Name = "bootloader host + EFI";      Action = { Invoke-RoboBuildBootloader } },
+        @{ Id = "bootloader-tests"; Name = "bootloader test binary";     Action = { Invoke-RoboBuildBootloaderTests } },
+        @{ Id = "kernel";           Name = "kernel.elf";                 Action = { Invoke-RoboBuildKernelCommand } },
+        @{ Id = "image";            Name = "ESP + GPT disk image";       Action = { Invoke-RoboBuildImageCommand -Flags $EspFlags } },
+        @{ Id = "artifacts";        Name = "publish artifacts";          Action = { Invoke-RoboBuildArtifactsCommand } }
+    )
+
+    $prior = Get-RoboBuildAllState -RepoRoot $repo -Configuration $configuration
+    $priorDone = @($prior.completed)
+    if ($priorDone.Count -gt 0 -and -not $script:RoboFlag.Rebuild) {
+        Write-Host ("RESUME last run reached stage {0} ({1}/{2}); re-entering all stages (objects resume by .d)" -f `
+            $priorDone[-1], $priorDone.Count, $stages.Count)
+    }
+
+    $completed = [System.Collections.Generic.List[string]]::new()
+    $total = $stages.Count
+    Write-Host ("PLAN   build-all: {0} stages" -f $total)
+
+    $index = 0
+    foreach ($stage in $stages) {
+        $index++
+        Write-Host ("==== [{0}/{1}] {2} ====" -f $index, $total, $stage.Name)
+
+        try {
+            & $stage.Action
+        } catch {
+            Write-Host ("FAILED {0}: {1}" -f $stage.Id, $_.Exception.Message)
+            Save-RoboBuildAllState -RepoRoot $repo -Configuration $configuration -Completed @($completed)
+            Write-Host ("RESUME state saved through {0} ({1}/{2}). Fix and re-run — objects already built stay cached." -f `
+                $(if ($completed.Count -gt 0) { $completed[-1] } else { "(none)" }), $completed.Count, $total)
+            throw
+        }
+
+        [void]$completed.Add($stage.Id)
+        Save-RoboBuildAllState -RepoRoot $repo -Configuration $configuration -Completed @($completed)
+    }
+
+    Clear-RoboBuildAllState $repo
+    Write-Host "DONE   build-all: all stages complete (resume journal cleared)"
     Show-RoboBuildOutput
 }
 
@@ -296,6 +338,8 @@ function Invoke-RoboCleanCommand {
     param([switch]$IncludeSources)
     Write-RoboSection "Clean"
     Initialize-RoboOutputTree
+    Clear-RoboBuildAllState $script:RoboPaths.Root
+    Clear-RoboBuildEverythingState $script:RoboPaths.Root
 
     # Pipeline outputs.
     foreach ($dir in @($script:RoboOut.Build)) {
