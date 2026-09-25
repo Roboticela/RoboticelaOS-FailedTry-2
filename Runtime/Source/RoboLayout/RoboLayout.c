@@ -137,6 +137,13 @@ Result LayoutGetCapabilities(LayoutCapabilities *out)
      */
     out->positioning = RoboLayoutPositioningImplemented;
     /*
+     * And 14.0's, which is the behaviour 10.12 deferred: a box taken out of flow and placed
+     * against a containing block. **Not** "positioning is finished": nothing is reordered, so
+     * `z-index`, stacking contexts and paint order are still absent, `sticky` is still in flow,
+     * and there is no scrollport to constrain against.
+     */
+    out->outOfFlow = RoboLayoutOutOfFlowImplemented;
+    /*
      * And 10.13's, the first capability in this struct that is about what happens when a
      * box's contents do *not* fit. A record per measured box -- two used modes and four
      * extents beyond the padding box -- plus a region and a clip rectangle a paint pass can

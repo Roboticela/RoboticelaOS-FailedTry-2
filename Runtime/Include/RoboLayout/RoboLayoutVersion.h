@@ -1,6 +1,28 @@
 /*
  * RoboLayout version pin — Phase 10.15 layout tests, and the last goal of Phase 10.
  *
+ * 0.17.0 is 0.16.0 plus **out-of-flow placement** (Phase 14.0): a box with
+ * `position: absolute` or `position: fixed` is taken out of flow and placed against its
+ * **containing block** -- the nearest positioned ancestor's padding box, or the initial
+ * containing block (the viewport) when there is none, and always for `fixed`. The phase adds
+ * a header, one policy module, `LayoutCapabilities.outOfFlow` and a diagnostic domain,
+ * and it is the behaviour 10.12 named and deferred: `right`/`bottom` anchor an edge, two
+ * opposing insets size an axis between them when the declared dimension is `auto`, and a
+ * declared dimension beside two insets is over-constrained and counted.
+ *
+ * It was pulled forward from the CSS-completion goal for one reason, and the reason is worth
+ * keeping where a reader meets the version: Phase 14's desktop shell cannot be *composed*
+ * without it. A wallpaper that fills the viewport, a dock on the bottom edge, a menu floating
+ * over a window and a window that is a rectangle at a place are four out-of-flow boxes, and a
+ * build that stacks them in normal flow can express none of the four -- which is exactly what
+ * the shell authored in `Desktop/` discovered when its first real layout was attempted.
+ *
+ * What 0.17.0 does **not** claim is at the flag: no `z-index`, no stacking context, no paint
+ * order (document order still decides), no `sticky`, no scrollport, no percentage inset, no
+ * `shrink-to-fit`, no `box-sizing: border-box`, and no out-of-flow **inline-level** box (an
+ * inline element with `position: absolute` is still placed on its line, because the inline
+ * pass owns those participants).
+ *
  * 0.16.0 is 0.15.0 plus **the CSS font request and the face it resolves to** (Phase 12.17): a
  * `font-family` declaration becomes an ordered, classified family list, the scalar half is delegated
  * to the measurer's own resolver so a request and a `LayoutTextStyle` cannot disagree, a caller-supplied
@@ -318,9 +340,9 @@
 #define ROBO_LAYOUT_VERSION_H
 
 #define RoboLayoutVersionMajor 0
-#define RoboLayoutVersionMinor 16
+#define RoboLayoutVersionMinor 17
 #define RoboLayoutVersionPatch 0
-#define RoboLayoutVersionString "0.16.0"
+#define RoboLayoutVersionString "0.17.0"
 
 /** 1 once the Phase 10 surface is frozen (not yet — see header comment). */
 #define RoboLayoutApiFrozen 0
@@ -598,15 +620,56 @@
  *   contribution** are both untouched, so the following sibling starts where it always
  *   would have.
  *
- * What it does **not** claim: `absolute`, `fixed` and `sticky` **behaviour** -- their
- * values and their two facts exist (9.13), and placing a box against a containing block,
- * the viewport or a scrollport is 18.5's -- no `z-index`, no stacking context, no paint
- * order, and no percentage inset (read, recorded unresolved and used as zero). A
+ * What it does **not** claim: `absolute` and `fixed` **behaviour** -- that is 14.0's, and the
+ * flag for it is `RoboLayoutOutOfFlowImplemented`, which is where the containing block, the two
+ * axes and the far-side anchor are described -- `sticky` (in flow, taking no offset, because
+ * there is no scrollport to constrain against), no `z-index`, no stacking context, no paint
+ * order, and no percentage inset (read, recorded unresolved and used as zero). This phase
+ * displaces a box that is in flow; whether the box is in flow at all is the other one. A
  * displacement applies to a box the passes give a rectangle to; a **transparent inline
  * box** (whose rectangle is a union) and a **text run** (which is not a box) take none.
  * Each is named in `RoboLayoutPosition.h` where it would otherwise be assumed.
  */
 #define RoboLayoutPositioningImplemented 1
+
+/**
+ * 1 once this build places a box **out of flow** against a containing block (14.0).
+ *
+ * A compiler constant rather than a runtime decision for the same reason the other fourteen
+ * are: it is read by `LayoutGetCapabilities().outOfFlow` and by the suite that asserts both.
+ *
+ * What it claims, exactly:
+ *
+ *   the mode is read from a computed style (9.13's own vocabulary) and the two facts that
+ *   separate the three in-flow modes from the two out-of-flow ones are asked of it rather
+ *   than re-derived (`LayoutAbsoluteIsOutOfFlow`, `...IsViewportAnchored`);
+ *
+ *   the **containing block** is the nearest positioned ancestor's padding box, or the
+ *   initial containing block for `fixed` and for an `absolute` box with no positioned
+ *   ancestor -- decided by the pass's walk, which descends through static boxes because a
+ *   static wrapper is not a containing block;
+ *
+ *   both axes are resolved by one policy: the near side (`left`/`top`) wins where it is
+ *   declared, the far side (`right`/`bottom`) **positions the axis** where the near side says
+ *   nothing -- a capability 10.12 did not have, and the reason the origin is a second call
+ *   that knows the box's own size -- and two opposing insets with no definite declared
+ *   dimension **size** the axis between them, which is `left: 0; right: 0`;
+ *
+ *   a declared dimension beside two present insets is reported as **over-constrained** rather
+ *   than resolved in the far side's favour, and every declaration is counted (used, `auto`,
+ *   or unusable) so that a document whose box is positioned with `top: 10%` says so.
+ *
+ * What it does **not** claim: `z-index`, stacking contexts and paint order (nothing is
+ * reordered -- document order still decides, which is why the phase is named for *placement*
+ * and not for stacking); `sticky` (in flow, taking no offset, as in 10.12, because there is
+ * still no scrollport); `shrink-to-fit` (a box with `width: auto` and fewer than two insets
+ * fills what is left, because this build has no intrinsic width to shrink to); percentages
+ * (read, recorded unresolved and used as zero); `box-sizing: border-box`; an out-of-flow
+ * **inline-level** box (the inline pass owns those participants and still places them on
+ * their line); and the static-position rule CSS applies when neither side of an axis is
+ * declared (this build states "the containing block's origin" instead).
+ */
+#define RoboLayoutOutOfFlowImplemented 1
 
 /**
  * 1 once this build measures what happens when a box's contents do **not** fit.

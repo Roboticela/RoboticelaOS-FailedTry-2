@@ -210,6 +210,18 @@ static void TestSceneWords(void)
         memset(&report, 0, sizeof(report));
         RoboCheckEqInt(GetDesktopDocumentReport(DesktopSceneDocument(scene), &report),
                           RoboOk);
+        /*
+         * And the document those words produced is the **whole desktop** rather than a fragment of it:
+         * the scene's own frame draws the chrome, and everything inside the window comes from this
+         * picture, so a page that reached the image but laid out to nothing would still present a
+         * window — which is exactly the failure a screenshot cannot show and these numbers can.
+         */
+        RoboCheck(report.elements >= 60u);
+        RoboCheck(report.texts >= 10u);
+        RoboCheck(report.commands >= 100u);
+        /* The document is laid out for the **client area** the shell computed, which is why the
+         * viewport is a positive size rather than the scene's own. */
+        RoboCheck(DesktopDocumentViewport(DesktopSceneDocument(scene)).width > 0);
         RoboCheck(report.elements >= 5u);
         RoboCheck(report.commands >= 1u);
         DesktopSceneClose(scene);

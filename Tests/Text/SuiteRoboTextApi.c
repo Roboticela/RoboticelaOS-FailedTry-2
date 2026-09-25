@@ -184,8 +184,9 @@ static void TestApiHeaderHygiene(void)
      * check is one direction only on purpose — extra names in an umbrella are its own business, while a
      * public header nobody can reach through it is the defect this phase exists to prevent.
      */
-    if (TextReadFile(NULL, "Runtime/Include/RoboText/RoboText.h", 1u << 20, &bytes, &size) != RoboOk) {
-        RoboCheckMsg(0, "Runtime/Include/RoboText/RoboText.h is unreadable from the suite's working tree");
+    if (TextReadFile(NULL, RoboRepoRoot "/Runtime/Include/RoboText/RoboText.h", 1u << 20, &bytes, &size) !=
+        RoboOk) {
+        TestFail(__FILE__, __LINE__, "RoboText.h is unreadable under %s", RoboRepoRoot);
         return;
     }
     text = (char *)Malloc(size + 1u);

@@ -373,12 +373,19 @@ static void GalleryBuild(GalleryReport *report)
 /** Write @p report to `Build/`, and say so — a developer should not have to hunt for the file. */
 static void GalleryWrite(const GalleryReport *report)
 {
-    FILE *file = fopen(GALLERY_PATH, "wb");
+    char opened[128];
+    FILE *file = TextReportOpen(GALLERY_PATH, opened, sizeof(opened));
 
-    RoboCheckMsg(file != NULL, "the gallery report could not be opened for writing");
+    /* A directory the run could not write to is not a defect in the table: the rows are asserted in memory
+     * by the cases above, and this file is what a developer reads afterwards. It says so instead of
+     * failing, and the `wrote` line below names the path that actually opened. */
+    if (file == NULL) {
+        printf("       %s was not writable from here; the table was checked in memory\n", GALLERY_PATH);
+        return;
+    }
     RoboCheckEqInt((int)fwrite(report->bytes, 1u, report->length, file), (int)report->length);
     fclose(file);
-    printf("       wrote %s (%u bytes)\n", GALLERY_PATH, (unsigned)report->length);
+    printf("       wrote %s (%u bytes)\n", opened, (unsigned)report->length);
 }
 
 /* ------------------------------------------------------------------ */

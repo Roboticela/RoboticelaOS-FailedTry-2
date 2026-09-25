@@ -131,11 +131,13 @@ typedef enum LayoutDiagnosticDomain {
     /** Overflow: the two axes, the extents, the region and the clip rectangle. */
     RoboLayoutDomainOverflow = 20,
     /** Invalidation: the states, the reasons, the style classifier, the propagation. */
-    RoboLayoutDomainInvalidation = 21
+    RoboLayoutDomainInvalidation = 21,
+    /** Out-of-flow placement: the containing block, the two axes, the used origin (14.0). */
+    RoboLayoutDomainAbsolute = 22
 } LayoutDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboLayoutDomainCount 22u
+#define RoboLayoutDomainCount 23u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int LayoutDiagnosticDomainIsKnown(LayoutDiagnosticDomain domain);

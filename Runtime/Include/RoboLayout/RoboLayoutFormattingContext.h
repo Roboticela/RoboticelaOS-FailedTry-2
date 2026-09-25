@@ -254,6 +254,20 @@ int LayoutFormattingContextEqual(const LayoutFormattingContext *a,
  *                              holding nothing but text establish INLINE.
  *   @p isRoot                 whether this is the tree's root box, which
  *                              establishes ROOT whatever it computes to.
+ *   @p isOutOfFlow            whether the box is `absolute`, `fixed` or `sticky` — see
+ *                              below, and note that `sticky` is in flow.
+ *
+ * **An out-of-flow block container establishes a block context of its own** (Phase 14.0), and this
+ * is CSS 2.1 §9.4.1's own list rather than this build's invention: a positioned box's contents are
+ * laid out in a new block formatting context, whatever its children are. The rule has to be stated
+ * here rather than left to the transparency rule below, because an out-of-flow box's children do
+ * not participate in *its* parent's flow — they are laid out inside it, after its own containing
+ * block has resolved — so "its block-level child participates in whatever it participates in" is
+ * exactly the wrong answer for them. A build that applied transparency to a positioned box left
+ * that box's children with no block context to participate in, and the block pass refused the
+ * document with `a block-level box participates in a context that is not a block formatting
+ * context` — the failure `layout.absolute.block_child_of_positioned` and the desktop's own compiled
+ * page both now cover.
  *
  * @return RoboLayoutFcRoot, RoboLayoutFcBlock, RoboLayoutFcInline, or
  *         RoboLayoutFcNone when the box establishes nothing — including for a
@@ -262,7 +276,8 @@ int LayoutFormattingContextEqual(const LayoutFormattingContext *a,
  */
 LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                 int hasBlockLevelChild,
-                                                int isRoot);
+                                                int isRoot,
+                                                int isOutOfFlow);
 
 /**
  * Whether a box with @p display could *ever* establish a context in this build.

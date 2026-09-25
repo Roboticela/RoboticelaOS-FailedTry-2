@@ -59,6 +59,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | HTML | `Runtime/Source/RoboHTML/` + `Runtime/Include/RoboHTML/` |
 | CSS | `Runtime/Source/RoboCSS/` + `Runtime/Include/RoboCSS/` |
 | Layout | `Runtime/Source/RoboLayout/` |
+| Layout out-of-flow placement (14.0) | `Runtime/Source/RoboLayout/RoboLayoutAbsolute.c` + public `Runtime/Include/RoboLayout/RoboLayoutAbsolute.h` — the **one** answer to "what is this box placed against, how big is it, where does it go" for a box a `position: absolute`/`fixed` declaration takes **out of flow**. Docs: `Documentation/Runtime/Layout/OutOfFlow.md` |
 | Paint | `Runtime/Source/RoboPaint/` — including the shared shaped-run seam `RoboPaintRun.c` + public `Runtime/Include/RoboPaint/RoboPaintRun.h`, the one shaping conversion and the one glyph pen every painter in the tree uses (Phase 12.24) |
 | Rasterizer (RoboRender) | `Runtime/Source/RoboRender/` |
 | Graphics | `Runtime/Source/RoboGraphics/` |
@@ -1188,6 +1189,55 @@ candidates (13.37).
 (`input.text.*`, 11 cases) via `TestInput.ps1 -Target Host`, then the boundary scan. `input.text.reject`
 (two events, in the order they were typed), `input.text.repeat`, `input.text.level` (caps lock, AltGr and the
 control chord) and `input.text.deadkey` are the decisive ones.
+
+### Out-of-flow placement (Phase 14.0)
+
+**A box a declaration takes out of flow is placed against a *containing block* rather than by flow, and
+the containing block, the size and the coordinate are one question asked in three parts.** The module is
+`Runtime/Source/RoboLayout/RoboLayoutAbsolute.c` + public `Runtime/Include/RoboLayout/RoboLayoutAbsolute.h`;
+the recursion that calls it is `RoboLayoutBlock.c`'s; the contract is
+`Documentation/Runtime/Layout/OutOfFlow.md`. It is the behaviour Phase 10.12 named and deferred, pulled
+forward because Phase 14's shell cannot be composed without it.
+
+- **One policy per axis.** `LayoutAbsoluteResolveAxis`: the near side (`left`/`top`) wins where declared —
+  and a *definite* declared size beside it is **over-constrained** and counted rather than resolved in the
+  far side's favour; the far side positions the axis where the near side says nothing (absent *or* `auto`);
+  and both insets present with no definite dimension **size** the axis between them. Do not add a second
+  precedence rule anywhere, and do not read `left`/`right` as "the near side is the position" — those are
+  two different questions and `layout.absolute.policy_near_wins` asserts both halves.
+- **The origin is a second call, and that is the phase.** `LayoutAbsolutePlacementOrigin` takes the box's own
+  margin box, because `right: 8px` means "my right edge is 8px in from the containing block's right edge"
+  and is not a coordinate until the box has a width. A build that resolved the origin before sizing can only
+  ever implement the near side.
+- **The containing block is the ancestor's *padding* box, and every number the pass writes is
+  content-relative.** The padding box origin in that space is therefore `(-padding-left, -padding-top)`; a
+  border appears in the number nowhere, and `layout.absolute.containing_block_padding_edge` is the case that
+  pins it. The **initial** containing block is the viewport, recorded once per pass with its origin at the
+  root element's content edge — one rectangle for every `fixed` box, never one before the root's call and
+  another after it.
+- **Containment is a walk, not a parent link.** `LayoutBlockPlaceDescendants` descends through **static**
+  children carrying the same containing block (a static wrapper is transparent to containment) and does not
+  descend into a **positioned** child, which placed its own descendants and is a containing block of its own.
+  A box is placed *after* its containing block's own flow is final; `LayoutBlockChildren` **skips** an
+  out-of-flow child, so it takes no room and grows no parent.
+- **`fixed` is the one mode that ignores its ancestors**, and `absolute` reaches the viewport only when no
+  ancestor is positioned. Both are `LayoutAbsoluteIsOutOfFlow` / `...IsViewportAnchored`, asked of 9.13's own
+  vocabulary rather than re-derived; a NULL record is `static`, which is CSS's initial value.
+- **Not built, and named rather than implied:** `z-index`, stacking contexts and paint order (nothing is
+  reordered — paint is still document order, so the shell's own CSS does not use `z-index` to say what is on
+  top), `sticky`, a scrollport, `shrink-to-fit`, the static-position rule, percentage insets, `box-sizing:
+  border-box`, out-of-flow **inline-level** boxes (the inline pass still places those on their line), and
+  folding an out-of-flow descendant's region into its containing block's 10.13 overflow record.
+- Reading it: `LayoutBlockStats.absolute` holds the phase's seven counters in their own record, and
+  `offsetsDeclined` no longer counts `absolute`/`fixed` — no displacement is resolved for a box that is not
+  in flow. `RoboLayoutDomainAbsolute` is the twenty-third diagnostic domain, and
+  `LayoutGetCapabilities().outOfFlow` is the flag, with the absences above named at it.
+- Tests: `Tests/Layout/SuiteRoboLayoutAbsolute.c` (`layout.absolute.*`, 21 cases) via
+  `TestLayout.ps1 -Target Host`, then `TestPaint`, `TestGraphics`, `TestRasterizer`, `TestDesktop` and
+  `TestFont` (`-Target Host`). `layout.absolute.block_positioned_wrapper` (the padding-box origin, the box's
+  size and the sibling after it unmoved), `...block_stretch` (the wallpaper), `...block_fixed` (the dock
+  ignoring a positioned ancestor, and moving when the viewport does), `...static_wrapper_transparent` and
+  `...nested_containing_blocks` are the decisive ones.
 
 ---
 

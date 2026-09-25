@@ -1,12 +1,12 @@
 /* Auto-generated from LineBreakTest.txt — DO NOT EDIT. */
 /* Unicode 16.0.0, 16672 cases */
 typedef struct robo_line_conf_case {
-    const robo_uchar32_t *cps;
+    const Uchar32 *cps;
     const unsigned char *breaks;
     unsigned cp_count;
 } robo_line_conf_case_t;
 
-static const robo_uchar32_t robo_line_conf_cps[] = {
+static const Uchar32 robo_line_conf_cps[] = {
     0x000023E9u, 0x000023E9u, 0xFFFFFFFFu, 0x000023E9u, 0x00000020u, 0x000023E9u, 0xFFFFFFFFu, 0x000023E9u,
     0x00000308u, 0x000023E9u, 0xFFFFFFFFu, 0x000023E9u, 0x00000308u, 0x00000020u, 0x000023E9u, 0xFFFFFFFFu,
     0x000023E9u, 0x00003000u, 0xFFFFFFFFu, 0x000023E9u, 0x00000020u, 0x00003000u, 0xFFFFFFFFu, 0x000023E9u,

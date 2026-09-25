@@ -23,6 +23,7 @@
  */
 
 #include "RoboTextConformanceSupport.h"
+#include "RoboTextTestSupport.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -550,13 +551,22 @@ static void TestShapingIntegrationDump(void)
 {
     ConfFontSpec spec;
     ConfFace face;
+    char opened[128];
     FILE *file;
     size_t cases = 0u;
 
     ConfSpecEuropean(&spec);
     ConfFaceOpen(&face, &spec, IntegrationSizePx);
-    file = fopen(IntegrationDumpPath, "wb");
+    file = TextReportOpen(IntegrationDumpPath, opened, sizeof(opened));
+    /* The dump names `Build/` the way the documentation does, and `TextReportOpen` finds that path from
+     * the repository root or this run's own working directory. A directory that can be written from
+     * neither is an environment fault, and the case says so rather than writing to a NULL stream — which
+     * would crash and take every later case with it. */
     RoboCheckMsg(file != NULL, "the conformance dump could not be opened");
+    if (file == NULL) {
+        ConfFaceClose(&face);
+        return;
+    }
     fprintf(file, "RoboText shaping conformance (Phase 12.18)\n");
     fprintf(file, "font: conformance-european  upem 1000  size 16px\n\n");
     for (size_t i = 0u; i < sizeof(kIntegrationCorpus) / sizeof(kIntegrationCorpus[0]); i++) {
@@ -602,6 +612,7 @@ static void TestShapingIntegrationDump(void)
         RoboTextShapeResultDestroy(result);
     }
     fclose(file);
+    printf("text.shaping.integration.dump: wrote %s (%u cases)\n", opened, (unsigned)cases);
     RoboCheckEqInt((int)cases, (int)(sizeof(kIntegrationCorpus) / sizeof(kIntegrationCorpus[0])));
     ConfFaceClose(&face);
 }

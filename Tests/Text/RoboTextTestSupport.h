@@ -41,6 +41,23 @@
 #define RoboSystemFontRoot "System/Fonts"
 #endif
 
+/*
+ * The repository root, for the one kind of case that reads the **source tree** rather than compiling against
+ * it — `text.api.header_hygiene`, which checks that the aggregate header names every public header in the
+ * directory, and so needs the header on disk instead of the include the compiler already followed.
+ *
+ * A path relative to the process working directory will not do, because the two ways this binary is run do
+ * not share one: `TestRoboText.ps1` starts it from the repository root, while `TestRuntime.ps1` goes through
+ * the pipeline, which starts it from `Build/Runtime`. The build states its own root absolutely, exactly as
+ * it states the font root above; `"."` remains the default for a tree that was not built that way.
+ */
+#if defined(RoboRepoRootFromBuild)
+#include "robo_repo_root.h"
+#endif
+#ifndef RoboRepoRoot
+#define RoboRepoRoot "."
+#endif
+
 /* ------------------------------------------------------------------ */
 /* The host IO adapter, and the pack it opens                          */
 /* ------------------------------------------------------------------ */
@@ -106,6 +123,50 @@ static inline const FontDiscoveryIo *TextHostIo(void)
     memset(&io, 0, sizeof(io));
     io.RoboReadFile = TextReadFile;
     return &io;
+}
+
+/* ------------------------------------------------------------------ */
+/* Host artifacts: a report path that survives either working directory */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Open a `Build/…` report for writing, and answer where it actually landed.
+ *
+ * A suite that dumps reference data names its file the way the documentation does — `Build/Foo.txt` — and
+ * that path is resolved against the **process working directory**, which is not the same in the two ways
+ * this binary is run. `TestRoboText.ps1` runs the executable straight from the repository root, so
+ * `Build/Foo.txt` is the file the docs name. `TestRuntime.ps1` goes through the pipeline, which runs the
+ * *same* binary with `Build/Runtime` as its working directory — the run's own output directory — so the
+ * same relative path would mean `Build/Runtime/Build/Foo.txt` and could not open.
+ *
+ * Rather than fail a case over the directory it happens to run in, this answers the first location that
+ * opens: @p path as given, then the path's **base name** in the working directory. @p resolved receives
+ * whichever that was, so a caller prints the truth rather than the name it asked for. NULL means neither
+ * opened, which a case reports as the artifact being unavailable — the data itself is asserted in memory,
+ * because a file is evidence for a reader and never the claim. That is also why no caller may write to the
+ * result without checking it: `fwrite` to a NULL stream is a crash, not a failure, and it would take the
+ * rest of the suite's cases with it.
+ */
+static inline FILE *TextReportOpen(const char *path, char *resolved, size_t resolvedSize)
+{
+    FILE *file;
+    const char *base;
+
+    if (!path || !resolved || resolvedSize == 0u) {
+        return NULL;
+    }
+    file = fopen(path, "wb");
+    if (file) {
+        snprintf(resolved, resolvedSize, "%s", path);
+        return file;
+    }
+    base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    file = fopen(base, "wb");
+    if (file) {
+        snprintf(resolved, resolvedSize, "%s", base);
+    }
+    return file;
 }
 
 /* ------------------------------------------------------------------ */

@@ -240,12 +240,12 @@ static void TestLineConformance(void)
     size_t fail = 0;
     const size_t maxReport = 12u;
 
-    RoboCheck(LineConfCasesCount > 0u);
-    for (ci = 0; ci < LineConfCasesCount; ci++) {
-        const LineConfCase *c = &LineConfCases[ci];
+    RoboCheck(robo_line_conf_cases_count > 0u);
+    for (ci = 0; ci < robo_line_conf_cases_count; ci++) {
+        const robo_line_conf_case_t *c = &robo_line_conf_cases[ci];
         size_t i;
-        for (i = 0; i < c->cpCount; i++) {
-            int got = UnicodeLineBreak(c->cps, c->cpCount, i) ? 1 : 0;
+        for (i = 0; i < c->cp_count; i++) {
+            int got = UnicodeLineBreak(c->cps, c->cp_count, i) ? 1 : 0;
             int want = c->breaks[i] ? 1 : 0;
             if (got != want) {
                 fail++;

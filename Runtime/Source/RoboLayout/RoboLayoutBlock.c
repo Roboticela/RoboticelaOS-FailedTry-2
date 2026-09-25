@@ -36,6 +36,7 @@
  * them. That ordering is what the two dimension resolvers exist for.
  */
 
+#include "RoboLayout/RoboLayoutAbsolute.h"
 #include "RoboLayout/RoboLayoutBlock.h"
 
 #include "RoboCSS/RoboCSSComputed.h"
@@ -150,7 +151,44 @@ static Result LayoutBlockBox(LayoutWalk *walk,
                                       LayoutNodeId id,
                                       LayoutPoint origin,
                                       int32_t availableWidth,
+                                      const LayoutAbsolutePlacement *place,
                                       GfxPixelY *outHeight);
+
+/**
+ * Lay @p id out **out of flow**: resolve its placement against @p cb, lay it out with the
+ * width and the height the record asks for, and count it (Phase 14.0).
+ *
+ * The counterpart of `LayoutBlockChildren`'s one line, and it is deliberately not called from
+ * there: an out-of-flow box is placed *after* the containing block's own flow has been laid
+ * out and its size is final, which is a different moment in the pass than the one the child
+ * loop runs in.
+ */
+static Result LayoutBlockPlaceOutOfFlow(LayoutWalk *walk,
+                                                 LayoutNodeId id,
+                                                 const LayoutPosition *declared,
+                                                 LayoutAbsoluteContainingBlock cb);
+
+/**
+ * Place every **out-of-flow** descendant whose containing block is @p cb (Phase 14.0).
+ *
+ * The walk is the phase's *containment* rule, and it is two lines of policy:
+ *
+ *   a child that is `absolute` or `fixed` is placed against @p cb -- or against the
+ *   **initial** containing block when its mode is `fixed`, whatever ancestor found it;
+ *
+ *   a child that is **not positioned** is descended into with the *same* containing block,
+ *   because a static wrapper is transparent to containment: it is where a box's parent
+ *   happens to be, not what the box is placed against.
+ *
+ * A child that **is** positioned is neither placed nor descended into: it is a containing
+ * block of its own, so its own pass placed its own out-of-flow descendants. That is what
+ * keeps this function linear in the boxes it places rather than in the boxes that exist, and
+ * it is why the recursion runs once per positioned box rather than once per box.
+ */
+
+static Result LayoutBlockPlaceDescendants(LayoutWalk *walk,
+                                                   const LayoutObject *owner,
+                                                   LayoutAbsoluteContainingBlock cb);
 
 /**
  * Whether this pass places @p object, and the reason when it does not.
@@ -256,6 +294,25 @@ static Result LayoutBlockChildren(LayoutWalk *walk,
                                     "a box's child link names no box in this tree");
         }
 
+        /*
+         * Phase 14.0: an **out-of-flow** child is not in this flow at all. It takes no room,
+         * it moves no sibling, it does not contribute to this box's `auto` height, and it is
+         * not descended into here -- its containing block's own pass places it once *this*
+         * box's size is final, because a far-anchored or stretched box needs that number.
+         *
+         * The check is before the verdict rather than inside it because the two are different
+         * questions: the verdict is about the *display* an element generates (`display: block`
+         * in a block context), and this is about whether the box participates in flow at all.
+         */
+        {
+            LayoutPosition childPosition = LayoutPositionOf(childObject->style);
+
+            if (LayoutAbsoluteIsOutOfFlow(&childPosition)) {
+                child = childObject->NextSibling;
+                continue;
+            }
+        }
+
         switch (LayoutBlockVerdictFor(walk->tree, childObject)) {
         case LAYOUT_BLOCK_PLACE: {
             LayoutPoint childOrigin;
@@ -263,8 +320,8 @@ static Result LayoutBlockChildren(LayoutWalk *walk,
 
             childOrigin.x = 0;
             childOrigin.y = LayoutExtentClamp(cursor);
-            if (LayoutBlockBox(walk, child, childOrigin, contentWidth, &childHeight) !=
-                RoboOk) {
+            if (LayoutBlockBox(walk, child, childOrigin, contentWidth, NULL,
+                                       &childHeight) != RoboOk) {
                 return walk->diag ? walk->diag->code : RoboError;
             }
             cursor += (int64_t)childHeight;
@@ -357,6 +414,7 @@ static Result LayoutBlockBox(LayoutWalk *walk,
                                       LayoutNodeId id,
                                       LayoutPoint origin,
                                       int32_t availableWidth,
+                                      const LayoutAbsolutePlacement *place,
                                       GfxPixelY *outHeight)
 {
     LayoutObject *object = LayoutObjectSlot(walk->tree, id);
@@ -514,6 +572,38 @@ static Result LayoutBlockBox(LayoutWalk *walk,
      */
     content.width = sizing.resolved.width;
     content.height = contentExtent;
+    /*
+     * Phase 14.0: a box whose `top` **and** `bottom` are both declared and whose `height` is
+     * `auto` is as tall as the space between them -- `top: 0; bottom: 0` is how the desktop
+     * shell's wallpaper, dock and sidebar are written, and a build that gave such a box its
+     * contents' extent would draw the wallpaper exactly behind its own markup.
+     *
+     * The record carries the **margin box** height that the two insets ask for (CSS's
+     * constraint equation is written on the margin box), and the content box is what is left
+     * after the four insets the pass has already resolved -- the two margins, the two borders
+     * and the two paddings. That subtraction is the module's (`LayoutAbsoluteContentHeight`),
+     * because it is part of the same equation the insets are rather than of this pass's.
+     */
+    if (place != NULL && place->sizedByInsetsY) {
+        int32_t insets = 0;
+        int32_t stretched = 0;
+
+        insets = LayoutExtentClamp((int64_t)edges.top + (int64_t)edges.bottom +
+                                   (int64_t)borders.top.width +
+                                   (int64_t)borders.bottom.width +
+                                   (int64_t)padding.top + (int64_t)padding.bottom);
+        if (insets < 0) {
+            /* Unreachable from this pass -- every term is non-negative -- and floored here so
+             * that a record that ever stops being is refused by the module rather than
+             * silently believed. */
+            insets = 0;
+        }
+        status = LayoutAbsoluteContentHeight(place, insets, &stretched, walk->diag);
+        if (status != RoboOk) {
+            return status;
+        }
+        content.height = (GfxPixelY)stretched;
+    }
     status = LayoutSizingSetContent(&sizing, content, walk->diag);
     if (status != RoboOk) {
         return status;
@@ -629,14 +719,49 @@ static Result LayoutBlockBox(LayoutWalk *walk,
      * have whatever this box did with its offset.
      */
     declaredPosition = LayoutPositionOf(object->style);
-    status = LayoutPositionResolve(&declaredPosition, &positionOffset, walk->diag);
-    if (status != RoboOk) {
-        return status;
-    }
-    status = LayoutPositionApply(marginOrigin, &positionOffset, &finalOrigin,
-                                        walk->diag);
-    if (status != RoboOk) {
-        return status;
+    if (place != NULL) {
+        /*
+         * Phase 14.0: an out-of-flow box's origin is not "where flow put it, plus a
+         * displacement" -- there is no flow position to displace. The insets **are** the
+         * placement, and the record the containing block's pass built answers it here, at the
+         * one moment its answer exists: the far side of an axis needs the box's own extent
+         * (`right: 8px` means "my right edge is 8px in from the containing block's right
+         * edge"), which is why this is a second call rather than a number resolved earlier.
+         *
+         * What it produces is the box's **margin edge**, which is why `marginOrigin` is
+         * *replaced* rather than accumulated onto: an in-flow box's caller hands down the flow
+         * position and this pass adds the margin, while an out-of-flow box's position is the
+         * insets' answer and already includes them.
+         */
+        LayoutSize marginBox;
+
+        marginBox.width = LayoutExtentClamp((int64_t)edges.left + (int64_t)size.width +
+                                            (int64_t)edges.right);
+        marginBox.height = LayoutExtentClamp((int64_t)edges.top + (int64_t)size.height +
+                                             (int64_t)edges.bottom);
+        status = LayoutAbsolutePlacementOrigin(place, marginBox, &finalOrigin,
+                                                       walk->diag);
+        if (status != RoboOk) {
+            return status;
+        }
+        marginOrigin = finalOrigin;
+        /*
+         * And the displacement record is the cleared one, because a box that is out of flow
+         * has no flow position for a caller to recover (`RoboLayoutPosition.h`): the field
+         * exists so that "where flow put it" is never guessed, and for this box the answer is
+         * that flow did not put it anywhere.
+         */
+        LayoutPositionOffsetInit(&positionOffset);
+    } else {
+        status = LayoutPositionResolve(&declaredPosition, &positionOffset, walk->diag);
+        if (status != RoboOk) {
+            return status;
+        }
+        status = LayoutPositionApply(marginOrigin, &positionOffset, &finalOrigin,
+                                            walk->diag);
+        if (status != RoboOk) {
+            return status;
+        }
     }
     status = LayoutResultSetGeometry(&object->result, finalOrigin, size,
                                              walk->diag);
@@ -753,6 +878,62 @@ static Result LayoutBlockBox(LayoutWalk *walk,
         }
     }
 
+    /*
+     * Phase 14.0: and the boxes this one contains **out of flow** -- placed here, at the end
+     * of this call, and the position in the pass is forced rather than tidy:
+     *
+     *   every one of them needs this box's **final** size, because a far-anchored or stretched
+     *   descendant resolves against it, and its size is only final once the height above has
+     *   been resolved;
+     *
+     *   and none of them can influence this box's flow geometry, which is the point of them
+     *   being out of flow at all -- so placing them last cannot change a single in-flow number
+     *   that has already been computed.
+     *
+     * The containing block a descendant is placed against is this box's **padding box** (CSS's
+     * rule), which is the border box less the four borders, positioned at the border box's
+     * origin plus the top and left borders.
+     *
+     * What this deliberately does *not* do is fold an out-of-flow descendant's region into this
+     * box's overflow record (10.13), which was measured above: a document that hangs a floating
+     * panel out of a container it overflows is not counted as overflowing its container. That is
+     * the scrollable-overflow question a scrollport exists to answer, and it is a later phase's
+     * along with the stack that would reorder these boxes for paint.
+     */
+    if (CssPositioningIsPositioned(declaredPosition.mode)) {
+        LayoutAbsoluteContainingBlock cb;
+
+        /*
+         * The two numbers that place a descendant, and the sign of the first is the thing to
+         * get right: the containing block is the **padding box**, and every coordinate this
+         * pass writes is relative to the box's **content** edge -- `LayoutBlockChildren`
+         * hands a child a cursor that starts at the content origin, so a child's stored
+         * position is content-relative however far in its own padding pushed it.
+         *
+         * The padding box **origin** expressed in that same space is therefore
+         * `-padding-left` / `-padding-top`: the padding box begins exactly where the padding
+         * does. (A border is not in this number at all, and that falls out rather than being
+         * suppressed: the content origin is already inside the border, so the two edges differ
+         * by the padding and by nothing else.) The padding box **size** is the content size
+         * plus the padding on each axis, which is the same number as the border box less the
+         * borders -- two spellings of one box, and this is the one that needs no clamp.
+         */
+        cb.origin.x = LayoutExtentClamp(-(int64_t)padding.left);
+        cb.origin.y = LayoutExtentClamp(-(int64_t)padding.top);
+        cb.size.width = LayoutExtentClamp((int64_t)contentSize.width +
+                                          (int64_t)padding.left + (int64_t)padding.right);
+        cb.size.height = LayoutExtentClamp((int64_t)contentSize.height +
+                                           (int64_t)padding.top + (int64_t)padding.bottom);
+        /* This box is a containing block because *it* is positioned, not because it is the
+         * viewport -- the flag separates the two, and a descendant that is `fixed` overrides
+         * it rather than inheriting it. */
+        cb.initial = 0;
+        status = LayoutBlockPlaceDescendants(walk, object, cb);
+        if (status != RoboOk) {
+            return status;
+        }
+    }
+
     walk->block->blocksPlaced++;
     if (object->depth > walk->block->depthMax) {
         walk->block->depthMax = object->depth;
@@ -797,6 +978,125 @@ static Result LayoutBlockBox(LayoutWalk *walk,
      */
     *outHeight = LayoutExtentClamp((int64_t)edges.top + (int64_t)size.height +
                                       (int64_t)edges.bottom);
+    return RoboOk;
+}
+
+/* ------------------------------------------------------------------ */
+/* Out-of-flow placement (Phase 14.0)                                  */
+/* ------------------------------------------------------------------ */
+
+static Result LayoutBlockPlaceOutOfFlow(LayoutWalk *walk,
+                                                 LayoutNodeId id,
+                                                 const LayoutPosition *declared,
+                                                 LayoutAbsoluteContainingBlock cb)
+{
+    const LayoutObject *object = LayoutObjectSlotConst(walk->tree, id);
+    LayoutAbsolutePlacement placement;
+    LayoutAbsoluteCounters counters;
+    LayoutDimension declaredWidth;
+    LayoutDimension declaredHeight;
+    LayoutPoint origin;
+    GfxPixelY height = 0;
+    Result status;
+
+    if (!object) {
+        return RoboLayoutDiag(walk->diag, RoboLayoutDomainAbsolute, RoboError,
+                                "an out-of-flow box vanished under the pass");
+    }
+
+    /*
+     * The two dimensions the box declared, read through 10.8's own door -- the same reader an
+     * in-flow box's width and height go through, so that "declared, `auto` or unusable" cannot
+     * be answered two ways in one pass.
+     */
+    LayoutAbsoluteCountersInit(&counters);
+    LayoutDimensionInit(&declaredWidth);
+    LayoutDimensionInit(&declaredHeight);
+    (void)LayoutSizingReadDimension(object->style, "width", &declaredWidth);
+    (void)LayoutSizingReadDimension(object->style, "height", &declaredHeight);
+
+    status = LayoutAbsolutePlacementBuild(declared, &cb, &declaredWidth, &declaredHeight,
+                                                     &placement, &counters, walk->diag);
+    if (status != RoboOk) {
+        return status;
+    }
+
+    /*
+     * The origin is a **placeholder**, and that is the phase's shape rather than a shortcut: an
+     * out-of-flow box derives its own from `placement` once its size is known (`right: 8px`
+     * needs the box's width), so the number handed to the box here is never read. It is
+     * initialised rather than left uninitialised for the reason every record in this pass is.
+     */
+    origin.x = 0;
+    origin.y = 0;
+    status = LayoutBlockBox(walk, id, origin, placement.availableWidth, &placement,
+                                   &height);
+    if (status != RoboOk) {
+        return status;
+    }
+    /* An out-of-flow box contributes nothing to any flow, so the extent this call reports is
+     * deliberately not read here -- the assertion is that it is not, which is why the variable
+     * exists at all: the box's own `auto` height depends on its contents, and that is inside
+     * the call above. */
+    (void)height;
+
+    walk->block->absolute.boxesOutOfFlow++;
+    walk->block->absolute.sidesUsed += counters.sidesUsed;
+    walk->block->absolute.sidesAuto += counters.sidesAuto;
+    walk->block->absolute.sidesUnresolved += counters.sidesUnresolved;
+    walk->block->absolute.axesFromInsets += counters.axesFromInsets;
+    walk->block->absolute.axesAnchoredFar += counters.axesAnchoredFar;
+    if (cb.initial) {
+        walk->block->absolute.viewportAnchored++;
+    }
+    return RoboOk;
+}
+
+static Result LayoutBlockPlaceDescendants(LayoutWalk *walk,
+                                                   const LayoutObject *owner,
+                                                   LayoutAbsoluteContainingBlock cb)
+{
+    LayoutNodeId child;
+
+    if (!owner) {
+        return RoboLayoutDiag(walk->diag, RoboLayoutDomainAbsolute, RoboError,
+                                "an out-of-flow walk was handed no box");
+    }
+    child = owner->firstChild;
+    while (child != RoboLayoutNodeIdNone) {
+        const LayoutObject *childObject = LayoutObjectSlotConst(walk->tree, child);
+        LayoutPosition childPosition;
+        Result status;
+
+        if (!childObject) {
+            return RoboLayoutDiag(walk->diag, RoboLayoutDomainAbsolute, RoboError,
+                                    "a box's child link names no box in this tree");
+        }
+        LayoutPositionInit(&childPosition);
+        childPosition = LayoutPositionOf(childObject->style);
+
+        if (LayoutAbsoluteIsOutOfFlow(&childPosition)) {
+            /* `fixed` is placed against the **initial** containing block whatever ancestor
+             * found it; an `absolute` box is placed against the one it was walked in. */
+            LayoutAbsoluteContainingBlock target = cb;
+
+            if (LayoutAbsoluteIsViewportAnchored(&childPosition)) {
+                target = walk->viewportBlock;
+            }
+            status = LayoutBlockPlaceOutOfFlow(walk, child, &childPosition, target);
+            if (status != RoboOk) {
+                return status;
+            }
+        } else if (!CssPositioningIsPositioned(childPosition.mode)) {
+            /* A static (or sticky, which is in flow) box is transparent to *containment*: its
+             * out-of-flow descendants belong to the same containing block this walk is carrying. */
+            status = LayoutBlockPlaceDescendants(walk, childObject, cb);
+            if (status != RoboOk) {
+                return status;
+            }
+        }
+        child = childObject->NextSibling;
+    }
     return RoboOk;
 }
 
@@ -930,6 +1230,15 @@ Result LayoutBlockLayout(LayoutTree *tree,
      */
     walk.text = outTextStats ? outTextStats : &textScratch;
     walk.textMetrics = textMetrics;
+    /*
+     * The **initial containing block** (Phase 14.0), recorded here for the reason the viewport
+     * is an argument to this pass at all: it is an input to one pass rather than a fact about
+     * the document, and an out-of-flow box is placed against it when no ancestor is positioned.
+     */
+    walk.viewportBlock.origin.x = 0;
+    walk.viewportBlock.origin.y = 0;
+    walk.viewportBlock.size = viewport;
+    walk.viewportBlock.initial = 1;
     walk.diag = diag;
 
     /*
@@ -941,10 +1250,46 @@ Result LayoutBlockLayout(LayoutTree *tree,
     origin.y = 0;
     {
         Result status = LayoutBlockBox(&walk, root, origin,
-                                               (int32_t)viewport.width, &height);
+                                               (int32_t)viewport.width, NULL, &height);
 
         if (status != RoboOk) {
             return status;
+        }
+    }
+
+    /*
+     * And the boxes whose containing block is the **initial** one (Phase 14.0): a `fixed` box,
+     * always, and an `absolute` box whose ancestors are all static.
+     *
+     * Asked here, after the root's own call, because a static root has no containing-block
+     * identity of its own to hand them -- the viewport is what they resolve against -- and
+     * asked *before* the `unreached` difference below, because these are boxes this pass placed
+     * and a difference computed first would count every one of them as unreached.
+     *
+     * A **positioned** root is skipped deliberately: it placed its own descendants in its own
+     * call, and the walk does not descend into a positioned box, so asking here as well would
+     * resolve nothing twice -- but it would also mean two places deciding which containing
+     * block an absolutely positioned box gets.
+     */
+    {
+        const LayoutObject *rootObject = LayoutObjectSlotConst(tree, root);
+
+        if (rootObject &&
+            !CssPositioningIsPositioned(LayoutPositionOf(rootObject->style).mode)) {
+            Result status;
+            /*
+             * And the initial containing block is the **viewport**: the root box's containing
+             * block, with the size the pass was handed and its origin at the root element's
+             * content edge -- which is the space every coordinate this pass writes is expressed
+             * in (see the containing-block note above). The two coincide whenever the root
+             * element has no padding, which is every document this build ships, and the rule is
+             * *one* rule for every `fixed` box rather than one before the root's call and
+             * another after it: a single rectangle recorded once at the top of the pass.
+             */
+            status = LayoutBlockPlaceDescendants(&walk, rootObject, walk.viewportBlock);
+            if (status != RoboOk) {
+                return status;
+            }
         }
     }
 

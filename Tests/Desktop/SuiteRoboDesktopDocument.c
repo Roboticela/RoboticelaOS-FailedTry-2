@@ -16,6 +16,8 @@
 #include "RoboDesktopTestSupport.h"
 #include "RoboTypographyTestSupport.h"
 
+#include "RoboDesktop/RoboDesktopScene.h"
+
 static const char *DOC_HTML =
     "<html><body><div class='card'><p>Hello from RoboticelaOS Runtime</p></div></body></html>";
 static const char *DOC_CSS =
@@ -240,8 +242,66 @@ static void TestDocumentDestroyReleases(void)
     RoboCheckEqInt((int)DesktopLiveBlocks(), (int)baseline);
 }
 
+/*
+ * The compiled page, as a document.
+ *
+ * This is the artifact test the phase asks for rather than a test of the *source*: the markup and the
+ * sheet come from `Generated/DesktopPage.h`, which is what the guest builds its desktop from, so a
+ * markup change that reaches the image without reaching a test would fail here first.
+ */
+static void TestDocumentShippedPage(void)
+{
+    DesktopDocumentConfig config;
+    DesktopDocument *document = NULL;
+    DesktopDocumentReport report;
+    DesktopDiag docDiag;
+    const PaintDisplayList *list;
+
+    DesktopFixture();
+    DesktopDocumentConfigInit(&config);
+    config.html = DesktopSceneMarkup();
+    config.css = DesktopSceneStyle();
+    config.width = 1024;
+    config.height = 768;
+
+    /*
+     * The page builds — and this is not a formality. The shell's own page is a *fixed* window layer
+     * holding *absolutely positioned* window slots, and the classification pass refused it outright
+     * until Phase 14.0 learned that an out-of-flow block container establishes a block context of its
+     * own (`layout.absolute.block_child_of_positioned` is the unit case). A page that reaches the image
+     * without reaching this case is a page nobody laid out.
+     */
+    docDiag.code = RoboOk;
+    docDiag.message = NULL;
+    RoboCheckEqInt(DesktopDocumentBuild(&config, &document, &docDiag), RoboOk);
+    RoboCheckMsg(document != NULL, docDiag.message ? docDiag.message : "no diagnostic");
+    RoboCheckEqInt(GetDesktopDocumentReport(document, &report), RoboOk);
+    RoboCheckEqInt(DesktopDocumentViewport(document).width, 1024);
+    RoboCheckEqInt(DesktopDocumentViewport(document).height, 768);
+
+    /*
+     * The picture is the whole page rather than a fragment of it, which is what the numbers are for:
+     * every element the markup names becomes a box, the page's text is laid out, and the paint pass
+     * produces an operation for each placed box. The floors are deliberately far below the counts this
+     * build produces (~85 boxes, ~300 commands) so that adding a component does not break the case,
+     * while a regression to "the root box and nothing else" — the shape the classification defect left
+     * behind, three commands for eighty-five boxes — fails loudly.
+     */
+    RoboCheck(report.elements >= 60u);
+    RoboCheckEqInt((int)report.boxes, (int)report.elements);
+    RoboCheck(report.texts >= 10u);
+    RoboCheck(report.records >= 100u);
+    list = DesktopDocumentDisplayList(document);
+    RoboCheck(list != NULL);
+    RoboCheck(PaintDisplayListCount(list) >= 100u);
+    RoboCheckEqInt((int)report.commands, (int)PaintDisplayListCount(list));
+
+    DesktopDocumentDestroy(document);
+}
+
 void TestRegisterDesktopDocument(void)
 {
+    TestRegister("desktop.document.shipped_page", TestDocumentShippedPage);
     TestRegister("desktop.document.build_report", TestDocumentBuildReport);
     TestRegister("desktop.document.build_refusals", TestDocumentBuildRefusals);
     TestRegister("desktop.document.without_style", TestDocumentWithoutStyle);

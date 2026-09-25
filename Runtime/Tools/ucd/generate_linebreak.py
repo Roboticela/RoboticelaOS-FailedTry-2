@@ -172,7 +172,7 @@ def main() -> int:
     h.append("} robo_line_range8_t;")
     h.append("")
     h.append(
-        "robo_unicode_line_break_class_t robo_line_break_property_raw(robo_uchar32_t cp);"
+        "robo_unicode_line_break_class_t robo_line_break_property_raw(Uchar32 cp);"
     )
     h.append("")
     h.append("#ifdef __cplusplus")
@@ -197,7 +197,7 @@ def main() -> int:
     c.append(f"static const size_t robo_line_lb_ranges_count = {len(ranges)};")
     c.append(
         r"""
-robo_unicode_line_break_class_t robo_line_break_property_raw(robo_uchar32_t cp)
+robo_unicode_line_break_class_t robo_line_break_property_raw(Uchar32 cp)
 {
     size_t lo = 0, hi = robo_line_lb_ranges_count;
     while (lo < hi) {
@@ -247,7 +247,7 @@ robo_unicode_line_break_class_t robo_line_break_property_raw(robo_uchar32_t cp)
             "/* Auto-generated from LineBreakTest.txt — DO NOT EDIT. */",
             f"/* Unicode {UCD_VERSION}, {len(cases)} cases */",
             "typedef struct robo_line_conf_case {",
-            "    const robo_uchar32_t *cps;",
+            "    const Uchar32 *cps;",
             "    const unsigned char *breaks;",
             "    unsigned cp_count;",
             "} robo_line_conf_case_t;",
@@ -261,7 +261,7 @@ robo_unicode_line_break_class_t robo_line_break_property_raw(robo_uchar32_t cp)
             br_pool.extend(brs)
             br_pool.append(255)
 
-        lines.append("static const robo_uchar32_t robo_line_conf_cps[] = {")
+        lines.append("static const Uchar32 robo_line_conf_cps[] = {")
         for i in range(0, len(cp_pool), 8):
             chunk = cp_pool[i : i + 8]
             lines.append("    " + ", ".join(f"0x{x:08X}u" for x in chunk) + ",")

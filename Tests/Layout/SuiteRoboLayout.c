@@ -43,10 +43,10 @@ static void TestModuleVersion(void)
     I32 patch = -1;
 
     RoboCheckEqInt(RoboLayoutVersionMajor, 0);
-    RoboCheckEqInt(RoboLayoutVersionMinor, 16);
+    RoboCheckEqInt(RoboLayoutVersionMinor, 17);
     RoboCheckEqInt(RoboLayoutVersionPatch, 0);
-    RoboCheckStrEq(RoboLayoutVersionString, "0.16.0");
-    RoboCheckStrEq(LayoutVersionString(), "0.16.0");
+    RoboCheckStrEq(RoboLayoutVersionString, "0.17.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.17.0");
 
     RoboCheckEqInt(LayoutGetVersion(&major, &minor, &patch), RoboOk);
     RoboCheckEqInt(major, RoboLayoutVersionMajor);
@@ -120,6 +120,7 @@ static const struct {
     { "padding", 1 },
     { "border", 1 },
     { "position", 1 },
+    { "out_of_flow", 1 },
     { "overflow", 1 },
     { "invalidation", 1 },
     { "font_request", 1 },
@@ -313,7 +314,7 @@ static void TestModuleDiagnosticDomains(void)
     size_t index;
     size_t seen[RoboLayoutDomainCount];
 
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 22);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 23);
     RoboCheckEqInt((int)RoboLayoutDomainNone, 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainTextLayout), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainSizing), 1);
@@ -323,7 +324,7 @@ static void TestModuleDiagnosticDomains(void)
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainPosition), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainOverflow), 1);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown(RoboLayoutDomainInvalidation), 1);
-    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)22), 0);
+    RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)23), 0);
     RoboCheckEqInt(LayoutDiagnosticDomainIsKnown((LayoutDiagnosticDomain)200), 0);
 
     /* Every enumerator answers, every name is non-NULL, and no two names are the
@@ -388,7 +389,12 @@ static void TestModuleDiagnosticDomains(void)
      * slotting beside the geometry domains whose conclusions it expires. */
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainInvalidation),
                       "invalidation");
-    RoboCheckEqInt((int)RoboLayoutDomainInvalidation,
+    /* 14.0's, and it is the newest for a stated reason: placing a box out of flow is a
+     * question about *containment* rather than about a box's own geometry, which is why it
+     * ends the list rather than slotting beside the layers it reads (the insets, the sizing,
+     * the overflow it deliberately does not fold in). */
+    RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainAbsolute), "absolute");
+    RoboCheckEqInt((int)RoboLayoutDomainAbsolute,
                       (int)RoboLayoutDomainCount - 1);
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,
                       (int)RoboLayoutDomainInvalidation - 1);
@@ -587,7 +593,7 @@ static void TestModuleAllocatorBalance(void)
         RoboCheckEqInt(LayoutGetVersion(&caps.objectModel, &caps.constraints,
                                                   &caps.resultModel),
                           RoboOk);
-        RoboCheckStrEq(LayoutVersionString(), "0.16.0");
+        RoboCheckStrEq(LayoutVersionString(), "0.17.0");
         RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
         memset(buffer, 0, sizeof(buffer));
         strncpy(buffer, LayoutObjectKindName(RoboLayoutObjectBox),

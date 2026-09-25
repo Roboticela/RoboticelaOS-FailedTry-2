@@ -179,12 +179,12 @@ static void TestWordConformance(void)
     size_t fail = 0;
     const size_t maxReport = 8u;
 
-    RoboCheck(WordConfCasesCount > 0u);
-    for (ci = 0; ci < WordConfCasesCount; ci++) {
-        const WordConfCase *c = &WordConfCases[ci];
+    RoboCheck(robo_word_conf_cases_count > 0u);
+    for (ci = 0; ci < robo_word_conf_cases_count; ci++) {
+        const robo_word_conf_case_t *c = &robo_word_conf_cases[ci];
         size_t i;
-        for (i = 0; i < c->cpCount; i++) {
-            int got = IsUnicodeWordBreak(c->cps, c->cpCount, i);
+        for (i = 0; i < c->cp_count; i++) {
+            int got = IsUnicodeWordBreak(c->cps, c->cp_count, i);
             int want = c->breaks[i] ? 1 : 0;
             if (got != want) {
                 fail++;

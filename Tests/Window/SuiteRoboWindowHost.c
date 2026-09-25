@@ -577,6 +577,7 @@ static void TestHostKeyboard(void)
     WindowId id = RoboWindowIdNone;
     WindowConfig cfg;
     WindowEvent ev;
+    Result focus;
     int sawDown = 0;
     int sawUp = 0;
 #if defined(RoboWindowHasWin32) && RoboWindowHasWin32
@@ -588,7 +589,14 @@ static void TestHostKeyboard(void)
     }
 
     RoboCheckEqInt(WindowShow(id), RoboOk);
-    RoboCheckEqInt(WindowRequestFocus(id), RoboOk);
+    /*
+     * Focus is the one door the OS may decline without faking success — the rule `window.host.focus_display`
+     * already states — and a session that declines it has no window for injected input to land in. The case
+     * therefore uses the *synthesized* path below rather than sending real keystrokes into whatever happens
+     * to be focused, which is the same path a stolen focus takes.
+     */
+    focus = WindowRequestFocus(id);
+    RoboCheck(focus == RoboOk || focus == RoboNotSupported);
     RoboCheckEqInt(WindowEventLoopRunOnce(0), RoboOk);
     while (WindowEventPoll(&ev) == RoboOk) {
     }
@@ -600,7 +608,7 @@ static void TestHostKeyboard(void)
     inputs[1].type = INPUT_KEYBOARD;
     inputs[1].ki.wVk = 'A';
     inputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-    if (SendInput(2, inputs, sizeof(INPUT)) == 2) {
+    if (focus == RoboOk && SendInput(2, inputs, sizeof(INPUT)) == 2) {
         HostPumpBrief(100);
         while (WindowEventPoll(&ev) == RoboOk) {
             if (ev.windowId == id && ev.type == RoboWindowEventKeyDown &&
@@ -667,6 +675,7 @@ static void TestHostMouse(void)
     WindowId id = RoboWindowIdNone;
     WindowConfig cfg;
     WindowEvent ev;
+    Result focus;
     int sawMove = 0;
     int sawDown = 0;
     int sawUp = 0;
@@ -681,7 +690,10 @@ static void TestHostMouse(void)
     }
 
     RoboCheckEqInt(WindowShow(id), RoboOk);
-    RoboCheckEqInt(WindowRequestFocus(id), RoboOk);
+    /* The same rule as `window.host.keyboard`: a declined focus means no window for injected input, so the
+     * synthesized path below carries the case rather than real mouse input reaching whatever is focused. */
+    focus = WindowRequestFocus(id);
+    RoboCheck(focus == RoboOk || focus == RoboNotSupported);
     RoboCheckEqInt(WindowEventLoopRunOnce(0), RoboOk);
     while (WindowEventPoll(&ev) == RoboOk) {
     }
@@ -700,7 +712,7 @@ static void TestHostMouse(void)
     inputs[3].type = INPUT_MOUSE;
     inputs[3].mi.dwFlags = MOUSEEVENTF_WHEEL;
     inputs[3].mi.mouseData = 120;
-    if (SendInput(4, inputs, sizeof(INPUT)) == 4) {
+    if (focus == RoboOk && SendInput(4, inputs, sizeof(INPUT)) == 4) {
         HostPumpBrief(120);
         while (WindowEventPoll(&ev) == RoboOk) {
             if (ev.windowId != id) {

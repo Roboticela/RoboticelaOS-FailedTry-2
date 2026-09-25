@@ -95,6 +95,8 @@ const char *LayoutDiagnosticDomainName(LayoutDiagnosticDomain domain)
         return "overflow";
     case RoboLayoutDomainInvalidation:
         return "invalidation";
+    case RoboLayoutDomainAbsolute:
+        return "absolute";
     default:
         return "unknown";
     }

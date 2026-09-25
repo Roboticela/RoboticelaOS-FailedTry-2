@@ -186,20 +186,20 @@ static void TestNormConformance(void)
     size_t fail = 0;
     const size_t maxReport = 8u;
 
-    RoboCheck(NormConfCasesCount > 0u);
+    RoboCheck(robo_norm_conf_cases_count > 0u);
 
-    for (i = 0; i < NormConfCasesCount; i++) {
-        const NormConfCase *c = &NormConfCases[i];
+    for (i = 0; i < robo_norm_conf_cases_count; i++) {
+        const robo_norm_conf_case_t *c = &robo_norm_conf_cases[i];
         const struct {
             UnicodeNormForm form;
             const char *want;
             unsigned wantLen;
             const char *label;
         } forms[4] = {
-            {RoboUnicodeNormNfc, c->nfc, c->nfcLen, "NFC"},
-            {RoboUnicodeNormNfd, c->nfd, c->nfdLen, "NFD"},
-            {RoboUnicodeNormNfkc, c->nfkc, c->nfkcLen, "NFKC"},
-            {RoboUnicodeNormNfkd, c->nfkd, c->nfkdLen, "NFKD"},
+            {RoboUnicodeNormNfc, c->nfc, c->nfc_len, "NFC"},
+            {RoboUnicodeNormNfd, c->nfd, c->nfd_len, "NFD"},
+            {RoboUnicodeNormNfkc, c->nfkc, c->nfkc_len, "NFKC"},
+            {RoboUnicodeNormNfkd, c->nfkd, c->nfkd_len, "NFKD"},
         };
         size_t f;
         /* UAX #15: for each form X, X == toX(source) == toX(toX(source))
@@ -215,12 +215,12 @@ static void TestNormConformance(void)
             char *o = NULL;
             size_t ol = 0;
             if (UnicodeNormalizeUtf8(c->src,
-                                            c->srcLen,
+                                            c->src_len,
                                             RoboUnicodeNormNfc,
                                             RoboUnicodeStrict,
                                             &o,
                                             &ol) != RoboOk ||
-                !Utf8Eq(o, ol, c->nfc, c->nfcLen)) {
+                !Utf8Eq(o, ol, c->nfc, c->nfc_len)) {
                 fail++;
                 if (fail <= maxReport) {
                     TestFail(__FILE__,
@@ -233,12 +233,12 @@ static void TestNormConformance(void)
             RoboFree(o);
             o = NULL;
             if (UnicodeNormalizeUtf8(c->src,
-                                            c->srcLen,
+                                            c->src_len,
                                             RoboUnicodeNormNfd,
                                             RoboUnicodeStrict,
                                             &o,
                                             &ol) != RoboOk ||
-                !Utf8Eq(o, ol, c->nfd, c->nfdLen)) {
+                !Utf8Eq(o, ol, c->nfd, c->nfd_len)) {
                 fail++;
                 if (fail <= maxReport) {
                     TestFail(__FILE__,
@@ -251,12 +251,12 @@ static void TestNormConformance(void)
             RoboFree(o);
             o = NULL;
             if (UnicodeNormalizeUtf8(c->src,
-                                            c->srcLen,
+                                            c->src_len,
                                             RoboUnicodeNormNfkc,
                                             RoboUnicodeStrict,
                                             &o,
                                             &ol) != RoboOk ||
-                !Utf8Eq(o, ol, c->nfkc, c->nfkcLen)) {
+                !Utf8Eq(o, ol, c->nfkc, c->nfkc_len)) {
                 fail++;
                 if (fail <= maxReport) {
                     TestFail(__FILE__,
@@ -269,12 +269,12 @@ static void TestNormConformance(void)
             RoboFree(o);
             o = NULL;
             if (UnicodeNormalizeUtf8(c->src,
-                                            c->srcLen,
+                                            c->src_len,
                                             RoboUnicodeNormNfkd,
                                             RoboUnicodeStrict,
                                             &o,
                                             &ol) != RoboOk ||
-                !Utf8Eq(o, ol, c->nfkd, c->nfkdLen)) {
+                !Utf8Eq(o, ol, c->nfkd, c->nfkd_len)) {
                 fail++;
                 if (fail <= maxReport) {
                     TestFail(__FILE__,

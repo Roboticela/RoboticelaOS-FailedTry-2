@@ -176,13 +176,13 @@ static void TestGraphemeConformance(void)
     size_t fail = 0;
     const size_t maxReport = 8u;
 
-    RoboCheck(GraphemeConfCasesCount > 0u);
+    RoboCheck(robo_grapheme_conf_cases_count > 0u);
 
-    for (ci = 0; ci < GraphemeConfCasesCount; ci++) {
-        const GraphemeConfCase *c = &GraphemeConfCases[ci];
+    for (ci = 0; ci < robo_grapheme_conf_cases_count; ci++) {
+        const robo_grapheme_conf_case_t *c = &robo_grapheme_conf_cases[ci];
         size_t i;
-        for (i = 0; i < c->cpCount; i++) {
-            int got = IsUnicodeGraphemeBreak(c->cps, c->cpCount, i);
+        for (i = 0; i < c->cp_count; i++) {
+            int got = IsUnicodeGraphemeBreak(c->cps, c->cp_count, i);
             int want = c->breaks[i] ? 1 : 0;
             if (got != want) {
                 fail++;

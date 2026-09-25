@@ -1,0 +1,16 @@
+# RoboText shaping conformance corpus (Phase 12.23).
+# One line per sample: label scalars runs glyphs clusters width height missing scripts...
+latin 25 1 25 25 176.176 0.000 0 Latn
+latin.extended 10 1 10 10 72.432 0.000 0 Latn
+latin.decomposed 5 1 5 4 27.504 0.000 0 Latn
+greek 6 1 6 6 54.592 0.000 0 Grek
+cyrillic 6 1 6 6 59.936 0.000 0 Cyrl
+mixed.scripts 39 3 39 39 305.520 0.000 0 Grek Cyrl Latn
+ligature 6 1 4 4 32.128 0.000 0 Latn
+kerning 2 1 2 2 11.888 0.000 0 Latn
+arabic 5 1 5 5 40.960 0.000 0 Arab
+arabic.mixed 17 4 17 17 127.600 0.000 0 Latn Arab Arab Latn
+indic 3 1 1 1 11.200 0.000 0 Deva
+indic.word 5 1 5 3 24.000 0.000 0 Deva
+vertical.cjk 2 1 2 2 0.000 32.384 0 Hani
+vertical.mark 2 1 2 1 0.000 16.096 0 Hira

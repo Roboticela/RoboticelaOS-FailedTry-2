@@ -127,6 +127,7 @@
 #include <stdint.h>
 
 #include "RoboBase/RoboError.h"
+#include "RoboLayout/RoboLayoutAbsolute.h"
 
 #include "RoboLayout/RoboLayoutDiagnostics.h"
 #include "RoboLayout/RoboLayoutGeometry.h"
@@ -271,21 +272,36 @@ typedef struct LayoutBlockStats {
      *  because an `auto` inset says nothing. */
     size_t offsetsApplied;
     /** Sides whose inset this phase **did not act on** (10.12): the box is `static`, and
-     *  CSS does not apply an offset to one, or its mode is one this build does not move
-     *  (`absolute`, `fixed`, `sticky`). The mode is on the document and tells the two
-     *  apart; this counter says the declarations were there and were not used. It is the
-     *  one that separates a `static` box with four insets from a `relative` box with none
-     *  -- two documents whose displacement is the same zero. */
+     *  CSS does not apply an offset to one, or its mode is `sticky`, which is in flow and
+     *  takes no offset here until a scrollport exists. The mode is on the document and tells
+     *  the two apart; this counter says the declarations were there and were not used. It is
+     *  the one that separates a `static` box with four insets from a `relative` box with none
+     *  -- two documents whose displacement is the same zero.
+     *
+     *  `absolute` and `fixed` left this bucket in Phase 14.0: they are no longer laid out *in*
+     *  flow, so no displacement is resolved for them at all, and their declarations are counted
+     *  where they are used -- `LayoutBlockStats.absolute`. */
     size_t offsetsDeclined;
     /** Sides declared with an inset this build cannot use -- a percentage, a relative
      *  unit (10.12). Their used value is zero, which is why they are counted: a document
      *  shifted with `left: 10%` lays out flush here, and the count is what says so. */
     size_t offsetsUnresolved;
     /** Boxes given a **non-zero** displacement (10.12): the counter that answers "how much
-     *  of this document did relative positioning move?" in one number. A counter about a
-     *  box rather than about a declaration, like `bordersDrawn` -- and for the same kind
-     *  of reason, since four declarations can resolve and move nothing. */
+     *  of this document did relative positioning move?" in one number. A counter about a     * box rather than about a declaration, like `bordersDrawn` -- and for the same kind
+     * of reason, since four declarations can resolve and move nothing. */
     size_t boxesShifted;
+    /**
+     * The **out-of-flow** work this pass did (Phase 14.0), as one nested record rather than
+     * five more flat fields.
+     *
+     * The five counters in it belong to the phase that produced them and are read together --
+     * how many boxes were taken out of flow, how many of *their* inset declarations were used,
+     * how many axes two insets sized and how many a far side anchored -- so they are kept in
+     * `RoboLayoutAbsolute.h`'s own record beside the doors that define them, exactly as this
+     * record keeps 10.9's through 10.13's counters flat beside theirs. A flat copy here would
+     * be a second definition of the same five numbers, and the two would drift.
+     */
+    LayoutAbsoluteCounters absolute;
     /** Boxes that **clip** something (10.13): at least one axis's used mode is `hidden`.
      *  Counted from the *used* record rather than from the declarations, and counted even
      *  when nothing sticks out -- `overflow: hidden` on a box whose contents fit is a

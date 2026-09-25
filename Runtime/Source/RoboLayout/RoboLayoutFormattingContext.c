@@ -126,7 +126,8 @@ int LayoutFcDisplayCanEstablish(CssDisplay display)
 
 LayoutFcKind LayoutFcEstablishes(CssDisplay display,
                                                  int hasBlockLevelChild,
-                                                 int isRoot)
+                                                 int isRoot,
+                                                 int isOutOfFlow)
 {
     if (!CssDisplayGeneratesBox(display)) {
         /* A display that generates no box has no contents, so there is nothing
@@ -143,6 +144,18 @@ LayoutFcKind LayoutFcEstablishes(CssDisplay display,
         return RoboLayoutFcRoot;
     }
     if (MakeCssDisplayInner(display) == RoboCssDisplayInnerFlowRoot) {
+        return RoboLayoutFcBlock;
+    }
+    /*
+     * Phase 14.0: an out-of-flow block container establishes a block context of its own, before the
+     * transparency question below is asked. CSS 2.1 §9.4.1 lists "absolutely positioned elements"
+     * among the boxes that establish a new block formatting context, and the reason the order
+     * matters here is specific: transparency says "a block-level child participates in whatever I
+     * participate in", which is true of a box *in flow* because its children are laid out in its
+     * parent's flow. An out-of-flow box's children are not: they are laid out inside it, after its
+     * containing block has resolved, so they need a context this box owns.
+     */
+    if (isOutOfFlow && LayoutFcDisplayIsBlockContainer(display)) {
         return RoboLayoutFcBlock;
     }
     if (!LayoutFcDisplayIsBlockContainer(display)) {

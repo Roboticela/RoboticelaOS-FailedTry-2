@@ -273,6 +273,7 @@ void TestRegisterLayoutMargin(void);
 void TestRegisterLayoutPadding(void);
 void TestRegisterLayoutBorder(void);
 void TestRegisterLayoutPosition(void);
+void TestRegisterLayoutAbsolute(void);
 void TestRegisterLayoutOverflow(void);
 void TestRegisterLayoutInvalidation(void);
 void TestRegisterLayoutTree(void);
@@ -630,6 +631,7 @@ int main(int argc, char **argv)
     TestRegisterLayoutPadding();
     TestRegisterLayoutBorder();
     TestRegisterLayoutPosition();
+    TestRegisterLayoutAbsolute();
     TestRegisterLayoutOverflow();
     TestRegisterLayoutInvalidation();
     TestRegisterLayoutTree();

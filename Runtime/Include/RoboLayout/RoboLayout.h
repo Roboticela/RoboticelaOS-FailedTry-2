@@ -293,12 +293,30 @@ typedef struct LayoutCapabilities {
      * nothing), and applied so that a `relative` box is drawn where its offset puts it
      * while its size and its flow contribution are untouched -- so the following sibling
      * starts exactly where it always would have. Kept narrow for the same reason the other
-     * flags are: **`absolute`, `fixed` and `sticky` behaviour does not exist** (their values
-     * and facts do, 9.13; placing against a containing block or a scrollport is 18.5's), no
-     * stacking context or paint order moves, and no percentage inset resolves. `positioning`
+     * flags are: **`sticky` takes no offset here** (in flow, unconstrained, because there is no
+     * scrollport), `absolute` and `fixed` belong to `outOfFlow` below rather than to this flag,
+     * no stacking context or paint order moves, and no percentage inset resolves. `positioning`
      * would be claiming those if it were named for "positioning is finished".
      */
     int positioning;
+    /**
+     * Placing a box **out of flow** against a containing block (14.0). **1** since 14.0.
+     *
+     * A claim about the *build*, and one sentence short enough to be checked: an `absolute` or
+     * `fixed` box is taken out of flow, its containing block is the nearest positioned
+     * ancestor's padding box (or the initial containing block, which every `fixed` box gets),
+     * and both axes are resolved by one policy -- the near side wins, the far side positions the
+     * axis where the near side says nothing, and two opposing insets size the axis between them
+     * when the declared dimension is `auto`.
+     *
+     * Kept narrow for the same reason the other flags are: **nothing is reordered**. `z-index` is
+     * not read, no stacking context exists, paint order is still document order, `sticky` is
+     * still in flow and takes no offset, there is no scrollport, no percentage inset resolves, no
+     * `box-sizing: border-box`, and an out-of-flow *inline-level* box is still placed on its line
+     * by the inline pass. `outOfFlow` would be claiming those if it were named for "positioning is
+     * finished" -- this flag says where a box goes, not what is painted over what.
+     */
+    int outOfFlow;
     /**
      * Measuring what happens when contents do **not** fit: the two overflow axes, the four
      * extents a box's contents reached beyond its padding box, the region they occupy and

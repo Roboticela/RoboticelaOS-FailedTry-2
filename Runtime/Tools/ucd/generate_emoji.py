@@ -263,7 +263,7 @@ def main() -> int:
         "const char *robo_emoji_seq_kind_name(robo_unicode_emoji_seq_kind_t k);",
         "",
         "/** Longest RGI match on code-point array starting at index 0. */",
-        "size_t robo_emoji_trie_match(const robo_uchar32_t *cps, size_t len,",
+        "size_t robo_emoji_trie_match(const Uchar32 *cps, size_t len,",
         "                             robo_unicode_emoji_seq_kind_t *kind_out);",
         "",
         "#ifdef __cplusplus",
@@ -334,7 +334,7 @@ static int robo_emoji_find_child(uint16_t parent, uint32_t cp)
     return -1;
 }
 
-size_t robo_emoji_trie_match(const robo_uchar32_t *cps, size_t len,
+size_t robo_emoji_trie_match(const Uchar32 *cps, size_t len,
                              robo_unicode_emoji_seq_kind_t *kind_out)
 {
     size_t i;

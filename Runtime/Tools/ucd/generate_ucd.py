@@ -532,12 +532,12 @@ def main() -> int:
     h.append("    uint16_t count;")
     h.append("} robo_ucd_scx_set_t;")
     h.append("")
-    h.append("robo_unicode_general_category_t robo_ucd_general_category(robo_uchar32_t cp);")
-    h.append("robo_unicode_script_t robo_ucd_script(robo_uchar32_t cp);")
-    h.append("unsigned robo_ucd_combining_class(robo_uchar32_t cp);")
-    h.append("robo_unicode_east_asian_width_t robo_ucd_east_asian_width(robo_uchar32_t cp);")
+    h.append("robo_unicode_general_category_t robo_ucd_general_category(Uchar32 cp);")
+    h.append("robo_unicode_script_t robo_ucd_script(Uchar32 cp);")
+    h.append("unsigned robo_ucd_combining_class(Uchar32 cp);")
+    h.append("robo_unicode_east_asian_width_t robo_ucd_east_asian_width(Uchar32 cp);")
     for p in BOOL_PROPS:
-        h.append(f"int robo_ucd_is_{p.lower()}(robo_uchar32_t cp);")
+        h.append(f"int robo_ucd_is_{p.lower()}(Uchar32 cp);")
     h.append("const char *robo_ucd_version_string(void);")
     h.append("const char *robo_ucd_general_category_name(robo_unicode_general_category_t gc);")
     h.append("const char *robo_ucd_script_name(robo_unicode_script_t sc);")
@@ -548,12 +548,12 @@ def main() -> int:
     h.append(" * Writes min(count, capacity) entries into @p out when out != NULL.")
     h.append(" * If the code point has no explicit SCX, writes the single Script value.")
     h.append(" */")
-    h.append("size_t robo_ucd_script_extensions(robo_uchar32_t cp,")
+    h.append("size_t robo_ucd_script_extensions(Uchar32 cp,")
     h.append("                                  robo_unicode_script_t *out,")
     h.append("                                  size_t capacity);")
     h.append("")
     h.append("/** 1 if Script_Extensions (or Script if no SCX) includes @p sc. */")
-    h.append("int robo_ucd_has_script(robo_uchar32_t cp, robo_unicode_script_t sc);")
+    h.append("int robo_ucd_has_script(Uchar32 cp, robo_unicode_script_t sc);")
     h.append("")
     h.append("/** ISO 15924 short name (Latn, Arab, Zyyy, …); \"?\" if out of range. */")
     h.append("const char *robo_ucd_script_short_name(robo_unicode_script_t sc);")
@@ -666,7 +666,7 @@ const char *robo_ucd_version_string(void)
     return ROBO_UCD_VERSION_STRING;
 }}
 
-robo_unicode_general_category_t robo_ucd_general_category(robo_uchar32_t cp)
+robo_unicode_general_category_t robo_ucd_general_category(Uchar32 cp)
 {{
     if (cp > ROBO_UCHAR32_MAX) {{
         return ROBO_U_GC_CN;
@@ -675,7 +675,7 @@ robo_unicode_general_category_t robo_ucd_general_category(robo_uchar32_t cp)
         robo_ucd_gc_ranges, robo_ucd_gc_ranges_count, cp, (uint16_t)ROBO_U_GC_CN);
 }}
 
-unsigned robo_ucd_combining_class(robo_uchar32_t cp)
+unsigned robo_ucd_combining_class(Uchar32 cp)
 {{
     if (cp > ROBO_UCHAR32_MAX) {{
         return 0;
@@ -684,7 +684,7 @@ unsigned robo_ucd_combining_class(robo_uchar32_t cp)
         robo_ucd_ccc_ranges, robo_ucd_ccc_ranges_count, cp, 0);
 }}
 
-robo_unicode_script_t robo_ucd_script(robo_uchar32_t cp)
+robo_unicode_script_t robo_ucd_script(Uchar32 cp)
 {{
     if (cp > ROBO_UCHAR32_MAX) {{
         return ROBO_U_SCRIPT_UNKNOWN;
@@ -694,7 +694,7 @@ robo_unicode_script_t robo_ucd_script(robo_uchar32_t cp)
         (uint16_t)ROBO_U_SCRIPT_UNKNOWN);
 }}
 
-robo_unicode_east_asian_width_t robo_ucd_east_asian_width(robo_uchar32_t cp)
+robo_unicode_east_asian_width_t robo_ucd_east_asian_width(Uchar32 cp)
 {{
     if (cp > ROBO_UCHAR32_MAX) {{
         return ROBO_U_EAW_NEUTRAL;
@@ -710,7 +710,7 @@ robo_unicode_east_asian_width_t robo_ucd_east_asian_width(robo_uchar32_t cp)
         fn = p.lower()
         c.append(
             f"""
-int robo_ucd_is_{fn}(robo_uchar32_t cp)
+int robo_ucd_is_{fn}(Uchar32 cp)
 {{
     if (cp > ROBO_UCHAR32_MAX) {{
         return 0;
@@ -796,7 +796,7 @@ robo_unicode_script_t robo_ucd_script_from_name(const char *name)
     return ROBO_U_SCRIPT_UNKNOWN;
 }
 
-size_t robo_ucd_script_extensions(robo_uchar32_t cp,
+size_t robo_ucd_script_extensions(Uchar32 cp,
                                   robo_unicode_script_t *out,
                                   size_t capacity)
 {
@@ -836,7 +836,7 @@ size_t robo_ucd_script_extensions(robo_uchar32_t cp,
     return count;
 }
 
-int robo_ucd_has_script(robo_uchar32_t cp, robo_unicode_script_t sc)
+int robo_ucd_has_script(Uchar32 cp, robo_unicode_script_t sc)
 {
     uint16_t set_idx;
     size_t i;

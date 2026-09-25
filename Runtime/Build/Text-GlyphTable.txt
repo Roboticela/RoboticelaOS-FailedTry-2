@@ -1,0 +1,755 @@
+RoboText glyph table (Phase 12.4; Phase 12.6 script samples)
+  source    System/Fonts/ (the shipped system typeface pack)
+  setting   size=16.0 weight=400 style=normal
+  generation cmap-per-scalar (the placeholder; no substitution, no positioning)
+
+text        hello
+  raw       "Hello RoboticelaOS"
+  input     bytes=18 scalars=18 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,18) lang=-
+  dir[0]    ltr [0,18)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=18 advance=145.05 missing=0
+  g[0]      id=161 scalar=0..1 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=614 scalar=1..2 cluster=1 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=736 scalar=2..3 cluster=2 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=736 scalar=3..4 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=790 scalar=4..5 cluster=4 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=384 scalar=6..7 cluster=6 advance=10.06 units=1318 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=790 scalar=7..8 cluster=7 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=578 scalar=8..9 cluster=8 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=790 scalar=9..10 cluster=9 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=889 scalar=10..11 cluster=10 advance=5.23 units=670 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[11]      id=689 scalar=11..12 cluster=11 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[12]      id=586 scalar=12..13 cluster=12 advance=9.14 units=1170 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[13]      id=614 scalar=13..14 cluster=13 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[14]      id=736 scalar=14..15 cluster=14 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[15]      id=507 scalar=15..16 cluster=15 advance=8.98 units=1150 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[16]      id=321 scalar=16..17 cluster=16 advance=12.23 units=1566 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[17]      id=397 scalar=17..18 cluster=17 advance=10.27 units=1314 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=145.05 ascent=15.50 descent=3.86 line-height=19.36 glyphs=18 missing=0 advance-total=145.05
+
+text        typography
+  raw       "Typography"
+  input     bytes=10 scalars=10 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,10) lang=-
+  dir[0]    ltr [0,10)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=10 advance=90.55 missing=0
+  g[0]      id=411 scalar=0..1 cluster=0 advance=9.33 units=1322 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=998 scalar=1..2 cluster=1 advance=8.99 units=1151 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=843 scalar=2..3 cluster=2 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=790 scalar=3..4 cluster=3 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=658 scalar=4..5 cluster=4 advance=9.81 units=1256 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=852 scalar=5..6 cluster=5 advance=6.02 units=771 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=507 scalar=6..7 cluster=6 advance=8.98 units=1150 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=843 scalar=7..8 cluster=7 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=670 scalar=8..9 cluster=8 advance=9.23 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=998 scalar=9..10 cluster=9 advance=8.99 units=1151 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=90.55 ascent=15.50 descent=3.86 line-height=19.36 glyphs=10 missing=0 advance-total=90.55
+
+text        pangram
+  raw       "The quick brown fox jumps over the lazy dog."
+  input     bytes=44 scalars=44 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,44) lang=-
+  dir[0]    ltr [0,44)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=44 advance=344.43 missing=0
+  g[0]      id=411 scalar=0..1 cluster=0 advance=10.33 units=1322 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=670 scalar=1..2 cluster=1 advance=9.46 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=614 scalar=2..3 cluster=2 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1777 scalar=3..4 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=849 scalar=4..5 cluster=4 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=915 scalar=5..6 cluster=5 advance=9.46 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=689 scalar=6..7 cluster=6 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=586 scalar=7..8 cluster=7 advance=9.14 units=1170 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=727 scalar=8..9 cluster=8 advance=8.78 units=1124 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=1777 scalar=9..10 cluster=9 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=578 scalar=10..11 cluster=10 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[11]      id=852 scalar=11..12 cluster=11 advance=5.76 units=771 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[12]      id=790 scalar=12..13 cluster=12 advance=9.30 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[13]      id=984 scalar=13..14 cluster=13 advance=13.09 units=1676 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[14]      id=773 scalar=14..15 cluster=14 advance=9.45 units=1210 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[15]      id=1777 scalar=15..16 cluster=15 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[16]      id=647 scalar=16..17 cluster=16 advance=5.45 units=758 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[17]      id=790 scalar=17..18 cluster=17 advance=9.23 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[18]      id=993 scalar=18..19 cluster=18 advance=8.73 units=1118 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[19]      id=1777 scalar=19..20 cluster=19 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[20]      id=719 scalar=20..21 cluster=20 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[21]      id=915 scalar=21..22 cluster=21 advance=9.46 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[22]      id=766 scalar=22..23 cluster=22 advance=14.02 units=1794 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[23]      id=843 scalar=23..24 cluster=23 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[24]      id=871 scalar=24..25 cluster=24 advance=8.45 units=1081 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[25]      id=1777 scalar=25..26 cluster=25 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[26]      id=790 scalar=26..27 cluster=26 advance=9.28 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[27]      id=980 scalar=27..28 cluster=27 advance=8.68 units=1151 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[28]      id=614 scalar=28..29 cluster=28 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[29]      id=852 scalar=29..30 cluster=29 advance=6.02 units=771 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[30]      id=1777 scalar=30..31 cluster=30 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[31]      id=889 scalar=31..32 cluster=31 advance=5.23 units=670 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[32]      id=670 scalar=32..33 cluster=32 advance=9.46 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[33]      id=614 scalar=33..34 cluster=33 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[34]      id=1777 scalar=34..35 cluster=34 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[35]      id=736 scalar=35..36 cluster=35 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[36]      id=507 scalar=36..37 cluster=36 advance=8.98 units=1150 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[37]      id=1022 scalar=37..38 cluster=37 advance=8.84 units=1131 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[38]      id=998 scalar=38..39 cluster=38 advance=8.99 units=1151 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[39]      id=1777 scalar=39..40 cluster=39 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[40]      id=597 scalar=40..41 cluster=40 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[41]      id=790 scalar=41..42 cluster=41 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[42]      id=658 scalar=42..43 cluster=42 advance=9.81 units=1256 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[43]      id=1502 scalar=43..44 cluster=43 advance=4.61 units=590 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=344.43 ascent=15.50 descent=3.86 line-height=19.36 glyphs=44 missing=0 advance-total=344.43
+
+text        upper
+  raw       "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  input     bytes=26 scalars=26 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,26) lang=-
+  dir[0]    ltr [0,26)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=26 advance=283.41 missing=0
+  g[0]      id=2 scalar=0..1 cluster=0 advance=11.04 units=1413 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=65 scalar=1..2 cluster=1 advance=10.47 units=1340 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=73 scalar=2..3 cluster=2 advance=11.69 units=1496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=84 scalar=3..4 cluster=3 advance=11.55 units=1478 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=95 scalar=4..5 cluster=4 advance=9.62 units=1231 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=137 scalar=5..6 cluster=5 advance=9.45 units=1209 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=141 scalar=6..7 cluster=6 advance=11.94 units=1528 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=161 scalar=7..8 cluster=7 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=197 scalar=8..9 cluster=8 advance=4.30 units=550 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=266 scalar=9..10 cluster=9 advance=9.13 units=1169 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=271 scalar=10..11 cluster=10 advance=10.75 units=1376 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[11]      id=281 scalar=11..12 cluster=11 advance=9.05 units=1158 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[12]      id=292 scalar=12..13 cluster=12 advance=14.45 units=1850 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[13]      id=300 scalar=13..14 cluster=13 advance=12.05 units=1543 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[14]      id=321 scalar=14..15 cluster=14 advance=12.23 units=1566 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[15]      id=375 scalar=15..16 cluster=15 advance=10.22 units=1308 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[16]      id=382 scalar=16..17 cluster=16 advance=12.23 units=1566 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[17]      id=384 scalar=17..18 cluster=17 advance=10.30 units=1318 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[18]      id=397 scalar=18..19 cluster=18 advance=10.19 units=1314 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[19]      id=411 scalar=19..20 cluster=19 advance=10.33 units=1322 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[20]      id=424 scalar=20..21 cluster=20 advance=11.91 units=1524 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[21]      id=456 scalar=21..22 cluster=21 advance=11.04 units=1413 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[22]      id=459 scalar=22..23 cluster=22 advance=15.77 units=2018 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[23]      id=466 scalar=23..24 cluster=23 advance=10.91 units=1397 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[24]      id=472 scalar=24..25 cluster=24 advance=10.86 units=1390 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[25]      id=496 scalar=25..26 cluster=25 advance=10.06 units=1288 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=283.41 ascent=15.50 descent=3.86 line-height=19.36 glyphs=26 missing=0 advance-total=283.41
+
+text        lower
+  raw       "abcdefghijklmnopqrstuvwxyz"
+  input     bytes=26 scalars=26 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,26) lang=-
+  dir[0]    ltr [0,26)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=26 advance=222.65 missing=0
+  g[0]      id=507 scalar=0..1 cluster=0 advance=8.98 units=1150 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=578 scalar=1..2 cluster=1 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=586 scalar=2..3 cluster=2 advance=9.14 units=1170 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=597 scalar=3..4 cluster=3 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=614 scalar=4..5 cluster=4 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=647 scalar=5..6 cluster=5 advance=5.45 units=758 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=658 scalar=6..7 cluster=6 advance=9.81 units=1256 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=670 scalar=7..8 cluster=7 advance=9.46 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=689 scalar=8..9 cluster=8 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=719 scalar=9..10 cluster=9 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=727 scalar=10..11 cluster=10 advance=8.78 units=1124 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[11]      id=736 scalar=11..12 cluster=11 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[12]      id=766 scalar=12..13 cluster=12 advance=14.02 units=1794 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[13]      id=773 scalar=13..14 cluster=13 advance=9.45 units=1210 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[14]      id=790 scalar=14..15 cluster=14 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[15]      id=843 scalar=15..16 cluster=15 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[16]      id=849 scalar=16..17 cluster=16 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[17]      id=852 scalar=17..18 cluster=17 advance=6.02 units=771 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[18]      id=871 scalar=18..19 cluster=18 advance=8.45 units=1081 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[19]      id=889 scalar=19..20 cluster=19 advance=5.23 units=670 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[20]      id=915 scalar=20..21 cluster=20 advance=9.46 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[21]      id=980 scalar=21..22 cluster=21 advance=8.99 units=1151 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[22]      id=984 scalar=22..23 cluster=22 advance=13.09 units=1676 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[23]      id=993 scalar=23..24 cluster=23 advance=8.73 units=1118 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[24]      id=998 scalar=24..25 cluster=24 advance=8.99 units=1151 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[25]      id=1022 scalar=25..26 cluster=25 advance=8.84 units=1131 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=222.65 ascent=15.50 descent=3.86 line-height=19.36 glyphs=26 missing=0 advance-total=222.65
+
+text        digits
+  raw       "0123456789"
+  input     bytes=10 scalars=10 text-runs=1 script-runs=1
+  run[0]    Zyyy ltr [0,10) lang=-
+  dir[0]    unknown [0,10)
+  base      unknown
+  glyph-run[0] Zyyy ltr glyphs=10 advance=94.64 missing=0
+  g[0]      id=1341 scalar=0..1 cluster=0 advance=10.09 units=1292 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=1342 scalar=1..2 cluster=1 advance=6.51 units=833 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=1343 scalar=2..3 cluster=2 advance=9.76 units=1249 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1345 scalar=3..4 cluster=3 advance=9.88 units=1265 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=1346 scalar=4..5 cluster=4 advance=10.34 units=1323 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1347 scalar=5..6 cluster=5 advance=9.49 units=1215 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=1349 scalar=6..7 cluster=6 advance=9.92 units=1270 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=1350 scalar=7..8 cluster=7 advance=8.83 units=1159 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=1351 scalar=8..9 cluster=8 advance=9.90 units=1267 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=1352 scalar=9..10 cluster=9 advance=9.92 units=1270 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=94.64 ascent=15.50 descent=3.86 line-height=19.36 glyphs=10 missing=0 advance-total=94.64
+
+text        unicode
+  raw       "é Å Ω 中 🙂"
+  input     bytes=17 scalars=9 text-runs=3 script-runs=3
+  run[0]    Latn ltr [0,4) lang=-
+  run[1]    Grek ltr [4,6) lang=-
+  run[2]    Hani ltr [6,9) lang=-
+  dir[0]    ltr [0,9)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=4 advance=29.37 missing=0
+  g[0]      id=618 scalar=0..1 cluster=0 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=1777 scalar=1..2 cluster=1 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=8 scalar=2..3 cluster=2 advance=11.04 units=1413 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1777 scalar=3..4 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Grek ltr glyphs=2 advance=16.82 missing=0
+  g[4]      id=1042 scalar=4..5 cluster=0 advance=12.32 units=1577 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=1 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[2] Hani ltr glyphs=3 advance=25.50 missing=2
+  g[6]      id=0 scalar=6..7 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=1777 scalar=7..8 cluster=1 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=71.69 ascent=15.50 descent=3.86 line-height=19.36 glyphs=9 missing=2 advance-total=71.69
+
+text        greek
+  raw       "γειά"
+  input     bytes=8 scalars=4 text-runs=1 script-runs=1
+  run[0]    Grek ltr [0,4) lang=-
+  dir[0]    ltr [0,4)
+  base      ltr
+  glyph-run[0] Grek ltr glyphs=4 advance=32.62 missing=0
+  g[0]      id=1137 scalar=0..1 cluster=0 advance=8.99 units=1151 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=1139 scalar=1..2 cluster=1 advance=8.59 units=1100 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=1179 scalar=2..3 cluster=2 advance=4.41 units=564 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1111 scalar=3..4 cluster=3 advance=10.63 units=1360 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=32.62 ascent=15.50 descent=3.86 line-height=19.36 glyphs=4 missing=0 advance-total=32.62
+
+text        cyrillic
+  raw       "Привет"
+  input     bytes=12 scalars=6 text-runs=1 script-runs=1
+  run[0]    Cyrl ltr [0,6) lang=-
+  dir[0]    ltr [0,6)
+  base      ltr
+  glyph-run[0] Cyrl ltr glyphs=6 advance=56.97 missing=0
+  g[0]      id=2434 scalar=0..1 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=848 scalar=1..2 cluster=1 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=1262 scalar=2..3 cluster=2 advance=9.46 units=1211 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1254 scalar=3..4 cluster=3 advance=9.04 units=1157 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=641 scalar=4..5 cluster=4 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1280 scalar=5..6 cluster=5 advance=7.45 units=954 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=56.97 ascent=15.50 descent=3.86 line-height=19.36 glyphs=6 missing=0 advance-total=56.97
+
+text        arabic
+  raw       "مرحبا"
+  input     bytes=10 scalars=5 text-runs=1 script-runs=1
+  run[0]    Arab rtl [0,5) lang=-
+  dir[0]    rtl [0,5)
+  base      rtl
+  glyph-run[0] Arab rtl glyphs=5 advance=52.50 missing=5
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=0 scalar=3..4 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=0 scalar=4..5 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=52.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=5 missing=5 advance-total=52.50
+
+text        hebrew
+  raw       "שלום"
+  input     bytes=8 scalars=4 text-runs=1 script-runs=1
+  run[0]    Hebr rtl [0,4) lang=-
+  dir[0]    rtl [0,4)
+  base      rtl
+  glyph-run[0] Hebr rtl glyphs=4 advance=42.00 missing=4
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=0 scalar=3..4 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=42.00 ascent=15.50 descent=3.86 line-height=19.36 glyphs=4 missing=4 advance-total=42.00
+
+text        devanagari
+  raw       "नमस्ते"
+  input     bytes=18 scalars=6 text-runs=1 script-runs=1
+  run[0]    Deva ltr [0,6) lang=-
+  dir[0]    ltr [0,6)
+  base      ltr
+  glyph-run[0] Deva ltr glyphs=6 advance=63.00 missing=6
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=0 scalar=3..4 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-continuation|mark|unsafe-to-break
+  g[4]      id=0 scalar=4..5 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=0 scalar=5..6 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-continuation|mark|unsafe-to-break
+  measures  width=63.00 ascent=15.50 descent=3.86 line-height=19.36 glyphs=6 missing=6 advance-total=63.00
+
+text        bengali
+  raw       "বাংলা"
+  input     bytes=15 scalars=5 text-runs=1 script-runs=1
+  run[0]    Beng ltr [0,5) lang=-
+  dir[0]    ltr [0,5)
+  base      ltr
+  glyph-run[0] Beng ltr glyphs=5 advance=52.50 missing=5
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-continuation|mark|unsafe-to-break
+  g[2]      id=0 scalar=2..3 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-continuation|mark|unsafe-to-break
+  g[3]      id=0 scalar=3..4 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=0 scalar=4..5 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-continuation|mark|unsafe-to-break
+  measures  width=52.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=5 missing=5 advance-total=52.50
+
+text        thai
+  raw       "ไทย"
+  input     bytes=9 scalars=3 text-runs=1 script-runs=1
+  run[0]    Thai ltr [0,3) lang=-
+  dir[0]    ltr [0,3)
+  base      ltr
+  glyph-run[0] Thai ltr glyphs=3 advance=31.50 missing=3
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=31.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=3 missing=3 advance-total=31.50
+
+text        han
+  raw       "中文"
+  input     bytes=6 scalars=2 text-runs=1 script-runs=1
+  run[0]    Hani ltr [0,2) lang=-
+  dir[0]    ltr [0,2)
+  base      ltr
+  glyph-run[0] Hani ltr glyphs=2 advance=21.00 missing=2
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=21.00 ascent=15.50 descent=3.86 line-height=19.36 glyphs=2 missing=2 advance-total=21.00
+
+text        japanese
+  raw       "日本語"
+  input     bytes=9 scalars=3 text-runs=1 script-runs=1
+  run[0]    Hani ltr [0,3) lang=-
+  dir[0]    ltr [0,3)
+  base      ltr
+  glyph-run[0] Hani ltr glyphs=3 advance=31.50 missing=3
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=31.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=3 missing=3 advance-total=31.50
+
+text        korean
+  raw       "한국어"
+  input     bytes=9 scalars=3 text-runs=1 script-runs=1
+  run[0]    Hang ltr [0,3) lang=-
+  dir[0]    ltr [0,3)
+  base      ltr
+  glyph-run[0] Hang ltr glyphs=3 advance=31.50 missing=3
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=31.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=3 missing=3 advance-total=31.50
+
+text        mixed-script
+  raw       "Hello مرحبا 中文"
+  input     bytes=23 scalars=14 text-runs=4 script-runs=3
+  run[0]    Latn ltr [0,6) lang=-
+  run[1]    Arab rtl [6,11) lang=-
+  run[2]    Arab ltr [11,12) lang=-
+  run[3]    Hani ltr [12,14) lang=-
+  dir[0]    ltr [0,6)
+  dir[1]    rtl [6,11)
+  dir[2]    ltr [11,14)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=6 advance=43.06 missing=0
+  g[0]      id=161 scalar=0..1 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=614 scalar=1..2 cluster=1 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=736 scalar=2..3 cluster=2 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=736 scalar=3..4 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=790 scalar=4..5 cluster=4 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Arab rtl glyphs=5 advance=52.50 missing=5
+  g[6]      id=0 scalar=6..7 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=0 scalar=7..8 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[9]      id=0 scalar=9..10 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[10]      id=0 scalar=10..11 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[2] Arab ltr glyphs=1 advance=4.50 missing=0
+  g[11]      id=1777 scalar=11..12 cluster=0 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[3] Hani ltr glyphs=2 advance=21.00 missing=2
+  g[12]      id=0 scalar=12..13 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[13]      id=0 scalar=13..14 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=121.06 ascent=15.50 descent=3.86 line-height=19.36 glyphs=14 missing=7 advance-total=121.06
+
+text        accents
+  raw       "é å"
+  input     bytes=7 scalars=5 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,5) lang=-
+  dir[0]    ltr [0,5)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=3 advance=22.81 missing=0
+  g[0]      id=618 scalar=0..2 cluster=0 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=2 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start|ligature|unsafe-to-concat
+  g[1]      id=1777 scalar=2..3 cluster=1 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=534 scalar=3..5 cluster=2 advance=8.98 units=1150 offset=0.00,0.00 mapped=1 from=2 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start|ligature|unsafe-to-concat
+  measures  width=22.81 ascent=15.50 descent=3.86 line-height=19.36 glyphs=3 missing=0 advance-total=22.81
+
+text        numbers
+  raw       "123 ١٢٣ ๐๑๒"
+  input     bytes=20 scalars=11 text-runs=2 script-runs=2
+  run[0]    Arab ltr [0,8) lang=-
+  run[1]    Thai ltr [8,11) lang=-
+  dir[0]    ltr [0,11)
+  base      ltr
+  glyph-run[0] Arab ltr glyphs=8 advance=66.65 missing=3
+  g[0]      id=1342 scalar=0..1 cluster=0 advance=6.51 units=833 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=1343 scalar=1..2 cluster=1 advance=9.76 units=1249 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=1345 scalar=2..3 cluster=2 advance=9.88 units=1265 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1777 scalar=3..4 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=0 scalar=4..5 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=0 scalar=5..6 cluster=5 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[6]      id=0 scalar=6..7 cluster=6 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=1777 scalar=7..8 cluster=7 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Thai ltr glyphs=3 advance=31.50 missing=3
+  g[8]      id=0 scalar=8..9 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[9]      id=0 scalar=9..10 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[10]      id=0 scalar=10..11 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=98.15 ascent=15.50 descent=3.86 line-height=19.36 glyphs=11 missing=6 advance-total=98.15
+
+text        punctuation
+  raw       "Hello, world! — (2026)"
+  input     bytes=24 scalars=22 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,22) lang=-
+  dir[0]    ltr [0,22)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=22 advance=170.82 missing=0
+  g[0]      id=161 scalar=0..1 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=614 scalar=1..2 cluster=1 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=736 scalar=2..3 cluster=2 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=736 scalar=3..4 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=790 scalar=4..5 cluster=4 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1501 scalar=5..6 cluster=5 advance=4.61 units=590 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=1777 scalar=6..7 cluster=6 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=984 scalar=7..8 cluster=7 advance=12.80 units=1676 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=790 scalar=8..9 cluster=8 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=852 scalar=9..10 cluster=9 advance=6.27 units=771 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=736 scalar=10..11 cluster=10 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[11]      id=597 scalar=11..12 cluster=11 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[12]      id=1427 scalar=12..13 cluster=12 advance=4.60 units=589 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[13]      id=1777 scalar=13..14 cluster=13 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[14]      id=1462 scalar=14..15 cluster=14 advance=16.00 units=2048 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[15]      id=1777 scalar=15..16 cluster=15 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[16]      id=1446 scalar=16..17 cluster=16 advance=5.84 units=747 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[17]      id=1343 scalar=17..18 cluster=17 advance=9.76 units=1249 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[18]      id=1341 scalar=18..19 cluster=18 advance=10.09 units=1292 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[19]      id=1343 scalar=19..20 cluster=19 advance=9.76 units=1249 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[20]      id=1349 scalar=20..21 cluster=20 advance=9.92 units=1270 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[21]      id=1447 scalar=21..22 cluster=21 advance=5.84 units=747 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=170.82 ascent=15.50 descent=3.86 line-height=19.36 glyphs=22 missing=0 advance-total=170.82
+
+text        symbols
+  raw       "© ® ™ → ← ↑ ↓"
+  input     bytes=25 scalars=13 text-runs=1 script-runs=1
+  run[0]    Zyyy ltr [0,13) lang=-
+  dir[0]    unknown [0,13)
+  base      unknown
+  glyph-run[0] Zyyy ltr glyphs=13 advance=119.27 missing=0
+  g[0]      id=1550 scalar=0..1 cluster=0 advance=14.63 units=1872 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=1777 scalar=1..2 cluster=1 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=1549 scalar=2..3 cluster=2 advance=10.66 units=1364 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1777 scalar=3..4 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=1553 scalar=4..5 cluster=4 advance=9.77 units=1251 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=1805 scalar=6..7 cluster=6 advance=15.27 units=1954 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=1777 scalar=7..8 cluster=7 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=1800 scalar=8..9 cluster=8 advance=15.27 units=1954 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=1777 scalar=9..10 cluster=9 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=1818 scalar=10..11 cluster=10 advance=13.34 units=1708 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[11]      id=1777 scalar=11..12 cluster=11 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[12]      id=1819 scalar=12..13 cluster=12 advance=13.34 units=1708 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=119.27 ascent=15.50 descent=3.86 line-height=19.36 glyphs=13 missing=0 advance-total=119.27
+
+text        emoji
+  raw       "😀 🚀 ❤️"
+  input     bytes=16 scalars=6 text-runs=1 script-runs=1
+  run[0]    Zyyy ltr [0,6) lang=-
+  dir[0]    unknown [0,6)
+  base      unknown
+  glyph-run[0] Zyyy ltr glyphs=6 advance=56.86 missing=3
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=1777 scalar=1..2 cluster=1 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1777 scalar=3..4 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=1868 scalar=4..5 cluster=4 advance=16.36 units=2094 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=0 scalar=5..6 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-continuation|mark|unsafe-to-break
+  measures  width=56.86 ascent=15.50 descent=3.86 line-height=19.36 glyphs=6 missing=3 advance-total=56.86
+
+text        dir-mixed-ltr
+  raw       "Hello مرحبا"
+  input     bytes=16 scalars=11 text-runs=2 script-runs=2
+  run[0]    Latn ltr [0,6) lang=-
+  run[1]    Arab rtl [6,11) lang=-
+  dir[0]    ltr [0,6)
+  dir[1]    rtl [6,11)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=6 advance=43.06 missing=0
+  g[0]      id=161 scalar=0..1 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=614 scalar=1..2 cluster=1 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=736 scalar=2..3 cluster=2 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=736 scalar=3..4 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=790 scalar=4..5 cluster=4 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Arab rtl glyphs=5 advance=52.50 missing=5
+  g[6]      id=0 scalar=6..7 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=0 scalar=7..8 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[9]      id=0 scalar=9..10 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[10]      id=0 scalar=10..11 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=95.56 ascent=15.50 descent=3.86 line-height=19.36 glyphs=11 missing=5 advance-total=95.56
+
+text        dir-mixed-rtl
+  raw       "مرحبا Hello"
+  input     bytes=16 scalars=11 text-runs=2 script-runs=2
+  run[0]    Arab rtl [0,6) lang=-
+  run[1]    Latn ltr [6,11) lang=-
+  dir[0]    rtl [0,6)
+  dir[1]    ltr [6,11)
+  base      rtl
+  glyph-run[0] Arab rtl glyphs=6 advance=57.00 missing=5
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=0 scalar=3..4 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=0 scalar=4..5 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Latn ltr glyphs=5 advance=38.56 missing=0
+  g[6]      id=161 scalar=6..7 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=614 scalar=7..8 cluster=1 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=736 scalar=8..9 cluster=2 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=736 scalar=9..10 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=790 scalar=10..11 cluster=4 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=95.56 ascent=15.50 descent=3.86 line-height=19.36 glyphs=11 missing=5 advance-total=95.56
+
+text        dir-hebrew
+  raw       "Hello שלום World"
+  input     bytes=20 scalars=16 text-runs=4 script-runs=3
+  run[0]    Latn ltr [0,6) lang=-
+  run[1]    Hebr rtl [6,10) lang=-
+  run[2]    Hebr ltr [10,11) lang=-
+  run[3]    Latn ltr [11,16) lang=-
+  dir[0]    ltr [0,6)
+  dir[1]    rtl [6,10)
+  dir[2]    ltr [10,16)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=6 advance=43.06 missing=0
+  g[0]      id=161 scalar=0..1 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=614 scalar=1..2 cluster=1 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=736 scalar=2..3 cluster=2 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=736 scalar=3..4 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=790 scalar=4..5 cluster=4 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Hebr rtl glyphs=4 advance=42.00 missing=4
+  g[6]      id=0 scalar=6..7 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=0 scalar=7..8 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[9]      id=0 scalar=9..10 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[2] Hebr ltr glyphs=1 advance=4.50 missing=0
+  g[10]      id=1777 scalar=10..11 cluster=0 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[3] Latn ltr glyphs=5 advance=44.49 missing=0
+  g[11]      id=459 scalar=11..12 cluster=0 advance=14.95 units=2018 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[12]      id=790 scalar=12..13 cluster=1 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[13]      id=852 scalar=13..14 cluster=2 advance=6.27 units=771 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[14]      id=736 scalar=14..15 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[15]      id=597 scalar=15..16 cluster=4 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=134.05 ascent=15.50 descent=3.86 line-height=19.36 glyphs=16 missing=4 advance-total=134.05
+
+text        dir-punctuation
+  raw       "Hello, שלום, world!"
+  input     bytes=23 scalars=19 text-runs=4 script-runs=3
+  run[0]    Latn ltr [0,7) lang=-
+  run[1]    Hebr rtl [7,11) lang=-
+  run[2]    Hebr ltr [11,13) lang=-
+  run[3]    Latn ltr [13,19) lang=-
+  dir[0]    ltr [0,7)
+  dir[1]    rtl [7,11)
+  dir[2]    ltr [11,19)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=7 advance=47.67 missing=0
+  g[0]      id=161 scalar=0..1 cluster=0 advance=11.89 units=1522 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=614 scalar=1..2 cluster=1 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=736 scalar=2..3 cluster=2 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=736 scalar=3..4 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[4]      id=790 scalar=4..5 cluster=4 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1501 scalar=5..6 cluster=5 advance=4.61 units=590 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[6]      id=1777 scalar=6..7 cluster=6 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Hebr rtl glyphs=4 advance=42.00 missing=4
+  g[7]      id=0 scalar=7..8 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[9]      id=0 scalar=9..10 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[10]      id=0 scalar=10..11 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[2] Hebr ltr glyphs=2 advance=9.11 missing=0
+  g[11]      id=1501 scalar=11..12 cluster=0 advance=4.61 units=590 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[12]      id=1777 scalar=12..13 cluster=1 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[3] Latn ltr glyphs=6 advance=46.95 missing=0
+  g[13]      id=984 scalar=13..14 cluster=0 advance=12.80 units=1676 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[14]      id=790 scalar=14..15 cluster=1 advance=9.59 units=1228 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[15]      id=852 scalar=15..16 cluster=2 advance=6.27 units=771 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[16]      id=736 scalar=16..17 cluster=3 advance=3.88 units=496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[17]      id=597 scalar=17..18 cluster=4 advance=9.80 units=1254 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[18]      id=1427 scalar=18..19 cluster=5 advance=4.60 units=589 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=145.73 ascent=15.50 descent=3.86 line-height=19.36 glyphs=19 missing=4 advance-total=145.73
+
+text        dir-numbers
+  raw       "مرحبا 123"
+  input     bytes=14 scalars=9 text-runs=2 script-runs=1
+  run[0]    Arab rtl [0,6) lang=-
+  run[1]    Arab ltr [6,9) lang=-
+  dir[0]    rtl [0,6)
+  dir[1]    ltr [6,9)
+  base      rtl
+  glyph-run[0] Arab rtl glyphs=6 advance=57.00 missing=5
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=0 scalar=3..4 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=0 scalar=4..5 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Arab ltr glyphs=3 advance=26.15 missing=0
+  g[6]      id=1342 scalar=6..7 cluster=0 advance=6.51 units=833 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[7]      id=1343 scalar=7..8 cluster=1 advance=9.76 units=1249 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[8]      id=1345 scalar=8..9 cluster=2 advance=9.88 units=1265 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=83.15 ascent=15.50 descent=3.86 line-height=19.36 glyphs=9 missing=5 advance-total=83.15
+
+text        dir-numbers-first
+  raw       "123 مرحبا"
+  input     bytes=14 scalars=9 text-runs=2 script-runs=1
+  run[0]    Arab ltr [0,3) lang=-
+  run[1]    Arab rtl [3,9) lang=-
+  dir[0]    ltr [0,3)
+  dir[1]    rtl [3,9)
+  base      rtl
+  glyph-run[0] Arab ltr glyphs=3 advance=26.15 missing=0
+  g[0]      id=1342 scalar=0..1 cluster=0 advance=6.51 units=833 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=1343 scalar=1..2 cluster=1 advance=9.76 units=1249 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=1345 scalar=2..3 cluster=2 advance=9.88 units=1265 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Arab rtl glyphs=6 advance=57.00 missing=5
+  g[3]      id=1777 scalar=3..4 cluster=0 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=0 scalar=4..5 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=0 scalar=5..6 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[6]      id=0 scalar=6..7 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=0 scalar=7..8 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=5 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=83.15 ascent=15.50 descent=3.86 line-height=19.36 glyphs=9 missing=5 advance-total=83.15
+
+text        dir-levels
+  raw       "ABC אבג 123 DEF"
+  input     bytes=18 scalars=15 text-runs=4 script-runs=3
+  run[0]    Latn ltr [0,4) lang=-
+  run[1]    Hebr rtl [4,8) lang=-
+  run[2]    Hebr ltr [8,12) lang=-
+  run[3]    Latn ltr [12,15) lang=-
+  dir[0]    ltr [0,4)
+  dir[1]    rtl [4,8)
+  dir[2]    ltr [8,15)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=4 advance=37.70 missing=0
+  g[0]      id=2 scalar=0..1 cluster=0 advance=11.04 units=1413 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[1]      id=65 scalar=1..2 cluster=1 advance=10.47 units=1340 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[2]      id=73 scalar=2..3 cluster=2 advance=11.69 units=1496 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[3]      id=1777 scalar=3..4 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[1] Hebr rtl glyphs=4 advance=36.00 missing=3
+  g[4]      id=0 scalar=4..5 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=0 scalar=5..6 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[6]      id=0 scalar=6..7 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=1777 scalar=7..8 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  glyph-run[2] Hebr ltr glyphs=4 advance=30.65 missing=0
+  g[8]      id=1342 scalar=8..9 cluster=0 advance=6.51 units=833 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[9]      id=1343 scalar=9..10 cluster=1 advance=9.76 units=1249 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[10]      id=1345 scalar=10..11 cluster=2 advance=9.88 units=1265 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[11]      id=1777 scalar=11..12 cluster=3 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  glyph-run[3] Latn ltr glyphs=3 advance=30.61 missing=0
+  g[12]      id=84 scalar=12..13 cluster=0 advance=11.55 units=1478 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[13]      id=95 scalar=13..14 cluster=1 advance=9.62 units=1231 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  g[14]      id=137 scalar=14..15 cluster=2 advance=9.45 units=1209 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=1 control=0 metrics=ok flags=cluster-start
+  measures  width=134.95 ascent=15.50 descent=3.86 line-height=19.36 glyphs=15 missing=3 advance-total=134.95
+
+text        dir-arabic-words
+  raw       "مرحبا بالعالم"
+  input     bytes=25 scalars=13 text-runs=1 script-runs=1
+  run[0]    Arab rtl [0,13) lang=-
+  dir[0]    rtl [0,13)
+  base      rtl
+  glyph-run[0] Arab rtl glyphs=13 advance=130.50 missing=12
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=0 scalar=3..4 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=0 scalar=4..5 cluster=4 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=1777 scalar=5..6 cluster=5 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[6]      id=0 scalar=6..7 cluster=6 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=0 scalar=7..8 cluster=7 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=8 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[9]      id=0 scalar=9..10 cluster=9 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[10]      id=0 scalar=10..11 cluster=10 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[11]      id=0 scalar=11..12 cluster=11 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[12]      id=0 scalar=12..13 cluster=12 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=130.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=13 missing=12 advance-total=130.50
+
+text        dir-hebrew-words
+  raw       "שלום עולם"
+  input     bytes=17 scalars=9 text-runs=1 script-runs=1
+  run[0]    Hebr rtl [0,9) lang=-
+  dir[0]    rtl [0,9)
+  base      rtl
+  glyph-run[0] Hebr rtl glyphs=9 advance=88.50 missing=8
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[3]      id=0 scalar=3..4 cluster=3 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[4]      id=1777 scalar=4..5 cluster=4 advance=4.50 units=576 offset=0.00,0.00 mapped=1 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[5]      id=0 scalar=5..6 cluster=5 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[6]      id=0 scalar=6..7 cluster=6 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[7]      id=0 scalar=7..8 cluster=7 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[8]      id=0 scalar=8..9 cluster=8 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=88.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=9 missing=8 advance-total=88.50
+
+text        dir-arabic-digits
+  raw       "١٢٣"
+  input     bytes=6 scalars=3 text-runs=1 script-runs=1
+  run[0]    Arab ltr [0,3) lang=-
+  dir[0]    unknown [0,3)
+  base      unknown
+  glyph-run[0] Arab ltr glyphs=3 advance=31.50 missing=3
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=1 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[2]      id=0 scalar=2..3 cluster=2 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=31.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=3 missing=3 advance-total=31.50
+
+text        dir-mark-latin
+  raw       "é"
+  input     bytes=3 scalars=2 text-runs=1 script-runs=1
+  run[0]    Latn ltr [0,2) lang=-
+  dir[0]    ltr [0,2)
+  base      ltr
+  glyph-run[0] Latn ltr glyphs=1 advance=9.33 missing=0
+  g[0]      id=618 scalar=0..2 cluster=0 advance=9.33 units=1194 offset=0.00,0.00 mapped=1 from=2 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start|ligature|unsafe-to-concat
+  measures  width=9.33 ascent=15.50 descent=3.86 line-height=19.36 glyphs=1 missing=0 advance-total=9.33
+
+text        dir-mark-arabic
+  raw       "مّ"
+  input     bytes=4 scalars=2 text-runs=1 script-runs=1
+  run[0]    Arab rtl [0,2) lang=-
+  dir[0]    rtl [0,2)
+  base      rtl
+  glyph-run[0] Arab rtl glyphs=2 advance=21.00 missing=2
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  g[1]      id=0 scalar=1..2 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-continuation|mark|unsafe-to-break
+  measures  width=21.00 ascent=15.50 descent=3.86 line-height=19.36 glyphs=2 missing=2 advance-total=21.00
+
+text        noncharacter
+  raw       "﷐"
+  input     bytes=3 scalars=1 text-runs=1 script-runs=1
+  run[0]    Zzzz ltr [0,1) lang=-
+  dir[0]    unknown [0,1)
+  base      unknown
+  glyph-run[0] Zzzz ltr glyphs=1 advance=10.50 missing=1
+  g[0]      id=0 scalar=0..1 cluster=0 advance=10.50 units=1344 offset=0.00,0.00 mapped=0 from=0 mirrored=0 positioned=0 control=0 metrics=ok flags=cluster-start
+  measures  width=10.50 ascent=15.50 descent=3.86 line-height=19.36 glyphs=1 missing=1 advance-total=10.50
+
+Legend  run[i] script direction [first,last)   the text run's own classification
+        g[i]   id scalar[first,last) advance units offset mapped
+               advance is in device pixels, units is the face's own hmtx value
+        mapped=0 is .notdef: the face has no glyph, and the pen still moved

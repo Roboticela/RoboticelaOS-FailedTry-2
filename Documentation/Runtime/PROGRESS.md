@@ -4731,6 +4731,53 @@ suites are green in Debug, in Release, and under ASan and UBSan with no diagnost
 `window.host.keyboard` host-focus flake, fourth consecutive phase, on a diff touching no `window`
 file.
 
+## Goal 14.0 — Out-of-flow placement (pulled forward from the CSS-completion goal)
+
+**Status: complete.** The behaviour 10.12 named and deferred, and the reason it could not wait: Phase
+14's desktop shell cannot be *composed* without it. A wallpaper that fills the viewport, a dock on the
+bottom edge, a menu floating over a window and a window that is a rectangle at a place are four
+out-of-flow boxes, and a build that stacks them in normal flow can express none of the four.
+
+### Delivered
+
+| Piece | Where |
+|---|---|
+| The vocabulary: two **axes**, four kinds of side over a near/far pair, the containing block as a *rectangle* (origin and size, plus whether it is the initial one), and the placement record a pass applies | `Include/RoboLayout/RoboLayoutAbsolute.h` |
+| The seam `LayoutAbsoluteEdgesForAxis`, which goes through 10.12's own reader (`LayoutPositionOf`) rather than reading the four inset properties again, so the two phases cannot disagree about what a style declared | `Source/RoboLayout/RoboLayoutAbsolute.c` |
+| The policy `LayoutAbsoluteResolveAxis`: the near side wins (`declaredOverConstrained` when a definite size sits beside it), the far side positions the axis where the near side says nothing, and two present insets size the axis between them when the declared dimension is not definite — clamped and floored at zero | `RoboLayoutAbsolute.c` |
+| The two doors that need the box's **own** size: `LayoutAbsolutePlacementOrigin` (the far anchor is a *distance back* from the containing block's far edge, so it needs the margin box) and `LayoutAbsoluteContentHeight` (the two insets size the margin box; the content box is what is left after the margins, borders and paddings) | `RoboLayoutAbsolute.c` |
+| The recursion: `LayoutBlockChildren` **skips** an out-of-flow child, a positioned box places the out-of-flow descendants whose containing block it is *after* its own size is final, the walk descends through static wrappers carrying the same rectangle and never into a positioned child, and `fixed` takes the initial containing block whichever ancestor found it | `RoboLayoutBlock.c` |
+| The counters in their own record (`LayoutBlockStats.absolute`), `offsetsDeclined` narrowed to `static`/`sticky`, `RoboLayoutDomainAbsolute` as the twenty-third domain, and `LayoutGetCapabilities().outOfFlow` with every absence named at the flag | `RoboLayoutBlock.h`, `RoboLayoutTypes.*`, `RoboLayout.h`, `RoboLayoutVersion.h` (`0.17.0`) |
+| The build fix that made the phase's integration test runnable: the archiver's object list goes through a **response file**, because a part naming eighteen dependency prefixes produced a command line past what Windows hands a process | `Runtime/Tools/Build.ps1` |
+
+### What 14.0 found
+
+**The containing block had the padding on the wrong side of the origin.** The first implementation
+placed an out-of-flow descendant at `finalOrigin + border + padding`, which is the *content* origin —
+so a box inside a padded wrapper was placed one padding further in than CSS says, and the number
+looked plausible in every document whose wrapper had no padding. The rule the pass actually writes in
+is content-relative (a child's cursor starts at its parent's content origin), so the padding box
+origin in that space is `(-padding-left, -padding-top)`: the padding box begins exactly where the
+padding does, and a border appears in the number nowhere because the content origin is already inside
+it. `layout.absolute.containing_block_padding_edge` is the case that pins it, and it was written
+*after* the coordinate was fixed rather than before it.
+
+**A rule was asserted with only half of itself.** The policy case expected `left`/`right` with
+`width: auto` to decline the far side; CSS sizes the axis between the two insets, and that is what the
+code does. The expectation was rewritten to assert both halves of one rule — over-constrained *with* a
+definite size, stretched *without* one — because those are the two questions a build gets wrong
+together and a case that asked one of them would have passed a build that answered the other wrong.
+
+### Verification
+
+`TestLayout.ps1 -Target Host` **381/381** (21 new cases), `TestPaint` 242/242, `TestGraphics` 179/179,
+`TestFont` 189/189, `TestRasterizer` 31/31 and `TestDesktop` 56/56. `TestCss` and `TestHtml` remain
+**pre-existing** red, for a reason that has nothing to do with this phase: their part dependency lists
+omit `RoboHTML`/`RoboGraphics`/`RoboLayout`/`RoboPaint`/`RoboRender`, so
+`Tests/Runtime/Suites/SuiteRoboCssDomSelect.c` — the one suite that must see RoboCSS and RoboHTML
+together — links with unresolved externals. Recorded here rather than fixed in passing, because it is a
+part-build dependency question rather than a layout one.
+
 ## Goal 10.13 — Overflow
 
 **Status: complete.** The phase that admits a box's contents may not **fit** — and whose whole

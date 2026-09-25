@@ -1894,7 +1894,16 @@ static void TestBidiPerformance(void)
     RoboCheckEqInt((int)smallAllocs, (int)largeAllocs);
     /* And every allocation was returned, which is the other half of "a paragraph owns its own storage". */
     RoboCheckEqInt((int)(after.totalFrees - before.totalFrees), (int)(after.totalAllocs - before.totalAllocs));
-    RoboCheckEqInt((int)after.totalAllocs, (int)after.totalFrees);
+    /*
+     * The same claim again as a **live count**, and stated as a delta for the reason every other
+     * allocator-balance case in this tree states one: `MemDebugGetStats` counts the process, and other suites
+     * legitimately hold storage across cases — the shipped typeface pack retains a face — so the absolute
+     * `totalAllocs == totalFrees` holds only for a run that happens to have nothing else live. It is true of
+     * `--filter=text.bidi.performance` and false of the whole suite, which is what an assertion about other
+     * suites' state always does. What this case may claim is that nothing *it* took outlives it.
+     */
+    RoboCheckEqInt((int)(after.totalAllocs - after.totalFrees),
+                   (int)(before.totalAllocs - before.totalFrees));
 
     printf("text.bidi.performance: ascii %u bytes -> 1 run in %ld ms (8 passes); mixed %u bytes -> %u runs "
            "in %ld ms; %u allocations per paragraph\n",

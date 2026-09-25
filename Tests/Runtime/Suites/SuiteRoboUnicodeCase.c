@@ -163,41 +163,41 @@ static void TestCaseConformance(void)
     size_t fail = 0;
     const size_t maxReport = 8u;
 
-    RoboCheck(CaseConfCasesCount > 0u);
-    for (i = 0; i < CaseConfCasesCount; i++) {
-        const CaseConfCase *c = &CaseConfCases[i];
+    RoboCheck(robo_case_conf_cases_count > 0u);
+    for (i = 0; i < robo_case_conf_cases_count; i++) {
+        const robo_case_conf_case_t *c = &robo_case_conf_cases[i];
         UnicodeCaseForm form;
         char *out = NULL;
         size_t outLen = 0;
         switch (c->kind) {
-        case RoboCaseConfUpper:
+        case ROBO_CASE_CONF_UPPER:
             form = RoboUnicodeCaseUpper;
             break;
-        case RoboCaseConfLower:
+        case ROBO_CASE_CONF_LOWER:
             form = RoboUnicodeCaseLower;
             break;
-        case RoboCaseConfTitle:
+        case ROBO_CASE_CONF_TITLE:
             form = RoboUnicodeCaseTitle;
             break;
-        case RoboCaseConfFold:
+        case ROBO_CASE_CONF_FOLD:
             form = RoboUnicodeCaseFold;
             break;
-        case RoboCaseConfSimpleUpper:
+        case ROBO_CASE_CONF_SIMPLE_UPPER:
             form = RoboUnicodeCaseSimpleUpper;
             break;
-        case RoboCaseConfSimpleLower:
+        case ROBO_CASE_CONF_SIMPLE_LOWER:
             form = RoboUnicodeCaseSimpleLower;
             break;
         default:
             continue;
         }
         if (UnicodeCaseMapUtf8(c->src,
-                                       c->srcLen,
+                                       c->src_len,
                                        form,
                                        RoboUnicodeStrict,
                                        &out,
                                        &outLen) != RoboOk ||
-            !Utf8Eq(out, outLen, c->want, c->wantLen)) {
+            !Utf8Eq(out, outLen, c->want, c->want_len)) {
             fail++;
             if (fail <= maxReport) {
                 TestFail(__FILE__,

@@ -203,8 +203,8 @@ def main() -> int:
     h.append("    uint8_t is_open; /* 1=open, 0=close */")
     h.append("} robo_bidi_bracket_t;")
     h.append("")
-    h.append("robo_unicode_bidi_class_t robo_bidi_class_property(robo_uchar32_t cp);")
-    h.append("int robo_bidi_bracket_lookup(robo_uchar32_t cp, uint32_t *pair_out, int *is_open_out);")
+    h.append("robo_unicode_bidi_class_t robo_bidi_class_property(Uchar32 cp);")
+    h.append("int robo_bidi_bracket_lookup(Uchar32 cp, uint32_t *pair_out, int *is_open_out);")
     h.append("")
     h.append("#ifdef __cplusplus")
     h.append("}")
@@ -237,7 +237,7 @@ def main() -> int:
     c.append(f"static const size_t robo_bidi_brackets_count = {len(brackets)};")
     c.append(
         r"""
-robo_unicode_bidi_class_t robo_bidi_class_property(robo_uchar32_t cp)
+robo_unicode_bidi_class_t robo_bidi_class_property(Uchar32 cp)
 {
     size_t lo = 0, hi = robo_bidi_bc_ranges_count;
     while (lo < hi) {
@@ -254,7 +254,7 @@ robo_unicode_bidi_class_t robo_bidi_class_property(robo_uchar32_t cp)
     return ROBO_U_BC_L;
 }
 
-int robo_bidi_bracket_lookup(robo_uchar32_t cp, uint32_t *pair_out, int *is_open_out)
+int robo_bidi_bracket_lookup(Uchar32 cp, uint32_t *pair_out, int *is_open_out)
 {
     size_t lo = 0, hi = robo_bidi_brackets_count;
     while (lo < hi) {

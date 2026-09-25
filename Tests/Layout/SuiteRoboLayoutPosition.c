@@ -540,7 +540,7 @@ static void TestPositioningKindVocabulary(void)
     /* And the domain this phase added, spelled and counted: 22 since 10.14 appended its
      * own, with `position` the nineteenth -- the first domain in this module about *where*
      * rather than about *how big*, and no longer the last since 10.13 and 10.14 followed it. */
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 22);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 23);
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainPosition),
                       "position");
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,

@@ -72,6 +72,7 @@ static const struct {
     { "padding", 1 },
     { "border", 1 },
     { "positioning", 1 },
+    { "out_of_flow", 1 },
     { "overflow", 1 },
     { "invalidation", 1 },
     { "font_request", 1 },
@@ -102,11 +103,11 @@ static void TestConformanceCapabilities(void)
             implemented++;
         }
     }
-    /* Twenty-two of twenty-three. Asserted as a count as well as field by field, so a build
+    /* Twenty-three of twenty-four. Asserted as a count as well as field by field, so a build
      * that turned one on and one off at the same time -- which field-by-field would
      * still catch, but a reader would have to diff to see -- is visible at a
-     * glance. The twenty-third is `painting`, and it is the only one that is 0. */
-    RoboCheckEqInt(implemented, 22u);
+     * glance. The twenty-fourth is `painting`, and it is the only one that is 0. */
+    RoboCheckEqInt(implemented, 23u);
 
     /*
      * The four that matter are the direction pair, the field that names both, and
@@ -1107,7 +1108,7 @@ static void TestConformanceStatement(void)
      * the build claiming it does not.
      */
     RoboCheckEqInt(LayoutGeometryIsImplemented(), 1);
-    RoboCheckStrEq(LayoutVersionString(), "0.16.0");
+    RoboCheckStrEq(LayoutVersionString(), "0.17.0");
     RoboCheckEqInt(RoboLayoutApiFrozen, 0);
 
     /*

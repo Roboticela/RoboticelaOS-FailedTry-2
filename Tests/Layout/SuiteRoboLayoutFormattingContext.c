@@ -198,43 +198,62 @@ static void TestFcClassifyEstablishes(void)
         CssDisplay display;
         int hasBlockLevelChild;
         int isRoot;
+        int isOutOfFlow;
         LayoutFcKind expected;
         const char *why;
     } table[] = {
         /* The root wins over every display question, including `none`: a document
          * whose root element generates no box has no root box at all, which is a
          * different case, so this row is about a root that *does* generate one. */
-        { RoboCssDisplayBlock, 1, 1, RoboLayoutFcRoot, "root over block" },
-        { RoboCssDisplayBlock, 0, 1, RoboLayoutFcRoot, "root over block, leaf" },
-        { RoboCssDisplayInline, 0, 1, RoboLayoutFcRoot, "root over inline" },
-        { RoboCssDisplayInlineBlock, 0, 1, RoboLayoutFcRoot,
+        { RoboCssDisplayBlock, 1, 1, 0, RoboLayoutFcRoot, "root over block" },
+        { RoboCssDisplayBlock, 0, 1, 0, RoboLayoutFcRoot, "root over block, leaf" },
+        { RoboCssDisplayInline, 0, 1, 0, RoboLayoutFcRoot, "root over inline" },
+        { RoboCssDisplayInlineBlock, 0, 1, 0, RoboLayoutFcRoot,
           "root over inline-block" },
-        { RoboCssDisplayNone, 0, 1, RoboLayoutFcNone, "no box, no contents" },
+        { RoboCssDisplayNone, 0, 1, 0, RoboLayoutFcNone, "no box, no contents" },
 
         /* `flow-root` inner: a new block formatting context by definition, which is
          * what makes `inline-block` establish one without being named. */
-        { RoboCssDisplayInlineBlock, 0, 0, RoboLayoutFcBlock, "atomic inline" },
-        { RoboCssDisplayInlineBlock, 1, 0, RoboLayoutFcBlock,
+        { RoboCssDisplayInlineBlock, 0, 0, 0, RoboLayoutFcBlock, "atomic inline" },
+        { RoboCssDisplayInlineBlock, 1, 0, 0, RoboLayoutFcBlock,
           "atomic inline, block child" },
 
         /* A block container with no block-level child establishes an inline
          * context; with one, it is transparent. */
-        { RoboCssDisplayBlock, 0, 0, RoboLayoutFcInline, "block, inline content" },
-        { RoboCssDisplayBlock, 1, 0, RoboLayoutFcNone, "block, transparent" },
+        { RoboCssDisplayBlock, 0, 0, 0, RoboLayoutFcInline, "block, inline content" },
+        { RoboCssDisplayBlock, 1, 0, 0, RoboLayoutFcNone, "block, transparent" },
+
+        /*
+         * Phase 14.0: an **out-of-flow** block container establishes a block context of its own,
+         * and the row that matters is the one with a block-level child — that is, the row where
+         * transparency would otherwise apply. A positioned box's children are laid out inside it
+         * rather than in its parent's flow, so they need a context of their own; a build that
+         * answered with the transparency row refused every document whose absolutely positioned
+         * container held a block (which is every window the desktop shell puts in a slot).
+         */
+        { RoboCssDisplayBlock, 1, 0, 1, RoboLayoutFcBlock,
+          "out-of-flow block, block child" },
+        { RoboCssDisplayBlock, 0, 0, 1, RoboLayoutFcBlock,
+          "out-of-flow block, inline content" },
+        { RoboCssDisplayInlineBlock, 1, 0, 1, RoboLayoutFcBlock,
+          "out-of-flow atomic inline" },
+        /* And the out-of-flow bit does not turn an inline box into a container. */
+        { RoboCssDisplayInline, 1, 0, 1, RoboLayoutFcNone, "out-of-flow inline box" },
 
         /* An inline box establishes nothing, whatever it contains. */
-        { RoboCssDisplayInline, 0, 0, RoboLayoutFcNone, "inline box" },
-        { RoboCssDisplayInline, 1, 0, RoboLayoutFcNone, "inline box, block child" },
+        { RoboCssDisplayInline, 0, 0, 0, RoboLayoutFcNone, "inline box" },
+        { RoboCssDisplayInline, 1, 0, 0, RoboLayoutFcNone, "inline box, block child" },
 
         /* No box: nothing to format. */
-        { RoboCssDisplayNone, 0, 0, RoboLayoutFcNone, "none" },
-        { RoboCssDisplayNone, 1, 0, RoboLayoutFcNone, "none, irrelevant child" }
+        { RoboCssDisplayNone, 0, 0, 0, RoboLayoutFcNone, "none" },
+        { RoboCssDisplayNone, 1, 0, 0, RoboLayoutFcNone, "none, irrelevant child" }
     };
     size_t index;
 
     for (index = 0u; index < sizeof(table) / sizeof(table[0]); index++) {
         LayoutFcKind actual = LayoutFcEstablishes(
-            table[index].display, table[index].hasBlockLevelChild, table[index].isRoot);
+            table[index].display, table[index].hasBlockLevelChild, table[index].isRoot,
+            table[index].isOutOfFlow);
 
         RoboCheckMsg(actual == table[index].expected, table[index].why);
     }
@@ -282,14 +301,14 @@ static void TestFcClassifyDisplay(void)
         CssDisplay display = (CssDisplay)index;
 
         if (LayoutFcDisplayCanEstablish(display)) {
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0) !=
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0) !=
                                   RoboLayoutFcNone,
                               1);
         }
         if (!CssDisplayGeneratesBox(display)) {
             RoboCheckEqInt(LayoutFcDisplayCanEstablish(display), 0);
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0), RoboLayoutFcNone);
-            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 1), RoboLayoutFcNone);
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 0, 0), RoboLayoutFcNone);
+            RoboCheckEqInt(LayoutFcEstablishes(display, 0, 1, 0), RoboLayoutFcNone);
         }
     }
 }

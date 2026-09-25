@@ -1,0 +1,486 @@
+RoboText shaping conformance (Phase 12.18)
+font: conformance-european  upem 1000  size 16px
+
+case latin.basic
+  text "The quick brown fox jumps over the lazy dog."
+  runs 1  glyphs 44  missing 0  ligatures 0  positioned 0
+  width 312.6080
+  run 0  source [0..44)  script Latn  direction ltr  level 0
+    glyph 0 id 20 source [0..1) advance 6.7200 offset 0.0000,0.0000
+    glyph 1 id 34 source [1..2) advance 6.9440 offset 0.0000,0.0000
+    glyph 2 id 31 source [2..3) advance 6.8960 offset 0.0000,0.0000
+    glyph 3 id 63 source [3..4) advance 7.4080 offset 0.0000,0.0000
+    glyph 4 id 43 source [4..5) advance 7.0880 offset 0.0000,0.0000
+    glyph 5 id 47 source [5..6) advance 7.1520 offset 0.0000,0.0000
+    glyph 6 id 35 source [6..7) advance 6.9600 offset 0.0000,0.0000
+    glyph 7 id 29 source [7..8) advance 6.8640 offset 0.0000,0.0000
+    glyph 8 id 37 source [8..9) advance 6.9920 offset 0.0000,0.0000
+    glyph 9 id 63 source [9..10) advance 7.4080 offset 0.0000,0.0000
+    glyph 10 id 28 source [10..11) advance 6.8480 offset 0.0000,0.0000
+    glyph 11 id 44 source [11..12) advance 7.1040 offset 0.0000,0.0000
+    glyph 12 id 41 source [12..13) advance 7.0560 offset 0.0000,0.0000
+    glyph 13 id 49 source [13..14) advance 7.1840 offset 0.0000,0.0000
+    glyph 14 id 40 source [14..15) advance 7.0400 offset 0.0000,0.0000
+    glyph 15 id 63 source [15..16) advance 7.4080 offset 0.0000,0.0000
+    glyph 16 id 32 source [16..17) advance 6.9120 offset 0.0000,0.0000
+    glyph 17 id 41 source [17..18) advance 7.0560 offset 0.0000,0.0000
+    glyph 18 id 50 source [18..19) advance 7.2000 offset 0.0000,0.0000
+    glyph 19 id 63 source [19..20) advance 7.4080 offset 0.0000,0.0000
+    glyph 20 id 36 source [20..21) advance 6.9760 offset 0.0000,0.0000
+    glyph 21 id 47 source [21..22) advance 7.1520 offset 0.0000,0.0000
+    glyph 22 id 39 source [22..23) advance 7.0240 offset 0.0000,0.0000
+    glyph 23 id 42 source [23..24) advance 7.0720 offset 0.0000,0.0000
+    glyph 24 id 45 source [24..25) advance 7.1200 offset 0.0000,0.0000
+    glyph 25 id 63 source [25..26) advance 7.4080 offset 0.0000,0.0000
+    glyph 26 id 41 source [26..27) advance 7.0560 offset 0.0000,0.0000
+    glyph 27 id 48 source [27..28) advance 7.1680 offset 0.0000,0.0000
+    glyph 28 id 31 source [28..29) advance 6.8960 offset 0.0000,0.0000
+    glyph 29 id 44 source [29..30) advance 7.1040 offset 0.0000,0.0000
+    glyph 30 id 63 source [30..31) advance 7.4080 offset 0.0000,0.0000
+    glyph 31 id 46 source [31..32) advance 7.1360 offset 0.0000,0.0000
+    glyph 32 id 34 source [32..33) advance 6.9440 offset 0.0000,0.0000
+    glyph 33 id 31 source [33..34) advance 6.8960 offset 0.0000,0.0000
+    glyph 34 id 63 source [34..35) advance 7.4080 offset 0.0000,0.0000
+    glyph 35 id 38 source [35..36) advance 7.0080 offset 0.0000,0.0000
+    glyph 36 id 27 source [36..37) advance 6.8320 offset 0.0000,0.0000
+    glyph 37 id 52 source [37..38) advance 7.2320 offset 0.0000,0.0000
+    glyph 38 id 51 source [38..39) advance 7.2160 offset 0.0000,0.0000
+    glyph 39 id 63 source [39..40) advance 7.4080 offset 0.0000,0.0000
+    glyph 40 id 30 source [40..41) advance 6.8800 offset 0.0000,0.0000
+    glyph 41 id 41 source [41..42) advance 7.0560 offset 0.0000,0.0000
+    glyph 42 id 33 source [42..43) advance 6.9280 offset 0.0000,0.0000
+    glyph 43 id 77 source [43..44) advance 7.6320 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+    cluster 7 source [7..8) glyphs [7..8)
+    cluster 8 source [8..9) glyphs [8..9)
+    cluster 9 source [9..10) glyphs [9..10)
+    cluster 10 source [10..11) glyphs [10..11)
+    cluster 11 source [11..12) glyphs [11..12)
+    cluster 12 source [12..13) glyphs [12..13)
+    cluster 13 source [13..14) glyphs [13..14)
+    cluster 14 source [14..15) glyphs [14..15)
+    cluster 15 source [15..16) glyphs [15..16)
+    cluster 16 source [16..17) glyphs [16..17)
+    cluster 17 source [17..18) glyphs [17..18)
+    cluster 18 source [18..19) glyphs [18..19)
+    cluster 19 source [19..20) glyphs [19..20)
+    cluster 20 source [20..21) glyphs [20..21)
+    cluster 21 source [21..22) glyphs [21..22)
+    cluster 22 source [22..23) glyphs [22..23)
+    cluster 23 source [23..24) glyphs [23..24)
+    cluster 24 source [24..25) glyphs [24..25)
+    cluster 25 source [25..26) glyphs [25..26)
+    cluster 26 source [26..27) glyphs [26..27)
+    cluster 27 source [27..28) glyphs [27..28)
+    cluster 28 source [28..29) glyphs [28..29)
+    cluster 29 source [29..30) glyphs [29..30)
+    cluster 30 source [30..31) glyphs [30..31)
+    cluster 31 source [31..32) glyphs [31..32)
+    cluster 32 source [32..33) glyphs [32..33)
+    cluster 33 source [33..34) glyphs [33..34)
+    cluster 34 source [34..35) glyphs [34..35)
+    cluster 35 source [35..36) glyphs [35..36)
+    cluster 36 source [36..37) glyphs [36..37)
+    cluster 37 source [37..38) glyphs [37..38)
+    cluster 38 source [38..39) glyphs [38..39)
+    cluster 39 source [39..40) glyphs [39..40)
+    cluster 40 source [40..41) glyphs [40..41)
+    cluster 41 source [41..42) glyphs [41..42)
+    cluster 42 source [42..43) glyphs [42..43)
+    cluster 43 source [43..44) glyphs [43..44)
+case latin.digits
+  text "0123456789"
+  runs 1  glyphs 10  missing 0  ligatures 0  positioned 0
+  width 73.2000
+  run 0  source [0..10)  script Zyyy  direction ltr  level 0
+    glyph 0 id 53 source [0..1) advance 7.2480 offset 0.0000,0.0000
+    glyph 1 id 54 source [1..2) advance 7.2640 offset 0.0000,0.0000
+    glyph 2 id 55 source [2..3) advance 7.2800 offset 0.0000,0.0000
+    glyph 3 id 56 source [3..4) advance 7.2960 offset 0.0000,0.0000
+    glyph 4 id 57 source [4..5) advance 7.3120 offset 0.0000,0.0000
+    glyph 5 id 58 source [5..6) advance 7.3280 offset 0.0000,0.0000
+    glyph 6 id 59 source [6..7) advance 7.3440 offset 0.0000,0.0000
+    glyph 7 id 60 source [7..8) advance 7.3600 offset 0.0000,0.0000
+    glyph 8 id 61 source [8..9) advance 7.3760 offset 0.0000,0.0000
+    glyph 9 id 62 source [9..10) advance 7.3920 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+    cluster 7 source [7..8) glyphs [7..8)
+    cluster 8 source [8..9) glyphs [8..9)
+    cluster 9 source [9..10) glyphs [9..10)
+case latin.punctuation
+  text "Hello, world! (2026) — "quoted""
+  runs 1  glyphs 31  missing 1  ligatures 0  positioned 0
+  width 222.1120
+  run 0  source [0..31)  script Latn  direction ltr  level 0
+    glyph 0 id 8 source [0..1) advance 6.5280 offset 0.0000,0.0000
+    glyph 1 id 31 source [1..2) advance 6.8960 offset 0.0000,0.0000
+    glyph 2 id 38 source [2..3) advance 7.0080 offset 0.0000,0.0000
+    glyph 3 id 38 source [3..4) advance 7.0080 offset 0.0000,0.0000
+    glyph 4 id 41 source [4..5) advance 7.0560 offset 0.0000,0.0000
+    glyph 5 id 75 source [5..6) advance 7.6000 offset 0.0000,0.0000
+    glyph 6 id 63 source [6..7) advance 7.4080 offset 0.0000,0.0000
+    glyph 7 id 49 source [7..8) advance 7.1840 offset 0.0000,0.0000
+    glyph 8 id 41 source [8..9) advance 7.0560 offset 0.0000,0.0000
+    glyph 9 id 44 source [9..10) advance 7.1040 offset 0.0000,0.0000
+    glyph 10 id 38 source [10..11) advance 7.0080 offset 0.0000,0.0000
+    glyph 11 id 30 source [11..12) advance 6.8800 offset 0.0000,0.0000
+    glyph 12 id 64 source [12..13) advance 7.4240 offset 0.0000,0.0000
+    glyph 13 id 63 source [13..14) advance 7.4080 offset 0.0000,0.0000
+    glyph 14 id 71 source [14..15) advance 7.5360 offset 0.0000,0.0000
+    glyph 15 id 55 source [15..16) advance 7.2800 offset 0.0000,0.0000
+    glyph 16 id 53 source [16..17) advance 7.2480 offset 0.0000,0.0000
+    glyph 17 id 55 source [17..18) advance 7.2800 offset 0.0000,0.0000
+    glyph 18 id 59 source [18..19) advance 7.3440 offset 0.0000,0.0000
+    glyph 19 id 72 source [19..20) advance 7.5520 offset 0.0000,0.0000
+    glyph 20 id 63 source [20..21) advance 7.4080 offset 0.0000,0.0000
+    glyph 21 id 0 source [21..22) advance 6.4000 offset 0.0000,0.0000
+    glyph 22 id 63 source [22..23) advance 7.4080 offset 0.0000,0.0000
+    glyph 23 id 65 source [23..24) advance 7.4400 offset 0.0000,0.0000
+    glyph 24 id 43 source [24..25) advance 7.0880 offset 0.0000,0.0000
+    glyph 25 id 47 source [25..26) advance 7.1520 offset 0.0000,0.0000
+    glyph 26 id 41 source [26..27) advance 7.0560 offset 0.0000,0.0000
+    glyph 27 id 46 source [27..28) advance 7.1360 offset 0.0000,0.0000
+    glyph 28 id 31 source [28..29) advance 6.8960 offset 0.0000,0.0000
+    glyph 29 id 30 source [29..30) advance 6.8800 offset 0.0000,0.0000
+    glyph 30 id 65 source [30..31) advance 7.4400 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+    cluster 7 source [7..8) glyphs [7..8)
+    cluster 8 source [8..9) glyphs [8..9)
+    cluster 9 source [9..10) glyphs [9..10)
+    cluster 10 source [10..11) glyphs [10..11)
+    cluster 11 source [11..12) glyphs [11..12)
+    cluster 12 source [12..13) glyphs [12..13)
+    cluster 13 source [13..14) glyphs [13..14)
+    cluster 14 source [14..15) glyphs [14..15)
+    cluster 15 source [15..16) glyphs [15..16)
+    cluster 16 source [16..17) glyphs [16..17)
+    cluster 17 source [17..18) glyphs [17..18)
+    cluster 18 source [18..19) glyphs [18..19)
+    cluster 19 source [19..20) glyphs [19..20)
+    cluster 20 source [20..21) glyphs [20..21)
+    cluster 21 source [21..22) glyphs [21..22)
+    cluster 22 source [22..23) glyphs [22..23)
+    cluster 23 source [23..24) glyphs [23..24)
+    cluster 24 source [24..25) glyphs [24..25)
+    cluster 25 source [25..26) glyphs [25..26)
+    cluster 26 source [26..27) glyphs [26..27)
+    cluster 27 source [27..28) glyphs [27..28)
+    cluster 28 source [28..29) glyphs [28..29)
+    cluster 29 source [29..30) glyphs [29..30)
+    cluster 30 source [30..31) glyphs [30..31)
+case latin.extended
+  text "äöü éàçñ ßøłœ"
+  runs 1  glyphs 13  missing 0  ligatures 0  positioned 0
+  width 106.7360
+  run 0  source [0..13)  script Latn  direction ltr  level 0
+    glyph 0 id 112 source [0..1) advance 8.1920 offset 0.0000,0.0000
+    glyph 1 id 128 source [1..2) advance 8.4480 offset 0.0000,0.0000
+    glyph 2 id 133 source [2..3) advance 8.5280 offset 0.0000,0.0000
+    glyph 3 id 63 source [3..4) advance 7.4080 offset 0.0000,0.0000
+    glyph 4 id 117 source [4..5) advance 8.2720 offset 0.0000,0.0000
+    glyph 5 id 108 source [5..6) advance 8.1280 offset 0.0000,0.0000
+    glyph 6 id 115 source [6..7) advance 8.2400 offset 0.0000,0.0000
+    glyph 7 id 123 source [7..8) advance 8.3680 offset 0.0000,0.0000
+    glyph 8 id 63 source [8..9) advance 7.4080 offset 0.0000,0.0000
+    glyph 9 id 107 source [9..10) advance 8.1120 offset 0.0000,0.0000
+    glyph 10 id 129 source [10..11) advance 8.4640 offset 0.0000,0.0000
+    glyph 11 id 136 source [11..12) advance 8.5760 offset 0.0000,0.0000
+    glyph 12 id 137 source [12..13) advance 8.5920 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+    cluster 7 source [7..8) glyphs [7..8)
+    cluster 8 source [8..9) glyphs [8..9)
+    cluster 9 source [9..10) glyphs [9..10)
+    cluster 10 source [10..11) glyphs [10..11)
+    cluster 11 source [11..12) glyphs [11..12)
+    cluster 12 source [12..13) glyphs [12..13)
+case latin.ligature
+  text "office ffl ffi configuration"
+  runs 1  glyphs 21  missing 0  ligatures 4  positioned 0
+  width 165.9040
+  run 0  source [0..28)  script Latn  direction ltr  level 0
+    glyph 0 id 41 source [0..1) advance 7.0560 offset 0.0000,0.0000
+    glyph 1 id 257 source [1..4) advance 11.3120 offset 0.0000,0.0000  ligature
+    glyph 2 id 29 source [4..5) advance 6.8640 offset 0.0000,0.0000
+    glyph 3 id 31 source [5..6) advance 6.8960 offset 0.0000,0.0000
+    glyph 4 id 63 source [6..7) advance 7.4080 offset 0.0000,0.0000
+    glyph 5 id 258 source [7..10) advance 11.4240 offset 0.0000,0.0000  ligature
+    glyph 6 id 63 source [10..11) advance 7.4080 offset 0.0000,0.0000
+    glyph 7 id 257 source [11..14) advance 11.3120 offset 0.0000,0.0000  ligature
+    glyph 8 id 63 source [14..15) advance 7.4080 offset 0.0000,0.0000
+    glyph 9 id 29 source [15..16) advance 6.8640 offset 0.0000,0.0000
+    glyph 10 id 41 source [16..17) advance 7.0560 offset 0.0000,0.0000
+    glyph 11 id 40 source [17..18) advance 7.0400 offset 0.0000,0.0000
+    glyph 12 id 260 source [18..20) advance 11.6480 offset 0.0000,0.0000  ligature
+    glyph 13 id 33 source [20..21) advance 6.9280 offset 0.0000,0.0000
+    glyph 14 id 47 source [21..22) advance 7.1520 offset 0.0000,0.0000
+    glyph 15 id 44 source [22..23) advance 7.1040 offset 0.0000,0.0000
+    glyph 16 id 27 source [23..24) advance 6.8320 offset 0.0000,0.0000
+    glyph 17 id 46 source [24..25) advance 7.1360 offset 0.0000,0.0000
+    glyph 18 id 35 source [25..26) advance 6.9600 offset 0.0000,0.0000
+    glyph 19 id 41 source [26..27) advance 7.0560 offset 0.0000,0.0000
+    glyph 20 id 40 source [27..28) advance 7.0400 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..4) glyphs [1..2)
+    cluster 2 source [4..5) glyphs [2..3)
+    cluster 3 source [5..6) glyphs [3..4)
+    cluster 4 source [6..7) glyphs [4..5)
+    cluster 5 source [7..10) glyphs [5..6)
+    cluster 6 source [10..11) glyphs [6..7)
+    cluster 7 source [11..14) glyphs [7..8)
+    cluster 8 source [14..15) glyphs [8..9)
+    cluster 9 source [15..16) glyphs [9..10)
+    cluster 10 source [16..17) glyphs [10..11)
+    cluster 11 source [17..18) glyphs [11..12)
+    cluster 12 source [18..20) glyphs [12..13)
+    cluster 13 source [20..21) glyphs [13..14)
+    cluster 14 source [21..22) glyphs [14..15)
+    cluster 15 source [22..23) glyphs [15..16)
+    cluster 16 source [23..24) glyphs [16..17)
+    cluster 17 source [24..25) glyphs [17..18)
+    cluster 18 source [25..26) glyphs [18..19)
+    cluster 19 source [26..27) glyphs [19..20)
+    cluster 20 source [27..28) glyphs [20..21)
+case latin.kerning
+  text "AV VA To Ta Wa"
+  runs 1  glyphs 14  missing 0  ligatures 0  positioned 2
+  width 95.6160
+  run 0  source [0..14)  script Latn  direction ltr  level 0
+    glyph 0 id 1 source [0..1) advance 5.1360 offset 0.0000,0.0000
+    glyph 1 id 22 source [1..2) advance 6.7520 offset 0.0000,0.0000
+    glyph 2 id 63 source [2..3) advance 7.4080 offset 0.0000,0.0000
+    glyph 3 id 22 source [3..4) advance 6.7520 offset 0.0000,0.0000
+    glyph 4 id 1 source [4..5) advance 6.4160 offset 0.0000,0.0000
+    glyph 5 id 63 source [5..6) advance 7.4080 offset 0.0000,0.0000
+    glyph 6 id 20 source [6..7) advance 6.7200 offset 0.0000,0.0000
+    glyph 7 id 41 source [7..8) advance 7.0560 offset 0.0000,0.0000
+    glyph 8 id 63 source [8..9) advance 7.4080 offset 0.0000,0.0000
+    glyph 9 id 20 source [9..10) advance 6.7200 offset 0.0000,0.0000
+    glyph 10 id 27 source [10..11) advance 6.8320 offset 0.0000,0.0000
+    glyph 11 id 63 source [11..12) advance 7.4080 offset 0.0000,0.0000
+    glyph 12 id 23 source [12..13) advance 6.7680 offset 0.0000,0.0000
+    glyph 13 id 27 source [13..14) advance 6.8320 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+    cluster 7 source [7..8) glyphs [7..8)
+    cluster 8 source [8..9) glyphs [8..9)
+    cluster 9 source [9..10) glyphs [9..10)
+    cluster 10 source [10..11) glyphs [10..11)
+    cluster 11 source [11..12) glyphs [11..12)
+    cluster 12 source [12..13) glyphs [12..13)
+    cluster 13 source [13..14) glyphs [13..14)
+case latin.marks
+  text "é à ö ñ"
+  runs 1  glyphs 11  missing 0  ligatures 0  positioned 4
+  width 50.0480
+  run 0  source [0..11)  script Latn  direction ltr  level 0
+    glyph 0 id 31 source [0..1) advance 6.8960 offset 0.0000,0.0000
+    glyph 1 id 252 source [1..2) advance 0.0000 offset 0.6400,1.9200
+    glyph 2 id 63 source [2..3) advance 7.4080 offset 0.0000,0.0000
+    glyph 3 id 27 source [3..4) advance 6.8320 offset 0.0000,0.0000
+    glyph 4 id 251 source [4..5) advance 0.0000 offset 0.6400,1.9200
+    glyph 5 id 63 source [5..6) advance 7.4080 offset 0.0000,0.0000
+    glyph 6 id 41 source [6..7) advance 7.0560 offset 0.0000,0.0000
+    glyph 7 id 254 source [7..8) advance 0.0000 offset 0.6400,1.9200
+    glyph 8 id 63 source [8..9) advance 7.4080 offset 0.0000,0.0000
+    glyph 9 id 40 source [9..10) advance 7.0400 offset 0.0000,0.0000
+    glyph 10 id 253 source [10..11) advance 0.0000 offset 0.6400,1.9200
+    cluster 0 source [0..2) glyphs [0..2)
+    cluster 1 source [2..3) glyphs [2..3)
+    cluster 2 source [3..5) glyphs [3..5)
+    cluster 3 source [5..6) glyphs [5..6)
+    cluster 4 source [6..8) glyphs [6..8)
+    cluster 5 source [8..9) glyphs [8..9)
+    cluster 6 source [9..11) glyphs [9..11)
+case greek
+  text "Αλφα Ελλαδα"
+  runs 1  glyphs 11  missing 0  ligatures 0  positioned 0
+  width 97.4880
+  run 0  source [0..11)  script Grek  direction ltr  level 0
+    glyph 0 id 138 source [0..1) advance 8.6080 offset 0.0000,0.0000
+    glyph 1 id 172 source [1..2) advance 9.1520 offset 0.0000,0.0000
+    glyph 2 id 183 source [2..3) advance 9.3280 offset 0.0000,0.0000
+    glyph 3 id 162 source [3..4) advance 8.9920 offset 0.0000,0.0000
+    glyph 4 id 63 source [4..5) advance 7.4080 offset 0.0000,0.0000
+    glyph 5 id 142 source [5..6) advance 8.6720 offset 0.0000,0.0000
+    glyph 6 id 172 source [6..7) advance 9.1520 offset 0.0000,0.0000
+    glyph 7 id 172 source [7..8) advance 9.1520 offset 0.0000,0.0000
+    glyph 8 id 162 source [8..9) advance 8.9920 offset 0.0000,0.0000
+    glyph 9 id 165 source [9..10) advance 9.0400 offset 0.0000,0.0000
+    glyph 10 id 162 source [10..11) advance 8.9920 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+    cluster 7 source [7..8) glyphs [7..8)
+    cluster 8 source [8..9) glyphs [8..9)
+    cluster 9 source [9..10) glyphs [9..10)
+    cluster 10 source [10..11) glyphs [10..11)
+case cyrillic
+  text "Привет Мир"
+  runs 1  glyphs 10  missing 0  ligatures 0  positioned 0
+  width 97.1200
+  run 0  source [0..10)  script Cyrl  direction ltr  level 0
+    glyph 0 id 202 source [0..1) advance 9.6320 offset 0.0000,0.0000
+    glyph 1 id 235 source [1..2) advance 10.1600 offset 0.0000,0.0000
+    glyph 2 id 227 source [2..3) advance 10.0320 offset 0.0000,0.0000
+    glyph 3 id 221 source [3..4) advance 9.9360 offset 0.0000,0.0000
+    glyph 4 id 224 source [4..5) advance 9.9840 offset 0.0000,0.0000
+    glyph 5 id 237 source [5..6) advance 10.1920 offset 0.0000,0.0000
+    glyph 6 id 63 source [6..7) advance 7.4080 offset 0.0000,0.0000
+    glyph 7 id 199 source [7..8) advance 9.5840 offset 0.0000,0.0000
+    glyph 8 id 227 source [8..9) advance 10.0320 offset 0.0000,0.0000
+    glyph 9 id 235 source [9..10) advance 10.1600 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+    cluster 7 source [7..8) glyphs [7..8)
+    cluster 8 source [8..9) glyphs [8..9)
+    cluster 9 source [9..10) glyphs [9..10)
+case mixed.scripts
+  text "Latin Ελλαδα Кириллица"
+  runs 3  glyphs 22  missing 0  ligatures 0  positioned 0
+  width 193.5040
+  run 0  source [0..6)  script Latn  direction ltr  level 0
+    glyph 0 id 12 source [0..1) advance 6.5920 offset 0.0000,0.0000
+    glyph 1 id 27 source [1..2) advance 6.8320 offset 0.0000,0.0000
+    glyph 2 id 46 source [2..3) advance 7.1360 offset 0.0000,0.0000
+    glyph 3 id 35 source [3..4) advance 6.9600 offset 0.0000,0.0000
+    glyph 4 id 40 source [4..5) advance 7.0400 offset 0.0000,0.0000
+    glyph 5 id 63 source [5..6) advance 7.4080 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+  run 1  source [6..13)  script Grek  direction ltr  level 0
+    glyph 0 id 142 source [6..7) advance 8.6720 offset 0.0000,0.0000
+    glyph 1 id 172 source [7..8) advance 9.1520 offset 0.0000,0.0000
+    glyph 2 id 172 source [8..9) advance 9.1520 offset 0.0000,0.0000
+    glyph 3 id 162 source [9..10) advance 8.9920 offset 0.0000,0.0000
+    glyph 4 id 165 source [10..11) advance 9.0400 offset 0.0000,0.0000
+    glyph 5 id 162 source [11..12) advance 8.9920 offset 0.0000,0.0000
+    glyph 6 id 63 source [12..13) advance 7.4080 offset 0.0000,0.0000
+    cluster 0 source [6..7) glyphs [0..1)
+    cluster 1 source [7..8) glyphs [1..2)
+    cluster 2 source [8..9) glyphs [2..3)
+    cluster 3 source [9..10) glyphs [3..4)
+    cluster 4 source [10..11) glyphs [4..5)
+    cluster 5 source [11..12) glyphs [5..6)
+    cluster 6 source [12..13) glyphs [6..7)
+  run 2  source [13..22)  script Cyrl  direction ltr  level 0
+    glyph 0 id 197 source [13..14) advance 9.5520 offset 0.0000,0.0000
+    glyph 1 id 227 source [14..15) advance 10.0320 offset 0.0000,0.0000
+    glyph 2 id 235 source [15..16) advance 10.1600 offset 0.0000,0.0000
+    glyph 3 id 227 source [16..17) advance 10.0320 offset 0.0000,0.0000
+    glyph 4 id 230 source [17..18) advance 10.0800 offset 0.0000,0.0000
+    glyph 5 id 230 source [18..19) advance 10.0800 offset 0.0000,0.0000
+    glyph 6 id 227 source [19..20) advance 10.0320 offset 0.0000,0.0000
+    glyph 7 id 241 source [20..21) advance 10.2560 offset 0.0000,0.0000
+    glyph 8 id 219 source [21..22) advance 9.9040 offset 0.0000,0.0000
+    cluster 0 source [13..14) glyphs [0..1)
+    cluster 1 source [14..15) glyphs [1..2)
+    cluster 2 source [15..16) glyphs [2..3)
+    cluster 3 source [16..17) glyphs [3..4)
+    cluster 4 source [17..18) glyphs [4..5)
+    cluster 5 source [18..19) glyphs [5..6)
+    cluster 6 source [19..20) glyphs [6..7)
+    cluster 7 source [20..21) glyphs [7..8)
+    cluster 8 source [21..22) glyphs [8..9)
+case mixed.rtl
+  text "Hello (مرحبا) world"
+  runs 4  glyphs 19  missing 5  ligatures 0  positioned 0
+  width 131.6320
+  run 0  source [0..7)  script Latn  direction ltr  level 0
+    glyph 0 id 8 source [0..1) advance 6.5280 offset 0.0000,0.0000
+    glyph 1 id 31 source [1..2) advance 6.8960 offset 0.0000,0.0000
+    glyph 2 id 38 source [2..3) advance 7.0080 offset 0.0000,0.0000
+    glyph 3 id 38 source [3..4) advance 7.0080 offset 0.0000,0.0000
+    glyph 4 id 41 source [4..5) advance 7.0560 offset 0.0000,0.0000
+    glyph 5 id 63 source [5..6) advance 7.4080 offset 0.0000,0.0000
+    glyph 6 id 71 source [6..7) advance 7.5360 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)
+    cluster 5 source [5..6) glyphs [5..6)
+    cluster 6 source [6..7) glyphs [6..7)
+  run 1  source [7..12)  script Arab  direction rtl  level 1
+    glyph 0 id 0 source [7..8) advance 6.4000 offset 0.0000,0.0000
+    glyph 1 id 0 source [8..9) advance 6.4000 offset 0.0000,0.0000
+    glyph 2 id 0 source [9..10) advance 6.4000 offset 0.0000,0.0000
+    glyph 3 id 0 source [10..11) advance 6.4000 offset 0.0000,0.0000
+    glyph 4 id 0 source [11..12) advance 6.4000 offset 0.0000,0.0000
+    cluster 0 source [7..8) glyphs [0..1)
+    cluster 1 source [8..9) glyphs [1..2)
+    cluster 2 source [9..10) glyphs [2..3)
+    cluster 3 source [10..11) glyphs [3..4)
+    cluster 4 source [11..12) glyphs [4..5)
+  run 2  source [12..14)  script Arab  direction ltr  level 0
+    glyph 0 id 72 source [12..13) advance 7.5520 offset 0.0000,0.0000
+    glyph 1 id 63 source [13..14) advance 7.4080 offset 0.0000,0.0000
+    cluster 0 source [12..13) glyphs [0..1)
+    cluster 1 source [13..14) glyphs [1..2)
+  run 3  source [14..19)  script Latn  direction ltr  level 0
+    glyph 0 id 49 source [14..15) advance 7.1840 offset 0.0000,0.0000
+    glyph 1 id 41 source [15..16) advance 7.0560 offset 0.0000,0.0000
+    glyph 2 id 44 source [16..17) advance 7.1040 offset 0.0000,0.0000
+    glyph 3 id 38 source [17..18) advance 7.0080 offset 0.0000,0.0000
+    glyph 4 id 30 source [18..19) advance 6.8800 offset 0.0000,0.0000
+    cluster 0 source [14..15) glyphs [0..1)
+    cluster 1 source [15..16) glyphs [1..2)
+    cluster 2 source [16..17) glyphs [2..3)
+    cluster 3 source [17..18) glyphs [3..4)
+    cluster 4 source [18..19) glyphs [4..5)
+case control.space
+  text "a b c"
+  runs 1  glyphs 5  missing 0  ligatures 0  positioned 0
+  width 35.8880
+  run 0  source [0..5)  script Latn  direction ltr  level 0
+    glyph 0 id 27 source [0..1) advance 6.8320 offset 0.0000,0.0000
+    glyph 1 id 63 source [1..2) advance 7.4080 offset 0.0000,0.0000
+    glyph 2 id 28 source [2..3) advance 6.8480 offset 0.0000,0.0000
+    glyph 3 id 96 source [3..4) advance 7.9360 offset 0.0000,0.0000
+    glyph 4 id 29 source [4..5) advance 6.8640 offset 0.0000,0.0000
+    cluster 0 source [0..1) glyphs [0..1)
+    cluster 1 source [1..2) glyphs [1..2)
+    cluster 2 source [2..3) glyphs [2..3)
+    cluster 3 source [3..4) glyphs [3..4)
+    cluster 4 source [4..5) glyphs [4..5)

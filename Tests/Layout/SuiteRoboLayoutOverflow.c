@@ -551,7 +551,7 @@ static void TestOverflowKindVocabulary(void)
     /* And the domain this phase added, spelled and counted: 22 since 10.14 appended its
      * own, with `overflow` the twentieth -- the first domain in this module about what
      * happens when the box was the wrong size. */
-    RoboCheckEqInt((int)RoboLayoutDomainCount, 22);
+    RoboCheckEqInt((int)RoboLayoutDomainCount, 23);
     RoboCheckStrEq(LayoutDiagnosticDomainName(RoboLayoutDomainOverflow),
                       "overflow");
     RoboCheckEqInt((int)RoboLayoutDomainOverflow,

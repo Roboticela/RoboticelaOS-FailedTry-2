@@ -1,12 +1,12 @@
 /* Auto-generated from GraphemeBreakTest.txt — DO NOT EDIT. */
 /* Unicode 16.0.0, 1093 cases */
 typedef struct robo_grapheme_conf_case {
-    const robo_uchar32_t *cps;
+    const Uchar32 *cps;
     const unsigned char *breaks;
     unsigned cp_count;
 } robo_grapheme_conf_case_t;
 
-static const robo_uchar32_t robo_grapheme_conf_cps[] = {
+static const Uchar32 robo_grapheme_conf_cps[] = {
     0x00000020u, 0x00000020u, 0xFFFFFFFFu, 0x00000020u, 0x00000308u, 0x00000020u, 0xFFFFFFFFu, 0x00000020u,
     0x0000000Du, 0xFFFFFFFFu, 0x00000020u, 0x00000308u, 0x0000000Du, 0xFFFFFFFFu, 0x00000020u, 0x0000000Au,
     0xFFFFFFFFu, 0x00000020u, 0x00000308u, 0x0000000Au, 0xFFFFFFFFu, 0x00000020u, 0x00000001u, 0xFFFFFFFFu,

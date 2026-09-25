@@ -172,8 +172,8 @@ def main() -> int:
     h.append("    uint8_t value;")
     h.append("} robo_grapheme_range8_t;")
     h.append("")
-    h.append("robo_unicode_grapheme_break_t robo_grapheme_break_property(robo_uchar32_t cp);")
-    h.append("robo_unicode_incb_t robo_grapheme_incb(robo_uchar32_t cp);")
+    h.append("robo_unicode_grapheme_break_t robo_grapheme_break_property(Uchar32 cp);")
+    h.append("robo_unicode_incb_t robo_grapheme_incb(Uchar32 cp);")
     h.append("")
     h.append("#ifdef __cplusplus")
     h.append("}")
@@ -225,13 +225,13 @@ static uint8_t robo_grapheme_lookup8(const robo_grapheme_range8_t *ranges,
     return default_val;
 }
 
-robo_unicode_grapheme_break_t robo_grapheme_break_property(robo_uchar32_t cp)
+robo_unicode_grapheme_break_t robo_grapheme_break_property(Uchar32 cp)
 {
     return (robo_unicode_grapheme_break_t)robo_grapheme_lookup8(
         robo_grapheme_gb_ranges, robo_grapheme_gb_ranges_count, cp, 0);
 }
 
-robo_unicode_incb_t robo_grapheme_incb(robo_uchar32_t cp)
+robo_unicode_incb_t robo_grapheme_incb(Uchar32 cp)
 {
     return (robo_unicode_incb_t)robo_grapheme_lookup8(
         robo_grapheme_incb_ranges, robo_grapheme_incb_ranges_count, cp, 0);
@@ -270,7 +270,7 @@ robo_unicode_incb_t robo_grapheme_incb(robo_uchar32_t cp)
             "/* Auto-generated from GraphemeBreakTest.txt — DO NOT EDIT. */",
             f"/* Unicode {UCD_VERSION}, {len(cases)} cases */",
             "typedef struct robo_grapheme_conf_case {",
-            "    const robo_uchar32_t *cps;",
+            "    const Uchar32 *cps;",
             "    const unsigned char *breaks;",
             "    unsigned cp_count;",
             "} robo_grapheme_conf_case_t;",
@@ -285,7 +285,7 @@ robo_unicode_incb_t robo_grapheme_incb(robo_uchar32_t cp)
             cp_pool.append(0xFFFFFFFF)  # sentinel between cases
             br_pool.extend(brs)
             br_pool.append(255)
-        lines.append("static const robo_uchar32_t robo_grapheme_conf_cps[] = {")
+        lines.append("static const Uchar32 robo_grapheme_conf_cps[] = {")
         for i in range(0, len(cp_pool), 8):
             chunk = cp_pool[i : i + 8]
             lines.append("    " + ", ".join(f"0x{x:08X}u" for x in chunk) + ",")

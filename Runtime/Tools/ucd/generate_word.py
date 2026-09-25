@@ -145,7 +145,7 @@ def main() -> int:
     h.append("    uint8_t value;")
     h.append("} robo_word_range8_t;")
     h.append("")
-    h.append("robo_unicode_word_break_t robo_word_break_property(robo_uchar32_t cp);")
+    h.append("robo_unicode_word_break_t robo_word_break_property(Uchar32 cp);")
     h.append("")
     h.append("#ifdef __cplusplus")
     h.append("}")
@@ -169,7 +169,7 @@ def main() -> int:
     c.append(f"static const size_t robo_word_wb_ranges_count = {len(ranges)};")
     c.append(
         r"""
-robo_unicode_word_break_t robo_word_break_property(robo_uchar32_t cp)
+robo_unicode_word_break_t robo_word_break_property(Uchar32 cp)
 {
     size_t lo = 0, hi = robo_word_wb_ranges_count;
     while (lo < hi) {
@@ -219,7 +219,7 @@ robo_unicode_word_break_t robo_word_break_property(robo_uchar32_t cp)
             "/* Auto-generated from WordBreakTest.txt — DO NOT EDIT. */",
             f"/* Unicode {UCD_VERSION}, {len(cases)} cases */",
             "typedef struct robo_word_conf_case {",
-            "    const robo_uchar32_t *cps;",
+            "    const Uchar32 *cps;",
             "    const unsigned char *breaks;",
             "    unsigned cp_count;",
             "} robo_word_conf_case_t;",
@@ -233,7 +233,7 @@ robo_unicode_word_break_t robo_word_break_property(robo_uchar32_t cp)
             br_pool.extend(brs)
             br_pool.append(255)
 
-        lines.append("static const robo_uchar32_t robo_word_conf_cps[] = {")
+        lines.append("static const Uchar32 robo_word_conf_cps[] = {")
         for i in range(0, len(cp_pool), 8):
             chunk = cp_pool[i : i + 8]
             lines.append("    " + ", ".join(f"0x{x:08X}u" for x in chunk) + ",")

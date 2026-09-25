@@ -21,6 +21,9 @@
  * box is the module-internal slot accessor. Every public door in
  * RoboLayoutObject.h validates the id itself and is deliberately read-only, so
  * the non-const walk a pass needs lives here and nowhere else. */
+#include "RoboLayout/RoboLayoutAbsolute.h"
+#include "RoboLayout/RoboLayoutPosition.h"
+
 #include "RoboLayoutInternal.h"
 
 #include "RoboMem/RoboMem.h"
@@ -163,8 +166,16 @@ static Result LayoutClassifyObject(LayoutTree *tree,
                                     "a box could not reach any formatting context");
         }
 
-        kind = LayoutFcEstablishes(
-            object->display, LayoutObjectHasBlockLevelChild(tree, object), 0);
+        {
+            /* Phase 14.0: whether this box is out of flow is a fact about its *position*, read here
+             * once rather than inside the classifier, which is a pure function of the four facts it
+             * is handed (`RoboLayoutFormattingContext.h`). */
+            LayoutPosition declaredPosition = LayoutPositionOf(object->style);
+
+            kind = LayoutFcEstablishes(
+                object->display, LayoutObjectHasBlockLevelChild(tree, object), 0,
+                LayoutAbsoluteIsOutOfFlow(&declaredPosition));
+        }
         if (kind != RoboLayoutFcNone) {
             /* The new context's parent is the one the *owner* participates in, so
              * contexts nest the way the boxes that establish them do. */

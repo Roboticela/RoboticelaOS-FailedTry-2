@@ -419,11 +419,11 @@ static void TestInlineDisplayTable(void)
      * own whatever it holds. Those are the two facts the verdict in the pass is
      * built from.
      */
-    RoboCheckEqInt(LayoutFcEstablishes(RoboCssDisplayBlock, 0, 0),
+    RoboCheckEqInt(LayoutFcEstablishes(RoboCssDisplayBlock, 0, 0, 0),
                       RoboLayoutFcInline);
-    RoboCheckEqInt(LayoutFcEstablishes(RoboCssDisplayInlineBlock, 0, 0),
+    RoboCheckEqInt(LayoutFcEstablishes(RoboCssDisplayInlineBlock, 0, 0, 0),
                       RoboLayoutFcBlock);
-    RoboCheckEqInt(LayoutFcEstablishes(RoboCssDisplayInline, 0, 0),
+    RoboCheckEqInt(LayoutFcEstablishes(RoboCssDisplayInline, 0, 0, 0),
                       RoboLayoutFcNone);
     RoboCheckEqInt(LayoutFcDisplayIsBlockContainer(RoboCssDisplayInline), 0);
     RoboCheckEqInt(LayoutFcDisplayIsBlockContainer(RoboCssDisplayInlineBlock),

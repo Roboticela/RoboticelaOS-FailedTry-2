@@ -32,6 +32,7 @@
 #ifndef ROBO_LAYOUT_INTERNAL_H
 #define ROBO_LAYOUT_INTERNAL_H
 
+#include "RoboLayout/RoboLayoutAbsolute.h"
 #include "RoboLayout/RoboLayoutBlock.h"
 #include "RoboLayout/RoboLayoutBorder.h"
 #include "RoboLayout/RoboLayoutInline.h"
@@ -114,6 +115,16 @@ typedef struct LayoutWalk {
      * every run measures to zero and the document lays out exactly as 10.4 left it.
      */
     const LayoutTextMetrics *textMetrics;
+    /**
+     * The **initial containing block** (Phase 14.0): the viewport, as the rectangle an
+     * out-of-flow box is placed against when nothing between it and the root is positioned,
+     * and always for `position: fixed`.
+     *
+     * On the walk rather than read from a tree, for the reason the viewport is an argument to
+     * the pass at all (10.1): it is an *input to one pass*, not a fact about the document, and a
+     * build that cached it on the tree would answer a resized window with the old rectangle.
+     */
+    LayoutAbsoluteContainingBlock viewportBlock;
     LayoutDiag *diag;
 } LayoutWalk;
 
