@@ -116,11 +116,24 @@ Result InputKeyboardDataSet(InputKeyboardData *data,
  */
 int InputKeyboardDataIsValid(const InputKeyboardData *data);
 
-/** The action a key event type implies, or `NONE` when @p type is not a key event. */
+/** The action a key event type implies, or `NONE` when @p type is not a key event. A `KEY_REPEAT`
+ *  implies a **down**: the key is still held (see @ref InputKeyboardDataRepeatMatchesEvent). */
 KeyAction InputKeyboardActionForEvent(int eventType);
 
 /** Non-zero when @p type is a key event and @p action is the action it implies. */
 int InputKeyboardDataActionMatches(const InputKeyboardData *data, int eventType);
+
+/**
+ * Non-zero when @p data's `repeat` flag agrees with @p eventType.
+ *
+ * The second half of the rule `InputKeyboardDataActionMatches` is the first half of, and the pair exists
+ * because "is this a down?" and "is this a *fresh* down?" are different questions with the same answer
+ * shape. A `KEY_REPEAT` payload must say it is one; a `KEY_DOWN` payload must say it is not; a `KEY_UP`
+ * carries no repeat at all (`InputKeyboardDataIsValid` refuses one). A consumer that tested only the action
+ * would insert the first character of every held key twice, which is the mistake the two-field split
+ * exists to make impossible to commit by accident.
+ */
+int InputKeyboardDataRepeatMatchesEvent(const InputKeyboardData *data, int eventType);
 
 /** Field-by-field equality, `text` compared as a string. Safe on NULL; two NULLs are equal. */
 int InputKeyboardDataEqual(const InputKeyboardData *a,

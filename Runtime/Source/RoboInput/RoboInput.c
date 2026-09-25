@@ -80,6 +80,36 @@ Result InputGetCapabilities(InputCapabilities *out)
     out->eventLoop = 0;
     out->multiprocessInput = 0;
 
+    /* Phase 13.2's first half: the device table. What it claims is a descriptor for every kind of hardware
+     * the brief names, eleven capability bits, a connection state, and a fixed table whose disconnect
+     * *removes* an entry -- so no stale device can be looked up, asked for as a type's primary, or left
+     * holding a key. It does **not** claim that anything *reads* a device: `deviceReading` is still 0, and
+     * stays 0 until a platform adapter exists (13.2's remaining half). */
+    out->deviceTable = 1;
+    /* And its second half: the keyboard *state*, whose held table is the one thing kept and whose modifiers
+     * and locks are read off it -- plus the auto-repeat cadence, which is one event per call from a deadline
+     * the state pushes forward. What it still does not claim is that anything reads a keyboard. */
+    out->keyboardState = 1;
+
+    /* Phase 13.9/13.10: the keyboard *layout* and its dead keys. What it claims is that a position plus a
+     * modifier state becomes a character through a table, that caps lock is a case lock rather than a level,
+     * that AltGr has two spellings and a control chord produces **no** text, and that one accent can wait for
+     * the next key and be composed, repeated, replaced or rejected. What it does not claim is a layout for a
+     * language whose table this build does not ship: `InputLayoutSetMapping` is how one arrives. */
+    out->keyboardLayout = 1;
+    out->deadKeys = 1;
+    /* ... and 13.11: the text pipeline that turns a key into `TEXT_INPUT` events. It claims the separation
+     * the brief makes mandatory, and it does **not** claim that the text reaches an editor -- `textEditing`
+     * is still 0 above, and the command layer (13.12/13.13) is what will carry it there. */
+    out->textInput = 1;
+
+    out->layoutCount = RoboInputLayoutIdCount;
+    out->layoutLevelCount = RoboInputLayoutLevelCount;
+    out->deadKeyCount = RoboInputDeadKeyCount;
+    out->textEventsPerChord = RoboInputTextMaxEvents;
+
+    out->deviceTypeCount = RoboInputDeviceTypeCount;
+    out->deviceCapabilityCount = RoboInputDeviceCapabilityCount;
     out->eventTypeCount = RoboInputEventTypeCount;
     out->sourceCount = RoboInputSourceCount;
     out->spaceCount = RoboInputSpaceCount;

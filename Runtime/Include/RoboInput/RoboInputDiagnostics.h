@@ -20,7 +20,9 @@
  *   **BRIDGE**   a RoboWindow event could not be translated: a type this model has no equivalent for, or a
  *                payload the window layer left unset. The caller learns that the gap is the *bridge's*
  *                rather than pretending the event was modelled;
- *   **DUMP**     the text a developer reads does not fit the buffer it was given.
+ *   **DUMP**     the text a developer reads does not fit the buffer it was given;
+ *   **DEVICE**   the device table refused, or a device's own description is inconsistent with itself. The
+ *                caller fixes what it connected, or its own bookkeeping.
  *
  * A **SPACE** refusal is worth reading twice, because it is the one a caller is most likely to meet: this
  * module refuses to guess. An event whose positions are in an unset space is not "probably in window
@@ -53,11 +55,17 @@ typedef enum InputDiagnosticDomain {
     /** The RoboWindow bridge: a window event this model cannot represent. */
     RoboInputDomainBridge = 5,
     /** The dump a developer reads. */
-    RoboInputDomainDump = 6
+    RoboInputDomainDump = 6,
+    /**
+     * The device table and the devices in it: a descriptor that says two things at once, a table with no
+     * room, a disconnect of an id that is not there, a hotplug cascade that cannot release what it must.
+     * (Phase 13.2.) The caller fixes what it connected, or its own bookkeeping.
+     */
+    RoboInputDomainDevice = 7
 } InputDiagnosticDomain;
 
 /** Number of defined domains. Asserted positionally by `input.conformance.*`. */
-#define RoboInputDomainCount 7u
+#define RoboInputDomainCount 8u
 
 /** Non-zero if @p domain is a defined domain. */
 int InputDomainIsKnown(InputDiagnosticDomain domain);

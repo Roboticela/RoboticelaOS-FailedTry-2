@@ -212,6 +212,28 @@ static inline InputEvent InputKeyEvent(PhysicalKey physical,
     return event;
 }
 
+/**
+ * A **descriptor** for a device of @p type, with @p capabilities, asserting on refusal.
+ *
+ * The descriptor is the table's record (RoboInputDevice.h) and the identity above is what an event carries;
+ * a case that wants to connect a device or build a hotplug event needs this one, and its source is left
+ * `UNKNOWN` so the type's default is what gets recorded -- which is itself one of the facts a suite asserts.
+ */
+static inline InputDeviceDescriptor InputFixtureDescriptor(InputDeviceType type,
+                                                           InputDeviceId id,
+                                                           const char *name,
+                                                           uint32_t capabilities)
+{
+    InputDeviceDescriptor descriptor;
+
+    InputDeviceDescriptorInit(&descriptor);
+    if (InputDeviceDescriptorSet(&descriptor, id, type, RoboInputSourceUnknown, name,
+                                 capabilities, NULL) != RoboOk) {
+        RoboCheckMsg(0, "the fixture's descriptor was refused");
+    }
+    return descriptor;
+}
+
 /** A device identity a case can stamp on an event. Asserts on refusal. */
 static inline InputDevice GetRoboInputDevice(InputDeviceId id,
                                                InputSource source,

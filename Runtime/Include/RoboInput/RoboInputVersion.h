@@ -45,9 +45,9 @@
 #define ROBO_INPUT_VERSION_H
 
 #define RoboInputVersionMajor 0
-#define RoboInputVersionMinor 1
+#define RoboInputVersionMinor 3
 #define RoboInputVersionPatch 0
-#define RoboInputVersionString "0.1.0"
+#define RoboInputVersionString "0.3.0"
 
 /** 1 once the Phase 12 model is frozen (not yet). */
 #define RoboInputApiFrozen 0
@@ -66,6 +66,48 @@
  * bridge from a `WindowEvent` into the model. What it does **not** claim is everything an input
  * *system* has: no device is read, no event is dispatched, no focus is tracked, no text is composed, and
  * there is no event loop -- each of those is a 0 beside this flag in `InputCapabilities`.
+ *
+ * ## What 13.2 added, and what it still does not claim
+ *
+ * Phase 13.2 grew the vocabulary from thirteen event types to thirty-three -- hotplug, auto-repeat, hover,
+ * pen, gamepad, composition, focus and window activation, each with the payload record it needs -- and built
+ * the two halves of the *keyboard* that the model was missing:
+ *
+ *   the **device table** (`RoboInputDevice.h`): a descriptor per device saying what kind of hardware it is,
+ *   what it can report and where it came from, and a fixed table whose disconnect **removes** an entry and
+ *   hands it back, so no stale device can be looked up, asked for as a type's primary, or left holding a
+ *   key;
+ *
+ *   the **keyboard state** (`RoboInputKeyboardState.h`): one held table from which the modifiers are
+ *   *derived* and the locks are kept, plus an auto-repeat cadence a caller's clock drives one event at a
+ *   time. A device disconnect therefore cannot leave a key stuck, because releasing its keys *is* releasing
+ *   them and the modifiers that followed from them follow automatically.
+ *
+ * What it still does **not** claim: nothing reads a device (`deviceReading` and `platformAdapters` are both
+ * 0), no event is dispatched and no focus is tracked. Each of those is a 0 in `InputCapabilities`, named so
+ * a reader cannot mistake this for a finished input *system*.
+ *
+ * ## What 13.9/13.10/13.11 added, and what this takes the module to
+ *
+ * The **keyboard layout and the text pipeline** -- the half of the keyboard that 13.2 left 0:
+ *
+ *   a **layout** (`RoboInputLayout.h`) is a bounded table of `(key, level) → character` with the four
+ *   levels, the AltGr rule (two spellings, and `Ctrl`-without-`Alt` is **not** one of them) and the caps-lock
+ *   rule stated once in `InputLayoutLevelFor`. Two tables ship -- `US_ASCII` and `US_INTERNATIONAL` -- and
+ *   every other language is data this module can hold and does not ship;
+ *
+ *   **dead keys** are layout data rather than a text engine: five accents, each with a spacing form, a
+ *   combining form and a precomposed-pair table. One accent waits at a time, and arming it produces **no**
+ *   event, because there is no character yet;
+ *
+ *   the **text pipeline** (`RoboInputText.h`) is the one door from a key event to zero, one or two
+ *   `TEXT_INPUT` events. That is the brief's mandatory separation made checkable: a key event says a key
+ *   changed state, a text event says text should be inserted, and no consumer may read a scan code to decide
+ *   what a character is.
+ *
+ * What it still does **not** claim, and each stays 0: `textEditing` (the text reaches an editor -- 13.12),
+ * `textComposition` (an input *method*'s preedit and candidates -- 13.37, which is a different thing from a
+ * dead key and is why the layout half did not set it), `deviceReading` and `platformAdapters`.
  */
 #define RoboInputModelImplemented 1
 

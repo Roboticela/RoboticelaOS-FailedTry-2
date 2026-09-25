@@ -49,6 +49,15 @@
  *      contact holds no buttons at all;
  *      -- a `TEXT_INPUT` event carries at least one byte (its *payload* may be empty -- a key that produced
  *      no text is ordinary -- but an event whose whole point is text may not be wordless);
+ *      -- a hotplug event's descriptor is valid, and the identity on the event **is** its identity, so the
+ *      event and the record it carries cannot name two different devices;
+ *      -- a pen event's pen record is valid *and* its pointer half suits the type exactly as a pointer
+ *      event's would (a pen move names no button, a pen down has its button down): a stylus is a pointer,
+ *      and the rule is not relaxed because the hardware has more to say;
+ *      -- a gamepad event's record is valid *and* carries the half its type implies (`BUTTON_DOWN`/
+ *      `_UP` carry a button, `AXIS_CHANGED` carries an axis);
+ *      -- a composition event's preedit record is valid, and a `COMMIT` or `CANCEL` event is not required
+ *      to be empty -- a method may commit text it reports here;
  *   6. **the space is set exactly when the event has a position**: a pointer, wheel or touch event must
  *      name a space, and a key or text event must leave it unset. This is the rule that makes "no silent
  *      mixing" checkable: the commonest mistake is not converting between two planes, it is never saying
@@ -67,12 +76,21 @@
  * modules' (`HtmlNodeHandle`, `LayoutNodeId`) and both are inert by their own design;
  * nothing here resolves either of them.
  *
+ * ## The vocabulary is appended to, never reordered
+ *
+ * The values are the numbers a backend writes into a record and a saved recording replays, so they are
+ * **stable and positional**: a type may be appended and may never be inserted, because inserting one would
+ * silently reinterpret every event already produced. Phase 13.2 appended twenty types to 12.1's thirteen --
+ * device hotplug, auto-repeat, hover, pen, gamepad, composition, focus and window activation -- and
+ * `input.conformance.vocabulary` asserts every value and the count, so the day that rule is broken is the
+ * day the suite fails rather than the day a recording replays wrongly.
+ *
  * ## What is absent
  *
- * No dispatch, no propagation, no capture, no focus, no hover, no click synthesis, no gesture state, no
- * composition, no event-object shape for JavaScript. `TextInput` exists in the vocabulary because the
- * keyboard payload must be able to record text at all; producing it -- IME, dead keys, remapping -- is
- * Phase 12.8 and Phase 14.
+ * No dispatch, no propagation, no capture, no gesture state, no event-object shape for JavaScript, and no
+ * click synthesis: a `clickCount` is *carried* when a platform reports one and never invented here. Those
+ * are the consumers of this model (13.4 onward, and Phase 15) rather than parts of it -- an event model
+ * that dispatched would be the thing it is supposed to describe.
  */
 #ifndef ROBO_INPUT_EVENT_H
 #define ROBO_INPUT_EVENT_H
@@ -82,9 +100,13 @@
 #include "RoboDisplay/RoboDisplayTypes.h"
 #include "RoboGraphics/RoboGraphicsGeometry.h"
 
+#include "RoboInput/RoboInputComposition.h"
 #include "RoboInput/RoboInputCoordinates.h"
+#include "RoboInput/RoboInputDevice.h"
 #include "RoboInput/RoboInputDiagnostics.h"
+#include "RoboInput/RoboInputGamepad.h"
 #include "RoboInput/RoboInputKeyboard.h"
+#include "RoboInput/RoboInputPen.h"
 #include "RoboInput/RoboInputPointer.h"
 #include "RoboInput/RoboInputTarget.h"
 #include "RoboInput/RoboInputTypes.h"
@@ -130,7 +152,7 @@ typedef enum InputEventType {
     RoboInputEventPointerCancel = 6,
     /** A wheel or trackpad scrolled. */
     RoboInputEventWheel = 7,
-    /** Printable text was produced. Producing it is a later phase; recording it is this one's. */
+    /** Printable text was produced. Producing it is later work; recording it is this one's. */
     RoboInputEventTextInput = 8,
     /** A touch contact began. */
     RoboInputEventTouchBegin = 9,
@@ -139,11 +161,55 @@ typedef enum InputEventType {
     /** A touch contact ended normally. */
     RoboInputEventTouchEnd = 11,
     /** A touch contact ended abnormally: the system took it over. */
-    RoboInputEventTouchCancel = 12
+    RoboInputEventTouchCancel = 12,
+
+    /* ---- Phase 13.2: appended, never inserted (see this header's comment). ---- */
+
+    /** A device arrived and is now in the table. Carries the descriptor (`payload.device`). */
+    RoboInputEventDeviceConnected = 13,
+    /** A device left the table. Carries the descriptor it left with. */
+    RoboInputEventDeviceDisconnected = 14,
+    /** A key's auto-repeat sample: the key is still down. A distinct type from `KEY_DOWN` because the two
+     *  difference is what a *consumer* needs -- a text field inserts on one and not the other. */
+    RoboInputEventKeyRepeat = 15,
+    /** A pointer entered the runtime's tracked area. A pointer payload, so where it entered is carried. */
+    RoboInputEventPointerEnter = 16,
+    /** A pointer left the runtime's tracked area, without being cancelled. */
+    RoboInputEventPointerLeave = 17,
+    /** A pen touched the surface. */
+    RoboInputEventPenDown = 18,
+    /** A pen moved: touching, or hovering when the payload says so. */
+    RoboInputEventPenMove = 19,
+    /** A pen left the surface. */
+    RoboInputEventPenUp = 20,
+    /** The pen's samples stopped being reported: a *cancellation*, as for a pointer. */
+    RoboInputEventPenCancel = 21,
+    /** A controller button went down. */
+    RoboInputEventGamepadButtonDown = 22,
+    /** A controller button came up. */
+    RoboInputEventGamepadButtonUp = 23,
+    /** A controller axis moved. */
+    RoboInputEventGamepadAxisChanged = 24,
+    /** An input method began composing. */
+    RoboInputEventCompositionStart = 25,
+    /** The composing text, its clause or its caret changed. */
+    RoboInputEventCompositionUpdate = 26,
+    /** The composition was accepted: the preedit becomes committed text. */
+    RoboInputEventCompositionCommit = 27,
+    /** The composition was discarded: the editor restores what it began over. */
+    RoboInputEventCompositionCancel = 28,
+    /** A focus target gained input focus. The target is the event's own (`target`). */
+    RoboInputEventFocusIn = 29,
+    /** A focus target lost input focus. The target is the one that lost it. */
+    RoboInputEventFocusOut = 30,
+    /** A window became the active one. */
+    RoboInputEventWindowActivate = 31,
+    /** A window stopped being the active one. */
+    RoboInputEventWindowDeactivate = 32
 } InputEventType;
 
 /** Number of defined event types, including `NONE`. Asserted positionally by the conformance suite. */
-#define RoboInputEventTypeCount 13u
+#define RoboInputEventTypeCount 33u
 
 /** Which payload an event type owns; the live member of `InputEvent.payload`. */
 typedef enum InputPayloadKind {
@@ -154,11 +220,19 @@ typedef enum InputPayloadKind {
     /** `payload.pointer`: moves, buttons, cancels, wheels and every touch phase. */
     RoboInputPayloadPointer = 2,
     /** `payload.text`. */
-    RoboInputPayloadText = 3
+    RoboInputPayloadText = 3,
+    /** `payload.device`: the descriptor a hotplug event carries (13.2). */
+    RoboInputPayloadDevice = 4,
+    /** `payload.pen`: the pointer sample plus pressure, tilt and rotation (13.22). */
+    RoboInputPayloadPen = 5,
+    /** `payload.gamepad`: a button transition or an axis sample (13.53). */
+    RoboInputPayloadGamepad = 6,
+    /** `payload.composition`: an input method's preedit (13.37). */
+    RoboInputPayloadComposition = 7
 } InputPayloadKind;
 
 /** Number of defined payload kinds. Asserted positionally by the conformance suite. */
-#define RoboInputPayloadKindCount 4u
+#define RoboInputPayloadKindCount 8u
 
 /** One text event's payload, by value. */
 typedef struct InputTextData {
@@ -183,14 +257,45 @@ size_t InputTextDataLength(const InputTextData *data);
 /** Field-by-field equality, text compared as a string. Safe on NULL; two NULLs are equal. */
 int InputTextDataEqual(const InputTextData *a, const InputTextData *b);
 
+/**
+ * A device that arrived or left, by value: the whole descriptor, not just its identity.
+ *
+ * The event's own `device` field already carries the identity -- and the door that fills this fills *that*
+ * from the same record, so the two cannot disagree. What this adds is everything the identity cannot say:
+ * the **kind of hardware**, what it **can report**, and where it came from. That is what makes a hotplug
+ * event self-describing: a consumer or a log can interpret it without holding a registry, which is exactly
+ * the question a reader of a device dump is asking.
+ */
+typedef struct InputDeviceData {
+    /** The descriptor, whole (RoboInputDevice.h). */
+    InputDeviceDescriptor descriptor;
+} InputDeviceData;
+
+/** Clear @p data: everything @ref InputDeviceDescriptorInit clears. Safe on NULL. */
+void InputDeviceDataInit(InputDeviceData *data);
+
+/** Non-zero when @p data carries a descriptor this build may put on a hotplug event. */
+int InputDeviceDataIsValid(const InputDeviceData *data);
+
+/** Field-by-field equality. Safe on NULL; two NULLs are equal. */
+int InputDeviceDataEqual(const InputDeviceData *a, const InputDeviceData *b);
+
 /** An event's payload, by value: exactly one member is live, chosen by the event's type. */
 typedef union InputPayload {
-    /** Live for `KEY_DOWN` / `KEY_UP`. */
+    /** Live for `KEY_DOWN` / `KEY_UP` / `KEY_REPEAT`. */
     InputKeyboardData keyboard;
-    /** Live for every pointer, wheel and touch type. */
+    /** Live for every pointer, wheel, enter, leave and touch type. */
     InputPointerData pointer;
     /** Live for `TEXT_INPUT`. */
     InputTextData text;
+    /** Live for `DEVICE_CONNECTED` / `DEVICE_DISCONNECTED`. */
+    InputDeviceData device;
+    /** Live for the four pen types. */
+    InputPenData pen;
+    /** Live for the three gamepad types. */
+    InputGamepadData gamepad;
+    /** Live for the four composition types. */
+    InputCompositionData composition;
 } InputPayload;
 
 /**
@@ -253,6 +358,28 @@ int InputEventTypeIsPointerButton(InputEventType type);
 /** Non-zero for the four touch types. */
 int InputEventTypeIsTouch(InputEventType type);
 
+/** Non-zero for the four pen types. */
+int InputEventTypeIsPen(InputEventType type);
+
+/** Non-zero for the three gamepad types. */
+int InputEventTypeIsGamepad(InputEventType type);
+
+/** Non-zero for the four composition types. */
+int InputEventTypeIsComposition(InputEventType type);
+
+/** Non-zero for `DEVICE_CONNECTED` / `DEVICE_DISCONNECTED`. */
+int InputEventTypeIsDevice(InputEventType type);
+
+/** Non-zero for `FOCUS_IN` / `FOCUS_OUT`. */
+int InputEventTypeIsFocus(InputEventType type);
+
+/** Non-zero for `WINDOW_ACTIVATE` / `WINDOW_DEACTIVATE`. */
+int InputEventTypeIsWindow(InputEventType type);
+
+/** Non-zero for a type that ends a pointer, touch or pen sequence: `POINTER_UP`/`_CANCEL`,
+ *  `TOUCH_END`/`_CANCEL`, `PEN_UP`/`_CANCEL`. */
+int InputEventTypeIsTerminal(InputEventType type);
+
 /** Non-zero when the type's payload carries a position: every pointer, wheel and touch type. */
 int InputEventTypeHasPosition(InputEventType type);
 
@@ -262,11 +389,30 @@ int InputEventTypeIsRelease(InputEventType type);
 /**
  * Non-zero when @p type may come from @p source.
  *
- * The rule, written once so the validator and a caller agree: a key or text event comes from a keyboard, a
- * remote session or something synthetic, and never from a pointer; a pointer or wheel event comes from any
- * *positioning* source; a touch event comes from a positioning source too, but not from a mouse -- a
- * `MOUSE` that reports a touch would be a backend mislabelling itself, and a validator that accepted it
- * would hide the mislabelling from every layer above.
+ * The rule, written once so the validator and a caller agree:
+ *
+ *   a key, repeat or text event comes from a keyboard, a remote session or something synthetic, and never
+ *   from a pointer;
+ *
+ *   a pointer, wheel, enter or leave event comes from any *positioning* source;
+ *
+ *   a touch event comes from a positioning source too, but not from a mouse -- a `MOUSE` that reports a
+ *   touch would be a backend mislabelling itself, and a validator that accepted it would hide the
+ *   mislabelling from every layer above;
+ *
+ *   a pen event comes from a tablet, a remote session or something synthetic -- and **not** from a touch
+ *   digitizer, for the reason a touch may not come from a mouse: a finger cannot report pressure or tilt,
+ *   and a runtime that let a touch source claim one would be hiding a mislabelled stylus;
+ *
+ *   a gamepad event comes from a game controller, a remote session or something synthetic;
+ *
+ *   a composition event comes from where keystrokes come from, because a composition is what an input
+ *   method does *with* keystrokes;
+ *
+ *   a hotplug, focus or window event comes from **any defined source**: they describe the system rather
+ *   than a device category, and the source on them says which category the subject belongs to -- the
+ *   keyboard that arrived, the pointer that moved focus -- which is a fact worth carrying rather than one
+ *   to refuse.
  */
 int InputEventTypeAllowsSource(InputEventType type, InputSource source);
 
@@ -319,6 +465,89 @@ Result InputEventSetText(InputEvent *event,
                                         InputSource source,
                                         const char *text,
                                         InputDiag *diag);
+
+/**
+ * Fill @p event as a key event, including an auto-repeat.
+ *
+ * The same door as @ref InputEventSetKeyboard except for one thing, and it is the reason the type exists
+ * at all: @p type may be `KEY_REPEAT`, whose payload is a *down* with `repeat` set. A caller that has a
+ * payload already saying `repeat` asks for `KEY_REPEAT` and the type is checked against the payload rather
+ * than trusted: a `KEY_DOWN` carrying `repeat` is refused, because a consumer that switches on the type to
+ * decide whether to insert a character would insert it twice.
+ */
+Result InputEventSetKeyRepeat(InputEvent *event,
+                              InputSource source,
+                              const InputKeyboardData *keyboard,
+                              InputDiag *diag);
+
+/**
+ * Fill @p event as a pen event: a positioned type whose payload is the pointer sample plus what a stylus
+ * knows.
+ *
+ * @param type  one of the four pen types; anything else is refused.
+ * @param pen   the sample; `InputPenDataIsValid` must hold, and its pointer half must suit @p type exactly
+ *              as a pointer event's would (a move names no button, a down has its button down, an up does
+ *              not, a cancel says it is one).
+ * @param space the plane; `UNKNOWN` is refused, as for any positioned event.
+ */
+Result InputEventSetPen(InputEvent *event,
+                        InputEventType type,
+                        InputSource source,
+                        const InputPenData *pen,
+                        InputSpace space,
+                        InputDiag *diag);
+
+/**
+ * Fill @p event as a gamepad event.
+ *
+ * @param type one of `GAMEPAD_BUTTON_DOWN` / `_UP` / `GAMEPAD_AXIS_CHANGED`; anything else is refused.
+ * @param data the record; it must carry the half @p type implies -- a button event with an axis, or the
+ *             reverse, is refused because it would say two things at once.
+ */
+Result InputEventSetGamepad(InputEvent *event,
+                            InputEventType type,
+                            InputSource source,
+                            const InputGamepadData *data,
+                            InputDiag *diag);
+
+/**
+ * Fill @p event as a composition event.
+ *
+ * @param type    one of the four composition types; anything else is refused.
+ * @param preedit the record; see @ref InputCompositionDataSet for what is refused.
+ */
+Result InputEventSetComposition(InputEvent *event,
+                                InputEventType type,
+                                InputSource source,
+                                const InputCompositionData *preedit,
+                                InputDiag *diag);
+
+/**
+ * Fill @p event as a device hotplug event, and fill its **identity** from @p descriptor.
+ *
+ * The door that makes the event and the record it carries agree by construction: the identity on the event
+ * is copied out of the descriptor rather than passed beside it, so a caller cannot name one device on the
+ * event and a different one in the payload. @p type is `DEVICE_CONNECTED` or `DEVICE_DISCONNECTED`.
+ */
+Result InputEventSetDeviceHotplug(InputEvent *event,
+                                  InputEventType type,
+                                  InputSource source,
+                                  const InputDeviceDescriptor *descriptor,
+                                  InputDiag *diag);
+
+/**
+ * Fill @p event as a `FOCUS_IN`, `FOCUS_OUT`, `WINDOW_ACTIVATE` or `WINDOW_DEACTIVATE` event.
+ *
+ * These four carry **no payload**, and the reason is worth stating: what they are about is the event's own
+ * `target` (the node gaining or losing focus, filled in through @ref InputEventSetTarget) and `window`,
+ * and the *other* end of the transition -- what had focus before, which window was active -- is knowledge
+ * the layer that made the change already has, because it made it. A payload carrying both ends would be a
+ * second copy of a fact with two owners, which is what this module refuses everywhere else.
+ */
+Result InputEventSetFocusOrWindow(InputEvent *event,
+                                  InputEventType type,
+                                  InputSource source,
+                                  InputDiag *diag);
 
 /* ------------------------------------------------------------------ */
 /* Common fields                                                       */

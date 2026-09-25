@@ -472,7 +472,30 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboInput\RoboInputTarget.c"),
     (Join-Path $SourceDir "RoboInput\RoboInputQueue.c"),
     (Join-Path $SourceDir "RoboInput\RoboInputDebug.c"),
-    (Join-Path $SourceDir "RoboInput\RoboInputBridge.c")
+    (Join-Path $SourceDir "RoboInput\RoboInputBridge.c"),
+    # RoboInput 13.2 -- the *device* half: what a device is (a kind of hardware, what it can report, where
+    # it came from) and the fixed table that owns them, whose disconnect **removes** an entry and hands it
+    # back so no stale device can be found, asked for as a type's primary, or left holding a key. The three
+    # payload records beside it are the vocabulary's new members: a stylus (a pointer sample plus what a
+    # finger cannot report), a normalized controller, and an input method's preedit.
+    (Join-Path $SourceDir "RoboInput\RoboInputDevice.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputPen.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputGamepad.c"),
+    (Join-Path $SourceDir "RoboInput\RoboInputComposition.c"),
+    # RoboInput 13.2 continued -- the keyboard *state*: one held table from which the modifiers and the locks
+    # are derived, so a device disconnect cannot strand a key or a modifier, and an auto-repeat cadence a
+    # caller's clock drives one event at a time.
+    (Join-Path $SourceDir "RoboInput\RoboInputKeyboardState.c"),
+    # RoboInput 13.9/13.10 -- the *layout*: physical position plus modifier state becomes a character, levels
+    # and caps lock are one rule (`InputLayoutLevelFor`), and the five dead accents carry a spacing form, a
+    # combining form and a compose table that lists both cases rather than deriving one by an offset. Two
+    # built-in tables ship (`US_ASCII`, `US_INTERNATIONAL`), and a table for another language is data this
+    # module can hold rather than a parser it does not have.
+    (Join-Path $SourceDir "RoboInput\RoboInputLayout.c"),
+    # RoboInput 13.11 -- the *text pipeline*: the one door that turns a key event into zero, one or two
+    # `TEXT_INPUT` events through the layout and the pending accent, so `KeyDown` never means "insert this
+    # character" and an editor is only ever handed text.
+    (Join-Path $SourceDir "RoboInput\RoboInputText.c")
 )
 # The desktop's checkpoint scene and its host launcher (Phase 11.13). Not part of $ProdSrcs, and
 # deliberately: the shipping runtime has no scene and no launcher -- a scene is the fixture somebody looks
@@ -784,6 +807,11 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Input\SuiteRoboInputTarget.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputDebug.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputBridge.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputDevice.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputPayloads.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputKeyboardState.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputLayout.c"),
+    (Join-Path $TestsRoot "Input\SuiteRoboInputText.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDateTimeArith.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NCollation.c"),
     (Join-Path $SuitesDir "SuiteRoboI18NDisplayNames.c"),
@@ -1781,7 +1809,13 @@ if ($Module -and $Module -ne "Runtime") {
         Graphics = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics")
         Display = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay")
         Window = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay", "RoboWindow")
-        Input = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboHTML", "RoboLayout", "RoboInput")
+        # RoboInput sits *below* the layers that consume it but not below the ones it speaks in: a
+        # position is a `GfxPoint` (RoboGraphics), a key is a `PhysicalKey` and the modifier bits are
+        # RoboWindow's (RoboWindowKey.h), a display is a `DisplayId` (RoboDisplay), and the one direction
+        # the module travels is a translation of a `WindowEvent` (RoboWindow). The earlier list named
+        # only the two *identity* headers it carries from the document layers and none of the three
+        # modules those identities' siblings already needed, so `-Module Input` never linked.
+        Input = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboDisplay", "RoboWindow", "RoboHTML", "RoboCSS", "RoboLayout", "RoboInput")
         Html = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboHTML")
         Css = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboCSS")
         Layout = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout")

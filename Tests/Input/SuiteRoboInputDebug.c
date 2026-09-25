@@ -120,16 +120,23 @@ static void TestDebugKeyLines(void)
      * `MODIFIER` flag is derived from the *physical* key, which is exactly why it is absent here -- a key
      * whose position the platform did not report cannot be *known* to be a modifier, whatever its logical
      * identity says. */
+    /* Since 13.2 a repeat is its own **type**, so the event it goes on is `KeyRepeat` rather than a
+     * `KeyDown` with the flag set: one spelling for one thing, which is the change `input.payload.event_types`
+     * pins. A repeat still carries `repeat=1`, and the type is what a consumer switches on. */
     key = InputKeyData(RoboPhysicalKeyUnknown, RoboLogicalKeyShift, RoboKeyActionDown, 1, NULL);
+    InputEventInit(&event);
+    RoboCheckEqInt(InputEventSetKeyRepeat(&event, RoboInputSourceKeyboard, &key, NULL), RoboOk);
+    RoboCheckEqInt(InputEventWrite(&event, line, sizeof(line), &length, NULL), RoboOk);
+    RoboCheckStrEq(line,
+                      "KeyRepeat source=keyboard device=none window=0 display=0 time=0 modifiers=none "
+                      "space=unknown physical=unknown logical=Shift action=down repeat=1 "
+                      "flags=physical-unknown text=\"\"");
+    /* And the old spelling is refused rather than reinterpreted, which is what makes the type the one
+     * answer: a `KeyDown` that claimed to be a repeat would be two answers to "should this insert?". */
     InputEventInit(&event);
     RoboCheckEqInt(InputEventSetKeyboard(&event, RoboInputEventKeyDown,
                                                    RoboInputSourceKeyboard, &key, NULL),
-                      RoboOk);
-    RoboCheckEqInt(InputEventWrite(&event, line, sizeof(line), &length, NULL), RoboOk);
-    RoboCheckStrEq(line,
-                      "KeyDown source=keyboard device=none window=0 display=0 time=0 modifiers=none "
-                      "space=unknown physical=unknown logical=Shift action=down repeat=1 "
-                      "flags=physical-unknown text=\"\"");
+                      RoboInvalidArgument);
 
     /* A key up carries no text, and the two keys a case is most likely to mix up read differently. */
     key = InputKeyData(RoboPhysicalKeyNumpad5, RoboLogicalKeyNumpad5, RoboKeyActionUp, 0, NULL);
@@ -410,8 +417,7 @@ static void TestDebugLineBound(void)
                              text);
         key.flags = RoboInputKeyFlagAll;
         InputEventInit(&event);
-        RoboCheckEqInt(InputEventSetKeyboard(&event, RoboInputEventKeyDown,
-                                                       RoboInputSourceRemote, &key, NULL),
+        RoboCheckEqInt(InputEventSetKeyRepeat(&event, RoboInputSourceRemote, &key, NULL),
                           RoboOk);
         RoboCheckEqInt(InputEventWrite(&event, line, sizeof(line), &length, NULL), RoboOk);
         RoboCheck(length < (size_t)RoboInputDumpLineMax);

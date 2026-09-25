@@ -158,6 +158,9 @@ KeyAction InputKeyboardActionForEvent(int eventType)
 {
     switch ((InputEventType)eventType) {
     case RoboInputEventKeyDown:
+    /* An auto-repeat sample is a *down*: the key is still held. That is why `KEY_REPEAT` is a separate
+     * event type rather than a flag a consumer must remember to check -- see `InputEventTypeIsKey`. */
+    case RoboInputEventKeyRepeat:
         return RoboKeyActionDown;
     case RoboInputEventKeyUp:
         return RoboKeyActionUp;
@@ -165,6 +168,27 @@ KeyAction InputKeyboardActionForEvent(int eventType)
         break;
     }
     return RoboKeyActionNone;
+}
+
+int InputKeyboardDataRepeatMatchesEvent(const InputKeyboardData *data, int eventType)
+{
+    if (!data) {
+        return 0;
+    }
+    if ((InputEventType)eventType == RoboInputEventKeyRepeat) {
+        /* A repeat event whose payload does not say it is one would be an event a consumer could not use to
+         * decide whether to insert a character, which is the whole reason the type and the flag both
+         * exist. */
+        return data->repeat != 0;
+    }
+    if ((InputEventType)eventType == RoboInputEventKeyDown) {
+        /* And the reverse: a fresh press must not be labelled a repeat, or a text field would swallow the
+         * first character of every key the user holds. */
+        return data->repeat == 0;
+    }
+    /* An up carries no repeat by definition (`InputKeyboardDataIsValid` refuses one), so there is nothing
+     * further to agree about. */
+    return (InputEventType)eventType == RoboInputEventKeyUp;
 }
 
 int InputKeyboardDataActionMatches(const InputKeyboardData *data, int eventType)

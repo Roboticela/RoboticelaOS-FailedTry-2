@@ -40,7 +40,30 @@ static void TestConformanceVocabulary(void)
     RoboCheckEqInt(RoboInputEventTouchMove, 10);
     RoboCheckEqInt(RoboInputEventTouchEnd, 11);
     RoboCheckEqInt(RoboInputEventTouchCancel, 12);
-    RoboCheckEqInt(RoboInputEventTypeCount, 13);
+    /* Phase 13.2 appended twenty types. They are *appended* and never inserted (the header's rule), and
+     * this case is what makes that rule checkable: a type put in the middle would shift every value below
+     * it, and a recording that replayed those numbers would mean something else. */
+    RoboCheckEqInt(RoboInputEventDeviceConnected, 13);
+    RoboCheckEqInt(RoboInputEventDeviceDisconnected, 14);
+    RoboCheckEqInt(RoboInputEventKeyRepeat, 15);
+    RoboCheckEqInt(RoboInputEventPointerEnter, 16);
+    RoboCheckEqInt(RoboInputEventPointerLeave, 17);
+    RoboCheckEqInt(RoboInputEventPenDown, 18);
+    RoboCheckEqInt(RoboInputEventPenMove, 19);
+    RoboCheckEqInt(RoboInputEventPenUp, 20);
+    RoboCheckEqInt(RoboInputEventPenCancel, 21);
+    RoboCheckEqInt(RoboInputEventGamepadButtonDown, 22);
+    RoboCheckEqInt(RoboInputEventGamepadButtonUp, 23);
+    RoboCheckEqInt(RoboInputEventGamepadAxisChanged, 24);
+    RoboCheckEqInt(RoboInputEventCompositionStart, 25);
+    RoboCheckEqInt(RoboInputEventCompositionUpdate, 26);
+    RoboCheckEqInt(RoboInputEventCompositionCommit, 27);
+    RoboCheckEqInt(RoboInputEventCompositionCancel, 28);
+    RoboCheckEqInt(RoboInputEventFocusIn, 29);
+    RoboCheckEqInt(RoboInputEventFocusOut, 30);
+    RoboCheckEqInt(RoboInputEventWindowActivate, 31);
+    RoboCheckEqInt(RoboInputEventWindowDeactivate, 32);
+    RoboCheckEqInt(RoboInputEventTypeCount, 33);
 
     /* Sources. */
     RoboCheckEqInt(RoboInputSourceUnknown, 0);
@@ -67,7 +90,11 @@ static void TestConformanceVocabulary(void)
     RoboCheckEqInt(RoboInputPayloadKeyboard, 1);
     RoboCheckEqInt(RoboInputPayloadPointer, 2);
     RoboCheckEqInt(RoboInputPayloadText, 3);
-    RoboCheckEqInt(RoboInputPayloadKindCount, 4);
+    RoboCheckEqInt(RoboInputPayloadDevice, 4);
+    RoboCheckEqInt(RoboInputPayloadPen, 5);
+    RoboCheckEqInt(RoboInputPayloadGamepad, 6);
+    RoboCheckEqInt(RoboInputPayloadComposition, 7);
+    RoboCheckEqInt(RoboInputPayloadKindCount, 8);
 
     RoboCheckEqInt(RoboInputTargetNone, 0);
     RoboCheckEqInt(RoboInputTargetWindow, 1);
@@ -83,7 +110,8 @@ static void TestConformanceVocabulary(void)
     RoboCheckEqInt(RoboInputDomainTarget, 4);
     RoboCheckEqInt(RoboInputDomainBridge, 5);
     RoboCheckEqInt(RoboInputDomainDump, 6);
-    RoboCheckEqInt(RoboInputDomainCount, 7);
+    RoboCheckEqInt(RoboInputDomainDevice, 7);
+    RoboCheckEqInt(RoboInputDomainCount, 8);
 
     /* Every value of every vocabulary has a name, and no two types share one. The cleared value of the
      * *source*, *space*, *kind* and *domain* vocabularies is legitimately named "unknown", which is why the
@@ -99,7 +127,10 @@ static void TestConformanceVocabulary(void)
         }
         RoboCheckStrEq(InputEventTypeName(RoboInputEventNone), "None");
         RoboCheckStrEq(InputEventTypeName(RoboInputEventTouchCancel), "TouchCancel");
-        RoboCheckStrEq(InputEventTypeName((InputEventType)13), "unknown");
+        RoboCheckStrEq(InputEventTypeName(RoboInputEventDeviceConnected), "DeviceConnected");
+        RoboCheckStrEq(InputEventTypeName(RoboInputEventKeyRepeat), "KeyRepeat");
+        RoboCheckStrEq(InputEventTypeName(RoboInputEventWindowDeactivate), "WindowDeactivate");
+        RoboCheckStrEq(InputEventTypeName((InputEventType)33), "unknown");
 
         for (index = 1u; index < RoboInputSourceCount; index++) {
             RoboCheck(strcmp(InputSourceName((InputSource)index), "unknown") != 0);
@@ -130,7 +161,8 @@ static void TestConformanceVocabulary(void)
     /* "Is it known?" agrees with the numbered range, at both ends and just outside. */
     RoboCheck(InputEventTypeIsKnown(RoboInputEventNone));
     RoboCheck(InputEventTypeIsKnown(RoboInputEventTouchCancel));
-    RoboCheck(!InputEventTypeIsKnown((InputEventType)13));
+    RoboCheck(InputEventTypeIsKnown(RoboInputEventWindowDeactivate));
+    RoboCheck(!InputEventTypeIsKnown((InputEventType)33));
     RoboCheck(!InputEventTypeIsDeliverable(RoboInputEventNone));
     RoboCheck(InputEventTypeIsDeliverable(RoboInputEventKeyDown));
 
@@ -139,7 +171,7 @@ static void TestConformanceVocabulary(void)
     RoboCheck(!InputSpaceIsKnown(RoboInputSpaceUnknown));
     RoboCheck(!InputSpaceIsKnown((InputSpace)5));
     RoboCheck(!InputTargetKindIsKnown((InputTargetKind)4));
-    RoboCheck(!InputDomainIsKnown((InputDiagnosticDomain)7));
+    RoboCheck(!InputDomainIsKnown((InputDiagnosticDomain)8));
 
     /* Only three planes can be converted through: the application plane is named and never converted. */
     RoboCheck(InputSpaceIsConvertible(RoboInputSpaceScreen));
@@ -167,12 +199,21 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(caps.eventQueue, 1);
     RoboCheckEqInt(caps.debugDump, 1);
     RoboCheckEqInt(caps.windowBridge, 1);
+    RoboCheckEqInt(caps.deviceTable, 1);
+    RoboCheckEqInt(caps.keyboardState, 1);
+    /* 13.9/13.10/13.11: the layout, its dead keys, and the one door from a key to `TEXT_INPUT`. */
+    RoboCheckEqInt(caps.keyboardLayout, 1);
+    RoboCheckEqInt(caps.deadKeys, 1);
+    RoboCheckEqInt(caps.textInput, 1);
 
     /* What deliberately does not, each one named so that a reader cannot mistake the model for a system. */
     RoboCheckEqInt(caps.deviceReading, 0);
     RoboCheckEqInt(caps.platformAdapters, 0);
     RoboCheckEqInt(caps.dispatch, 0);
     RoboCheckEqInt(caps.focus, 0);
+    /* A dead key is **not** a composition: the layout's one waiting accent is this module's, while a
+     * composition is an input *method*'s preedit and its candidate window (13.37). Setting this one here
+     * would be the flag claiming a feature nobody built. */
     RoboCheckEqInt(caps.textEditing, 0);
     RoboCheckEqInt(caps.textComposition, 0);
     RoboCheckEqInt(caps.clipboard, 0);
@@ -184,6 +225,12 @@ static void TestConformanceCapabilities(void)
     RoboCheckEqInt(caps.eventTypeCount, RoboInputEventTypeCount);
     RoboCheckEqInt(caps.sourceCount, RoboInputSourceCount);
     RoboCheckEqInt(caps.spaceCount, RoboInputSpaceCount);
+    RoboCheckEqInt(caps.deviceTypeCount, RoboInputDeviceTypeCount);
+    RoboCheckEqInt(caps.deviceCapabilityCount, RoboInputDeviceCapabilityCount);
+    RoboCheckEqInt(caps.layoutCount, RoboInputLayoutIdCount);
+    RoboCheckEqInt(caps.layoutLevelCount, RoboInputLayoutLevelCount);
+    RoboCheckEqInt(caps.deadKeyCount, RoboInputDeadKeyCount);
+    RoboCheckEqInt(caps.textEventsPerChord, RoboInputTextMaxEvents);
     RoboCheckStrEq(caps.version, RoboInputVersionString);
     RoboCheckStrEq(caps.version, InputVersionString());
 
@@ -240,7 +287,7 @@ static void TestModelDump(void)
     RoboCheck(strcmp(first, second) == 0);
 
     /* The summary line, whole, and first. */
-    RoboCheck(strstr(first, "input 0.1.0 model=1 adapters=0 types=13 sources=9 spaces=5\n") == first);
+    RoboCheck(strstr(first, "input 0.3.0 model=1 adapters=0 types=33 sources=9 spaces=5\n") == first);
 
     /* One line per vocabulary entry, and no line of one vocabulary masquerading as another. */
     for (index = 0u; index + 1u < firstLength; index++) {

@@ -50,14 +50,21 @@
 #include "RoboBase/RoboError.h"
 
 #include "RoboInput/RoboInputBridge.h"
+#include "RoboInput/RoboInputComposition.h"
 #include "RoboInput/RoboInputCoordinates.h"
 #include "RoboInput/RoboInputDebug.h"
+#include "RoboInput/RoboInputDevice.h"
 #include "RoboInput/RoboInputDiagnostics.h"
 #include "RoboInput/RoboInputEvent.h"
+#include "RoboInput/RoboInputGamepad.h"
 #include "RoboInput/RoboInputKeyboard.h"
+#include "RoboInput/RoboInputKeyboardState.h"
+#include "RoboInput/RoboInputLayout.h"
+#include "RoboInput/RoboInputPen.h"
 #include "RoboInput/RoboInputPointer.h"
 #include "RoboInput/RoboInputQueue.h"
 #include "RoboInput/RoboInputTarget.h"
+#include "RoboInput/RoboInputText.h"
 #include "RoboInput/RoboInputTypes.h"
 #include "RoboInput/RoboInputVersion.h"
 
@@ -132,6 +139,62 @@ typedef struct InputCapabilities {
     /** Input across processes (IPC). **0** in 12.1. */
     int multiprocessInput;
 
+    /** The device table: descriptors, capabilities and hotplug (13.2). */
+    int deviceTable;
+    /**
+     * Keyboard **state**: which keys are held, the modifiers derived from them, the lock bits, and
+     * auto-repeat driven by a caller's clock (13.2).
+     *
+     * What it claims is that a keyboard's state is *derived* rather than accumulated -- so a device
+     * disconnect cannot leave a key or a modifier stuck -- and that a repeat is generated here rather than
+     * by each control, one event per call, from a deadline the state pushes forward. It does **not** claim
+     * that anything *reads* a keyboard: `deviceReading` is still 0.
+     */
+    int keyboardState;
+    /**
+     * The keyboard **layout** (13.9): a bounded table of `(key, level) → character`, the four levels, the
+     * AltGr rule and the caps-lock rule, and the two tables this build ships (`US_ASCII`,
+     * `US_INTERNATIONAL`).
+     *
+     * What it does **not** claim is a layout for any language whose table is not in this build: a layout is
+     * data this module can hold and does not ship (13.9), and a caller supplies one through
+     * `InputLayoutSetMapping`.
+     */
+    int keyboardLayout;
+    /**
+     * **Dead keys** as composition state (13.10): five accents with a spacing form, a combining form and a
+     * precomposed-pair table, one accent pending at a time, and the four ways it is resolved -- compose,
+     * repeat, replace and reject.
+     *
+     * It is *not* `textComposition` (below, still 0): dead keys are a property of a keyboard layout and need
+     * no input method, while composition is an external method's preedit and its candidate window.
+     */
+    int deadKeys;
+    /**
+     * The **text pipeline** (13.11): the one door that turns a key event into zero, one or two `TEXT_INPUT`
+     * events through the layout and the pending accent.
+     *
+     * What it claims is the *separation* the phase brief makes mandatory: a key event means "this key changed
+     * state" and a text event means "this text should be inserted", and no consumer may read a scan code or
+     * insert a character on `KeyDown`. What it does **not** claim is that the text reaches an editor --
+     * `textEditing` is still 0, and 13.12/13.13 are the command layer that will carry it there.
+     */
+    int textInput;
+
+    /** The layout ids this build ships (`RoboInputLayoutIdCount`). */
+    uint32_t layoutCount;
+    /** Layout levels this build defines (`RoboInputLayoutLevelCount`). */
+    uint32_t layoutLevelCount;
+    /** Dead keys this build defines, `NONE` included (`RoboInputDeadKeyCount`). */
+    uint32_t deadKeyCount;
+    /** Events one chord may produce (`RoboInputTextMaxEvents`). */
+    uint32_t textEventsPerChord;
+
+    /** The device-kind vocabulary's size (`RoboInputDeviceTypeCount`). */
+    uint32_t deviceTypeCount;
+    /** Device capability bits this build defines (`RoboInputDeviceCapabilityCount`). */
+    uint32_t deviceCapabilityCount;
+
     /** Event types in the vocabulary (`RoboInputEventTypeCount`). */
     uint32_t eventTypeCount;
     /** Sources in the vocabulary (`RoboInputSourceCount`). */
@@ -153,7 +216,7 @@ Result InputGetCapabilities(InputCapabilities *out);
  * knows, stated as a constant so a caller can size a buffer once instead of learning the length from a
  * refusal. `input.model.dump` asserts the dump fits and that the constant is the length's ceiling.
  */
-#define RoboInputModelDumpMax 2048u
+#define RoboInputModelDumpMax 4096u
 
 /**
  * Write what this module's model *is*: its vocabulary, in a fixed order, as text.

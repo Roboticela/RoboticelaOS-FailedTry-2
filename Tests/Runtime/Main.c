@@ -320,6 +320,13 @@ void TestRegisterInputOwnership(void);
 void TestRegisterInputTarget(void);
 void TestRegisterInputDebug(void);
 void TestRegisterInputBridge(void);
+/* Phase 13.2 — the device half: what a device is, and the table that owns them -- plus the three payload
+ * records the grown vocabulary carries (a stylus, a controller, an input method's preedit). */
+void TestRegisterInputDevice(void);
+void TestRegisterInputPayloads(void);
+void TestRegisterInputKeyboardState(void);
+void TestRegisterInputLayout(void);
+void TestRegisterInputText(void);
 
 int main(int argc, char **argv)
 {
@@ -641,6 +648,11 @@ int main(int argc, char **argv)
     TestRegisterInputTarget();
     TestRegisterInputDebug();
     TestRegisterInputBridge();
+    TestRegisterInputDevice();
+    TestRegisterInputPayloads();
+    TestRegisterInputKeyboardState();
+    TestRegisterInputLayout();
+    TestRegisterInputText();
     /* Registered last: desktop.scene.lifetime intentionally shuts the layers
      * down and brings them back, so nothing may follow it. */
     TestRegisterDesktopScene();

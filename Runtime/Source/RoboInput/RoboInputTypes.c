@@ -92,13 +92,22 @@ InputSource InputSourceForWindowEvent(int windowEventType)
 
 void InputDeviceInit(InputDevice *device)
 {
+    size_t index;
+
     if (!device) {
         return;
     }
     device->id = RoboInputDeviceIdNone;
     device->source = RoboInputSourceUnknown;
     device->flags = 0u;
-    device->name[0] = '\0';
+    /* The **whole** array, not just its first byte. `InputDeviceEqual` compares every byte of `name` --
+     * which is what makes it a value comparison rather than a string one -- so a name whose tail was left
+     * as whatever the stack held would make two devices the caller built identically compare unequal. The
+     * suite that found this is `input.device.descriptor`, and the reading it broke is the one a recording
+     * and a replay depend on: two identical devices must produce identical bytes. */
+    for (index = 0u; index < RoboInputDeviceNameMax; index++) {
+        device->name[index] = '\0';
+    }
 }
 
 int InputDeviceIsValid(const InputDevice *device)

@@ -1,12 +1,13 @@
 /*
  * RoboInput diagnostics (Phase 12.1) — see RoboInputDiagnostics.h.
  *
- * The record and its seven-row vocabulary, copied in shape from RoboDesktop's and RoboRender's own files
+ * The record and its eight-row vocabulary, copied in shape from RoboDesktop's and RoboRender's own files
  * because the shape is what a caller holding two diags from two modules has to be able to read. The domain
  * names are this file's own, and they name **which boundary refused** rather than which object failed -- a
  * split that only makes sense for this module: an input event crosses four boundaries between a platform and
  * a document, and "the event is malformed" and "the queue is full" send a developer to two entirely
- * different places.
+ * different places. `device` is the eighth (13.2): the table a descriptor is connected to is a boundary of
+ * its own, because a hotplug refusal and a malformed event are fixed in different places.
  */
 
 #include "RoboInput/RoboInputDiagnostics.h"
@@ -20,7 +21,8 @@ static const char *const inputDomainNames[RoboInputDomainCount] = {
     "queue",
     "target",
     "bridge",
-    "dump"
+    "dump",
+    "device"
 };
 
 int InputDomainIsKnown(InputDiagnosticDomain domain)

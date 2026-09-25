@@ -77,6 +77,30 @@ int InputTextDataEqual(const InputTextData *a, const InputTextData *b)
 /* The type vocabulary                                                 */
 /* ------------------------------------------------------------------ */
 
+void InputDeviceDataInit(InputDeviceData *data)
+{
+    if (!data) {
+        return;
+    }
+    InputDeviceDescriptorInit(&data->descriptor);
+}
+
+int InputDeviceDataIsValid(const InputDeviceData *data)
+{
+    return data != NULL && InputDeviceDescriptorIsValid(&data->descriptor);
+}
+
+int InputDeviceDataEqual(const InputDeviceData *a, const InputDeviceData *b)
+{
+    if (a == b) {
+        return 1;
+    }
+    if (!a || !b) {
+        return 0;
+    }
+    return InputDeviceDescriptorEqual(&a->descriptor, &b->descriptor);
+}
+
 int InputEventTypeIsKnown(InputEventType type)
 {
     return type >= RoboInputEventNone && type < (InputEventType)RoboInputEventTypeCount;
@@ -116,6 +140,46 @@ const char *InputEventTypeName(InputEventType type)
         return "TouchEnd";
     case RoboInputEventTouchCancel:
         return "TouchCancel";
+    case RoboInputEventDeviceConnected:
+        return "DeviceConnected";
+    case RoboInputEventDeviceDisconnected:
+        return "DeviceDisconnected";
+    case RoboInputEventKeyRepeat:
+        return "KeyRepeat";
+    case RoboInputEventPointerEnter:
+        return "PointerEnter";
+    case RoboInputEventPointerLeave:
+        return "PointerLeave";
+    case RoboInputEventPenDown:
+        return "PenDown";
+    case RoboInputEventPenMove:
+        return "PenMove";
+    case RoboInputEventPenUp:
+        return "PenUp";
+    case RoboInputEventPenCancel:
+        return "PenCancel";
+    case RoboInputEventGamepadButtonDown:
+        return "GamepadButtonDown";
+    case RoboInputEventGamepadButtonUp:
+        return "GamepadButtonUp";
+    case RoboInputEventGamepadAxisChanged:
+        return "GamepadAxisChanged";
+    case RoboInputEventCompositionStart:
+        return "CompositionStart";
+    case RoboInputEventCompositionUpdate:
+        return "CompositionUpdate";
+    case RoboInputEventCompositionCommit:
+        return "CompositionCommit";
+    case RoboInputEventCompositionCancel:
+        return "CompositionCancel";
+    case RoboInputEventFocusIn:
+        return "FocusIn";
+    case RoboInputEventFocusOut:
+        return "FocusOut";
+    case RoboInputEventWindowActivate:
+        return "WindowActivate";
+    case RoboInputEventWindowDeactivate:
+        return "WindowDeactivate";
     default:
         break;
     }
@@ -127,11 +191,14 @@ InputPayloadKind InputEventPayloadKind(InputEventType type)
     switch (type) {
     case RoboInputEventKeyDown:
     case RoboInputEventKeyUp:
+    case RoboInputEventKeyRepeat:
         return RoboInputPayloadKeyboard;
     case RoboInputEventPointerMove:
     case RoboInputEventPointerDown:
     case RoboInputEventPointerUp:
     case RoboInputEventPointerCancel:
+    case RoboInputEventPointerEnter:
+    case RoboInputEventPointerLeave:
     case RoboInputEventWheel:
     case RoboInputEventTouchBegin:
     case RoboInputEventTouchMove:
@@ -140,9 +207,28 @@ InputPayloadKind InputEventPayloadKind(InputEventType type)
         return RoboInputPayloadPointer;
     case RoboInputEventTextInput:
         return RoboInputPayloadText;
+    case RoboInputEventDeviceConnected:
+    case RoboInputEventDeviceDisconnected:
+        return RoboInputPayloadDevice;
+    case RoboInputEventPenDown:
+    case RoboInputEventPenMove:
+    case RoboInputEventPenUp:
+    case RoboInputEventPenCancel:
+        return RoboInputPayloadPen;
+    case RoboInputEventGamepadButtonDown:
+    case RoboInputEventGamepadButtonUp:
+    case RoboInputEventGamepadAxisChanged:
+        return RoboInputPayloadGamepad;
+    case RoboInputEventCompositionStart:
+    case RoboInputEventCompositionUpdate:
+    case RoboInputEventCompositionCommit:
+    case RoboInputEventCompositionCancel:
+        return RoboInputPayloadComposition;
     default:
         break;
     }
+    /* Focus and window activation own no payload on purpose: what they are about is the event's own target
+     * and window (see `InputEventSetFocusOrWindow`). */
     return RoboInputPayloadNone;
 }
 
@@ -157,6 +243,14 @@ const char *InputPayloadKindName(InputPayloadKind kind)
         return "pointer";
     case RoboInputPayloadText:
         return "text";
+    case RoboInputPayloadDevice:
+        return "device";
+    case RoboInputPayloadPen:
+        return "pen";
+    case RoboInputPayloadGamepad:
+        return "gamepad";
+    case RoboInputPayloadComposition:
+        return "composition";
     default:
         break;
     }
@@ -165,7 +259,11 @@ const char *InputPayloadKindName(InputPayloadKind kind)
 
 int InputEventTypeIsKey(InputEventType type)
 {
-    return type == RoboInputEventKeyDown || type == RoboInputEventKeyUp;
+    /* An auto-repeat is a key event: it is a *down* of a key that is already held, and every consumer that
+     * asks this question wants `KEY_REPEAT` in the answer -- the ones that want to tell the two apart ask
+     * `type == KEY_REPEAT`, which is a narrower question with its own answer. */
+    return type == RoboInputEventKeyDown || type == RoboInputEventKeyUp ||
+           type == RoboInputEventKeyRepeat;
 }
 
 int InputEventTypeIsPointerButton(InputEventType type)
@@ -180,15 +278,58 @@ int InputEventTypeIsTouch(InputEventType type)
            type == RoboInputEventTouchEnd || type == RoboInputEventTouchCancel;
 }
 
+int InputEventTypeIsPen(InputEventType type)
+{
+    return type == RoboInputEventPenDown || type == RoboInputEventPenMove ||
+           type == RoboInputEventPenUp || type == RoboInputEventPenCancel;
+}
+
+int InputEventTypeIsGamepad(InputEventType type)
+{
+    return type == RoboInputEventGamepadButtonDown || type == RoboInputEventGamepadButtonUp ||
+           type == RoboInputEventGamepadAxisChanged;
+}
+
+int InputEventTypeIsComposition(InputEventType type)
+{
+    return type == RoboInputEventCompositionStart || type == RoboInputEventCompositionUpdate ||
+           type == RoboInputEventCompositionCommit || type == RoboInputEventCompositionCancel;
+}
+
+int InputEventTypeIsDevice(InputEventType type)
+{
+    return type == RoboInputEventDeviceConnected || type == RoboInputEventDeviceDisconnected;
+}
+
+int InputEventTypeIsFocus(InputEventType type)
+{
+    return type == RoboInputEventFocusIn || type == RoboInputEventFocusOut;
+}
+
+int InputEventTypeIsWindow(InputEventType type)
+{
+    return type == RoboInputEventWindowActivate || type == RoboInputEventWindowDeactivate;
+}
+
 int InputEventTypeHasPosition(InputEventType type)
 {
-    return InputEventPayloadKind(type) == RoboInputPayloadPointer;
+    /* A pen is a pointer: its payload nests the pointer sample, and every positioned-event question -- which
+     * plane, convert to what, what was under it -- has one answer for both kinds. */
+    InputPayloadKind kind = InputEventPayloadKind(type);
+
+    return kind == RoboInputPayloadPointer || kind == RoboInputPayloadPen;
 }
 
 int InputEventTypeIsRelease(InputEventType type)
 {
     return type == RoboInputEventPointerUp || type == RoboInputEventPointerCancel ||
-           type == RoboInputEventTouchEnd || type == RoboInputEventTouchCancel;
+           type == RoboInputEventTouchEnd || type == RoboInputEventTouchCancel ||
+           type == RoboInputEventPenUp || type == RoboInputEventPenCancel;
+}
+
+int InputEventTypeIsTerminal(InputEventType type)
+{
+    return InputEventTypeIsRelease(type);
 }
 
 int InputEventTypeAllowsSource(InputEventType type, InputSource source)
@@ -199,13 +340,22 @@ int InputEventTypeAllowsSource(InputEventType type, InputSource source)
     switch (type) {
     case RoboInputEventKeyDown:
     case RoboInputEventKeyUp:
+    case RoboInputEventKeyRepeat:
     case RoboInputEventTextInput:
+    /* A composition is what an input method does *with* keystrokes, so it comes from where keystrokes
+     * come from. */
+    case RoboInputEventCompositionStart:
+    case RoboInputEventCompositionUpdate:
+    case RoboInputEventCompositionCommit:
+    case RoboInputEventCompositionCancel:
         return source == RoboInputSourceKeyboard || source == RoboInputSourceRemote ||
                source == RoboInputSourceVirtual;
     case RoboInputEventPointerMove:
     case RoboInputEventPointerDown:
     case RoboInputEventPointerUp:
     case RoboInputEventPointerCancel:
+    case RoboInputEventPointerEnter:
+    case RoboInputEventPointerLeave:
     case RoboInputEventWheel:
         return InputSourceIsPositioning(source) != 0;
     case RoboInputEventTouchBegin:
@@ -217,8 +367,28 @@ int InputEventTypeAllowsSource(InputEventType type, InputSource source)
         return source == RoboInputSourceTouch || source == RoboInputSourceTablet ||
                source == RoboInputSourcePointer || source == RoboInputSourceVirtual ||
                source == RoboInputSourceRemote;
+    case RoboInputEventPenDown:
+    case RoboInputEventPenMove:
+    case RoboInputEventPenUp:
+    case RoboInputEventPenCancel:
+        /* A tablet, and not a touch digitizer: a finger cannot report pressure or tilt, so a touch source
+         * claiming one is a mislabelled stylus the same way a touch from a mouse is a mislabelled finger. */
+        return source == RoboInputSourceTablet || source == RoboInputSourceVirtual ||
+               source == RoboInputSourceRemote;
+    case RoboInputEventGamepadButtonDown:
+    case RoboInputEventGamepadButtonUp:
+    case RoboInputEventGamepadAxisChanged:
+        return source == RoboInputSourceGameController || source == RoboInputSourceRemote ||
+               source == RoboInputSourceVirtual;
     default:
         break;
+    }
+    /* Hotplug, focus and window activation may come from any defined source: they describe the system
+     * rather than a device category, and the source on them names which category the *subject* belongs to
+     * -- the keyboard that arrived, the pointer that moved focus. @p source was checked above. */
+    if (InputEventTypeIsDevice(type) || InputEventTypeIsFocus(type) ||
+        InputEventTypeIsWindow(type)) {
+        return 1;
     }
     return 0;
 }
@@ -263,8 +433,16 @@ void InputEventInit(InputEvent *event)
     event->display = RoboDisplayIdNone;
     InputTargetInit(&event->target);
     event->hasTarget = 0;
+    /* Every member of the union is cleared, not just the two 12.1 had: a dump or a comparison that reached
+     * for a member a previous event left behind would otherwise read a stale record -- which is the reason
+     * the payload is a union rather than three fields in the first place. */
     InputKeyboardDataInit(&event->payload.keyboard);
     InputPointerDataInit(&event->payload.pointer);
+    InputTextDataInit(&event->payload.text);
+    InputDeviceDataInit(&event->payload.device);
+    InputPenDataInit(&event->payload.pen);
+    InputGamepadDataInit(&event->payload.gamepad);
+    InputCompositionDataInit(&event->payload.composition);
 }
 
 Result InputEventSetKeyboard(InputEvent *event,
@@ -279,12 +457,14 @@ Result InputEventSetKeyboard(InputEvent *event,
     }
     if (!InputEventTypeIsKey(type)) {
         return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
-                               "only KeyDown and KeyUp carry a keyboard payload");
+                               "only the three key types carry a keyboard payload");
     }
     if (!InputKeyboardDataIsValid(keyboard) ||
-        !InputKeyboardDataActionMatches(keyboard, (int)type)) {
+        !InputKeyboardDataActionMatches(keyboard, (int)type) ||
+        !InputKeyboardDataRepeatMatchesEvent(keyboard, (int)type)) {
         return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
-                               "the keyboard payload is invalid or its action disagrees with the event");
+                               "the keyboard payload is invalid, or its action or repeat flag disagrees "
+                               "with the event");
     }
     if (!InputEventTypeAllowsSource(type, source)) {
         return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
@@ -354,6 +534,184 @@ Result InputEventSetText(InputEvent *event,
     event->type = RoboInputEventTextInput;
     event->source = source;
     InputTextDataSet(&event->payload.text, text);
+    return RoboOk;
+}
+
+Result InputEventSetKeyRepeat(InputEvent *event,
+                              InputSource source,
+                              const InputKeyboardData *keyboard,
+                              InputDiag *diag)
+{
+    if (!event || !keyboard) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "a repeat needs an event and a payload");
+    }
+    if (!keyboard->repeat) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "a KEY_REPEAT event needs a payload that says it is one");
+    }
+    return InputEventSetKeyboard(event, RoboInputEventKeyRepeat, source, keyboard, diag);
+}
+
+/* Defined in the validation section below; the pen door needs it above, because "a stylus is a pointer"
+ * means the pen setters apply the *same* rule a pointer setter does rather than a second one. */
+static int PointerPayloadMatchesType(const InputPointerData *data, InputEventType type);
+
+Result InputEventSetPen(InputEvent *event,
+                        InputEventType type,
+                        InputSource source,
+                        const InputPenData *pen,
+                        InputSpace space,
+                        InputDiag *diag)
+{
+    if (!event || !pen) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "a pen event needs an event and a payload");
+    }
+    if (!InputEventTypeIsPen(type)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that type does not carry a pen payload");
+    }
+    if (!InputPenDataIsValid(pen)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "the pen payload is not a record this build may carry");
+    }
+    /* A stylus is a pointer, so its pointer half must suit the type exactly as a pointer event's would:
+     * the rule is *not* relaxed because the hardware has more to say. */
+    if (!PointerPayloadMatchesType(&pen->pointer, type)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "the pen's pointer half disagrees with the event type");
+    }
+    if (!InputSpaceIsKnown(space)) {
+        return RoboInputDiag(diag, RoboInputDomainSpace, RoboInvalidArgument,
+                               "a positioned event must say which plane its coordinates are on");
+    }
+    if (!InputEventTypeAllowsSource(type, source)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that source cannot report a pen event");
+    }
+    event->type = type;
+    event->source = source;
+    event->space = space;
+    event->payload.pen = *pen;
+    return RoboOk;
+}
+
+Result InputEventSetGamepad(InputEvent *event,
+                            InputEventType type,
+                            InputSource source,
+                            const InputGamepadData *data,
+                            InputDiag *diag)
+{
+    if (!event || !data) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "a gamepad event needs an event and a payload");
+    }
+    if (!InputEventTypeIsGamepad(type)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that type does not carry a gamepad payload");
+    }
+    if (!InputGamepadDataIsValid(data)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "the gamepad payload is not a record this build may carry");
+    }
+    if (type == RoboInputEventGamepadAxisChanged) {
+        if (!InputGamepadDataIsAxis(data)) {
+            return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                                   "an axis event needs a payload that carries an axis");
+        }
+    } else if (!InputGamepadDataIsButton(data)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "a button event needs a payload that carries a button");
+    }
+    if (!InputEventTypeAllowsSource(type, source)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that source cannot report a gamepad event");
+    }
+    event->type = type;
+    event->source = source;
+    event->payload.gamepad = *data;
+    return RoboOk;
+}
+
+Result InputEventSetComposition(InputEvent *event,
+                                InputEventType type,
+                                InputSource source,
+                                const InputCompositionData *preedit,
+                                InputDiag *diag)
+{
+    if (!event || !preedit) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "a composition event needs an event and a record");
+    }
+    if (!InputEventTypeIsComposition(type)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that type does not carry a composition payload");
+    }
+    if (!InputCompositionDataIsValid(preedit)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "the composition record is not one this build may carry");
+    }
+    if (!InputEventTypeAllowsSource(type, source)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that source cannot report a composition");
+    }
+    event->type = type;
+    event->source = source;
+    event->payload.composition = *preedit;
+    return RoboOk;
+}
+
+Result InputEventSetDeviceHotplug(InputEvent *event,
+                                  InputEventType type,
+                                  InputSource source,
+                                  const InputDeviceDescriptor *descriptor,
+                                  InputDiag *diag)
+{
+    if (!event || !descriptor) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "a hotplug event needs an event and a descriptor");
+    }
+    if (!InputEventTypeIsDevice(type)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that type is not a hotplug event");
+    }
+    if (!InputDeviceDescriptorIsValid(descriptor)) {
+        return RoboInputDiag(diag, RoboInputDomainDevice, RoboInvalidArgument,
+                               "the descriptor is not one this build may carry");
+    }
+    if (!InputEventTypeAllowsSource(type, source)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that source cannot report a hotplug event");
+    }
+    event->type = type;
+    event->source = source;
+    event->payload.device.descriptor = *descriptor;
+    /* Filled from the *same* record, which is what makes "the event and the descriptor it carries cannot
+     * name two different devices" a fact about the door rather than a rule a caller has to keep. */
+    event->device = descriptor->device;
+    return RoboOk;
+}
+
+Result InputEventSetFocusOrWindow(InputEvent *event,
+                                  InputEventType type,
+                                  InputSource source,
+                                  InputDiag *diag)
+{
+    if (!event) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "no event to fill");
+    }
+    if (!InputEventTypeIsFocus(type) && !InputEventTypeIsWindow(type)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that type is not a focus or window event");
+    }
+    if (!InputEventTypeAllowsSource(type, source)) {
+        return RoboInputDiag(diag, RoboInputDomainEvent, RoboInvalidArgument,
+                               "that is not a defined source");
+    }
+    event->type = type;
+    event->source = source;
     return RoboOk;
 }
 
@@ -477,7 +835,8 @@ static int PointerPayloadMatchesType(const InputPointerData *data,
     int cancelled = (data->flags & RoboInputPointerFlagCancelled) != 0u;
 
     if (cancelled != (type == RoboInputEventPointerCancel ||
-                      type == RoboInputEventTouchCancel)) {
+                      type == RoboInputEventTouchCancel ||
+                      type == RoboInputEventPenCancel)) {
         return 0;
     }
     if (InputEventTypeIsTouch(type)) {
@@ -486,15 +845,24 @@ static int PointerPayloadMatchesType(const InputPointerData *data,
         return data->button == RoboMouseButtonNone && data->buttons == 0u;
     }
     switch (type) {
+    /* Enter and leave are moves in every way that matters here: the pointer is somewhere and no button
+     * changed state. What they add is *when* the runtime began or stopped tracking it, which is a routing
+     * fact and not a field. */
+    case RoboInputEventPointerEnter:
+    case RoboInputEventPointerLeave:
+    case RoboInputEventPenMove:
     case RoboInputEventPointerMove:
         return data->button == RoboMouseButtonNone;
     case RoboInputEventPointerDown:
+    case RoboInputEventPenDown:
         return data->button != RoboMouseButtonNone &&
                InputButtonMaskHas(data->buttons, data->button);
     case RoboInputEventPointerUp:
+    case RoboInputEventPenUp:
         return data->button != RoboMouseButtonNone &&
                !InputButtonMaskHas(data->buttons, data->button);
     case RoboInputEventPointerCancel:
+    case RoboInputEventPenCancel:
         return data->button == RoboMouseButtonNone ||
                !InputButtonMaskHas(data->buttons, data->button);
     case RoboInputEventWheel:
@@ -536,7 +904,8 @@ int InputEventIsValid(const InputEvent *event)
     switch (kind) {
     case RoboInputPayloadKeyboard:
         if (!InputKeyboardDataIsValid(&event->payload.keyboard) ||
-            !InputKeyboardDataActionMatches(&event->payload.keyboard, (int)event->type)) {
+            !InputKeyboardDataActionMatches(&event->payload.keyboard, (int)event->type) ||
+            !InputKeyboardDataRepeatMatchesEvent(&event->payload.keyboard, (int)event->type)) {
             return 0;
         }
         break;
@@ -551,6 +920,49 @@ int InputEventIsValid(const InputEvent *event)
          * says so lives here rather than there because it is a fact about the type, not about the field. */
         if (!InputTextDataIsValid(&event->payload.text) ||
             event->payload.text.text[0] == '\0') {
+            return 0;
+        }
+        break;
+    case RoboInputPayloadDevice:
+        if (!InputDeviceDataIsValid(&event->payload.device)) {
+            return 0;
+        }
+        /* The identity on the event *is* the descriptor's: two answers to "which device" in one record is
+         * the class of mistake this model refuses everywhere, and the door that fills both would hide it. */
+        if (!InputDeviceEqual(&event->payload.device.descriptor.device, &event->device)) {
+            return 0;
+        }
+        break;
+    case RoboInputPayloadPen:
+        if (!InputPenDataIsValid(&event->payload.pen) ||
+            !PointerPayloadMatchesType(&event->payload.pen.pointer, event->type)) {
+            return 0;
+        }
+        break;
+    case RoboInputPayloadGamepad:
+        if (!InputGamepadDataIsValid(&event->payload.gamepad)) {
+            return 0;
+        }
+        if (event->type == RoboInputEventGamepadAxisChanged) {
+            if (!InputGamepadDataIsAxis(&event->payload.gamepad)) {
+                return 0;
+            }
+        } else if (!InputGamepadDataIsButton(&event->payload.gamepad)) {
+            return 0;
+        }
+        break;
+    case RoboInputPayloadComposition:
+        /* Every composition type accepts any valid record, including an empty preedit -- a
+         * `COMPOSITION_START` that begins with nothing and fills in as the user types is ordinary, and a
+         * `COMMIT` may carry the resolved text or leave it to the editor that already has it. */
+        if (!InputCompositionDataIsValid(&event->payload.composition)) {
+            return 0;
+        }
+        break;
+    case RoboInputPayloadNone:
+        /* Focus and window activation own no payload on purpose (see `InputEventSetFocusOrWindow`); no
+         * other deliverable type reaches here, because a type's kind is a total function of its type. */
+        if (!InputEventTypeIsFocus(event->type) && !InputEventTypeIsWindow(event->type)) {
             return 0;
         }
         break;
@@ -631,6 +1043,14 @@ int InputEventEqual(const InputEvent *a, const InputEvent *b)
                a->payload.pointer.flags == b->payload.pointer.flags;
     case RoboInputPayloadText:
         return InputTextDataEqual(&a->payload.text, &b->payload.text);
+    case RoboInputPayloadDevice:
+        return InputDeviceDataEqual(&a->payload.device, &b->payload.device);
+    case RoboInputPayloadPen:
+        return InputPenDataEqual(&a->payload.pen, &b->payload.pen);
+    case RoboInputPayloadGamepad:
+        return InputGamepadDataEqual(&a->payload.gamepad, &b->payload.gamepad);
+    case RoboInputPayloadComposition:
+        return InputCompositionDataEqual(&a->payload.composition, &b->payload.composition);
     default:
         break;
     }
@@ -655,7 +1075,13 @@ Result InputEventPosition(const InputEvent *event,
         return RoboInputDiag(diag, RoboInputDomainSpace, RoboNotSupported,
                                "that event type carries no position");
     }
-    *out = event->payload.pointer.position;
+    /* One answer for both positioned kinds: a pen's position is its pointer half's, because a stylus is a
+     * pointer (see `RoboInputPen.h`). */
+    if (InputEventPayloadKind(event->type) == RoboInputPayloadPen) {
+        *out = event->payload.pen.pointer.position;
+    } else {
+        *out = event->payload.pointer.position;
+    }
     return RoboOk;
 }
 

@@ -63,7 +63,9 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Rasterizer (RoboRender) | `Runtime/Source/RoboRender/` |
 | Graphics | `Runtime/Source/RoboGraphics/` |
 | Window | `Runtime/Source/RoboWindow/` |
-| Input | `Runtime/Source/RoboInput/` |
+| Input | `Runtime/Source/RoboInput/` + public `Runtime/Include/RoboInput/` — the **one** normalization layer between hardware and UI: devices, the normalized event vocabulary, keyboard state and layout, pointer/touch/pen/gamepad, focus, hit testing, routing, gestures, shortcuts, the clipboard, drag/drop, the cursor, replay and synthesis. `RoboInput.h` is its front door. Docs: `Documentation/Runtime/Input/` |
+| Keyboard layout + dead keys (13.9/13.10) | `Runtime/Source/RoboInput/RoboInputLayout.c` + public `Runtime/Include/RoboInput/RoboInputLayout.h`. A bounded `(key, level) → character` table, the four levels, the AltGr rule (two spellings, and `Ctrl`-without-`Alt` is **not** one) and the caps-lock rule stated once in `InputLayoutLevelFor`; dead accents are layout *data* — a spacing form, a combining form and a precomposed-pair table — not a text engine. Two tables ship (`US_ASCII`, `US_INTERNATIONAL`); another language is data a caller installs. Docs: `Documentation/Runtime/Input/KeyboardLayouts.md` |
+| Text input pipeline (13.11) | `Runtime/Source/RoboInput/RoboInputText.c` + public `Runtime/Include/RoboInput/RoboInputText.h`. The one door from a key event to zero, one or two `TEXT_INPUT` events: layout → pending accent → text. It inserts nothing — the text reaches an editor only through 13.12/13.13's command layer. Docs: `Documentation/Runtime/Input/TextInput.md` |
 | Desktop shell | `Runtime/Source/RoboDesktop/` |
 | Font | `Runtime/Source/RoboFont/` |
 | System typeface pack | `System/Fonts/` (assets + `system-fonts.manifest` + licences), `Runtime/Source/RoboFont/RoboFontSystemPack.c` + public `Runtime/Include/RoboFont/RoboFontSystemPack.h`. Docs: `Documentation/Development/SystemTypefacePack.md`, legal: `Documentation/Legal/FontLicenses.md`. |
@@ -1107,6 +1109,86 @@ phase's contract; the glyph run it snapshots is `Documentation/Runtime/Text/Glyp
   `paint.glyphrun.snapshot` (the same bytes after the records are freed), `paint.glyphrun.span_rules` (the
   one-fact invariant) and `paint.glyphrun.without_a_face` (a counted `noFont`).
 
+### Input architecture (Phase 13.1/13.2)
+
+**RoboInput is the one input normalization layer, and nothing above it may read a device or invent an event.**
+The module is `Runtime/Source/RoboInput/` + public `Runtime/Include/RoboInput/`, and
+`Documentation/Runtime/Input/Overview.md` is the map. A hardware driver normalizes; RoboInput models; a
+dispatcher will route (13.31); nothing may do another's job.
+
+- **One event is a value, and its payload is a union.** `InputEvent` is trivially copyable, names nothing it
+does not own, and carries `type`/`source`/`device`/`timestampMs`/`modifiers`/`space`/`window`/`display`/
+`target` plus the one payload its type owns. `InputEventIsValid` refuses a record whose fields disagree about
+what it is — seven rules listed in full in `RoboInputEvent.h`, including that **the coordinate space is set
+exactly when the event has a position**. Do not add a second payload field beside a type; do not widen a
+payload to say what a second one is for.
+- **The type vocabulary is appended to, never reordered.** The values are what a backend writes and a saved
+recording replays; `input.conformance.vocabulary` asserts each one and the count positionally.
+- **A device is a descriptor in a fixed table, and disconnect *removes*.** `RoboInputDevice.h`: seven device
+kinds, eleven capability bits, three connection states, and a registry whose `Disconnect` hands the removed
+descriptor back so no stale device can be looked up, asked for as a type's primary, or left holding a key.
+Drivers produce normalized events; this module consumes them and never depends on a driver.
+- **Keyboard state is derived, not accumulated.** `RoboInputKeyboardState.h` keeps one held table and reads
+the modifiers and locks off it, so a device disconnect cannot strand a key or a modifier; auto-repeat is one
+event per call from a deadline the state pushes forward, driven by a caller's clock (a test simulates time
+rather than sleeping). Never keep a second copy of "which keys are down".
+- **The physical/logical/character distinction is three types, and none may be used for another.**
+`PhysicalKey` and `LogicalKey`/`KeyCode` are RoboWindow's (`RoboWindowKey.h`); a backend's `scanCode` is
+carried and read by nothing. **RoboText editing must never see a scan code** (13.5): it receives text and
+commands.
+- **Timestamps are monotonic milliseconds** from an epoch the runtime chooses, never a wall clock; 0 means
+"the platform does not say". Ordering comes from the queue's `(timestamp, insertion)` rule.
+- **State of this phase, as capabilities.** `InputCapabilities` is read field by field by
+`input.conformance.capabilities`, and the zeros are the important half: `deviceReading`, `platformAdapters`,
+`dispatch`, `focus`, `textEditing`, `textComposition`, `clipboard`, `propagation`, `gestures`, `eventLoop`
+and `multiprocessInput` are **0** and each names a goal that has not landed. Set one to 1 only in the change
+that builds it, and add the case that reads it.
+- Tests: `TestInput.ps1 -Target Host`; `Assert-RoboInputBoundaries` (in `Runtime/Tools/Build.ps1`, run by
+`-Verify`) fails on a Chromium include, a consumer-layer include, or a document-layer include beyond the two
+identity headers — each allowance a named file or directory, so a *new* call site fails. Do not widen it.
+
+### Keyboard layout, dead keys and the text pipeline (Phase 13.9/13.10/13.11)
+
+**A layout turns a position into a character and stops; a key event says a key changed state while a text
+event says text should be inserted; and `KeyDown → insert a character` is never the universal path.** The
+layout is `Runtime/Source/RoboInput/RoboInputLayout.c` + public
+`Runtime/Include/RoboInput/RoboInputLayout.h`; the pipeline is `RoboInputText.c` + public `RoboInputText.h`.
+
+- **Levels, and the two rules that are easy to get wrong.** `InputLayoutLevelFor` is the whole semantics:
+shift, AltGr (spelled `AltRight` **or** `Ctrl+Alt`), and caps lock inverting shift **only for a cased key**,
+which is why a mapping carries `RoboInputLayoutMappingFlagCased` and why `Shift+1` is still `!` with caps lock
+on. A bare left Alt is a menu accelerator, not a third level. `InputModifiersIsControlChord` is the other
+half: `Ctrl`-without-`Alt`, or `Meta`, produces **no** text — a runtime that inserted a character would fire
+`Ctrl+C` *and* type a `c`.
+- **A dead key is layout data.** Five accents, each with a spacing form, a combining form and a
+precomposed-pair table listing **both cases** rather than deriving one by an offset (`ÿ`/`Ÿ` is the exception
+a rule would be wrong once about). One accent waits at a time; arming it produces **no event**; composing,
+being pressed twice (which emits the spacing form — that is how `´` is typed), being replaced by a different
+accent, and being unable to compose (which emits the spacing form **and then** the character) are the four
+resolutions. Never drop one of the two characters, and never emit a combining mark where the user typed a
+spacing character.
+- **`RoboInputTextOrigin` is the chord's, one entry per call.** It is a *report* — nothing above branches on
+it — and both events of a rejected accent share it. Do not make it one-per-event: a caller passing a scalar
+would have the second write land beside it.
+- **The pending accent is cancelled, never leaked.** `InputTextPipelineCancelDeadKey` is what focus loss,
+`Escape`, a window deactivation and a device disconnect call: an accent that outlived its field would modify
+the first character typed into the next one. A keystroke that means no character, and a **release**, must not
+disturb it.
+- **A layout is data this module can hold and does not ship for every language.** `US_ASCII` and
+`US_INTERNATIONAL` ship; `InputLayoutSetMapping` is how another arrives, and the table is a stated bound
+(`RoboInputLayoutMaxMappings`) that refuses rather than drops. The table is kept in `(physical, level)` order
+so a dump and two runs are byte-for-byte equal.
+- **The pipeline inserts nothing.** It hands `TEXT_INPUT` events to whatever owns the focused editor — which
+is 13.12/13.13's command layer and RoboText's editor (12.22), not this file. Do not call an editor from here.
+- Capabilities: 13.9/13.10/13.11 set `keyboardLayout`/`deadKeys`/`textInput` plus
+`layoutCount`/`layoutLevelCount`/`deadKeyCount`/`textEventsPerChord` and took the module to **`0.3.0`**; a
+dead key deliberately does **not** set `textComposition`, because that is an input *method*'s preedit and its
+candidates (13.37).
+- Tests: `Tests/Input/SuiteRoboInputLayout.c` (`input.layout.*`, 7 cases) and `SuiteRoboInputText.c`
+(`input.text.*`, 11 cases) via `TestInput.ps1 -Target Host`, then the boundary scan. `input.text.reject`
+(two events, in the order they were typed), `input.text.repeat`, `input.text.level` (caps lock, AltGr and the
+control chord) and `input.text.deadkey` are the decisive ones.
+
 ---
 
 ## Test rules
@@ -1145,7 +1227,9 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Desktop UI | `BuildDesktopUi.ps1` | (compiled into the desktop scene) |
 | Desktop | `BuildDesktop.ps1` | `TestDesktop.ps1 -Target Host` or `-Target Qemu` |
 | Window | `BuildWindow.ps1` | `TestWindow.ps1 -Target Host` or `-Target Qemu` |
-| Input | `BuildInput.ps1` | `TestInput.ps1 -Target Host` |
+| Input | `BuildInput.ps1` | `TestInput.ps1 -Target Host`, then `-Verify` (the boundary scan and the four RoboText integration rules) |
+| Input — device table, event vocabulary, keyboard state (13.2) | `BuildInput.ps1` | `TestInput.ps1 -Target Host` (`input.device.*`, `input.payload.*`, `input.keyboard.*`). Evidence: `input.device.primary` (the first of a type is its primary, a later flag takes it, a disconnect hands it to the next), `input.device.disconnect` (removal rather than marking, with the removed descriptor handed back) and `input.keyboard.repeat` (one event per call from a deadline the state pushes forward, and never a repeat after a release) |
+| Input — keyboard layout, dead keys, the text pipeline (13.9/13.10/13.11) | `BuildInput.ps1` | `TestInput.ps1 -Target Host` (`input.layout.*`, `input.text.*`). Evidence: `input.layout.levels` (the AltGr spellings, and caps lock inverting shift **only** for a cased key), `input.layout.builtin` (`a`/`A`, `1`/`!`, an unmapped key as `NotFound`, and the international table's five dead accents), `input.text.levels` (caps lock, AltGr on a table with no third level, and a control chord producing nothing) and `input.text.reject` (a dead accent and an incompatible base as **two** events, in the order they were typed) |
 | Unicode / I18N | `BuildUnicode.ps1` | `TestUnicode.ps1` / `TestI18n.ps1 -Target Host` |
 | Font | `BuildFont.ps1` | `TestFont.ps1 -Target Host` |
 | Kernel | `BuildKernel.ps1` | `TestKernel.ps1 -Target Host` or `-Target Qemu` |
