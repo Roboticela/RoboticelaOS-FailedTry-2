@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
-    [ValidateSet("Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Text", "Graphics", "Display", "Window", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
+    [ValidateSet("Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Text", "Graphics", "Display", "Window", "Compositor", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
     [string]$Module,
     [ValidateSet("Debug", "Release")][string]$Configuration = "Debug",
     [switch]$Verify,

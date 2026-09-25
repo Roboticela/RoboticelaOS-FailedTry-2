@@ -6771,3 +6771,53 @@ tables in
   `paint/docs/Architecture.md` §15 lists the rules the next goal may assume, and the desktop's own
 deferrals are named in `desktop/README.md`'s capability table -- ten absences, each with what it would
 need. Do not start until requested.
+
+## Goals 15.1–15.18 — RoboCompositor (a software compositor)
+
+- **Landed.** `Runtime/Source/RoboCompositor/` + `Runtime/Include/RoboCompositor/`, nine public headers over
+  one umbrella, 49 cases in three suites, `Scripts/Build/BuildCompositor.ps1` and
+  `Scripts/Test/TestCompositor.ps1 -Target Host`. This supersedes the compositor named as deferred in
+  `Next` above. Version `1.0.0`; `Assert-RoboCompositorBoundaries` in `Runtime/Tools/Build.ps1` is the rule
+  that keeps it what it is.
+
+- **What it is.** A compositor of **surfaces**: a layer tree (id, parent, surface, rectangle, offset, uniform
+  scale, opacity, axis-aligned clip, visibility), one composite pass that walks that tree **back to front**
+  and lands in a destination surface the **caller** owns, a damage region list, a tile grid per surface, a
+  raster scheduler with a per-frame job budget, a surface pool under a byte budget, frames with reasons, an
+  interval-clock vsync, scroll offsets, eased animation tracks, a frame pump with a post queue, present
+  fences, counters, and dumps that are complete or absent.
+
+- **The four decisions worth carrying forward.** *Paint order is child order* — `CompositorLayerPaintOrder`
+  is the only place an order is decided, so a reparent is a move in an array and nothing else needs to know
+  what is on top. *Over-merging damage is the right trade* — a false positive costs a present and a false
+  negative is a stale pixel, so a region that touches merges and a list past `maxDamageRects` becomes a
+  full-surface present rather than dropping regions. *Tiles are derived, never maintained* — the dirty set
+  comes from the damage region, because a hand-kept tile list is a second answer to "what is stale".
+  *Rasterizing is the caller's function* — `CompositorSetRasterFn` is the module's one seam into drawing, and
+  a callback that refuses **keeps its job** instead of losing it.
+
+- **Two rules that are about honesty rather than behaviour.** The clock is the caller's
+  (`CompositorAdvanceTime`, nothing sleeps and nothing reads a wall clock), so a vsync interval and a late
+  frame are facts about a timeline the caller owns. And a present fence reports what a build with **no swap
+  chain** can honestly report: the destination *is* those pixels — which the conformance suite proves by
+  reading them back.
+
+- **What it deliberately is not**, each a row in the capability table's second block rather than a silence:
+  GPU resources and GPU/CPU sync (`CompositorResourceCreate` **refuses** the two GPU kinds by name instead
+  of pretending to allocate a texture), a second frame thread (15.14's model is a **pump**, so producers
+  post and one thread pumps — `compositorThread` is `0` because a flag claiming otherwise would be false),
+  double buffering, rotation (a quarter turn is the rasterizer's business, as 12.20 already established),
+  subpixel sampling (nearest neighbour, integer arithmetic, exact at 1:1 and at integer magnification),
+  colour management, layer blur and tone mapping, and presenting to a display — the destination is a
+  `GfxSurface`, and a framebuffer is `RenderPresentFramebuffer`'s door one module over.
+
+- **The dependency rule is one line, and it is enforced.** RoboCompositor may include RoboGraphics and
+  **nothing above it**. The temptation this refuses is concrete — a layer's content is a surface, and
+  "so let me rasterize the display list here" reads like a simplification — and giving in would make the
+  module untestable without a renderer while making 15.6's seam a formality.
+
+- **No production consumer yet, and that is the phase's own stop line.** The module is a leaf consumer of
+  RoboGraphics. Wiring a shell frame loop to it — a layer per window, one surface per window,
+  `CompositorPumpFrame` where RoboDesktop presents today — is the next phase's work and needs no change
+  here. The artifact of record is `Build/Compositor-Conformance.png`: a scene with a clip, a scroll, a
+  translucent child and a scaled surface, rendered twice and compared **byte for byte** before it is written.

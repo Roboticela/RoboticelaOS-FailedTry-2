@@ -10,7 +10,7 @@ RoboticelaOS/
 ├── Kernel/              kernel (include paths mm/, fs/, … are internal)
 ├── Runtime/             web/UI runtime (one runtime, not a host fork)
 │   ├── Include/         public C headers (the ABI)
-│   ├── Source/          RoboBase, RoboMem, … RoboDesktop, RoboInput
+│   ├── Source/          RoboBase, RoboMem, … RoboDesktop, RoboInput, RoboCompositor
 │   └── Tools/           Runtime/Tools/Build.ps1
 ├── Libc/                guest libc
 ├── User/                guest programs + linker.ld

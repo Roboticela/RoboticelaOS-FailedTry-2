@@ -63,6 +63,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | Paint | `Runtime/Source/RoboPaint/` — including the shared shaped-run seam `RoboPaintRun.c` + public `Runtime/Include/RoboPaint/RoboPaintRun.h`, the one shaping conversion and the one glyph pen every painter in the tree uses (Phase 12.24) |
 | Rasterizer (RoboRender) | `Runtime/Source/RoboRender/` |
 | Graphics | `Runtime/Source/RoboGraphics/` |
+| Compositor (RoboCompositor) | `Runtime/Source/RoboCompositor/` + public `Runtime/Include/RoboCompositor/` — the **software** compositor: a layer tree (parent, surface, rectangle, offset, scale, opacity, clip, visibility), one composite pass into a destination **surface the caller owns**, a damage region list, a tile grid per surface, raster jobs under a per-frame budget with one caller-installed `CompositorRasterFn`, a surface pool with a memory budget, frames with reasons, an interval-clock vsync, scroll offsets, eased animation tracks, a frame **pump with a post queue**, present fences, counters and complete-or-absent dumps. `RoboCompositor.h` is its front door; GPU resources, a compositor thread, double buffering, rotation and colour management are `0` in its capability table **by name**. Docs: `Documentation/Runtime/Compositor/Architecture.md` |
 | Window | `Runtime/Source/RoboWindow/` |
 | Input | `Runtime/Source/RoboInput/` + public `Runtime/Include/RoboInput/` — the **one** normalization layer between hardware and UI: devices, the normalized event vocabulary, keyboard state and layout, pointer/touch/pen/gamepad, focus, hit testing, routing, gestures, shortcuts, the clipboard, drag/drop, the cursor, replay and synthesis. `RoboInput.h` is its front door. Docs: `Documentation/Runtime/Input/` |
 | Keyboard layout + dead keys (13.9/13.10) | `Runtime/Source/RoboInput/RoboInputLayout.c` + public `Runtime/Include/RoboInput/RoboInputLayout.h`. A bounded `(key, level) → character` table, the four levels, the AltGr rule (two spellings, and `Ctrl`-without-`Alt` is **not** one) and the caps-lock rule stated once in `InputLayoutLevelFor`; dead accents are layout *data* — a spacing form, a combining form and a precomposed-pair table — not a text engine. Two tables ship (`US_ASCII`, `US_INTERNATIONAL`); another language is data a caller installs. Docs: `Documentation/Runtime/Input/KeyboardLayouts.md` |
@@ -102,7 +103,8 @@ Direction (runtime), downstream may depend on upstream, never the reverse:
 RoboBase → RoboMem → RoboContainers → RoboUnicode / RoboI18N
        ↘ RoboFont → RoboTypography → RoboDesktop
        ↘ RoboFont → RoboGraphics → RoboDisplay → RoboWindow
-                                    ↘ RoboInput
+                                    ↗ RoboInput
+       ↘ RoboGraphics → RoboCompositor
 RoboHTML  ┐
 RoboCSS   ┴→ RoboLayout → RoboPaint → RoboRender → RoboDesktop
 RoboUnicode / RoboFont → RoboText → RoboLayout / RoboPaint
@@ -113,6 +115,7 @@ RoboUnicode / RoboFont → RoboText → RoboLayout / RoboPaint
 - RoboDesktop must not parse HTML/CSS/layout except through the named document-bridge files.
 - RoboRender must not include document-layer headers in module sources.
 - RoboInput may not include RoboPaint, RoboRender, or RoboDesktop.
+- RoboCompositor may include `RoboGraphics` and **nothing above it** — not RoboRender, RoboWindow, RoboDisplay or RoboDesktop. `Assert-RoboCompositorBoundaries` enforces it for the module *and* its suites.
 - Do not add Chromium, Skia, V8, or Blink as a build or link dependency. `Chromium/` is reference material only.
 - Kernel must not include Runtime headers. Runtime must not include Kernel headers.
 - Bootloader must not include Runtime or Kernel implementation files.
@@ -1239,6 +1242,77 @@ forward because Phase 14's shell cannot be composed without it.
   ignoring a positioned ancestor, and moving when the viewport does), `...static_wrapper_transparent` and
   `...nested_containing_blocks` are the decisive ones.
 
+### Compositor (Phase 15)
+
+**RoboCompositor is a software compositor, and its one output is pixels in a surface the caller owns.** It
+adds no rasterizer, no display backend and no frame thread, and it may include `RoboGraphics` and
+**nothing above it** — `Assert-RoboCompositorBoundaries` in `Runtime/Tools/Build.ps1` refuses RoboRender,
+RoboPaint, RoboLayout, RoboWindow, RoboDisplay, RoboDesktop and RoboInput by name, because "just walk the
+display list here" is the one simplification that would make the module untestable without a renderer and
+turn 15.6's seam into a formality. Authority: `Documentation/Runtime/Compositor/Architecture.md`.
+
+- **The layer tree is the model and paint order is child order.** A layer carries an id, a parent, a
+  surface, a rectangle, an offset, a uniform scale, an opacity, an axis-aligned clip and visibility.
+  `CompositorLayerPaintOrder` walks it *back to front* and is the **only** place an order is decided:
+  nothing re-sorts, and a reparent is a move in the child array rather than a second ordering. Geometry a
+  consumer is handed (`CompositorLayerBoundsInCompositor`) is the accumulated transform in the
+  compositor's own space, computed on demand and never stored twice.
+- **Damage is a region list that merges, and over-merging is the right trade.** A false positive costs a
+  present; a false negative is a stale pixel, so `CompositorDamageAdd` merges a rectangle that touches or
+  overlaps, and a list past `maxDamageRects` becomes a **full-surface** present
+  (`damageOverflowToFull`) rather than dropping regions. `CompositorDamagePixelCount` is the metric
+  everything else is read against, and a present keeps its damage when it refuses.
+- **Tiles exist so a *region* is schedulable, not to be a second surface.** One grid per surface with
+  three states, and the dirty set is **derived from the damage region** (`CompositorTilesDirtyFromDamage`) —
+  a tile list maintained by hand would be a second answer to "what is stale". A present marks the tiles it
+  covered clean; a viewer that wants to re-render one tile asks for it.
+- **Rasterizing is the caller's function.** `CompositorSetRasterFn` installs the one callback and
+  `CompositorRunScheduled` runs jobs under a per-frame budget. A callback that refuses **keeps its job**
+  rather than losing it (`compositor.job.refusal`), a job with no callback is counted rather than
+  silently dropped (`compositor.job.nocallback`), and a job is deferred rather than dropped when the
+  budget is spent. This module rasterizes no display list of its own.
+- **Surfaces are refcounted and pooled, and the budget evicts by least-recent use.**
+  `CompositorSurfaceAcquire`/`…Release`/`…Trim`/`…Destroy`; destroying a surface **detaches the layers
+  that referenced it**, so no layer holds a surface id that no longer resolves (`compositor.surface.replace`)
+  and `CompositorValidate` is the door that proves it. `CompositorResourceIsAvailable` refuses the two GPU
+  kinds **by name** rather than pretending to allocate a texture.
+- **The clock is the caller's, and a fence says the honest thing.** Nothing sleeps and nothing reads a
+  wall clock: `CompositorAdvanceTime`/`CompositorTimeNow` are the only time doors, vsync is an *interval*
+  on that clock (`CompositorSetVsync`, with a late frame **counted** rather than hidden), and a present
+  fence reports that the destination **is** those pixels — there is no swap chain, so `doubleBuffering` is
+  0 rather than a claim.
+- **Device/other threads post; the frame runs on one thread.** `CompositorPostFrame` is the producer door
+  and `CompositorPumpFrame`/`…DrainPosts` the single consumer, with coalescing counted (`compositor.frame.writers`);
+  `compositorThread` is 0 because this build has one frame thread, the caller's. Do not add a frame thread
+  here without changing 15.14's stated model.
+- **Animations are tracks on a property**, five properties and three easings (`CompositorEasingApply`), with
+  `reducedMotion` snapping to the end instead of animating. A track is a value: replacing or cancelling one
+  is `CompositorAnimationCancel`/`…Replace`, never a leak and never a second interpolator. Smooth scrolling
+  is the same track over a layer's scroll offset, not a second scroll path.
+- **Not built, and named rather than implied:** GPU resources and GPU/CPU sync (`gpuResources`, `gpuSync`),
+  a compositor thread, double buffering, rotation (`rotation` 0 — a quarter turn is the rasterizer's
+  business, as 12.20 already established), subpixel sampling (a scaled layer is sampled nearest neighbour
+  by integer arithmetic), colour management, layer blur and tone mapping, filters/backdrop effects,
+  non-uniform scale, and presenting to a display (`presentToDisplay` 0: the destination is a surface, and a
+  framebuffer is `RenderPresentFramebuffer`/RoboDisplay's door, one module over). Each is a row in the
+  capability table's second block, and `Documentation/Runtime/Compositor/Architecture.md` §8 states what it
+  would take.
+- **No production consumer yet, and that is the phase's own stop line.** RoboCompositor is a leaf consumer
+  of RoboGraphics: Phase 15 built the composition model and proved it against its own suites. Wiring a
+  shell's frame loop to it — a layer per window, one surface per window, `CompositorPumpFrame` where the
+  shell presents today — is the next phase's work and needs no change to this module.
+- Capabilities/version: `CompositorGetCapabilities` reports **1.0.0**'s set in two blocks, the second being
+  the absences above; the numeric fields are the bounds every fixed-size table is allocated from, so a
+  test reads a limit rather than hard-coding one. `CompositorWriteCapabilities` and
+  `CompositorWriteSummary` dump them.
+- Tests: `Tests/Compositor/SuiteRoboCompositor.c` (`compositor.*`, the vocabulary, the capability table, the
+  clock, counters, refusals, the dump and the fuzz invariant),
+  `SuiteRoboCompositorVisual.c` (the tree, geometry, paint order, hit testing through clips, the composite
+  pass, damage, the present and 15.18's determinism) and `SuiteRoboCompositorScheduling.c` (the pool and its
+  budget, the resource policy, tiles, the scheduler, animations, smooth scrolling, the frame pump, vsync and
+  fences) — 49 cases through `TestCompositor.ps1 -Target Host`, then `TestRuntime.ps1 -Target Host`. A
+  compositor change is not done until both pass.
+
 ---
 
 ## Test rules
@@ -1253,6 +1327,7 @@ Host tests run `Build/Runtime/RoboTest.host.exe` on the development machine. QEM
 | Paint | `BuildPaint.ps1` | `TestPaint.ps1 -Target Host` |
 | Rasterizer | `BuildRasterizer.ps1` | `TestRasterizer.ps1 -Target Host` |
 | Graphics | `BuildGraphics.ps1` | `TestGraphics.ps1 -Target Host` |
+| Compositor | `BuildCompositor.ps1` (`-Verify` runs the module's own boundary scan) | `TestCompositor.ps1 -Target Host` (`compositor.*`, 49 cases), then `TestRuntime.ps1 -Target Host` (the whole-suite gate). Evidence: `compositor.visual.conformance` (a clipped, scrolled, translucent and scaled scene rendered twice and compared byte for byte), `compositor.present.damage` (a region present writing only its damage, counted) and `compositor.frame.writers` (the post queue's coalescing), plus `Build/Compositor-Conformance.png` |
 | Glyph rasterization / typography | `BuildGraphics.ps1` (and `BuildFont.ps1` if RoboFont changed) | `TestGraphics.ps1 -Target Host`, then `TestPaint.ps1 -Target Host` and `TestDesktop.ps1 -Target Host`; `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Coverage.png` against `Build/Typography-Stroke.png` |
 | System typeface pack | `BuildFont.ps1` (module + pack validation; the image build installs `System/Fonts/`) | `TestFont.ps1 -Target Host` (`font.systempack.*`); `-Target Qemu` when the installed image is involved |
 | Typography roles / face binding | `BuildTypography.ps1` (module + boundary scan + its suites); the image builds the module into the guest runtime | `TestTypography.ps1 -Target Host` (`typography.*`), then `TestDesktop.ps1 -Target Host` (`desktop.typography.*` and the three galleries); `-Target Qemu` when the guest image is involved. Visual evidence: `Build/Typography-Desktop.png`, `Build/Typography-Chrome.png`, `Build/Typography-Document.png` |

@@ -272,24 +272,36 @@ Product UI that matches the Apple design rule and color palette.
 
 # Phase 15 — RoboCompositor
 
-15.1 Compositor architecture
-15.2 Layer tree
-15.3 Compositing
-15.4 Damage tracking
-15.5 Tile management
-15.6 Raster scheduling
-15.7 GPU resource management
-15.8 Surface management
-15.9 Frame scheduling
-15.10 VSync
-15.11 Scrolling
-15.12 Smooth scrolling
-15.13 Animations
-15.14 Compositor thread
-15.15 GPU/CPU synchronization
-15.16 Memory management
-15.17 Compositor performance
-15.18 Visual conformance
+15.1 Compositor architecture ✅
+15.2 Layer tree ✅
+15.3 Compositing ✅
+15.4 Damage tracking ✅
+15.5 Tile management ✅
+15.6 Raster scheduling ✅
+15.7 GPU resource management ✅ (the *policy*: `CompositorResourceIsAvailable`, with the two GPU kinds refused by name and `gpuResources`/`gpuSync` stated `0`)
+15.8 Surface management ✅
+15.9 Frame scheduling ✅
+15.10 VSync ✅ (an interval on the caller's clock; ticks, alignment and late frames counted)
+15.11 Scrolling ✅
+15.12 Smooth scrolling ✅
+15.13 Animations ✅
+15.14 Compositor thread ✅ (the model: a frame **pump** with a post queue — producers post, one thread drains; `compositorThread` is `0` by name)
+15.15 GPU/CPU synchronization ✅ (the CPU half: present fences, which on a compositor with no swap chain say the destination *is* those pixels)
+15.16 Memory management ✅
+15.17 Compositor performance ✅ (counters and a recorded baseline)
+15.18 Visual conformance ✅ (`Build/Compositor-Conformance.png`, two generations byte for byte)
+
+**Phase 15 landed as a software compositor** — `Runtime/Source/RoboCompositor/` + `Runtime/Include/RoboCompositor/`,
+`Documentation/Runtime/Compositor/Architecture.md`, 49 cases over three suites, version `1.0.0`,
+`Assert-RoboCompositorBoundaries` (it may include RoboGraphics and nothing above it). What the goals name and
+this build does not have is stated in the capability table's second block rather than left implied: GPU
+resources and GPU/CPU sync (a door that refuses the two GPU kinds rather than allocating a texture), a real
+second frame thread (15.14's model is a pump, so device threads *post*), double buffering (a present writes the
+caller's destination), rotation and subpixel sampling, colour management, layer blur and tone mapping, and
+presenting to a display — the destination is a `GfxSurface` the caller owns, and a framebuffer is
+`RenderPresentFramebuffer`/RoboDisplay's door one module over. **The module has no production consumer yet and
+that is the phase's own stop line:** a layer per shell window and `CompositorPumpFrame` where RoboDesktop
+presents today is the next phase's wiring and needs no change here.
 
 # Phase 16 — Minimal RoboJS
 

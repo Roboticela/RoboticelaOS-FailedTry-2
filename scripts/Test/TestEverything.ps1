@@ -18,6 +18,7 @@ $hostParts = @(
     "TestTypography.ps1",
     "TestRoboText.ps1",
     "TestGraphics.ps1",
+    "TestCompositor.ps1",
     "TestDisplay.ps1",
     "TestWindow.ps1",
     "TestInput.ps1",

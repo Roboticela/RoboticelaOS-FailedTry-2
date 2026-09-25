@@ -216,6 +216,9 @@ Result CompositorGetRefusalCounts(const Compositor *compositor, uint64_t *outCou
     if (!compositor || !outCounts) {
         return RoboInvalidArgument;
     }
+    /* The caller's whole array is written, not just the domains the module knows: a partly-filled
+     * array would leave a stale number at the end of it, which reads as a refusal that never
+     * happened. Out past the domain count is zero, which is what the truth is. */
     for (i = 0u; i < count; i++) {
         outCounts[i] = (i < (size_t)RoboCompositorDomainCount)
                            ? compositor->statRefusalsByDomain[i]
@@ -530,6 +533,8 @@ Result CompositorAdvanceTime(Compositor *compositor, CompositorTime now, unsigne
         ticks = (unsigned)(elapsed / (CompositorTime)compositor->vsyncInterval) + 1u;
         compositor->nextVsync += (CompositorTime)ticks * (CompositorTime)compositor->vsyncInterval;
         compositor->statVsyncTicks += ticks;
+        /* A deadline passed, so a frame is owed — see `vsyncDue` in the internal header. */
+        compositor->vsyncDue = 1;
     }
     compositor->now = now;
     if (outTicks) {
@@ -547,6 +552,7 @@ uint32_t CompositorSetVsync(Compositor *compositor, uint32_t intervalMs)
     /* The deadline is armed by the next present, so changing the interval makes the next frame due
      * immediately rather than waiting for a boundary that belonged to the old interval. */
     compositor->vsyncArmed = 0;
+    compositor->vsyncDue = 0;
     compositor->nextVsync = compositor->now;
     return compositor->vsyncInterval;
 }
@@ -562,6 +568,9 @@ int CompositorFrameIsDue(const Compositor *compositor)
         return 0;
     }
     if (!compositor->vsyncInterval || !compositor->vsyncArmed) {
+        return 1;
+    }
+    if (compositor->vsyncDue) {
         return 1;
     }
     return compositor->now >= compositor->nextVsync ? 1 : 0;

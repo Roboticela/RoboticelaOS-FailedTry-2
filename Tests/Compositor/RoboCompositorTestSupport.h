@@ -25,6 +25,7 @@
 
 #include "RoboCompositor/RoboCompositor.h"
 #include "RoboGraphics/RoboGraphicsSurface.h"
+#include "RoboMem/RoboMem.h"
 #include "RoboTest.h"
 
 #include <stdint.h>
@@ -34,7 +35,7 @@
 #define CompositorFixtureWidth 64
 #define CompositorFixtureHeight 48
 
-static Compositor *CompositorFixtureWithSize(GfxSize size, size_t budget)
+static inline Compositor *CompositorFixtureWithSize(GfxSize size, size_t budget)
 {
     CompositorConfig config;
     Compositor *compositor = NULL;
@@ -50,18 +51,18 @@ static Compositor *CompositorFixtureWithSize(GfxSize size, size_t budget)
     return compositor;
 }
 
-static Compositor *CompositorFixture(void)
+static inline Compositor *CompositorFixture(void)
 {
     return CompositorFixtureWithSize(MakeGfxSize(CompositorFixtureWidth, CompositorFixtureHeight),
                                      0u);
 }
 
-static void CompositorFixtureDispose(Compositor *compositor)
+static inline void CompositorFixtureDispose(Compositor *compositor)
 {
     CompositorDestroy(compositor);
 }
 
-static GfxSurface *CompositorMakeSurface(int32_t width, int32_t height)
+static inline GfxSurface *CompositorMakeSurface(int32_t width, int32_t height)
 {
     GfxSurfaceDesc desc;
     GfxSurface *surface = NULL;
@@ -79,7 +80,7 @@ static GfxSurface *CompositorMakeSurface(int32_t width, int32_t height)
     return surface;
 }
 
-static void CompositorFillSurface(GfxSurface *surface, GfxColorRgba8 color)
+static inline void CompositorFillSurface(GfxSurface *surface, GfxColorRgba8 color)
 {
     uint32_t x;
     uint32_t y;
@@ -96,7 +97,7 @@ static void CompositorFillSurface(GfxSurface *surface, GfxColorRgba8 color)
     }
 }
 
-static GfxColorRgba8 CompositorReadPixel(GfxSurface *surface, uint32_t x, uint32_t y)
+static inline GfxColorRgba8 CompositorReadPixel(GfxSurface *surface, uint32_t x, uint32_t y)
 {
     const uint8_t *pixel = NULL;
     GfxColorRgba8 color = GfxRgba8(0u, 0u, 0u, 0u);
@@ -109,7 +110,7 @@ static GfxColorRgba8 CompositorReadPixel(GfxSurface *surface, uint32_t x, uint32
     return color;
 }
 
-static uint32_t CompositorCountColor(GfxSurface *surface, GfxColorRgba8 color)
+static inline uint32_t CompositorCountColor(GfxSurface *surface, GfxColorRgba8 color)
 {
     uint32_t x;
     uint32_t y;
@@ -126,7 +127,7 @@ static uint32_t CompositorCountColor(GfxSurface *surface, GfxColorRgba8 color)
     return count;
 }
 
-static int CompositorColorIs(GfxColorRgba8 a, GfxColorRgba8 b)
+static inline int CompositorColorIs(GfxColorRgba8 a, GfxColorRgba8 b)
 {
     return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
 }
@@ -152,7 +153,7 @@ typedef struct CompositorRasterFixture {
  * then tell "the job ran" from "the job was deferred" by reading the surface, which is the claim
  * 15.6 actually makes. A fixture told to refuse answers `RoboBusy`, which is what a busy buffer is.
  */
-static Result CompositorRasterPaint(void *user,
+static inline Result CompositorRasterPaint(void *user,
                                     CompositorSurfaceId surface,
                                     GfxRect region,
                                     CompositorJobKind kind,

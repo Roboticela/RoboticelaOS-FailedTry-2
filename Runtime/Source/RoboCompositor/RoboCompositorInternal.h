@@ -219,6 +219,15 @@ struct Compositor {
     uint32_t vsyncInterval;
     CompositorTime nextVsync;
     int vsyncArmed;
+    /**
+     * Set when the clock passed a deadline, cleared by the frame that answers it.
+     *
+     * `nextVsync` always points at a deadline *in the future* after `CompositorAdvanceTime`, so a
+     * due-ness test against it alone would answer "not yet" to a frame that is already late. This
+     * flag is the other half: a deadline passed, so a frame is owed. It is the difference between
+     * "don't paint faster than the panel" and "never paint again".
+     */
+    int vsyncDue;
 
     /* counters (15.17) */
     uint64_t statFrames;

@@ -11,6 +11,13 @@
 
 #include "RoboCompositorTestSupport.h"
 
+#include "RoboGraphics/RoboGraphicsComposite.h"
+#include "RoboGraphics/RoboGraphicsEncode.h"
+#include "RoboGraphics/RoboGraphicsScreenshot.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
 #define FixtureRed GfxRgba8(255u, 0u, 0u, 255u)
 #define FixtureGreen GfxRgba8(0u, 255u, 0u, 255u)
 #define FixtureBlue GfxRgba8(0u, 0u, 255u, 255u)
@@ -331,9 +338,12 @@ static void TestComposeClip(void)
     RoboCheck(CompositorColorIs(CompositorReadPixel(target, 1, 3), FixtureBlack));
     RoboCheck(CompositorColorIs(CompositorReadPixel(target, 12, 13), FixtureBlack));
 
-    /* A child's clip intersects its parent's, both stated in the parent's space. */
+    /* A child's clip intersects its parent's, both stated in the parent's space. The parent holds no
+     * pixels of its own here, so the count is the child's and the intersection is the only thing that
+     * can explain it. */
     RoboCheck(CompositorLayerClearClip(compositor, 1u) == RoboOk);
     RoboCheck(CompositorLayerSetClip(compositor, 1u, MakeGfxRect(0, 0, 20, 20), NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetSurface(compositor, 1u, RoboCompositorSurfaceNone, NULL) == RoboOk);
     RoboCheck(CompositorLayerCreate(compositor, 2u, 1u, NULL) == RoboOk);
     RoboCheck(CompositorLayerSetRect(compositor, 2u, MakeGfxRect(0, 0, 64, 48), NULL) == RoboOk);
     RoboCheck(CompositorLayerSetSurface(compositor, 2u, 1u, NULL) == RoboOk);
@@ -381,10 +391,15 @@ static void TestComposeScale(void)
     RoboCheck(CompositorColorIs(CompositorReadPixel(target, 1, 0), FixtureRed));
     RoboCheck(CompositorColorIs(CompositorReadPixel(target, 2, 0), FixtureGreen));
     RoboCheck(CompositorColorIs(CompositorReadPixel(target, 3, 0), FixtureGreen));
-    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 0, 1), FixtureBlue));
-    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 1, 1), FixtureBlue));
-    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 2, 1), FixtureWhite));
-    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 3, 1), FixtureWhite));
+    /* Each source pixel covers a 2×2 block, so row 1 is still the first source row. */
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 0, 1), FixtureRed));
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 1, 1), FixtureRed));
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 2, 1), FixtureGreen));
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 3, 1), FixtureGreen));
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 0, 2), FixtureBlue));
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 1, 2), FixtureBlue));
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 2, 2), FixtureWhite));
+    RoboCheck(CompositorColorIs(CompositorReadPixel(target, 3, 2), FixtureWhite));
     RoboCheckEqInt((int)CompositorCountColor(target, FixtureRed), 4);
     RoboCheckEqInt((int)CompositorCountColor(target, FixtureWhite), 4);
     RoboCheck(CompositorColorIs(CompositorReadPixel(target, 4, 0), FixtureBlack));
@@ -655,7 +670,10 @@ static void TestPresentDamage(void)
                                                  CompositorFixtureHeight), NULL) == RoboOk);
     RoboCheck(CompositorLayerSetSurface(compositor, 1u, 1u, NULL) == RoboOk);
 
-    /* A two-pixel-square change costs four pixels, and the rest of the destination is untouched. */
+    /* A layer covering the whole composition is *everything* stale, so the damage a rect edit adds
+     * is full; the case wants a small region, which is what a two-pixel-square edit looks like. */
+    CompositorDamageClear(compositor);
+    RoboCheck(CompositorDamageIsFull(compositor) == 0);
     RoboCheck(CompositorDamageAdd(compositor, RoboCompositorSurfaceNone, MakeGfxRect(10, 10, 2, 2),
                                   NULL) == RoboOk);
     RoboCheck(CompositorPresent(compositor, target, RoboCompositorPresentDamage, &frame, NULL) ==
@@ -719,6 +737,142 @@ static void TestPresentRefusals(void)
     CompositorDestroy(compositor);
 }
 
+/* ------------------------------------------------------------------ */
+/* 15.18 — visual conformance                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Where the conformance picture goes.
+ *
+ * The documented path first, and an environment override so a pipeline can put it somewhere else —
+ * the same shape `DesktopCheckpointPath` uses, for the same reason: an artifact's location is a
+ * build's decision, not a test's.
+ */
+static const char *CompositorConformancePath(void)
+{
+    const char *override = getenv("ROBO_COMPOSITOR_PNG");
+
+    return (override && override[0] != '\0') ? override : "Build/Compositor-Conformance.png";
+}
+
+/**
+ * Two generations of one scene, byte for byte, and the picture a person looks at.
+ *
+ * The scene exercises every rule the pass has — a root with a clip, a translucent child, a scaled
+ * grandchild, a scrolled group — because determinism that only holds for one opaque rectangle is not
+ * determinism. The two generations are compared **byte for byte on the pixels**, which is a stronger
+ * claim than "the same areas" and the one a regression actually needs: a build that resampled in a
+ * different order, or rounded a fractional offset differently, fails here rather than looking
+ * approximately right.
+ */
+static void TestVisualConformance(void)
+{
+    Compositor *compositor = CompositorFixture();
+    GfxSurface *source = NULL;
+    GfxSurface *board = CompositorMakeSurface(2, 2);
+    GfxSurface *first = CompositorMakeSurface(CompositorFixtureWidth, CompositorFixtureHeight);
+    GfxSurface *second = CompositorMakeSurface(CompositorFixtureWidth, CompositorFixtureHeight);
+    const uint8_t *firstPixels;
+    const uint8_t *secondPixels;
+    size_t row;
+    int identical = 1;
+    GfxCaptureOptions capture;
+    GfxEncodeOptions encode;
+    GfxEncodedBuffer encoded = {NULL, 0u};
+    FILE *file;
+
+    /* A 2×2 pattern scaled up, so the picture has more than one colour per row. */
+    {
+        uint8_t *pixels = GfxSurfacePixels(board);
+        RoboCheck(pixels != NULL);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(220u, 70u, 70u, 255u), pixels, 4u) ==
+                  RoboOk);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(70u, 200u, 110u, 255u), pixels + 4u,
+                               4u) == RoboOk);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(60u, 90u, 230u, 255u),
+                               pixels + GfxSurfaceStride(board), 4u) == RoboOk);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(240u, 240u, 240u, 255u),
+                               pixels + GfxSurfaceStride(board) + 4u, 4u) == RoboOk);
+    }
+
+    /* background: a dark root the whole composition wide */
+    RoboCheck(CompositorSurfaceAcquire(compositor, 1u, MakeGfxSize(32, 32), RoboGfxFormatRgba8,
+                                       &source, NULL) == RoboOk);
+    CompositorFillSurface(source, GfxRgba8(20u, 20u, 28u, 255u));
+    RoboCheck(CompositorLayerCreate(compositor, 1u, RoboCompositorLayerNone, NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetRect(compositor, 1u, MakeGfxRect(0, 0, CompositorFixtureWidth,
+                                                                CompositorFixtureHeight), NULL) ==
+              RoboOk);
+    RoboCheck(CompositorLayerSetSurface(compositor, 1u, 1u, NULL) == RoboOk);
+
+    /* a scrolled group holding a clipped, translucent, scaled panel */
+    RoboCheck(CompositorLayerCreate(compositor, 2u, 1u, NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetRect(compositor, 2u, MakeGfxRect(0, 0, 32, 32), NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetClip(compositor, 2u, MakeGfxRect(4, 4, 24, 24), NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetScroll(compositor, 2u, 3.0f, 2.0f, NULL) == RoboOk);
+    RoboCheck(CompositorSurfaceAcquire(compositor, 2u, MakeGfxSize(2, 2), RoboGfxFormatRgba8,
+                                       &source, NULL) == RoboOk);
+    {
+        uint8_t *pixels = GfxSurfacePixels(source);
+        RoboCheck(pixels != NULL);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(255u, 210u, 60u, 255u), pixels, 4u) ==
+                  RoboOk);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(255u, 120u, 200u, 255u), pixels + 4u,
+                               4u) == RoboOk);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(120u, 255u, 240u, 255u),
+                               pixels + GfxSurfaceStride(source), 4u) == RoboOk);
+        RoboCheck(GfxPixelPack(RoboGfxFormatRgba8, GfxRgba8(255u, 255u, 255u, 255u),
+                               pixels + GfxSurfaceStride(source) + 4u, 4u) == RoboOk);
+    }
+    RoboCheck(CompositorLayerCreate(compositor, 3u, 2u, NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetRect(compositor, 3u, MakeGfxRect(0, 0, 16, 16), NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetSurface(compositor, 3u, 2u, NULL) == RoboOk);
+    RoboCheck(CompositorLayerSetOpacity(compositor, 3u, 200u, NULL) == RoboOk);
+
+    CompositorFillSurface(first, FixtureBlack);
+    CompositorFillSurface(second, FixtureBlack);
+    RoboCheck(CompositorPresent(compositor, first, RoboCompositorPresentFull, NULL, NULL) == RoboOk);
+    RoboCheck(CompositorPresent(compositor, second, RoboCompositorPresentFull, NULL, NULL) == RoboOk);
+
+    firstPixels = GfxSurfacePixelsConst(first);
+    secondPixels = GfxSurfacePixelsConst(second);
+    RoboCheck(firstPixels != NULL);
+    RoboCheck(secondPixels != NULL);
+    for (row = 0u; row < GfxSurfaceHeight(first); row++) {
+        size_t offset = row * GfxSurfaceStride(first);
+        if (memcmp(firstPixels + offset, secondPixels + offset,
+                   (size_t)GfxSurfaceWidth(first) * GfxSurfaceBytesPerPixel(first)) != 0) {
+            identical = 0;
+            break;
+        }
+    }
+    RoboCheckEqInt(identical, 1);
+    /* And the picture is not empty: the scene's own colours are in it. */
+    RoboCheck(CompositorCountColor(first, FixtureBlack) <
+              CompositorFixtureWidth * CompositorFixtureHeight);
+
+    /* The artifact a person looks at, asserted because a checkpoint that silently failed to be
+     * written is a case that believes it verified something. */
+    GfxCaptureOptionsInit(&capture);
+    capture.useFullExtent = 1;
+    GfxEncodeOptionsInit(&encode);
+    RoboCheck(GfxSurfaceExportScreenshot(first, &capture, &encode, &encoded) == RoboOk);
+    RoboCheck(encoded.data != NULL);
+    RoboCheck(encoded.size > 8u);
+    file = fopen(CompositorConformancePath(), "wb");
+    RoboCheck(file != NULL);
+    if (file) {
+        RoboCheck(fwrite(encoded.data, 1u, encoded.size, file) == encoded.size);
+        fclose(file);
+    }
+    GfxEncodedBufferRelease(&encoded);
+
+    GfxSurfaceRelease(board);
+    GfxSurfaceRelease(first);
+    GfxSurfaceRelease(second);
+    CompositorDestroy(compositor);
+}
+
 void TestRegisterCompositorVisual(void)
 {
     TestRegister("compositor.layer.tree", TestLayerTree);
@@ -740,4 +894,5 @@ void TestRegisterCompositorVisual(void)
     TestRegister("compositor.present.full", TestPresentFull);
     TestRegister("compositor.present.damage", TestPresentDamage);
     TestRegister("compositor.present.refusals", TestPresentRefusals);
+    TestRegister("compositor.visual.conformance", TestVisualConformance);
 }

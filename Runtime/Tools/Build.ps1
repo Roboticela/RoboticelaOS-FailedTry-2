@@ -23,7 +23,7 @@ param(
     [switch]$Sanitize,
     [string]$Filter = "",
     [switch]$VerboseTests,
-    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Text", "Graphics", "Display", "Window", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
+    [ValidateSet("", "Core", "Memory", "Containers", "Unicode", "I18n", "Font", "Typography", "Text", "Graphics", "Display", "Window", "Compositor", "Input", "Html", "Css", "Layout", "Paint", "Rasterizer", "Desktop", "Runtime")]
     [string]$Module = "",
     [switch]$SkipGuest,
     [switch]$Rebuild
@@ -876,6 +876,14 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopTypography.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopTypographyGallery.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopScene.c"),
+    # Phase 15 -- RoboCompositor. Three suites: the core (the vocabulary, the capability table, the clock,
+    # the counters and the two doors that make a failure readable — the dump and the fuzz check), the visual
+    # half (the tree, the composite pass, damage and the present, all proved by reading the destination's
+    # pixels) and the scheduling half (the pool and its budget, tiles, the raster scheduler, the animation
+    # tracks and the frame pump with vsync and fences).
+    (Join-Path $TestsRoot "Compositor\SuiteRoboCompositor.c"),
+    (Join-Path $TestsRoot "Compositor\SuiteRoboCompositorVisual.c"),
+    (Join-Path $TestsRoot "Compositor\SuiteRoboCompositorScheduling.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputConformance.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputEvent.c"),
     (Join-Path $TestsRoot "Input\SuiteRoboInputKeyboard.c"),
@@ -1326,6 +1334,52 @@ function Assert-RoboInputBoundaries {
     Write-Host "RoboInput boundary source scan: OK"
 }
 
+function Assert-RoboCompositorBoundaries {
+    # This module has the narrowest allowed dependency set of anything added since RoboGraphics: **it may
+    # include RoboGraphics and nothing above it.**
+    #
+    # The **upward** rule is the one this scan exists for, and it is unusually strict because the temptation
+    # is unusually concrete. A compositor is the one place where "just walk the display list here" reads like
+    # a simplification -- a layer's content arrives as a `GfxSurface`, and the next step from there looks like
+    # "so let me rasterize it myself". The moment that happens the module cannot be tested without RoboRender,
+    # its frame cost stops being a number and starts being somebody else's code, and the 15.6 seam
+    # (`CompositorRasterFn`) becomes a formality. So RoboRender, RoboPaint, RoboLayout, RoboCSS, RoboHTML,
+    # RoboWindow, RoboDisplay, RoboDesktop and RoboInput are all refused, as are Chromium, Skia and V8.
+    #
+    # Its only dependencies are the values it speaks in (`GfxSurface`, `GfxRect`, the one source-over blend)
+    # and RoboBase/RoboMem. The suites are held to the same rule for the input scan's reason: a compositor
+    # test that reached a painter would be testing two modules and proving neither.
+    $moduleRoots = @(
+        (Join-Path $RuntimeRoot "Include\RoboCompositor"),
+        (Join-Path $RuntimeRoot "Source\RoboCompositor")
+    )
+    $allRoots = $moduleRoots + @((Join-Path $TestsRoot "Compositor"))
+
+    $upward = '(?i)(#\s*include\s*[<"][^>"]*(chromium|skia|v8|RoboJS|RoboShell|RoboAPI|RoboDemo|third_party[/\\](chromium|skia))|\bnamespace\s+(blink|skia)\b)'
+    $consumer = '(?i)#\s*include\s*[<"]((RoboHTML|RoboCSS|RoboLayout|RoboPaint|RoboRender|RoboWindow|RoboDisplay|RoboDesktop|RoboInput|RoboText|RoboFont|RoboTypography)/)'
+    # Prose that names the boundary it keeps is not a leak, exactly as in the desktop, input and typography
+    # scans -- and this module's comments name RoboRender and RoboPaint a great many times on purpose.
+    $exempt = '(?i)must never depend|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|no compositor|does not read|reaching for|not a renderer|rather than a renderer|RoboRender/?RoboPaint|not RoboRender'
+
+    $rules = @(
+        @{ Roots = $moduleRoots; Pattern = $consumer },
+        @{ Roots = $allRoots; Pattern = $upward }
+    )
+    foreach ($rule in $rules) {
+        foreach ($root in $rule.Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $hits = Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h,*.md |
+                Select-String -Pattern $rule.Pattern -SimpleMatch:$false |
+                Where-Object { $_.Line -notmatch $exempt }
+            if ($hits) {
+                $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+                throw "RoboCompositor boundary leak (Chromium, or a layer above RoboGraphics):`n$sample"
+            }
+        }
+    }
+    Write-Host "RoboCompositor boundary source scan: OK"
+}
+
 function Assert-RoboTypographyBoundaries {
     # Two rules, and the second is the one that makes this module a *binding* rather than a renderer.
     #
@@ -1643,6 +1697,7 @@ if ($Module -and $Module -ne "Runtime") {
         Graphics    = @("\Graphics\", "/Graphics/")
         Display     = @("\Display\", "/Display/")
         Window      = @("\Window\", "/Window/")
+        Compositor  = @("\Compositor\", "/Compositor/")
         Input       = @("\Input\", "/Input/")
         Html        = @("\Html\", "/Html/")
         Css         = @("\Css\", "/Css/", "SuiteRoboCssDomSelect")
@@ -2032,6 +2087,7 @@ if ($Verify) {
     Assert-RoboRenderBoundaries
     Assert-RoboDesktopBoundaries
     Assert-RoboInputBoundaries
+    Assert-RoboCompositorBoundaries
     Assert-RoboTypographyBoundaries
     Assert-RoboTextBoundaries
     Assert-RoboTextIntegrationRules

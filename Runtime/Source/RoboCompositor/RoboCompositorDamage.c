@@ -95,6 +95,28 @@ static int ClipToSpace(const Compositor *compositor, CompositorSurfaceId surface
     }
 }
 
+/**
+ * Record that @p surface's pixels went stale as tiles.
+ *
+ * This is where surface damage becomes *work*, and it happens when the damage is added rather than
+ * when a frame is scheduled — which is the difference between a tile that is re-rasterized until a
+ * present happens and one that is produced once and stays clean. The scheduler then consumes the
+ * dirty set, and a tile a budget cut is still dirty because nothing marked it clean.
+ *
+ * Composition damage deliberately does nothing here: it means something *moved*, so the pixels are
+ * fine and only the arrangement is stale.
+ */
+static void NoteSurfaceDamage(Compositor *compositor, CompositorSurfaceId surface, GfxRect rect)
+{
+    if (surface == RoboCompositorSurfaceNone) {
+        return;
+    }
+    if (!CompositorFindSurfaceConst(compositor, surface)) {
+        return; /* the surface went away: there is nothing to produce */
+    }
+    (void)CompositorTileMarkDirty(compositor, surface, rect, NULL);
+}
+
 /** 1 when @p rect covers the whole composition. */
 static int CoversComposition(const Compositor *compositor, GfxRect rect)
 {
@@ -159,6 +181,7 @@ Result CompositorDamageAdd(Compositor *compositor,
             }
             compositor->statDamageMerges++;
             compositor->damage[i].rect = grown;
+            NoteSurfaceDamage(compositor, surface, grown);
             if (diag) {
                 CompositorDiagReset(diag);
             }
@@ -177,6 +200,7 @@ Result CompositorDamageAdd(Compositor *compositor,
         if (surface == RoboCompositorSurfaceNone && CoversComposition(compositor, clipped)) {
             MarkFull(compositor);
         }
+        NoteSurfaceDamage(compositor, surface, clipped);
         if (diag) {
             CompositorDiagReset(diag);
         }
@@ -205,6 +229,7 @@ Result CompositorDamageAdd(Compositor *compositor,
             MarkFull(compositor);
         } else {
             compositor->damage[bestIndex].rect = grown;
+            NoteSurfaceDamage(compositor, surface, grown);
         }
         if (diag) {
             CompositorDiagReset(diag);

@@ -39,6 +39,61 @@
 #include "RoboCompositor/RoboCompositorFrame.h"
 
 /* ------------------------------------------------------------------ */
+/* The frame record                                                    */
+/* ------------------------------------------------------------------ */
+
+void CompositorFrameInit(CompositorFrame *frame)
+{
+    if (!frame) {
+        return;
+    }
+    MemSet(frame, 0, sizeof(*frame));
+    frame->index = RoboCompositorFrameNone;
+    frame->reason = RoboCompositorFrameReasonDamage;
+    frame->kind = RoboCompositorPresentFull;
+    frame->fence = RoboCompositorFenceNone;
+}
+
+int CompositorFrameIsValid(const CompositorFrame *frame)
+{
+    if (!frame) {
+        return 0;
+    }
+    /* A frame that was never presented has index 0 and is the *initial* record rather than a valid
+     * one: a caller must be able to tell "no frame yet" from "a frame that cost nothing". */
+    if (frame->index == RoboCompositorFrameNone || !frame->presented) {
+        return 0;
+    }
+    if ((unsigned)frame->reason >= (unsigned)RoboCompositorFrameReasonCount) {
+        return 0;
+    }
+    if ((unsigned)frame->kind > (unsigned)RoboCompositorPresentDamage) {
+        return 0;
+    }
+    if (frame->damageRects > 0u && frame->kind == RoboCompositorPresentFull && frame->damagePixels == 0u) {
+        return 1; /* a full present with no recorded damage is legal: it writes everything */
+    }
+    if (frame->compositedPixels > (uint64_t)0x7fffffffu) {
+        return 0;
+    }
+    return 1;
+}
+
+int CompositorFrameEqual(const CompositorFrame *a, const CompositorFrame *b)
+{
+    if (!a || !b) {
+        return 0;
+    }
+    return a->index == b->index && a->timeMs == b->timeMs && a->reason == b->reason &&
+           a->kind == b->kind && a->damageRects == b->damageRects &&
+           a->damagePixels == b->damagePixels && a->compositedPixels == b->compositedPixels &&
+           a->presentedBytes == b->presentedBytes && a->layersPainted == b->layersPainted &&
+           a->jobsRun == b->jobsRun && a->tilesRasterized == b->tilesRasterized &&
+           a->presented == b->presented && a->vsyncAligned == b->vsyncAligned &&
+           a->late == b->late && a->fence == b->fence;
+}
+
+/* ------------------------------------------------------------------ */
 /* The post queue (15.14)                                              */
 /* ------------------------------------------------------------------ */
 
@@ -128,7 +183,6 @@ Result CompositorPresent(Compositor *compositor,
     GfxSize composition;
     CompositorComposeResult result;
     CompositorFrame frame;
-    unsigned regions = 0u;
     uint64_t damagePixels;
     unsigned i;
     GfxSize targetSize;
@@ -154,7 +208,6 @@ Result CompositorPresent(Compositor *compositor,
     if (kind == RoboCompositorPresentFull || compositor->damageFull) {
         GfxRect whole = CompositorCompositionBounds(compositor);
         CompositorComposeTree(compositor, target, &whole, &result, NULL);
-        regions = 1u;
     } else {
         /* Region presents walk the composition-space entries only: a surface region means pixels
          * were produced, and the raster run has already invalidated the layers that use it, so the
@@ -170,7 +223,6 @@ Result CompositorPresent(Compositor *compositor,
             result.layersPainted += one.layersPainted;
             result.layersCulled += one.layersCulled;
             result.layersClipped += one.layersClipped;
-            regions++;
         }
     }
     /* The frame's record. `pixelsWritten` is the frame's cost, and it is what a two-pixel change
@@ -214,10 +266,14 @@ Result CompositorPresent(Compositor *compositor,
     /* Only now is the damage consumed: a present that refused left it where it was. */
     CompositorDamageClear(compositor);
     compositor->pending = 0;
-    if (compositor->vsyncInterval) {
+    if (compositor->vsyncInterval && !compositor->vsyncArmed) {
+        /* Armed by the first present, from the time it happened: everything after that keeps the
+         * boundary the clock's arithmetic put it on, so the interval does not drift with the jitter
+         * of when a caller happened to pump. */
         compositor->vsyncArmed = 1;
         compositor->nextVsync = compositor->now + (CompositorTime)compositor->vsyncInterval;
     }
+    compositor->vsyncDue = 0;
     if (out) {
         *out = frame;
     }

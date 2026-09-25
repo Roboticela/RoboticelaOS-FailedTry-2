@@ -18,6 +18,7 @@ $parts = @(
     "BuildTypography.ps1",
     "BuildRoboText.ps1",
     "BuildGraphics.ps1",
+    "BuildCompositor.ps1",
     "BuildDisplay.ps1",
     "BuildWindow.ps1",
     "BuildInput.ps1",

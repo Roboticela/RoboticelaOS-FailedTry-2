@@ -440,18 +440,18 @@ Result CompositorScheduleFrame(Compositor *compositor,
     unsigned j;
     unsigned scheduled = 0u;
     unsigned deferred = 0u;
-    Result result;
 
+    (void)diag;
     if (!CompositorIsLive(compositor)) {
         return RoboInvalidArgument;
     }
     if (out) {
         CompositorScheduleStatsInit(out);
     }
-    result = CompositorTilesDirtyFromDamage(compositor, diag);
-    if (result != RoboOk) {
-        return result;
-    }
+    /* The dirty set is already the damage's answer: surface damage is recorded as dirty tiles when
+     * it is *added* (`NoteSurfaceDamage`), not when a frame happens, which is what keeps a tile a
+     * budget cut from being re-rasterized on every pass until something presents.
+     * `CompositorTilesDirtyFromDamage` remains a door a caller may invoke deliberately. */
     if (!compositor->rasterFn) {
         /* Nothing to call: a compositor whose content never changes is a supported configuration, so
          * this is not an error and produces no jobs. */

@@ -159,6 +159,11 @@ void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
 void TestRegisterTextBidi(void);
+/* Phase 15 -- RoboCompositor: the core and the dump, the tree/composite/present half, and the
+ * pool/tiles/scheduler/animations/frames half. */
+void TestRegisterCompositor(void);
+void TestRegisterCompositorVisual(void);
+void TestRegisterCompositorScheduling(void);
 void TestRegisterGraphics(void);
 void TestRegisterGraphicsPixelFormat(void);
 void TestRegisterGraphicsFramebuffer(void);
@@ -516,6 +521,9 @@ int main(int argc, char **argv)
     TestRegisterTextEditing();
     TestRegisterTextApi();
     TestRegisterTextShapingCorpus();
+    TestRegisterCompositor();
+    TestRegisterCompositorVisual();
+    TestRegisterCompositorScheduling();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

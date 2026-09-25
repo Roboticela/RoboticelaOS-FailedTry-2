@@ -137,7 +137,9 @@ Result CompositorSurfaceAcquire(Compositor *compositor,
     if (out) {
         *out = NULL;
     }
-    if (!CompositorIsLive(compositor) || !out) {
+    /* @p out is optional: a caller that only wants the pool to hold the surface (a shell priming a
+     * first frame, a fuzz pass) should not have to declare a pointer it will not read. */
+    if (!CompositorIsLive(compositor)) {
         return RoboInvalidArgument;
     }
     if (id == RoboCompositorSurfaceNone) {
@@ -165,7 +167,9 @@ Result CompositorSurfaceAcquire(Compositor *compositor,
         slot->refs++;
         slot->placeholder = 0;
         compositor->statSurfaceAcquires++;
-        *out = slot->surface;
+        if (out) {
+            *out = slot->surface;
+        }
         return RoboOk;
     }
     if (slot && slot->surface) {
@@ -240,7 +244,9 @@ Result CompositorSurfaceAcquire(Compositor *compositor,
     compositor->statSurfaceAcquires++;
     /* A new size means a tile index names different rectangles, so any grid over this name goes. */
     CompositorGridInvalidate(compositor, id);
-    *out = surface;
+    if (out) {
+        *out = surface;
+    }
     return RoboOk;
 }
 
@@ -285,19 +291,22 @@ Result CompositorSurfaceGet(const Compositor *compositor, CompositorSurfaceId id
     if (out) {
         *out = NULL;
     }
-    if (!compositor || !out) {
+    if (!compositor) {
         return RoboInvalidArgument;
     }
     slot = CompositorFindSurfaceConst(compositor, id);
     if (!slot || !slot->surface) {
         return RoboNotFound;
     }
-    *out = slot->surface;
+    if (out) {
+        *out = slot->surface;
+    }
     return RoboOk;
 }
 
 int CompositorSurfaceExists(const Compositor *compositor, CompositorSurfaceId id)
 {
+    /* A NULL @p out asks the question without answering it with a pointer — see `CompositorSurfaceGet`. */
     return CompositorSurfaceGet(compositor, id, NULL) == RoboOk ? 1 : 0;
 }
 

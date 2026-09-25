@@ -16,6 +16,7 @@ Build always runs on the development machine. There is no host/QEMU split for co
 | `BuildGraphics.ps1` | RoboGraphics |
 | `BuildDisplay.ps1` | RoboDisplay |
 | `BuildWindow.ps1` | RoboWindow |
+| `BuildCompositor.ps1` | RoboCompositor (`-Verify` also runs its own boundary scan: RoboGraphics and nothing above it) |
 | `BuildInput.ps1` | RoboInput |
 | `BuildHtml.ps1` | RoboHTML |
 | `BuildCss.ps1` | RoboCSS |
@@ -37,6 +38,7 @@ Objects are incremental. Changing HTML does not rebuild the kernel.
 
 ```powershell
 .\Scripts\Test\TestHtml.ps1 -Target Host
+.\Scripts\Test\TestCompositor.ps1 -Target Host
 .\Scripts\Test\TestDesktop.ps1 -Target Qemu
 .\Scripts\Test\TestEverything.ps1 -Target Host
 ```

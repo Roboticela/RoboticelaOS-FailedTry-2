@@ -138,7 +138,7 @@ static void TestCoreConfigAndCreate(void)
     compositor = NULL;
     RoboCheck(CompositorCreate(&config, &compositor, &diag) == RoboInvalidArgument);
     RoboCheck(compositor == NULL);
-    RoboCheckEqInt((int)CompositorDiagCode(&diag), (int)RoboInvalidArgument);
+    RoboCheckEqInt((int)diag.code, (int)RoboInvalidArgument);
     RoboCheck(diag.message && diag.message[0] != '\0');
 
     /* A format with no CPU layout is refused by name rather than laid out wrongly. */
@@ -226,7 +226,7 @@ static void TestCoreRefusals(void)
 
     CompositorDiagReset(&diag);
     RoboCheck(CompositorGetLastDiag(compositor, &diag) == RoboNotFound);
-    RoboCheckEqInt((int)CompositorDiagCode(&diag), (int)RoboOk);
+    RoboCheckEqInt((int)diag.code, (int)RoboOk);
 
     /* A refusal with no diag is still recorded: a caller that does not care should not have to pass
      * one, and a dump afterwards must still say what went wrong. */
@@ -239,12 +239,15 @@ static void TestCoreRefusals(void)
     RoboCheck(CompositorGetRefusalCounts(compositor, counts, RoboCompositorDomainCount) == RoboOk);
     RoboCheckEqInt((int)counts[RoboCompositorDomainLayer], 1);
     RoboCheck(CompositorGetRefusalCounts(NULL, counts, 4u) == RoboInvalidArgument);
-    /* Asking for fewer than every domain reports what fits and zeroes the rest. */
+    /* `count` is the caller's capacity: the window it names is written and nothing outside it is
+     * touched, so a caller cannot be handed a stale number where it did not ask. */
     for (i = 0u; i < RoboCompositorDomainCount; i++) {
         counts[i] = 99u;
     }
     RoboCheck(CompositorGetRefusalCounts(compositor, counts, 2u) == RoboOk);
-    RoboCheckEqInt((int)counts[2], 0);
+    RoboCheckEqInt((int)counts[RoboCompositorDomainCore], 0);
+    RoboCheckEqInt((int)counts[RoboCompositorDomainLayer], 1);
+    RoboCheckEqInt((int)counts[RoboCompositorDomainCompose], 99);
 
     RoboCheck(CompositorValidate(compositor, &diag) == RoboOk);
     CompositorDestroy(compositor);
@@ -275,7 +278,9 @@ static void TestDumpCapabilities(void)
     RoboCheck(strstr(buffer, "layerTree=1") != NULL);
     RoboCheck(strstr(buffer, "gpuResources=0") != NULL);
     RoboCheck(strstr(buffer, "compositor 1.0.0") != NULL);
-    RoboCheck(strlen(buffer) + 1u == needed);
+    /* `needed` is the length of the text without its terminator, so a complete write agrees with
+     * `strlen` exactly — which is what "complete" means here. */
+    RoboCheck(strlen(buffer) == needed);
     CompositorDestroy(compositor);
 }
 
@@ -311,7 +316,7 @@ static void TestDumpSummary(void)
      * implementation. */
     RoboCheck(strstr(buffer, "layer 7") != NULL);
     RoboCheck(strstr(buffer, "surface id 3") != NULL);
-    RoboCheck(strstr(buffer, "region 0 surface 3") != NULL);
+    RoboCheck(strstr(buffer, "region 1 surface 3") != NULL);
     RoboCheck(strstr(buffer, "frames=0") != NULL);
 
     RoboFree(buffer);
