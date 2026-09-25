@@ -151,6 +151,7 @@ void TestRegisterTextSelection(void);
  * a source range, the character and cluster boundaries a delete uses, composition, transactions, the
  * invalidation record and the transformation of positions and ranges across an edit. */
 void TestRegisterTextEditing(void);
+void TestRegisterTextShapingCorpus(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
  * X9-removed scalars, the level runs, L2's visual order, isolates, L4's mirroring and the dump. */
@@ -476,6 +477,7 @@ int main(int argc, char **argv)
     TestRegisterTextVertical();
     TestRegisterTextSelection();
     TestRegisterTextEditing();
+    TestRegisterTextShapingCorpus();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();
     TestRegisterGraphicsFramebuffer();

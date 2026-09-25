@@ -1901,7 +1901,15 @@ Result RoboTextGlyphRunGetStats(const RoboTextGlyphRun *run, RoboTextGlyphStats 
 
 Result RoboTextGlyphWrite(const RoboTextGlyph *glyph, char *buffer, size_t capacity, size_t *outLength)
 {
-    char line[192];
+    /*
+     * The line is built here and copied out, so this size is the dump's real ceiling: a new field (12.20's
+     * vertical placement, a later phase's colour) makes the line longer, and a line that no longer fits returns
+     * `RoboNotSupported` — which is complete-or-absent working as designed, but means the **whole run list's
+     * block** becomes absent at every destination capacity. That is what a 192-byte line did to a vertical
+     * glyph, and it is why this buffer is sized with room for every field plus the longest flags word rather
+     * than for the fields as they happened to be when it was written.
+     */
+    char line[512];
     size_t length = 0u;
 
     if (outLength) {
@@ -1950,7 +1958,7 @@ Result RoboTextGlyphWrite(const RoboTextGlyph *glyph, char *buffer, size_t capac
     /* The grouping flags (Phase 12.14.22), last because they are the newest answer on the line. */
     length = RoboTextWriterText(line, sizeof(line), length, " flags=");
     if (length != RoboTextWriterOverflow) {
-        char flagsWord[80];
+        char flagsWord[192];
 
         if (RoboTextGlyphFlagsWrite(glyph->flags, flagsWord, sizeof(flagsWord), NULL) == RoboOk) {
             length = RoboTextWriterText(line, sizeof(line), length, flagsWord);
@@ -1995,7 +2003,9 @@ Result RoboTextGlyphRunWrite(const RoboTextGlyphRun *run,
                              size_t capacity,
                              size_t *outLength)
 {
-    char line[256];
+    /* Holds one glyph's whole line, so it is the glyph writer's line size with room to spare — see the note on
+     * that buffer: the two must not disagree about how long a glyph line can be. */
+    char line[640];
     size_t length = 0u;
     RoboTextGlyphRunProblem problem = RoboTextGlyphRunProblemNone;
 

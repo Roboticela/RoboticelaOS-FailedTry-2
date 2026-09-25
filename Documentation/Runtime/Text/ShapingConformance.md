@@ -1,6 +1,6 @@
-# Latin & European shaping conformance (Phase 12.18)
+# Shaping conformance (Phases 12.18 and 12.23)
 
-The shaping pipeline already existed before this phase:
+The shaping pipeline already existed before 12.18:
 
 ```text
 Unicode → script/bidi → font selection → cmap → GSUB → GPOS → GlyphRun → measurement → paint
@@ -9,6 +9,11 @@ Unicode → script/bidi → font selection → cmap → GSUB → GPOS → GlyphR
 What 12.18 adds is the thing that makes a change to any of those stages *judgeable*: a deterministic corpus
 with an expectation at every layer, runnable on its own, whose failures name the layer that broke. It adds no
 engine work, and it claims none.
+
+12.23 adds the same claim at the other grain — **one sample per category, end to end**, from the decoder to a
+measurement, plus bidi, fallback, vertical text, selection, editing, a malformed-font matrix, a hundred
+repetitions per sample and a diffable table (§8). It is where the layers meet that the layer suites cannot
+see, and it is where the defect §8 records was found.
 
 Authority: this document. Owner: `Tests/Text/` (the fixtures and the suites), because the corpus is a
 statement about the text layer's contract and not about any consumer of it.
@@ -102,6 +107,7 @@ That is the difference the phase's §42 asks for: a reader can tell *which layer
 | `SuiteRoboTextShapingMarks.c` | `text.shaping.marks.*` | a mark in its base's cluster, the base's width alone, precomposed ≠ decomposed (stated, not assumed), the font's stated placement, two marks on one base, the mark's script, and the attachment absence |
 | `SuiteRoboTextShapingFallback.c` | `text.shaping.fallback.*` | the primary answers Latin and the chain answers Greek and Cyrillic; each selected range shapes with **no miss**; a range no candidate covers completely is answered by its base's face with `complete = 0` (never split per scalar); chain order and the no-face answer; one face with no chain |
 | `SuiteRoboTextShapingIntegration.c` | `text.shaping.integration.*` | measurement agrees with the shaped advances and the counters, clusters tile and survive a second measurement, determinism over the corpus and a rebuilt face, a font with **no layout tables**, a font whose first lookup is **malformed**, the pen's prefix sum, mixed LTR/RTL structure, L4 mirroring where it applies, the generated reference dump, and the measured baseline |
+| `SuiteRoboTextShapingCorpus.c` | `text.shaping.corpus.*` | the **whole pipeline** for one sample per category — decode → script → plan → runs → measurement — plus bidi, fallback, vertical, selection, editing, the malformed matrix, a hundred repetitions per sample, the diffable table and the timing record. See §8 |
 
 The bridge assertion (§37/§38) lives with the bridge, not here: `Tests/Paint/SuiteRoboPaintText.c`'s
 `paint.glyphrun.agrees_with_shaping` shapes a string with RoboText itself, requires the record and the display
@@ -159,8 +165,8 @@ non-goal — so this half of 12.20 is shaped rather than laid out, and it says s
 ## 6. Running it
 
 ```powershell
-Scripts\Test\TestRoboTextConformance.ps1 -Target Host   # 55 cases; text.shaping.* only
-Scripts\Test\TestRoboText.ps1 -Target Host              # 293 cases; everything under text.*
+Scripts\Test\TestRoboTextConformance.ps1 -Target Host   # 68 cases; text.shaping.* only
+Scripts\Test\TestRoboText.ps1 -Target Host              # 335 cases; everything under text.*
 Scripts\Test\TestDesktop.ps1 -Target Qemu               # the shell and the §44 specimen in the OS
 ```
 
@@ -185,3 +191,81 @@ specimen and its markers are pinned.
   is shaped with the default horizontal writing mode; the vertical cases that read it non-zero are
   `text.vertical.*` in `SuiteRoboTextVertical.c` over the built vertical fixture. The Latin claims in this file
   hold in either mode, which is the point of the writing mode being data.
+
+## 8. The whole-pipeline corpus (Phase 12.23)
+
+The suites above each prove one *layer*. `SuiteRoboTextShapingCorpus.c` (`text.shaping.corpus.*`, 13 cases)
+proves the **join between them** for one sample per category, from UTF-8 to a measurement, and adds no shaping
+of its own: every number it asserts is read off a door that already existed, and the measurement door it uses
+is 12.15's `RoboTextMeasureGlyphRunList` — a door **over the run list** — so "the measurement agrees with the
+runs" is an equality between two implementations rather than a third sum written in a test.
+
+### Which stage a failure names
+
+§1 of the phase asks that a failure say which stage moved, so the chain is asked one door at a time and each
+step is checked against the *previous* step rather than against a constant: a wrong glyph count with a right
+scalar count is the shaper, a wrong scalar count is the decoder, a right glyph count with a wrong advance is
+GPOS, and a missing run is the resolver. The cases:
+
+| Case | What it proves |
+|---|---|
+| `.stages` | decode → script runs → complex plan → shape → runs tile → measurement, over Latin, a Devanagari conjunct and Arabic |
+| `.scripts` | Greek, Cyrillic, and three scripts in one string, each run carrying its own script |
+| `.latin_extended` | the Latin/European table (basic, punctuation, quotes, digits, whitespace, Latin-1, decomposed) with exact glyph and cluster counts |
+| `.ligature_kerning` | a feature that moves **glyphs and the measurement**: `ffi` as one cluster with its provenance, `office` four glyphs against six with `liga` off, and `AV` narrower than its two letters |
+| `.unsupported_scripts` | the gaps stated as gaps: nine Indic rows with their own virama and no reorder arrays, the four Southeast Asian scripts with no stages, Tibetan and Han answering `None` |
+| `.bidi` | logical tiling, resolved levels per run, odd/even by direction, and the visual order as a **permutation** with both directions of the mapping |
+| `.fallback` | the selector naming *which* candidate answered, per scalar and per coherent range, with `complete` reported rather than repaired |
+| `.vertical` | a column on y with zero width, sideways Latin, and a mark that does not lengthen the column |
+| `.measurement_selection_editing` | six measured categories, the selection map over a ligature (a snapped hit, a caret at the cluster start, a round trip), and an edit whose bytes shape **exactly** like a fresh layout of the text it produced |
+| `.malformed` | the matrix below, plus the fixture's truncated-directory and GDEF-absent presets |
+| `.determinism` | eight samples × 100 repetitions, compared field by field and byte for byte on the run-list block |
+| `.report` | the table below, regenerated and compared against itself |
+| `.performance` | 1 600 shapes over 13 800 scalars, recorded and printed |
+
+### The malformed matrix (§28)
+
+Eleven variants, each **one** stated corruption of an otherwise good font, each shaped twice. What is asserted
+is the part that holds either way: the answer is a `Result`, it is the same on the second ask, and — when the
+face *does* shape — the run list is valid and its runs still tile the text. Which way each variant went is part
+of the record, printed as one line per variant:
+
+| Corruption | Answer |
+|---|---|
+| `GSUB`/`GPOS` ScriptList, FeatureList or LookupList offset past the table; either table truncated | `RoboParseError` — a refusal, not a silent skip |
+| `GDEF` MarkAttachClassDef offset past the table | `RoboParseError` |
+| `cmap` with no subtable | `RoboError` — nothing can be mapped, so the shape refuses |
+| `maxp` claiming one glyph | `RoboError` |
+| `head` `unitsPerEm` zero | `RoboOk` — the face still shapes, and the case still checks the list |
+
+A **directory entry** that points outside the source is the one case that refuses the whole face, and it is
+asserted as a refusal rather than as an absence: a font whose own contents lie about their location is not one
+to half-read. Two of the phase's §28 variants are named and **not built**, because a suite cannot assert "did
+not hang" — an extension-lookup cycle and an impossible class definition are fixture-layout questions for the
+`GSUB`/`GPOS` builders, not patches a corpus can write blind.
+
+### The report, which is the checked-in expected data
+
+`Build/Text-ConformanceCorpus.txt` is written by `.report` — one line per sample: label, scalars, runs,
+glyphs, clusters, width, height, misses and the scripts the runs carry. Two generations must be identical, so
+it can be diffed, and it is the artifact a reviewer reads first after a shaping change. It is generated by
+`RoboTextShape` itself, so it is a regression diff and not a second opinion; no independent shaper produces it.
+
+### What the corpus found
+
+The vertical samples could not be dumped **at any buffer size**: a glyph's diagnostic line is built in a fixed
+local buffer, and 12.20's added fields pushed a vertical glyph's line past it — at which point
+`RoboTextGlyphWrite` returned `RoboNotSupported` (correctly: complete-or-absent), the run writer propagated it,
+and the whole run list's block became absent. A dump that no caller can obtain is not a dump, so both local
+buffers are now sized for every field plus the longest flags word rather than for the fields as they happened
+to be when they were written. This is exactly the class of defect the phase exists to surface, and it was found
+by the determinism case asking for a block nobody had ever asked a vertical shape for.
+
+### What this corpus does not claim
+
+The phase's §2 asks for a directory per script and a file per layer; this build is C with one fixture per font
+and one suite per layer, so the **content** lives in the suites §4 lists and a folder per script would be a
+second layout convention for the same cases. Also named rather than implied: no checked-in `.ttf` blob (the
+fixtures are built byte by byte), no external reference shaper, and no QEMU page of its own — the guest half of
+this stack is the shell's `ROBO_QEMU_{SHAPING,VERTICAL,SELECTION}_*` checkpoints, which §5 documents, and the
+corpus adds no fourth render.

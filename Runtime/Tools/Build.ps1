@@ -598,6 +598,11 @@ $SuiteSrcs = @(
     # joining and a Devanagari conjunct reshaping after an edit, the paragraph-widened invalidation record,
     # composition, transactions, position/range transformation, the blocks and the fuzz entry.
     (Join-Path $TestsRoot "Text\SuiteRoboTextEditing.c"),
+    # Phase 12.23 -- the whole-pipeline shaping corpus: the layer chain asked one door at a time, the script
+    # families, Latin/European, a feature that moves the measurement, the scripts this build names as gaps,
+    # bidi, fallback, vertical, the measurement/selection/editing round trip over one corpus, the malformed
+    # matrix, a hundred repetitions per sample, and the diffable table written to Build.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextShapingCorpus.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphics.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsPixelFormat.c"),
     (Join-Path $TestsRoot "Graphics\SuiteRoboGraphicsFramebuffer.c"),

@@ -931,3 +931,45 @@ state is 12.4's buffer plus 12.21's selection and caret, and the records it adds
 `editInvalidation`, `editTransactions`, `compositionState`, `editTransformations`, `editingDiagnostics` and
 `editingFuzzing` `1`, each read field by field in `Tests/Text/SuiteRoboTextConformance.c` — with
 `undoHistory`, `wordBoundaries` and `lineBoundaries` `0`, each a named absence rather than an oversight.
+
+## 25. Phase 12.23 — the whole-pipeline conformance corpus
+
+12.23 adds no engine work: it is the **executable contract** over everything the block built, at the grain the
+layer suites cannot see. `SuiteRoboTextShapingCorpus.c` (`text.shaping.corpus.*`, 13 cases) takes one sample
+per category from UTF-8 to a measurement and asserts the **joins** between the layers, with each step checked
+against the previous step rather than against a constant, so a failure names the stage that moved.
+
+| Area | Where | Contract |
+|---|---|---|
+| The corpus, the malformed matrix, the determinism sweep, the report and the timing record | `Tests/Text/SuiteRoboTextShapingCorpus.c` | [ShapingConformance.md](ShapingConformance.md) §8 |
+| The fixtures it uses, built byte by byte | `RoboTextConformanceFont.h`, `RoboTextComplexFont.h` | ShapingConformance.md §2 |
+| The measurement it ties out | `RoboTextMeasureGlyphRunList` — a door **over the list** | Measurement.md |
+| The selection and editing it drives | 12.21's map, 12.22's editor | TextSelection.md, TextEditing.md |
+
+The four properties the phase adds:
+
+1. **The measurement agrees with the runs, by construction.** The corpus calls the measurement door with the
+   run list and requires its totals to equal the list's own — two implementations of the same fact meeting,
+   not a third sum written in a test.
+2. **A gap is a value, not a silence.** Nine Indic scripts whose positional rules this build lacks are asserted
+   through their own table rows (their virama, and every reorder array empty); the four Southeast Asian scripts
+   answer a strategy with no stages; Tibetan and Han answer `None`. A script that borrowed Devanagari's rules
+   would fail here rather than pass quietly.
+3. **Malformed input has a stated answer.** Eleven single-corruption variants, each shaped twice: a
+   `GSUB`/`GPOS`/`GDEF` whose contents are out of range or truncated is refused (`RoboParseError`), a `cmap`
+   that maps nothing and a `maxp` that claims one glyph are refused whole, a zero `unitsPerEm` still shapes —
+   and the one variant that refuses the **face** is the directory entry that points outside the source.
+4. **The same request answers the same way, and the answer is diffable.** Eight samples × 100 repetitions,
+   compared field by field and byte for byte on the run-list block, plus `Build/Text-ConformanceCorpus.txt` —
+   one line per sample — which two generations must produce identically.
+
+No capability flag accompanies this phase: the corpus is a statement about the engine, not a thing the engine
+does, and `RoboTextGetCapabilities` still reports `1.13.0`'s set. What the phase did change is the **dumps**:
+a glyph's line is built in a fixed local buffer, and 12.20's fields had pushed a vertical glyph past it, which
+made the whole run list's block unobtainable at every destination size — the defect the determinism case found,
+now sized for every field plus the longest flags word. That is the phase's own argument for existing: the
+contract it enforces is the one that caught a defect the layer suites had no door for.
+
+Regression: `TestRoboText.ps1 -Target Host` (335 cases) and
+`TestRoboTextConformance.ps1 -Target Host` (68) contain the corpus; a shaping change is not done until
+`TestLayout`, `TestPaint`, `TestGraphics`, `TestRasterizer`, `TestFont` and `TestDesktop` (Host) pass with it.

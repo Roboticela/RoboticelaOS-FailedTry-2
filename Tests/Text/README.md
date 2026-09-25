@@ -118,13 +118,32 @@ own bytes are shaped and compared with the shape of the same text built directly
 |---|---|---|
 | `SuiteRoboTextEditing.c` | `text.editing.*` | the command and boundary vocabulary with the three refusals, one mutation reached four ways and the selection each leaves, a UTF-8 sequence never split (one, two, three and four-byte scalars) and an ill-formed insertion refused rather than repaired, a base **and its marks** as one unit, `ffi` as one cluster with a resolver and three characters without, `لا` as one shaped cluster over two scalars while the complex module still allows a break between the letters, a joining sequence and a conjunct reshaped by the edit's own text, the bidi flag on for Arabic and a number and off for Latin, the same editor doors over a vertical column, composition (start over a selection, update, cancel restoring the text *and* the selection, commit as one operation), transactions (members, the spanning commit, the restoring cancel), the four position rules and their inverse, the paragraph-widened invalidation and its block, and fuzzing |
 
+## The whole-pipeline corpus — `Tests/Text/SuiteRoboTextShapingCorpus.c` (Phase 12.23)
+
+The suites above each prove one *layer*. This one proves the **join between them**: one sample per category,
+from UTF-8 to a measurement, with each step asked of the layer that owns it and checked against the *previous*
+step rather than against a constant — so a failure names the stage that moved. It adds no engine work and no
+capability flag; the measurement it ties out is the module's own door **over the run list**, so "the
+measurement agrees with the runs" is two implementations of one fact meeting. The gaps are asserted as values
+(the Indic scripts with no reorder rules, the Southeast Asian strategy with no stages, Tibetan and Han
+answering `None`), malformed fonts have a stated answer (eleven single corruptions, each shaped twice), and
+eight samples are repeated a hundred times and compared byte for byte. Contract:
+[`ShapingConformance.md`](../../Documentation/Runtime/Text/ShapingConformance.md) §8.
+
+| Suite | Prefix | What it is about |
+|---|---|---|
+| `SuiteRoboTextShapingCorpus.c` | `text.shaping.corpus.*` | the layer chain one door at a time over Latin, a Devanagari conjunct and Arabic; Greek, Cyrillic and three scripts in one string; the Latin/European table with exact glyph and cluster counts; a feature that moves glyphs **and** the measurement; the scripts this build names as gaps; bidi as resolved levels and a visual order proved a permutation; the selector naming which candidate answered; a vertical column, sideways Latin and a mark that does not lengthen it; the measurement, selection and editing round trip, where an edit's own bytes must shape exactly like a fresh layout of the text it produced; the malformed matrix; the determinism sweep; the diffable report; and the timing record |
+
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host            # 322 cases; also writes Build/Text-GlyphTable.txt
-Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 55 cases; just text.shaping.*
+Scripts\Test\TestRoboText.ps1 -Target Host            # 335 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 68 cases; just text.shaping.*
 Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```
+
+`TestRoboText.ps1` also writes `Build/Text-ConformanceCorpus.txt` — the corpus's one-line-per-sample table,
+regenerated and compared against itself, so it can be diffed after a shaping change.
 
 A text change is not done until the suites for every boundary it touched pass as well —
 `TestLayout.ps1`, `TestPaint.ps1`, `TestGraphics.ps1`, `TestFont.ps1`, `TestDesktop.ps1` (all `-Target
