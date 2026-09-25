@@ -80,6 +80,7 @@
 #include "RoboPaint/RoboPaintList.h"
 #include "RoboPaint/RoboPaintOpacity.h"
 #include "RoboPaint/RoboPaintOperation.h"
+#include "RoboPaint/RoboPaintRun.h"
 #include "RoboPaint/RoboPaintText.h"
 #include "RoboPaint/RoboPaintTypes.h"
 #include "RoboPaint/RoboPaintVersion.h"

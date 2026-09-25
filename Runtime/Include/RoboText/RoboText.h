@@ -45,24 +45,52 @@
 #ifndef ROBO_TEXT_H
 #define ROBO_TEXT_H
 
+/*
+ * The aggregate, and the answer to "what may a consumer include?" (Phase 12.24).
+ *
+ * **All of it, and the order is alphabetical.** That is the whole rule, and it is worth stating because the
+ * alternative -- an aggregate that exposes a subset and leaves the rest to be reached for one header at a
+ * time -- is how a tree ends up with two text APIs on one commit. `Runtime/Include/RoboText/` is the module's
+ * public interface (the repository rule), so the aggregate names every header in it and a consumer that
+ * writes `#include "RoboText/RoboText.h"` has the same surface as one that reads this file.
+ *
+ * Two *tiers* live inside it, and `Documentation/Runtime/Text/APIStability.md` is where the difference is
+ * written down:
+ *
+ *   - the **seam** a document or a shell consumes -- the buffer, the runs, shaping, the glyph runs, the
+ *     measurement, the selection map, the editor, the version record. Stable, and the only tier a new
+ *     subsystem should need.
+ *   - the **engines** behind it -- `RoboTextGsub.h`, `RoboTextGpos.h`, `RoboTextOtLayout.h`, the complex-script
+ *     plans and the script helpers. Public because the conformance suites and this module's own sources are
+ *     their callers, and stable as *records*, but no consumer of text should be running a substitution pass by
+ *     hand: `Assert-RoboTextIntegrationRules` in `Runtime/Tools/Build.ps1` fails the build if a module above
+ *     RoboText includes one, and the glyph run is what that module wants instead.
+ */
 #include "RoboText/RoboTextAnalysis.h"
+#include "RoboText/RoboTextArabic.h"
+#include "RoboText/RoboTextBidi.h"
 #include "RoboText/RoboTextBuffer.h"
+#include "RoboText/RoboTextComplex.h"
 #include "RoboText/RoboTextDiagnostics.h"
+#include "RoboText/RoboTextDirection.h"
+#include "RoboText/RoboTextEditing.h"
 #include "RoboText/RoboTextFont.h"
 #include "RoboText/RoboTextFontSelection.h"
 #include "RoboText/RoboTextGlyphs.h"
+#include "RoboText/RoboTextGpos.h"
+#include "RoboText/RoboTextGsub.h"
+#include "RoboText/RoboTextIndic.h"
 #include "RoboText/RoboTextKerning.h"
 #include "RoboText/RoboTextLigature.h"
+#include "RoboText/RoboTextMeasurement.h"
+#include "RoboText/RoboTextOtLayout.h"
 #include "RoboText/RoboTextRunList.h"
 #include "RoboText/RoboTextRuns.h"
 #include "RoboText/RoboTextSelection.h"
 #include "RoboText/RoboTextShape.h"
 #include "RoboText/RoboTextTypes.h"
-#include "RoboText/RoboTextDirection.h"
-#include "RoboText/RoboTextBidi.h"
-#include "RoboText/RoboTextEditing.h"
 #include "RoboText/RoboTextUnicode.h"
-#include "RoboText/RoboTextVertical.h"
 #include "RoboText/RoboTextVersion.h"
+#include "RoboText/RoboTextVertical.h"
 
 #endif /* ROBO_TEXT_H */

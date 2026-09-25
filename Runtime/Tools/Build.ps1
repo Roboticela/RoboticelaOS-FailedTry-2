@@ -425,6 +425,11 @@ $ProdSrcs = @(
     (Join-Path $SourceDir "RoboPaint\RoboPaintImage.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintInvalidation.c"),
     (Join-Path $SourceDir "RoboPaint\RoboPaintDecoration.c"),
+    # Phase 12.24 -- the shared shaped-run seam. One shaping call and one glyph pen for every painter in the
+    # tree: the document's recorder, the display-list replay and the shell's own labels all come through
+    # `RoboPaintRun.c`, so there is one place where a glyph becomes ink and a shell label cannot drift from a
+    # document's text by a rounding or a rule.
+    (Join-Path $SourceDir "RoboPaint\RoboPaintRun.c"),
     # RoboRender (11.12) — the first module above the paint stack: an owned pixel target, a run over
     # a display list, an execution record and region-limited execution. It drives the walk below it
     # through `PaintDecorationPaintBounded` and adds no second executor of its own.
@@ -598,6 +603,11 @@ $SuiteSrcs = @(
     # joining and a Devanagari conjunct reshaping after an edit, the paragraph-widened invalidation record,
     # composition, transactions, position/range transformation, the blocks and the fuzz entry.
     (Join-Path $TestsRoot "Text\SuiteRoboTextEditing.c"),
+    # Phase 12.24 -- the API freeze. An aggregate-header completeness check (both ears: the include proves
+    # the header compiles against the umbrella, the case reads the umbrella and matches it against the
+    # directory), the initial values of every public `...Init`, the refusals a caller can provoke, and the
+    # borrowing lifetime of a shape result's parts.
+    (Join-Path $TestsRoot "Text\SuiteRoboTextApi.c"),
     # Phase 12.23 -- the whole-pipeline shaping corpus: the layer chain asked one door at a time, the script
     # families, Latin/European, a feature that moves the measurement, the scripts this build names as gaps,
     # bidi, fallback, vertical, the measurement/selection/editing round trip over one corpus, the malformed
@@ -1089,14 +1099,22 @@ function Assert-RoboDesktopBoundaries {
     # module's: RoboDesktop must not read HTML, CSS or a layout tree, because the shell's job is to
     # draw a panel with graphics primitives and to composite pictures it is *handed* -- a shell that
     # needed a document pipeline to draw a taskbar would lose the screen whenever that pipeline did.
-    # Three files are exempt by name, and the filter is a name list rather than a directory so that a
-    # *third* file reaching for a document layer would be caught rather than covered by an exception
+    # Four files are exempt by name, and the filter is a name list rather than a directory so that a
+    # *fourth* file reaching for a document layer would be caught rather than covered by an exception
     # written for these: `RoboDesktopDocument.c/.h`, the bridge that turns markup into a window's
     # contents; `RoboDesktopScene.c/.h`, the checkpoint scene's own definition -- which is a
     # *consumer* of that bridge (one window showing one document) rather than a second bridge; and
     # `RoboDesktopHost.c`, the launcher that drives that scene into a native window, whose entire job
     # is to run the stages the shell only composites (`Tools/Build.ps1` compiles it into the host
     # suite binary and nothing else ships it).
+    #
+    # `RoboDesktopFontProvider.c/.h` is the fourth and the odd one out, because it is the only entry
+    # here that is *not* a document bridge: it is Phase 12.17's **font provider**, the concrete
+    # `LayoutFontProvider` the layout measurer asks which face a family resolves to. It needs
+    # `RoboLayoutFontResolver.h` for the vtable it implements, and the alternative the boundary would
+    # force -- a font database inside RoboLayout -- is exactly what 12.17's contract forbids. The
+    # exemption is by name rather than by directory for the usual reason: a *second* desktop file
+    # reaching for RoboLayout is still a leak.
     $moduleRoots = @(
         (Join-Path $RuntimeRoot "Include\RoboDesktop"),
         (Join-Path $RuntimeRoot "Source\RoboDesktop")
@@ -1115,8 +1133,8 @@ function Assert-RoboDesktopBoundaries {
     $exempt = '(?i)must never depend|Forbidden:|temporary technical reference|never depend|no Chromium|without Chromium|independence|Chromium reference|not a dependency|does not depend on|has no business|does not read|reaching for|a document layer|names absent|document-layer include|not a document|no markup|reads \*no\* markup'
 
     $rules = @(
-        @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost') },
-        @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost') },
+        @{ Roots = @((Join-Path $RuntimeRoot "Include\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider') },
+        @{ Roots = @((Join-Path $RuntimeRoot "Source\RoboDesktop")); Pattern = $document; Skip = @('RoboDesktopDocument', 'RoboDesktopScene', 'RoboDesktopHost', 'RoboDesktopFontProvider') },
         @{ Roots = $allRoots; Pattern = $upward; Skip = $null }
     )
     foreach ($rule in $rules) {
@@ -1275,6 +1293,116 @@ function Assert-RoboTextBoundaries {
         }
     }
     Write-Host "RoboText boundary source scan: OK"
+}
+
+function Assert-RoboTextIntegrationRules {
+    # Phase 12.24's final integration rules, as a scan rather than as prose. `Assert-RoboTextBoundaries`
+    # above checks where RoboText may *include from*; this checks what the rest of the tree may do *to*
+    # text, which is the half that had already been violated once.
+    #
+    # Each rule is a pattern and the modules allowed to match it, and every allowance is a named file or
+    # module rather than a wildcard, because the value of the scan is that a *new* call site fails it. The
+    # four rules are the four ways a subsystem can grow a text engine of its own:
+    #
+    #   one glyph selector        a `cmap` lookup outside the font layer and the text layer is a painter
+    #                             selecting glyphs -- which is what `DesktopChrome.c` did before this phase,
+    #                             with its own UTF-8 decoder in front of it.
+    #   no shaping above text     including `RoboTextGsub.h`, `RoboTextGpos.h` and the complex-script
+    #                             headers from a consumer means running OpenType passes by hand instead of
+    #                             asking RoboText for a glyph run.
+    #   one ink path              a glyph becomes ink through `RoboGraphics`' bridges and through the one
+    #                             pen in `RoboPaintRun.c`; a third `GfxRasterDrawGlyph` loop is a third pen.
+    #   a textless rasterizer     `RoboGraphics` must not know RoboText exists at all: it is handed a face,
+    #                             a glyph id, a position and a size, and nothing about a script.
+    #
+    # The scan reads source files only, and a hit is reported with the file and the line so the fix is
+    # obvious. Prose that *names* a boundary is not a leak, exactly as in the module scans above.
+    $sourceRoot = Join-Path $RuntimeRoot "Source"
+    $includeRoot = Join-Path $RuntimeRoot "Include"
+    # The consumer modules, by name, in both halves of the tree. `RoboText` itself is deliberately absent:
+    # its own headers include its own headers, and the rule is about the tree *above* it.
+    $consumerIncludes = @("RoboLayout", "RoboPaint", "RoboRender", "RoboWindow", "RoboDisplay",
+                         "RoboDesktop", "RoboTypography", "RoboInput") |
+                        ForEach-Object { Join-Path $includeRoot $_ }
+    $exempt = '(?i)(must never|never depend|does not depend|not a font parser|no second|one pen|by hand|would be a second|reaching for|instead of|before this phase|used to|replaces|the old|a third|forbidden|not allowed)'
+
+    $rules = @(
+        @{
+            Name = "one glyph selector"
+            Roots = @((Join-Path $sourceRoot "RoboLayout"),
+                      (Join-Path $sourceRoot "RoboPaint"),
+                      (Join-Path $sourceRoot "RoboRender"),
+                      (Join-Path $sourceRoot "RoboDesktop"),
+                      (Join-Path $sourceRoot "RoboWindow"),
+                      (Join-Path $sourceRoot "RoboDisplay"),
+                      (Join-Path $sourceRoot "RoboTypography"))
+            Pattern = '(?i)\b(FontFaceLookupGlyph|FontCmapLookup)\s*\('
+            Allow = @()
+        },
+        @{
+            Name = "no shaping above the text layer"
+            Roots = @((Join-Path $sourceRoot "RoboLayout"),
+                      (Join-Path $sourceRoot "RoboPaint"),
+                      (Join-Path $sourceRoot "RoboRender"),
+                      (Join-Path $sourceRoot "RoboDesktop"),
+                      (Join-Path $sourceRoot "RoboWindow"),
+                      (Join-Path $sourceRoot "RoboDisplay"),
+                      (Join-Path $sourceRoot "RoboTypography")) + $consumerIncludes
+            Pattern = '#\s*include\s*[<"]RoboText/RoboText(Gsub|Gpos|OtLayout|Complex|Arabic|Indic|Glyphs|Ligature|Kerning|ScriptResolver)\.h'
+            Allow = @()
+        },
+        @{
+            Name = "one ink path for a glyph"
+            Roots = @($sourceRoot)
+            Pattern = '(?i)\b(GfxRasterDrawGlyph|GfxRasterDrawGlyphCoverage)\s*\('
+            Allow = @((Join-Path $sourceRoot "RoboGraphics"),
+                      (Join-Path $sourceRoot "RoboPaint\RoboPaintRun.c"))
+        },
+        @{
+            Name = "a rasterizer that knows no text"
+            Roots = @((Join-Path $sourceRoot "RoboGraphics"), (Join-Path $includeRoot "RoboGraphics"))
+            Pattern = '(?i)#\s*include\s*[<"]RoboText/'
+            Allow = @()
+        }
+    )
+
+    foreach ($rule in $rules) {
+        foreach ($root in $rule.Roots) {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            $files = if ((Get-Item -LiteralPath $root).PSIsContainer) {
+                Get-ChildItem -LiteralPath $root -Recurse -File -Include *.c,*.h
+            } else {
+                Get-Item -LiteralPath $root
+            }
+            # An allowance is a *file* or a *directory*, and the two are matched differently so that a
+            # directory covers the module it names and nothing that merely begins with its name.
+            $allowFiles = @()
+            $allowDirs = @()
+            foreach ($entry in $rule.Allow) {
+                if ((Test-Path -LiteralPath $entry -PathType Container)) {
+                    $allowDirs += ($entry.ToLowerInvariant() + [IO.Path]::DirectorySeparatorChar)
+                } else {
+                    $allowFiles += $entry.ToLowerInvariant()
+                }
+            }
+            $hits = $files |
+                Where-Object {
+                    $path = $_.FullName.ToLowerInvariant()
+                    $allowed = $allowFiles -contains $path
+                    if (-not $allowed) {
+                        foreach ($dir in $allowDirs) { if ($path.StartsWith($dir)) { $allowed = $true; break } }
+                    }
+                    return -not $allowed
+                } |
+                Select-String -Pattern $rule.Pattern -SimpleMatch:$false |
+                Where-Object { $_.Line -notmatch $exempt }
+            if ($hits) {
+                $sample = ($hits | Select-Object -First 8 | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line.Trim())" }) -join "`n"
+                throw "RoboText integration rule '$($rule.Name)' is violated:$sample"
+            }
+        }
+    }
+    Write-Host "RoboText integration rule scan: OK (four rules)"
 }
 
 function Assert-RoboDisplayChromiumIndependence {
@@ -1738,6 +1866,7 @@ if ($Verify) {
     Assert-RoboInputBoundaries
     Assert-RoboTypographyBoundaries
     Assert-RoboTextBoundaries
+    Assert-RoboTextIntegrationRules
     Write-Host "VERIFY PASS: production runtime ($Configuration)"
 }
 

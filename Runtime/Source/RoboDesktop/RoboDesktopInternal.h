@@ -165,20 +165,17 @@ int32_t DesktopTextBaseline(const DesktopTextStyle *style,
                             int32_t legacyBaselinePx);
 
 /**
- * Advance a UTF-8 decoder by one code point.
+ * How wide @p text is at @p sizePx, as the **text layer measures it**; 0 with no face.
  *
- * Returns the code point and moves @p offset past it, or `U+FFFD` and one byte when the bytes are not a
- * well-formed sequence -- the same recovery every decoder in this tree uses, and the reason a title
- * carrying a stray byte is a title with one replacement character rather than a title that is not drawn.
- */
-uint32_t DesktopChromeUtf8Next(const char *text, size_t length, size_t *offset);
-
-/**
- * How wide @p text is at @p sizePx, by summing the face's own advances; 0 with no face.
+ * The measurement the panel's centring and right-alignment need, and the reason it lives with the drawing
+ * rather than with the geometry: a width is a *font* fact, and the geometry header deliberately has no font.
  *
- * The measurement the panel's centring and right-alignment need, and the reason it lives with the
- * drawing rather than with the geometry: a width is a *font* fact, and the geometry header deliberately
- * has no font.
+ * Until 12.24 this summed the face's own advances -- one `cmap` lookup and one `advanceWidth` per code point,
+ * behind a hand-rolled UTF-8 decoder -- which is the second measurement implementation the phase removed. It
+ * is now `PaintRunMeasure` (`RoboPaintRun.h`) over the same shaping pipeline the label is drawn from, so the
+ * box a label is centred in and the glyphs inside it are one measurement rather than two that agreed.
+ *
+ * A face that will not answer measures `0`, which is the caller's "no width claimed" rather than a failure.
  */
 int32_t DesktopChromeLabelWidth(const DesktopTextStyle *style,
                                        const char *text,

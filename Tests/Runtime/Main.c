@@ -151,6 +151,9 @@ void TestRegisterTextSelection(void);
  * a source range, the character and cluster boundaries a delete uses, composition, transactions, the
  * invalidation record and the transformation of positions and ranges across an edit. */
 void TestRegisterTextEditing(void);
+/* Phase 12.24 -- the API freeze (`Runtime/Include/RoboText/RoboText.h`'s completeness, the defaults, the
+ * refusals and the borrowing rules). */
+void TestRegisterTextApi(void);
 void TestRegisterTextShapingCorpus(void);
 void TestRegisterTextDirection(void);
 /* Phase 12.8 — the bidi stage: the paragraph base and its four sources, the levels, the §5.2 retention of
@@ -477,6 +480,7 @@ int main(int argc, char **argv)
     TestRegisterTextVertical();
     TestRegisterTextSelection();
     TestRegisterTextEditing();
+    TestRegisterTextApi();
     TestRegisterTextShapingCorpus();
     TestRegisterGraphics();
     TestRegisterGraphicsPixelFormat();

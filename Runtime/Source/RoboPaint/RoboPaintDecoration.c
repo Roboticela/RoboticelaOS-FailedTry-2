@@ -66,6 +66,7 @@
 #include "RoboText/RoboText.h"
 
 #include "RoboPaint/RoboPaintColor.h"
+#include "RoboPaint/RoboPaintRun.h"
 
 
 #include "RoboPaintInternal.h"
@@ -204,13 +205,11 @@ static Result DecorationDrawText(GfxRaster *raster,
                                           PaintDiag *diag)
 {
     const PaintGlyph *glyphs;
-    GfxGlyphDraw draw;
+    PaintRunDrawStats stats;
     PaintTextRun run;
     PaintGlyphSpan span;
-    float penX;
-    float penY;
     float baselineY;
-    uint32_t index;
+    Result status;
 
     *outGlyphs = 0u;
     *outMissing = 0u;
@@ -232,103 +231,32 @@ static Result DecorationDrawText(GfxRaster *raster,
     }
     glyphs += (size_t)span.first;
 
-    /* The pen starts at the run rectangle's own left edge and the baseline is the one number
-     * the command carries beyond it -- a `TEXT` command's rectangle is the placement, so the
-     * baseline is at `rect.y + baselineOffset` in the same space. Both are the record's own
-     * numbers: this walk measures nothing.
+    /*
+     * The pen starts at the run rectangle's own left edge and the baseline is the one number the
+     * command carries beyond it -- a `TEXT` command's rectangle is the placement, so the baseline is
+     * at `rect.y + baselineOffset` in the same space. Both are the record's own numbers: this walk
+     * measures nothing.
      *
-     * The pen is a **2D** accumulation (`penX`/`penY`) rather than one x coordinate plus a
-     * fixed baseline, and that is the whole of this pass's writing-mode support (Phase 12.20).
-     * Each step adds the glyph's `advanceX` *and* its `advanceY`:
+     * **And the pen itself is not here** (Phase 12.24). It was, until this phase -- one accumulated
+     * `advanceX` and one `advanceY` per step, one control-glyph rule, one quarter turn for a sideways
+     * glyph -- and so was a second copy of it in the shell, with a third about to be written. A pass
+     * that owns a pen is a pass that can disagree with another pass about what a shaped run looks
+     * like, so the arithmetic moved to the one door both callers use (`RoboPaintRun.c`) and this pass
+     * keeps only what is *its*: the clip it already set, the colour it resolved, and the two counts
+     * the frame record reads.
      *
-     *   horizontal text   `advanceY` is zero, so `penY` never moves and the arithmetic is
-     *                     bit-for-bit what the single-axis pen did before;
-     *   vertical text     `advanceX` is zero, so `penX` never moves and the column descends as
-     *                     the shaper's own advances say it does.
-     *
-     * There is no branch on a writing mode, and that is the point: a run's `advanceX`/`advanceY`
-     * pair *is* the writing mode, already resolved by RoboText. So this pass still cannot learn a
-     * script, an orientation or a vertical origin -- it adds two numbers a shaped run gave it. */
-    penX = (float)command->rect.x;
-    penY = 0.0f;
+     * What that buys, stated as the rule it is: there is now **one** place in the tree where a glyph
+     * becomes ink, so `paint.text.*` and the shell's labels cannot drift apart by a rounding, a
+     * turn, or a rule about formatting characters.
+     */
     baselineY = (float)PaintAddSaturated(command->rect.y, run.baselineOffset);
-    GfxGlyphDrawInit(&draw);
-    draw.face = face;
-    draw.sizePx = (float)run.font.fontSizePx;
-    draw.color = color;
-    /*
-     * **Coverage antialiasing** (Phase 12.1), named here rather than inherited.
-     *
-     * `GfxGlyphDrawInit` leaves the mode at `OUTLINE_STROKE`, which is the bridge's
-     * documented default and not what a document's text should look like: it traces the
-     * glyph's contour with one-pixel lines. `ALPHA` is the same glyph rasterized into a
-     * grayscale coverage mask and blended, and it is selected **by this pass** because this
-     * pass is the only thing in the tree that knows it is drawing UI text rather than
-     * auditing an outline.
-     */
-    draw.mode = RoboGfxGlyphModeAlpha;
-
-    /*
-     * One pen, in the run's own **logical** glyph order -- which is the order the glyphs were shaped in and
-     * the order the line was measured in, so the painted advance and the measured width are sums of the same
-     * numbers. Visual reordering for an RTL run is Phase 12.8's and reaches here as the glyph order the
-     * recorder stored; this loop does not reverse anything, and `stats.rtl` counts the runs whose order a
-     * reader might expect to see reversed.
-     */
-    for (index = 0u; index < span.count; index++) {
-        const PaintGlyph *glyph = &glyphs[index];
-
-        /*
-         * A bidi formatting control is not drawn and does not move the pen (Phase 12.8 §"formatting
-         * characters"). It is a glyph all the same, so the source mapping stays one-per-scalar -- and
-         * because `.notdef` is id 0 as well, this is the `control` flag and **not** "the id is zero": an
-         * unmapped character is drawn as a box and advanced over, which is the answer the comment below
-         * gives for it.
-         */
-        if (PaintGlyphIsControl(glyph)) {
-            continue;
-        }
-        draw.glyphId = glyph->glyphId;
-        draw.origin = MakeGfxPointF(penX + glyph->offsetX, baselineY + penY + glyph->offsetY);
-        /*
-         * **A sideways glyph is drawn turned** (Phase 12.20), by exactly one quarter turn clockwise -- the
-         * angle `RoboTextGlyphOrientationRotation(RoboTextGlyphOrientationSideways)` states, and the one CSS's
-         * `text-orientation: sideways` means. That the two are the same quarter turn is not left to a comment:
-         * `paint.text.sideways` draws a sideways record and reads where the ink landed, and
-         * `text.vertical.mark` reads the same orientation off the run, so a change on either side of the seam
-         * fails a case rather than silently halving an angle.
-         *
-         * The pen still advances by the same pair of numbers either way. A sideways glyph's advance is down
-         * the column exactly as an upright one's is: the advance is the shaper's answer about the **pen**, and
-         * the rotation is its answer about the **ink** -- which is why one is a number pair and the other is a
-         * flag, and why neither is derived from the other here.
-         *
-         * Nothing else in this pass changes. The id, the placement, the clip and the colour are the walk they
-         * were, so a renderer still cannot learn a script, a writing mode or a code point from this loop -- it
-         * is handed a rotation the way it is handed a mask.
-         */
-        draw.rotation = PaintGlyphIsSideways(glyph)
-                            ? (uint8_t)RoboGfxGlyphRotationClockwise90
-                            : (uint8_t)RoboGfxGlyphRotationNone;
-        if (GfxRasterDrawGlyph(raster, &draw) != RoboOk) {
-            return RoboPaintDiag(diag, RoboPaintDomainGeometry, RoboError,
-                                   "a glyph could not be drawn");
-        }
-        (*outGlyphs)++;
-        /*
-         * The miss travelled with the glyph: the recorder set it from RoboText's own answer -- `.notdef`,
-         * or a glyph whose metrics table would not parse -- because the shaping that knew it happens before
-         * this walk exists. An unmapped character still moves the pen, by `.notdef`'s advance, which is what
-         * the face says the pen does there and what keeps a drawn box from being measured as nothing.
-         */
-        if (glyph->flags & PaintGlyphFlagMissing) {
-            (*outMissing)++;
-        }
-        /* Both axes, always: see the pen's comment above. One of the two is zero for every run this
-         * build produces, so this is one code path rather than two that must agree. */
-        penX += glyph->advanceX;
-        penY += glyph->advanceY;
+    status = PaintRunDraw(raster, face, (float)run.font.fontSizePx, glyphs, (size_t)span.count,
+                          (float)command->rect.x, baselineY, color, &stats, diag);
+    if (status != RoboOk) {
+        return status;
     }
+    *outGlyphs = stats.drawn;
+    *outMissing = stats.missing;
 
     return RoboOk;
 }

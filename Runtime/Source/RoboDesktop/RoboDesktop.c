@@ -35,6 +35,7 @@
 #include "RoboDesktopInternal.h"
 
 #include "RoboBase/RoboLog.h"
+#include "RoboFont/RoboFontFace.h"
 #include "RoboGraphics/RoboGraphicsComposite.h"
 #include "RoboMem/RoboMem.h"
 #include "RoboRender/RoboRenderPresenter.h"
@@ -239,6 +240,25 @@ Result DesktopCreate(const DesktopConfig *config,
     desktop->labelSizePx =
         (config->labelSizePx > 0.0f) ? config->labelSizePx : RoboDesktopDefaultLabelSizePx;
     desktop->face = config->face;
+    /*
+     * The face's tables, prepared **here** rather than hoped for (Phase 12.24).
+     *
+     * A `FontFace` is created with nothing parsed, and every door that needs a table answers
+     * `RoboNotSupported` until it is (`RoboFontFace.h`). The document path has always said this out loud --
+     * `RoboPaintDecoration.c` asks for the cmap and the metrics before its pass resolves a single glyph --
+     * and since 12.24 the shell shapes its own labels, so it owes the same sentence rather than a shape call
+     * that quietly returns nothing for a face nobody prepared.
+     *
+     * Both calls are idempotent and their failures are **not** propagated: a face whose cmap will not parse
+     * is a face that can draw no labels, which the frame record already counts (`labelsUnshaped`) and which
+     * is a statement about the font rather than a reason to refuse a desktop. That is the same posture the
+     * pre-12.24 shell took -- it looked each code point up and found nothing -- except that this one says so
+     * once, before the first label, instead of once per label per frame.
+     */
+    if (desktop->face) {
+        (void)FontFaceParseCmap(desktop->face);
+        (void)FontFaceParseMetrics(desktop->face);
+    }
     /* Borrowed and never released: the resolver outlives the shell, exactly as the pack it resolves
      * against does (`RoboDesktop.h` states the contract on the field). */
     desktop->typography = config->typography;

@@ -59,7 +59,7 @@ Kernel `#include "mm/page.h"`-style paths stay until a dedicated include migrati
 | HTML | `Runtime/Source/RoboHTML/` + `Runtime/Include/RoboHTML/` |
 | CSS | `Runtime/Source/RoboCSS/` + `Runtime/Include/RoboCSS/` |
 | Layout | `Runtime/Source/RoboLayout/` |
-| Paint | `Runtime/Source/RoboPaint/` |
+| Paint | `Runtime/Source/RoboPaint/` — including the shared shaped-run seam `RoboPaintRun.c` + public `Runtime/Include/RoboPaint/RoboPaintRun.h`, the one shaping conversion and the one glyph pen every painter in the tree uses (Phase 12.24) |
 | Rasterizer (RoboRender) | `Runtime/Source/RoboRender/` |
 | Graphics | `Runtime/Source/RoboGraphics/` |
 | Window | `Runtime/Source/RoboWindow/` |
@@ -645,6 +645,45 @@ equality between two implementations and not a third sum written in a test.
   `TestRasterizer`, `TestFont` and `TestDesktop` (`-Target Host`). The guest half of this stack is the shell's
   `ROBO_QEMU_{SHAPING,VERTICAL,SELECTION}_*` checkpoints; the corpus adds no fourth render, and `TestDesktop.ps1
   -Target Qemu` is the phase's integration test.
+
+### RoboText final integration and API freeze (Phase 12.24)
+
+**RoboText is the one frozen text platform: one public API, one shaping pipeline, one font-selection path, one
+measurement path, one glyph-run contract, and one place where a glyph becomes ink.** Later phases consume it;
+they do not build competing text engines. `Documentation/Runtime/Text/Overview.md` is the map (the pipeline, the
+layer table, the ten rules), `Documentation/Runtime/Text/APIStability.md` is the contract (stable / advanced /
+internal / experimental / deprecated, ownership, lifetime, threading, invalidation, error handling).
+
+- **The aggregate is the public surface.** `Runtime/Include/RoboText/RoboText.h` names every header in the
+  module's directory, in two tiers: the *seam* a document, shell or input layer uses, and the *engines* behind
+  it. Adding a public header means adding it there — `text.api.header_hygiene` reads the umbrella and matches
+  it against the directory, and `Tests/Text/SuiteRoboTextApi.c` (`text.api.*`) includes **only** the umbrella,
+  so a header left out breaks its build.
+- **One pen, and it is `RoboPaintRun.c`.** `PaintRunShape`/`PaintRunShapeScalars`/`PaintRunMeasure` are the
+  shaping conversion and `PaintRunDraw` is the two-axis pen; `RoboPaintContext.c` (the document's recorder) and
+  `RoboDesktopChrome.c` (the shell's labels) both come through them, and `RoboPaintDecoration.c` draws a
+  display-list command with the same pen. Do not add a third: the arithmetic, the control-glyph rule and the
+  quarter turn for a sideways glyph live once, and `paint.text.*`/`desktop.*` are the cases that keep them
+  there.
+- **The shell has no text engine.** `RoboDesktopChrome.c` used to decode UTF-8 itself, resolve a glyph per code
+  point, sum advances itself and stroke each glyph. It now calls `PaintRunMeasure`/`PaintRunShape`/`PaintRunDraw`
+  — and `RoboDesktop.c` prepares the face's cmap and metrics where the face enters the shell, because a
+  `FontFace` is created unparsed and every door that needs a table answers `RoboNotSupported` until it is.
+- **The four checkable rules are a build step.** `Assert-RoboTextIntegrationRules` (in `Runtime/Tools/Build.ps1`,
+  run by `-Verify`) fails on: a `cmap` lookup in a layout/paint/render/shell/window/display/typography module; a
+  direct include of a shaping engine header from a consumer; a `GfxRasterDrawGlyph` outside RoboGraphics and the
+  one pen; a `RoboText/…` include inside RoboGraphics. Each allowance is a named file or directory on purpose —
+  a *new* call site must fail. The six remaining rules (no code-point paint, no second fallback, no manual RTL
+  reversal, no hand-reproduced GSUB/GPOS, measurement from final geometry, source-coordinate selection/editing)
+  are kept by review, and §3 of `Overview.md` is the table to check against.
+- **The scan found real work, twice.** `Assert-RoboDesktopBoundaries` had been failing since 12.17 added
+  `RoboDesktopFontProvider.c/.h` (the layout seam's concrete provider, which legitimately includes
+  `RoboLayoutFontResolver.h`); it is now a named exemption with its reason. And the chrome was the second text
+  implementation this subsystem exists to prevent — the removal is what the scan now keeps.
+- Tests: `Tests/Text/SuiteRoboTextApi.c` (`text.api.*`, 9 cases) via `TestRoboText.ps1 -Target Host` (344 cases)
+  and `TestRoboTextConformance.ps1` (68), then `TestLayout`, `TestPaint`, `TestGraphics`, `TestRasterizer`,
+  `TestFont` and `TestDesktop` (`-Target Host`), with `TestDesktop.ps1 -Target Qemu` when the guest image is
+  involved. `-Verify` must pass: it is what runs the integration-rule scan.
 
 ### RoboText architecture (Phase 12.4)
 

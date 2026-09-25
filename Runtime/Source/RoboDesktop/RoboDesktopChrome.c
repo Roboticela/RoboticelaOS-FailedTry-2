@@ -9,14 +9,18 @@
  * counts. The consequence is the one `RoboDesktopVersion.h` names: the shell cannot be broken by a
  * document, because it never reads one.
  *
- * ## Why the labels are drawn one glyph at a time
+ * ## Where the glyphs come from, and where they are drawn
  *
- * Because that is what the pipeline below does, and a shell that measured its own text would be a second
- * font-metrics implementation that would disagree with the first the day a face changed. The three calls
- * per character are the same three `RoboPaintDecoration.c` makes: the face's cmap resolves a code point to
- * a glyph, the graphics bridge scales that glyph's advance and outline, and the raster strokes the
- * outline. The pen is accumulated in `float` and the *drawn* origin is snapped by the graphics module's own
- * policy, so a shell label and a document's text are placed by one rule.
+ * **Shaping happens above this file** (Phase 12.24). `DesktopChromeLabelWidth` measures a label through
+ * `PaintRunMeasure` and `DesktopChromeLabel` shapes it once with `PaintRunShape` and draws the resulting run
+ * with `PaintRunDraw` -- the same doors `RoboPaintContext.c` and `RoboPaintDecoration.c` use, so a shell
+ * label and a document's text are one implementation meeting three callers rather than separate
+ * implementations that happen to agree today.
+ *
+ * What that replaced is the whole argument for the phase: this file used to decode UTF-8 itself, look each
+ * code point up in the face's cmap itself, sum `advanceWidth` itself and stroke each glyph itself. All four
+ * are places where a label could disagree with a window two windows away, and only the last is the shell's
+ * business.
  *
  * ## The baseline rule, and the two of them
  *
@@ -50,9 +54,9 @@
 
 #include "RoboDesktopInternal.h"
 
-#include "RoboFont/RoboFontMetrics.h"
 #include "RoboGraphics/RoboGraphicsColor.h"
-#include "RoboGraphics/RoboGraphicsText.h"
+#include "RoboMem/RoboMem.h"
+#include "RoboPaint/RoboPaintRun.h"
 #include "RoboTypography/RoboTypography.h"
 
 /* The gap between the identity mark and the identity label: three pixels of mark, eight of space, which
@@ -69,72 +73,19 @@
 /* Text                                                                */
 /* ------------------------------------------------------------------ */
 
-uint32_t DesktopChromeUtf8Next(const char *text, size_t length, size_t *offset)
+/*
+ * The shaping setting a label is drawn at, in the painter's own vocabulary (Phase 12.24).
+ *
+ * The shell has no per-surface weight or slope -- a panel label is upright text at its role's size, and a
+ * surface that is italicised would be a new look rather than a new measurement -- so this is one number and
+ * `PaintRunStyleInit`'s three defaults. It is a function rather than two assignments at each call site
+ * because a width and a drawing that disagreed about the size would be a label whose box and whose glyphs
+ * came from different typesettings.
+ */
+static void DesktopRunStyle(PaintRunStyle *run, const DesktopTextStyle *style)
 {
-    const uint8_t *bytes = (const uint8_t *)text;
-    size_t at = offset ? *offset : 0u;
-    uint32_t codePoint = 0xFFFDu;
-    unsigned need = 0u;
-    unsigned index;
-
-    if (!text || at >= length) {
-        if (offset) {
-            *offset = length;
-        }
-        return 0xFFFDu;
-    }
-
-    if (bytes[at] < 0x80u) {
-        codePoint = bytes[at];
-        if (offset) {
-            *offset = at + 1u;
-        }
-        return codePoint;
-    } else if ((bytes[at] & 0xE0u) == 0xC0u) {
-        codePoint = (uint32_t)(bytes[at] & 0x1Fu);
-        need = 1u;
-    } else if ((bytes[at] & 0xF0u) == 0xE0u) {
-        codePoint = (uint32_t)(bytes[at] & 0x0Fu);
-        need = 2u;
-    } else if ((bytes[at] & 0xF8u) == 0xF0u) {
-        codePoint = (uint32_t)(bytes[at] & 0x07u);
-        need = 3u;
-    } else {
-        /* A continuation byte or an over-long lead: one replacement character, one byte consumed, which
-         * is the recovery every decoder in this tree uses. */
-        if (offset) {
-            *offset = at + 1u;
-        }
-        return 0xFFFDu;
-    }
-
-    for (index = 1u; index <= need; index++) {
-        if (at + index >= length || (bytes[at + index] & 0xC0u) != 0x80u) {
-            if (offset) {
-                *offset = at + 1u;
-            }
-            return 0xFFFDu;
-        }
-        codePoint = (codePoint << 6) | (uint32_t)(bytes[at + index] & 0x3Fu);
-    }
-    if (offset) {
-        *offset = at + need + 1u;
-    }
-    return codePoint;
-}
-
-/** The glyph a code point maps to on @p face, or `RoboGlyphIdNone`. */
-static GlyphId DesktopGlyphFor(FontFace *face, uint32_t codePoint)
-{
-    FontCmapLookupResult lookup;
-
-    if (!face) {
-        return RoboGlyphIdNone;
-    }
-    if (FontFaceLookupGlyph(face, codePoint, &lookup) != RoboOk) {
-        return RoboGlyphIdNone;
-    }
-    return lookup.glyphId;
+    PaintRunStyleInit(run);
+    run->sizePx = style->sizePx;
 }
 
 DesktopTextStyle DesktopChromeTextStyle(const Desktop *desktop, RoboTypographyRole role)
@@ -208,29 +159,21 @@ int32_t DesktopChromeLabelWidth(const DesktopTextStyle *style,
                                        const char *text,
                                        size_t length)
 {
-    size_t offset = 0u;
+    PaintRunStyle run;
     float width = 0.0f;
 
     if (!style || !text || length == 0u || !style->face || style->sizePx <= 0.0f) {
         return 0;
     }
-    while (offset < length) {
-        GfxGlyphMetricsDevice metrics;
-        uint32_t codePoint = DesktopChromeUtf8Next(text, length, &offset);
-        GlyphId glyph = DesktopGlyphFor(style->face, codePoint);
-
-        if (glyph == RoboGlyphIdNone) {
-            /* `.notdef` is still *space*: a label whose glyph is missing advances by the font's own
-             * notdef width rather than collapsing, which is what keeps a title's box the width the
-             * document's font would have given it. */
-            width += style->sizePx * 0.5f;
-            continue;
-        }
-        if (GetGfxGlyphMetricsDevice(style->face, glyph, style->sizePx, &metrics) == RoboOk) {
-            width += metrics.advanceWidth;
-        } else {
-            width += style->sizePx * 0.5f;
-        }
+    DesktopRunStyle(&run, style);
+    /*
+     * The width is **the shaping measurement**, not a sum over the label's glyphs: `PaintRunMeasure` runs the
+     * text layer's own engine (Phase 12.15), so a ligature, a kern or a mark's zero advance is in this number
+     * exactly as it is in the box the same text would occupy in a document. A face that will not answer is a
+     * width of zero, which centres the label on its band's midpoint rather than leaving it unplaced.
+     */
+    if (PaintRunMeasure(style->face, text, length, &run, &width, NULL) != RoboOk) {
+        return 0;
     }
     return (int32_t)(width + 0.5f);
 }
@@ -245,8 +188,10 @@ void DesktopChromeLabel(const DesktopTextStyle *style,
                                size_t *outDrawn,
                                size_t *outUnshaped)
 {
-    size_t offset = 0u;
-    float pen;
+    PaintRunStyle run;
+    PaintGlyph *glyphs = NULL;
+    PaintRunDrawStats stats;
+    size_t count = 0u;
 
     /*
      * The two counters are **accumulators**, not outputs: a caller passes the frame record's own fields and
@@ -255,6 +200,10 @@ void DesktopChromeLabel(const DesktopTextStyle *style,
      * record is read for: a caller asking "did my desktop draw its labels?" needs the number of labels, and
      * `labels` holding the last label's glyph count would answer a different question -- and would have
      * clobbered the two labels before it.
+     *
+     * Since 12.24 the pair is also the record's **complete** account of the labels it attempted: a label is
+     * drawn (some ink reached the raster) or it is unshaped (none did), and no third outcome is counted twice
+     * or dropped. That is what keeps `labels + labelsUnshaped` the number of labels asked for.
      */
     if (!style || !raster || !text || length == 0u) {
         return;
@@ -268,38 +217,41 @@ void DesktopChromeLabel(const DesktopTextStyle *style,
         return;
     }
 
-    pen = (float)x;
-    while (offset < length) {
-        GfxGlyphDraw draw;
-        GfxGlyphMetricsDevice metrics;
-        uint32_t codePoint = DesktopChromeUtf8Next(text, length, &offset);
-        GlyphId glyph = DesktopGlyphFor(style->face, codePoint);
-
-        GfxGlyphDrawInit(&draw);
-        draw.face = style->face;
-        draw.glyphId = glyph;
-        draw.sizePx = style->sizePx;
-        draw.color = color;
-        /*
-         * **Coverage antialiasing** (Phase 12.1), named here rather than inherited: the shell's
-         * own labels are UI text, and `OUTLINE_STROKE` -- the bridge's default -- traces a glyph's
-         * contour with one-pixel lines instead of filling it.
-         *
-         * The origin is passed at the pen's own fraction, and that is a change of posture rather
-         * than of arithmetic: the coverage rasterizer quantizes to a 1/256 pixel internally, so
-         * rounding here first would throw away the sub-pixel precision the new path exists to
-         * keep -- and a long label's glyphs would drift by up to half a pixel each time the pen's
-         * fraction crossed a rounding boundary. `GfxGlyphSnapPoint` remains the module's policy
-         * for callers that want whole-pixel placement; this label no longer needs it.
-         */
-        draw.mode = RoboGfxGlyphModeAlpha;
-        draw.origin = MakeGfxPointF(pen, (float)baselinePx);
-        (void)GfxRasterDrawGlyph(raster, &draw);
-        if (GetGfxGlyphMetricsDevice(style->face, glyph, style->sizePx, &metrics) == RoboOk) {
-            pen += metrics.advanceWidth;
-        } else {
-            pen += style->sizePx * 0.5f;
+    DesktopRunStyle(&run, style);
+    /*
+     * One shape per label, and the glyph array is the shell's to release (`RoboPaintRun.h`). A label nothing
+     * could be shaped for -- text that decoded to nothing, a face whose tables will not parse -- is counted
+     * unshaped, which is the honest answer: there is no ink, and the reason is the font rather than a
+     * decision this file made not to ask for any.
+     */
+    if (PaintRunShape(style->face, text, length, &run, &glyphs, &count, NULL, NULL) != RoboOk) {
+        glyphs = NULL;
+        count = 0u;
+    }
+    if (count == 0u) {
+        RoboFree(glyphs);
+        if (outUnshaped) {
+            (*outUnshaped)++;
         }
+        return;
+    }
+
+    stats.drawn = 0u;
+    stats.missing = 0u;
+    stats.controls = 0u;
+    (void)PaintRunDraw(raster, style->face, style->sizePx, glyphs, count,
+                       (float)x, (float)baselinePx, color, &stats, NULL);
+    RoboFree(glyphs);
+
+    if (stats.drawn == 0u) {
+        /* The run shaped and nothing reached the raster -- a setting the bridge refuses, or a raster that will
+         * not take a glyph. Counted as *unshaped* rather than as drawn, because a caller asking "is there text
+         * on my desktop" is asking about ink rather than about intent, and the alternative would be a label
+         * counted as drawn with nothing to show for it. */
+        if (outUnshaped) {
+            (*outUnshaped)++;
+        }
+        return;
     }
     if (outDrawn) {
         (*outDrawn)++;

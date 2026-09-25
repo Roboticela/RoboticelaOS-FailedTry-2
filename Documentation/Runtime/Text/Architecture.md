@@ -973,3 +973,74 @@ contract it enforces is the one that caught a defect the layer suites had no doo
 Regression: `TestRoboText.ps1 -Target Host` (335 cases) and
 `TestRoboTextConformance.ps1 -Target Host` (68) contain the corpus; a shaping change is not done until
 `TestLayout`, `TestPaint`, `TestGraphics`, `TestRasterizer`, `TestFont` and `TestDesktop` (Host) pass with it.
+
+---
+
+## 26. Phase 12.24 — final integration and API freeze
+
+The phase that **stopped adding capability and made the subsystem one thing**. Three changes, and the first is
+the only one that removed code.
+
+### 26.1 One place where a glyph becomes ink
+
+The tree had two text implementations. The **document** path shaped while it recorded (`RoboPaintContext.c`,
+12.16) and drew from the display list (`RoboPaintDecoration.c`); the **shell** had its own — a private UTF-8
+decoder (`DesktopChromeUtf8Next`), one `cmap` lookup per code point, its own advance sum for a label's width,
+and its own pen into `GfxRasterDrawGlyph`. Two implementations of "what does this string look like" is exactly
+what this module exists to prevent, and the third copy was about to be written.
+
+The seam that made the removal a *reuse* rather than a move is
+`Runtime/Source/RoboPaint/RoboPaintRun.c` + public `Runtime/Include/RoboPaint/RoboPaintRun.h`:
+
+| Door | What it is |
+|---|---|
+| `PaintRunShape` / `PaintRunShapeScalars` | one shape call and one `RoboTextGlyph` → `PaintGlyph` conversion, closed over the four facts only shaping knows (mapped, source range, ligature components, the run's own orientation) |
+| `PaintRunMeasure` | a width with no glyph array kept — the number a label is centred on |
+| `PaintRunDraw` | the 2D pen: skip a control, place at `(x + offsetX, baselineY + y + offsetY)`, advance by `(advanceX, advanceY)`, turn a sideways glyph one quarter turn |
+
+The two existing call sites were rewired onto them rather than rewritten, so their records are bit-for-bit what
+they were (`TestPaint.ps1` 242/242 is the evidence). The shell now calls `PaintRunMeasure`/`PaintRunShape`/
+`PaintRunDraw`, and `RoboDesktop.c` prepares the face's cmap and metrics **where the face enters the shell**,
+because a `FontFace` is created unparsed and every door that needs a table answers `RoboNotSupported` until it
+is — the same sentence `RoboPaintDecoration.c` has always said for the document path.
+
+### 26.2 The public surface is frozen as an umbrella, with two tiers
+
+`Runtime/Include/RoboText/RoboText.h` names every header in the module, and `Tests/Text/SuiteRoboTextApi.c`
+(`text.api.*`, 9 cases) includes **only** it — so a header left out of the umbrella is a compile error — and
+then reads the umbrella and matches its list against the directory, so a public header added and forgotten
+fails on the day it lands. The tiers are the **seam** (buffer, shape, measurement, runs, selection, editing,
+version) and the **engines** behind it (`Gsub`, `Gpos`, `OtLayout`, the complex-script plans, glyphs,
+ligatures, kerning) — public because the conformance suites call them, and not what a consumer wants.
+
+The rest of the suite is the part a conformance case cannot state: the documented initial value of every public
+`...Init`; the refusals (a `NULL`, a scalar past the end, a byte inside a multi-byte scalar, a context with no
+face answering `RoboNotSupported`); stable borrowing (two reads of one result are one pointer, and the run
+list's own advance *is* the measurement's width, exactly); and the stress ladder — nothing, one scalar, 4 096
+scalars across three scripts with a glyph-per-scalar ceiling, a script the pack does not cover (retained in
+full, with a missing count), and twenty-five identical measurements.
+
+### 26.3 The rules are a build step
+
+Four of the phase's ten integration rules are mechanically checkable, and are checked by
+`Assert-RoboTextIntegrationRules` in `Runtime/Tools/Build.ps1` (`-Verify`): **one glyph selector** (no
+`cmap` lookup in a layout/paint/render/shell/window/display/typography module), **no shaping engine header from
+a consumer**, **one ink path** (`GfxRasterDrawGlyph` only in RoboGraphics and the one pen), and **a rasterizer
+that knows no text** (`RoboGraphics` may not include `RoboText/` at all). Every allowance is a named file or
+directory, so a new call site fails; the patterns were proved able to fail before they were trusted.
+
+Running the scan under `-Verify` also surfaced a boundary that had been failing since 12.17 without anyone
+noticing: `Assert-RoboDesktopBoundaries` forbade `RoboLayout` includes in the shell outside three named files,
+and `RoboDesktopFontProvider.c/.h` — the layout seam's *concrete* provider, which legitimately includes
+`RoboLayoutFontResolver.h` — was the fourth. It is a named exemption with its reason now, rather than a widened
+pattern.
+
+Ownership, lifetime, threading, cache boundaries, invalidation, the error-handling table and the
+stable/advanced/internal/experimental/deprecated split are written down in `APIStability.md`; the pipeline, the
+layer table and the ten rules in `Overview.md`. **No capability flag and no version move accompanies the
+phase**, because a freeze adds no engine behaviour — `RoboTextGetCapabilities` still reports `1.13.0`.
+
+Regression: `TestRoboText.ps1 -Target Host` (344 cases, the API suite among them) and
+`TestRoboTextConformance.ps1 -Target Host` (68), then `TestLayout`, `TestPaint`, `TestGraphics`,
+`TestRasterizer`, `TestFont` and `TestDesktop` (Host) with `TestDesktop.ps1 -Target Qemu` when the guest image
+is involved, and `Runtime/Tools/Build.ps1 -Verify` for the scans.

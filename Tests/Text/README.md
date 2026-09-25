@@ -134,10 +134,28 @@ eight samples are repeated a hundred times and compared byte for byte. Contract:
 |---|---|---|
 | `SuiteRoboTextShapingCorpus.c` | `text.shaping.corpus.*` | the layer chain one door at a time over Latin, a Devanagari conjunct and Arabic; Greek, Cyrillic and three scripts in one string; the Latin/European table with exact glyph and cluster counts; a feature that moves glyphs **and** the measurement; the scripts this build names as gaps; bidi as resolved levels and a visual order proved a permutation; the selector naming which candidate answered; a vertical column, sideways Latin and a mark that does not lengthen it; the measurement, selection and editing round trip, where an edit's own bytes must shape exactly like a fresh layout of the text it produced; the malformed matrix; the determinism sweep; the diffable report; and the timing record |
 
+## The API freeze — `Tests/Text/SuiteRoboTextApi.c` (Phase 12.24)
+
+Every other suite here asks what the engine *computes*. This one asks what a **consumer may rely on**, which
+fails differently: a door that starts handing back a pointer into freed memory, or an umbrella header that stops
+naming a public header, is invisible until something builds against it. It includes **only**
+`Runtime/Include/RoboText/RoboText.h` — so a header left out of the aggregate is a compile error — and then
+reads that header and matches its list against the directory, so a *new* public header nobody added fails on the
+day it lands. The rest is the initial value of every public `...Init`, the refusals a caller can provoke (a
+`NULL`, a scalar past the end, a byte inside a multi-byte scalar, a context with no face), the borrowing
+lifetime of a shape result's parts (two reads, one pointer; the run list's own advance *is* the measurement's
+width), and the shapes a consumer really hands it — nothing, one scalar, 4 096 scalars across three scripts, a
+script the pack does not cover, and twenty-five identical measurements. Contract:
+[`APIStability.md`](../../Documentation/Runtime/Text/APIStability.md).
+
+| Suite | Prefix | What it is about |
+|---|---|---|
+| `SuiteRoboTextApi.c` | `text.api.*` | the umbrella's completeness both ways, the version/capability record with its three named absences, the documented initial values, the refusals (including `RoboNotSupported` for a face-less context and an unplaceable position that is *not* an error), stable borrowing and a destroyed result, one measurement engine behind two doors, the index-space conversions with their two refusals, and the stress ladder |
+
 ## How to run
 
 ```powershell
-Scripts\Test\TestRoboText.ps1 -Target Host            # 335 cases; also writes Build/Text-GlyphTable.txt
+Scripts\Test\TestRoboText.ps1 -Target Host            # 344 cases; also writes Build/Text-GlyphTable.txt
 Scripts\Test\TestRoboTextConformance.ps1 -Target Host # 68 cases; just text.shaping.*
 Scripts\Build\BuildRoboText.ps1                       # the module, its boundary scan and its suites
 ```
