@@ -12,9 +12,10 @@
 #include <string.h>
 
 static const char *const RiCursorNames[RoboInputCursorTypeCount] = {
-    "default",    "pointer",   "text",       "crosshair",
-    "move",       "resize-h",  "resize-v",   "resize-diagonal",
-    "not-allowed", "wait",     "progress",   "none"
+    "default",     "pointer",    "text",      "crosshair",
+    "move",        "resize-h",   "resize-v",  "resize-diagonal",
+    "not-allowed", "wait",       "progress",  "none",
+    "grabbing"
 };
 
 int InputCursorTypeIsKnown(InputCursorType type)

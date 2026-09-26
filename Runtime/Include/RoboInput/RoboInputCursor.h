@@ -64,11 +64,20 @@ typedef enum InputCursorType {
     /** A busy indicator with the arrow still usable. */
     RoboInputCursorProgress = 10,
     /** **No shape at all**: the cursor is hidden. Distinct from the default. */
-    RoboInputCursorNone = 11
+    RoboInputCursorNone = 11,
+    /**
+     * A closed hand: something is being *carried* -- a window by its title bar, a drag in flight
+     * (Phase 13.75).
+     *
+     * Distinct from @ref RoboInputCursorMove, which says a thing *can* be moved; this says one *is* moving,
+     * and the shell declares it as an override for the duration of the gesture. The default table never
+     * answers it, because no *target* is being grabbed -- a gesture is.
+     */
+    RoboInputCursorGrabbing = 12
 } InputCursorType;
 
 /** Number of defined shapes. Asserted positionally by `input.cursor.*`. */
-#define RoboInputCursorTypeCount 12u
+#define RoboInputCursorTypeCount 13u
 
 /** Non-zero if @p type is a defined shape. */
 int InputCursorTypeIsKnown(InputCursorType type);

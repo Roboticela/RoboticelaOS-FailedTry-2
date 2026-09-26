@@ -926,6 +926,9 @@ $SuiteSrcs = @(
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopTypography.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopTypographyGallery.c"),
     (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopScene.c"),
+    (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopInput.c"),
+    (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopInputPointer.c"),
+    (Join-Path $TestsRoot "Desktop\SuiteRoboDesktopInputContent.c"),
     # Phase 15 -- RoboCompositor. Three suites: the core (the vocabulary, the capability table, the clock,
     # the counters and the two doors that make a failure readable — the dump and the fuzz check), the visual
     # half (the tree, the composite pass, damage and the present, all proved by reading the destination's
@@ -2131,7 +2134,12 @@ if ($Module -and $Module -ne "Runtime") {
         Typography = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboTypography")
         Text = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText")
         Graphics = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics")
-        Display = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay")
+        # RoboDisplay itself does not reach RoboWindow (the direction is the other way), but its suite set does:
+        # `SuiteRoboDisplayWindow.c` creates a window against a display, and the Win32 backend this module's
+        # host extras compile (`Window*`) links the same way -- so the row names RoboWindow for the *test* half,
+        # exactly as the `Input` and `Css` rows do for theirs. No production RoboDisplay source gains a
+        # dependency.
+        Display = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay", "RoboWindow")
         Window = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboDisplay", "RoboWindow")
         # RoboCompositor speaks in `GfxSurface`/`GfxRect` and the one source-over blend, so it sits on
         # RoboGraphics and nothing higher: no document, no paint, no shell.
@@ -2148,7 +2156,13 @@ if ($Module -and $Module -ne "Runtime") {
         # calls the same doors, so the *test* build needs them too -- which is why they are in this list
         # rather than implied by the whole-tree link.
         Html = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboGraphics", "RoboHTML")
-        Css = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboCSS")
+        # RoboCSS itself sits on the base layers and nothing above them, so the *module* could be listed as
+        # base + RoboCSS. Its suite set, though, includes `SuiteRoboCssDomSelect.c` -- the one suite kept in
+        # `Tests/Suites` precisely because it must see RoboCSS and RoboHTML together -- and a *link* needs the
+        # objects it names, not merely their headers. So the row names the whole chain that suite walks
+        # (HTML, layout, paint, the rasterizer), exactly as the `Input` row does for its own suite's needs. The
+        # dependency direction is unchanged: no production RoboCSS source reaches any of them.
+        Css = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender")
         Layout = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout")
         Paint = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint")
         Rasterizer = @("RoboBase", "RoboMem", "RoboContainers", "RoboUnicode", "RoboI18N", "RoboFont", "RoboText", "RoboGraphics", "RoboHTML", "RoboCSS", "RoboLayout", "RoboPaint", "RoboRender")

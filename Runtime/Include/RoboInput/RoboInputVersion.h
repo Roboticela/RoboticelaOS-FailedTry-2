@@ -45,9 +45,9 @@
 #define ROBO_INPUT_VERSION_H
 
 #define RoboInputVersionMajor 0
-#define RoboInputVersionMinor 7
+#define RoboInputVersionMinor 8
 #define RoboInputVersionPatch 0
-#define RoboInputVersionString "0.7.0"
+#define RoboInputVersionString "0.8.0"
 
 /**
  * **1 since Phase 13 closed**: the header set under `Runtime/Include/RoboInput/` and the invariants its doors
@@ -134,6 +134,24 @@
  * the target and *tells* this state.
  */
 #define RoboInputModelImplemented 1
+
+/**
+ * ## What 13.66--13.77 added, and why none of it is in this module's capability table
+ *
+ * The **consumer integration**: the shell, through `RoboDesktopInput`
+ * (`Runtime/Source/RoboDesktop/RoboDesktopInput.c`), now drives this model rather than a point-and-a-pressed
+ * flag -- a window queue through the bridge, a hit test that resolves a window or a document node, focus as a
+ * scope plus a target, the chord table and the command chain, the text pipeline into a `RoboText` editor, the
+ * clipboard over a selection, window drag and resize under pointer capture, and one cursor owner.
+ *
+ * That work moved **one enum value** in this header (`RoboInputCursorGrabbing`, 13.75's carried-thing shape;
+ * the default table still never answers it, because a gesture is not a target) and nothing else. The reason is
+ * the phase's own rule: a consumer is not a reason to widen the model. So every flag above still describes
+ * what *this module* computes, and the integration's own capabilities are stated where the integration lives
+ * -- `DesktopInputCapabilities` in `RoboDesktopInput.h`, which is the table that reports window management,
+ * focus delivery, hit testing, coordinate conversion, keyboard and text delivery, shortcuts, commands, the
+ * clipboard, drag/drop, cursors and the event loop as *this build's* answers.
+ */
 
 /**
  * 0, and it stays 0 for this phase: **no platform input adapter is implemented.**

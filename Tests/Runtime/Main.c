@@ -316,6 +316,13 @@ void TestRegisterRoboJSIntegration(void);
 void TestRegisterDesktopTypography(void);
 void TestRegisterDesktopTypographyGallery(void);
 void TestRegisterDesktopScene(void);
+/* Phase 13.66--13.77 -- the shell's *consumption* of RoboInput: the loop and its lifecycle, the window
+ * manager's gestures and hit test, and the document/text/command/clipboard chain. Registered beside the
+ * desktop suites because that is where the integration lives, and after them because the pointer cases
+ * build the same windows the window suite does. */
+void TestRegisterDesktopInput(void);
+void TestRegisterDesktopInputPointer(void);
+void TestRegisterDesktopInputContent(void);
 /* Phase 12.1 — RoboInput: the event model, its coordinate spaces, the queue and the window bridge. These
  * tests own no module-wide state (the module has none), so their order among the others does not matter and
  * they are registered before the desktop suite, which deliberately restarts the layers it uses. */
@@ -685,6 +692,9 @@ int main(int argc, char **argv)
     /* Phase 12.3 -- registered before the scene suite, which shuts the layers down and brings them back. */
     TestRegisterDesktopTypography();
     TestRegisterDesktopTypographyGallery();
+    TestRegisterDesktopInput();
+    TestRegisterDesktopInputPointer();
+    TestRegisterDesktopInputContent();
     TestRegisterInputConformance();
     TestRegisterInputEvent();
     TestRegisterInputKeyboard();

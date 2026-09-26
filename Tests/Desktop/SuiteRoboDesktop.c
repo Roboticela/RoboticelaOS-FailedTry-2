@@ -104,9 +104,25 @@ static void TestDesktopVocabulary(void)
     RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowContent), "window-content") ==
                 0);
     RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowClose), "window-close") == 0);
+    /* The eight resize zones (Phase 13.67), each named the way a log line reads. */
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeLeft), "window-resize-left") == 0);
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeRight), "window-resize-right") ==
+                0);
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeTop), "window-resize-top") == 0);
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeBottom), "window-resize-bottom") ==
+                0);
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeTopLeft),
+                     "window-resize-top-left") == 0);
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeTopRight),
+                     "window-resize-top-right") == 0);
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeBottomLeft),
+                     "window-resize-bottom-left") == 0);
+    RoboCheck(strcmp(DesktopAreaName(RoboDesktopAreaWindowResizeBottomRight),
+                     "window-resize-bottom-right") == 0);
     RoboCheck(strcmp(DesktopAreaName((DesktopArea)99), "unknown") == 0);
-    RoboCheckEqInt((int)RoboDesktopAreaCount, 6);
+    RoboCheckEqInt((int)RoboDesktopAreaCount, 14);
     RoboCheckEqInt(DesktopAreaIsKnown(RoboDesktopAreaPanel), 1);
+    RoboCheckEqInt(DesktopAreaIsKnown(RoboDesktopAreaWindowResizeTopLeft), 1);
     RoboCheckEqInt(DesktopAreaIsKnown((DesktopArea)99), 0);
 
     RoboCheck(strcmp(DesktopWindowStateName(RoboDesktopWindowOpen), "open") == 0);

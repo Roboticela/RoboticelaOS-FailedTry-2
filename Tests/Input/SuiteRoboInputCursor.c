@@ -69,7 +69,8 @@ static void TestCursorVocabulary(void)
     RoboCheckEqInt((int)RoboInputCursorWait, 9);
     RoboCheckEqInt((int)RoboInputCursorProgress, 10);
     RoboCheckEqInt((int)RoboInputCursorNone, 11);
-    RoboCheckEqInt((int)RoboInputCursorTypeCount, 12);
+    RoboCheckEqInt((int)RoboInputCursorGrabbing, 12);
+    RoboCheckEqInt((int)RoboInputCursorTypeCount, 13);
 
     RoboCheckStrEq(InputCursorTypeName(RoboInputCursorDefault), "default");
     RoboCheckStrEq(InputCursorTypeName(RoboInputCursorPointer), "pointer");
@@ -83,11 +84,13 @@ static void TestCursorVocabulary(void)
     RoboCheckStrEq(InputCursorTypeName(RoboInputCursorWait), "wait");
     RoboCheckStrEq(InputCursorTypeName(RoboInputCursorProgress), "progress");
     RoboCheckStrEq(InputCursorTypeName(RoboInputCursorNone), "none");
+    RoboCheckStrEq(InputCursorTypeName(RoboInputCursorGrabbing), "grabbing");
 
-    RoboCheckStrEq(InputCursorTypeName((InputCursorType)12), "unknown");
+    RoboCheckStrEq(InputCursorTypeName((InputCursorType)13), "unknown");
     RoboCheckStrEq(InputCursorTypeName((InputCursorType)-1), "unknown");
     RoboCheck(InputCursorTypeIsKnown(RoboInputCursorDefault));
-    RoboCheck(!InputCursorTypeIsKnown((InputCursorType)12));
+    RoboCheck(InputCursorTypeIsKnown(RoboInputCursorGrabbing));
+    RoboCheck(!InputCursorTypeIsKnown((InputCursorType)13));
 
     /* Only one shape means "there is no cursor", and it is not the default. */
     RoboCheck(InputCursorTypeIsHidden(RoboInputCursorNone));

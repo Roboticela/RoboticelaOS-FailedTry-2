@@ -355,11 +355,47 @@ static void TestWindowHitTest(void)
     RoboCheckEqInt(hit.inside, 0);
     DesktopHitInit(NULL);
 
-    /* The title bar: `bounds.y + border` through the title's height, minus the close button. */
-    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(160, 104), &hit), RoboOk);
+    /*
+     * The title bar: `bounds.y + border` through the title's height, minus the close button and minus the
+     * resize band (Phase 13.67). The point is below the band's inner edge on purpose: the band is the
+     * *outer* six pixels, so a title-bar hit is at least that far down, and `desktop.window.hittest`
+     * asserts both sides of that boundary rather than assuming it.
+     */
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(160, 112), &hit), RoboOk);
     RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowTitle);
     RoboCheckEqInt((int)hit.window, (int)id);
     RoboCheckEqInt(hit.inside, 1);
+
+    /*
+     * The eight resize zones, on a window at (100, 100, 400, 300) with a six-pixel band: the four edge bands,
+     * the four corners, and the two precedences that make the set usable.
+     */
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(102, 200), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeLeft);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(497, 200), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeRight);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(300, 102), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeTop);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(300, 397), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeBottom);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(102, 102), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeTopLeft);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(497, 102), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeTopRight);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(102, 397), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeBottomLeft);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(497, 397), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeBottomRight);
+    /* The band is the *outer* six pixels and nothing inside it: one pixel further in is not a resize. */
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(106, 200), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowContent);
+    RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(100 + 6 - 1, 200), &hit), RoboOk);
+    RoboCheckEqInt((int)hit.area, (int)RoboDesktopAreaWindowResizeLeft);
+    /* `DesktopAreaIsResize` is the one door for the question, and the close button is still reachable. */
+    RoboCheckEqInt(DesktopAreaIsResize(RoboDesktopAreaWindowResizeLeft), 1);
+    RoboCheckEqInt(DesktopAreaIsResize(RoboDesktopAreaWindowResizeBottomRight), 1);
+    RoboCheckEqInt(DesktopAreaIsResize(RoboDesktopAreaWindowTitle), 0);
+    RoboCheckEqInt(DesktopAreaIsResize(RoboDesktopAreaWindowClose), 0);
 
     /* The close button: ten pixels square, six in from the frame's right edge, centred in the title bar. */
     RoboCheckEqInt(DesktopHitTest(desktop, MakeGfxPoint(400 + 100 - 12, 100 + 8 + 5), &hit),

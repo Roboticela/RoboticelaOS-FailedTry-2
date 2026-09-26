@@ -17,8 +17,10 @@
  * It owns one `InputSession` (devices, held keys, pointer state, captures, hover, focus, the text pipeline,
  * the drag, the gesture arena), one `InputQueue`, one `InputDispatcher`, the shell's listener store, one
  * `InputShortcutManager`, one `InputCommandRouter`, one `InputCursorManager`, one `InputCoalescer` and one
- * `InputLatencyTrace`. It **borrows** the `Desktop` and never draws: a frame is still
- * `DesktopRender`'s, and this layer only marks what must be redrawn.
+ * `InputLatencyTrace` -- the last of which is stamped only when the caller supplies a clock through
+ * @ref DesktopInputConfig::clockMs, because this module has no business owning a timebase
+ * (13.77.12: a measurement a test can make, or an honest zero). It **borrows** the `Desktop` and never
+ * draws: a frame is still `DesktopRender`'s, and this layer only marks what must be redrawn.
  *
  * It is not a second input system. Every event it sees arrives as a `WindowEvent` and goes through
  * `InputEventFromWindowEvent` — the same bridge a future platform adapter will feed. Every decision it makes
@@ -48,6 +50,14 @@
  *
  * **A command target.** The clipboard the shell installs is an `InputCommandTarget`, so `Ctrl+C` reaches it
  * through the same router an application command would.
+ *
+ * **A window manager, in the one sense this shell has one** (13.67/13.75). The two gestures a window system
+ * cannot be without -- a **move** dragged by the title bar and a **resize** dragged by an edge or a corner --
+ * are this layer's, expressed as actions on the *shell's* window list (`DesktopWindowSetBounds`) under the
+ * model's own pointer capture (13.17). The zones are the shell's (`DesktopArea`, eight of them since
+ * 13.67), so there is one hit test and not two; the grab is `DesktopChromeResizeArea`'s answer, and the
+ * cursor that says which edge is under the pointer is a *declared* one (13.43's override), removed when the
+ * gesture ends rather than left to the shape of the path the mouse took.
  *
  * ## The one thing this build does not have, stated rather than hidden
  *
@@ -109,12 +119,24 @@ typedef struct LayoutTree LayoutTree;
 /** How the shell's input system is built. */
 typedef struct DesktopInputConfig {
     /** Events the queue holds; 0 means @ref RoboDesktopInputDefaultQueueCapacity. */
-    uint32_t queueCapacity;
-    /**
-     * The pixel height one *line* of a wheel event converts to (`InputDefaultActionFor`). 0 means 16, which
-     * is what the model's own default assumes.
-     */
+    uint32_t queueCapacity;/**
+ * The pixel height one *line* of a wheel event converts to (`InputDefaultActionFor`). 0 means 16, which
+ * is what the model's own default assumes.
+ */
     int32_t lineHeightPx;
+    /**
+     * The caller's **monotonic** clock in milliseconds, or NULL (the default) for "this layer has no
+     * timebase".
+     *
+     * Supplied rather than owned because a clock is a platform fact this module deliberately does not
+     * reach for: with one, every dispatched event opens an `InputLatencyTrace` record (13.48) whose four
+     * differences a caller reads through @ref GetDesktopInputLatency; without one, the trace stays empty
+     * and that door answers zeroes. Read as many times per event as the stamps need, so it must be a
+     * `GetTickCount64`-shaped read and not a sleep.
+     */
+    uint64_t (*clockMs)(void *userdata);
+    /** Passed to @ref clockMs. Never read by this layer otherwise. */
+    void *clockUserdata;
     /**
      * Non-zero (the default) to merge high-frequency moves through `InputCoalescer` before dispatch (13.47).
      * Turning it off makes every move its own dispatch, which is what a case that asserts *ordering* wants.
@@ -252,9 +274,17 @@ typedef struct DesktopInputStep {
     uint32_t textInputs;
     /** Clipboard operations (13.74). */
     uint32_t clipboardOps;
-    /** Drag sessions begun / ended (13.42/13.74). */
+    /** Drag sessions begun / ended (13.42/13.74). Counted where they happen and **not** derived from one
+     *  another: a drag that a cancel ended began once and ended once, which a difference cannot say. */
     uint32_t dragsBegan;
     uint32_t dragsEnded;
+    /** Window moves a title-bar drag performed, and window resizes an edge drag performed (13.67). */
+    uint32_t windowMoves;
+    uint32_t windowResizes;
+    /** Events whose latency record was opened this step (13.48/13.77.12); 0 with no clock. */
+    uint32_t traced;
+    /** The worst dispatch-to-handler time among this step's events, in milliseconds. 0 with no clock. */
+    uint64_t slowestHandlerMs;
     /** Non-zero when the *native* window asked to close, or closed. Not an input event; the scene's. */
     int closeRequested;
     /** Non-zero when the destination changed size or scale. Not an input event; the scene's. */
@@ -479,7 +509,7 @@ Result DesktopInputPerformCommand(DesktopInput *input,
                                   DesktopDiag *diag);
 
 /* ============================================================================================== *
- * Drag (13.42 / 13.74)
+ * Drag (13.42 / 13.74) and the window gestures (13.67)
  * ============================================================================================== */
 
 /** Non-zero while a drag is running. */
@@ -487,6 +517,223 @@ int DesktopInputIsDragging(const DesktopInput *input);
 
 /** The drag's phase (`IDLE` when none). */
 InputDragPhase DesktopInputDragPhase(const DesktopInput *input);
+
+/**
+ * Non-zero while a **window move** is running: a title-bar drag that began on @ref RoboDesktopAreaWindowTitle.
+ *
+ * Distinct from @ref DesktopInputIsDragging on purpose. Every move is a drag (the model owns the gesture, the
+ * payload and the phases), and not every drag is a move -- a drag a document starts carries selections and
+ * nothing here moves a window. The two questions have two doors so a caller cannot read one as the other.
+ */
+int DesktopInputIsMovingWindow(const DesktopInput *input);
+
+/** Non-zero while a **window resize** is running (13.67). */
+int DesktopInputIsResizingWindow(const DesktopInput *input);
+
+/**
+ * The resize zone the running gesture is anchored to, or @ref RoboDesktopAreaNone.
+ *
+ * The zone is decided **once**, at the press, and never re-derived from the pointer: a resize that asked
+ * "which edge am I on now?" would flip to whichever edge the pointer had wandered into, which is the bug
+ * every ad-hoc implementation of this has. It is also what the cursor reads, so the shape stays the one the
+ * gesture began with.
+ */
+DesktopArea DesktopInputResizeArea(const DesktopInput *input);
+
+/** The window the running move or resize is changing, or @ref RoboDesktopWindowIdNone. */
+DesktopWindowId DesktopInputGestureWindow(const DesktopInput *input);
+
+/* ============================================================================================== *
+ * Lifecycle: a target or a window that has gone (13.77.8 / 13.77.13)
+ * ============================================================================================== */
+
+/**
+ * What forgetting a target or a window released.
+ *
+ * Counts rather than a boolean, because `nothing was holding it` and `this layer released it` are
+ * different answers, and the second is the one a leak report needs. Every field is a door of the model's own
+ * (13.27/13.28): this layer decides *what* to forget, never *how* to sweep.
+ */
+typedef struct DesktopInputForget {
+    /** Listeners the shell's store marked removed. */
+    uint32_t listenersRemoved;
+    /** Places the session found the target focused or captured in (0, 1 or 2). */
+    uint32_t sessionTargetsReleased;
+    /** Captures released by window. */
+    uint32_t capturesReleased;
+    /** Focus scopes dropped. */
+    uint32_t focusReleased;
+    /** Keys released because their device held them in the window that went. */
+    uint32_t keysReleased;
+    /** Non-zero when a drag anchored on the window was cancelled. */
+    int dragCancelled;
+    /** Non-zero when the gesture arena was reset while a sequence was unresolved. */
+    int gesturesReset;
+    /** Non-zero when a registered content record was dropped. */
+    int contentCleared;
+} DesktopInputForget;
+
+/** Clear @p out. Safe on NULL. */
+void DesktopInputForgetInit(DesktopInputForget *out);
+
+/**
+ * @p target has been destroyed: stop delivering to it, and let go of it everywhere.
+ *
+ * The door 13.27/13.77.13 names -- "a destroyed target hears nothing and stays nowhere" -- and it is keyed
+ * by identity, so a target focused in one scope and captured for a pointer in another is released in both.
+ * The shell's own listener store is *not* the model's, which is why this layer has its own removal beside
+ * the session's sweep.
+ *
+ * @p out may be NULL. A target nothing referred to is a report of zeroes rather than an error.
+ */
+Result DesktopInputForgetTarget(DesktopInput *input,
+                                const InputTarget *target,
+                                DesktopInputForget *out,
+                                DesktopDiag *diag);
+
+/**
+ * @p window has been destroyed: everything this layer attributed to it, released.
+ *
+ * The whole row 13.77.8 asks for, in one call: its listeners, its focus scope and any target focused in it,
+ * a pointer it captured, a move or resize anchored on it, a drag that began in it, and its **registered
+ * content record**. Deliberately stronger than `DesktopInputClearContent` alone, because a window that has
+ * gone is not a window whose contents changed.
+ *
+ * Keys are left alone, with the reason the session states: a key held by a keyboard device is not the
+ * window's, and releasing one because a window closed would swallow a keystroke the user is still holding.
+ */
+Result DesktopInputForgetWindow(DesktopInput *input,
+                                DesktopWindowId window,
+                                DesktopInputForget *out,
+                                DesktopDiag *diag);
+
+/* ============================================================================================== *
+ * Measurement (13.77.12)
+ * ============================================================================================== */
+
+/**
+ * What this layer measured, from the latency records its own loop opened.
+ *
+ * All zero with no clock (@ref DesktopInputConfig::clockMs): a build that did not supply one measured
+ * nothing, and zeroes say so rather than reporting a plausible small number.
+ */
+typedef struct DesktopInputLatency {
+    /** Hardware-to-dispatch: the delay before anything could react. */
+    uint64_t dispatchLastMs;
+    uint64_t dispatchMaxMs;
+    uint64_t dispatchSumMs;
+    /** Dispatch-to-handler: the work the event caused. */
+    uint64_t handlerLastMs;
+    uint64_t handlerMaxMs;
+    uint64_t handlerSumMs;
+    /** Hardware-to-handler: the delay a user feels. */
+    uint64_t frameLastMs;
+    uint64_t frameMaxMs;
+    uint64_t frameSumMs;
+    /** Records opened, and the ones that reached a handler. */
+    uint64_t traced;
+    uint64_t completed;
+} DesktopInputLatency;
+
+/** Read @p input's measured latency. All zeroes when no clock was configured. */
+Result GetDesktopInputLatency(const DesktopInput *input, DesktopInputLatency *out);
+
+/**
+ * One complete line for @p latency, or @ref RoboNotSupported when it does not fit.
+ *
+ * The shape a performance baseline is *diffed* from rather than eyeballed:
+ *
+ *     latency traced=1000 completed=1000 dispatch last=0 max=1 sum=8 handler last=0 max=2 sum=12
+ */
+Result DesktopInputLatencyWrite(const DesktopInputLatency *latency,
+                                char *buffer,
+                                size_t capacity,
+                                size_t *outLength,
+                                DesktopDiag *diag);
+
+/* ============================================================================================== *
+ * Capabilities (13.77)
+ * ============================================================================================== */
+
+/**
+ * What **this integration** claims, one field per consumer seam, so a reader can tell a finished seam from
+ * an absent one without reading this file's prose.
+ *
+ * It lives here and not on `Desktop` because that table describes the *shell object*: a `Desktop` driven by
+ * `DesktopObservePointer` and nothing else genuinely delivers no input, and 13.66 is the phase that says the
+ * *consumer* is what changes. Every flag below is a seam a suite drives end to end; the absences are named
+ * at the bottom and each one is a structure rather than a flag somebody forgot.
+ */
+typedef struct DesktopInputCapabilities {
+    /** **13.66** The shell reads a normalized event stream and no raw device event. */
+    int shellConsumption;
+    /** **13.67** Window raise / close / activate / focus / minimize / move / resize through this layer. */
+    int windowManagement;
+    /** **13.67** A move dragged by the title bar, under pointer capture. */
+    int windowMoving;
+    /** **13.67** A resize dragged by an edge or a corner, anchored to the zone the press named. */
+    int windowResizing;
+    /** **13.68** A press in a registered window's client area resolves to a DOM node target. */
+    int documentDelivery;
+    /** **13.69** Focus scopes (windows) and targets, with the lose/gain transition published. */
+    int focusDelivery;
+    /** **13.70** Pointer points resolved by the shell's hit test, then paint's inside a registered tree. */
+    int pointerHitTesting;
+    /** **13.70** A captured pointer's moves reach its holder and nobody else. */
+    int pointerCapture;
+    /** **13.71** Positions converted through `InputRoute` between screen, window and document space. */
+    int coordinateSpaces;
+    /** **13.72** Keys reach the focused target; text reaches a registered `RoboTextEditor`. */
+    int keyboardDelivery;
+    /** **13.72** The text pipeline's characters land as one `InsertText` command, never a raw scan code. */
+    int textDelivery;
+    /** **13.73** The chord table, and the scoped command chain the shell assembles. */
+    int shortcutRouting;
+    /** **13.73** Commands claimed innermost-first, with an unclaimed count rather than a silence. */
+    int commandRouting;
+    /** **13.74** Copy / cut / paste over the focused editor's selection and this layer's clipboard. */
+    int clipboard;
+    /** **13.74** A drag session the model owns, on the pointer path the shell already routes. */
+    int dragDrop;
+    /** **13.75** One shape, decided by the hit test, with the shell's gestures declared as overrides. */
+    int cursorManagement;
+    /** **13.76** The pump, the drain, the coalescer and the latency trace, in one bounded iteration. */
+    int eventLoop;
+    /** **13.76** High-frequency moves merged before dispatch (13.47), counted separately. */
+    int inputCoalescing;
+    /** **13.76** A caller-supplied clock turns every dispatched event into a timed record (13.48). */
+    int inputLatency;
+    /** **13.77.8** A destroyed window's listeners, focus and captures are released, not left dangling. */
+    int lifecycleSweep;
+    /** **13.77.13** A dump a reader can diff, and a quiescence read. */
+    int introspection;
+
+    /** **0, and named**: window snapping / tiling. The model has no policy for it and this layer has no
+     *  gesture (Phase 14.17's row). */
+    int windowSnapping;
+    /** **0, and named**: a compositor-driven frame scheduling hook. This layer marks what to repaint; it
+     *  does not own when a frame runs. */
+    int frameScheduling;
+    /** **0, and named**: cursor *images*. This layer names a shape (`InputCursorType`); drawing one is the
+     *  shell's, and a custom bitmap would be a variant in RoboInput rather than a drawing call here. */
+    int cursorImages;
+
+    /** Events the default queue holds (`RoboDesktopInputDefaultQueueCapacity`). */
+    uint32_t defaultQueueCapacity;
+    /** Windows whose content a caller may describe (`RoboDesktopInputMaxContents`). */
+    uint32_t maxContents;
+    /** Listeners the shell's store holds (`RoboDesktopInputMaxListeners`). */
+    uint32_t maxListeners;
+    /** Cursor shapes the model names (`RoboInputCursorTypeCount`); 13.75 added `grabbing`. */
+    uint32_t cursorShapes;
+    /** Resize zones the shell's hit test answers (`DesktopArea`'s eight). */
+    uint32_t resizeZones;
+    /** The shipped version string (`RoboInputVersionString`), so a report names one number. */
+    const char *version;
+} DesktopInputCapabilities;
+
+/** Fill @p out. `RoboInvalidArgument` for NULL; otherwise every field set. */
+Result GetDesktopInputCapabilities(DesktopInputCapabilities *out);
 
 /* ============================================================================================== *
  * Reporting
@@ -520,6 +767,14 @@ typedef struct DesktopInputStats {
     uint64_t unclaimed;
     /** Characters delivered to an editor. */
     uint64_t textInputs;
+    /** Clipboard operations performed (13.74). An empty copy is not one: the clipboard kept what it had. */
+    uint64_t clipboardOps;
+    /** Drag sessions begun and ended (13.42/13.74). */
+    uint64_t dragsBegan;
+    uint64_t dragsEnded;
+    /** Window moves a title-bar drag performed, and window resizes an edge drag performed (13.67). */
+    uint64_t windowMoves;
+    uint64_t windowResizes;
     /** Devices connected / disconnected through the session. */
     uint64_t connects;
     uint64_t disconnects;
@@ -531,7 +786,7 @@ Result GetDesktopInputStats(const DesktopInput *input, DesktopInputStats *out);
 int DesktopInputIsQuiescent(const DesktopInput *input);
 
 /** Room @ref DesktopInputWrite needs, NUL included. */
-#define RoboDesktopInputDumpMax (256u + (RoboDesktopInputMaxContents * 96u))
+#define RoboDesktopInputDumpMax (6144u + (RoboDesktopInputMaxContents * 128u))
 
 /** Write @p input as text: the session, the router, the shortcuts, the contents and every counter. */
 Result DesktopInputWrite(const DesktopInput *input,

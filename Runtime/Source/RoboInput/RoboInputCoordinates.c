@@ -249,19 +249,24 @@ Result InputConvertPoint(GfxPoint point,
                                        GfxPoint *out,
                                        InputDiag *diag)
 {
-    if (!out || !route) {
+    if (!out) {
         return RoboInputDiag(diag, RoboInputDomainSpace, RoboInvalidArgument,
-                               "convert_point needs an output and a route");
+                               "convert_point needs an output");
     }
     if (from == to) {
-        /* "It is already in the plane you want" is a question with an obvious answer, and answering it
-         * costs one copy -- but only for a *defined* plane: an unset one is still refused below. */
+        /* "It is already in the plane you want" is a question with an obvious answer, and answering it costs
+         * one copy -- and *needs no geometry*, so it is answered before the route is required. Only for a
+         * *defined* plane, though: an unset one is still refused below. */
         if (!InputSpaceIsKnown(from)) {
             return RoboInputDiag(diag, RoboInputDomainSpace, RoboInvalidArgument,
                                    "convert_point needs a defined space");
         }
         *out = point;
         return RoboOk;
+    }
+    if (!route) {
+        return RoboInputDiag(diag, RoboInputDomainSpace, RoboInvalidArgument,
+                               "convert_point needs an output and a route");
     }
     if (!InputSpaceIsKnown(from) || !InputSpaceIsKnown(to)) {
         return RoboInputDiag(diag, RoboInputDomainSpace, RoboInvalidArgument,

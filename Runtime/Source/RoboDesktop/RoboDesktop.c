@@ -799,7 +799,20 @@ Result DesktopPresentDamage(Desktop *desktop,
         outRecord->clippedPixels = 0u;
         outRecord->offsetX = 0;
         outRecord->offsetY = 0;
-        outRecord->complete = 0;
+        /*
+         * `complete` is the *frame's* own verdict -- every frame pixel landed -- so a region present is
+         * complete exactly when the damage it wrote is the whole target and nothing was clipped. A present
+         * of the full screen (the first paint, or any full compositor frame) is therefore complete; a
+         * partial region present is a correct presentation of *part* of the frame and reports 0, which is
+         * why the field is computed rather than assumed one way or the other.
+         */
+        outRecord->complete =
+            (damage.x == 0 && damage.y == 0 &&
+             damage.width == (int32_t)outRecord->frameWidth &&
+             damage.height == (int32_t)outRecord->frameHeight &&
+             outRecord->clippedPixels == 0u)
+                ? 1
+                : 0;
         outRecord->frameChecksum = RenderTargetChecksum(desktop->target);
     }
     return RoboOk;
@@ -1208,12 +1221,26 @@ Result DesktopHitTest(const Desktop *desktop,
         out->window = window->id;
         closeBounds = DesktopChromeCloseBounds(desktop, window);
         titleBounds = DesktopChromeTitleBounds(desktop, window);
+        /*
+         * The close button first, then the resize band, then the title bar, then the client area. The order
+         * is the whole precedence: a close button that was also a resize corner would be a window nobody
+         * could close (that is Phase 13.67's one real subtlety, stated here rather than left to the geometry
+         * helper, which cannot see the button). The title bar comes *after* the band, so a press on the top
+         * edge resizes rather than drags -- which is what every window system does and the only way the top
+         * edge is reachable at all, since the band is inside the frame.
+         */
         if (GfxRectContainsPoint(closeBounds, point)) {
             out->area = RoboDesktopAreaWindowClose;
-        } else if (GfxRectContainsPoint(titleBounds, point)) {
-            out->area = RoboDesktopAreaWindowTitle;
         } else {
-            out->area = RoboDesktopAreaWindowContent;
+            DesktopArea resize = DesktopChromeResizeArea(desktop, window, point);
+
+            if (resize != RoboDesktopAreaNone) {
+                out->area = resize;
+            } else if (GfxRectContainsPoint(titleBounds, point)) {
+                out->area = RoboDesktopAreaWindowTitle;
+            } else {
+                out->area = RoboDesktopAreaWindowContent;
+            }
         }
         return RoboOk;
     }

@@ -392,7 +392,7 @@ static void TestModelDump(void)
     RoboCheck(strcmp(first, second) == 0);
 
     /* The summary line, whole, and first. */
-    RoboCheck(strstr(first, "input 0.7.0 model=1 adapters=0 types=33 sources=9 spaces=5\n") == first);
+    RoboCheck(strstr(first, "input 0.8.0 model=1 adapters=0 types=33 sources=9 spaces=5\n") == first);
 
     /* One line per vocabulary entry, and no line of one vocabulary masquerading as another. */
     for (index = 0u; index + 1u < firstLength; index++) {

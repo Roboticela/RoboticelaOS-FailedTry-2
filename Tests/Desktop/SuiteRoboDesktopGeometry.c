@@ -60,9 +60,24 @@ static void TestGeometryMetrics(void)
     RoboCheckEqInt(DesktopWindowMetricsIsValid(&window), 1);
     RoboCheckEqInt(window.border, 1);
     RoboCheckEqInt(window.titleHeight, 24);
-    /* The minimum is the decorations plus client area, computed rather than literal. */
-    RoboCheckEqInt(window.minWidth, 2 * window.border + 8);
+    /*
+     * The minimum is the decorations plus client area, computed rather than literal -- and on the horizontal
+     * axis it is the *larger* of that and what the resize band needs to leave a middle (Phase 13.67). Both
+     * are asserted as relations so a restyle moves the number here too.
+     */
+    RoboCheckEqInt(window.minWidth, 2 * window.resizeBand + 8);
+    RoboCheck(window.minWidth >= 2 * window.border + 8);
     RoboCheckEqInt(window.minHeight, 2 * window.border + window.titleHeight + 8);
+    RoboCheck(window.minHeight >= 2 * window.resizeBand + 8);
+    /*
+     * The resize band (Phase 13.67) is wider than the drawn frame on purpose -- a one-pixel frame is a look,
+     * a one-pixel drag target is not -- and it has to leave a middle in the smallest window this style draws,
+     * which is exactly the pair the validity rule checks.
+     */
+    RoboCheckEqInt(window.resizeBand, 6);
+    RoboCheck(window.resizeBand > window.border);
+    RoboCheck(window.resizeBand * 2 < window.minWidth);
+    RoboCheck(window.resizeBand * 2 < window.minHeight);
 
     RoboCheckEqInt(DesktopThemeIsValid(&theme), 1);
 
@@ -80,6 +95,17 @@ static void TestGeometryMetrics(void)
     window = GetRoboDesktopWindowMetrics();
     window.minWidth = 0;
     RoboCheckEqInt(DesktopWindowMetricsIsValid(&window), 0);
+    /* A negative band is not a style, and a band that would swallow the smallest window is one that leaves no
+     * title bar to drag -- both refused, and zero is a legitimate "this style does not resize". */
+    window = GetRoboDesktopWindowMetrics();
+    window.resizeBand = -1;
+    RoboCheckEqInt(DesktopWindowMetricsIsValid(&window), 0);
+    window = GetRoboDesktopWindowMetrics();
+    window.resizeBand = window.minWidth;
+    RoboCheckEqInt(DesktopWindowMetricsIsValid(&window), 0);
+    window = GetRoboDesktopWindowMetrics();
+    window.resizeBand = 0;
+    RoboCheckEqInt(DesktopWindowMetricsIsValid(&window), 1);
 }
 
 /* ------------------------------------------------------------------ */

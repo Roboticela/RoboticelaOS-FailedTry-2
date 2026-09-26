@@ -102,6 +102,18 @@ typedef struct RoboDesktopWindowMetrics {
     int32_t minHeight;
     /** A window's contents are inset from the title bar's inner edge by this much. */
     int32_t contentInset;
+    /**
+     * How thick the *interactive* band along a window's outer edge is, for resizing (Phase 13.67).
+     *
+     * Deliberately wider than @ref border: a one-pixel frame is what the shell *draws*, and a one-pixel
+     * target is not something a hand can hit. The band is measured inwards from the frame rectangle, corners
+     * are `resizeBand` square, and the close button wins over the top-right corner so a resizable window
+     * still has a close button a user can press.
+     *
+     * 0 turns resizing off entirely, which is a legitimate style rather than a degenerate one: a window whose
+     * decorations say it cannot be resized is a window the hit test never answers a resize zone for.
+     */
+    int32_t resizeBand;
 } DesktopWindowMetrics;
 
 /**
@@ -123,14 +135,42 @@ typedef enum DesktopArea {
     /** A window's client area: where its contents are. */
     RoboDesktopAreaWindowContent = 4,
     /** A window's close button. */
-    RoboDesktopAreaWindowClose = 5
+    RoboDesktopAreaWindowClose = 5,
+    /*
+     * The eight resize zones (Phase 13.67): the interactive band inwards from a window's frame, four edges and
+     * four corners, in the order a cursor reads them. The close button is tested *first* and wins, so a
+     * resizable window is still closable; a corner is tested before the two edges it joins, so a corner
+     * answers `top-left` rather than whichever edge happened to be checked first.
+     */
+    /** The left edge band, excluding the corners. */
+    RoboDesktopAreaWindowResizeLeft = 6,
+    /** The right edge band, excluding the corners. */
+    RoboDesktopAreaWindowResizeRight = 7,
+    /** The top edge band, excluding the corners. */
+    RoboDesktopAreaWindowResizeTop = 8,
+    /** The bottom edge band, excluding the corners. */
+    RoboDesktopAreaWindowResizeBottom = 9,
+    RoboDesktopAreaWindowResizeTopLeft = 10,
+    RoboDesktopAreaWindowResizeTopRight = 11,
+    RoboDesktopAreaWindowResizeBottomLeft = 12,
+    RoboDesktopAreaWindowResizeBottomRight = 13
 } DesktopArea;
 
 /** Number of defined areas. Asserted positionally by `desktop.conformance.*`. */
-#define RoboDesktopAreaCount 6u
+#define RoboDesktopAreaCount 14u
 
 /** Non-zero if @p area is a defined area. */
 int DesktopAreaIsKnown(DesktopArea area);
+
+/**
+ * Non-zero when @p area is one of the eight resize zones.
+ *
+ * The one door that asks "is this a resize?", so the input integration (13.67/13.75) and the window manager
+ * never write `>= ResizeLeft && <= ResizeBottomRight` at a call site -- the enumeration is ordered so that
+ * test would work, and the day a ninth geometry lands it would still be true while the set of zones that
+ * share an edge would not.
+ */
+int DesktopAreaIsResize(DesktopArea area);
 
 /** Human-readable area name; never NULL; `"unknown"` when undefined. */
 const char *DesktopAreaName(DesktopArea area);

@@ -352,6 +352,21 @@ GfxRect DesktopChromeCloseBounds(const Desktop *desktop,
 GfxRect DesktopChromeTitleBounds(const Desktop *desktop,
                                                 const DesktopWindow *window);
 
+/**
+ * Which resize zone @p point is in, for @p window — or @ref RoboDesktopAreaNone when it is in none.
+ *
+ * The shell's *own* answer to "is this the edge?", asked by `DesktopHitTest` (so a caller sees it on a
+ * `DesktopHit`) and by the input integration (so a press begins the resize it names). One function, because
+ * a second implementation of the band would be a second place the corner precedence could differ — and the
+ * precedence is the whole subtlety: the close button is tested by the caller *before* this, a corner before
+ * the two edges it joins, and the band is measured inwards from the frame rectangle.
+ *
+ * `resizeBand == 0` answers `None` everywhere, which is how a style turns resizing off.
+ */
+DesktopArea DesktopChromeResizeArea(const Desktop *desktop,
+                                    const DesktopWindow *window,
+                                    GfxPoint point);
+
 /** Draw the software cursor last, so it sits above chrome and window contents. */
 void DesktopChromePaintCursor(Desktop *desktop,
                                      GfxRaster *raster,

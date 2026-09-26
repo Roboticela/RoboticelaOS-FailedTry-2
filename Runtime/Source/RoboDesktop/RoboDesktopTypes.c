@@ -20,7 +20,15 @@ static const char *const desktopAreaNames[RoboDesktopAreaCount] = {
     "panel",
     "window-title",
     "window-content",
-    "window-close"
+    "window-close",
+    "window-resize-left",
+    "window-resize-right",
+    "window-resize-top",
+    "window-resize-bottom",
+    "window-resize-top-left",
+    "window-resize-top-right",
+    "window-resize-bottom-left",
+    "window-resize-bottom-right"
 };
 
 int DesktopAreaIsKnown(DesktopArea area)
@@ -28,6 +36,20 @@ int DesktopAreaIsKnown(DesktopArea area)
     size_t index = (size_t)area;
 
     return index < (size_t)RoboDesktopAreaCount;
+}
+
+int DesktopAreaIsResize(DesktopArea area)
+{
+    /*
+     * Spelled as the *range* rather than as a list of eight, and that is safe because the enumeration's own
+     * comment makes the range the definition: the eight zones are contiguous and last. A ninth geometry
+     * would be appended after `BottomRight` and would not be a resize, which is why `IsResize` is the door
+     * callers use rather than the comparison itself.
+     */
+    return (area >= RoboDesktopAreaWindowResizeLeft &&
+            area <= RoboDesktopAreaWindowResizeBottomRight)
+               ? 1
+               : 0;
 }
 
 const char *DesktopAreaName(DesktopArea area)

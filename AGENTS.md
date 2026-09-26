@@ -1235,6 +1235,55 @@ candidates (13.37).
 (two events, in the order they were typed), `input.text.repeat`, `input.text.level` (caps lock, AltGr and the
 control chord) and `input.text.deadkey` are the decisive ones.
 
+### Shell consumes RoboInput (Phase 13.66--13.77)
+
+**RoboInput is the single authoritative input pipeline; the shell is a *consumer* of it, never a second
+input system.** The join is `Runtime/Source/RoboDesktop/RoboDesktopInput.c` + public
+`Runtime/Include/RoboDesktop/RoboDesktopInput.h`; the contract is
+`Documentation/Runtime/Desktop/InputIntegration.md`. Every event arrives as a `WindowEvent` and goes
+through `InputEventFromWindowEvent`; there is no `DesktopMouse` and no `DesktopKey` in the tree.
+
+- **One owner.** One `InputSession`, `InputQueue`, `InputDispatcher`, listener store,
+  `InputShortcutManager`, `InputCommandRouter`, `InputCursorManager`, `InputCoalescer` and
+  `InputLatencyTrace`. It borrows the `Desktop` and the caller's content; it never draws and owns no
+  timebase (a clock is `DesktopInputConfig::clockMs` or the trace stays empty).
+- **The loop is pump -> drain -> route -> target -> walk -> act -> measure -> cursor.** `GetDesktopInputStep`
+  is pump + drain; a step's counters are the truth and the lifetime counters are read back as deltas.
+- **Capture is capture.** A captured pointer's move/release/cancel go to its holder **even outside the
+  screen** — no hit test runs for them — or a window dragged off the desktop would be stuck. A press and a
+  release are distinguished in the shell's own listeners (the store has no per-type mask), never by the
+  dispatcher.
+- **The shell's two gestures are the window manager (13.67).** Move is the title bar under the model's
+  capture; resize is the *press's* zone against the *press's* frame, never re-derived per move and never
+  accumulated, so an edge dragged out and back returns the original rectangle exactly. The zones are the
+  shell's own `DesktopArea` (eight since 13.67), so there is one hit test and not two.
+- **Content is a record, and every absent field degrades to a stated answer (13.68/13.72/13.74).** A tree
+  gives a `DOCUMENT` target with a `PaintHitTest` node; a DOM handle gives identity; an editor receives text;
+  commands are asked after the editor. A window's contents answer the keyboard only while that window has the
+  keyboard — do not route text into a background window's editor. Copy/cut/paste belong to the shell's
+  clipboard, so the content slot declines them and the walk reaches `ShellClipboardExecute`.
+- **Focus is per-window (13.69), and `Tab` activates a window rather than walking a model chain across
+  windows** — a chain target must belong to the active window. `ActivateWindow` is the one door keeping
+  `DesktopWindowRaise` and the focus manager in step.
+- **Coordinates (13.71): `windowBounds` in screen space, `clientBounds` in window space** — the meaning
+  `InputRoute` documents. A point on another plane is converted through the event window's route (front
+  window when the event names none) before the hit test; an impossible conversion is refused, not guessed.
+- **Cursor (13.75): the manager decides, in one place.** Gesture shapes are overrides removed when the
+  gesture ends, and the manager is asked **again after the listeners ran** so a shape installed in a step is
+  in force in that step. The `grabbing` shape is the shell's declaration, never a target's default.
+- **Not built, and named rather than implied:** window snapping, frame scheduling, cursor *images*, a control
+  tree inside a window, and per-application windows. Each is a 0 in the capability table by name, not a gap.
+- Capabilities/version: 13.66--13.77 set `shellConsumption`/`windowManagement`/`windowMoving`/
+  `windowResizing`/`documentDelivery`/`focusDelivery`/`pointerHitTesting`/`pointerCapture`/
+  `coordinateSpaces`/`keyboardDelivery`/`textDelivery`/`shortcutRouting`/`commandRouting`/`clipboard`/
+  `dragDrop`/`cursorManagement`/`eventLoop`/`inputCoalescing`/`inputLatency`/`lifecycleSweep`/
+  `introspection`, with `windowSnapping`/`frameScheduling`/`cursorImages` asserted 0, `cursorShapes` 13 and
+  `resizeZones` 8. RoboInput took `grabbing` in 13.75 and is **`0.8.0`**.
+- Tests: `Tests/Desktop/SuiteRoboDesktopInput*.c` (`desktop.input.*`, 16 suites) over
+  `Tests/Desktop/RoboDesktopInputTestSupport.h`, via `TestDesktop.ps1 -Target Host` (73 cases) and then
+  `TestInput.ps1 -Target Host`; the guest half is `test-qemu-display`'s `ROBO_QEMU_INPUT_*` markers, emitted
+  through the scene's own `DesktopInput`.
+
 ### Out-of-flow placement (Phase 14.0)
 
 **A box a declaration takes out of flow is placed against a *containing block* rather than by flow, and

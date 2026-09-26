@@ -319,6 +319,75 @@ GfxRect DesktopChromeClientBounds(const Desktop *desktop,
                              m->contentInset);
 }
 
+DesktopArea DesktopChromeResizeArea(const Desktop *desktop,
+                                    const DesktopWindow *window,
+                                    GfxPoint point)
+{
+    const DesktopWindowMetrics *m = &desktop->windowMetrics;
+    GfxRect frame = window->bounds;
+    int32_t bandX = m->resizeBand;
+    int32_t bandY = m->resizeBand;
+    int leftEdge;
+    int rightEdge;
+    int topEdge;
+    int bottomEdge;
+
+    if (m->resizeBand <= 0) {
+        return RoboDesktopAreaNone;
+    }
+    if (!GfxRectContainsPoint(frame, point)) {
+        return RoboDesktopAreaNone;
+    }
+
+    /*
+     * Inside-ness first, then each edge band: a corner is where two bands *overlap*, so testing the
+     * horizontal band and the vertical band separately and combining them answers the corner without four
+     * more rectangles -- and answers it the same way at every band size.
+     *
+     * Each band is clamped to half its axis so a frame narrower than twice the band still has a middle:
+     * without that, a band wider than the window would make every point on an axis an edge and the title bar
+     * would stop being draggable. `DesktopWindowMetricsIsValid` refuses a band that wide for the *style's*
+     * minimum window, and this clamp is what keeps a hand-built or transiently resized frame honest.
+     */
+    if (bandX * 2 > frame.width) {
+        bandX = frame.width / 2;
+    }
+    if (bandY * 2 > frame.height) {
+        bandY = frame.height / 2;
+    }
+
+    leftEdge = point.x < frame.x + bandX;
+    rightEdge = point.x >= frame.x + frame.width - bandX;
+    topEdge = point.y < frame.y + bandY;
+    bottomEdge = point.y >= frame.y + frame.height - bandY;
+
+    if (topEdge && leftEdge) {
+        return RoboDesktopAreaWindowResizeTopLeft;
+    }
+    if (topEdge && rightEdge) {
+        return RoboDesktopAreaWindowResizeTopRight;
+    }
+    if (bottomEdge && leftEdge) {
+        return RoboDesktopAreaWindowResizeBottomLeft;
+    }
+    if (bottomEdge && rightEdge) {
+        return RoboDesktopAreaWindowResizeBottomRight;
+    }
+    if (leftEdge) {
+        return RoboDesktopAreaWindowResizeLeft;
+    }
+    if (rightEdge) {
+        return RoboDesktopAreaWindowResizeRight;
+    }
+    if (topEdge) {
+        return RoboDesktopAreaWindowResizeTop;
+    }
+    if (bottomEdge) {
+        return RoboDesktopAreaWindowResizeBottom;
+    }
+    return RoboDesktopAreaNone;
+}
+
 GfxRect DesktopChromeCloseBounds(const Desktop *desktop,
                                                 const DesktopWindow *window)
 {

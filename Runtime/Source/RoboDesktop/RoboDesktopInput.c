@@ -40,6 +40,7 @@
 #include "RoboInput/RoboInputDragDrop.h"
 #include "RoboInput/RoboInputFocus.h"
 #include "RoboInput/RoboInputKeyboard.h"
+#include "RoboInput/RoboInputLatency.h"
 #include "RoboInput/RoboInputLayout.h"
 #include "RoboInput/RoboInputPointer.h"
 #include "RoboInput/RoboInputPointerState.h"
@@ -83,8 +84,20 @@ typedef struct DesktopInputListenerEntry {
 typedef struct DesktopInputContentEntry {
     DesktopInputContent content;
     int live;
+    /** The system this slot belongs to: what tells "my window has the keyboard" from "it does not". */
+    DesktopInput *owner;
     InputEditorTarget editor;
     int editorLive;
+    /**
+     * Non-zero once this slot's **one** router entry has been pushed.
+     *
+     * One entry per slot, reused rather than re-pushed, and that is a lifetime rule rather than a tidiness
+     * one: the router holds its targets **by value**, so an entry whose `userdata` is the *caller's* command
+     * target or a short-lived editor is a pointer that outlives nothing. This slot lives as long as the
+     * system does, so the entry's address is stable and re-registering a window's contents updates it in
+     * place -- no duplicate chain entries, and nothing dangling when a content record is replaced.
+     */
+    int pushed;
 } DesktopInputContentEntry;
 
 struct DesktopInput {
@@ -115,7 +128,10 @@ struct DesktopInput {
     int layoutLive;
     InputClipboardData clipboard;
     int clipboardLive;
-    InputEditorTarget *clipboardEditor;
+
+    /** Empty unless the caller supplied a clock; every dispatched event opens a record in it (13.48). */
+    InputLatencyTrace latency;
+    int latencyLive;
 
     InputDeviceId keyboardId;
     InputDeviceId mouseId;
@@ -126,6 +142,28 @@ struct DesktopInput {
     DesktopWindowId dragWindow;
     int32_t dragGrabX;
     int32_t dragGrabY;
+
+    /**
+     * The running **resize**, if any (13.67).
+     *
+     * `resizeArea` and `resizeStart` are recorded at the press and never re-derived: the zone is what the
+     * press named, and the frame is what the window looked like before the gesture, which is what makes
+     * "drag the right edge 40px left" clamp against the *original* left edge rather than against itself.
+     */
+    DesktopWindowId resizeWindow;
+    DesktopArea resizeArea;
+    GfxRect resizeStart;
+    int32_t resizeGrabX;
+    int32_t resizeGrabY;
+
+    /**
+     * The target whose declared cursor shape is in force for the running gesture, if any.
+     *
+     * Kept so the override can be *removed* by the gesture that installed it. Without the record the only way
+     * to clear it would be to clear every override, which would drop a control's own declaration with it.
+     */
+    InputTarget gestureCursor;
+    int gestureCursorLive;
 
     DesktopInputStats stats;
     /** The last action the shell performed, for a caller that reports it. */
@@ -191,6 +229,124 @@ void DesktopInputConfigInit(DesktopInputConfig *config)
     config->lineHeightPx = 16;
     config->enableCoalescing = 1;
     config->window = RoboWindowIdNone;
+    config->clockMs = NULL;
+    config->clockUserdata = NULL;
+}
+
+/** The caller's clock, or 0 when there is none. One place, so no stamp can read a different clock. */
+static uint64_t NowMs(const DesktopInput *input)
+{
+    if (!input || !input->config.clockMs) {
+        return 0u;
+    }
+    return input->config.clockMs(input->config.clockUserdata);
+}
+
+/**
+ * The cursor shape a resize zone asks for: a horizontal split on a vertical edge, a vertical split on a
+ * horizontal one, a diagonal on a corner.
+ *
+ * Note the *swap*, which is the whole reason this is a function rather than a table lookup a reader would
+ * mis-remember: the **left** edge is dragged horizontally, so the shape is `resize-h`; the **top** edge is
+ * dragged vertically, so it is `resize-v`. A build that named the shape after the edge rather than after the
+ * drag would draw the wrong arrow on all four edges and still pass every test that only asked for "a resize
+ * cursor".
+ */
+static InputCursorType CursorForResizeArea(DesktopArea area)
+{
+    switch (area) {
+    case RoboDesktopAreaWindowResizeLeft:
+    case RoboDesktopAreaWindowResizeRight:
+        return RoboInputCursorResizeHorizontal;
+    case RoboDesktopAreaWindowResizeTop:
+    case RoboDesktopAreaWindowResizeBottom:
+        return RoboInputCursorResizeVertical;
+    case RoboDesktopAreaWindowResizeTopLeft:
+    case RoboDesktopAreaWindowResizeBottomRight:
+    case RoboDesktopAreaWindowResizeTopRight:
+    case RoboDesktopAreaWindowResizeBottomLeft:
+        return RoboInputCursorResizeDiagonal;
+    default:
+        return RoboInputCursorDefault;
+    }
+}
+
+/**
+ * The frame a running resize asks for, from the pointer's screen position.
+ *
+ * Both edges of an axis are moved **relative to the frame the gesture began with** (`resizeStart`) rather than
+ * to the current one, which is what makes the two directions inverse: dragging the left edge 40 px right and
+ * then 40 px back returns the original rectangle exactly, where an implementation that accumulated deltas
+ * from the last frame would drift by every rounding.
+ */
+static GfxRect ResizeBounds(const DesktopInput *input, GfxPoint screen)
+{
+    const DesktopWindowMetrics *m = &input->desktop->windowMetrics;
+    GfxRect frame = input->resizeStart;
+    int32_t dx = screen.x - input->resizeGrabX;
+    int32_t dy = screen.y - input->resizeGrabY;
+    DesktopArea area = input->resizeArea;
+    int left = 0;
+    int right = 0;
+    int top = 0;
+    int bottom = 0;
+
+    if (area == RoboDesktopAreaWindowResizeLeft || area == RoboDesktopAreaWindowResizeTopLeft ||
+        area == RoboDesktopAreaWindowResizeBottomLeft) {
+        left = 1;
+    }
+    if (area == RoboDesktopAreaWindowResizeRight || area == RoboDesktopAreaWindowResizeTopRight ||
+        area == RoboDesktopAreaWindowResizeBottomRight) {
+        right = 1;
+    }
+    if (area == RoboDesktopAreaWindowResizeTop || area == RoboDesktopAreaWindowResizeTopLeft ||
+        area == RoboDesktopAreaWindowResizeTopRight) {
+        top = 1;
+    }
+    if (area == RoboDesktopAreaWindowResizeBottom ||
+        area == RoboDesktopAreaWindowResizeBottomLeft ||
+        area == RoboDesktopAreaWindowResizeBottomRight) {
+        bottom = 1;
+    }
+
+    /*
+     * One axis at a time, and each with the same two rules: an edge move changes the origin and the extent by
+     * the same amount (so the opposite edge stays where it was), and the extent is **clamped** to the style's
+     * minimum by moving the origin instead -- which is what makes a window dragged past its minimum stop
+     * rather than invert. `DesktopWindowSetBounds` would clamp the extent too, but clamping *here* is what
+     * keeps the origin honest while the pointer is still down.
+     */
+    if (left) {
+        int32_t newX = frame.x + dx;
+        int32_t maxX = frame.x + frame.width - m->minWidth;
+
+        if (newX > maxX) {
+            newX = maxX;
+        }
+        frame.width += frame.x - newX;
+        frame.x = newX;
+    } else if (right) {
+        frame.width += dx;
+        if (frame.width < m->minWidth) {
+            frame.width = m->minWidth;
+        }
+    }
+    if (top) {
+        int32_t newY = frame.y + dy;
+        int32_t maxY = frame.y + frame.height - m->minHeight;
+
+        if (newY > maxY) {
+            newY = maxY;
+        }
+        frame.height += frame.y - newY;
+        frame.y = newY;
+    } else if (bottom) {
+        frame.height += dy;
+        if (frame.height < m->minHeight) {
+            frame.height = m->minHeight;
+        }
+    }
+    return frame;
 }
 
 /* ------------------------------------------------------------------ */
@@ -225,6 +381,13 @@ Result DesktopInputRouteForWindow(const DesktopInput *input,
     out->windowBounds = bounds;
     out->hasWindowBounds = 1;
     if (DesktopWindowClientBounds(input->desktop, window, &client) == RoboOk) {
+        /*
+         * `InputRoute::clientBounds` is the client rectangle in **window** space (its documented meaning),
+         * and `DesktopWindowClientBounds` answers in screen space -- so the frame's origin comes off here,
+         * once, rather than making every window\u2194document conversion add it back.
+         */
+        client.x -= bounds.x;
+        client.y -= bounds.y;
         out->clientBounds = client;
         out->hasClientBounds = 1;
     }
@@ -253,6 +416,31 @@ static DesktopInputContentEntry *FindContentMutable(DesktopInput *input, Desktop
         }
     }
     return NULL;
+}
+
+/**
+ * Non-zero when the focused target's window is still one the shell holds (or the shell's own native window).
+ *
+ * A native window id is not a shell window, so the two namespaces are told apart rather than compared: the
+ * shell's own window is always live while it exists, and a document or window target naming a shell window
+ * has to be checked. A target naming neither (an application, a window this shell never had) is left alone --
+ * refusing to route for it would be this layer inventing an owner rule it does not have.
+ */
+static int FocusWindowIsLive(const DesktopInput *input)
+{
+    WindowId window;
+
+    if (!input->session.focus.hasFocus) {
+        return 0;
+    }
+    window = input->session.focus.focused.window;
+    if (window == RoboWindowIdNone) {
+        return 1;
+    }
+    if (window == input->config.window) {
+        return 1;
+    }
+    return DesktopWindowExists(input->desktop, AsDesktopWindow(window)) ? 1 : 0;
 }
 
 /** The front, visible window: what a screen-only shell calls "the active one". */
@@ -316,7 +504,18 @@ static Result ResolvePointInternal(DesktopInput *input,
      * conversion that cannot be done is refused rather than guessed at. */
     screen = point;
     if (targetSpace != RoboInputSpaceScreen) {
-        status = InputConvertPoint(point, targetSpace, RoboInputSpaceScreen, NULL, &screen, &idiag);
+        /* A point on another plane needs that plane's window geometry to reach the screen; the event's own
+         * window when there is one, else the front-most window, which is the only window a caller could have
+         * meant when the event named none. */
+        InputRoute spaceRoute;
+        WindowId spaceWindow = input->config.window;
+
+        InputRouteInit(&spaceRoute);
+        if (spaceWindow == RoboWindowIdNone) {
+            spaceWindow = AsWindowId(FrontWindow(input));
+        }
+        (void)DesktopInputRouteForWindow(input, AsDesktopWindow(spaceWindow), &spaceRoute, NULL);
+        status = InputConvertPoint(point, targetSpace, RoboInputSpaceScreen, &spaceRoute, &screen, &idiag);
         if (status != RoboOk) {
             return ShellDiag(diag, &idiag, status, "the point is on a plane this build cannot convert");
         }
@@ -327,16 +526,12 @@ static Result ResolvePointInternal(DesktopInput *input,
                                "the shell could not resolve the point");
     }
 
-    window = hit.window;
-    if (WindowIsNone(window)) {
-        window = AsDesktopWindow(input->config.window);
-    }
-    if (WindowIsNone(window)) {
-        window = FrontWindow(input);
-    }
-    if (WindowIsNone(window)) {
-        /* A screen-only shell with no window at all: there is no target this build can name, and saying so
-         * is more useful than inventing one. */
+    /*
+     * A point outside the *screen* is `RoboNotFound`: there is nothing this layer can name, and inventing a
+     * window for it would be the bug 13.70 exists to prevent. The hit is still reported, so a caller can see
+     * `inside == 0` rather than a bare refusal.
+     */
+    if (!hit.inside) {
         InputTargetInit(outTarget);
         if (outDocPoint) {
             *outDocPoint = point;
@@ -351,6 +546,33 @@ static Result ResolvePointInternal(DesktopInput *input,
             *outResolved = 0;
         }
         return RoboNotFound;
+    }
+
+    /*
+     * Inside the screen but over no window: the panel or the background. That is the shell's own surface, so
+     * the answer names the shell's native window when it has one and *no window* when it does not -- the
+     * front-most window is deliberately not substituted, because a click on the panel is not a click on
+     * whatever window happens to be on top.
+     */
+    window = hit.window;
+    if (WindowIsNone(window)) {
+        window = AsDesktopWindow(input->config.window);
+    }
+    if (WindowIsNone(window)) {
+        InputTargetInit(outTarget);
+        if (outDocPoint) {
+            *outDocPoint = point;
+        }
+        if (outHit) {
+            *outHit = hit;
+        }
+        if (outWindow) {
+            *outWindow = RoboDesktopWindowIdNone;
+        }
+        if (outResolved) {
+            *outResolved = 1;
+        }
+        return RoboOk;
     }
 
     (void)DesktopInputRouteForWindow(input, window, &route, NULL);
@@ -378,14 +600,16 @@ static Result ResolvePointInternal(DesktopInput *input,
 
             if (entry->content.tree) {
                 PaintHitTestResult result;
+                PaintHitTestStats paintStats;
                 PaintDiag paintDiag;
                 LayoutPoint layoutPoint;
 
                 layoutPoint.x = docPoint.x;
                 layoutPoint.y = docPoint.y;
                 PaintHitTestResultInit(&result);
+                PaintHitTestStatsInit(&paintStats);
                 PaintDiagReset(&paintDiag);
-                if (PaintHitTest(entry->content.tree, layoutPoint, &result, NULL, &paintDiag) ==
+                if (PaintHitTest(entry->content.tree, layoutPoint, &result, &paintStats, &paintDiag) ==
                         RoboOk &&
                     PaintHitTestResultIsHit(&result)) {
                     node = PaintHitTestResultNode(&result);
@@ -403,7 +627,7 @@ static Result ResolvePointInternal(DesktopInput *input,
                     }
                 }
             }
-            if (InputTargetSetDocument(outTarget, AsWindowId(window),
+                if (InputTargetSetDocument(outTarget, AsWindowId(window),
                                        &entry->content.documentNode, node, flags, targetSpace,
                                        &idiag) != RoboOk) {
                 /* A document target that cannot be formed is the window's, which is still an answer. */
@@ -590,8 +814,44 @@ void DesktopInputContentInit(DesktopInputContent *content)
 /* The shell's own listeners (13.66 / 13.67 / 13.74)                    */
 /* ------------------------------------------------------------------ */
 
+static void GestureCursorClear(DesktopInput *input);
+
 /**
- * A press: raise or close, and begin a window drag on a title bar.
+ * Declare a shape for the duration of a gesture, replacing any earlier gesture's.
+ *
+ * The one place the shell changes the cursor *directly*, and it goes through the model's own override table
+ * (13.43) rather than around it: the manager still decides, and a control's declaration for the same target
+ * still wins by being registered later. The previous gesture's override is removed **first** so a move that
+ * began before an earlier one ended cannot leave two live declarations for one target.
+ */
+static void GestureCursorDeclare(DesktopInput *input,
+                                 const InputTarget *target,
+                                 InputCursorType shape,
+                                 InputDiag *diag)
+{
+    GestureCursorClear(input);
+    if (!InputTargetIsValid(target)) {
+        return;
+    }
+    if (InputCursorManagerSetOverride(&input->cursors, target, shape, diag) == RoboOk) {
+        input->gestureCursor = *target;
+        input->gestureCursorLive = 1;
+    }
+}
+
+/** Remove the running gesture's cursor declaration, if it made one. */
+static void GestureCursorClear(DesktopInput *input)
+{
+    if (!input->gestureCursorLive) {
+        return;
+    }
+    (void)InputCursorManagerRemoveOverride(&input->cursors, &input->gestureCursor);
+    input->gestureCursorLive = 0;
+    InputTargetInit(&input->gestureCursor);
+}
+
+/**
+ * A press: raise or close, begin a window drag on a title bar, or anchor a resize on an edge.
  *
  * The shell's whole input behaviour before this phase, now one listener. Which *part* of the window was
  * pressed is asked of the shell's own geometry — a control re-deriving its own sub-region — rather than
@@ -607,6 +867,12 @@ static Result ShellOnPointerDown(void *userdata, const InputEvent *event, InputE
     (void)context;
     if (!input || !event) {
         return RoboInvalidArgument;
+    }
+    /* The listener store has no per-type mask, so a callback hears every event on its target; the shell's
+     * two listeners therefore state the type they answer, which is what keeps a press from also being read
+     * as a release (and ending the gesture it just began). */
+    if (event->type != RoboInputEventPointerDown) {
+        return RoboOk;
     }
     InputDiagReset(&idiag);
 
@@ -628,6 +894,32 @@ static Result ShellOnPointerDown(void *userdata, const InputEvent *event, InputE
         }
         return RoboOk;
     }
+
+    /*
+     * A resize edge or corner (13.67): raise, anchor the zone, and declare the cursor the gesture will keep.
+     * No drag session is begun -- a resize carries no payload and drops nothing, so a drag would be a gesture
+     * about the wrong thing -- and the *capture* is set by the drain, which is what makes every later move
+     * reach this window even when the pointer leaves the edge it started on.
+     */
+    if (DesktopAreaIsResize(hit.area)) {
+        GfxRect bounds;
+
+        if (DesktopWindowRaise(input->desktop, hit.window) == RoboOk) {
+            NoteSet(input, "resize");
+        }
+        input->resizeWindow = hit.window;
+        input->resizeArea = hit.area;
+        input->resizeGrabX = screen.x;
+        input->resizeGrabY = screen.y;
+        if (DesktopWindowBounds(input->desktop, hit.window, &bounds) == RoboOk) {
+            input->resizeStart = bounds;
+        } else {
+            input->resizeStart = MakeGfxRect(screen.x, screen.y, 0, 0);
+        }
+        GestureCursorDeclare(input, &event->target, CursorForResizeArea(hit.area), &idiag);
+        return RoboOk;
+    }
+
     if (hit.area == RoboDesktopAreaWindowTitle || hit.area == RoboDesktopAreaWindowContent) {
         if (DesktopWindowRaise(input->desktop, hit.window) == RoboOk) {
             NoteSet(input, "raise");
@@ -649,6 +941,13 @@ static Result ShellOnPointerDown(void *userdata, const InputEvent *event, InputE
                     input->dragGrabX = screen.x - bounds.x;
                     input->dragGrabY = screen.y - bounds.y;
                 }
+                input->stats.dragsBegan++;
+                /*
+                 * 13.75: the shape a *carry* shows, declared for the gesture and removed when it ends. The
+                 * default table never answers `grabbing`, because no target is being grabbed -- a gesture is,
+                 * and a gesture is exactly what an override is for.
+                 */
+                GestureCursorDeclare(input, &event->target, RoboInputCursorGrabbing, &idiag);
             }
         }
     }
@@ -666,8 +965,21 @@ static Result ShellOnPointerUp(void *userdata, const InputEvent *event, InputEve
     if (!input || !event) {
         return RoboInvalidArgument;
     }
+    if (event->type != RoboInputEventPointerUp && event->type != RoboInputEventPointerCancel) {
+        return RoboOk;
+    }
     InputDiagReset(&idiag);
     InputDragEventInit(&dragEvent);
+
+    /* A release ends whichever gesture is running, and both are ended here rather than by the frame's own
+     * bookkeeping -- a gesture that outlived its release would keep the pointer captured for good. */
+    if (!WindowIsNone(input->resizeWindow)) {
+        input->resizeWindow = RoboDesktopWindowIdNone;
+        input->resizeArea = RoboDesktopAreaNone;
+        NoteSet(input, "resize-end");
+    }
+    GestureCursorClear(input);
+
     if (!InputDragSessionIsActive(&input->session.drag)) {
         return RoboOk;
     }
@@ -680,6 +992,7 @@ static Result ShellOnPointerUp(void *userdata, const InputEvent *event, InputEve
     }
     (void)InputDragSessionReset(&input->session.drag);
     input->dragWindow = RoboDesktopWindowIdNone;
+    input->stats.dragsEnded++;
     return RoboOk;
 }
 
@@ -717,14 +1030,138 @@ static void ShellFollowDrag(DesktopInput *input, const InputEvent *event)
         (void)InputDragSessionMove(&input->session.drag, &over, RoboInputDragOperationMove, screen,
                                    RoboInputSpaceScreen, &dragEvent, &idiag);
     }
-    (void)DesktopWindowSetBounds(input->desktop, input->dragWindow, bounds, NULL);
+    if (DesktopWindowSetBounds(input->desktop, input->dragWindow, bounds, NULL) == RoboOk) {
+        input->stats.windowMoves++;
+    }
+}
+
+/**
+ * A move while a resize is running resizes the window the press anchored.
+ *
+ * The zone is the one the *press* named (`input->resizeArea`) rather than whatever the pointer is over now,
+ * and the frame is derived from `resizeStart`, which is the pair that makes the gesture stable: a resize that
+ * re-hit-tested on every move would jump to another edge the moment the pointer crossed one, and one that
+ * accumulated deltas would drift.
+ */
+static void ShellFollowResize(DesktopInput *input, const InputEvent *event)
+{
+    GfxPoint screen;
+    InputDiag idiag;
+    GfxRect bounds;
+
+    if (WindowIsNone(input->resizeWindow)) {
+        return;
+    }
+    InputDiagReset(&idiag);
+    screen = event->payload.pointer.position;
+    if (InputSpaceIsKnown(event->space) && event->space != RoboInputSpaceScreen) {
+        if (InputConvertPoint(screen, event->space, RoboInputSpaceScreen, NULL, &screen, &idiag) !=
+            RoboOk) {
+            return;
+        }
+    }
+    bounds = ResizeBounds(input, screen);
+    if (DesktopWindowSetBounds(input->desktop, input->resizeWindow, bounds, NULL) == RoboOk) {
+        input->stats.windowResizes++;
+        NoteSet(input, "resize");
+    }
 }
 
 /* ------------------------------------------------------------------ */
 /* The command targets the shell installs (13.73 / 13.74)               */
 /* ------------------------------------------------------------------ */
 
-/** The one text source the clipboard reads: the focused window's editor's selection. */
+/**
+ * One content slot's router entry: the focused editor first, the window's own application commands second.
+ *
+ * `RoboNotSupported` from both is exactly what "this window does not handle that command" means, so the walk
+ * continues to the shell's own clipboard target and then to nothing -- which is `RoboNotFound` upstream, a
+ * *counted* unclaimed command rather than an error. A slot whose content record has been cleared is not live
+ * and declines, which is why a window that has gone cannot stop a command that was never about it.
+ */
+static Result ContentCommandsExecute(void *userdata, const InputCommand *command, InputDiag *diag)
+{
+    DesktopInputContentEntry *entry = (DesktopInputContentEntry *)userdata;
+
+    if (!entry || !entry->live) {
+        return RoboNotSupported;
+    }
+    /*
+     * A window's contents answer the keyboard only while that window *has* the keyboard. Without this an editor
+     * in a background window would type the characters a key aimed at the focused one produced -- which is the
+     * one failure mode a window system must not have. `SetContent` pairs every slot with its system, so the
+     * check is a comparison rather than a second focus rule.
+     */
+    if (entry->owner) {
+        WindowId active = entry->owner->session.focus.activeWindow;
+
+        if (entry->owner->session.focus.hasFocus) {
+            active = entry->owner->session.focus.focused.window;
+        }
+        if (active != (WindowId)entry->content.window) {
+            return RoboNotSupported;
+        }
+    }
+    /*
+     * Copy, cut and paste belong to the **shell's** clipboard, not the editor's own: the editor's bridge does
+     * map them (a text engine's internal clipboard), but letting it claim them would shadow the system
+     * clipboard the shell installs one link further out. Declining them here is what makes `Ctrl+C` reach
+     * `ShellClipboardExecute`, which reads the editor's selection and writes the one clipboard the OS has.
+     */
+    if (command && (command->id == RoboInputCommandCopy || command->id == RoboInputCommandCut ||
+                    command->id == RoboInputCommandPaste)) {
+        return RoboNotSupported;
+    }
+    if (entry->editorLive) {
+        Result status = InputEditorTargetExecute(&entry->editor, command, diag);
+
+        if (status != RoboNotSupported) {
+            return status;
+        }
+    }
+    if (InputCommandTargetIsValid(&entry->content.commands)) {
+        return entry->content.commands.execute(entry->content.commands.userdata, command, diag);
+    }
+    return RoboNotSupported;
+}
+
+/**
+ * The editor a clipboard operation talks to: the **active** window's, resolved now rather than remembered.
+ *
+ * Resolved rather than stored, and that is the fix for a real lifetime bug rather than a preference: a
+ * remembered `InputEditorTarget *` survives the content record it points into, so a window whose contents
+ * were replaced -- or destroyed -- left the clipboard talking to a freed editor. The focused window answers
+ * first (a clipboard belongs to whatever has the keyboard), then the front-most window that has one, which
+ * is what "the active window" means before anything has been clicked.
+ */
+static InputEditorTarget *ActiveEditor(DesktopInput *input)
+{
+    uint32_t index;
+
+    if (input->session.focus.hasFocus) {
+        DesktopWindowId window = AsDesktopWindow(input->session.focus.focused.window);
+        DesktopInputContentEntry *entry = WindowIsNone(window) ? NULL : FindContentMutable(input, window);
+
+        if (entry && entry->editorLive) {
+            return &entry->editor;
+        }
+    }
+    for (index = input->desktop->windowCount; index > 0u; index--) {
+        const DesktopWindow *window = &input->desktop->windows[index - 1u];
+        DesktopInputContentEntry *entry;
+
+        if (!window->visible || window->state != RoboDesktopWindowOpen) {
+            continue;
+        }
+        entry = FindContentMutable(input, window->id);
+        if (entry && entry->editorLive) {
+            return &entry->editor;
+        }
+    }
+    return NULL;
+}
+
+/** The one text source the clipboard reads: the active window's editor's selection. */
 static Result ClipboardReadSelection(void *userdata, uint32_t start, uint32_t end, char *out,
                                      size_t capacity, size_t *outLength)
 {
@@ -799,6 +1236,7 @@ static Result ShellClipboardExecute(void *userdata, const InputCommand *command,
     DesktopInput *input = (DesktopInput *)userdata;
     InputClipboardTextSource source;
     InputClipboardResult result;
+    InputEditorTarget *editor;
     size_t length = 0u;
 
     if (!input || !command) {
@@ -808,8 +1246,9 @@ static Result ShellClipboardExecute(void *userdata, const InputCommand *command,
         command->id != RoboInputCommandPaste) {
         return RoboNotSupported;
     }
-    if (!input->clipboardEditor) {
-        /* No focused editor: a copy of nothing is nothing, and `NotSupported` lets the walk continue. */
+    editor = ActiveEditor(input);
+    if (!editor) {
+        /* No active editor: a copy of nothing is nothing, and `NotSupported` lets the walk continue. */
         return RoboNotSupported;
     }
 
@@ -818,18 +1257,21 @@ static Result ShellClipboardExecute(void *userdata, const InputCommand *command,
             return RoboNotSupported;
         }
         result = InputClipboardPaste(&input->clipboard, ClipboardInsertText, input);
-        return result == RoboInputClipboardCopied || result == RoboInputClipboardNothing
-                   ? RoboOk
-                   : RoboNotSupported;
+        if (result == RoboInputClipboardCopied || result == RoboInputClipboardNothing) {
+            input->stats.clipboardOps++;
+            return RoboOk;
+        }
+        return RoboNotSupported;
     }
 
-    source.userdata = input->clipboardEditor->editor;
+    source.userdata = editor->editor;
     source.readRange = ClipboardReadSelection;
     result = InputClipboardCopy(&source, 0u, 0xFFFFFFFFu, RoboInputApplicationIdNone,
                                 &input->clipboard, &length, diag);
     if (result == RoboInputClipboardNothing) {
-        return RoboOk; /* An empty selection: the clipboard keeps what it had. */
+        return RoboOk; /* An empty selection: the clipboard keeps what it had, and nothing was performed. */
     }
+    input->stats.clipboardOps++;
     if (result != RoboInputClipboardCopied) {
         return RoboNotSupported;
     }
@@ -841,7 +1283,7 @@ static Result ShellClipboardExecute(void *userdata, const InputCommand *command,
         if (InputCommandSet(&cut, RoboInputCommandCut, diag) != RoboOk) {
             return RoboInvalidArgument;
         }
-        return InputCommandApplyToEditor(&cut, input->clipboardEditor->editor, NULL, NULL, diag);
+        return InputCommandApplyToEditor(&cut, editor->editor, NULL, NULL, diag);
     }
     return RoboOk;
 }
@@ -970,10 +1412,15 @@ Result DesktopInputFocusMove(DesktopInput *input,
                              InputFocusTransition *out,
                              DesktopDiag *diag)
 {
-    InputFocusChain chain;
     InputFocusTransition transition;
     InputDiag idiag;
+    DesktopWindowId windows[RoboDesktopMaxWindows];
+    size_t count = 0u;
     size_t index;
+    int current = -1;
+    size_t next;
+    WindowId active;
+    InputTarget target;
     Result status;
 
     if (!input) {
@@ -985,36 +1432,67 @@ Result DesktopInputFocusMove(DesktopInput *input,
                                "the direction is not one this build walks");
     }
     InputDiagReset(&idiag);
-    InputFocusChainInit(&chain);
     InputFocusTransitionInit(&transition);
 
-    /* The chain is the shell's windows, back to front: the order `Tab` visits them. */
-    for (index = 0u; index < input->desktop->windowCount; index++) {
+    /*
+     * The shell's windows, back to front: the order `Tab` visits them. This is a *list of windows*, not the
+     * model's focus chain, and the difference is the whole reason this door exists: a chain target must belong
+     * to the manager's active window (it names a control *inside* one window), so walking a chain cannot
+     * express "the next window" -- the shell activates the window first and then asks it to take focus, which
+     * is exactly what a pointer press does.
+     */
+    for (index = 0u; index < input->desktop->windowCount && count < RoboDesktopMaxWindows; index++) {
         const DesktopWindow *window = &input->desktop->windows[index];
-        InputTarget target;
 
         if (!window->visible || window->state != RoboDesktopWindowOpen) {
             continue;
         }
-        InputTargetInit(&target);
-        if (InputTargetSetWindow(&target, AsWindowId(window->id), RoboInputSpaceScreen, &idiag) !=
-            RoboOk) {
-            continue;
-        }
-        (void)InputFocusChainAdd(&chain, &target, &idiag);
+        windows[count++] = window->id;
     }
-    if (chain.count == 0u) {
+    if (count == 0u) {
         return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboNotFound,
                                "no window of this shell can take focus");
     }
-    status = InputFocusChainFocus(&input->session.focus, &chain, direction, reason, &transition,
-                                  &idiag);
+    active = input->session.focus.hasFocus ? input->session.focus.focused.window
+                                           : input->session.focus.activeWindow;
+    for (index = 0u; index < count; index++) {
+        if ((WindowId)windows[index] == active) {
+            current = (int)index;
+            break;
+        }
+    }
+    switch (direction) {
+    case RoboInputFocusDirectionFirst:
+        next = 0u;
+        break;
+    case RoboInputFocusDirectionLast:
+        next = count - 1u;
+        break;
+    case RoboInputFocusDirectionPrevious:
+        next = (current < 0) ? count - 1u : ((current == 0) ? 0u : (size_t)(current - 1));
+        break;
+    default:
+        next = (current < 0) ? 0u
+                             : (((size_t)(current + 1) < count) ? (size_t)(current + 1) : count - 1u);
+        break;
+    }
+
+    if (AsDesktopWindow(active) != windows[next]) {
+        status = ActivateWindow(input, windows[next], NULL, diag);
+        if (status != RoboOk) {
+            return status;
+        }
+    }
+    InputTargetInit(&target);
+    status = InputTargetSetWindow(&target, AsWindowId(windows[next]), RoboInputSpaceScreen, &idiag);
+    if (status != RoboOk) {
+        return ShellDiag(diag, &idiag, status, "the window is not a target");
+    }
+    status = InputFocusRequest(&input->session.focus, &target, reason, &transition, &idiag);
     if (status != RoboOk) {
         return ShellDiag(diag, &idiag, status, "focus could not be moved");
     }
-    if (transition.hasFocused && transition.focused.window != RoboWindowIdNone) {
-        (void)DesktopWindowRaise(input->desktop, AsDesktopWindow(transition.focused.window));
-    }
+    (void)DesktopWindowRaise(input->desktop, windows[next]);
     if (out) {
         *out = transition;
     }
@@ -1092,8 +1570,9 @@ static void HandleKeyEvent(DesktopInput *input,
         if (InputShortcutManagerResolveEvent(&input->shortcuts, event, &shortcut, &idiag) == RoboOk) {
             step->shortcuts++;
             input->stats.shortcuts++;
-            if (InputCommandSet(&command, shortcut.command, &idiag) == RoboOk &&
-                DesktopInputRouteCommand(input, &command, NULL, diag) == RoboOk) {
+            /* Through the *command* door, not the router: a shell command (`Tab`'s navigation, a window
+             * action) is answered by this layer itself, while every other command walks the router. */
+            if (DesktopInputPerformCommand(input, shortcut.command, diag) == RoboOk) {
                 step->commands++;
                 step->lastCommand = shortcut.command;
                 return;
@@ -1255,9 +1734,28 @@ static Result DrainOne(DesktopInput *input,
     }
 
     if (positioned) {
-        if (ResolvePointInternal(input, event.payload.pointer.position, event.space, &target,
-                                 &docPoint, NULL, &window, &resolved, NULL) != RoboOk ||
-            !resolved) {
+        const InputTarget *capturedTarget =
+            InputPointerCaptureTarget(&input->session.captures, event.payload.pointer.pointer);
+        int captured = (capturedTarget && (event.type == RoboInputEventPointerMove ||
+                                           event.type == RoboInputEventPointerUp ||
+                                           event.type == RoboInputEventPointerCancel))
+                           ? 1
+                           : 0;
+
+        if (captured) {
+            /*
+             * A captured pointer is delivered to its holder whatever is under it, *including a position
+             * outside the screen* -- which is exactly what a window drag produces when the pointer leaves
+             * the desktop. That is what capture means; dropping such a move at the hit test would leave the
+             * gesture stuck, so no hit test runs for it.
+             */
+            target = *capturedTarget;
+            window = AsDesktopWindow(target.window);
+            docPoint = event.payload.pointer.position;
+            resolved = 1;
+        } else if (ResolvePointInternal(input, event.payload.pointer.position, event.space, &target,
+                                        &docPoint, NULL, &window, &resolved, NULL) != RoboOk ||
+                   !resolved) {
             step->dropped++;
             return RoboOk;
         }
@@ -1317,18 +1815,12 @@ static Result DrainOne(DesktopInput *input,
             }
         }
 
-        /* 13.43/13.75: the shape the hit test asks for. */
-        {
-            int changed = 0;
-
-            (void)InputCursorManagerUpdate(&input->cursors, &target, &changed);
-            if (changed) {
-                step->cursorChanges++;
-                input->stats.cursorChanges++;
-            }
-        }
-
-        /* 13.17: a captured pointer's moves and its release go to its holder, whatever is under it. */
+        /*
+         * 13.17: a captured pointer's moves and its release go to its holder, whatever is under it, and the
+         * **cursor** goes there too (13.75). Asking the holder first is what makes a hover shape a function
+         * of the capture rather than of what the pointer passed over: a window being dragged across a text
+         * field keeps its `grabbing` shape, because the pointer belongs to the drag.
+         */
         {
             const InputTarget *holder =
                 InputPointerCaptureTarget(&input->session.captures, event.payload.pointer.pointer);
@@ -1336,6 +1828,17 @@ static Result DrainOne(DesktopInput *input,
             if (holder &&
                 (event.type == RoboInputEventPointerMove || event.type == RoboInputEventPointerUp)) {
                 target = *holder;
+            }
+
+            /* 13.43/13.75: the shape the hit test asks for -- or the one the gesture declared. */
+            {
+                int changed = 0;
+
+                (void)InputCursorManagerUpdate(&input->cursors, &target, &changed);
+                if (changed) {
+                    step->cursorChanges++;
+                    input->stats.cursorChanges++;
+                }
             }
         }
         if (event.type == RoboInputEventPointerDown) {
@@ -1346,16 +1849,36 @@ static Result DrainOne(DesktopInput *input,
             (void)InputPointerCaptureRelease(&input->session.captures,
                                              event.payload.pointer.pointer, &target);
         }
-        /* 13.42/13.74: the drag follows the pointer and the window follows the drag. */
+        /*
+         * 13.42/13.74/13.67: the drag follows the pointer, the window follows the drag, and a resize
+         * follows the pointer. Both are driven from here rather than from a listener so the order is fixed:
+         * the model's own state (hover, capture, cursor) is already updated, and the *frame* the pointer is
+         * requesting is applied last -- the same order the frame loop reads them in.
+         */
         if (event.type == RoboInputEventPointerMove) {
             ShellFollowDrag(input, &event);
+            ShellFollowResize(input, &event);
         }
     } else {
         /* A key event is about whatever has focus — that is what focus means. */
-        if (input->session.focus.hasFocus) {
+        if (input->session.focus.hasFocus && FocusWindowIsLive(input)) {
             target = input->session.focus.focused;
             event.window = target.window;
         } else {
+            if (input->session.focus.hasFocus) {
+                /*
+                 * The focused window has gone and nobody told this layer (13.77.8's defensive half): a key
+                 * must not be routed at a window the shell no longer holds, so the focus is dropped and the
+                 * event falls through to the front window below. `DesktopInputForgetWindow` is the door a
+                 * caller uses when it knows; this is what makes forgetting a *courtesy* rather than a
+                 * requirement.
+                 */
+                InputFocusTransition dropped;
+
+                InputFocusTransitionInit(&dropped);
+                (void)InputFocusManagerClear(&input->session.focus, RoboInputFocusReasonProgrammatic,
+                                             &dropped, NULL);
+            }
             window = FrontWindow(input);
             if (WindowIsNone(window)) {
                 step->dropped++;
@@ -1381,13 +1904,73 @@ static Result DrainOne(DesktopInput *input,
         return RoboOk;
     }
 
-    status = InputDispatch(&input->dispatcher, &event, &path, &context, &idiag);
-    step->dispatched++;
-    step->listenerCalls += context.calls;
-    input->stats.dispatched++;
-    input->stats.listenerCalls += context.calls;
-    if (context.defaultPrevented) {
-        step->prevented++;
+    /*
+     * 13.48/13.77.12: one latency record per dispatched event, and only when the caller supplied a clock.
+     *
+     * The two stamps are the event's **own** timestamp (what the device said) and the caller's clock (when
+     * this loop saw it), which is exactly the pair `dispatchMs` is defined as the difference of -- so a
+     * caller whose clock is on a different epoch than their events gets a *refused* record counted in
+     * `outOfOrderTotal` rather than a plausible small number. That is the module's rule and this file keeps
+     * it instead of normalizing the two into agreement.
+     */
+    {
+        uint32_t latencySequence = 0u;
+
+        if (input->latencyLive &&
+            InputLatencyBegin(&input->latency, &event, event.timestampMs, NowMs(input),
+                              &latencySequence, &idiag) == RoboOk) {
+            step->traced++;
+            (void)InputLatencyMark(&input->latency, latencySequence, RoboInputLatencyDispatch,
+                                   NowMs(input), &idiag);
+        } else {
+            latencySequence = 0u;
+        }
+
+        status = InputDispatch(&input->dispatcher, &event, &path, &context, &idiag);
+        step->dispatched++;
+        step->listenerCalls += context.calls;
+        input->stats.dispatched++;
+        input->stats.listenerCalls += context.calls;
+        if (context.defaultPrevented) {
+            step->prevented++;
+        }
+
+        if (latencySequence != 0u) {
+            InputLatencyDurations durations;
+
+            MemSet(&durations, 0, sizeof(durations));
+            if (InputLatencyMark(&input->latency, latencySequence, RoboInputLatencyHandler,
+                                 NowMs(input), &idiag) == RoboOk &&
+                InputLatencyMeasure(&input->latency, latencySequence, &durations, &idiag) == RoboOk) {
+                if (durations.handlerMs > step->slowestHandlerMs) {
+                    step->slowestHandlerMs = durations.handlerMs;
+                }
+            }
+            /*
+             * `Present` is marked here rather than by a frame, and that is a *choice*: this layer does not
+             * own when a frame runs (13.77.6 keeps that the compositor's and the scene's), so the honest
+             * completion it can stamp is "the handler returned and this event's work is done". A build with a
+             * frame scheduler would move this mark out and the record's `frameMs` would stay the same
+             * number, which is why `handlerMs` and `frameMs` are stored separately.
+             */
+            (void)InputLatencyMark(&input->latency, latencySequence, RoboInputLatencyPresent,
+                                   NowMs(input), &idiag);
+        }
+    }
+
+    /*
+     * The shell's own listeners run inside the dispatch above and may have declared or removed a gesture
+     * cursor override (13.75). The manager decides the shape in *one* place, so it is asked again now that
+     * they have run; otherwise the shape a gesture installed would not be in force until the next move.
+     */
+    if (positioned) {
+        int cursorChanged = 0;
+
+        (void)InputCursorManagerUpdate(&input->cursors, &target, &cursorChanged);
+        if (cursorChanged) {
+            step->cursorChanges++;
+            input->stats.cursorChanges++;
+        }
     }
 
     /*
@@ -1529,11 +2112,26 @@ Result DesktopInputPump(DesktopInput *input,
 Result DesktopInputDrain(DesktopInput *input, DesktopInputStep *outStep, DesktopDiag *diag)
 {
     DesktopInputStep step;
+    /**
+     * Deltas, because these four are *lifetime* counters on the system and a step reports what it did.
+     * Reading the count and subtracting is what keeps one place the truth: a step field maintained by hand
+     * beside a lifetime counter is two numbers that can disagree.
+     */
+    uint64_t clipboardBefore;
+    uint64_t dragsBeganBefore;
+    uint64_t dragsEndedBefore;
+    uint64_t movesBefore;
+    uint64_t resizesBefore;
 
     if (!input) {
         return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument,
                                "a system is required");
     }
+    clipboardBefore = input->stats.clipboardOps;
+    dragsBeganBefore = input->stats.dragsBegan;
+    dragsEndedBefore = input->stats.dragsEnded;
+    movesBefore = input->stats.windowMoves;
+    resizesBefore = input->stats.windowResizes;
     DesktopInputStepInit(&step);
     if (input->config.enableCoalescing) {
         InputDiag idiag;
@@ -1554,6 +2152,11 @@ Result DesktopInputDrain(DesktopInput *input, DesktopInputStep *outStep, Desktop
         }
         (void)DrainOne(input, &event, &step, diag);
     }
+    step.clipboardOps = (uint32_t)(input->stats.clipboardOps - clipboardBefore);
+    step.dragsBegan = (uint32_t)(input->stats.dragsBegan - dragsBeganBefore);
+    step.dragsEnded = (uint32_t)(input->stats.dragsEnded - dragsEndedBefore);
+    step.windowMoves = (uint32_t)(input->stats.windowMoves - movesBefore);
+    step.windowResizes = (uint32_t)(input->stats.windowResizes - resizesBefore);
     if (outStep) {
         *outStep = step;
     }
@@ -1600,8 +2203,17 @@ Result GetDesktopInputStep(DesktopInput *input,
     step.unclaimed = drained.unclaimed;
     step.textInputs = drained.textInputs;
     step.clipboardOps = drained.clipboardOps;
-    step.dragsBegan = input->session.drag.drops + input->session.drag.cancels;
-    step.dragsEnded = input->session.drag.drops + input->session.drag.cancels;
+    step.dragsBegan = drained.dragsBegan;
+    step.dragsEnded = drained.dragsEnded;
+    step.windowMoves = drained.windowMoves;
+    step.windowResizes = drained.windowResizes;
+    step.pointerMoves = drained.pointerMoves;
+    step.documentClick = drained.documentClick;
+    step.documentClickNode = drained.documentClickNode;
+    step.documentClickX = drained.documentClickX;
+    step.documentClickY = drained.documentClickY;
+    step.traced = drained.traced;
+    step.slowestHandlerMs = drained.slowestHandlerMs;
     step.lastCommand = drained.lastCommand;
 
     input->stats.steps++;
@@ -1679,6 +2291,55 @@ static void InstallDefaults(DesktopInput *input)
         InputShortcutInit(&shortcut);
         if (InputShortcutSet(&shortcut, defaults[index].command, defaults[index].physical,
                              defaults[index].modifiers, RoboInputShortcutScopeWindow, &idiag) !=
+            RoboOk) {
+            continue;
+        }
+        (void)InputShortcutManagerAdd(&input->shortcuts, &shortcut, &idiag);
+    }
+
+    /*
+     * The **editing keys** (13.72), as a second table rather than a second mechanism: these are chords too --
+     * the model's own table resolves them, `HandleKeyEvent` consumes the key, and the command reaches the
+     * focused editor through the chain 13.36 built. That is what makes `Backspace` a command rather than a
+     * character, and what keeps a build from having to invent a key-to-command function beside the table the
+     * Ctrl chords already use.
+     *
+     * Every right-hand side is a *movement* or a *deletion* the editor names (`RoboInputTextBridge.h`), so a
+     * key that the editor refuses (`Up`/`Down` and the line movements need a layout, 12.22) answers
+     * `NotSupported` and the walk continues -- which is a *reported* absence rather than a silent horizontal
+     * approximation. None of these keys produces text in any shipped layout, so binding them cannot stop a
+     * character from being typed.
+     */
+    static const struct {
+        InputCommandId command;
+        PhysicalKey physical;
+        InputModifiers modifiers;
+    } editing[] = {
+        { RoboInputCommandDeleteBackward, RoboPhysicalKeyBackspace, 0u },
+        { RoboInputCommandDeleteForward, RoboPhysicalKeyDelete, 0u },
+        { RoboInputCommandMoveLeft, RoboPhysicalKeyArrowLeft, 0u },
+        { RoboInputCommandMoveRight, RoboPhysicalKeyArrowRight, 0u },
+        { RoboInputCommandMoveUp, RoboPhysicalKeyArrowUp, 0u },
+        { RoboInputCommandMoveDown, RoboPhysicalKeyArrowDown, 0u },
+        { RoboInputCommandMoveLineStart, RoboPhysicalKeyHome, 0u },
+        { RoboInputCommandMoveLineEnd, RoboPhysicalKeyEnd, 0u },
+        { RoboInputCommandMoveDocumentStart, RoboPhysicalKeyHome, RoboKeyModCtrl },
+        { RoboInputCommandMoveDocumentEnd, RoboPhysicalKeyEnd, RoboKeyModCtrl },
+        { RoboInputCommandSelectLeft, RoboPhysicalKeyArrowLeft, RoboKeyModShift },
+        { RoboInputCommandSelectRight, RoboPhysicalKeyArrowRight, RoboKeyModShift },
+        { RoboInputCommandCancel, RoboPhysicalKeyEscape, 0u },
+        { RoboInputCommandScrollPageUp, RoboPhysicalKeyPageUp, 0u },
+        { RoboInputCommandScrollPageDown, RoboPhysicalKeyPageDown, 0u }
+    };
+
+    for (index = 0u; index < sizeof(editing) / sizeof(editing[0]); index++) {
+        InputShortcut shortcut;
+        InputDiag idiag;
+
+        InputDiagReset(&idiag);
+        InputShortcutInit(&shortcut);
+        if (InputShortcutSet(&shortcut, editing[index].command, editing[index].physical,
+                             editing[index].modifiers, RoboInputShortcutScopeWindow, &idiag) !=
             RoboOk) {
             continue;
         }
@@ -1796,6 +2457,13 @@ Result DesktopInputCreate(Desktop *desktop,
     InputTextPipelineInit(&input->session.text);
     InputClipboardDataInit(&input->clipboard);
     InputBridgeOptionsInit(&input->bridge);
+    InputLatencyTraceInit(&input->latency);
+    /* A clock, or no measurement at all. There is no third state: an unsupplied clock measuring against a
+     * zero timebase would report every event as instantaneous. */
+    input->latencyLive = input->config.clockMs ? 1 : 0;
+    input->resizeWindow = RoboDesktopWindowIdNone;
+    input->resizeArea = RoboDesktopAreaNone;
+    InputTargetInit(&input->gestureCursor);
 
     input->provider.userdata = input;
     input->provider.listenersFor = ListenerProvider;
@@ -1921,23 +2589,31 @@ Result DesktopInputSetContent(DesktopInput *input,
         entry->editorLive = 0;
     }
     entry->content = *content;
+    entry->owner = input;
     entry->live = 1;
-
-    /* The editor goes on the chain **inside** any application target, so a focused text field wins a
-     * contested chord. The application target is pushed after the editor, which makes it the innermost. */
-    if (content->editor) {
-        if (InputEditorTargetInit(&entry->editor, content->editor, &idiag) == RoboOk) {
-            InputCommandTarget target;
-
-            if (InputEditorTargetAsCommandTarget(&entry->editor, &target, &idiag) == RoboOk) {
-                (void)InputCommandRouterPush(&input->router, &target, &idiag);
-                entry->editorLive = 1;
-                input->clipboardEditor = &entry->editor;
-            }
-        }
+    if (content->editor &&
+        InputEditorTargetInit(&entry->editor, content->editor, &idiag) == RoboOk) {
+        entry->editorLive = 1;
     }
-    if (InputCommandTargetIsValid(&content->commands)) {
-        (void)InputCommandRouterPush(&input->router, &content->commands, &idiag);
+
+    /*
+     * **One** router entry for this slot, pushed on first use and reused after that, whose `userdata` is the
+     * slot itself.
+     *
+     * The slot asks the editor first and the caller's application target second, which is the order the two
+     * questions have: a focused text field consumes `Ctrl+A` before the window does (13.36's own rule, and
+     * the router asks the *last* pushed target first, so pushing one entry that asks in this order is what
+     * keeps the priority readable instead of depending on how many times a window was re-registered).
+     */
+    if (!entry->pushed) {
+        InputCommandTarget target;
+
+        InputCommandTargetInit(&target);
+        target.userdata = entry;
+        target.execute = ContentCommandsExecute;
+        if (InputCommandRouterPush(&input->router, &target, &idiag) == RoboOk) {
+            entry->pushed = 1;
+        }
     }
     return RoboOk;
 }
@@ -1956,20 +2632,22 @@ Result DesktopInputClearContent(DesktopInput *input, DesktopWindowId window, Des
         return RoboDesktopDiag(diag, RoboDesktopDomainWindow, RoboNotFound,
                                "the window has no registered content");
     }
-    if (input->clipboardEditor == &entry->editor) {
-        input->clipboardEditor = NULL;
-    }
+    (void)index;
     if (entry->editorLive) {
         InputEditorTargetRelease(&entry->editor);
         entry->editorLive = 0;
     }
+    /*
+     * The slot goes dark rather than away: the router's copy of this entry is still on the chain, and a
+     * record that answered with a *destroyed* editor would be the dangling pointer this design exists to
+     * avoid. `ContentCommandsExecute` reads @ref DesktopInputContentEntry::live and declines while it is 0,
+     * so the walk continues past a window whose contents have gone instead of stopping on a failure.
+     */
     entry->live = 0;
-    for (index = 0u; index < RoboDesktopInputMaxContents; index++) {
-        if (input->contents[index].editorLive) {
-            input->clipboardEditor = &input->contents[index].editor;
-            break;
-        }
-    }
+    entry->content.editor = NULL;
+    InputCommandTargetInit(&entry->content.commands);
+    HtmlNodeHandleClear(&entry->content.documentNode);
+    entry->content.tree = NULL;
     return RoboOk;
 }
 
@@ -2153,7 +2831,15 @@ Result DesktopInputResetTransient(DesktopInput *input, InputSessionSweep *out, D
     InputSessionSweepInit(&sweep);
     (void)InputSessionResetTransient(&input->session, &sweep);
     InputCoalescerClear(&input->coalescer);
+    if (input->desktop) {
+        input->desktop->pointer.pressed = 0;
+    }
     input->dragWindow = RoboDesktopWindowIdNone;
+    /* A cancelled gesture ends here too: the pointer's capture is the session's and the two window gestures are
+     * this layer's, so the sweep has to be the one place *both* halves are forgotten. */
+    input->resizeWindow = RoboDesktopWindowIdNone;
+    input->resizeArea = RoboDesktopAreaNone;
+    GestureCursorClear(input);
     if (out) {
         *out = sweep;
     }
@@ -2180,6 +2866,83 @@ int DesktopInputIsDragging(const DesktopInput *input)
 InputDragPhase DesktopInputDragPhase(const DesktopInput *input)
 {
     return input ? input->session.drag.phase : RoboInputDragIdle;
+}
+
+int DesktopInputIsMovingWindow(const DesktopInput *input)
+{
+    return (input && !WindowIsNone(input->dragWindow) &&
+            InputDragSessionIsActive(&input->session.drag))
+               ? 1
+               : 0;
+}
+
+int DesktopInputIsResizingWindow(const DesktopInput *input)
+{
+    return (input && !WindowIsNone(input->resizeWindow)) ? 1 : 0;
+}
+
+DesktopArea DesktopInputResizeArea(const DesktopInput *input)
+{
+    return input ? input->resizeArea : RoboDesktopAreaNone;
+}
+
+DesktopWindowId DesktopInputGestureWindow(const DesktopInput *input)
+{
+    if (!input) {
+        return RoboDesktopWindowIdNone;
+    }
+    if (!WindowIsNone(input->resizeWindow)) {
+        return input->resizeWindow;
+    }
+    return input->dragWindow;
+}
+
+Result GetDesktopInputCapabilities(DesktopInputCapabilities *out)
+{
+    if (!out) {
+        return RoboInvalidArgument;
+    }
+    MemSet(out, 0, sizeof(*out));
+
+    /*
+     * Every seam 13.66--13.77 names, and each is a *door* rather than an aspiration: a flag is 1 exactly
+     * when a suite in `Tests/Desktop/SuiteRoboDesktopInput*.c` drives it end to end.
+     */
+    out->shellConsumption = 1;
+    out->windowManagement = 1;
+    out->windowMoving = 1;
+    out->windowResizing = 1;
+    out->documentDelivery = 1;
+    out->focusDelivery = 1;
+    out->pointerHitTesting = 1;
+    out->pointerCapture = 1;
+    out->coordinateSpaces = 1;
+    out->keyboardDelivery = 1;
+    out->textDelivery = 1;
+    out->shortcutRouting = 1;
+    out->commandRouting = 1;
+    out->clipboard = 1;
+    out->dragDrop = 1;
+    out->cursorManagement = 1;
+    out->eventLoop = 1;
+    out->inputCoalescing = 1;
+    out->inputLatency = 1;
+    out->lifecycleSweep = 1;
+    out->introspection = 1;
+
+    /* The three absences, named rather than implied -- the same discipline `RoboInputVersion.h` keeps one
+     * module down. Each is a structure this layer does not have, not a flag somebody forgot to set. */
+    out->windowSnapping = 0;    /* no tiling policy and no gesture (Phase 14.17) */
+    out->frameScheduling = 0;   /* the frame's *when* is the compositor's and the scene's (13.77.6) */
+    out->cursorImages = 0;      /* this layer names a shape; drawing one is the shell's */
+
+    out->defaultQueueCapacity = RoboDesktopInputDefaultQueueCapacity;
+    out->maxContents = RoboDesktopInputMaxContents;
+    out->maxListeners = RoboDesktopInputMaxListeners;
+    out->cursorShapes = RoboInputCursorTypeCount;
+    out->resizeZones = 8u;
+    out->version = RoboInputVersionString;
+    return RoboOk;
 }
 
 Result DesktopInputPerformCommand(DesktopInput *input, InputCommandId id, DesktopDiag *diag)
@@ -2318,6 +3081,191 @@ Result GetDesktopInputStats(const DesktopInput *input, DesktopInputStats *out)
     return RoboOk;
 }
 
+void DesktopInputForgetInit(DesktopInputForget *out)
+{
+    if (out) {
+        MemSet(out, 0, sizeof(*out));
+    }
+}
+
+Result DesktopInputForgetTarget(DesktopInput *input,
+                                const InputTarget *target,
+                                DesktopInputForget *out,
+                                DesktopDiag *diag)
+{
+    if (out) {
+        DesktopInputForgetInit(out);
+    }
+    if (!input || !target) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument,
+                               "a system and a target are required");
+    }
+    /*
+     * Both halves, because a listener store and a session are two tables that can each hold a destroyed
+     * target: the shell's own listeners are this layer's, and the focus and the captures are the model's.
+     */
+    if (out) {
+        out->listenersRemoved = DesktopInputRemoveListeners(input, target);
+        out->sessionTargetsReleased = InputSessionTargetReleased(&input->session, target);
+        out->focusReleased = InputFocusManagerReleaseTarget(&input->session.focus, target);
+    } else {
+        (void)DesktopInputRemoveListeners(input, target);
+        (void)InputSessionTargetReleased(&input->session, target);
+        (void)InputFocusManagerReleaseTarget(&input->session.focus, target);
+    }
+    return RoboOk;
+}
+
+Result DesktopInputForgetWindow(DesktopInput *input,
+                                DesktopWindowId window,
+                                DesktopInputForget *out,
+                                DesktopDiag *diag)
+{
+    InputSessionSweep sweep;
+    InputTarget target;
+    InputDiag idiag;
+    Result status;
+
+    if (out) {
+        DesktopInputForgetInit(out);
+    }
+    if (!input) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainShell, RoboInvalidArgument, "a system is required");
+    }
+    if (WindowIsNone(window)) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainWindow, RoboInvalidArgument,
+                               "a window is required");
+    }
+    InputDiagReset(&idiag);
+    InputSessionSweepInit(&sweep);
+
+    /* 1. The window's own target: what a listener was registered on and what a pointer captured. */
+    InputTargetInit(&target);
+    if (InputTargetSetWindow(&target, AsWindowId(window), RoboInputSpaceScreen, &idiag) == RoboOk) {
+        uint32_t listeners = DesktopInputRemoveListeners(input, &target);
+        uint32_t released = InputSessionTargetReleased(&input->session, &target);
+
+        if (out) {
+            out->listenersRemoved = listeners;
+            out->sessionTargetsReleased += released;
+        }
+    }
+
+    /* 2. A move or a resize anchored on it: a gesture cannot outlive the window it is changing. */
+    if (input->dragWindow == window) {
+        InputDragEvent dragEvent;
+
+        InputDragEventInit(&dragEvent);
+        if (InputDragSessionIsActive(&input->session.drag)) {
+            (void)InputDragSessionCancel(&input->session.drag, &dragEvent, &idiag);
+            input->stats.dragsEnded++;
+        }
+        (void)InputDragSessionReset(&input->session.drag);
+        input->dragWindow = RoboDesktopWindowIdNone;
+        if (out) {
+            out->dragCancelled = 1;
+        }
+    }
+    if (input->resizeWindow == window) {
+        input->resizeWindow = RoboDesktopWindowIdNone;
+        input->resizeArea = RoboDesktopAreaNone;
+    }
+    GestureCursorClear(input);
+
+    /* 3. The model's own window sweep: the captures held in it, its focus scope, the drag, the arena. */
+    status = InputSessionWindowDeactivated(&input->session, AsWindowId(window), &sweep);
+    if (status != RoboOk) {
+        return ShellDiag(diag, &idiag, status, "the window's session state could not be released");
+    }
+    if (out) {
+        out->capturesReleased = sweep.capturesReleased;
+        out->focusReleased += sweep.focusReleased;
+        out->keysReleased = sweep.keysReleased;
+        out->gesturesReset = sweep.gesturesReset;
+        if (sweep.dragCancelled) {
+            out->dragCancelled = 1;
+        }
+    }
+    {
+        int scopes = InputFocusManagerReleaseWindow(&input->session.focus, AsWindowId(window));
+
+        if (out && scopes > 0) {
+            out->focusReleased += (uint32_t)scopes;
+        }
+    }
+
+    /* 4. Its contents: a document tree about to be freed must not be reachable from here. */
+    if (FindContentMutable(input, window)) {
+        (void)DesktopInputClearContent(input, window, diag);
+        if (out) {
+            out->contentCleared = 1;
+        }
+    }
+    return RoboOk;
+}
+
+Result GetDesktopInputLatency(const DesktopInput *input, DesktopInputLatency *out)
+{
+    if (!input || !out) {
+        return RoboInvalidArgument;
+    }
+    MemSet(out, 0, sizeof(*out));
+    out->dispatchLastMs = input->latency.dispatchLastMs;
+    out->dispatchMaxMs = input->latency.dispatchMaxMs;
+    out->dispatchSumMs = input->latency.dispatchSumMs;
+    out->handlerLastMs = input->latency.handlerLastMs;
+    out->handlerMaxMs = input->latency.handlerMaxMs;
+    out->handlerSumMs = input->latency.handlerSumMs;
+    out->frameLastMs = input->latency.frameLastMs;
+    out->frameMaxMs = input->latency.frameMaxMs;
+    out->frameSumMs = input->latency.frameSumMs;
+    out->traced = input->latency.begunTotal;
+    out->completed = input->latency.completedTotal;
+    return RoboOk;
+}
+
+Result DesktopInputLatencyWrite(const DesktopInputLatency *latency,
+                                char *buffer,
+                                size_t capacity,
+                                size_t *outLength,
+                                DesktopDiag *diag)
+{
+    int written;
+
+    if (!latency || !buffer) {
+        return RoboDesktopDiag(diag, RoboDesktopDomainDump, RoboInvalidArgument,
+                               "a latency record and a buffer are required");
+    }
+    written = snprintf(buffer, capacity,
+                       "latency traced=%llu completed=%llu "
+                       "dispatch last=%llu max=%llu sum=%llu "
+                       "handler last=%llu max=%llu sum=%llu "
+                       "frame last=%llu max=%llu sum=%llu\n",
+                       (unsigned long long)latency->traced,
+                       (unsigned long long)latency->completed,
+                       (unsigned long long)latency->dispatchLastMs,
+                       (unsigned long long)latency->dispatchMaxMs,
+                       (unsigned long long)latency->dispatchSumMs,
+                       (unsigned long long)latency->handlerLastMs,
+                       (unsigned long long)latency->handlerMaxMs,
+                       (unsigned long long)latency->handlerSumMs,
+                       (unsigned long long)latency->frameLastMs,
+                       (unsigned long long)latency->frameMaxMs,
+                       (unsigned long long)latency->frameSumMs);
+    if (written < 0 || (size_t)written >= capacity) {
+        if (outLength) {
+            *outLength = 256u;
+        }
+        return RoboDesktopDiag(diag, RoboDesktopDomainDump, RoboNotSupported,
+                               "the latency line did not fit");
+    }
+    if (outLength) {
+        *outLength = (size_t)written;
+    }
+    return RoboOk;
+}
+
+
 int DesktopInputIsQuiescent(const DesktopInput *input)
 {
     if (!input) {
@@ -2327,6 +3275,11 @@ int DesktopInputIsQuiescent(const DesktopInput *input)
         return 0;
     }
     if (!InputCoalescerIsEmpty(&input->coalescer)) {
+        return 0;
+    }
+    /* A button held down is a transient thing even when the press resolved to no target: the pointer's own
+     * state is what `DesktopInputResetTransient` is for, so quiescence has to see it. */
+    if (input->desktop && input->desktop->pointer.pressed) {
         return 0;
     }
     if (InputDragSessionIsActive(&input->session.drag)) {
@@ -2412,13 +3365,20 @@ Result DesktopInputWrite(const DesktopInput *input,
     GetInputQueueStats(input->queue, &queueStats);
     written = snprintf(head, sizeof(head),
                        "desktop-input %s live=%u devices=%u listeners=%u queue=%u/%u dropped=%llu\n"
+                       "gesture moving=%d resizing=%d window=%llu zone=%s captured=%d drag=%s\n"
                        "input stats steps=%llu window=%llu translated=%llu dispatched=%llu "
                        "calls=%llu actions=%llu focus=%llu cursor=%llu shortcuts=%llu "
-                       "commands=%llu unclaimed=%llu text=%llu connects=%llu disconnects=%llu\n",
+                       "commands=%llu unclaimed=%llu text=%llu clipboard=%llu "
+                       "drags=%llu/%llu moves=%llu resizes=%llu connects=%llu disconnects=%llu\n",
                        RoboInputVersionString, input->live ? 1u : 0u,
                        (unsigned)InputSessionDeviceCount(&input->session),
                        (unsigned)DesktopInputListenerCount(input), (unsigned)queueStats.count,
                        (unsigned)queueStats.capacity, (unsigned long long)queueStats.dropped,
+                       DesktopInputIsMovingWindow(input), DesktopInputIsResizingWindow(input),
+                       (unsigned long long)DesktopInputGestureWindow(input),
+                       DesktopAreaName(input->resizeArea),
+                       InputPointerCaptureTarget(&input->session.captures, input->pointer) ? 1 : 0,
+                       InputDragPhaseName(input->session.drag.phase),
                        (unsigned long long)input->stats.steps,
                        (unsigned long long)input->stats.windowEvents,
                        (unsigned long long)input->stats.translated,
@@ -2431,6 +3391,11 @@ Result DesktopInputWrite(const DesktopInput *input,
                        (unsigned long long)input->stats.commands,
                        (unsigned long long)input->stats.unclaimed,
                        (unsigned long long)input->stats.textInputs,
+                       (unsigned long long)input->stats.clipboardOps,
+                       (unsigned long long)input->stats.dragsBegan,
+                       (unsigned long long)input->stats.dragsEnded,
+                       (unsigned long long)input->stats.windowMoves,
+                       (unsigned long long)input->stats.windowResizes,
                        (unsigned long long)input->stats.connects,
                        (unsigned long long)input->stats.disconnects);
     if (written < 0 || (size_t)written >= sizeof(head)) {
@@ -2479,6 +3444,22 @@ Result DesktopInputWrite(const DesktopInput *input,
             *outLength = RoboDesktopInputDumpMax;
         }
         return RoboNotSupported;
+    }
+    /* The measurement, last, so a reader looking for "how long did that take" finds it after the state. */
+    {
+        DesktopInputLatency latency;
+        char latencyLine[256];
+        size_t latencyLength = 0u;
+
+        if (GetDesktopInputLatency(input, &latency) == RoboOk &&
+            DesktopInputLatencyWrite(&latency, latencyLine, sizeof(latencyLine), &latencyLength,
+                                     diag) == RoboOk &&
+            Append(input, buffer, capacity, &used, latencyLine, diag) != RoboOk) {
+            if (outLength) {
+                *outLength = RoboDesktopInputDumpMax;
+            }
+            return RoboNotSupported;
+        }
     }
     if (outLength) {
         *outLength = used;

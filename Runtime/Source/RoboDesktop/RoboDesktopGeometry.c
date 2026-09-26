@@ -105,6 +105,24 @@ void DesktopWindowMetricsInit(DesktopWindowMetrics *metrics)
      */
     metrics->minWidth = 2 * metrics->border + 8;
     metrics->minHeight = 2 * metrics->border + metrics->titleHeight + 8;
+    /*
+     * Six pixels: wide enough that a hand finds the edge, and independent of `border` on purpose -- the frame
+     * is drawn one pixel thick and that is a *look*, while where a drag starts is a *target*.
+     */
+    metrics->resizeBand = 6;
+    /*
+     * A window has to keep a middle. The two bands and eight pixels of middle are what the resize zones need
+     * on each axis (four edges' worth, effectively: left+right+middle), so the *minimum* grows to hold them
+     * rather than the band shrinking to fit the old minimum -- which is the order that keeps a band a usable
+     * target at every size the style allows. A style with no band (`resizeBand == 0`) is unaffected, and so
+     * is a style wide enough to hold the band it declares.
+     */
+    if (metrics->minWidth < 2 * metrics->resizeBand + 8) {
+        metrics->minWidth = 2 * metrics->resizeBand + 8;
+    }
+    if (metrics->minHeight < 2 * metrics->resizeBand + 8) {
+        metrics->minHeight = 2 * metrics->resizeBand + 8;
+    }
 }
 
 int DesktopWindowMetricsIsValid(const DesktopWindowMetrics *metrics)
@@ -116,6 +134,18 @@ int DesktopWindowMetricsIsValid(const DesktopWindowMetrics *metrics)
         return 0;
     }
     if (metrics->closeSize < 0 || metrics->closeInset < 0) {
+        return 0;
+    }
+    /*
+     * A resize band that does not fit inside the smallest window this style draws would make a window that
+     * cannot be dragged by its title bar: the edge band would cover everything, and `minWidth`/`minHeight`
+     * are exactly the numbers that say so. Zero is allowed and means "this style does not resize".
+     */
+    if (metrics->resizeBand < 0) {
+        return 0;
+    }
+    if (metrics->resizeBand * 2 >= metrics->minWidth ||
+        metrics->resizeBand * 2 >= metrics->minHeight) {
         return 0;
     }
     if (metrics->minWidth <= 0 || metrics->minHeight <= 0) {
