@@ -427,6 +427,12 @@ $ProdSrcs = @(
     # registered -- `overflow` was 10.13's, this one is the paint stack's.
     (Join-Path $SourceDir "RoboCSS\RoboCSSOpacity.c"),
     (Join-Path $SourceDir "RoboCSS\RoboCSSComputedValue.c"),
+    # The custom-property substitution pass (18.1): the second half of CSS
+    # Variables, run at computed-value time over the computed custom properties.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSVariable.c"),
+    # The object model (18.2): the model rendered back to canonical text, and
+    # the mutable style declaration a caller can edit.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSOM.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -893,6 +899,13 @@ $SuiteSrcs = @(
     # and the whole pipeline rather than one family, so it sits last in the list
     # for the same reason it runs over everything the ones above it built.
     (Join-Path $TestsRoot "Css\SuiteRoboCssConformance.c"),
+    # The architecture suite (18.1) is the second one that spans the module:
+    # it is the contract for custom-property substitution, the half of CSS
+    # Variables 9.x named as a boundary and left unsubstituted.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssArchitecture.c"),
+    # The object-model suite (18.2): the contract for cssText and for the
+    # mutable style declaration, the half of CSS that edits rather than reads.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssCssom.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

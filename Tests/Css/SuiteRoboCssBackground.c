@@ -2217,12 +2217,14 @@ static void TestBackgroundShorthandReset(void)
 /**
  * A shorthand that cannot be distributed leaves a *report*, not a guess.
  *
- * `background: var(--layer)` is legal CSS whose component count is not known
- * until substitution — and substitution is a later stage's question — so the
- * author's text stays on the shorthand's own entry, no longhand is guessed at,
- * and the resolution counts itself as carrying an undistributed shorthand. A
- * consumer can therefore see that six parts are unanswerable instead of finding a
- * declaration and nothing underneath it.
+ * `background: var(--layer)` is legal CSS whose component count is not known at
+ * the inheritance stage, so the author's text stays on the shorthand's own entry,
+ * no longhand is guessed at, and the resolution counts itself as carrying an
+ * undistributed shorthand. The computed stage then does the one thing it can:
+ * since `--layer` is undefined and the reference wrote no fallback, the
+ * declaration is invalid at computed-value time and the shorthand takes its
+ * initial value — which is `unset` for a non-inherited property, and is a value a
+ * consumer can use rather than the reference it could not.
  */
 static void TestBackgroundShorthandUndistributed(void)
 {
@@ -2275,21 +2277,26 @@ static void TestBackgroundShorthandUndistributed(void)
     CssInheritedStyleDispose(&resolved);
     CssCascadeDispose(&cascade);
 
-    /* And the computed style says the same thing: the shorthand is carried and
-     * flagged, the six are the initial values. */
+    /* The computed style: the six longhands were never distributed, so they are
+     * absent, and the shorthand itself is invalid at computed-value time — the
+     * reference had no value and no fallback — so it follows `unset`, which for
+     * this non-inherited property is its initial value. `transparent` is not the
+     * reference, and it is deliberately not a reading of it: it is what the
+     * property is when the declaration produces nothing. */
     RoboCheckEqInt(CssComputedStyleCreate(&style, NULL), RoboOk);
     CssBackgroundComputeOf(&fixture, element, style);
     CssComputedIs(style, "background-image", "<absent>");
     CssComputedIs(style, "background-color", "<absent>");
     CssComputedIs(style, "background-position", "<absent>");
+    CssComputedIs(style, "background", "transparent");
+    CssComputedFlagsAre(style, "background", "declared+default");
     {
         const CssComputedValue *value =
             CssComputedStyleComputedByName(
                 style, CssSliceFromText("background"));
 
         RoboCheckEqInt(value->kind, (int)RoboCssComputedValuePreserved);
-        RoboCheckEqInt(value->unresolved, 1u);
-        CssComputedIs(style, "background", "var(--layer)");
+        RoboCheckEqInt(value->unresolved, 0u);
     }
 
     CssComputedStyleDestroy(style);

@@ -389,11 +389,13 @@ typedef enum CssDiagnosticDomain {
     /** Border properties and the five distributing shorthands (9.15). */
     RoboCssDomainBorder = 19,
     /** The overflow vocabulary: the closed set and its classifications (10.13). */
-    RoboCssDomainOverflow = 20
+    RoboCssDomainOverflow = 20,
+    /** The CSS object model: serialization and style-declaration editing (18.2). */
+    RoboCssDomainCssom = 21
 } CssDiagnosticDomain;
 
 /** Number of defined diagnostic domains. */
-#define RoboCssDomainCount 21u
+#define RoboCssDomainCount 22u
 
 /** Non-zero if @p domain is a defined diagnostic domain enumerator. */
 int CssDiagnosticDomainIsKnown(CssDiagnosticDomain domain);

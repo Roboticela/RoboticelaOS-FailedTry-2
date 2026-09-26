@@ -1240,10 +1240,12 @@ static void TestColorComputedCurrentColorRules(void)
 /**
  * A reference, a misspelling, and a custom property — three different answers.
  *
- * `color: var(--brand)` is legal CSS that this build cannot resolve yet, so it is
- * carried rather than rejected; `background-color: potato` is a misspelling and is
- * reported invalid; `--brand` itself is never *interpreted*, so a colour written
- * into a custom property stays the tokens it was written as.
+ * `color: var(--brand)` is a *reference*, and 18.1 substitutes it at
+ * computed-value time: with `--brand: #336699` in scope the colour resolves to
+ * that colour, and the fallback is what an undefined reference uses instead.
+ * `background-color: potato` is a misspelling and is reported invalid; `--brand`
+ * itself is never *interpreted* as a colour, so the custom property keeps the
+ * tokens it was written as even though a reference to it does not.
  */
 static void TestColorComputedReferenceAndInvalid(void)
 {
@@ -1262,13 +1264,13 @@ static void TestColorComputedReferenceAndInvalid(void)
 
     CssColorComputeOf(&fixture, div, style);
 
-    /* The reference is carried with its fallback intact, and is *not* a colour.
-     * Nothing substitutes `--brand`, which is the promise custom properties are
-     * held to. */
-    CssComputedIs(style, "color", "var(--brand, red)");
-    CssComputedFlagsAre(style, "color", "declared+unresolved");
+    /* The reference is substituted with the custom property's value, and the
+     * fallback is not consulted because `--brand` *is* defined. The result is a
+     * colour, not a carried reference. */
+    CssComputedIs(style, "color", "#336699");
+    CssComputedFlagsAre(style, "color", "declared");
     RoboCheckEqInt(CssColorComputedKind(style, "color"),
-                      RoboCssComputedValuePreserved);
+                      RoboCssComputedValueColor);
 
     /* The custom property keeps the tokens it was written as — a colour written
      * into one is not eagerly parsed into a colour. */

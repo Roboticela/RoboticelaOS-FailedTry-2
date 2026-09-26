@@ -105,8 +105,9 @@ this module consult). It is also the one family with **no initial value**: an un
 custom property is *invalid*, not `initial`, so one that neither the element nor
 the parent declared simply has no entry and stays that way however deep the tree
 goes. A custom property that neither the element nor the parent declared has no
-entry at all. `var()` substitution is not performed — the declaration's value is
-preserved as parsed.
+entry at all. This stage preserves the declaration's value as parsed; the
+substitution of a `var()` reference into the *consuming* declaration happens one
+stage later, at computed-value time (`docs/Variables.md`).
 
 ## The property registry (9.7)
 
@@ -206,8 +207,12 @@ invalidation boundary is the same sentence.
 * **No computed values.** `10px` is still `10px` and `red` is still `red`.
   Percentages, relative lengths, `calc()` and colour normalisation are the next
   stage's (`docs/ComputedValues.md`); the box model is later still.
-* **No `var()` substitution.** Custom properties cascade and inherit as values;
-  their contents are not substituted.
+* **No `var()` substitution *here*.** Custom properties cascade and inherit as
+  values; substitution is the computed stage's (18.1, `docs/Variables.md`), which
+  resolves a reference against the custom properties this stage settled. Doing it
+  here would be wrong in both directions: the custom properties are not all
+  resolved yet, and expansion of a shorthand must not depend on a value the
+  cascade has not finished.
 * **No `revert` semantics.** Carried and reported, not obeyed.
 * **No inheritance engine over a DOM.** The caller supplies the parent; this
   module never touches a document.

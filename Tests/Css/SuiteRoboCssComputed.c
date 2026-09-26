@@ -391,16 +391,20 @@ static void TestCssComputedUnresolvedAndInvalid(void)
                           style, CssSliceFromText("width"))->kind,
                       RoboCssComputedValuePreserved);
 
-    /* A custom property reference is preserved with its fallback intact. */
-    CssComputedIs(style, "background", "var(--bg, red)");
-    CssComputedFlagsAre(style, "background", "declared+unresolved");
+    /* A custom property reference is *substituted* at computed-value time: `--bg`
+     * is undefined here, so the fallback is what the declaration computes to, and
+     * the entry is no longer unresolved because nothing about it is waiting. */
+    CssComputedIs(style, "background", "red");
+    CssComputedFlagsAre(style, "background", "declared");
 
     /* A value that means nothing for its property is reported *invalid* rather
      * than dropped: the declaration was there and was wrong, and a consumer can
      * see that instead of finding the property silently absent. */
     CssComputedFlagsAre(style, "color", "declared+invalid");
     RoboCheckEqInt(CssComputedStyleHasInvalid(style), 1);
-    RoboCheckEqInt((int)CssComputedStyleIncompleteCount(style), 3);
+    /* Only the `calc()` and the invalid colour remain incomplete; the reference
+     * that used to be the third resolved to its fallback above. */
+    RoboCheckEqInt((int)CssComputedStyleIncompleteCount(style), 2);
     /* The invalid entry does not corrupt its neighbours: `display` is fine. */
     CssComputedIs(style, "display", "block");
     CssComputedFlagsAre(style, "display", "declared");

@@ -169,14 +169,16 @@ than clamped. The per-syntax rules, the named table and the six outcomes are
 
 ### A reference is settled before the colour parser is asked
 
-`color: var(--brand)` is legal CSS that this build cannot resolve yet, and the
-colour parser is the wrong authority for it: the value is not a colour *yet*.
-So `computed_compute_color` asks one question first — is this value a single
-unresolved function (`var`, `env`, `calc`, `min`, `max`, `clamp`)? — and if so it
-carries the tokens and flags them `unresolved`, exactly as every other value shape
-does. Nothing substitutes `--brand`, and nothing reads a custom property as a
-colour: a `--brand: #336699` keeps those five tokens until a colour-shaped property
-consumes them.
+A `var()` reference is settled **before** the value reaches this layer: the
+substitution pass (18.1, `docs/Variables.md`) replaces it with the referenced
+value, so by the time a colour is asked to make sense of `color: var(--brand)`
+the tokens it sees are `--brand`'s value and not the reference. What is left for
+this layer is the *reference it cannot substitute* — `env()`, `calc()`, `min()`,
+`max()`, `clamp()` — and for those `computed_compute_color` asks one question
+first: is this value a single unresolved function? If so it carries the tokens and
+flags them `unresolved`, exactly as every other value shape does. A custom
+property is never *interpreted* here either: a `--brand: #336699` keeps those five
+tokens, and only a reference to it becomes the colour they spell.
 
 `currentColor` is carried as a `COLOR` value with the `UNRESOLVED` bit set —
 *typed*, not preserved as tokens — and **9.9's computed style resolves it**. The
@@ -501,8 +503,11 @@ know when a DOM changed, and a module that does not own a DOM cannot know.
   than computed; they are 9.9's declared *extension point* and not its
   implementation, because a wrong colour is worse than a deferred one
   (`docs/Colors.md` §8).
-* **`var()` substitution.** A reference is carried as a reference. No custom
-  property is substituted anywhere.
+* **`var()` substitution.** Performed (18.1) in a pass *before* computation
+  (`docs/Variables.md`), not here: by the time a value shape is asked to make
+  sense of a declaration, its `var()` references have been replaced — or the
+  declaration was invalid at computed-value time and follows `unset`. The
+  references this layer still carries are `env()`, `calc()` and the maths family.
 * **Resolving a relative length.** `2em`, `50vh` and `1rem` are carried with their
   unit and their number. `CssUnitResolvePx` (9.10) answers *given a
   context*; this layer never supplies one, because computing a style has no font

@@ -402,6 +402,8 @@ const char *CssDiagnosticDomainName(CssDiagnosticDomain domain)
         return "border";
     case RoboCssDomainOverflow:
         return "overflow";
+    case RoboCssDomainCssom:
+        return "cssom";
     default:
         return "unknown";
     }

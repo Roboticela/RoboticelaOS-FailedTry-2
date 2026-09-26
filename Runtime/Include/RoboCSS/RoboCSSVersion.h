@@ -500,6 +500,83 @@
  * inside a parent at `0.5` fully opaque again, where CSS renders it at `0.5` -- the mistake
  * that produces the wrong picture rather than a missing one.
  *
+ * 0.19.0 is the eighteenth, and it is the first version added by **Phase 18**
+ * rather than by a 9.x or layout/paint phase: it is the second half of CSS
+ * Variables, and the phase is the CSS architecture's own completion. 9.x made a
+ * custom property a first-class declaration — stored as an opaque token
+ * sequence, ordered by the cascade and copied down by inheritance — and then
+ * stopped exactly where the specification splits: a `var()` reference was
+ * recognised, carried intact and flagged unresolved, and nothing ever
+ * substituted it. This version substitutes it, in one new module
+ * (`RoboCSSVariable.h`) run at computed-value time.
+ *
+ * Three properties of the pass are what make it this module's kind of code. It
+ * is a *pure function* of (the value, a computed style carrying the custom
+ * properties in scope) and reaches no DOM, no font and no box, because a
+ * reference resolves before the property's own shape looks at the value — which
+ * is why one pass serves `color: var(--brand)` and `width: var(--w)` alike. Its
+ * result is a *token sequence and not a token*: `--m: 10px 20px` makes a
+ * reference to it a two-component value, so collapsing it here would lose the
+ * shape the normaliser needs. And a reference that cannot be substituted —
+ * undefined with no fallback, or a cycle — is answered as CSS's *invalid at
+ * computed-value time*: the declaration does not take a value, and the property
+ * follows `unset`, which is the parent's computed value for an inherited
+ * property and its own initial value otherwise. A build that returned a failure
+ * code or an empty value instead would be choosing between dropping the
+ * declaration and inventing one for it, and neither is true.
+ *
+ * Cycles are bounded by a *depth* rather than made an error. A name already on
+ * the resolution stack answers not-found, so a cyclic pair takes the fallback if
+ * it wrote one and is `unset` otherwise, and the bound
+ * (`RoboCssVariableMaxDepth`) exists for the deep-but-acyclic chain, which must
+ * not be answered by a stack overflow. Nothing here caches: a custom property is
+ * read through the same computed-style lookup every other consumer uses, so a
+ * mutation cannot leave a substituted value behind.
+ *
+ * Two capabilities join the table — `customProperties` and
+ * `variableSubstitution` — and one boundary is stated rather than crossed: the
+ * inheritance pass expands a shorthand *before* this pass runs, so a shorthand
+ * whose component count a substitution would change (`margin: var(--m)`) keeps
+ * its own entry and takes `unset` rather than being distributed into four edges.
+ * Lifting that is a pass-order change in the phase that owns expansion, and it
+ * is named in `Architecture.md` rather than implied.
+ *
+ * 0.20.0 is the nineteenth, and it is the second version added by Phase 18: it
+ * is the **object model**, the half of CSS this module had never had. Every
+ * phase before it turned bytes into structure and *read* that structure; not
+ * one of them turned it back into text, and not one of them changed it. This
+ * version does both, in one new module (`RoboCSSOM.h`).
+ *
+ * Its first half is `cssText`: a canonical rendering of a component value, a
+ * selector list, a declaration, a rule, a rule list or a whole stylesheet. The
+ * rendering is deliberately not the specification's byte-exact serialization —
+ * no number canonicalisation, no colour normalisation — and it is deliberately
+ * *re-parseable*, because the property worth having is that the model survives
+ * a round trip through text, and a selector name that could be misread is
+ * escaped when it is written (`foo:bar` comes back as `.\3a bar`).
+ *
+ * Its second half is `CssStyleDeclaration`, CSSOM's `element.style`: a
+ * self-contained, mutable set of properties that can be parsed, read, edited,
+ * removed and rendered. It is a *second* declaration container rather than a
+ * mutable view of the first because a parsed declaration borrows from its
+ * source — that is what makes parsing cheap — while `setProperty` has to work
+ * after the source is gone, so each property copies its name's bytes, owns its
+ * value's bytes and re-parses the value over them. A property set twice keeps
+ * its first position and takes the new value; an empty value is a removal; a
+ * name compares ASCII case-insensitively and is stored as written.
+ *
+ * One more thing is true here and was not before: a rule can be *edited*. The
+ * sheet is a live object whose top-level rule list can be spliced, so
+ * `insertRule` and `deleteRule` exist — text in and a rule count out, with no
+ * re-parse of the rest of the sheet and no notification of a style context,
+ * which is stated as a boundary rather than implied. The CSSOM's document
+ * binding — `styleSheets`, `getComputedStyle`, a parent stylesheet chain — is
+ * deliberately absent, because it needs a DOM and the document layer is a peer
+ * of RoboCSS.
+ *
+ * One capability joins the table — `cssom` — and one diagnostic domain
+ * (`RoboCssDomainCssom`).
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -508,9 +585,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 18
+#define RoboCssVersionMinor 20
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.18.0"
+#define RoboCssVersionString "0.20.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

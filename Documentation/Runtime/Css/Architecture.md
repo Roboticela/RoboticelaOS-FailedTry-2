@@ -364,12 +364,60 @@ It is produced by `CssComputedValueCompute`, which is a function of **the
 value's shape and the value** — the shape coming from the registry's `computation`
 column — and never of a property *name*. That is what keeps it context-free:
 no containing block, no font metrics, no parent, no element. `PRESERVED` is a real
-computed value (a `calc()`, a `var()` reference, a custom property's opaque token
+computed value (a `calc()`, an `env()` reference, a custom property's opaque token
 sequence), `INVALID` is an *answer* the call reports successfully rather than an
 error, and `unresolved` is a flag no kind can express. The container it lands in is
 `CssComputedStyle` — the 9.1 container, unchanged in shape, with each
 entry now also carrying its name, its typed value and a provenance bitset.
 `docs/ComputedValues.md` has the full account.
+
+### Custom-property substitution (18.1)
+
+The one part of this model that is a *pass over a finished computed style* rather
+than a per-property normaliser is the substitution of `var()` references
+(`RoboCSSVariable.h`). A custom property was already first-class here — an opaque
+token sequence, ordered by the cascade and copied down by inheritance — and a
+reference was recognised and carried; 18.1 replaces it, after the per-property
+pass and before `currentColor` is settled, because a reference can *produce* a
+`currentColor`.
+
+It is a pure function of (the value, a computed style carrying the custom
+properties in scope): no DOM, no font, no box, no parent. A reference that cannot
+be substituted — undefined with no fallback, or a cycle, or a chain deeper than
+`RoboCssVariableMaxDepth` — is answered as CSS's *invalid at computed-value time*,
+so the declaration takes no value and the property follows `unset` (the parent's
+computed value if it inherits, its own initial value otherwise) rather than being
+marked `INVALID`, because the declaration was legal and the property still has a
+correct value. `docs/Variables.md` is the authority, including the one pass-order
+boundary this phase names: a shorthand whose component count a substitution would
+change is expanded before this pass runs and takes `unset` rather than being
+distributed.
+
+One model surface is added by it — `RoboCssComputedFlag` is unchanged, but
+`CssCapabilities` gains `customProperties` and `variableSubstitution` — and the
+module moves to `0.19.0`.
+
+### The object model (18.2)
+
+The one part of this architecture that *produces* structure rather than reading
+it is the object model (`RoboCSSOM.h`). Two halves, and neither existed before:
+`cssText` — a canonical, re-parseable rendering of a component value, a selector
+list, a declaration, a rule, a rule list or a whole stylesheet — and
+`CssStyleDeclaration`, a self-contained mutable set of properties that can be
+parsed, read, edited, removed and rendered (`element.style`'s shape).
+
+The rendering is deliberately *not* the specification's byte-exact serialization
+(no number canonicalisation, no colour normalisation); it is a spelling of the
+model that the parser reads back to the same model, which is the property the
+round-trip test asserts. The declaration is a *second* container rather than a
+mutable view of `CssDeclarationList` because a parsed declaration borrows from
+its source while `setProperty` must work after that source is gone — so each
+property copies its name and owns its value's bytes. A stylesheet's top-level
+rule list is also how `insertRule`/`deleteRule` edit a live sheet. The CSSOM's
+document binding — `styleSheets`, `getComputedStyle`, a parent-stylesheet chain,
+a live style context — is deliberately absent and named in `docs/Cssom.md` §4,
+because it needs a DOM. One capability joins the table (`cssom`), one diagnostic
+domain (`RoboCssDomainCssom`), and the module moves to `0.20.0`.
 
 ### Colour
 
@@ -787,11 +835,23 @@ problem is not masked by the first for the rest of the parse.
 
 ## 12. What the phases so far explicitly do not do
 
-Layout, painting, rendering, CSSOM, animations, transitions, external stylesheet
+Layout, painting, rendering, animations, transitions, external stylesheet
 fetching and networking — plus, within the cascade itself, evaluating at-rules and
 the animation and transition origins, and within colours the modern spaces (`hwb`,
 `lab`, `lch`, `oklab`, `oklch`, `color()`, `color-mix()`) and interpolation between
-colours.
+colours. **CSSOM is no longer on that list in the wholesale sense it was** — the
+model and its text rendering are 18.2's — but the CSSOM's *document* half (its
+`styleSheets` list, `getComputedStyle`, a parent-stylesheet chain, a live context
+on an edit) is still absent and is named in `docs/Cssom.md` §4.
+
+Phase 18 has begun to move items off that list, and the first is
+custom-property substitution (18.1, §5 and `docs/Variables.md`): the one half of
+CSS Variables that 9.x named as a boundary and left unsubstituted. It is
+deliberately the smallest Phase 18 change that completes an *existing* surface
+rather than opening a new one — the data model was already there, and what the
+phase adds is the pass that reads it. The second is the object model (18.2, §5
+and `docs/Cssom.md`): the text rendering and the mutable style declaration the
+architecture had always implied and never had.
 
 Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
 adds no production code at all, which is why it is the only entry in this list that

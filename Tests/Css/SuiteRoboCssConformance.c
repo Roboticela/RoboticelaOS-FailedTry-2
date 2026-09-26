@@ -1619,7 +1619,9 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"positioning", 1},         {"backgrounds", 1},
         {"borders", 1},             {"overflow", 1},
         {"inline_styles", 1},       {"default_styles", 0},
-        {"stylesheet_loading", 0}
+        {"stylesheet_loading", 0},
+        {"custom_properties", 1},   {"variable_substitution", 1},
+        {"cssom", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1650,7 +1652,7 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 18);
+    RoboCheckEqInt(RoboCssVersionMinor, 20);
 }
 
 void TestRegisterCssConformance(void);

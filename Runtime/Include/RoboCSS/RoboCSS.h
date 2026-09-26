@@ -273,6 +273,35 @@ typedef struct CssCapabilities {
     int defaultStyles;
     /** Loading stylesheets from anywhere: `@import`, files, URLs. */
     int stylesheetLoading;
+    /**
+     * Custom properties (18.1): a `--name` is stored as an opaque token
+     * sequence, cascaded like any declaration and inherited down the tree. The
+     * half 9.x already had, now stated as a capability of its own.
+     */
+    int customProperties;
+    /**
+     * `var()` substitution (18.1): a declaration carrying a reference is
+     * replaced with the referenced value — or its fallback, or `unset` when
+     * neither exists — before the value is computed.
+     *
+     * What it does not claim is a shorthand whose expansion needs the component
+     * count a substitution would change: that is expanded by the inheritance
+     * pass before this one runs, so such a shorthand keeps its own single entry
+     * (RoboCSSVariable.h, `docs/Architecture.md`).
+     */
+    int variableSubstitution;
+    /**
+     * The CSS object model (18.2): a model object rendered back to canonical
+     * text (`cssText`) and a mutable, self-contained style declaration
+     * (`element.style`'s shape) that can be parsed, read, edited and removed.
+     *
+     * What it does not claim is a document binding: there is no `styleSheets`
+     * list, no `getComputedStyle`, no live update of a style context when a
+     * rule is inserted, and no `CSSStyleRule.parentStyleSheet` chain. Those
+     * need a DOM, and the document layer is a peer of RoboCSS rather than a
+     * part of it.
+     */
+    int cssom;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

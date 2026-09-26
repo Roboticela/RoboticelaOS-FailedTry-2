@@ -264,13 +264,16 @@ could leave the bit meaning something different.
 
 ### `var()` in a colour position
 
-`color: var(--brand)` is legal CSS that this build cannot resolve yet, and the
-colour parser is the wrong authority for it: the value is not a colour *yet*. So
-the value layer settles it before asking the colour module — a single `var()`,
-`env()`, `calc()` and friends is carried with its tokens and flagged `UNRESOLVED`,
-exactly as it is for every other value shape. Nothing substitutes `--brand`, and
-nothing *reads* `--brand` as a colour: a custom property holding `#336699` keeps
-those five tokens, and only a colour-shaped property consumes them as a colour.
+`color: var(--brand)` is a *reference*, and the colour parser is the wrong
+authority for it: the value is not a colour *yet*. The substitution pass
+(18.1, `docs/Variables.md`) replaces it before this layer runs, so a colour
+parsed here is one whose `var()` references are already gone — it sees
+`--brand`'s value, not the reference to it. What the colour parser still carries
+rather than resolving is the reference it cannot substitute: a single `env()`,
+`calc()`, `min()`, `max()` or `clamp()` in a colour position is kept with its
+tokens and flagged `UNRESOLVED`, exactly as it is for every other value shape.
+And nothing *reads* `--brand` as a colour: a custom property holding `#336699`
+keeps those five tokens, and only a colour-shaped property consumes them.
 
 ## 6. Serialization
 

@@ -341,6 +341,22 @@ Result CssGetCapabilities(CssCapabilities *out)
      * claim is geometry — nothing draws a border, nothing measures one, and `none`
      * having a used width of zero is the phase-with-a-box's rule. */
     out->borders = 1;
+    /* Custom properties and `var()` (18.1): a `--name` is an opaque token
+     * sequence that cascades and inherits like any declaration (the half 9.x
+     * had), and a declaration carrying a `var()` reference is replaced with the
+     * referenced value before it is computed. What it does not claim is
+     * substitution *before* shorthand expansion: a shorthand whose component
+     * count a substitution would change is refused at expansion and takes
+     * `unset` at computed-value time, which is a named boundary rather than a
+     * half-read value. */
+    out->customProperties = 1;
+    out->variableSubstitution = 1;
+    /* The CSS object model (18.2): a model object rendered back to text, and a
+     * mutable style declaration that owns its bytes. What it deliberately does
+     * not claim is a document binding -- there is no `styleSheets`, no
+     * `getComputedStyle` and no live context update on an edit, because those
+     * need the DOM and the document layer is a peer of RoboCSS. */
+    out->cssom = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

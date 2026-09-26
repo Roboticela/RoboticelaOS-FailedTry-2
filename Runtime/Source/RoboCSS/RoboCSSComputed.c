@@ -12,6 +12,7 @@
 
 #include "RoboCSS/RoboCSSInherit.h"
 #include "RoboCSS/RoboCSSStyle.h"
+#include "RoboCSS/RoboCSSVariable.h"
 #include "RoboCSSInternal.h"
 #include "RoboMem/RoboMem.h"
 
@@ -688,6 +689,171 @@ static void ComputedResolveCurrentColors(CssComputedStyle *out,
  * the place both halves of "specified vs computed" live (RoboCSSComputed.h) and
  * a caller holding one should be able to see the other without re-resolving.
  */
+/* ------------------------------------------------------------------ */
+/* Custom-property substitution (18.1)                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Make @p entry follow `unset` — the answer to a `var()` reference nothing
+ * could substitute.
+ *
+ * CSS's rule: a declaration that is *invalid at computed-value time* takes no
+ * value; the property behaves as if `unset` had been written, which for an
+ * inherited property is the parent's computed value and for everything else is
+ * the property's initial value. This is deliberately not `INVALID`: the author's
+ * declaration was legal, it referenced something nothing supplied, and the
+ * property still has a correct value — just not the one the author named.
+ *
+ * A property the registry does not classify has no initial value to fall back
+ * on, so the entry keeps its preserved reference and stays flagged unresolved,
+ * which is the same honest answer 9.7 gives for a property it cannot default.
+ */
+static Result ComputedApplyUnset(const CssPropertyRegistry *registry,
+                                 const CssComputedStyle *parentComputed,
+                                 CssComputedEntry *entry,
+                                 CssDiag *diag)
+{
+    CssSlice name = CssSliceFromBytes((const uint8_t *)entry->name,
+                                      entry->nameLength);
+    const CssPropertyDefinition *definition =
+        CssPropertyRegistryFindSlice(registry, name);
+    uint32_t flags = entry->flags &
+        ~(uint32_t)(RoboCssComputedFlagInvalid | RoboCssComputedFlagUnresolved |
+                    RoboCssComputedFlagInherited | RoboCssComputedFlagDefault);
+
+    if (!definition) {
+        entry->flags = flags | RoboCssComputedFlagUnresolved;
+        return RoboOk;
+    }
+    if (CssPropertyDefinitionInherited(definition) && parentComputed) {
+        const CssComputedValue *inherited =
+            CssComputedStyleComputedByName(parentComputed, name);
+
+        if (inherited) {
+            CssComputedValue replacement = RoboCssCleared;
+            Result rc = CssComputedValueCopy(&replacement, inherited, diag);
+
+            if (rc != RoboOk) {
+                return rc;
+            }
+            flags |= RoboCssComputedFlagInherited;
+            flags |= (CssComputedStyleFlags(parentComputed, name) &
+                      RoboCssComputedFlagDefault);
+            CssComputedValueDispose(&entry->computed);
+            CssComputedValueMove(&replacement, &entry->computed, diag);
+            entry->flags = flags;
+            return RoboOk;
+        }
+    }
+    {
+        const CssValue *initial = CssPropertyDefinitionInitialValue(definition);
+        CssComputedValue replacement = RoboCssCleared;
+        Result rc;
+
+        if (!initial) {
+            entry->flags = flags | RoboCssComputedFlagUnresolved;
+            return RoboOk;
+        }
+        CssComputedValueInit(&replacement);
+        rc = CssComputedValueCompute(definition->computation, initial,
+                                     &replacement, diag);
+        if (rc != RoboOk) {
+            return rc;
+        }
+        flags |= RoboCssComputedFlagDefault;
+        if (replacement.kind == RoboCssComputedValueInvalid) {
+            flags |= RoboCssComputedFlagInvalid;
+        }
+        if (replacement.unresolved) {
+            flags |= RoboCssComputedFlagUnresolved;
+        }
+        CssComputedValueDispose(&entry->computed);
+        CssComputedValueMove(&replacement, &entry->computed, diag);
+        entry->flags = flags;
+        return RoboOk;
+    }
+}
+
+/**
+ * Substitute every `var()` reference left in @p out's entries.
+ *
+ * Runs *after* the per-property pass, and has to: a reference resolves against
+ * the element's own custom properties, and those are computed entries in @p out
+ * by the time this is called, whichever order they were declared in. Each entry
+ * whose specified value still carries a reference is re-computed from the
+ * substituted tree; an entry whose reference cannot be substituted is made to
+ * follow `unset`; an entry with no reference is untouched, so the common case
+ * costs one `CssValueHasVarReference` walk and nothing else.
+ */
+static Result ComputedSubstituteVariables(const CssPropertyRegistry *registry,
+                                          const CssComputedStyle *parentComputed,
+                                          CssComputedStyle *out,
+                                          CssDiag *diag)
+{
+    size_t index;
+
+    for (index = 0u; index < out->count; index++) {
+        CssComputedEntry *entry = &out->entries[index];
+        CssSlice name;
+        const CssPropertyDefinition *definition;
+        CssValue substituted = RoboCssCleared;
+        CssComputedValue computed = RoboCssCleared;
+        Result rc;
+
+        if ((entry->flags & RoboCssComputedFlagCustom) != 0u) {
+            continue;
+        }
+        if (!CssValueHasVarReference(&entry->value)) {
+            continue;
+        }
+        rc = CssVarSubstituteValue(&entry->value, out, &substituted, diag);
+        if (rc == RoboNotFound) {
+            rc = ComputedApplyUnset(registry, parentComputed, entry, diag);
+            CssValueDispose(&substituted);
+            if (rc != RoboOk) {
+                return rc;
+            }
+            continue;
+        }
+        if (rc != RoboOk) {
+            CssValueDispose(&substituted);
+            return rc;
+        }
+        name = CssSliceFromBytes((const uint8_t *)entry->name,
+                                 entry->nameLength);
+        definition = CssPropertyRegistryFindSlice(registry, name);
+        if (definition) {
+            rc = CssComputedValueCompute(definition->computation, &substituted,
+                                         &computed, diag);
+        } else {
+            rc = CssComputedValueCompute(RoboCssPropertyComputationPreserve,
+                                         &substituted, &computed, diag);
+        }
+        if (rc != RoboOk) {
+            CssValueDispose(&substituted);
+            CssComputedValueDispose(&computed);
+            return rc;
+        }
+        {
+            uint32_t flags = entry->flags &
+                ~(uint32_t)(RoboCssComputedFlagInvalid |
+                            RoboCssComputedFlagUnresolved);
+
+            if (computed.kind == RoboCssComputedValueInvalid) {
+                flags |= RoboCssComputedFlagInvalid;
+            }
+            if (computed.unresolved) {
+                flags |= RoboCssComputedFlagUnresolved;
+            }
+            CssComputedValueDispose(&entry->computed);
+            CssComputedValueMove(&computed, &entry->computed, diag);
+            entry->flags = flags;
+        }
+        CssValueDispose(&substituted);
+    }
+    return RoboOk;
+}
+
 Result CssStyleContextComputeResolvedStyle(
     const CssStyleContext *context,
     const CssInheritedStyle *resolved,
@@ -820,6 +986,23 @@ Result CssStyleContextComputeResolvedStyle(
         CssErrorSet(outError, RoboCssErrorKindOutOfMemory, rc, NULL,
                            "the computed style could not be built");
         return rc;
+    }
+    /* Custom-property references are substituted before `currentColor` is
+     * settled, because a `var()` can *produce* a `currentColor`: `color:
+     * var(--brand)` where `--brand: currentColor` must reach the resolution
+     * below as the contextual colour it is, not as a reference. */
+    {
+        Result substitution = ComputedSubstituteVariables(registry,
+                                                          parentComputed, out,
+                                                          diag);
+
+        if (substitution != RoboOk) {
+            CssComputedStyleClear(out);
+            CssErrorSet(outError, RoboCssErrorKindOutOfMemory, substitution,
+                               NULL,
+                               "the computed style could not be substituted");
+            return substitution;
+        }
     }
     /* Every value is computed, so the one thing a value cannot know about itself
      * can now be settled: `currentColor` is the element's `color`, and on `color`
