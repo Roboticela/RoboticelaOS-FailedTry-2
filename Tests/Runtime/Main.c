@@ -278,6 +278,7 @@ void TestRegisterCssConformance(void);
 void TestRegisterCssArchitecture(void);
 void TestRegisterCssCssom(void);
 void TestRegisterCssFlex(void);
+void TestRegisterCssGrid(void);
 void TestRegisterCssDomSelect(void);
 void TestRegisterLayout(void);
 void TestRegisterLayoutFormattingContext(void);
@@ -671,6 +672,7 @@ int main(int argc, char **argv)
     TestRegisterCssArchitecture();
     TestRegisterCssCssom();
     TestRegisterCssFlex();
+    TestRegisterCssGrid();
     TestRegisterCssDomSelect();
 
     TestRegisterLayout();

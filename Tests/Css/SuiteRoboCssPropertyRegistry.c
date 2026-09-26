@@ -128,13 +128,14 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 79);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 99);
     RoboCheckEqInt((int)inherited, 16);
-    /* 18.3's twelve flexbox rows are all non-inherited, which is why only this half of
-     * the count moved: a flex container's direction, a wrap rule, an alignment, a
-     * factor, a basis and an order are the box's own, and a child that inherited one
-     * would lay itself out by its parent's rule. */
-    RoboCheckEqInt((int)nonInherited, 63);
+    /* 18.3's twelve flexbox rows and 18.4's twenty grid rows are all non-inherited,
+     * which is why only this half of the count moved: a flex container's direction, a
+     * wrap rule, an alignment, a factor, a basis and an order are the box's own, and a
+     * grid container's flow, track template, line placements and gutters are too -- a
+     * child that inherited a template would place itself into its parent's grid. */
+    RoboCheckEqInt((int)nonInherited, 83);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -326,7 +327,31 @@ static void TestCssRegistryInitialValues(void)
         {"flex-shrink", "1"},
         {"flex-wrap", "nowrap"},
         {"justify-content", "normal"},
-        {"order", "0"}
+        {"order", "0"},
+        /* 18.4's grid family. Two of the twenty take a shape of the family -- the flow
+         * (`row`) and the gutters (`normal`, which is a keyword and not zero) -- and the
+         * rest are carried declarations, so their initial shape is the author's own
+         * tokens PRESERVED. */
+        {"column-gap", "normal"},
+        {"gap", "normal"},
+        {"grid", "none"},
+        {"grid-area", "auto"},
+        {"grid-auto-columns", "auto"},
+        {"grid-auto-flow", "row"},
+        {"grid-auto-rows", "auto"},
+        {"grid-column", "auto"},
+        {"grid-column-end", "auto"},
+        {"grid-column-gap", "normal"},
+        {"grid-column-start", "auto"},
+        {"grid-row", "auto"},
+        {"grid-row-end", "auto"},
+        {"grid-row-gap", "normal"},
+        {"grid-row-start", "auto"},
+        {"grid-template", "none"},
+        {"grid-template-areas", "none"},
+        {"grid-template-columns", "none"},
+        {"grid-template-rows", "none"},
+        {"row-gap", "normal"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

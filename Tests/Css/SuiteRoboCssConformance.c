@@ -184,7 +184,31 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"flex-shrink", "number", "1"},
     {"flex-wrap", "flex-wrap", "nowrap"},
     {"justify-content", "flex-align", "normal"},
-    {"order", "number", "0"}
+    {"order", "number", "0"},
+    /* Grid (18.4): one typed flow vocabulary, one gutter length family, and the
+     * track/placement properties carried as PRESERVED declarations -- the phase
+     * states that boundary rather than reading a track list. `grid-auto-flow`
+     * prints its two-word spellings with the one canonical space. */
+    {"column-gap", "keyword", "normal"},
+    {"gap", "preserved", "normal"},
+    {"grid", "preserved", "none"},
+    {"grid-area", "preserved", "auto"},
+    {"grid-auto-columns", "preserved", "auto"},
+    {"grid-auto-flow", "grid-auto-flow", "row"},
+    {"grid-auto-rows", "preserved", "auto"},
+    {"grid-column", "preserved", "auto"},
+    {"grid-column-end", "preserved", "auto"},
+    {"grid-column-gap", "keyword", "normal"},
+    {"grid-column-start", "preserved", "auto"},
+    {"grid-row", "preserved", "auto"},
+    {"grid-row-end", "preserved", "auto"},
+    {"grid-row-gap", "keyword", "normal"},
+    {"grid-row-start", "preserved", "auto"},
+    {"grid-template", "preserved", "none"},
+    {"grid-template-areas", "preserved", "none"},
+    {"grid-template-columns", "preserved", "none"},
+    {"grid-template-rows", "preserved", "none"},
+    {"row-gap", "keyword", "normal"}
 };
 
 /**
@@ -1638,7 +1662,8 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"inline_styles", 1},       {"default_styles", 0},
         {"stylesheet_loading", 0},
         {"custom_properties", 1},   {"variable_substitution", 1},
-        {"cssom", 1},               {"flexbox", 1}
+        {"cssom", 1},               {"flexbox", 1},
+        {"grid", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1669,7 +1694,7 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 21);
+    RoboCheckEqInt(RoboCssVersionMinor, 22);
 }
 
 void TestRegisterCssConformance(void);

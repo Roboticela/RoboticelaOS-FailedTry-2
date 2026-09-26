@@ -80,6 +80,7 @@
 #include "RoboCSS/RoboCSSBorder.h"
 #include "RoboCSS/RoboCSSColor.h"
 #include "RoboCSS/RoboCSSFlex.h"
+#include "RoboCSS/RoboCSSGrid.h"
 #include "RoboCSS/RoboCSSOverflow.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSDisplay.h"
@@ -208,11 +209,21 @@ typedef enum CssComputedValueKind {
      * property's: the initial `normal` and the value `space-between` are the same kind
      * of value whichever of the four declared them.
      */
-    RoboCssComputedValueFlexAlign = 18
+    RoboCssComputedValueFlexAlign = 18,
+    /**
+     * One of the closed `grid-auto-flow` vocabulary (18.4).
+     *
+     * A kind of its own rather than riding on FLEX_DIRECTION or on a keyword, for the
+     * reason every closed vocabulary has one: `grid-auto-flow` is what a layout pass
+     * dispatches on, so it is read as a value and never compared as a spelling — and
+     * its canonical text is two words for three of its four values, which a keyword
+     * kind would carry as the author's spacing rather than as the value.
+     */
+    RoboCssComputedValueGridAutoFlow = 19
 } CssComputedValueKind;
 
 /** Number of defined kinds. */
-#define RoboCssComputedValueKindCount 19u
+#define RoboCssComputedValueKindCount 20u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int CssComputedValueKindIsKnown(CssComputedValueKind kind);
@@ -354,6 +365,18 @@ typedef struct CssComputedValue {
      * *registry's* answer rather than this default — see @ref CssComputedValueFlexAlign.
      */
     CssFlexAlign flexAlign;
+    /**
+     * GRID_AUTO_FLOW: the flow (RoboCSSGrid.h); ROW otherwise.
+     *
+     * A typed enumerator rather than the keyword's text, for the reason @ref
+     * flexDirection is: `grid-auto-flow` is what a layout pass dispatches on, so it is
+     * read as a value. Meaningful only when @ref kind is GRID_AUTO_FLOW: a cleared
+     * record holds ROW, which is the property's *initial* value and therefore the
+     * safest thing a cleared record could hold — and still not something to read
+     * without the kind check, because "this element does not declare a flow" and "this
+     * element auto-places by row" are different answers.
+     */
+    CssGridAutoFlow gridAutoFlow;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -506,6 +529,11 @@ Result CssComputedValueMakeFlexAlign(CssComputedValue *value,
                                                    CssFlexAlign align,
                                                    CssDiag *diag);
 
+/** Make @p value a GRID_AUTO_FLOW holding @p flow. */
+Result CssComputedValueMakeGridAutoFlow(CssComputedValue *value,
+                                                     CssGridAutoFlow flow,
+                                                     CssDiag *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 Result CssComputedValueMakePreserved(CssComputedValue *value,
                                                      const CssValue *specified,
@@ -641,6 +669,15 @@ CssFlexWrap CssComputedValueFlexWrap(const CssComputedValue *value);
  * than here — see @ref CssComputedValueFlexAlign.
  */
 CssFlexAlign CssComputedValueFlexAlign(const CssComputedValue *value);
+
+/**
+ * The flow of a GRID_AUTO_FLOW value; `row` for any other kind.
+ *
+ * Read together with a kind check; `row` is both a real flow and the property's
+ * initial value, exactly as `row` is for @ref CssComputedValueFlexDirection.
+ */
+CssGridAutoFlow CssComputedValueGridAutoFlow(
+    const CssComputedValue *value);
 
 /**
  * Non-zero when @p a and @p b are the same computed value.

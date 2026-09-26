@@ -406,6 +406,8 @@ const char *CssDiagnosticDomainName(CssDiagnosticDomain domain)
         return "cssom";
     case RoboCssDomainFlex:
         return "flex";
+    case RoboCssDomainGrid:
+        return "grid";
     default:
         return "unknown";
     }

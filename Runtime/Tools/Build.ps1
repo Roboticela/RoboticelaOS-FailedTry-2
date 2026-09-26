@@ -437,6 +437,9 @@ $ProdSrcs = @(
     # sets and the classifications a layout pass dispatches on. It is the first
     # family whose values are three vocabularies rather than one.
     (Join-Path $SourceDir "RoboCSS\RoboCSSFlex.c"),
+    # The grid vocabulary (18.4): `grid-auto-flow` as a closed set whose values
+    # are two words, read from the component value rather than one identifier.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSGrid.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -913,6 +916,9 @@ $SuiteSrcs = @(
     # The flexbox suite (18.3): the three vocabularies, their classifications and
     # the four shapes the alignment set is read through.
     (Join-Path $TestsRoot "Css\SuiteRoboCssFlex.c"),
+    # The grid suite (18.4): the flow vocabulary and its two-word reader, plus the
+    # gutter length family and the carried declarations the rest of the family is.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssGrid.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

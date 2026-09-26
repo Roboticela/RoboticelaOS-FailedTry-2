@@ -611,6 +611,45 @@
  * because a value says what rule a layout pass follows rather than where the items
  * land.
  *
+ * 0.22.0 is the twenty-first, and it is the fourth version added by Phase 18: it
+ * is the **grid family** (`RoboCSSGrid.h`). Grid is not flexbox with different
+ * words — a grid container places its items into *tracks* it computes from a
+ * template, and a track list is a grammar of its own — so this phase is
+ * deliberately half a family: it types the properties whose values are simple
+ * enough to read today and *carries* the rest, and it says which is which rather
+ * than implying the whole family is here.
+ *
+ * What it types is two things. `grid-auto-flow` is a closed set of four
+ * spellings, and it is the first vocabulary here whose values are not one
+ * identifier: CSS writes it as `[ row | column ] || dense`, so `row dense`,
+ * `dense row` and `dense` are all the same value and a single-identifier table
+ * would either lose the density or invent a fourth row for a spelling that is not
+ * one. So its reader takes the component value, the way `background-position`
+ * reads its pair, and reports the flow as an *axis* and a *density* — the two
+ * columns of its row that a layout pass dispatches on. `row-gap` and
+ * `column-gap` are the other half, and they are not a shape at all: a gutter
+ * *is* a length, a percentage or the keyword `normal`, so they join the one
+ * length grammar `flex-basis` and the box edges already share, with `normal` as
+ * their own keyword. That `normal` is not zero is the fact worth stating — it is
+ * the user agent's ordinary gutter, and resolving it to `0px` would lay every
+ * authored grid out with no gaps.
+ *
+ * What it *carries* is every remaining grid property — the track templates
+ * (`grid-template-columns`, `grid-template-rows`, `grid-template-areas`,
+ * `grid-auto-columns`, `grid-auto-rows`), the line placements (`grid-row-start`
+ * and its seven relatives), and the shorthands `grid`, `grid-template`,
+ * `grid-row`, `grid-column`, `grid-area` and `gap` — registered as PRESERVED
+ * declarations with their initial values. A track list is a size, a `minmax()`, a
+ * repeat count, a line name and a `span`, and a line placement is a number, a
+ * `span` or a custom ident; that grammar is a phase of its own, and carrying the
+ * declarations keeps the cascade and the computed style correct until it lands.
+ * That is the same boundary `flex-flow` and `flex` are drawn at, and it is named
+ * in `Grid.md` rather than left to be discovered.
+ *
+ * One capability joins the table — `grid` — and one diagnostic domain
+ * (`RoboCssDomainGrid`). What the phase does *not* claim is grid layout: no track
+ * is measured, no item is placed and no line number is resolved.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -619,9 +658,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 21
+#define RoboCssVersionMinor 22
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.21.0"
+#define RoboCssVersionString "0.22.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

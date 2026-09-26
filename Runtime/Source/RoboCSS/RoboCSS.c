@@ -364,6 +364,13 @@ Result CssGetCapabilities(CssCapabilities *out)
      * measured and no free space is distributed, because a value says what rule a
      * layout pass follows and where the items land belongs to the phase with a box. */
     out->flexbox = 1;
+    /* The grid vocabulary (18.4): one closed set (`grid-auto-flow`) with its axis and
+     * density classifications, the gutters as a length family, and every other grid
+     * property registered as a carried declaration. What it does not claim is the track
+     * grammar -- a track list is a size, a `minmax()`, a repeat count and a line name,
+     * which is a phase of its own -- so those declarations are PRESERVED rather than
+     * read, and no track is measured or item placed here. */
+    out->grid = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

@@ -392,11 +392,33 @@ typedef enum CssPropertyComputation {
      * are what a negative order is for. There is no `auto` here — the initial value is
      * `0` — so an identifier is simply not this shape.
      */
-    RoboCssPropertyComputationOrder = 29
+    RoboCssPropertyComputationOrder = 29,
+    /**
+     * One of the closed `grid-auto-flow` vocabulary (18.4).
+     *
+     * The closed-vocabulary decision once more, and a shape of its own rather than a
+     * row in the shared table because its value is not one identifier: CSS writes it as
+     * `[ row | column ] || dense`, so three of the four spellings are two words and the
+     * reader has to look at the whole component value. That is `background-position`'s
+     * situation rather than `flex-direction`'s, which is why it reads like a pair and
+     * not like a keyword.
+     */
+    RoboCssPropertyComputationGridAutoFlow = 30,
+    /**
+     * A grid gutter: `normal`, or a length or a percentage (18.4) — `row-gap` and
+     * `column-gap`.
+     *
+     * A length family in the shared table rather than a shape of its own, because its
+     * value *is* a length: what is its own is the keyword `normal`, which is the
+     * parameter the length grammar already carries. That is what keeps `row-gap: 1in`
+     * and `margin-top: 1in` normalised by one body rather than two. Both longhands
+     * share this one shape.
+     */
+    RoboCssPropertyComputationGridGap = 31
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 30u
+#define RoboCssPropertyComputationCount 32u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

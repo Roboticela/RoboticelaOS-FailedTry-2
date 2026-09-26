@@ -318,6 +318,21 @@ typedef struct CssCapabilities {
      * `normal` are still values and not behaviours, exactly as `position: sticky` is.
      */
     int flexbox;
+    /**
+     * The grid vocabulary (18.4): `grid-auto-flow` as a closed set of four spellings
+     * with its axis and density classifications, the gutter properties `row-gap` /
+     * `column-gap` as a length family, and the remaining grid properties registered as
+     * carried declarations so a document's grid declarations survive to the phase that
+     * has a box.
+     *
+     * What it does not claim is the *track grammar*: `grid-template-columns`,
+     * `grid-template-rows`, `grid-area` and their relatives take track lists and line
+     * placements — a size, a `minmax()`, a repeat count, a line name, a `span` — whose
+     * grammar is a phase of its own, so those declarations are PRESERVED rather than
+     * read. Nor is grid *layout*: nothing here measures a track, places an item or
+     * resolves a line number.
+     */
+    int grid;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

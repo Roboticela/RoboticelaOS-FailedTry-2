@@ -467,6 +467,46 @@ is measured, no free space is distributed, and no main-axis position is computed
 One capability joins the table (`flexbox`), one diagnostic domain
 (`RoboCssDomainFlex`), and the module moves to `0.21.0`.
 
+### The grid vocabulary (18.4)
+
+The grid family (`RoboCSSGrid.h`) is deliberately half a family, and the split is
+the interesting part:
+
+```text
+grid-auto-flow        row | column | row dense | column dense
+  ├── column          auto-placement follows columns
+  └── dense           holes are backfilled
+row-gap / column-gap  normal | <length-percentage>  (the shared length grammar)
+gap, grid, grid-template, grid-row, grid-column, grid-area ...  carried
+```
+
+`grid-auto-flow` is the first closed vocabulary in this build whose values are not
+all one identifier: CSS writes it as `[ row | column ] || dense`, so `row dense`,
+`dense row` and `dense` are one value. A single-identifier table would either lose
+the density — the one thing density changes, since a dense container may place a
+later item *before* an earlier one — or invent a fifth row for `dense`. So the module
+reads the **component value** (`CssGridAutoFlowFromValue`), the way
+`background-position` reads its pair, classifies each component as an axis or a
+density, refuses a repeated half, and reports the value as the two facts a layout
+pass dispatches on (`IsColumn`, `IsDense`) — which is what the vocabulary's rows
+carry as columns.
+
+The gutters are not a shape of their own: a gutter *is* a length, so `row-gap` and
+`column-gap` join the one length grammar `flex-basis` and the box edges already
+share, with `normal` as their own keyword — and `normal` is *not* zero, so it is
+carried as the keyword it is rather than resolved to `0px`. Everything else in the
+family takes a **track list** (a size, a `minmax()`, a repeat count, a line name) or
+a **line placement** (a number, a `span`, a custom ident), and those are a phase of
+their own: the track templates, the placements and the shorthands `grid`,
+`grid-template`, `grid-row`, `grid-column`, `grid-area` and `gap` are registered as
+**carried declarations** with their real initial values, so the cascade and the
+computed style stay correct until the grammar lands. As in 18.3, no shorthand is
+expanded, and `docs/Grid.md` is the authority — including that no track is measured,
+no item is placed and no line number is resolved.
+
+One capability joins the table (`grid`), one diagnostic domain
+(`RoboCssDomainGrid`), and the module moves to `0.22.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type
@@ -906,7 +946,11 @@ and `docs/Cssom.md`): the text rendering and the mutable style declaration the
 architecture had always implied and never had. The third is the flexbox family
 (18.3, §5 and `docs/Flexbox.md`): three closed vocabularies and the four shapes the
 alignment set is read through — the values a layout phase will consume, added by the
-phase that owns them rather than by the layout phase that first needs them.
+phase that owns them rather than by the layout phase that first needs them. The
+fourth is the grid family (18.4, §5 and `docs/Grid.md`): the `grid-auto-flow` closed
+set — the first vocabulary here whose values are two words — and the gutter length
+family, with the track template and line placement properties registered as carried
+declarations until the track grammar is a phase of its own.
 
 Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
 adds no production code at all, which is why it is the only entry in this list that

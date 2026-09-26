@@ -207,6 +207,10 @@ const char *CssPropertyComputationName(
         return "flex-basis";
     case RoboCssPropertyComputationOrder:
         return "order";
+    case RoboCssPropertyComputationGridAutoFlow:
+        return "grid-auto-flow";
+    case RoboCssPropertyComputationGridGap:
+        return "grid-gap";
     default:
         return "unknown";
     }
@@ -888,7 +892,77 @@ static const RegistryStandardEntry registryStandardEntries[] = {
     { "justify-content", RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationJustifyContent, "normal", 0 },
     { "order",          RoboCssPropertyInheritanceNonInherited,
-      RoboCssPropertyComputationOrder,        "0",        0 }
+      RoboCssPropertyComputationOrder,        "0",        0 },
+
+    /*
+     * --- the grid family (18.4) ---
+     *
+     * Twenty rows, gathered here rather than scattered by alphabetisation, for the
+     * reason the flexbox block above is: the names fall across the table and a reader
+     * meeting one should be able to see the rest.
+     *
+     * Two of the rows are *typed* and eighteen are carried declarations, and the split
+     * is the honest one rather than a shortcut. `grid-auto-flow` is a closed set of four
+     * spellings, so it is read and classified like `flex-wrap`; `row-gap` and
+     * `column-gap` (and their legacy `grid-*-gap` aliases) are a length family, so they
+     * join the one length grammar every other length-shaped property uses. Everything
+     * else here takes a *track list* — a size, a `minmax()`, a repeat count, a line
+     * name, a `span` — and that grammar is a phase of its own; this build carries those
+     * declarations PRESERVED rather than pretending to read them, exactly as `flex-flow`
+     * and `flex` are carried. A PRESERVED row is not a placeholder: it is the author's
+     * declaration, structurally intact, with the registry supplying its inheritance and
+     * its initial value so the cascade and the computed style are still correct.
+     *
+     * None of the twenty inherits: a grid container's flow, its track template, its line
+     * placements and its gutters are the box's own, and a child that inherited a template
+     * would place itself into its parent's grid.
+     */
+    { "column-gap",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationGridGap,      "normal",   0 },
+    { "gap",            RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "normal",
+      RoboCssPropertyFlagShorthand },
+    { "grid",           RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "none",
+      RoboCssPropertyFlagShorthand },
+    { "grid-area",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",
+      RoboCssPropertyFlagShorthand },
+    { "grid-auto-columns", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",     0 },
+    { "grid-auto-flow", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationGridAutoFlow, "row",      0 },
+    { "grid-auto-rows", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",     0 },
+    { "grid-column",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",
+      RoboCssPropertyFlagShorthand },
+    { "grid-column-end", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",     0 },
+    { "grid-column-gap", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationGridGap,      "normal",   0 },
+    { "grid-column-start", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",     0 },
+    { "grid-row",       RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",
+      RoboCssPropertyFlagShorthand },
+    { "grid-row-end",   RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",     0 },
+    { "grid-row-gap",   RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationGridGap,      "normal",   0 },
+    { "grid-row-start", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "auto",     0 },
+    { "grid-template",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "none",
+      RoboCssPropertyFlagShorthand },
+    { "grid-template-areas", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "none",     0 },
+    { "grid-template-columns", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "none",     0 },
+    { "grid-template-rows", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "none",     0 },
+    { "row-gap",        RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationGridGap,      "normal",   0 }
 };
 
 Result CssPropertyRegistryCreateStandard(

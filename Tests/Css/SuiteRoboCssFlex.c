@@ -704,10 +704,10 @@ static void TestFlexCapabilities(void)
     RoboCheckEqInt(caps.defaultStyles, 0);
     RoboCheckEqInt(caps.stylesheetLoading, 0);
 
-    RoboCheckEqInt(RoboCssVersionMinor, 21);
-    RoboCheckStrEq(CssVersionString(), "0.21.0");
+    RoboCheckEqInt(RoboCssVersionMinor, 22);
+    RoboCheckStrEq(CssVersionString(), "0.22.0");
 
-    RoboCheckEqInt((int)RoboCssComputedValueKindCount, 19);
+    RoboCheckEqInt((int)RoboCssComputedValueKindCount, 20);
     RoboCheckStrEq(CssComputedValueKindName(RoboCssComputedValueFlexDirection),
                       "flex-direction");
     RoboCheckStrEq(CssComputedValueKindName(RoboCssComputedValueFlexWrap),

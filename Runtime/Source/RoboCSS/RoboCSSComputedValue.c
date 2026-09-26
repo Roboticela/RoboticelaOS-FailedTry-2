@@ -148,6 +148,12 @@ void CssComputedValueInit(CssComputedValue *value)
     value->flexDirection = RoboCssFlexDirectionRow;
     value->flexWrap = RoboCssFlexWrapNoWrap;
     value->flexAlign = RoboCssFlexAlignNormal;
+    /* The grid flow's initial is `row`, and written for the reason the three above are:
+     * each vocabulary's zero happens to be its property's initial, so a cleared record
+     * is right by accident of the enumerator order, and removing the accident costs a
+     * line. A grid container that laid its auto-items out by column because a row was
+     * inserted ahead of the default is the failure this prevents (RoboCSSGrid.h). */
+    value->gridAutoFlow = RoboCssGridAutoFlowRow;
     CssValueInit(&value->preserved);
 }
 
@@ -273,6 +279,8 @@ const char *CssComputedValueKindName(CssComputedValueKind kind)
         return "flex-wrap";
     case RoboCssComputedValueFlexAlign:
         return "flex-align";
+    case RoboCssComputedValueGridAutoFlow:
+        return "grid-auto-flow";
     default:
         return "unknown";
     }
@@ -496,6 +504,20 @@ Result CssComputedValueMakeFlexAlign(CssComputedValue *value,
     return RoboOk;
 }
 
+Result CssComputedValueMakeGridAutoFlow(CssComputedValue *value,
+                                                     CssGridAutoFlow flow,
+                                                     CssDiag *diag)
+{
+    if (!value || !CssGridAutoFlowIsKnown(flow)) {
+        return RoboCssDiag(diag, RoboCssDomainComputed, RoboInvalidArgument,
+                             "output is NULL or not a grid-auto-flow value");
+    }
+    CssComputedValueDispose(value);
+    value->kind = RoboCssComputedValueGridAutoFlow;
+    value->gridAutoFlow = flow;
+    return RoboOk;
+}
+
 Result CssComputedValueMakeBorderStyle(CssComputedValue *value,
                                                         CssBorderStyle style,
                                                         CssDiag *diag)
@@ -698,6 +720,14 @@ CssFlexAlign CssComputedValueFlexAlign(const CssComputedValue *value)
     return value->flexAlign;
 }
 
+CssGridAutoFlow CssComputedValueGridAutoFlow(const CssComputedValue *value)
+{
+    if (!value || value->kind != RoboCssComputedValueGridAutoFlow) {
+        return RoboCssGridAutoFlowRow;
+    }
+    return value->gridAutoFlow;
+}
+
 CssBackgroundPosition CssComputedValueBackgroundPosition(
     const CssComputedValue *value)
 {
@@ -875,6 +905,11 @@ int CssComputedValueEquals(const CssComputedValue *a,
         return a->flexWrap == b->flexWrap;
     case RoboCssComputedValueFlexAlign:
         return a->flexAlign == b->flexAlign;
+    case RoboCssComputedValueGridAutoFlow:
+        /* The enumerator, for the reason a display's and a position's are: `row dense`
+         * and `row` share an axis and are still two different flows, so a comparison on
+         * the axis classification would make them one. */
+        return a->gridAutoFlow == b->gridAutoFlow;
     case RoboCssComputedValueOpacity:
         /* The number, exactly -- and the exactness is the point rather than a
          * shortcut. Two opacities that differ by one part in a million are two
@@ -1150,6 +1185,14 @@ Result CssComputedValueWrite(const CssComputedValue *value,
         ok = CssFlexAlignWrite(value->flexAlign, buffer, capacity, &used,
                                         NULL) == RoboOk;
         break;
+    case RoboCssComputedValueGridAutoFlow:
+        /* The grid module's spelling, for the reason a display's and a flex direction's
+         * are the other modules': `row dense` prints with its space because that is what
+         * CSS writes, and this layer formats lengths, numbers and token trees rather
+         * than property vocabularies. */
+        ok = CssGridAutoFlowWrite(value->gridAutoFlow, buffer, capacity, &used,
+                                            NULL) == RoboOk;
+        break;
     case RoboCssComputedValueBackgroundPosition:
         /* The background module's spelling, and it is the *pair's* rather than the
          * declaration's: `center` prints `center center`, so two equal positions
@@ -1411,6 +1454,17 @@ static const char *const computedBoxFlexBasisKeywords[] = {
 };
 
 /**
+ * A grid gutter's one keyword (18.4): `normal`, or a length or a percentage.
+ *
+ * `normal` is not zero — for a grid container it is the user agent's ordinary gutter,
+ * which is a different statement from a gutter of no pixels — so it is carried as the
+ * keyword it is rather than resolved to a length, exactly as `medium` is for a border
+ * width. A gutter this build had turned into `0px` would make every grid container an
+ * author wrote lay out with no gaps at all.
+ */
+static const char *const computedBoxGridGapKeywords[] = { "normal" };
+
+/**
  * One length family: which shape it is, what it may be written as, and what to
  * say when an identifier is not in that vocabulary.
  *
@@ -1453,7 +1507,14 @@ static const ComputedLengthGrammar computedLengthGrammars[] = {
     { RoboCssPropertyComputationFlexBasis, computedBoxFlexBasisKeywords,
       sizeof(computedBoxFlexBasisKeywords) /
           sizeof(computedBoxFlexBasisKeywords[0]),
-      "not a length, a percentage, auto or content" }
+      "not a length, a percentage, auto or content" },
+    /* The grid gutters (18.4) join the same body for the same reason: a gutter's value
+     * *is* a length, a percentage or the keyword `normal`, so it is the one length
+     * grammar with its own keyword list rather than a shape of its own. */
+    { RoboCssPropertyComputationGridGap, computedBoxGridGapKeywords,
+      sizeof(computedBoxGridGapKeywords) /
+          sizeof(computedBoxGridGapKeywords[0]),
+      "not a length, a percentage or normal" }
 };
 
 /** The grammar for @p computation, or NULL when it is not a length family. */
@@ -2448,6 +2509,35 @@ static Result ComputedComputeFlexFactor(CssComputedValue *out,
  * `order`'s initial value is `0` — so an identifier is simply not this shape, which is
  * a different sentence from the one a number of the wrong kind gets.
  */
+/**
+ * Compute a `grid-auto-flow`: one or two keywords from a closed set (18.4).
+ *
+ * The reading lives in the grid module, because it is the one place that knows the
+ * value is two words and that `dense` alone is `row dense`; a second copy here is how
+ * `grid-auto-flow: row dense` and `grid-auto-flow: dense row` would come to disagree
+ * about what they are. What this layer decides is only the outcome: a classified flow is
+ * a typed value, a reference is carried with its tokens and the flag, and anything else
+ * is an INVALID answer rather than a failure code.
+ */
+static Result ComputedComputeGridAutoFlow(CssComputedValue *out,
+                                                     const CssValue *specified,
+                                                     CssDiag *diag)
+{
+    CssGridAutoFlow flow = RoboCssGridAutoFlowRow;
+
+    switch (CssGridAutoFlowFromValue(specified, &flow)) {
+    case RoboCssGridParseFlow:
+        return CssComputedValueMakeGridAutoFlow(out, flow, diag);
+    case RoboCssGridParseDeferred:
+        /* `var()`: legal CSS this build does not evaluate, carried with the flag so a
+         * consumer cannot read the tokens as a flow. */
+        return ComputedKeep(out, specified, 1, diag);
+    default:
+        return ComputedReject(out, RoboCssPropertyComputationGridAutoFlow,
+                               "not a grid-auto-flow value", diag);
+    }
+}
+
 static Result ComputedComputeOrder(CssComputedValue *out,
                                              const CssValue *specified,
                                              CssDiag *diag)
@@ -2531,6 +2621,8 @@ Result CssComputedValueCompute(
      * four keywords, so it is the same body with its own keyword list rather than a
      * shape of its own. */
     case RoboCssPropertyComputationFlexBasis:
+    /* And the grid gutters (18.4), which are the same body with the keyword `normal`. */
+    case RoboCssPropertyComputationGridGap:
         return ComputedComputeLengthGrammar(
             ComputedLengthGrammarFor(computation), out, specified, diag);
     /* The two closed vocabularies (9.12, 9.13) are also one case body for the
@@ -2598,6 +2690,14 @@ Result CssComputedValueCompute(
         return ComputedComputeFlexFactor(out, specified, diag);
     case RoboCssPropertyComputationOrder:
         return ComputedComputeOrder(out, specified, diag);
+    /*
+     * And the one typed shape grid adds (18.4): `grid-auto-flow`, which is like the
+     * vocabularies above in that it is a closed set but unlike them in that three of its
+     * four values are two words, so it reads its component value rather than one
+     * identifier.
+     */
+    case RoboCssPropertyComputationGridAutoFlow:
+        return ComputedComputeGridAutoFlow(out, specified, diag);
     default:
         return ComputedKeep(out, specified, ComputedFunctionIsUnresolved(
                                              CssValueSingle(specified)),
