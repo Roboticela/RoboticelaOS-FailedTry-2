@@ -686,22 +686,26 @@ HtmlNodeHandle HtmlDocumentRoot(
     return slot->root;
 }
 
-Result HtmlDocumentRegisterNode(
-    HtmlDocumentId documentId,
-    HtmlNodeKind kind,
-    HtmlNodeOrigin origin,
-    HtmlNodeHandle *outHandle,
-    HtmlDiag *diag)
+/*
+ * The one place a node identity is allocated. `allowFinalized` is the whole
+ * difference between the two doors below: the *parser*'s registration closes
+ * when a build finalizes the tree, while the DOM's `createElement` (Phase 17.1)
+ * must keep producing nodes for the whole life of a live document. Both still
+ * respect the lifecycle gate (a failed or destroyed document accepts nothing)
+ * and both emit the same registration event, so a consumer cannot tell which
+ * door allocated a node from anything but its origin.
+ */
+static Result RegisterNodeCore(HtmlDocumentSlot *slot,
+                               HtmlNodeKind kind,
+                               HtmlNodeOrigin origin,
+                               int allowFinalized,
+                               HtmlNodeHandle *outHandle,
+                               HtmlDiag *diag)
 {
-    HtmlDocumentSlot *slot = HtmlDocumentSlotFind(documentId);
     HtmlNodeEntry *e = NULL;
     HtmlNodeHandle h;
     size_t i;
 
-    if (!slot) {
-        return RoboHtmlDiag(diag, RoboHtmlDomainNode, RoboNotFound,
-                              "unknown document id");
-    }
     if (!HtmlNodeOriginIsKnown(origin)) {
         return RoboHtmlDiag(diag, RoboHtmlDomainNode,
                               RoboInvalidArgument, "unknown node origin");
@@ -714,7 +718,7 @@ Result HtmlDocumentRegisterNode(
         return RoboHtmlDiag(diag, RoboHtmlDomainNode, RoboError,
                               "lifecycle does not allow node registration");
     }
-    if (slot->finalized) {
+    if (!allowFinalized && slot->finalized) {
         return RoboHtmlDiag(diag, RoboHtmlDomainTree, RoboError,
                               "document tree is finalized");
     }
@@ -733,7 +737,7 @@ Result HtmlDocumentRegisterNode(
         return RoboHtmlDiag(diag, RoboHtmlDomainNode,
                               RoboOutOfMemory, "node registry exhausted");
     }
-    h.documentId = documentId;
+    h.documentId = slot->id;
     h.nodeId = slot->nodes.nextId++;
     h.generation = slot->nodes.nextGeneration;
     e->inUse = 1;
@@ -749,12 +753,44 @@ Result HtmlDocumentRegisterNode(
     {
         HtmlMutationEvent ev;
         ev.kind = RoboHtmlMutationNodeRegistered;
-        ev.documentId = documentId;
+        ev.documentId = slot->id;
         ev.node = h;
         ev.lifecycle = slot->lifecycle;
         HtmlEmitMutation(&ev, slot);
     }
     return RoboOk;
+}
+
+Result HtmlDocumentRegisterNode(
+    HtmlDocumentId documentId,
+    HtmlNodeKind kind,
+    HtmlNodeOrigin origin,
+    HtmlNodeHandle *outHandle,
+    HtmlDiag *diag)
+{
+    HtmlDocumentSlot *slot = HtmlDocumentSlotFind(documentId);
+
+    if (!slot) {
+        return RoboHtmlDiag(diag, RoboHtmlDomainNode, RoboNotFound,
+                              "unknown document id");
+    }
+    return RegisterNodeCore(slot, kind, origin, 0, outHandle, diag);
+}
+
+Result HtmlDocumentRegisterNodeLive(
+    HtmlDocumentId documentId,
+    HtmlNodeKind kind,
+    HtmlNodeOrigin origin,
+    HtmlNodeHandle *outHandle,
+    HtmlDiag *diag)
+{
+    HtmlDocumentSlot *slot = HtmlDocumentSlotFind(documentId);
+
+    if (!slot) {
+        return RoboHtmlDiag(diag, RoboHtmlDomainNode, RoboNotFound,
+                              "unknown document id");
+    }
+    return RegisterNodeCore(slot, kind, origin, 1, outHandle, diag);
 }
 
 Result HtmlDocumentDestroy(HtmlDocumentId documentId,

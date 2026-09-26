@@ -9,6 +9,7 @@
 #include "RoboHTML/RoboHTMLClient.h"
 #include "RoboHTML/RoboHTMLDocument.h"
 #include "RoboHTML/RoboHTMLDom.h"
+#include "RoboHTML/RoboHTMLDomQuery.h"
 #include "RoboHTML/RoboHTMLEncoding.h"
 #include "RoboHTML/RoboHTMLElement.h"
 #include "RoboHTML/RoboHTMLLifecycle.h"
@@ -137,7 +138,33 @@ typedef struct HtmlDocumentSlot {
     struct HtmlControlState *controls;
     size_t controlCount;
     size_t controlCapacity;
+
+    /**
+     * DOM selector matcher (Phase 17.1): the function that answers
+     * `querySelector`/`querySelectorAll` for this document, or NULL when none
+     * is installed. It lives by document rather than module-wide because the
+     * document is the only thing the query doors are given, and because it
+     * carries no subscription state a replacement would lose (unlike the
+     * mutation hook).
+     */
+    HtmlSelectorMatchFn selectorMatch;
+    void *selectorUserdata;
 } HtmlDocumentSlot;
+
+/**
+ * Register a node without consulting the finalize gate (Phase 17.1).
+ *
+ * `HtmlDocumentRegisterNode` closes when a build finalizes the tree; the DOM's
+ * `createElement` family must keep producing nodes for a live document, so it
+ * uses this door instead. The lifecycle gate still applies, so a failed or
+ * destroyed document accepts nothing.
+ */
+Result HtmlDocumentRegisterNodeLive(
+    HtmlDocumentId documentId,
+    HtmlNodeKind kind,
+    HtmlNodeOrigin origin,
+    HtmlNodeHandle *outHandle,
+    HtmlDiag *diag);
 
 /** One image resource attached to one node of one document. */
 typedef struct HtmlImageAttachment {

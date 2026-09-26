@@ -183,6 +183,8 @@ void TestRegisterHtmlImage(void);
 void TestRegisterHtmlAnchor(void);
 void TestRegisterHtmlForm(void);
 void TestRegisterHtmlDom(void);
+void TestRegisterHtmlDomQuery(void);
+void TestRegisterHtmlTable(void);
 void TestRegisterGraphicsDecode(void);
 void TestRegisterGraphicsScreenshot(void);
 void TestRegisterGraphicsPhase6(void);
@@ -576,6 +578,8 @@ int main(int argc, char **argv)
     TestRegisterDisplayScale();
     TestRegisterDisplayHost();
     TestRegisterHtml();
+    TestRegisterHtmlDomQuery();
+    TestRegisterHtmlTable();
     TestRegisterHtmlDocument();
     TestRegisterHtmlParser();
     TestRegisterHtmlHooks();
