@@ -128,9 +128,13 @@ static void TestCssRegistryStandardSet(void)
      *
      * A count is asserted rather than a lower bound so that a row added later is a
      * deliberate act rather than an accident. */
-    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 67);
+    RoboCheckEqInt((int)CssPropertyRegistryCount(registry), 79);
     RoboCheckEqInt((int)inherited, 16);
-    RoboCheckEqInt((int)nonInherited, 51);
+    /* 18.3's twelve flexbox rows are all non-inherited, which is why only this half of
+     * the count moved: a flex container's direction, a wrap rule, an alignment, a
+     * factor, a basis and an order are the box's own, and a child that inherited one
+     * would lay itself out by its parent's rule. */
+    RoboCheckEqInt((int)nonInherited, 63);
 
     CssPropertyRegistryDestroy(registry);
 }
@@ -305,7 +309,24 @@ static void TestCssRegistryInitialValues(void)
          * wrote anything" rather than "an author asked to clip". */
         {"overflow", "visible"},
         {"overflow-x", "visible"},
-        {"overflow-y", "visible"}
+        {"overflow-y", "visible"},
+        /* 18.3's flexbox family. Three of the initials are worth reading twice:
+         * `align-self` starts at `auto` rather than at the `normal` its three
+         * siblings start at, `flex-grow` starts at `0` while `flex-shrink` starts at
+         * `1`, and the two shorthands carry the concatenation of their halves as a
+         * PRESERVED token list -- the same shape `background` and `border` carry. */
+        {"align-content", "normal"},
+        {"align-items", "normal"},
+        {"align-self", "auto"},
+        {"flex", "0,_,1,_,auto"},
+        {"flex-basis", "auto"},
+        {"flex-direction", "row"},
+        {"flex-flow", "row,_,nowrap"},
+        {"flex-grow", "0"},
+        {"flex-shrink", "1"},
+        {"flex-wrap", "nowrap"},
+        {"justify-content", "normal"},
+        {"order", "0"}
     };
     CssPropertyRegistry *registry = NULL;
     size_t index;

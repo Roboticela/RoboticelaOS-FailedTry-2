@@ -577,6 +577,40 @@
  * One capability joins the table — `cssom` — and one diagnostic domain
  * (`RoboCssDomainCssom`).
  *
+ * 0.21.0 is the twentieth, and it is the third version added by Phase 18: it is
+ * the **flexbox family**, which is the first property family here whose values are
+ * three vocabularies rather than one. A flex container has a main axis
+ * (`flex-direction`), a wrapping rule (`flex-wrap`) and a way of placing its items
+ * and lines (`justify-content`, `align-items`, `align-self`, `align-content`), and
+ * the module is those three closed sets plus the four facts a layout pass reads to
+ * size the items (`flex-grow`, `flex-shrink`, `flex-basis`, `order`).
+ *
+ * The alignment set is the part worth reading, because it is the first vocabulary
+ * here shared by more than one property in a way that is not merely a shorthand and
+ * its longhands. CSS Box Alignment defines the four alignment properties as subsets
+ * of one list of values, so this build has *one* enumerator set and *four* value
+ * shapes; which values each property may hold is a column of the vocabulary's rows
+ * rather than a comparison at a call site, and that is what makes
+ * `align-items: space-between` an invalid value while `justify-content:
+ * space-between` is a value. It is the same move `display` made in 9.12 — a closed
+ * set whose classifications a consumer dispatches on — made once for four
+ * properties instead of one.
+ *
+ * Two smaller facts are decisions rather than transcriptions. The two shorthands
+ * `flex-flow` and `flex` are **carried declarations**, not vocabularies: each stands
+ * for two halves of *different kinds* (`<flex-direction> || <flex-wrap>`, and
+ * `none | <flex-grow> <flex-shrink>? || <flex-basis>`), so neither can take one
+ * closed set the way `overflow` took its own, and nothing in this build expands a
+ * shorthand. And `order` and `flex-grow`/`flex-shrink` are the two numeric shapes
+ * the family adds — a signed integer and a non-negative number — kept apart because
+ * their grammars differ and because the bound is on the factor and not the order.
+ *
+ * One capability joins the table — `flexbox` — and one diagnostic domain
+ * (`RoboCssDomainFlex`). What the phase does *not* claim is flex layout: no line is
+ * measured, no free space is distributed, and no main-axis position is computed,
+ * because a value says what rule a layout pass follows rather than where the items
+ * land.
+ *
  * The surface will keep growing for the whole of Phase 9, so API freeze is
  * NOT claimed here (RoboCssApiFrozen=0).
  */
@@ -585,9 +619,9 @@
 #define ROBO_CSS_VERSION_H
 
 #define RoboCssVersionMajor 0
-#define RoboCssVersionMinor 20
+#define RoboCssVersionMinor 21
 #define RoboCssVersionPatch 0
-#define RoboCssVersionString "0.20.0"
+#define RoboCssVersionString "0.21.0"
 
 /** 1 once the Phase 9 surface is frozen (not yet — see header comment). */
 #define RoboCssApiFrozen 0

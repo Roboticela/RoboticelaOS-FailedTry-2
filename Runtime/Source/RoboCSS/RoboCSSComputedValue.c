@@ -136,6 +136,18 @@ void CssComputedValueInit(CssComputedValue *value)
      * difference between those two answers is a blank page (RoboCSSOpacity.h).
      */
     value->opacity = CssOpacityInitial();
+    /*
+     * The three flexbox enumerators are written explicitly for the same reason the
+     * opacity above is, and the answer happens to be the same: each vocabulary's zero
+     * *is* its property's initial value (`row`, `nowrap`, `normal`), so a cleared record
+     * is correct by accident of the enumerator order. Writing them down costs three
+     * lines and removes the accident -- a later row inserted ahead of one of them would
+     * otherwise move the default silently, and the failure would be a container that
+     * laid its items out as a row or a wrap when nothing said so.
+     */
+    value->flexDirection = RoboCssFlexDirectionRow;
+    value->flexWrap = RoboCssFlexWrapNoWrap;
+    value->flexAlign = RoboCssFlexAlignNormal;
     CssValueInit(&value->preserved);
 }
 
@@ -255,6 +267,12 @@ const char *CssComputedValueKindName(CssComputedValueKind kind)
         return "overflow";
     case RoboCssComputedValueOpacity:
         return "opacity";
+    case RoboCssComputedValueFlexDirection:
+        return "flex-direction";
+    case RoboCssComputedValueFlexWrap:
+        return "flex-wrap";
+    case RoboCssComputedValueFlexAlign:
+        return "flex-align";
     default:
         return "unknown";
     }
@@ -436,6 +454,48 @@ Result CssComputedValueMakeOpacity(CssComputedValue *value,
     return RoboOk;
 }
 
+Result CssComputedValueMakeFlexDirection(CssComputedValue *value,
+                                                       CssFlexDirection direction,
+                                                       CssDiag *diag)
+{
+    if (!value || !CssFlexDirectionIsKnown(direction)) {
+        return RoboCssDiag(diag, RoboCssDomainComputed, RoboInvalidArgument,
+                             "output is NULL or not a flex-direction value");
+    }
+    CssComputedValueDispose(value);
+    value->kind = RoboCssComputedValueFlexDirection;
+    value->flexDirection = direction;
+    return RoboOk;
+}
+
+Result CssComputedValueMakeFlexWrap(CssComputedValue *value,
+                                                  CssFlexWrap wrap,
+                                                  CssDiag *diag)
+{
+    if (!value || !CssFlexWrapIsKnown(wrap)) {
+        return RoboCssDiag(diag, RoboCssDomainComputed, RoboInvalidArgument,
+                             "output is NULL or not a flex-wrap value");
+    }
+    CssComputedValueDispose(value);
+    value->kind = RoboCssComputedValueFlexWrap;
+    value->flexWrap = wrap;
+    return RoboOk;
+}
+
+Result CssComputedValueMakeFlexAlign(CssComputedValue *value,
+                                                   CssFlexAlign align,
+                                                   CssDiag *diag)
+{
+    if (!value || !CssFlexAlignIsKnown(align)) {
+        return RoboCssDiag(diag, RoboCssDomainComputed, RoboInvalidArgument,
+                             "output is NULL or not an alignment value");
+    }
+    CssComputedValueDispose(value);
+    value->kind = RoboCssComputedValueFlexAlign;
+    value->flexAlign = align;
+    return RoboOk;
+}
+
 Result CssComputedValueMakeBorderStyle(CssComputedValue *value,
                                                         CssBorderStyle style,
                                                         CssDiag *diag)
@@ -613,6 +673,31 @@ double CssComputedValueOpacity(const CssComputedValue *value)
     return value->opacity;
 }
 
+CssFlexDirection CssComputedValueFlexDirection(
+    const CssComputedValue *value)
+{
+    if (!value || value->kind != RoboCssComputedValueFlexDirection) {
+        return RoboCssFlexDirectionRow;
+    }
+    return value->flexDirection;
+}
+
+CssFlexWrap CssComputedValueFlexWrap(const CssComputedValue *value)
+{
+    if (!value || value->kind != RoboCssComputedValueFlexWrap) {
+        return RoboCssFlexWrapNoWrap;
+    }
+    return value->flexWrap;
+}
+
+CssFlexAlign CssComputedValueFlexAlign(const CssComputedValue *value)
+{
+    if (!value || value->kind != RoboCssComputedValueFlexAlign) {
+        return RoboCssFlexAlignNormal;
+    }
+    return value->flexAlign;
+}
+
 CssBackgroundPosition CssComputedValueBackgroundPosition(
     const CssComputedValue *value)
 {
@@ -781,6 +866,15 @@ int CssComputedValueEquals(const CssComputedValue *a,
          * `hidden` are two different answers about one axis, and a comparison on
          * "does this clip?" would make them one value. */
         return a->overflow == b->overflow;
+    case RoboCssComputedValueFlexDirection:
+        /* The enumerator, for the reason a display's and a position's are:
+         * `row-reverse` and `row` share the main axis and are still two different
+         * directions, so a comparison on the classification would make them one. */
+        return a->flexDirection == b->flexDirection;
+    case RoboCssComputedValueFlexWrap:
+        return a->flexWrap == b->flexWrap;
+    case RoboCssComputedValueFlexAlign:
+        return a->flexAlign == b->flexAlign;
     case RoboCssComputedValueOpacity:
         /* The number, exactly -- and the exactness is the point rather than a
          * shortcut. Two opacities that differ by one part in a million are two
@@ -1040,6 +1134,22 @@ Result CssComputedValueWrite(const CssComputedValue *value,
         ok = CssPositioningWrite(value->position, buffer, capacity, &used, NULL) ==
              RoboOk;
         break;
+    case RoboCssComputedValueFlexDirection:
+        /* The flex module's spelling, for the reason a display's, a position's and an
+         * overflow's are the other modules': `row-reverse` prints with its hyphen
+         * because that is what CSS writes, and this layer formats lengths, numbers and
+         * token trees rather than property vocabularies. */
+        ok = CssFlexDirectionWrite(value->flexDirection, buffer, capacity, &used,
+                                            NULL) == RoboOk;
+        break;
+    case RoboCssComputedValueFlexWrap:
+        ok = CssFlexWrapWrite(value->flexWrap, buffer, capacity, &used,
+                                       NULL) == RoboOk;
+        break;
+    case RoboCssComputedValueFlexAlign:
+        ok = CssFlexAlignWrite(value->flexAlign, buffer, capacity, &used,
+                                        NULL) == RoboOk;
+        break;
     case RoboCssComputedValueBackgroundPosition:
         /* The background module's spelling, and it is the *pair's* rather than the
          * declaration's: `center` prints `center center`, so two equal positions
@@ -1285,6 +1395,21 @@ static const char *const computedBoxLineWidthKeywords[] = {
     "thin", "medium", "thick"
 };
 
+/*
+ * `flex-basis`: `<length-percentage>`, or one of the four keywords its grammar
+ * allows.
+ *
+ * `content` is the one this list has and no other does: it means "the item's own
+ * content size", which is not a length and not `auto`, and reading it as a keyword is
+ * the whole of what this build can honestly say about it -- the size it stands for is
+ * a layout question. `min-content` and `max-content` are the intrinsic sizes and are
+ * likewise carried rather than resolved; `auto` is the property's initial value and
+ * means "the item's width/height", which is not zero and not a length.
+ */
+static const char *const computedBoxFlexBasisKeywords[] = {
+    "auto", "content", "min-content", "max-content"
+};
+
 /**
  * One length family: which shape it is, what it may be written as, and what to
  * say when an identifier is not in that vocabulary.
@@ -1319,7 +1444,16 @@ static const ComputedLengthGrammar computedLengthGrammars[] = {
     { RoboCssPropertyComputationLineWidth, computedBoxLineWidthKeywords,
       sizeof(computedBoxLineWidthKeywords) /
           sizeof(computedBoxLineWidthKeywords[0]),
-      "not a border width keyword" }
+      "not a border width keyword" },
+    /* The flex basis (18.3) is a length family like the four above rather than a shape
+     * of its own: its value *is* a length, a percentage or one of four keywords, so it
+     * belongs to the same body -- which is what keeps `flex-basis: 1in` and
+     * `width: 1in` from being normalised differently. What is its own is the keyword
+     * list, and that is exactly the parameter this table grew for. */
+    { RoboCssPropertyComputationFlexBasis, computedBoxFlexBasisKeywords,
+      sizeof(computedBoxFlexBasisKeywords) /
+          sizeof(computedBoxFlexBasisKeywords[0]),
+      "not a length, a percentage, auto or content" }
 };
 
 /** The grammar for @p computation, or NULL when it is not a length family. */
@@ -1607,6 +1741,76 @@ static Result ComputedVocabularyBorderStyleMake(CssComputedValue *out,
         out, CssBorderStyleFromSlice(keyword), diag);
 }
 
+static int ComputedVocabularyFlexDirectionKnown(CssSlice keyword)
+{
+    return CssFlexDirectionSliceIsKnown(keyword);
+}
+
+static Result ComputedVocabularyFlexDirectionMake(CssComputedValue *out,
+                                                              CssSlice keyword,
+                                                              CssDiag *diag)
+{
+    return CssComputedValueMakeFlexDirection(
+        out, CssFlexDirectionFromSlice(keyword), diag);
+}
+
+static int ComputedVocabularyFlexWrapKnown(CssSlice keyword)
+{
+    return CssFlexWrapSliceIsKnown(keyword);
+}
+
+static Result ComputedVocabularyFlexWrapMake(CssComputedValue *out,
+                                                         CssSlice keyword,
+                                                         CssDiag *diag)
+{
+    return CssComputedValueMakeFlexWrap(
+        out, CssFlexWrapFromSlice(keyword), diag);
+}
+
+/*
+ * The four alignment properties share one vocabulary and one constructor; only the
+ * *predicate* differs, because only the predicate knows which of the four is being
+ * asked. `space-between` is a value for `justify-content` and not for `align-items`,
+ * and that difference has to be a refusal here — the shape is the last place that
+ * knows the property, and a value the property cannot take is a mistake rather than a
+ * typed value a later reader would have to second-guess.
+ */
+static int ComputedVocabularyAlignJustifyKnown(CssSlice keyword)
+{
+    return CssFlexAlignSliceIsKnown(keyword) &&
+           CssFlexAlignAllowedFor(CssFlexAlignFromSlice(keyword),
+                                  RoboCssFlexAlignRoleJustify);
+}
+
+static int ComputedVocabularyAlignItemsKnown(CssSlice keyword)
+{
+    return CssFlexAlignSliceIsKnown(keyword) &&
+           CssFlexAlignAllowedFor(CssFlexAlignFromSlice(keyword),
+                                  RoboCssFlexAlignRoleItems);
+}
+
+static int ComputedVocabularyAlignSelfKnown(CssSlice keyword)
+{
+    return CssFlexAlignSliceIsKnown(keyword) &&
+           CssFlexAlignAllowedFor(CssFlexAlignFromSlice(keyword),
+                                  RoboCssFlexAlignRoleSelf);
+}
+
+static int ComputedVocabularyAlignContentKnown(CssSlice keyword)
+{
+    return CssFlexAlignSliceIsKnown(keyword) &&
+           CssFlexAlignAllowedFor(CssFlexAlignFromSlice(keyword),
+                                  RoboCssFlexAlignRoleContent);
+}
+
+static Result ComputedVocabularyFlexAlignMake(CssComputedValue *out,
+                                                          CssSlice keyword,
+                                                          CssDiag *diag)
+{
+    return CssComputedValueMakeFlexAlign(
+        out, CssFlexAlignFromSlice(keyword), diag);
+}
+
 /**
  * A closed vocabulary whose value *is* its keyword, carried as one.
  *
@@ -1645,7 +1849,29 @@ static const ComputedVocabularyGrammar computedVocabularyGrammars[] = {
       "not a border style value" },
     { RoboCssPropertyComputationOverflow, ComputedVocabularyOverflowKnown,
       ComputedVocabularyOverflowMake, "not a single overflow keyword",
-      "not an overflow value" }
+      "not an overflow value" },
+    /* The flexbox vocabularies (18.3) are four more rows in the same table. The
+     * alignment family is six rows rather than two because each of the four
+     * properties gets its own predicate: the vocabulary is one, but which values
+     * belong to which property is the property's answer. */
+    { RoboCssPropertyComputationFlexDirection, ComputedVocabularyFlexDirectionKnown,
+      ComputedVocabularyFlexDirectionMake, "not a single flex-direction keyword",
+      "not a flex-direction value" },
+    { RoboCssPropertyComputationFlexWrap, ComputedVocabularyFlexWrapKnown,
+      ComputedVocabularyFlexWrapMake, "not a single flex-wrap keyword",
+      "not a flex-wrap value" },
+    { RoboCssPropertyComputationJustifyContent, ComputedVocabularyAlignJustifyKnown,
+      ComputedVocabularyFlexAlignMake, "not a single justify-content keyword",
+      "not a justify-content value" },
+    { RoboCssPropertyComputationAlignItems, ComputedVocabularyAlignItemsKnown,
+      ComputedVocabularyFlexAlignMake, "not a single align-items keyword",
+      "not an align-items value" },
+    { RoboCssPropertyComputationAlignSelf, ComputedVocabularyAlignSelfKnown,
+      ComputedVocabularyFlexAlignMake, "not a single align-self keyword",
+      "not an align-self value" },
+    { RoboCssPropertyComputationAlignContent, ComputedVocabularyAlignContentKnown,
+      ComputedVocabularyFlexAlignMake, "not a single align-content keyword",
+      "not an align-content value" }
 };
 
 /** The vocabulary grammar for @p computation, or NULL when it is not one. */
@@ -2167,6 +2393,100 @@ static Result ComputedComputeLineHeight(CssComputedValue *out,
     return ComputedComputeLength(out, specified, diag);
 }
 
+/**
+ * Compute a flex factor: a `<number>`, and it must not be negative (18.3).
+ *
+ * `flex-grow` and `flex-shrink` share this body because they share the rule, and the
+ * rule is where they differ from every other number in this build: a factor has no
+ * range, so unlike `opacity` there is nothing to clamp, and a *negative* one is a
+ * mistake CSS refuses rather than a value that quietly means zero. Refusing it is
+ * what keeps a layout pass from distributing a negative share of the free space.
+ *
+ * An integer is a number here, as it is for `opacity`: `flex-grow: 2` and
+ * `flex-grow: 2.0` are the same value, and the spelling is not part of it. A
+ * percentage is not a factor, and neither is a length; both get the one sentence the
+ * shape owns. `calc()` and `var()` are carried with the unresolved flag, as always.
+ */
+static Result ComputedComputeFlexFactor(CssComputedValue *out,
+                                                  const CssValue *specified,
+                                                  CssDiag *diag)
+{
+    static const char *const reasonNotFactor = "not a non-negative number";
+    CssPropertyComputation computation = RoboCssPropertyComputationFlexFactor;
+    CssNumeric numeric = CssNumericNone();
+
+    switch (CssNumericFromValue(specified, &numeric)) {
+    case RoboCssNumericParseResolved:
+        break;
+    case RoboCssNumericParseDeferred:
+        return ComputedKeep(out, specified, 1, diag);
+    case RoboCssNumericParseNonFinite:
+        return ComputedReject(out, computation, "not a finite number", diag);
+    default:
+        return ComputedReject(out, computation, reasonNotFactor, diag);
+    }
+
+    if (numeric.kind != RoboCssNumericInteger &&
+        numeric.kind != RoboCssNumericNumber) {
+        return ComputedReject(out, computation, reasonNotFactor, diag);
+    }
+    if (!CssFlexFactorIsValid(numeric.number)) {
+        return ComputedReject(out, computation,
+                               "a flex factor cannot be negative", diag);
+    }
+    return CssComputedValueMakeNumber(out, numeric.number,
+                                                 numeric.kind == RoboCssNumericInteger,
+                                                 diag);
+}
+
+/**
+ * Compute an `order`: a whole number, and it may be negative (18.3).
+ *
+ * The same `<integer>` grammar `z-index` reads, and the same two refusals, with one
+ * difference that is the property's whole point: an `order` may be negative, since the
+ * items before the default are what a negative order is *for*. There is no `auto` —
+ * `order`'s initial value is `0` — so an identifier is simply not this shape, which is
+ * a different sentence from the one a number of the wrong kind gets.
+ */
+static Result ComputedComputeOrder(CssComputedValue *out,
+                                             const CssValue *specified,
+                                             CssDiag *diag)
+{
+    static const char *const reasonNotInteger = "not a whole number";
+    CssPropertyComputation computation = RoboCssPropertyComputationOrder;
+    CssNumeric numeric = CssNumericNone();
+    int64_t integer = 0;
+
+    switch (CssNumericFromValue(specified, &numeric)) {
+    case RoboCssNumericParseResolved:
+        break;
+    case RoboCssNumericParseDeferred:
+        return ComputedKeep(out, specified, 1, diag);
+    case RoboCssNumericParseNonFinite:
+        return ComputedReject(out, computation, "not a finite number", diag);
+    default:
+        return ComputedReject(out, computation, reasonNotInteger, diag);
+    }
+
+    if (numeric.kind != RoboCssNumericInteger) {
+        const char *reason = reasonNotInteger;
+
+        if (numeric.kind == RoboCssNumericNumber) {
+            /* `1.0` and `1e2` are whole values and are still not integers: the
+             * tokenizer's integer flag is a fact about the *spelling*, exactly as it
+             * is for `z-index`. */
+            reason = CssNumericIsIntegral(numeric)
+                         ? "a whole number must be written as an integer"
+                         : "not a whole number";
+        }
+        return ComputedReject(out, computation, reason, diag);
+    }
+    if (!CssNumericIntegerValue(numeric, &integer)) {
+        return ComputedReject(out, computation, "not a whole number", diag);
+    }
+    return CssComputedValueMakeNumber(out, (double)integer, 1, diag);
+}
+
 Result CssComputedValueCompute(
     CssPropertyComputation computation,
     const CssValue *specified,
@@ -2207,6 +2527,10 @@ Result CssComputedValueCompute(
     case RoboCssPropertyComputationEdgeOffset:
     case RoboCssPropertyComputationEdgeInset:
     case RoboCssPropertyComputationLineWidth:
+    /* `flex-basis` (18.3) joins them: its value is a length, a percentage or one of
+     * four keywords, so it is the same body with its own keyword list rather than a
+     * shape of its own. */
+    case RoboCssPropertyComputationFlexBasis:
         return ComputedComputeLengthGrammar(
             ComputedLengthGrammarFor(computation), out, specified, diag);
     /* The two closed vocabularies (9.12, 9.13) are also one case body for the
@@ -2233,6 +2557,18 @@ Result CssComputedValueCompute(
      * table.
      */
     case RoboCssPropertyComputationOverflow:
+    /*
+     * The flexbox vocabularies (18.3) are six more rows in the same table, and the
+     * alignment family is six rather than two for a reason the table states: the
+     * vocabulary is one, but which values each of the four properties may hold is the
+     * property's answer, and only the row's predicate knows it.
+     */
+    case RoboCssPropertyComputationFlexDirection:
+    case RoboCssPropertyComputationFlexWrap:
+    case RoboCssPropertyComputationJustifyContent:
+    case RoboCssPropertyComputationAlignItems:
+    case RoboCssPropertyComputationAlignSelf:
+    case RoboCssPropertyComputationAlignContent:
         return ComputedComputeVocabulary(
             ComputedVocabularyGrammarFor(computation), out, specified, diag);
     case RoboCssPropertyComputationBackgroundImage:
@@ -2251,6 +2587,17 @@ Result CssComputedValueCompute(
      */
     case RoboCssPropertyComputationOpacity:
         return ComputedComputeOpacity(out, specified, diag);
+    /*
+     * And the two numeric shapes flexbox adds (18.3): a flex factor, which is a
+     * `<number>` with a lower bound of zero, and `order`, which is an `<integer>` and
+     * may be negative. They are two shapes rather than one because theirs are two
+     * grammars -- `flex-grow: 2.5` is legal and `order: 2.5` is not -- and because the
+     * bound is on the factor and not on the order.
+     */
+    case RoboCssPropertyComputationFlexFactor:
+        return ComputedComputeFlexFactor(out, specified, diag);
+    case RoboCssPropertyComputationOrder:
+        return ComputedComputeOrder(out, specified, diag);
     default:
         return ComputedKeep(out, specified, ComputedFunctionIsUnresolved(
                                              CssValueSingle(specified)),

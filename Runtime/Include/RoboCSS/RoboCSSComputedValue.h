@@ -79,6 +79,7 @@
 #include "RoboCSS/RoboCSSBackground.h"
 #include "RoboCSS/RoboCSSBorder.h"
 #include "RoboCSS/RoboCSSColor.h"
+#include "RoboCSS/RoboCSSFlex.h"
 #include "RoboCSS/RoboCSSOverflow.h"
 #include "RoboCSS/RoboCSSDiagnostics.h"
 #include "RoboCSS/RoboCSSDisplay.h"
@@ -189,11 +190,29 @@ typedef enum CssComputedValueKind {
      * The initial value is `1`, which is why `CssComputedValueOpacity` answers *one*
      * for any other kind rather than zero (RoboCSSOpacity.h argues the direction).
      */
-    RoboCssComputedValueOpacity = 15
+    RoboCssComputedValueOpacity = 15,
+    /** One of the closed flex-direction vocabulary (18.3). */
+    RoboCssComputedValueFlexDirection = 16,
+    /** One of the closed flex-wrap vocabulary (18.3). */
+    RoboCssComputedValueFlexWrap = 17,
+    /**
+     * One of the aligned vocabulary `justify-content`, `align-items`, `align-self`
+     * and `align-content` share (18.3).
+     *
+     * One kind for four properties, because the *value* is the same kind of thing: an
+     * `alignment` keyword. Which property it was written on is a fact the registry and
+     * the shape hold — the four shapes refuse the values their own property cannot
+     * take — so by the time a value is typed here it is already legal for the property
+     * that produced it, and a consumer reads the enumerator and its classifications.
+     * The kind is named FLEX_ALIGN rather than for one property because it is not one
+     * property's: the initial `normal` and the value `space-between` are the same kind
+     * of value whichever of the four declared them.
+     */
+    RoboCssComputedValueFlexAlign = 18
 } CssComputedValueKind;
 
 /** Number of defined kinds. */
-#define RoboCssComputedValueKindCount 16u
+#define RoboCssComputedValueKindCount 19u
 
 /** Non-zero when @p kind is a defined enumerator. */
 int CssComputedValueKindIsKnown(CssComputedValueKind kind);
@@ -309,6 +328,32 @@ typedef struct CssComputedValue {
      * they must not be conflated.
      */
     double opacity;
+    /**
+     * FLEX_DIRECTION: the direction (RoboCSSFlex.h); ROW otherwise.
+     *
+     * A typed enumerator rather than the keyword's text, for the reason @ref display
+     * and @ref position are: `flex-direction` is what a layout pass dispatches on, so
+     * it is read as a value rather than compared as a spelling. Meaningful only when
+     * @ref kind is FLEX_DIRECTION: a cleared record holds ROW, which is the property's
+     * *initial* value and therefore the safest thing a cleared record could hold — and
+     * still not something to read without the kind check, because "this element does
+     * not declare a direction" and "this element is a row" are different answers.
+     */
+    CssFlexDirection flexDirection;
+    /**
+     * FLEX_WRAP: the wrap (RoboCSSFlex.h); NOWRAP otherwise — the initial value, and
+     * read together with the kind check for the reason @ref flexDirection is.
+     */
+    CssFlexWrap flexWrap;
+    /**
+     * FLEX_ALIGN: the alignment (RoboCSSFlex.h); NORMAL otherwise.
+     *
+     * NORMAL is legal for all four properties the vocabulary serves, which is what
+     * makes it the safe default: a cleared record holds a value every one of them
+     * could have declared. `align-self`'s initial is `auto`, and that is the
+     * *registry's* answer rather than this default — see @ref CssComputedValueFlexAlign.
+     */
+    CssFlexAlign flexAlign;
     /**
      * KEYWORD: the decoded identifier.
      * FAMILY_LIST: the family list as written, whitespace normalised.
@@ -446,6 +491,21 @@ Result CssComputedValueMakeOpacity(CssComputedValue *value,
                                                   double opacity,
                                                   CssDiag *diag);
 
+/** Make @p value a FLEX_DIRECTION holding @p direction. */
+Result CssComputedValueMakeFlexDirection(CssComputedValue *value,
+                                                       CssFlexDirection direction,
+                                                       CssDiag *diag);
+
+/** Make @p value a FLEX_WRAP holding @p wrap. */
+Result CssComputedValueMakeFlexWrap(CssComputedValue *value,
+                                                  CssFlexWrap wrap,
+                                                  CssDiag *diag);
+
+/** Make @p value a FLEX_ALIGN holding @p align. */
+Result CssComputedValueMakeFlexAlign(CssComputedValue *value,
+                                                   CssFlexAlign align,
+                                                   CssDiag *diag);
+
 /** Make @p value a PRESERVED copy of @p specified. */
 Result CssComputedValueMakePreserved(CssComputedValue *value,
                                                      const CssValue *specified,
@@ -550,6 +610,37 @@ CssOverflow CssComputedValueOverflow(
  * `RoboCSSOpacity.h` names that trap; this door is where it is closed.
  */
 double CssComputedValueOpacity(const CssComputedValue *value);
+
+/**
+ * The direction of a FLEX_DIRECTION value; `row` for any other kind.
+ *
+ * Read together with a kind check, for the reason the accessors above are: `row` is
+ * both a real direction and the property's initial value, so it is the answer that
+ * would do the least damage if the two were conflated — which is exactly why it is
+ * worth saying that they must not be. A consumer that read it without the kind check
+ * would see "this container's main axis is the inline axis" where the truth is "this
+ * is not a flex-direction value at all".
+ */
+CssFlexDirection CssComputedValueFlexDirection(
+    const CssComputedValue *value);
+
+/**
+ * The wrap of a FLEX_WRAP value; `nowrap` for any other kind.
+ *
+ * Read together with a kind check; `nowrap` is a real value and the property's
+ * initial value, exactly as `row` above is.
+ */
+CssFlexWrap CssComputedValueFlexWrap(const CssComputedValue *value);
+
+/**
+ * The alignment of a FLEX_ALIGN value; `normal` for any other kind.
+ *
+ * Read together with a kind check; `normal` is a real value and the initial value of
+ * three of the four properties the vocabulary serves, which is what makes it the safe
+ * default. `align-self`'s initial is `auto` and is written by its registry row rather
+ * than here — see @ref CssComputedValueFlexAlign.
+ */
+CssFlexAlign CssComputedValueFlexAlign(const CssComputedValue *value);
 
 /**
  * Non-zero when @p a and @p b are the same computed value.

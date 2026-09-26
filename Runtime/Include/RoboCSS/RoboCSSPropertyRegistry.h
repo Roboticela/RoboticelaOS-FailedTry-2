@@ -332,11 +332,71 @@ typedef enum CssPropertyComputation {
      * record stand in for this one would render every element of a document that never mentions
      * `opacity` invisible (RoboCSSOpacity.h argues it).
      */
-    RoboCssPropertyComputationOpacity = 20
+    RoboCssPropertyComputationOpacity = 20,
+    /**
+     * One of the closed flex-direction vocabulary (18.3) — `flex-direction`.
+     *
+     * The closed-vocabulary decision once more, and here the property is one that only
+     * exists because a *layout* phase will read it: `flex-direction: banana` has to be a
+     * mistake rather than a keyword carrying the text `banana` to the phase that lays
+     * the box out, which is exactly what this shape is for.
+     */
+    RoboCssPropertyComputationFlexDirection = 21,
+    /**
+     * One of the closed flex-wrap vocabulary (18.3) — `flex-wrap`.
+     */
+    RoboCssPropertyComputationFlexWrap = 22,
+    /**
+     * The alignment vocabulary as `justify-content` sees it (18.3).
+     *
+     * One of four shapes over a *shared* vocabulary, which is a first for this table:
+     * CSS Box Alignment defines `justify-content`, `align-items`, `align-self` and
+     * `align-content` as subsets of one set of values, so the vocabulary is one and the
+     * shapes are four. Which values each may hold is the row's answer, which is what
+     * makes `align-items: space-between` an invalid value rather than one a later phase
+     * would have to second-guess, and it is why the shapes are four rather than one:
+     * the computation is the last place that knows the property.
+     */
+    RoboCssPropertyComputationJustifyContent = 23,
+    /** The alignment vocabulary as `align-items` sees it (18.3). */
+    RoboCssPropertyComputationAlignItems = 24,
+    /** The alignment vocabulary as `align-self` sees it (18.3), `auto` included. */
+    RoboCssPropertyComputationAlignSelf = 25,
+    /** The alignment vocabulary as `align-content` sees it (18.3). */
+    RoboCssPropertyComputationAlignContent = 26,
+    /**
+     * A flex factor: a `<number>` that must not be negative (18.3) — `flex-grow` and
+     * `flex-shrink`.
+     *
+     * A shape of its own rather than the NUMBER family, and the difference is the
+     * bound: a factor has no upper limit and a lower limit of zero, so a negative one
+     * is a mistake rather than a value to clamp. Reading it as a bare number would put
+     * that rule in every consumer instead of in one place.
+     */
+    RoboCssPropertyComputationFlexFactor = 27,
+    /**
+     * `flex-basis`: a length, a percentage, or one of `auto`, `content`,
+     * `min-content`, `max-content` (18.3).
+     *
+     * A length family in the shared table rather than a shape of its own, because its
+     * value *is* a length: what is its own is the keyword list, which is the parameter
+     * the length grammar already carries. That is what keeps `flex-basis: 1in` and
+     * `width: 1in` normalised by one body rather than two.
+     */
+    RoboCssPropertyComputationFlexBasis = 28,
+    /**
+     * An `order`: a whole number, and it may be negative (18.3).
+     *
+     * The `<integer>` grammar `z-index` reads, with one difference that is the
+     * property's purpose: an order is signed, because the items *before* the default
+     * are what a negative order is for. There is no `auto` here — the initial value is
+     * `0` — so an identifier is simply not this shape.
+     */
+    RoboCssPropertyComputationOrder = 29
 } CssPropertyComputation;
 
 /** Number of defined computations. */
-#define RoboCssPropertyComputationCount 21u
+#define RoboCssPropertyComputationCount 30u
 
 /** Non-zero when @p computation is a defined enumerator. */
 int CssPropertyComputationIsKnown(CssPropertyComputation computation);

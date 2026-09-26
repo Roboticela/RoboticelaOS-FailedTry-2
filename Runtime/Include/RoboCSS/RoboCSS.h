@@ -302,6 +302,22 @@ typedef struct CssCapabilities {
      * part of it.
      */
     int cssom;
+    /**
+     * The flexbox family (18.3): the three closed vocabularies — `flex-direction`,
+     * `flex-wrap`, and the alignment vocabulary `justify-content`, `align-items`,
+     * `align-self` and `align-content` share — each carrying the classifications a
+     * layout pass dispatches on, plus `flex-grow`/`flex-shrink` (a non-negative
+     * number), `flex-basis` (a length, a percentage or `auto`/`content`), `order` (a
+     * whole number) and the two shorthands `flex-flow` and `flex` as carried
+     * declarations.
+     *
+     * What it does not claim is flex *layout*: nothing here measures a line,
+     * distributes free space, resolves a main-axis position, or expands the two
+     * shorthands into their halves — that is the layout phase that has a box, and the
+     * values here are what it will read. `flex-wrap`'s `nowrap` and the alignment
+     * `normal` are still values and not behaviours, exactly as `position: sticky` is.
+     */
+    int flexbox;
 } CssCapabilities;
 
 /** Zero every flag. Safe on NULL. */

@@ -433,6 +433,10 @@ $ProdSrcs = @(
     # The object model (18.2): the model rendered back to canonical text, and
     # the mutable style declaration a caller can edit.
     (Join-Path $SourceDir "RoboCSS\RoboCSSOM.c"),
+    # The flexbox vocabulary (18.3): the direction, wrap and alignment closed
+    # sets and the classifications a layout pass dispatches on. It is the first
+    # family whose values are three vocabularies rather than one.
+    (Join-Path $SourceDir "RoboCSS\RoboCSSFlex.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayout.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutTypes.c"),
     (Join-Path $SourceDir "RoboLayout\RoboLayoutDiagnostics.c"),
@@ -906,6 +910,9 @@ $SuiteSrcs = @(
     # The object-model suite (18.2): the contract for cssText and for the
     # mutable style declaration, the half of CSS that edits rather than reads.
     (Join-Path $TestsRoot "Css\SuiteRoboCssCssom.c"),
+    # The flexbox suite (18.3): the three vocabularies, their classifications and
+    # the four shapes the alignment set is read through.
+    (Join-Path $TestsRoot "Css\SuiteRoboCssFlex.c"),
     # The selector/DOM integration suite deliberately lives outside css/: it
     # includes both RoboCSS and RoboHTML, and the two are peers whose guards
     # forbid each other's headers. A suite that must see both belongs in neither.

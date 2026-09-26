@@ -189,6 +189,24 @@ const char *CssPropertyComputationName(
         return "overflow";
     case RoboCssPropertyComputationOpacity:
         return "opacity";
+    case RoboCssPropertyComputationFlexDirection:
+        return "flex-direction";
+    case RoboCssPropertyComputationFlexWrap:
+        return "flex-wrap";
+    case RoboCssPropertyComputationJustifyContent:
+        return "justify-content";
+    case RoboCssPropertyComputationAlignItems:
+        return "align-items";
+    case RoboCssPropertyComputationAlignSelf:
+        return "align-self";
+    case RoboCssPropertyComputationAlignContent:
+        return "align-content";
+    case RoboCssPropertyComputationFlexFactor:
+        return "flex-factor";
+    case RoboCssPropertyComputationFlexBasis:
+        return "flex-basis";
+    case RoboCssPropertyComputationOrder:
+        return "order";
     default:
         return "unknown";
     }
@@ -811,7 +829,66 @@ static const RegistryStandardEntry registryStandardEntries[] = {
     { "width",         RoboCssPropertyInheritanceNonInherited,
       RoboCssPropertyComputationLength,     "auto",       0 },
     { "z-index",       RoboCssPropertyInheritanceNonInherited,
-      RoboCssPropertyComputationZIndex,    "auto",       0 }
+      RoboCssPropertyComputationZIndex,    "auto",       0 },
+
+    /*
+     * --- the flexbox family (18.3) ---
+     *
+     * Twelve rows, gathered here rather than scattered through the table by
+     * alphabetisation, for the reason the border family is gathered: the names fall
+     * across the whole table (`align-*` before `background`, `order` beside `overflow`,
+     * `flex-*` around `display`), and a reader meeting any one of them should be able
+     * to see the other eleven.
+     *
+     * Three facts about the block are decisions rather than transcriptions.
+     *
+     * The **alignment properties share one vocabulary and take four shapes**. That is
+     * CSS Box Alignment's own structure, and it is why this table has four computation
+     * rows for one value set: which values `justify-content`, `align-items`, `align-self`
+     * and `align-content` may each hold is not the same question, so a single shape would
+     * make `align-items: space-between` computable. The difference lives in the vocabulary
+     * module's rows and the four shapes read it.
+     *
+     * The **initial values are the properties' own and two of them are not zero.**
+     * `align-self` starts at `auto` — "take the container's `align-items`" — and
+     * `flex-shrink` starts at `1`, so a cleared record would hold the wrong answer for
+     * both; the registry is where that is written down, exactly as it is for `opacity`.
+     * The initial values are `normal` about the family in the common case, which is the
+     * value every one of the four alignment properties accepts.
+     *
+     * The **two shorthands are PRESERVE**, and deliberately not a vocabulary. `flex-flow`
+     * is `<flex-direction> || <flex-wrap>` and `flex` is
+     * `none | <flex-grow> <flex-shrink>? || <flex-basis>`; each stands for two halves of
+     * *different kinds*, so neither can take one closed vocabulary the way `overflow`
+     * took its own. They carry what the author wrote, and the boundary that nothing in
+     * this build expands a shorthand is stated in `Flexbox.md`.
+     */
+    { "align-content",  RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAlignContent, "normal",   0 },
+    { "align-items",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAlignItems,   "normal",   0 },
+    { "align-self",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationAlignSelf,    "auto",     0 },
+    { "flex",           RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "0 1 auto",
+      RoboCssPropertyFlagShorthand },
+    { "flex-basis",     RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationFlexBasis,    "auto",     0 },
+    { "flex-direction", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationFlexDirection, "row",     0 },
+    { "flex-flow",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationPreserve,     "row nowrap",
+      RoboCssPropertyFlagShorthand },
+    { "flex-grow",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationFlexFactor,   "0",        0 },
+    { "flex-shrink",    RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationFlexFactor,   "1",        0 },
+    { "flex-wrap",      RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationFlexWrap,     "nowrap",   0 },
+    { "justify-content", RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationJustifyContent, "normal", 0 },
+    { "order",          RoboCssPropertyInheritanceNonInherited,
+      RoboCssPropertyComputationOrder,        "0",        0 }
 };
 
 Result CssPropertyRegistryCreateStandard(

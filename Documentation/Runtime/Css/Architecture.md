@@ -419,6 +419,54 @@ a live style context — is deliberately absent and named in `docs/Cssom.md` §4
 because it needs a DOM. One capability joins the table (`cssom`), one diagnostic
 domain (`RoboCssDomainCssom`), and the module moves to `0.20.0`.
 
+### The flexbox vocabulary (18.3)
+
+The flexbox family (`RoboCSSFlex.h`) is the first family in this architecture whose
+values are **three** vocabularies rather than one, and it is the family a layout
+phase will read to place an item's box:
+
+```text
+FlexDirection     row | row-reverse | column | column-reverse
+  ├── row               the main axis is the inline axis
+  └── reversed          the start and end edges are swapped
+FlexWrap          nowrap | wrap | wrap-reverse
+  ├── wrapped           the items break into several lines
+  └── reversed          the cross-axis line order is swapped
+FlexAlign         one enumerator set, four properties
+  ├── justify           `justify-content`
+  ├── items             `align-items`
+  ├── self              `align-self`   (also `auto`)
+  └── content           `align-content`
+```
+
+The alignment half is the part worth reading, because it is the first vocabulary
+here shared by more than one property in a way that is not a shorthand and its
+longhands. CSS Box Alignment defines `justify-content`, `align-items`, `align-self`
+and `align-content` as *subsets of one set of values*, and the subsets are not
+nested: `space-between` is legal for the two container properties and not for the
+two item properties, `baseline` for the three alignment properties and not for
+`justify-content`, and `left`/`right` for `justify-content` alone. So the module has
+**one** enumerator set and **four** value shapes, and which values each property may
+hold is a *column of the vocabulary's rows* rather than a branch at a call site.
+That is the same move `display` made in 9.12 — a closed set whose classifications a
+consumer dispatches on — made once for four properties instead of one.
+
+The four remaining facts are the properties the family adds around the alignment
+set: `flex-grow`/`flex-shrink` (one `FLEX_FACTOR` shape — a `<number>` that must not
+be negative, with no upper bound, so a negative one is a refusal rather than a
+clamp), `flex-basis` (a length family in the shared grammar: a length, a percentage,
+or `auto`/`content`/`min-content`/`max-content`), `order` (an `ORDER` shape — a
+signed `<integer>`, which is the property's whole point) and the two shorthands
+`flex-flow` and `flex`, which are **carried declarations** rather than vocabularies
+because each stands for two halves of different kinds. Nothing in this build expands
+a shorthand, so `flex-flow: column wrap` reaches a consumer as the tokens the author
+wrote and each half is read from its own longhand. `docs/Flexbox.md` is the
+authority, including that boundary and the layout this phase does *not* do: no line
+is measured, no free space is distributed, and no main-axis position is computed.
+
+One capability joins the table (`flexbox`), one diagnostic domain
+(`RoboCssDomainFlex`), and the module moves to `0.21.0`.
+
 ### Colour
 
 A *colour* is the one shape whose meaning is arithmetic, so since 9.9 it is a type
@@ -842,7 +890,11 @@ the animation and transition origins, and within colours the modern spaces (`hwb
 colours. **CSSOM is no longer on that list in the wholesale sense it was** — the
 model and its text rendering are 18.2's — but the CSSOM's *document* half (its
 `styleSheets` list, `getComputedStyle`, a parent-stylesheet chain, a live context
-on an edit) is still absent and is named in `docs/Cssom.md` §4.
+on an edit) is still absent and is named in `docs/Cssom.md` §4. **Flex layout** is
+on the list in the same sense: 18.3 adds the family's *values* and their
+classifications (§5), but no line is measured, no free space is distributed and no
+shorthand is expanded — a value says what rule a layout pass follows, and where the
+items land is the phase that has a box (`docs/Flexbox.md` §4).
 
 Phase 18 has begun to move items off that list, and the first is
 custom-property substitution (18.1, §5 and `docs/Variables.md`): the one half of
@@ -851,7 +903,10 @@ deliberately the smallest Phase 18 change that completes an *existing* surface
 rather than opening a new one — the data model was already there, and what the
 phase adds is the pass that reads it. The second is the object model (18.2, §5
 and `docs/Cssom.md`): the text rendering and the mutable style declaration the
-architecture had always implied and never had.
+architecture had always implied and never had. The third is the flexbox family
+(18.3, §5 and `docs/Flexbox.md`): three closed vocabularies and the four shapes the
+alignment set is read through — the values a layout phase will consume, added by the
+phase that owns them rather than by the layout phase that first needs them.
 
 Conformance (9.16) is behind us and it is the one phase that is *not* a subject: it
 adds no production code at all, which is why it is the only entry in this list that

@@ -357,6 +357,13 @@ Result CssGetCapabilities(CssCapabilities *out)
      * `getComputedStyle` and no live context update on an edit, because those
      * need the DOM and the document layer is a peer of RoboCSS. */
     out->cssom = 1;
+    /* The flexbox family (18.3): three closed vocabularies -- the direction, the wrap
+     * and the alignment set four properties share -- each carrying what a layout pass
+     * dispatches on, plus the factor, basis and order shapes and the two shorthands as
+     * carried declarations. What it does not claim is flex *layout*: no line is
+     * measured and no free space is distributed, because a value says what rule a
+     * layout pass follows and where the items land belongs to the phase with a box. */
+    out->flexbox = 1;
     out->defaultStyles = 0;
     out->stylesheetLoading = 0;
     return RoboOk;

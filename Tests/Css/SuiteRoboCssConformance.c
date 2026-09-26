@@ -167,7 +167,24 @@ static const CssConformanceInitial cssConformanceInitials[] = {
     {"right", "keyword", "auto"},
     {"top", "keyword", "auto"},
     {"width", "keyword", "auto"},
-    {"z-index", "keyword", "auto"}
+    {"z-index", "keyword", "auto"},
+    /* Flexbox (18.3): the family whose values are three vocabularies. `normal` is the
+     * alignment initial for three of the four properties and `auto` for `align-self`,
+     * and `flex-shrink` starts at `1` while `flex-grow` starts at `0` -- the two
+     * initial values here a cleared record would get wrong. The two shorthands are
+     * PRESERVED and carry the concatenation of their halves. */
+    {"align-content", "flex-align", "normal"},
+    {"align-items", "flex-align", "normal"},
+    {"align-self", "flex-align", "auto"},
+    {"flex", "preserved", "0 1 auto"},
+    {"flex-basis", "keyword", "auto"},
+    {"flex-direction", "flex-direction", "row"},
+    {"flex-flow", "preserved", "row nowrap"},
+    {"flex-grow", "number", "0"},
+    {"flex-shrink", "number", "1"},
+    {"flex-wrap", "flex-wrap", "nowrap"},
+    {"justify-content", "flex-align", "normal"},
+    {"order", "number", "0"}
 };
 
 /**
@@ -1621,7 +1638,7 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
         {"inline_styles", 1},       {"default_styles", 0},
         {"stylesheet_loading", 0},
         {"custom_properties", 1},   {"variable_substitution", 1},
-        {"cssom", 1}
+        {"cssom", 1},               {"flexbox", 1}
     };
     CssCapabilities caps;
     int *asInts = (int *)&caps;
@@ -1652,7 +1669,7 @@ static void TestCssConformanceCapabilitiesEveryFlag(void)
     /* The frozen-surface flag is a promise about the phase, not a capability. */
     RoboCheckEqInt(RoboCssApiFrozen, 0);
     RoboCheckEqInt(RoboCssVersionMajor, 0);
-    RoboCheckEqInt(RoboCssVersionMinor, 20);
+    RoboCheckEqInt(RoboCssVersionMinor, 21);
 }
 
 void TestRegisterCssConformance(void);
